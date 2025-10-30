@@ -1,0 +1,133 @@
+# Docker Compose configuration for Crypto Trading Bot
+# Services: PostgreSQL, TimescaleDB, Redis, RabbitMQ
+# Version: 3.8
+
+version: '3.8'
+
+services:
+  # PostgreSQL - Main application database
+  postgres:
+    image: postgres:15-alpine
+    container_name: crypto-bot-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cryptobot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cryptobot_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-cryptobot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptobot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # TimescaleDB - Time-series data for market data
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: crypto-bot-timescaledb
+    environment:
+      POSTGRES_USER: ${TIMESCALE_USER:-cryptobot}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-timescale_dev_password}
+      POSTGRES_DB: ${TIMESCALE_DB:-market_data}
+    ports:
+      - "5433:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./scripts/init-timescale.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptobot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis - Caching and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-bot-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_dev_password}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # RabbitMQ - Message broker for inter-service communication
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: crypto-bot-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cryptobot}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-rabbitmq_dev_password}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-cryptobot}
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./scripts/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # PgAdmin - PostgreSQL web interface (optional, for development)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: crypto-bot-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@cryptobot.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_LISTEN_PORT: 5050
+    ports:
+      - "5050:5050"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - crypto-bot-network
+    depends_on:
+      - postgres
+      - timescaledb
+    restart: unless-stopped
+    profiles:
+      - dev  # Only run with 'docker-compose --profile dev up'
+
+# Named volumes for data persistence
+volumes:
+  postgres_data:
+    driver: local
+  timescaledb_data:
+    driver: local
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+# Network configuration
+networks:
+  crypto-bot-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

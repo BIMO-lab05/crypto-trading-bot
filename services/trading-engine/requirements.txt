@@ -1,0 +1,25 @@
+# Trading Engine Service Requirements
+# Core trading logic and risk management
+
+# Include base requirements
+-r ../../shared/requirements-base.txt
+
+# Data Analysis
+pandas==2.1.4
+numpy==1.26.2
+
+# State Machine for strategy execution
+transitions==0.9.0
+
+# Background Task Queue
+celery==5.3.4
+kombu==5.3.4
+
+# Decimal precision for financial calculations
+decimal==1.0  # Uses Python's built-in decimal module
+
+# Risk Management & Portfolio Optimization
+pypfopt==1.5.5  # Portfolio optimization
+
+# Strategy Pattern Implementation
+# (most logic will be custom)

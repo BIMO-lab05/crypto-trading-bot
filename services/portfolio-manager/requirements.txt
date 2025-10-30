@@ -1,0 +1,20 @@
+# Portfolio Manager Service Requirements
+# Tracks balances, positions, and P&L
+
+# Include base requirements
+-r ../../shared/requirements-base.txt
+
+# Data Analysis
+pandas==2.1.4
+numpy==1.26.2
+
+# Financial Calculations
+quantstats==0.0.62  # Portfolio performance metrics
+empyrical==0.5.5    # Financial metrics
+
+# Charting (for P&L visualization data)
+matplotlib==3.8.2
+plotly==5.18.0
+
+# Decimal precision
+decimal==1.0

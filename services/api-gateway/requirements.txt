@@ -1,0 +1,27 @@
+# API Gateway Service Requirements
+# Request routing, authentication, rate limiting
+
+# Include base requirements
+-r ../../shared/requirements-base.txt
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+pyjwt==2.8.0
+
+# Rate Limiting
+slowapi==0.1.9
+
+# CORS
+fastapi-cors==0.0.6
+
+# Session Management
+itsdangerous==2.1.2
+
+# API Gateway specific
+# (routing handled by FastAPI)
+
+# Load Balancing / Proxy (optional)
+# httpx for proxying requests
+httpx==0.25.2

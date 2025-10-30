@@ -1,0 +1,21 @@
+# Market Data Service Requirements
+# Collects and stores market data in TimescaleDB
+
+# Include base requirements
+-r ../../shared/requirements-base.txt
+
+# Database - TimescaleDB specific
+timescale-vector==0.0.1
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# WebSocket for real-time data
+websockets==12.0
+
+# Caching optimization
+msgpack==1.0.7
+
+# Data validation
+pandera==0.17.2
