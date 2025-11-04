@@ -1,0 +1,237 @@
+"""
+Bollinger Bands Calculator
+Purpose: Calculate Bollinger Bands and generate trading signals
+"""
+
+import pandas as pd
+import numpy as np
+import logging
+from typing import Optional, Tuple, Dict
+from app.models import SignalType
+
+logger = logging.getLogger(__name__)
+
+
+class BollingerBandsCalculator:
+    """
+    Calculate Bollinger Bands
+
+    Bollinger Bands are volatility bands placed above and below
+    a moving average. They expand and contract as volatility changes.
+
+    Components:
+        - Middle Band = SMA(period)
+        - Upper Band = Middle Band + (std_dev × StdDev)
+        - Lower Band = Middle Band - (std_dev × StdDev)
+    """
+
+    def __init__(self, period: int = 20, std_dev: float = 2.0):
+        """
+        Initialize Bollinger Bands calculator
+
+        Args:
+            period: Number of periods for SMA (default: 20)
+            std_dev: Number of standard deviations (default: 2.0)
+        """
+        self.period = period
+        self.std_dev = std_dev
+        logger.info(f"Bollinger Bands Calculator initialized: period={period}, std_dev={std_dev}")
+
+    def calculate(self, df: pd.DataFrame) -> Optional[Dict[str, float]]:
+        """
+        Calculate Bollinger Bands
+
+        Args:
+            df: DataFrame with 'close' column
+
+        Returns:
+            Dict with upper_band, middle_band, lower_band, current_price
+            or None if insufficient data
+        """
+        if len(df) < self.period:
+            logger.warning(f"Insufficient data for BB: need {self.period}, got {len(df)}")
+            return None
+
+        try:
+            # Calculate middle band (SMA)
+            middle_band = df['close'].rolling(window=self.period).mean()
+
+            # Calculate standard deviation
+            std = df['close'].rolling(window=self.period).std()
+
+            # Calculate upper and lower bands
+            upper_band = middle_band + (std * self.std_dev)
+            lower_band = middle_band - (std * self.std_dev)
+
+            # Get current price
+            current_price = df['close'].iloc[-1]
+
+            result = {
+                "upper_band": float(upper_band.iloc[-1]),
+                "middle_band": float(middle_band.iloc[-1]),
+                "lower_band": float(lower_band.iloc[-1]),
+                "current_price": float(current_price),
+                "bandwidth": float((upper_band.iloc[-1] - lower_band.iloc[-1]) / middle_band.iloc[-1])
+            }
+
+            logger.debug(f"Calculated BB: {result}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error calculating Bollinger Bands: {e}")
+            return None
+
+    def generate_signal(self, bb_data: Dict[str, float]) -> Tuple[SignalType, float]:
+        """
+        Generate trading signal based on Bollinger Bands
+
+        Args:
+            bb_data: Dict with band values and current price
+
+        Returns:
+            Tuple of (SignalType, confidence)
+
+        Signal Logic:
+            - Price near/below lower band → BUY (oversold)
+            - Price near/above upper band → SELL (overbought)
+            - Price in middle → HOLD
+        """
+        upper = bb_data["upper_band"]
+        middle = bb_data["middle_band"]
+        lower = bb_data["lower_band"]
+        price = bb_data["current_price"]
+
+        # Calculate price position within bands (0 = lower, 0.5 = middle, 1 = upper)
+        band_range = upper - lower
+        if band_range == 0:
+            return SignalType.HOLD, 0.1
+
+        price_position = (price - lower) / band_range
+
+        # Generate signal based on price position
+        if price_position <= 0.1:
+            # Price at or below lower band - strong BUY
+            signal = SignalType.BUY
+            confidence = 1.0 - price_position * 5  # Higher confidence at lower band
+            logger.info(f"Price {price:.2f} at lower band {lower:.2f} → BUY (pos: {price_position:.2f})")
+
+        elif price_position <= 0.3:
+            # Price near lower band - moderate BUY
+            signal = SignalType.BUY
+            confidence = 0.7 - (price_position - 0.1) * 2
+            logger.info(f"Price {price:.2f} near lower band → BUY")
+
+        elif price_position >= 0.9:
+            # Price at or above upper band - strong SELL
+            signal = SignalType.SELL
+            confidence = price_position
+            logger.info(f"Price {price:.2f} at upper band {upper:.2f} → SELL (pos: {price_position:.2f})")
+
+        elif price_position >= 0.7:
+            # Price near upper band - moderate SELL
+            signal = SignalType.SELL
+            confidence = (price_position - 0.7) * 2
+            logger.info(f"Price {price:.2f} near upper band → SELL")
+
+        else:
+            # Price in middle of bands - HOLD
+            signal = SignalType.HOLD
+            # Lower confidence when price is in middle
+            confidence = 0.3
+            logger.debug(f"Price {price:.2f} in middle of bands → HOLD")
+
+        # Adjust confidence based on bandwidth (volatility)
+        bandwidth = bb_data.get("bandwidth", 0.04)
+        if bandwidth < 0.02:
+            # Very narrow bands (low volatility) - reduce confidence
+            confidence *= 0.8
+            logger.debug("Low volatility, reducing confidence")
+        elif bandwidth > 0.08:
+            # Very wide bands (high volatility) - reduce confidence
+            confidence *= 0.9
+            logger.debug("High volatility, reducing confidence")
+
+        confidence = max(0.1, min(1.0, confidence))
+        return signal, round(confidence, 2)
+
+    def detect_squeeze(self, df: pd.DataFrame, threshold: float = 0.02) -> bool:
+        """
+        Detect Bollinger Band squeeze (low volatility, potential breakout)
+
+        Args:
+            df: DataFrame with 'close' column
+            threshold: Bandwidth threshold for squeeze detection
+
+        Returns:
+            True if squeeze detected, False otherwise
+        """
+        bb_data = self.calculate(df)
+        if bb_data is None:
+            return False
+
+        bandwidth = bb_data.get("bandwidth", 1.0)
+        is_squeeze = bandwidth < threshold
+
+        if is_squeeze:
+            logger.info(f"BB Squeeze detected! Bandwidth: {bandwidth:.4f}")
+
+        return is_squeeze
+
+    def calculate_with_signal(
+        self,
+        df: pd.DataFrame
+    ) -> Tuple[Optional[Dict[str, float]], SignalType, float]:
+        """
+        Calculate Bollinger Bands and generate signal in one call
+
+        Args:
+            df: DataFrame with 'close' column
+
+        Returns:
+            Tuple of (bb_dict, signal, confidence)
+        """
+        bb_data = self.calculate(df)
+
+        if bb_data is None:
+            return None, SignalType.NEUTRAL, 0.0
+
+        signal, confidence = self.generate_signal(bb_data)
+
+        # Boost confidence if squeeze detected (potential breakout)
+        if self.detect_squeeze(df):
+            confidence = min(1.0, confidence * 1.15)
+            logger.info("Squeeze detected, boosting confidence")
+
+        return bb_data, signal, confidence
+
+    def calculate_series(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculate Bollinger Bands series for entire DataFrame
+
+        Args:
+            df: DataFrame with 'close' column
+
+        Returns:
+            DataFrame with upper_band, middle_band, lower_band columns
+        """
+        if len(df) < self.period:
+            return pd.DataFrame()
+
+        try:
+            middle_band = df['close'].rolling(window=self.period).mean()
+            std = df['close'].rolling(window=self.period).std()
+            upper_band = middle_band + (std * self.std_dev)
+            lower_band = middle_band - (std * self.std_dev)
+
+            result_df = pd.DataFrame({
+                'upper_band': upper_band,
+                'middle_band': middle_band,
+                'lower_band': lower_band,
+                'bandwidth': (upper_band - lower_band) / middle_band
+            })
+
+            return result_df
+
+        except Exception as e:
+            logger.error(f"Error calculating BB series: {e}")
+            return pd.DataFrame()

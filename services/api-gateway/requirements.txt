@@ -1,27 +1,50 @@
-# API Gateway Service Requirements
-# Request routing, authentication, rate limiting
+# API Gateway Service - Dependencies
+# Purpose: Route requests, handle authentication, rate limiting
 
-# Include base requirements
--r ../../shared/requirements-base.txt
+# Web Framework
+fastapi==0.109.0          # Modern async web framework
+uvicorn[standard]==0.27.0 # ASGI server
+pydantic==2.5.3           # Data validation
+pydantic-settings==2.1.0  # Settings management
 
 # Authentication & Security
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-multipart==0.0.6
-pyjwt==2.8.0
+python-jose[cryptography]==3.3.0  # JWT token handling
+passlib[bcrypt]==1.7.4    # Password hashing
+python-multipart==0.0.6   # Form data support
+bcrypt==4.1.2             # Password hashing backend
 
 # Rate Limiting
-slowapi==0.1.9
+slowapi==0.1.9            # Rate limiting for FastAPI
+limits==3.7.0             # Rate limiting backend
+
+# HTTP Client
+httpx==0.26.0             # HTTP client for routing
 
 # CORS
-fastapi-cors==0.0.6
+fastapi-cors==0.0.6       # CORS middleware
 
-# Session Management
-itsdangerous==2.1.2
+# Database (for auth tokens/sessions)
+asyncpg==0.29.0           # Async PostgreSQL driver
+sqlalchemy==2.0.25        # ORM
+aioredis==2.0.1           # Redis for sessions
 
-# API Gateway specific
-# (routing handled by FastAPI)
+# Monitoring & Logging
+prometheus-client==0.19.0 # Metrics
+python-json-logger==2.0.7 # Structured logging
+sentry-sdk==1.40.0        # Error tracking
 
-# Load Balancing / Proxy (optional)
-# httpx for proxying requests
-httpx==0.25.2
+# Utilities
+python-dotenv==1.0.0      # Environment variables
+
+# Testing
+pytest==7.4.4             # Testing framework
+pytest-asyncio==0.23.3    # Async test support
+pytest-cov==4.1.0         # Coverage
+pytest-mock==3.12.0       # Mocking
+httpx-mock==0.7.0         # HTTP mocking
+
+# Development
+black==24.1.1             # Code formatter
+isort==5.13.2             # Import sorter
+mypy==1.8.0               # Type checker
+flake8==7.0.0             # Linter

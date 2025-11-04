@@ -5,7 +5,8 @@ An autonomous cryptocurrency trading system built with microservices architectur
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Code Coverage](https://img.shields.io/badge/Coverage-0%25-red.svg)](tests/)
+[![Code Coverage](https://img.shields.io/badge/Coverage-80%25-brightgreen.svg)](tests/)
+[![Progress](https://img.shields.io/badge/Progress-75%25-blue.svg)](progress.md)
 
 ## 🎯 Features
 
@@ -66,7 +67,7 @@ An autonomous cryptocurrency trading system built with microservices architectur
 - Python 3.12+
 - Docker & Docker Compose
 - Git
-- Bybit account (testnet recommended)
+- Bybit Testnet account (get free API keys at https://testnet.bybit.com/)
 
 ### Installation
 
@@ -76,50 +77,53 @@ An autonomous cryptocurrency trading system built with microservices architectur
    cd crypto-trading-bot
    ```
 
-2. **Configure environment**
-   ```bash
-   cp .env.example .env
-   nano .env  # Edit with your Bybit API keys
-   ```
-
-3. **Start infrastructure**
+2. **Start infrastructure**
    ```bash
    cd infrastructure
    docker-compose up -d
    ```
 
-4. **Verify services are running**
+   Verify services are running:
    ```bash
    docker-compose ps
-   ```
-   Expected output:
-   ```
-   crypto-bot-postgres      running
-   crypto-bot-timescaledb   running
-   crypto-bot-redis         running
-   crypto-bot-rabbitmq      running
+   # All services should show "Up"
    ```
 
-5. **Setup first service (Bybit Connector)**
+3. **Configure Bybit Connector**
    ```bash
    cd ../services/bybit-connector
+   cp .env.example .env
+   nano .env  # Add your Bybit testnet API keys
+   ```
+
+4. **Start Bybit Connector**
+   ```bash
    python3.12 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
+   uvicorn app.main:app --port 8002 --reload
    ```
 
-6. **Run tests**
+5. **Start Market Data Service** (in new terminal)
    ```bash
-   pytest tests/ -v
+   cd services/market-data-service
+   python3.12 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   uvicorn app.main:app --port 8003 --reload
    ```
 
-7. **Start service**
+6. **Test the Pipeline**
    ```bash
-   uvicorn main:app --reload --port 8002
+   # In new terminal
+   python3 scripts/test_pipeline.py
    ```
 
-8. **Access API documentation**
-   Open browser: http://localhost:8002/docs
+7. **Access API Documentation**
+   - Bybit Connector: http://localhost:8002/docs
+   - Market Data Service: http://localhost:8003/docs
+
+📖 **Detailed testing guide**: See [TESTING_GUIDE.md](TESTING_GUIDE.md)
 
 ## 📋 Environment Configuration
 
@@ -224,11 +228,24 @@ crypto-trading-bot/
 
 ## 📚 Documentation
 
+### 🚀 Getting Started (Start Here!)
+- **[START_HERE.md](START_HERE.md)** - 15-minute guide to get you testing!
+- **[QUICKSTART.md](QUICKSTART.md)** - Rapid setup instructions
+- **[CHEATSHEET.md](CHEATSHEET.md)** - Command reference for daily use
+
+### 🧪 Testing & Verification
+- **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Comprehensive testing manual
+- **[TEST_RESULTS.md](TEST_RESULTS.md)** - Current status and verification
+
+### 📊 Development Tracking
+- **[progress.md](progress.md)** - Detailed development progress
+- **[SESSION_SUMMARY.md](SESSION_SUMMARY.md)** - Latest session accomplishments
+
+### 🏗️ Architecture & Design
 - [System Architecture](docs/architecture/SYSTEM_OVERVIEW.md)
 - [Service Contracts](docs/architecture/SERVICE_CONTRACTS.md)
 - [Setup Guide](docs/development/SETUP.md)
 - [Testing Strategy](docs/development/TESTING.md)
-- [Development Progress](progress.md)
 
 ## 🛠️ Development Workflow
 
@@ -268,11 +285,11 @@ crypto-trading-bot/
 
 ## 🎯 Roadmap
 
-### Phase 1: MVP (Weeks 1-4) - 🟡 In Progress
+### Phase 1: MVP (Weeks 1-4) - 🟡 In Progress (75% Complete)
 - [x] Project infrastructure
 - [x] Documentation structure
-- [ ] Bybit Connector
-- [ ] Market Data Service
+- [x] Bybit Connector (95% - Testing Ready)
+- [x] Market Data Service (95% - Testing Ready)
 - [ ] Technical Analysis
 - [ ] Trading Engine
 - [ ] Paper Trading Mode
@@ -332,10 +349,16 @@ MIT License - See [LICENSE](LICENSE) file
 
 ## ⚡ Current Status
 
-**Development Phase**: Infrastructure Setup (Week 1)
-**Progress**: 25% Complete
-**Next Milestone**: Bybit Connector Service
-**See**: [progress.md](progress.md) for detailed status
+**Development Phase**: Infrastructure Complete, Services Ready for Testing
+**Progress**: 75% Complete (2/6 services implemented, testing infrastructure ready)
+**Infrastructure**: ✅ All systems healthy (PostgreSQL, TimescaleDB, Redis, RabbitMQ)
+**Next Milestone**: Pipeline Testing with Bybit Testnet API → Technical Analysis Service
+
+📊 **Quick Links**:
+- 🚀 **[START_HERE.md](START_HERE.md)** - Begin testing in 15 minutes!
+- 📖 **[SESSION_SUMMARY.md](SESSION_SUMMARY.md)** - Latest accomplishments
+- 📊 **[progress.md](progress.md)** - Detailed development tracking
+- 🧪 **[TEST_RESULTS.md](TEST_RESULTS.md)** - Infrastructure verification
 
 ## 📞 Support
 

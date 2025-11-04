@@ -1,0 +1,6 @@
+==========================================
+  Trading Engine Integration Test
+==========================================
+
+=== Service Health Checks ===
+Testing: Trading Engine Health... [0;32mPASS[0m (HTTP 200)

@@ -1,0 +1,6 @@
+==========================================
+  Portfolio Manager Integration Test
+==========================================
+
+=== Service Health Checks ===
+Testing: Portfolio Manager Health... [0;32mPASS[0m (HTTP 200)

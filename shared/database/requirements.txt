@@ -1,0 +1,16 @@
+# Database Dependencies
+# For PostgreSQL with SQLAlchemy and async support
+
+# Core database
+sqlalchemy[asyncio]==2.0.23
+asyncpg==0.29.0  # Async PostgreSQL driver
+psycopg2-binary==2.9.9  # Sync PostgreSQL driver
+
+# Migrations
+alembic==1.13.0
+
+# Configuration
+python-dotenv==1.0.0
+
+# Testing
+pytest-asyncio==0.21.1

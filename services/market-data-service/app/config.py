@@ -1,0 +1,105 @@
+"""
+Market Data Service - Configuration
+Purpose: Service configuration management
+"""
+
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from typing import Optional
+
+
+class Settings(BaseSettings):
+    """Market Data Service settings"""
+    
+    # Environment
+    environment: str = Field(default="development")
+    log_level: str = Field(default="INFO")
+    debug: bool = Field(default=False)
+    
+    # Service
+    service_name: str = Field(default="market-data-service")
+    service_port: int = Field(default=8003)
+    service_host: str = Field(default="0.0.0.0")
+    
+    # TimescaleDB (market data storage)
+    timescale_host: str = Field(default="localhost")
+    timescale_port: int = Field(default=5433)
+    timescale_user: str = Field(default="cryptobot")
+    timescale_password: str = Field(default="change_this_secure_password")
+    timescale_db: str = Field(default="market_data")
+    
+    # PostgreSQL (application data)
+    postgres_host: str = Field(default="localhost")
+    postgres_port: int = Field(default=5432)
+    postgres_user: str = Field(default="cryptobot")
+    postgres_password: str = Field(default="change_this_secure_password")
+    postgres_db: str = Field(default="cryptobot")
+    
+    # Redis (caching)
+    redis_host: str = Field(default="localhost")
+    redis_port: int = Field(default=6379)
+    redis_password: Optional[str] = Field(default=None)
+    redis_db: int = Field(default=0)
+    
+    # RabbitMQ (messaging)
+    rabbitmq_host: str = Field(default="localhost")
+    rabbitmq_port: int = Field(default=5672)
+    rabbitmq_user: str = Field(default="cryptobot")
+    rabbitmq_password: str = Field(default="change_this_secure_password")
+    rabbitmq_vhost: str = Field(default="cryptobot")
+    
+    # Bybit Connector Service
+    bybit_connector_url: str = Field(default="http://localhost:8002")
+    
+    # Data Collection Settings
+    default_symbols: str = Field(default="BTCUSDT,ETHUSDT")
+    default_interval: str = Field(default="60")  # 1 hour
+    fetch_historical_days: int = Field(default=30)  # Fetch last 30 days on startup
+    
+    # Caching
+    cache_ttl_ticker: int = Field(default=5)  # 5 seconds for ticker
+    cache_ttl_kline: int = Field(default=60)  # 1 minute for kline
+    cache_ttl_orderbook: int = Field(default=2)  # 2 seconds for orderbook
+    
+    # Database Connection Pool
+    db_pool_min_size: int = Field(default=10)
+    db_pool_max_size: int = Field(default=20)
+    
+    @property
+    def timescale_url(self) -> str:
+        """Construct TimescaleDB connection URL"""
+        return f"postgresql+asyncpg://{self.timescale_user}:{self.timescale_password}@{self.timescale_host}:{self.timescale_port}/{self.timescale_db}"
+    
+    @property
+    def postgres_url(self) -> str:
+        """Construct PostgreSQL connection URL"""
+        return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+    
+    @property
+    def redis_url(self) -> str:
+        """Construct Redis connection URL"""
+        if self.redis_password:
+            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
+        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+    
+    @property
+    def symbols_list(self) -> list:
+        """Get list of trading symbols"""
+        return [s.strip() for s in self.default_symbols.split(",")]
+
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": False
+    }
+
+
+# Global settings instance
+_settings: Optional[Settings] = None
+
+
+def get_settings() -> Settings:
+    """Get settings singleton"""
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings

@@ -1,21 +1,50 @@
-# Market Data Service Requirements
-# Collects and stores market data in TimescaleDB
+# Market Data Service - Dependencies
+# Purpose: Collect, store, and serve historical and real-time market data
 
-# Include base requirements
--r ../../shared/requirements-base.txt
-
-# Database - TimescaleDB specific
-timescale-vector==0.0.1
+# Web Framework
+fastapi==0.109.0          # Modern async web framework
+uvicorn[standard]==0.27.0 # ASGI server
+pydantic==2.5.3           # Data validation
+pydantic-settings==2.1.0  # Settings management
 
 # Data Processing
-pandas==2.1.4
-numpy==1.26.2
+pandas==2.2.0             # Data manipulation and analysis
+numpy==1.26.3             # Numerical computing
+pyarrow==15.0.0           # Columnar data format (Parquet support)
 
-# WebSocket for real-time data
-websockets==12.0
+# Database Clients
+asyncpg==0.29.0           # Async PostgreSQL/TimescaleDB driver
+psycopg2-binary==2.9.9    # Sync PostgreSQL driver (fallback)
+sqlalchemy==2.0.25        # ORM and query builder
+alembic==1.13.1           # Database migrations
 
-# Caching optimization
-msgpack==1.0.7
+# Caching & Messaging
+aioredis==2.0.1           # Async Redis client
+redis==5.0.1              # Sync Redis client
+pika==1.3.2               # RabbitMQ client
 
-# Data validation
-pandera==0.17.2
+# WebSocket & HTTP
+websockets==12.0          # WebSocket client
+httpx==0.26.0             # HTTP client
+
+# Monitoring & Logging
+prometheus-client==0.19.0 # Metrics
+python-json-logger==2.0.7 # Structured logging
+
+# Utilities
+python-dotenv==1.0.0      # Environment variables
+python-dateutil==2.8.2    # Date/time utilities
+pytz==2024.1              # Timezone handling
+
+# Testing
+pytest==7.4.4             # Testing framework
+pytest-asyncio==0.23.3    # Async test support
+pytest-cov==4.1.0         # Coverage
+pytest-mock==3.12.0       # Mocking
+freezegun==1.4.0          # Time mocking
+
+# Development
+black==24.1.1             # Code formatter
+isort==5.13.2             # Import sorter
+mypy==1.8.0               # Type checker
+flake8==7.0.0             # Linter

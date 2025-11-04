@@ -1,21 +1,42 @@
-# Bybit Connector Service Requirements
-# Includes base requirements plus Bybit-specific libraries
+# Bybit Connector Service - Dependencies
+# Purpose: Interface with Bybit exchange API (REST & WebSocket)
 
-# Include base requirements
--r ../../shared/requirements-base.txt
+# Web Framework
+fastapi==0.109.0          # Modern async web framework
+uvicorn[standard]==0.27.0 # ASGI server with auto-reload
+pydantic==2.5.3           # Data validation and settings
+pydantic-settings==2.1.0  # Environment-based configuration
 
-# Bybit API Client
-pybit==5.6.2
+# Bybit SDK
+pybit==5.6.2              # Official Bybit Python SDK
 
-# WebSocket
-websockets==12.0
-websocket-client==1.7.0
+# HTTP Client
+httpx==0.26.0             # Async HTTP client for REST calls
+websockets==12.0          # WebSocket client for real-time data
 
-# Circuit Breaker Pattern
-pybreaker==1.0.1
+# Resilience & Reliability
+tenacity==8.2.3           # Retry logic with exponential backoff
+circuitbreaker==1.4.0     # Circuit breaker pattern implementation
 
-# Rate Limiting
-ratelimit==2.2.1
+# Monitoring & Logging
+prometheus-client==0.19.0 # Metrics for monitoring
+python-json-logger==2.0.7 # Structured JSON logging
 
-# Async utilities
-aiofiles==23.2.1
+# Utilities
+python-dotenv==1.0.0      # Environment variable management
+aioredis==2.0.1           # Async Redis client for caching
+pika==1.3.2               # RabbitMQ client for messaging
+
+# Testing
+pytest==7.4.4             # Testing framework
+pytest-asyncio==0.23.3    # Async test support
+pytest-cov==4.1.0         # Code coverage
+pytest-mock==3.12.0       # Mocking support
+httpx-mock==0.7.0         # HTTP mock for testing
+freezegun==1.4.0          # Time mocking for tests
+
+# Development
+black==24.1.1             # Code formatter
+isort==5.13.2             # Import sorter
+mypy==1.8.0               # Static type checker
+flake8==7.0.0             # Linter
