@@ -1,6 +1,11 @@
 """
 Signal Aggregator
 Purpose: Fetch and aggregate technical indicators from Technical Analysis Service
+
+REFACTORED: Using Strangler Fig pattern
+- Modular components in app/aggregation/
+- CoreAggregator orchestrates gatekeeper, validator, voter
+- Improved testability and maintainability
 """
 
 import httpx
@@ -8,6 +13,7 @@ import logging
 from typing import Dict, Optional
 from app.config import get_settings
 from app.models import TradingSignal, IndicatorSignal, SignalAction
+from app.aggregation import CoreAggregator
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +30,11 @@ class SignalAggregator:
     """
 
     def __init__(self):
-        """Initialize signal aggregator"""
+        """Initialize signal aggregator with modular components"""
         self.settings = get_settings()
         self.base_url = self.settings.technical_analysis_url
         self.client = httpx.AsyncClient(timeout=30.0)
+        self.core_aggregator = CoreAggregator(self.settings)  # Modular aggregation
         logger.info(f"SignalAggregator initialized with TA URL: {self.base_url}")
 
     async def close(self):
@@ -400,18 +407,15 @@ class SignalAggregator:
     def signal_to_score(self, signal: SignalAction) -> float:
         """
         Convert signal action to numerical score
+        REFACTORED: Delegates to SignalVoter
 
         BUY    → +1.0
         SELL   → -1.0
         HOLD   →  0.0
         NEUTRAL→  0.0
         """
-        if signal == SignalAction.BUY:
-            return 1.0
-        elif signal == SignalAction.SELL:
-            return -1.0
-        else:  # HOLD or NEUTRAL
-            return 0.0
+        # Delegate to modular voter component
+        return self.core_aggregator.voter.signal_to_score(signal)
 
     def aggregate_signals(
         self,
@@ -422,189 +426,23 @@ class SignalAggregator:
         """
         Aggregate individual indicator signals into a final trading signal
 
-        PHASE 1 ENHANCEMENTS:
-        1. Trend Filter as GATEKEEPER: Blocks counter-trend trades
-        2. Volume Confirmation as VALIDATOR: Filters low-volume signals
-        3. Stochastic included in voting
-        4. ATR data stored in metadata for dynamic stops
+        REFACTORED: Delegates to CoreAggregator using Strangler Fig pattern
 
-        Algorithm:
-        1. Apply GATEKEEPER filter (Trend Filter)
-        2. Apply VALIDATOR filter (Volume Confirmation)
-        3. Calculate weighted scores from voting indicators
-        4. Apply consensus logic
-        5. Determine final action
+        PHASE 1 ENHANCEMENTS (Now Modular):
+        1. Trend Filter as GATEKEEPER: Blocks counter-trend trades (gatekeeper.py)
+        2. Volume Confirmation as VALIDATOR: Filters low-volume signals (validator.py)
+        3. Voting logic with consensus requirements (voter.py)
+        4. Orchestrated aggregation pipeline (aggregator_core.py)
+
+        Pipeline:
+        1. VOTER: Calculate preliminary signal from voting indicators
+        2. GATEKEEPER: Block counter-trend trades
+        3. VALIDATOR: Apply volume confidence penalty
+        4. REQUIREMENTS: Check consensus and minimum confidence
+        5. OUTPUT: Final TradingSignal
         """
-        symbol = "UNKNOWN"  # Will be set from context
-
-        if not indicators:
-            logger.warning("No indicators available for aggregation")
-            return TradingSignal(
-                symbol=symbol,
-                timestamp=timestamp,
-                action=SignalAction.HOLD,
-                confidence=0.0,
-                indicators={},
-                aggregated_score=0.0,
-                consensus_count=0,
-                metadata={"error": "No indicators available"}
-            )
-
-        # ==================== PHASE 1: GATEKEEPER (Trend Filter) ====================
-        trend_filter = indicators.get("TREND_FILTER")
-        trend_blocked = False
-        trend_reason = ""
-
-        if trend_filter:
-            trend = trend_filter.metadata.get("trend")
-            logger.info(f"🔍 Trend Filter: {trend} (confidence: {trend_filter.confidence:.2f})")
-        else:
-            logger.warning("⚠️  Trend Filter not available - proceeding without trend check")
-
-        # ==================== PHASE 1: VALIDATOR (Volume Confirmation) ====================
-        volume_conf = indicators.get("VOLUME_CONFIRMATION")
-        volume_penalty = 1.0  # Multiplier for confidence (1.0 = no penalty)
-        volume_reason = ""
-
-        if volume_conf:
-            confirmed = volume_conf.metadata.get("confirmed", False)
-            strength = volume_conf.metadata.get("strength", "UNKNOWN")
-
-            if not confirmed:
-                volume_penalty = 0.3  # Reduce confidence to 30% for unconfirmed volume
-                volume_reason = f"Low volume ({strength})"
-                logger.warning(f"⚠️  Volume NOT confirmed: {strength}")
-            else:
-                logger.info(f"✅ Volume confirmed: {strength}")
-        else:
-            logger.warning("⚠️  Volume Confirmation not available - proceeding without volume check")
-
-        # ==================== Calculate weighted scores ====================
-        weighted_scores = []
-        buy_count = 0
-        sell_count = 0
-        hold_count = 0
-
-        # Exclude GATEKEEPER and VALIDATOR from voting (they filter, not vote)
-        voting_indicators = {
-            k: v for k, v in indicators.items()
-            if k not in ["TREND_FILTER", "VOLUME_CONFIRMATION"]
-        }
-
-        for name, indicator in voting_indicators.items():
-            score = self.signal_to_score(indicator.signal)
-            weighted_score = score * indicator.confidence
-            weighted_scores.append(weighted_score)
-
-            # Count signals
-            if indicator.signal == SignalAction.BUY:
-                buy_count += 1
-            elif indicator.signal == SignalAction.SELL:
-                sell_count += 1
-            else:
-                hold_count += 1
-
-        # Calculate aggregated score
-        aggregated_score = sum(weighted_scores) / len(weighted_scores) if weighted_scores else 0.0
-
-        # Determine consensus count (max of buy/sell/hold counts)
-        consensus_count = max(buy_count, sell_count, hold_count)
-
-        # Determine preliminary action based on aggregated score
-        if aggregated_score >= 0.3:
-            action = SignalAction.BUY
-            confidence = min(abs(aggregated_score), 1.0)
-        elif aggregated_score <= -0.3:
-            action = SignalAction.SELL
-            confidence = min(abs(aggregated_score), 1.0)
-        else:
-            action = SignalAction.HOLD
-            confidence = 1.0 - abs(aggregated_score)
-
-        # ==================== PHASE 1: Apply GATEKEEPER filter ====================
-        if trend_filter and action != SignalAction.HOLD:
-            trend = trend_filter.metadata.get("trend")
-
-            # Block counter-trend trades
-            if action == SignalAction.BUY and trend == "BEARISH":
-                trend_blocked = True
-                trend_reason = "Counter-trend (BUY in BEARISH trend)"
-                logger.warning(f"🚫 BLOCKED: {trend_reason}")
-                action = SignalAction.HOLD
-                confidence *= 0.2  # Drastically reduce confidence
-
-            elif action == SignalAction.SELL and trend == "BULLISH":
-                trend_blocked = True
-                trend_reason = "Counter-trend (SELL in BULLISH trend)"
-                logger.warning(f"🚫 BLOCKED: {trend_reason}")
-                action = SignalAction.HOLD
-                confidence *= 0.2
-
-            elif trend == "NEUTRAL":
-                # Neutral trend: allow but reduce confidence
-                confidence *= 0.7
-                trend_reason = "Neutral trend (reduced confidence)"
-                logger.info(f"⚠️  {trend_reason}")
-
-        # ==================== PHASE 1: Apply VALIDATOR penalty ====================
-        confidence *= volume_penalty
-
-        # Check if signal meets minimum requirements
-        # Updated: Now need 4 out of 7 voting indicators (increased from 3/5)
-        min_consensus = 4  # Stricter consensus with more indicators
-        meets_requirements = (
-            consensus_count >= min_consensus and
-            confidence >= self.settings.min_signal_confidence and
-            not trend_blocked
-        )
-
-        if not meets_requirements:
-            reasons = []
-            if consensus_count < min_consensus:
-                reasons.append(f"consensus={consensus_count} (min={min_consensus})")
-            if confidence < self.settings.min_signal_confidence:
-                reasons.append(f"confidence={confidence:.2f} (min={self.settings.min_signal_confidence})")
-            if trend_blocked:
-                reasons.append(f"trend_blocked: {trend_reason}")
-
-            logger.info(f"Signal does not meet requirements: {', '.join(reasons)}")
-            action = SignalAction.HOLD
-
-        # Build metadata
-        metadata = {
-            "buy_count": buy_count,
-            "sell_count": sell_count,
-            "hold_count": hold_count,
-            "meets_requirements": meets_requirements,
-            "phase_1_active": True,
-            "trend_blocked": trend_blocked,
-            "trend_reason": trend_reason,
-            "volume_penalty": volume_penalty,
-            "volume_reason": volume_reason,
-            "voting_indicators_count": len(voting_indicators)
-        }
-
-        # Add ATR data for dynamic stops if available
-        if atr_data:
-            metadata["atr"] = atr_data
-            logger.info(f"💰 ATR Dynamic Stops: SL={atr_data['stop_loss_long']:.2f}, TP={atr_data['take_profit_long']:.2f}")
-
-        logger.info(
-            f"Aggregated Signal: {action.value} "
-            f"(score: {aggregated_score:+.2f}, conf: {confidence:.2f}, "
-            f"consensus: {consensus_count}/{len(voting_indicators)})"
-        )
-
-        return TradingSignal(
-            symbol=symbol,
-            timestamp=timestamp,
-            action=action,
-            confidence=round(confidence, 2),
-            indicators=indicators,
-            aggregated_score=round(aggregated_score, 3),
-            consensus_count=consensus_count,
-            metadata=metadata
-        )
+        # Delegate to modular CoreAggregator
+        return self.core_aggregator.aggregate_signals(indicators, timestamp, atr_data)
 
     async def get_trading_signal(
         self,
