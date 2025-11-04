@@ -1,6 +1,7 @@
 """
 Position Manager
 Purpose: Track and manage trading positions
+Enhanced: Database persistence for positions
 """
 
 import logging
@@ -10,6 +11,7 @@ from uuid import UUID
 from datetime import datetime
 from app.models import Position, PositionCreate, PositionStatus, PositionSide
 from app.risk_manager import get_risk_manager
+from app.repositories import get_position_repository
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +28,11 @@ class PositionManager:
     """
 
     def __init__(self):
-        """Initialize position manager"""
+        """Initialize position manager with database persistence"""
         self.positions: dict[UUID, Position] = {}
         self.risk_manager = get_risk_manager()
-        logger.info("PositionManager initialized")
+        self.position_repo = get_position_repository()
+        logger.info("PositionManager initialized with database persistence")
 
     def create_position(
         self,
@@ -76,7 +79,7 @@ class PositionManager:
             status=PositionStatus.OPEN
         )
 
-        # Store position
+        # Store position in memory
         self.positions[position.id] = position
 
         logger.info(
@@ -84,6 +87,15 @@ class PositionManager:
             f"{symbol} {side.value} {quantity} @ {entry_price} | "
             f"SL: {stop_loss} | TP: {take_profit}"
         )
+
+        # Persist to database (async, non-blocking)
+        import asyncio
+        try:
+            asyncio.create_task(
+                self.position_repo.create(position, portfolio_id="paper_trading")
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist position to database: {e}")
 
         return position
 
@@ -130,6 +142,17 @@ class PositionManager:
             f"price={current_price}, unrealized_pnl={position.unrealized_pnl} "
             f"({position.pnl_percentage:+.2f}%)"
         )
+
+        # Update price in database (async, non-blocking)
+        import asyncio
+        try:
+            asyncio.create_task(
+                self.position_repo.update_price(
+                    position_id, current_price, position.unrealized_pnl
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update position price in database: {e}")
 
         return position
 
@@ -199,6 +222,20 @@ class PositionManager:
             f"P&L: {position.realized_pnl} ({position.pnl_percentage:+.2f}%) | "
             f"Reason: {reason or 'Manual'}"
         )
+
+        # Close position in database (async, non-blocking)
+        import asyncio
+        try:
+            asyncio.create_task(
+                self.position_repo.close(
+                    position_id,
+                    close_price,
+                    position.realized_pnl,
+                    exit_reason=reason
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to close position in database: {e}")
 
         return position
 

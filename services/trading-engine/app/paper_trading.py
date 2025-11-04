@@ -1,6 +1,7 @@
 """
 Paper Trading Engine
 Purpose: Simulate trading without real money
+Enhanced: Database persistence for trades and positions
 """
 
 import logging
@@ -11,6 +12,7 @@ from app.config import get_settings
 from app.models import Order, OrderCreate, OrderStatus, OrderSide, OrderType, PositionSide
 from app.position_manager import get_position_manager
 from app.risk_manager import get_risk_manager
+from app.repositories import get_trade_repository, get_portfolio_repository
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ class PaperTradingEngine:
     """
 
     def __init__(self):
-        """Initialize paper trading engine"""
+        """Initialize paper trading engine with database persistence"""
         self.settings = get_settings()
         self.balance = Decimal(str(self.settings.paper_initial_balance))
         self.initial_balance = self.balance
@@ -35,9 +37,14 @@ class PaperTradingEngine:
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
 
+        # Database repositories for persistence
+        self.trade_repo = get_trade_repository()
+        self.portfolio_repo = get_portfolio_repository()
+
         logger.info("Paper Trading Engine initialized")
         logger.info(f"  Initial balance: ${self.balance}")
         logger.info(f"  Commission: {self.settings.paper_commission_pct}%")
+        logger.info(f"  Database persistence: ENABLED")
 
     def get_balance(self) -> Decimal:
         """Get current account balance"""
@@ -117,6 +124,23 @@ class PaperTradingEngine:
                 f"Balance: ${self.balance}"
             )
 
+            # Log trade to database (async, non-blocking)
+            import asyncio
+            try:
+                asyncio.create_task(
+                    self.trade_repo.log_trade(
+                        position_id=position.id,
+                        portfolio_id="paper_trading",
+                        symbol=order.symbol,
+                        side="BUY",
+                        quantity=order.quantity,
+                        price=current_price,
+                        commission=commission
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log BUY trade to database: {e}")
+
         # Handle SELL order
         elif order.side == OrderSide.SELL:
             # Check if we have an open position to close
@@ -151,6 +175,23 @@ class PaperTradingEngine:
                 f"P&L: ${closed_position.realized_pnl} | "
                 f"Balance: ${self.balance}"
             )
+
+            # Log trade to database (async, non-blocking)
+            import asyncio
+            try:
+                asyncio.create_task(
+                    self.trade_repo.log_trade(
+                        position_id=closed_position.id,
+                        portfolio_id="paper_trading",
+                        symbol=order.symbol,
+                        side="SELL",
+                        quantity=order.quantity,
+                        price=current_price,
+                        commission=commission
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log SELL trade to database: {e}")
 
         return executed_order, None
 

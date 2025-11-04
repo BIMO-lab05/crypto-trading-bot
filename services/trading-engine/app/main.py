@@ -17,6 +17,13 @@ from app.risk_manager import get_risk_manager
 from app.paper_trading import get_paper_engine
 from app.phase1_metrics import get_phase1_metrics
 from app.multi_timeframe import get_multi_timeframe_analyzer, close_multi_timeframe_analyzer
+from app.repositories import get_portfolio_repository
+
+# Import shared database modules
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
+from database.connection import db_manager
 from app.models import (
     HealthResponse,
     StatusResponse,
@@ -49,6 +56,27 @@ async def lifespan(app: FastAPI):
     logger.info(f"Trading Mode: {settings.trading_mode}")
     logger.info(f"Auto Trading: {settings.auto_trading_enabled}")
 
+    # Initialize database connection
+    try:
+        db_manager.init_async_engine()
+        db_health = db_manager.health_check()
+        if db_health:
+            logger.info("✅ Database connection initialized")
+
+            # Ensure paper trading portfolio exists
+            portfolio_repo = get_portfolio_repository()
+            await portfolio_repo.get_or_create(
+                portfolio_id="paper_trading",
+                name="Paper Trading Portfolio",
+                initial_balance=Decimal(str(settings.paper_initial_balance))
+            )
+            logger.info("✅ Paper trading portfolio verified")
+        else:
+            logger.warning("⚠️ Database connection failed - trades will not be persisted")
+    except Exception as e:
+        logger.error(f"⚠️ Database initialization error: {e}")
+        logger.warning("Continuing without database persistence")
+
     # Check Technical Analysis Service connection
     aggregator = await get_aggregator()
     is_healthy = await aggregator.health_check()
@@ -63,6 +91,13 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Trading Engine Service")
     await close_aggregator()
     await close_multi_timeframe_analyzer()
+
+    # Close database connections
+    try:
+        await db_manager.close()
+        logger.info("✅ Database connections closed")
+    except Exception as e:
+        logger.error(f"Error closing database connections: {e}")
 
 
 # FastAPI app
@@ -90,12 +125,19 @@ async def health_check():
     aggregator = await get_aggregator()
     ta_healthy = await aggregator.health_check()
 
+    # Check database connection
+    db_healthy = False
+    try:
+        db_healthy = db_manager.health_check()
+    except Exception as e:
+        logger.warning(f"Database health check failed: {e}")
+
     return HealthResponse(
         status="healthy",
         service=settings.service_name,
         technical_analysis_connection=ta_healthy,
         bybit_connector_connection=False,  # TODO: Implement when Bybit integration is ready
-        database_connection=False,  # TODO: Implement when DB is added
+        database_connection=db_healthy,
         timestamp=int(time.time() * 1000)
     )
 
