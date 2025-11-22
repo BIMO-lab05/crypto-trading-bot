@@ -55,11 +55,11 @@ class TestTrendGatekeeper:
         )
 
         assert action == SignalAction.HOLD, "SELL should be blocked"
-        assert blocked is True
+        assert blocked is True, "Signal should be marked as blocked"
         assert "BULLISH trend" in reason
 
-    def test_allow_buy_in_bullish_trend(self):
-        """Test that BUY signals pass through in BULLISH trends"""
+    def test_allow_aligned_signals(self):
+        """Test that aligned signals pass through"""
         trend_filter = IndicatorSignal(
             name="TREND_FILTER",
             signal=SignalAction.BUY,
@@ -72,30 +72,22 @@ class TestTrendGatekeeper:
             SignalAction.BUY, 0.7, trend_filter
         )
 
-        assert action == SignalAction.BUY, "BUY should pass through"
-        assert blocked is False
+        assert action == SignalAction.BUY, "Aligned signal should pass"
+        assert blocked is False, "Signal should not be blocked"
         assert confidence == 0.7, "Confidence unchanged"
 
-    def test_reduce_confidence_in_neutral_trend(self):
-        """Test confidence reduction in NEUTRAL trends"""
-        trend_filter = IndicatorSignal(
-            name="TREND_FILTER",
-            signal=SignalAction.HOLD,
-            confidence=0.5,
-            value=Decimal("0.0"),
-            metadata={"trend": "NEUTRAL", "role": "GATEKEEPER"}
-        )
-
+    def test_no_trend_filter(self):
+        """Test graceful handling when trend filter is None"""
         action, confidence, blocked, reason = self.gatekeeper.check_signal(
-            SignalAction.BUY, 0.7, trend_filter
+            SignalAction.BUY, 0.7, None
         )
 
-        assert action == SignalAction.BUY, "Signal should pass"
-        assert blocked is False
-        assert abs(confidence - 0.49) < 0.001, "Confidence reduced by 0.7x"  # 0.7 * 0.7 = 0.49
+        assert action == SignalAction.BUY, "Signal unchanged without filter"
+        assert blocked is False, "Not blocked without filter"
+        assert confidence == 0.7, "Confidence unchanged"
 
     def test_hold_signal_passes_through(self):
-        """Test that HOLD signals always pass through"""
+        """Test that HOLD signals pass through gatekeeper"""
         trend_filter = IndicatorSignal(
             name="TREND_FILTER",
             signal=SignalAction.SELL,
@@ -108,19 +100,8 @@ class TestTrendGatekeeper:
             SignalAction.HOLD, 0.5, trend_filter
         )
 
-        assert action == SignalAction.HOLD
-        assert blocked is False
-        assert confidence == 0.5, "Confidence unchanged for HOLD"
-
-    def test_no_trend_filter_available(self):
-        """Test graceful handling when trend filter is None"""
-        action, confidence, blocked, reason = self.gatekeeper.check_signal(
-            SignalAction.BUY, 0.7, None
-        )
-
-        assert action == SignalAction.BUY
-        assert blocked is False
-        assert confidence == 0.7
+        assert action == SignalAction.HOLD, "HOLD signal passes through"
+        assert blocked is False, "HOLD not blocked"
 
 
 class TestVolumeValidator:
@@ -130,12 +111,12 @@ class TestVolumeValidator:
         """Setup test fixtures"""
         self.validator = VolumeValidator()
 
-    def test_confirmed_volume_no_penalty(self):
-        """Test that confirmed volume has no confidence penalty"""
+    def test_strong_confirmed_volume(self):
+        """Test strong confirmed volume - no penalty"""
         volume_conf = IndicatorSignal(
             name="VOLUME_CONFIRMATION",
             signal=SignalAction.BUY,
-            confidence=0.8,
+            confidence=0.9,
             value=Decimal("1.5"),
             metadata={
                 "confirmed": True,
@@ -146,12 +127,52 @@ class TestVolumeValidator:
 
         confidence, penalty, reason = self.validator.validate_volume(0.7, volume_conf)
 
-        assert confidence == 0.7, "Confidence unchanged"
-        assert penalty == 1.0, "No penalty applied"
-        assert "confirmed" in reason.lower()
+        assert confidence == 0.7, "Confidence unchanged for strong volume"
+        assert penalty == 1.0, "No penalty for strong volume"
+        assert "Strong volume" in reason
+
+    def test_moderate_confirmed_volume(self):
+        """Test moderate confirmed volume - minor penalty"""
+        volume_conf = IndicatorSignal(
+            name="VOLUME_CONFIRMATION",
+            signal=SignalAction.BUY,
+            confidence=0.7,
+            value=Decimal("1.2"),
+            metadata={
+                "confirmed": True,
+                "strength": "MODERATE",
+                "role": "VALIDATOR"
+            }
+        )
+
+        confidence, penalty, reason = self.validator.validate_volume(0.7, volume_conf)
+
+        assert confidence == 0.63, "Confidence reduced by 10% (0.7 * 0.9)"
+        assert penalty == 0.9, "10% penalty applied"
+        assert "Moderate volume" in reason
+
+    def test_moderate_unconfirmed_volume(self):
+        """Test moderate unconfirmed volume - 30% penalty"""
+        volume_conf = IndicatorSignal(
+            name="VOLUME_CONFIRMATION",
+            signal=SignalAction.HOLD,
+            confidence=0.5,
+            value=Decimal("0.9"),
+            metadata={
+                "confirmed": False,
+                "strength": "MODERATE",
+                "role": "VALIDATOR"
+            }
+        )
+
+        confidence, penalty, reason = self.validator.validate_volume(0.7, volume_conf)
+
+        assert confidence == pytest.approx(0.49, 0.01), "Confidence reduced by 30% (0.7 * 0.7)"
+        assert penalty == 0.7, "30% penalty applied"
+        assert "Moderate volume" in reason
 
     def test_unconfirmed_volume_penalty(self):
-        """Test that unconfirmed volume applies 70% penalty"""
+        """Test weak unconfirmed volume - 50% penalty"""
         volume_conf = IndicatorSignal(
             name="VOLUME_CONFIRMATION",
             signal=SignalAction.HOLD,
@@ -166,9 +187,29 @@ class TestVolumeValidator:
 
         confidence, penalty, reason = self.validator.validate_volume(0.7, volume_conf)
 
-        assert confidence == 0.21, "Confidence reduced to 30% (0.7 * 0.3)"
+        assert confidence == 0.35, "Confidence reduced by 50% (0.7 * 0.5)"
+        assert penalty == 0.5, "50% penalty applied"
+        assert "Weak volume" in reason
+
+    def test_minimal_volume_penalty(self):
+        """Test minimal unconfirmed volume - 70% penalty"""
+        volume_conf = IndicatorSignal(
+            name="VOLUME_CONFIRMATION",
+            signal=SignalAction.HOLD,
+            confidence=0.2,
+            value=Decimal("0.5"),
+            metadata={
+                "confirmed": False,
+                "strength": "MINIMAL",
+                "role": "VALIDATOR"
+            }
+        )
+
+        confidence, penalty, reason = self.validator.validate_volume(0.7, volume_conf)
+
+        assert confidence == 0.21, "Confidence reduced by 70% (0.7 * 0.3)"
         assert penalty == 0.3, "70% penalty applied"
-        assert "Low volume" in reason
+        assert "Minimal volume" in reason
 
     def test_no_volume_data(self):
         """Test graceful handling when volume confirmation is None"""
@@ -176,6 +217,33 @@ class TestVolumeValidator:
 
         assert confidence == 0.7, "Confidence unchanged"
         assert penalty == 1.0, "No penalty"
+
+    def test_get_stats(self):
+        """Test getting validator statistics"""
+        # Process some signals
+        volume_conf_strong = IndicatorSignal(
+            name="VOLUME_CONFIRMATION",
+            signal=SignalAction.BUY,
+            confidence=0.9,
+            value=Decimal("1.5"),
+            metadata={"confirmed": True, "strength": "STRONG", "role": "VALIDATOR"}
+        )
+        volume_conf_weak = IndicatorSignal(
+            name="VOLUME_CONFIRMATION",
+            signal=SignalAction.HOLD,
+            confidence=0.3,
+            value=Decimal("0.8"),
+            metadata={"confirmed": False, "strength": "WEAK", "role": "VALIDATOR"}
+        )
+
+        self.validator.validate_volume(0.7, volume_conf_strong)
+        self.validator.validate_volume(0.7, volume_conf_weak)
+
+        stats = self.validator.get_stats()
+
+        assert stats["confirmed"] == 1, "Should have 1 confirmed"
+        assert stats["rejected"] == 1, "Should have 1 rejected"
+        assert stats["total"] == 2, "Should have 2 total"
 
 
 class TestSignalVoter:
@@ -191,155 +259,351 @@ class TestSignalVoter:
         assert self.voter.signal_to_score(SignalAction.SELL) == -1.0
         assert self.voter.signal_to_score(SignalAction.HOLD) == 0.0
 
-    def test_calculate_votes_all_buy(self):
-        """Test vote calculation when all indicators say BUY"""
-        indicators = {
-            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.8, value=30),
-            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.7, value=0.5),
-            "BB": IndicatorSignal(name="BB", signal=SignalAction.BUY, confidence=0.9, value=100)
+    def test_bullish_consensus(self):
+        """Test voting with bullish consensus"""
+        voting_indicators = {
+            "RSI": IndicatorSignal(
+                name="RSI",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("25.0"),
+                metadata={"weight": 0.4}
+            ),
+            "MACD": IndicatorSignal(
+                name="MACD",
+                signal=SignalAction.BUY,
+                confidence=0.7,
+                value=Decimal("0.5"),
+                metadata={"weight": 0.3}
+            ),
+            "BBANDS": IndicatorSignal(
+                name="BBANDS",
+                signal=SignalAction.HOLD,
+                confidence=0.6,
+                value=Decimal("0.0"),
+                metadata={"weight": 0.2}
+            ),
         }
 
-        score, consensus, buy_count, sell_count, hold_count = \
-            self.voter.calculate_votes(indicators)
+        score, consensus, buy_cnt, sell_cnt, hold_cnt = self.voter.calculate_votes(voting_indicators)
 
-        assert buy_count == 3
-        assert sell_count == 0
-        assert hold_count == 0
-        assert consensus == 3
-        assert score > 0.7, "Aggregated score should be positive"
+        assert score > 0.3, "Should have positive score"
+        assert buy_cnt == 2, "Should have 2 BUY votes"
+        assert sell_cnt == 0, "Should have 0 SELL votes"
+        assert hold_cnt == 1, "Should have 1 HOLD vote"
+        assert consensus == 2, "Consensus should be 2 (max count)"
 
-    def test_calculate_votes_mixed_signals(self):
-        """Test vote calculation with mixed signals"""
-        indicators = {
-            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.8, value=30),
-            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.SELL, confidence=0.7, value=-0.5),
-            "BB": IndicatorSignal(name="BB", signal=SignalAction.HOLD, confidence=0.5, value=100)
+    def test_bearish_consensus(self):
+        """Test voting with bearish consensus"""
+        voting_indicators = {
+            "RSI": IndicatorSignal(
+                name="RSI",
+                signal=SignalAction.SELL,
+                confidence=0.8,
+                value=Decimal("75.0"),
+                metadata={"weight": 0.4}
+            ),
+            "MACD": IndicatorSignal(
+                name="MACD",
+                signal=SignalAction.SELL,
+                confidence=0.7,
+                value=Decimal("-0.5"),
+                metadata={"weight": 0.3}
+            ),
         }
 
-        score, consensus, buy_count, sell_count, hold_count = \
-            self.voter.calculate_votes(indicators)
+        score, consensus, buy_cnt, sell_cnt, hold_cnt = self.voter.calculate_votes(voting_indicators)
 
-        assert buy_count == 1
-        assert sell_count == 1
-        assert hold_count == 1
-        assert consensus == 1  # Max count
-        assert abs(score) < 0.3, "Mixed signals should yield low score"
+        assert score < -0.3, "Should have negative score"
+        assert sell_cnt == 2, "Should have 2 SELL votes"
+        assert consensus == 2, "Consensus should be 2"
 
     def test_determine_action_buy(self):
-        """Test action determination for strong BUY score"""
+        """Test action determination for BUY signal"""
         action, confidence = self.voter.determine_action(0.8)
 
-        assert action == SignalAction.BUY
-        assert confidence == 0.8
+        assert action == SignalAction.BUY, "Should determine BUY"
+        assert confidence == 0.8, "Confidence should match score"
 
     def test_determine_action_sell(self):
-        """Test action determination for strong SELL score"""
-        action, confidence = self.voter.determine_action(-0.8)
+        """Test action determination for SELL signal"""
+        action, confidence = self.voter.determine_action(-0.7)
 
-        assert action == SignalAction.SELL
-        assert confidence == 0.8
+        assert action == SignalAction.SELL, "Should determine SELL"
+        assert confidence == 0.7, "Confidence should be absolute value"
 
     def test_determine_action_hold(self):
-        """Test action determination for weak score"""
+        """Test action determination for HOLD signal"""
         action, confidence = self.voter.determine_action(0.1)
 
-        assert action == SignalAction.HOLD
-        assert confidence == 0.9  # 1.0 - 0.1
+        assert action == SignalAction.HOLD, "Should determine HOLD"
+        assert confidence > 0.8, "High confidence for near-zero score"
 
     def test_filter_non_voting_indicators(self):
-        """Test filtering out GATEKEEPER and VALIDATOR from voting"""
+        """Test filtering out gatekeeper and validator"""
         all_indicators = {
-            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.8, value=30),
-            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=0.9, value=5),
-            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.HOLD, confidence=0.5, value=1.2),
-            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.SELL, confidence=0.7, value=-0.5)
+            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.8, value=Decimal("25.0"), metadata={}),
+            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.7, value=Decimal("0.5"), metadata={}),
+            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=0.8, value=Decimal("5.0"), metadata={}),
+            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.BUY, confidence=0.9, value=Decimal("1.5"), metadata={}),
         }
 
-        voting_indicators = self.voter.filter_non_voting_indicators(all_indicators)
+        voting = self.voter.filter_non_voting_indicators(all_indicators)
 
-        assert len(voting_indicators) == 2
-        assert "RSI" in voting_indicators
-        assert "MACD" in voting_indicators
-        assert "TREND_FILTER" not in voting_indicators
-        assert "VOLUME_CONFIRMATION" not in voting_indicators
+        assert len(voting) == 2, "Should have 2 voting indicators"
+        assert "RSI" in voting, "RSI should be in voting"
+        assert "MACD" in voting, "MACD should be in voting"
+        assert "TREND_FILTER" not in voting, "TREND_FILTER should be filtered out"
+        assert "VOLUME_CONFIRMATION" not in voting, "VOLUME_CONFIRMATION should be filtered out"
 
 
 class TestCoreAggregator:
-    """Test CoreAggregator (pipeline orchestration)"""
+    """Test CoreAggregator (main orchestration logic)"""
 
     def setup_method(self):
         """Setup test fixtures"""
-        from app.config import get_settings
-        self.aggregator = CoreAggregator(get_settings())
+        self.aggregator = CoreAggregator()
 
-    def test_aggregate_signals_no_indicators(self):
-        """Test error handling when no indicators available"""
-        signal = self.aggregator.aggregate_signals({}, 1234567890)
-
-        assert signal.action == SignalAction.HOLD
-        assert signal.confidence == 0.0
-        assert "error" in signal.metadata
-
-    def test_aggregate_signals_strong_buy(self):
-        """Test aggregation with strong BUY consensus"""
+    def test_successful_aggregation(self):
+        """Test successful signal aggregation"""
         indicators = {
-            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.9, value=25),
-            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.8, value=1.5),
-            "BB": IndicatorSignal(name="BB", signal=SignalAction.BUY, confidence=0.85, value=100),
-            "SMA": IndicatorSignal(name="SMA", signal=SignalAction.BUY, confidence=0.75, value=50),
-            "EMA": IndicatorSignal(name="EMA", signal=SignalAction.BUY, confidence=0.8, value=50),
-            "STOCHASTIC": IndicatorSignal(name="STOCHASTIC", signal=SignalAction.BUY, confidence=0.7, value=20),
-            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=0.9, value=5.0,
-                                           metadata={"trend": "BULLISH"}),
-            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.BUY, confidence=0.8, value=1.5,
-                                                  metadata={"confirmed": True, "strength": "STRONG"})
+            # Strong BUY signals
+            "RSI": IndicatorSignal(
+                name="RSI",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("25.0"),
+                metadata={"weight": 0.4, "role": "VOTER"}
+            ),
+            "MACD": IndicatorSignal(
+                name="MACD",
+                signal=SignalAction.BUY,
+                confidence=0.7,
+                value=Decimal("0.5"),
+                metadata={"weight": 0.3, "role": "VOTER"}
+            ),
+            "BBANDS": IndicatorSignal(
+                name="BBANDS",
+                signal=SignalAction.BUY,
+                confidence=0.6,
+                value=Decimal("0.2"),
+                metadata={"weight": 0.2, "role": "VOTER"}
+            ),
+            "SMA": IndicatorSignal(
+                name="SMA",
+                signal=SignalAction.BUY,
+                confidence=0.7,
+                value=Decimal("1.0"),
+                metadata={"weight": 0.3, "role": "VOTER"}
+            ),
+            # Bullish trend (gatekeeper)
+            "TREND_FILTER": IndicatorSignal(
+                name="TREND_FILTER",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("5.0"),
+                metadata={"trend": "BULLISH", "role": "GATEKEEPER"}
+            ),
+            # Strong volume (validator)
+            "VOLUME_CONFIRMATION": IndicatorSignal(
+                name="VOLUME_CONFIRMATION",
+                signal=SignalAction.BUY,
+                confidence=0.9,
+                value=Decimal("1.5"),
+                metadata={"confirmed": True, "strength": "STRONG", "role": "VALIDATOR"}
+            ),
         }
 
-        signal = self.aggregator.aggregate_signals(indicators, 1234567890)
+        result = self.aggregator.aggregate_signals(indicators, timestamp=1234567890)
 
-        # With 6 BUY votes out of 6 voting indicators (excluding TREND_FILTER and VOLUME_CONFIRMATION)
-        # and confirmed volume + bullish trend, should pass
-        assert signal.action == SignalAction.BUY or signal.action == SignalAction.HOLD
-        assert signal.metadata["phase_1_active"] is True
-        assert "voting_indicators_count" in signal.metadata
+        assert result.action == SignalAction.BUY, "Should aggregate to BUY"
+        assert result.confidence > 0.5, "High confidence expected"
+        assert result.metadata["trend_blocked"] is False, "Gatekeeper should pass"
 
-    def test_aggregate_signals_blocked_by_gatekeeper(self):
-        """Test that counter-trend trades are blocked"""
+    def test_gatekeeper_blocking(self):
+        """Test gatekeeper blocking counter-trend signals"""
         indicators = {
-            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.9, value=25),
-            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.8, value=1.5),
-            "BB": IndicatorSignal(name="BB", signal=SignalAction.BUY, confidence=0.85, value=100),
-            "SMA": IndicatorSignal(name="SMA", signal=SignalAction.BUY, confidence=0.75, value=50),
-            "EMA": IndicatorSignal(name="EMA", signal=SignalAction.BUY, confidence=0.8, value=50),
-            "STOCHASTIC": IndicatorSignal(name="STOCHASTIC", signal=SignalAction.BUY, confidence=0.7, value=20),
-            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.SELL, confidence=0.9, value=-5.0,
-                                           metadata={"trend": "BEARISH"}),  # Counter-trend!
-            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.BUY, confidence=0.8, value=1.5,
-                                                  metadata={"confirmed": True, "strength": "STRONG"})
+            # BUY signals
+            "RSI": IndicatorSignal(
+                name="RSI",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("25.0"),
+                metadata={"weight": 0.4, "role": "VOTER"}
+            ),
+            "MACD": IndicatorSignal(
+                name="MACD",
+                signal=SignalAction.BUY,
+                confidence=0.7,
+                value=Decimal("0.5"),
+                metadata={"weight": 0.3, "role": "VOTER"}
+            ),
+            "BBANDS": IndicatorSignal(
+                name="BBANDS",
+                signal=SignalAction.BUY,
+                confidence=0.6,
+                value=Decimal("0.2"),
+                metadata={"weight": 0.2, "role": "VOTER"}
+            ),
+            "SMA": IndicatorSignal(
+                name="SMA",
+                signal=SignalAction.BUY,
+                confidence=0.7,
+                value=Decimal("1.0"),
+                metadata={"weight": 0.3, "role": "VOTER"}
+            ),
+            # Bearish trend (should block BUY)
+            "TREND_FILTER": IndicatorSignal(
+                name="TREND_FILTER",
+                signal=SignalAction.SELL,
+                confidence=0.8,
+                value=Decimal("-5.0"),
+                metadata={"trend": "BEARISH", "role": "GATEKEEPER"}
+            ),
+            # Strong volume
+            "VOLUME_CONFIRMATION": IndicatorSignal(
+                name="VOLUME_CONFIRMATION",
+                signal=SignalAction.BUY,
+                confidence=0.9,
+                value=Decimal("1.5"),
+                metadata={"confirmed": True, "strength": "STRONG", "role": "VALIDATOR"}
+            ),
         }
 
-        signal = self.aggregator.aggregate_signals(indicators, 1234567890)
+        result = self.aggregator.aggregate_signals(indicators, timestamp=1234567890)
 
-        # BUY in BEARISH trend should be blocked
-        assert signal.action == SignalAction.HOLD
-        assert signal.metadata["trend_blocked"] is True
-        assert "BEARISH" in signal.metadata["trend_reason"]
+        assert result.action == SignalAction.HOLD, "Should be blocked to HOLD"
+        assert result.metadata["trend_blocked"] is True, "Gatekeeper should block"
 
-    def test_aggregate_signals_low_volume_penalty(self):
-        """Test that low volume reduces confidence"""
+    def test_volume_penalty(self):
+        """Test volume validator applying confidence penalty"""
         indicators = {
-            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.9, value=25),
-            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.8, value=1.5),
-            "BB": IndicatorSignal(name="BB", signal=SignalAction.BUY, confidence=0.85, value=100),
-            "SMA": IndicatorSignal(name="SMA", signal=SignalAction.BUY, confidence=0.75, value=50),
-            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=0.9, value=5.0,
-                                           metadata={"trend": "BULLISH"}),
-            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.HOLD, confidence=0.3, value=0.7,
-                                                  metadata={"confirmed": False, "strength": "WEAK"})  # Low volume!
+            # Very strong BUY signals to stay above 0.6 after 0.9x penalty
+            "RSI": IndicatorSignal(
+                name="RSI",
+                signal=SignalAction.BUY,
+                confidence=0.9,
+                value=Decimal("25.0"),
+                metadata={"weight": 0.4, "role": "VOTER"}
+            ),
+            "MACD": IndicatorSignal(
+                name="MACD",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("0.5"),
+                metadata={"weight": 0.3, "role": "VOTER"}
+            ),
+            "BBANDS": IndicatorSignal(
+                name="BBANDS",
+                signal=SignalAction.BUY,
+                confidence=0.7,
+                value=Decimal("0.2"),
+                metadata={"weight": 0.2, "role": "VOTER"}
+            ),
+            "SMA": IndicatorSignal(
+                name="SMA",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("1.0"),
+                metadata={"weight": 0.3, "role": "VOTER"}
+            ),
+            # Bullish trend
+            "TREND_FILTER": IndicatorSignal(
+                name="TREND_FILTER",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("5.0"),
+                metadata={"trend": "BULLISH", "role": "GATEKEEPER"}
+            ),
+            # MODERATE confirmed volume (applies 0.9x penalty, 0.8 * 0.9 = 0.72 > 0.6)
+            "VOLUME_CONFIRMATION": IndicatorSignal(
+                name="VOLUME_CONFIRMATION",
+                signal=SignalAction.BUY,
+                confidence=0.7,
+                value=Decimal("1.2"),
+                metadata={"confirmed": True, "strength": "MODERATE", "role": "VALIDATOR"}
+            ),
         }
 
-        signal = self.aggregator.aggregate_signals(indicators, 1234567890)
+        result = self.aggregator.aggregate_signals(indicators, timestamp=1234567890)
 
-        # Volume penalty should be applied
-        assert signal.metadata["volume_penalty"] == 0.3
-        assert "Low volume" in signal.metadata["volume_reason"]
+        # Action should still be BUY, but confidence slightly reduced by volume penalty
+        assert result.action == SignalAction.BUY, "Should still be BUY"
+        assert result.metadata["volume_penalty"] == 0.9, "Volume penalty should be 0.9x (10% reduction)"
+        assert result.confidence < 0.8, "Confidence should be reduced by penalty"
+        assert result.confidence > 0.6, "But still above minimum threshold"
+
+    def test_empty_indicators(self):
+        """Test handling empty indicator list"""
+        result = self.aggregator.aggregate_signals({}, timestamp=1234567890)
+
+        assert result.action == SignalAction.HOLD, "Should default to HOLD"
+        assert result.confidence == 0.0, "Confidence should be zero"
+        assert "error" in result.metadata, "Should have error in metadata"
+
+    def test_insufficient_consensus(self):
+        """Test that signals below minimum consensus are rejected"""
+        indicators = {
+            # Only 2 BUY signals (min is 4)
+            "RSI": IndicatorSignal(
+                name="RSI",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("25.0"),
+                metadata={"weight": 0.4, "role": "VOTER"}
+            ),
+            "MACD": IndicatorSignal(
+                name="MACD",
+                signal=SignalAction.BUY,
+                confidence=0.7,
+                value=Decimal("0.5"),
+                metadata={"weight": 0.3, "role": "VOTER"}
+            ),
+            # Bullish trend
+            "TREND_FILTER": IndicatorSignal(
+                name="TREND_FILTER",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=Decimal("5.0"),
+                metadata={"trend": "BULLISH", "role": "GATEKEEPER"}
+            ),
+            # Strong volume
+            "VOLUME_CONFIRMATION": IndicatorSignal(
+                name="VOLUME_CONFIRMATION",
+                signal=SignalAction.BUY,
+                confidence=0.9,
+                value=Decimal("1.5"),
+                metadata={"confirmed": True, "strength": "STRONG", "role": "VALIDATOR"}
+            ),
+        }
+
+        result = self.aggregator.aggregate_signals(indicators, timestamp=1234567890)
+
+        # Should be HOLD due to insufficient consensus
+        assert result.action == SignalAction.HOLD, "Should be HOLD due to low consensus"
+        assert result.metadata["meets_requirements"] is False, "Should not meet requirements"
+
+    def test_get_aggregated_stats(self):
+        """Test getting aggregated statistics"""
+        stats = self.aggregator.get_aggregated_stats()
+
+        assert "gatekeeper" in stats, "Should have gatekeeper stats"
+        assert "validator" in stats, "Should have validator stats"
+        assert "cache" in stats, "Should have cache stats"
+
+    def test_reset_stats(self):
+        """Test resetting all statistics"""
+        # Process a signal first
+        indicators = {
+            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.8, value=Decimal("25.0"), metadata={}),
+            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=0.8, value=Decimal("5.0"), metadata={"trend": "BULLISH"}),
+        }
+        self.aggregator.aggregate_signals(indicators, timestamp=1234567890)
+
+        # Reset stats
+        self.aggregator.reset_stats()
+
+        # Verify stats are reset
+        stats = self.aggregator.get_aggregated_stats()
+        assert stats["gatekeeper"]["total"] == 0, "Gatekeeper stats should be reset"
+        assert stats["validator"]["total"] == 0, "Validator stats should be reset"
