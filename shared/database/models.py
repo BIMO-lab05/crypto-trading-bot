@@ -363,8 +363,8 @@ class NotificationHistory(Base):
     trade_id = Column(PGUUID(as_uuid=True), ForeignKey('trades.trade_id'))
     position_id = Column(PGUUID(as_uuid=True), ForeignKey('positions.position_id'))
 
-    # Metadata
-    metadata = Column(JSONB)
+    # Metadata (renamed from 'metadata' to avoid SQLAlchemy reserved word conflict)
+    notification_metadata = Column(JSONB)
 
     # Constraints
     __table_args__ = (

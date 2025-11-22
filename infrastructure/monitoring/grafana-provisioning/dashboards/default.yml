@@ -1,0 +1,20 @@
+# Grafana Dashboard Provisioning Configuration
+# Automatically loads dashboards from the specified directory when Grafana starts
+
+apiVersion: 1
+
+# List of dashboard providers
+providers:
+  # Provider for Phase 3 dashboards
+  - name: 'Phase 3 AI Services'
+    orgId: 1
+    folder: 'Crypto Trading Bot'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      # Path to dashboard JSON files
+      path: /etc/grafana/provisioning/dashboards
+      # Recursively scan for dashboards
+      foldersFromFilesStructure: true

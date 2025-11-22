@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional
 from decimal import Decimal
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import shared database infrastructure
 import sys
@@ -69,7 +69,7 @@ class PositionRepository:
                     take_profit=position.take_profit,
                     status=position.status.value,
                     strategy=position.strategy,
-                    opened_at=position.entry_time
+                    opened_at=position.opened_at  # Fixed: was entry_time
                 )
 
                 session.add(db_position)
@@ -104,7 +104,7 @@ class PositionRepository:
                     .values(
                         current_price=current_price,
                         unrealized_pnl=unrealized_pnl,
-                        updated_at=datetime.utcnow()
+                        updated_at=datetime.now(timezone.utc)
                     )
                 )
 
@@ -143,8 +143,8 @@ class PositionRepository:
                         exit_price=exit_price,
                         realized_pnl=realized_pnl,
                         exit_reason=exit_reason,
-                        closed_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                        closed_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc)
                     )
                 )
 
@@ -202,11 +202,11 @@ class TradeRepository:
         position_id: UUID,
         portfolio_id: str,
         symbol: str,
-        side: str,
+        action: str,  # Fixed: was 'side', should be 'action'
         quantity: Decimal,
         price: Decimal,
         commission: Decimal,
-        trade_type: str = "MARKET"
+        order_type: str = "MARKET"  # Fixed: was 'trade_type', should be 'order_type'
     ):
         """
         Log a trade to database
@@ -215,30 +215,32 @@ class TradeRepository:
             position_id: Associated position UUID
             portfolio_id: Portfolio ID
             symbol: Trading symbol
-            side: Trade side (BUY/SELL)
+            action: Trade action (BUY/SELL)
             quantity: Trade quantity
             price: Execution price
-            commission: Commission paid
-            trade_type: Type of trade (MARKET/LIMIT)
+            commission: Commission paid (stored in 'fee' column)
+            order_type: Type of order (MARKET/LIMIT)
         """
         try:
             async with self.db.get_async_session() as session:
+                total_cost = price * quantity + commission
                 db_trade = DBTrade(
                     position_id=position_id,
                     portfolio_id=portfolio_id,
                     symbol=symbol,
-                    side=side,
+                    action=action,  # Fixed: was 'side'
                     quantity=quantity,
                     price=price,
-                    commission=commission,
-                    trade_type=trade_type,
-                    executed_at=datetime.utcnow()
+                    total_cost=total_cost,  # Added: required field
+                    fee=commission,  # Fixed: was 'commission', should be 'fee'
+                    order_type=order_type,  # Fixed: was 'trade_type'
+                    executed_at=datetime.now(timezone.utc)
                 )
 
                 session.add(db_trade)
                 await session.commit()
 
-                logger.info(f"✓ Trade logged to database: {side} {quantity} {symbol} @ ${price}")
+                logger.info(f"✓ Trade logged to database: {action} {quantity} {symbol} @ ${price}")
 
         except Exception as e:
             logger.error(f"Failed to log trade to database: {e}")
@@ -322,7 +324,7 @@ class PortfolioRepository:
             async with self.db.get_async_session() as session:
                 update_values = {
                     'cash_balance': cash_balance,
-                    'updated_at': datetime.utcnow()
+                    'updated_at': datetime.now(timezone.utc)
                 }
 
                 if realized_pnl is not None:

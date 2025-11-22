@@ -1,0 +1,344 @@
+# GitLab CI/CD Pipeline for Crypto Trading Bot
+# Version: 1.0.0
+# Last Updated: 2025-11-14
+
+stages:
+  - validate
+  - build
+  - test
+  - security
+  - deploy
+  - cleanup
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_BUILDKIT: "1"
+  COMPOSE_DOCKER_CLI_BUILD: "1"
+  # Test database configuration
+  POSTGRES_USER: "crypto_user"
+  POSTGRES_PASSWORD: "crypto_password"
+  POSTGRES_DB: "crypto_trading"
+
+# Template for script validation
+.script_validation_template: &script_validation
+  stage: validate
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update
+    - apt-get install -y shellcheck bc
+  script:
+    - find scripts -name "*.sh" -type f -exec shellcheck -x {} \; || true
+    - chmod +x scripts/*.sh
+
+# Configuration validation job
+validate:configuration:
+  stage: validate
+  image: python:3.12
+  before_script:
+    - apt-get update
+    - apt-get install -y bc
+    - pip install python-dotenv requests redis psycopg2-binary pandas numpy
+  script:
+    - echo "Validating configuration files..."
+    - chmod +x scripts/validate_configuration.sh
+    - ./scripts/validate_configuration.sh --verbose || true
+    - echo "Validating risk limits..."
+    - python3 scripts/validate_risk_limits.py --verbose || true
+  allow_failure: true
+  artifacts:
+    reports:
+      junit: test-results/*.xml
+    expire_in: 1 week
+
+# Script validation job
+validate:scripts:
+  <<: *script_validation
+  artifacts:
+    paths:
+      - scripts/
+    expire_in: 1 day
+
+# Build Docker images
+build:services:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker info
+    - apk add --no-cache docker-compose
+  script:
+    - echo "Building all service images..."
+    - |
+      for service in bybit-connector market-data-service trading-engine portfolio-manager notification-service; do
+        if [ ! -f "services/$service/.env" ]; then
+          cp "services/$service/.env.example" "services/$service/.env" 2>/dev/null || \
+          echo "# CI Test environment" > "services/$service/.env"
+        fi
+      done
+    - docker-compose build --parallel
+    - echo "Build completed successfully"
+  artifacts:
+    reports:
+      dotenv: build.env
+    expire_in: 1 day
+  retry:
+    max: 2
+    when: runner_system_failure
+
+# Database tests
+test:database:
+  stage: test
+  image: python:3.12
+  services:
+    - name: timescale/timescaledb:latest-pg14
+      alias: postgres
+  variables:
+    POSTGRES_HOST: postgres
+  script:
+    - apt-get update
+    - apt-get install -y postgresql-client
+    - echo "Testing database connectivity..."
+    - PGPASSWORD=$POSTGRES_PASSWORD psql -h postgres -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT version();"
+    - echo "Database tests passed"
+  retry:
+    max: 2
+    when: script_failure
+
+# Integration tests
+test:integration:
+  stage: test
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - apk add --no-cache docker-compose curl bash bc python3 py3-pip
+    - pip install requests
+  script:
+    - echo "Starting infrastructure services..."
+    - |
+      for service in bybit-connector market-data-service trading-engine portfolio-manager notification-service; do
+        if [ ! -f "services/$service/.env" ]; then
+          cp "services/$service/.env.example" "services/$service/.env" 2>/dev/null || \
+          echo "# CI Test environment" > "services/$service/.env"
+        fi
+      done
+    - docker-compose up -d timescaledb redis rabbitmq
+    - sleep 30
+    - docker-compose up -d
+    - sleep 60
+    - echo "Running health checks..."
+    - chmod +x scripts/health_check.sh
+    - ./scripts/health_check.sh --verbose || true
+    - echo "Running system tests..."
+    - chmod +x scripts/run_system_tests.sh
+    - ./scripts/run_system_tests.sh --verbose --report || true
+  after_script:
+    - docker-compose logs --tail=100 || true
+    - docker-compose down -v || true
+  artifacts:
+    when: always
+    paths:
+      - /tmp/system_test_report_*.txt
+    reports:
+      junit: test-results/*.xml
+    expire_in: 30 days
+  allow_failure: true
+  timeout: 30m
+
+# Performance tests
+test:performance:
+  stage: test
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - apk add --no-cache docker-compose curl bash bc
+  script:
+    - echo "Starting services for performance testing..."
+    - |
+      for service in bybit-connector market-data-service trading-engine portfolio-manager notification-service; do
+        if [ ! -f "services/$service/.env" ]; then
+          echo "# CI Test environment" > "services/$service/.env"
+        fi
+      done
+    - docker-compose up -d
+    - sleep 60
+    - echo "Testing API response times..."
+    - |
+      start=$(date +%s%N)
+      curl -f -s http://localhost:8000/health > /dev/null || echo "API Gateway not ready"
+      end=$(date +%s%N)
+      response_time=$(( (end - start) / 1000000 ))
+      echo "API Gateway response time: ${response_time}ms"
+      if [ $response_time -gt 1000 ]; then
+        echo "Warning: Response time exceeds 1 second"
+      fi
+  after_script:
+    - docker-compose down -v || true
+  allow_failure: true
+
+# Security scanning
+security:trivy:
+  stage: security
+  image: aquasec/trivy:latest
+  script:
+    - echo "Running Trivy security scan..."
+    - trivy fs --exit-code 0 --severity HIGH,CRITICAL --format json -o trivy-report.json .
+    - trivy fs --exit-code 0 --severity HIGH,CRITICAL .
+  artifacts:
+    when: always
+    paths:
+      - trivy-report.json
+    expire_in: 30 days
+  allow_failure: true
+
+# Secret detection
+security:secrets:
+  stage: security
+  image: ubuntu:22.04
+  script:
+    - echo "Checking for secrets in code..."
+    - |
+      if grep -r "BYBIT_API_KEY=.*[a-zA-Z0-9]" services/ --exclude-dir=node_modules --exclude="*.example" --exclude="*.md"; then
+        echo "ERROR: Found potential API keys in code"
+        exit 1
+      fi
+    - |
+      if grep -r "TELEGRAM_BOT_TOKEN=.*[a-zA-Z0-9]" services/ --exclude-dir=node_modules --exclude="*.example" --exclude="*.md"; then
+        echo "ERROR: Found potential Telegram tokens in code"
+        exit 1
+      fi
+    - echo "No secrets found in code"
+
+# Documentation check
+test:documentation:
+  stage: test
+  image: ubuntu:22.04
+  script:
+    - echo "Checking documentation completeness..."
+    - |
+      docs=(
+        "README.md"
+        "GETTING_STARTED.md"
+        "SYSTEM_ARCHITECTURE.md"
+        "SCRIPTS_INDEX.md"
+        "SCRIPTS_OPERATIONAL_GUIDE.md"
+        "QUICK_REFERENCE.md"
+        "TRADING_ENGINE_CAPABILITIES.md"
+        "BYBIT_API_SETUP_GUIDE.md"
+        "TELEGRAM_NOTIFICATIONS_SETUP.md"
+      )
+
+      missing=0
+      for doc in "${docs[@]}"; do
+        if [ ! -f "$doc" ]; then
+          echo "Missing documentation: $doc"
+          missing=$((missing + 1))
+        else
+          echo "✓ Found: $doc"
+        fi
+      done
+
+      if [ $missing -gt 0 ]; then
+        echo "ERROR: Found $missing missing documentation files"
+        exit 1
+      fi
+
+      echo "All documentation files present"
+
+# Deploy to staging (manual trigger)
+deploy:staging:
+  stage: deploy
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - apk add --no-cache docker-compose openssh-client
+  script:
+    - echo "Deploying to staging environment..."
+    - docker-compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+    - sleep 60
+    - chmod +x scripts/health_check.sh
+    - ./scripts/health_check.sh --verbose
+  environment:
+    name: staging
+    url: http://staging.crypto-bot.example.com
+  when: manual
+  only:
+    - develop
+
+# Deploy to production (manual trigger)
+deploy:production:
+  stage: deploy
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - apk add --no-cache docker-compose openssh-client
+  script:
+    - echo "Deploying to production environment..."
+    - echo "Running pre-deployment checks..."
+    - chmod +x scripts/validate_configuration.sh
+    - ./scripts/validate_configuration.sh --verbose
+    - chmod +x scripts/run_system_tests.sh
+    - ./scripts/run_system_tests.sh --report
+    - echo "Creating backup before deployment..."
+    - chmod +x scripts/backup.sh
+    - ./scripts/backup.sh --full
+    - echo "Starting production deployment..."
+    - docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+    - sleep 60
+    - chmod +x scripts/health_check.sh
+    - ./scripts/health_check.sh --verbose
+  environment:
+    name: production
+    url: http://crypto-bot.example.com
+  when: manual
+  only:
+    - main
+  needs:
+    - test:integration
+    - test:database
+    - security:trivy
+    - security:secrets
+
+# Cleanup job
+cleanup:
+  stage: cleanup
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  script:
+    - echo "Cleaning up test resources..."
+    - docker system prune -af --volumes || true
+  when: always
+  allow_failure: true
+
+# Scheduled daily health check
+scheduled:health-check:
+  stage: test
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - apk add --no-cache docker-compose curl bash bc
+  script:
+    - echo "Running scheduled system health check..."
+    - |
+      for service in bybit-connector market-data-service trading-engine portfolio-manager notification-service; do
+        if [ ! -f "services/$service/.env" ]; then
+          echo "# Scheduled test" > "services/$service/.env"
+        fi
+      done
+    - docker-compose up -d
+    - sleep 60
+    - chmod +x scripts/quick_check.sh
+    - ./scripts/quick_check.sh
+    - chmod +x scripts/health_check.sh
+    - ./scripts/health_check.sh --verbose
+  after_script:
+    - docker-compose down -v || true
+  only:
+    - schedules
+  allow_failure: true

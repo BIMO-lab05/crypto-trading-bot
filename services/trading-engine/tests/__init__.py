@@ -1,4 +1,4 @@
 """
-Trading Engine Tests
-Purpose: Comprehensive test suite for trading engine components
+Trading Engine Test Suite
+Comprehensive tests for database integration and trading functionality
 """

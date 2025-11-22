@@ -85,4 +85,81 @@ export const systemAPI = {
   getHealth: () => api.get('/health'),
 }
 
+// Phase 3: ML Prediction endpoints
+export const mlAPI = {
+  // Get price predictions for a symbol
+  getPricePrediction: (symbol, interval = 60) =>
+    api.get(`/ml/predict/price/${symbol}`, { params: { interval } }),
+
+  // Get trend classification (BULLISH/BEARISH/NEUTRAL)
+  getTrendPrediction: (symbol, interval = 60) =>
+    api.get(`/ml/predict/trend/${symbol}`, { params: { interval } }),
+
+  // Get volatility forecast
+  getVolatilityPrediction: (symbol, interval = 60) =>
+    api.get(`/ml/predict/volatility/${symbol}`, { params: { interval } }),
+
+  // Get ML-based trading signal
+  getMLSignal: (symbol, interval = 60) =>
+    api.get(`/ml/predict/signal/${symbol}`, { params: { interval } }),
+
+  // List all trained models
+  getModels: () => api.get('/ml/models'),
+
+  // Get specific model info
+  getModelInfo: (symbol, interval = 60) =>
+    api.get(`/ml/models/${symbol}`, { params: { interval } }),
+
+  // Train a new model
+  trainModel: (symbol, interval = 60, lookbackDays = 90) =>
+    api.post('/ml/models/train', { symbol, interval, lookback_days: lookbackDays }),
+
+  // Retrain existing model
+  retrainModel: (symbol, interval = 60, lookbackDays = 90) =>
+    api.post(`/ml/models/retrain/${symbol}`, null, {
+      params: { interval, lookback_days: lookbackDays }
+    }),
+}
+
+// Phase 3: Sentiment Analysis endpoints
+export const sentimentAPI = {
+  // Get news sentiment for a symbol
+  getNewsSentiment: (symbol, hours = 24) =>
+    api.get(`/sentiment/news/${symbol}`, { params: { hours } }),
+
+  // Get social media sentiment
+  getSocialSentiment: (symbol, hours = 24) =>
+    api.get(`/sentiment/social/${symbol}`, { params: { hours } }),
+
+  // Get combined sentiment (news + social)
+  getCombinedSentiment: (symbol, hours = 24) =>
+    api.get(`/sentiment/combined/${symbol}`, { params: { hours } }),
+
+  // Get sentiment trend over time
+  getSentimentTrend: (symbol, periods = 24) =>
+    api.get(`/sentiment/trend/${symbol}`, { params: { periods } }),
+}
+
+// Phase 3: Multi-Timeframe Analysis endpoints
+export const multiTimeframeAPI = {
+  // Get multi-timeframe analysis
+  getAnalysis: (symbol, timeframes = '5m,15m,60m,240m') =>
+    api.get(`/analysis/multi-timeframe/${symbol}`, { params: { timeframes } }),
+
+  // Get timeframe-specific signal
+  getTimeframeSignal: (symbol, interval) =>
+    api.get(`/analysis/indicators/signal/${symbol}`, { params: { interval } }),
+}
+
+// Phase 3: Enhanced Trading Signals endpoints
+export const enhancedTradingAPI = {
+  // Get Phase 3 enhanced signal (includes ML + Sentiment + MTF)
+  getEnhancedSignal: (symbol, interval = 60) =>
+    api.get(`/trading/signals/enhanced/${symbol}`, { params: { interval } }),
+
+  // Get Phase 1 vs Phase 3 comparison
+  getSignalComparison: (symbol, interval = 60) =>
+    api.get(`/trading/signals/compare/${symbol}`, { params: { interval } }),
+}
+
 export default api

@@ -4,6 +4,7 @@ Purpose: Handle REST API calls to Bybit exchange
 """
 
 import httpx
+import json
 from typing import Dict, Any, Optional, List
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import logging
@@ -64,10 +65,18 @@ class BybitRestClient:
                 else "https://api.bybit.com"
             )
         
-        # HTTP client
+        # Fixed: HTTP client with separate connect and read timeouts (Critical Issue #5)
+        # This prevents hung requests during network issues
+        # Connect timeout: Time to establish connection
+        # Read timeout: Time to receive response after connection established
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
-            timeout=timeout,
+            timeout=httpx.Timeout(
+                connect=5.0,  # 5 seconds to establish connection
+                read=timeout,  # 30 seconds to read response (for slow API responses)
+                write=10.0,  # 10 seconds to send request data
+                pool=10.0  # 10 seconds to get connection from pool
+            ),
             headers={"Content-Type": "application/json"}
         )
         
@@ -121,11 +130,13 @@ class BybitRestClient:
             BybitAPIException: If API returns error
             RateLimitException: If rate limit exceeded
         """
-        # Build headers
+        # Build headers with authentication
         headers = {}
         if auth_required:
-            headers = self.authenticator.get_headers(params=params)
-        
+            # Serialize body data to JSON string for signature if present
+            body_str = json.dumps(data) if data else None
+            headers = self.authenticator.get_headers(params=params, body=body_str)
+
         # Make request through circuit breaker
         try:
             response = await self.circuit_breaker.call_async(

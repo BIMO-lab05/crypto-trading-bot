@@ -10,7 +10,8 @@ REFACTORED: Using Strangler Fig pattern
 
 import httpx
 import logging
-from typing import Dict, Optional
+from datetime import datetime
+from typing import Dict, Optional, List
 from app.config import get_settings
 from app.models import TradingSignal, IndicatorSignal, SignalAction
 from app.aggregation import CoreAggregator
@@ -444,6 +445,55 @@ class SignalAggregator:
         # Delegate to modular CoreAggregator
         return self.core_aggregator.aggregate_signals(indicators, timestamp, atr_data)
 
+    async def aggregate_signals_enhanced(
+        self,
+        symbol: str,
+        interval: str,
+        indicators: Dict[str, IndicatorSignal],
+        timestamp: int,
+        atr_data: Optional[Dict] = None
+    ) -> TradingSignal:
+        """
+        PHASE 3 ENHANCED SIGNAL AGGREGATION
+
+        Extends Phase 1 aggregation with:
+        - ML price predictions (LSTM)
+        - Sentiment analysis (news + social)
+        - Multi-timeframe confirmation
+
+        This method creates an EnhancedAggregator instance and uses it to
+        combine technical indicators with ML and sentiment data.
+
+        Args:
+            symbol: Trading pair
+            interval: Timeframe
+            indicators: Technical indicators
+            timestamp: Signal timestamp
+            atr_data: ATR data for stops
+
+        Returns:
+            Enhanced TradingSignal with ML and sentiment metadata
+        """
+        from app.aggregation import EnhancedAggregator
+
+        # Create enhanced aggregator
+        enhanced = EnhancedAggregator(self.settings)
+
+        try:
+            # Use enhanced aggregation
+            signal = await enhanced.aggregate_signals_enhanced(
+                symbol=symbol,
+                interval=interval,
+                indicators=indicators,
+                timestamp=timestamp,
+                atr_data=atr_data
+            )
+            return signal
+
+        finally:
+            # Cleanup
+            await enhanced.close()
+
     async def get_trading_signal(
         self,
         symbol: str,
@@ -467,6 +517,314 @@ class SignalAggregator:
         signal.symbol = symbol
 
         return signal
+
+    async def get_trading_signal_multi_timeframe(
+        self,
+        symbol: str,
+        primary_interval: str = "60",
+        timeframes: Optional[List[str]] = None
+    ) -> TradingSignal:
+        """
+        Get trading signal with multi-timeframe confirmation (Phase 2)
+
+        This method fetches signals from multiple timeframes (15m, 60m, 240m)
+        and applies consensus analysis to improve signal quality.
+
+        Args:
+            symbol: Trading pair (e.g., BTCUSDT)
+            primary_interval: Primary timeframe (default: 60m)
+            timeframes: List of timeframes to analyze (default: ["15", "60", "240"])
+
+        Returns:
+            TradingSignal with multi-timeframe confidence adjustment
+        """
+        from app.aggregation import get_multi_timeframe_analyzer
+        import time
+        import asyncio
+
+        timestamp = int(time.time() * 1000)
+
+        # Use default timeframes if not provided
+        if timeframes is None:
+            timeframes = ["15", "60", "240"]
+
+        logger.info(f"🔍 Multi-timeframe analysis for {symbol}")
+        logger.info(f"   Timeframes: {timeframes}m, Primary: {primary_interval}m")
+
+        # Fetch signals from all timeframes concurrently
+        signal_tasks = {
+            interval: self.get_trading_signal(symbol, interval)
+            for interval in timeframes
+        }
+
+        signals = {}
+        for interval, task in signal_tasks.items():
+            try:
+                signals[interval] = await task
+                logger.info(f"   ✓ {interval}m: {signals[interval].action.value} (conf: {signals[interval].confidence:.2f})")
+            except Exception as e:
+                logger.error(f"   ✗ {interval}m: Failed to fetch - {e}")
+
+        # Ensure we have at least the primary signal
+        if primary_interval not in signals:
+            logger.error(f"Failed to fetch primary signal ({primary_interval}m)")
+            # Fallback to single-timeframe
+            return await self.get_trading_signal(symbol, primary_interval)
+
+        # Get primary signal
+        primary_signal = signals[primary_interval]
+
+        # If we only have one timeframe, return it without analysis
+        if len(signals) < 2:
+            logger.warning("Insufficient timeframes for multi-timeframe analysis, using primary only")
+            return primary_signal
+
+        # Analyze multi-timeframe consensus
+        mtf_analyzer = get_multi_timeframe_analyzer()
+        mtf_analysis = await mtf_analyzer.analyze_timeframes(signals, primary_signal)
+
+        # Apply confidence modifier from multi-timeframe analysis
+        original_confidence = primary_signal.confidence
+        adjusted_confidence = original_confidence * mtf_analysis.confidence_modifier
+
+        logger.info(f"   📊 Multi-timeframe adjustment:")
+        logger.info(f"      Alignment: {mtf_analysis.alignment_strength.value}")
+        logger.info(f"      Modifier: {mtf_analysis.confidence_modifier:.2f}x")
+        logger.info(f"      Confidence: {original_confidence:.2f} → {adjusted_confidence:.2f}")
+        logger.info(f"      Reasoning: {mtf_analysis.reasoning}")
+
+        # Update signal with multi-timeframe analysis
+        primary_signal.confidence = adjusted_confidence
+        primary_signal.metadata["multi_timeframe"] = {
+            "enabled": True,
+            "timeframes": timeframes,
+            "consensus_action": mtf_analysis.consensus_action.value,
+            "alignment_strength": mtf_analysis.alignment_strength.value,
+            "confidence_modifier": mtf_analysis.confidence_modifier,
+            "agreement_pct": mtf_analysis.agreement_pct,
+            "reasoning": mtf_analysis.reasoning,
+            "timeframe_signals": {
+                interval: {
+                    "action": tf.action.value,
+                    "confidence": tf.confidence,
+                    "score": tf.score
+                }
+                for interval, tf in mtf_analysis.timeframe_signals.items()
+            }
+        }
+
+        return primary_signal
+
+    async def get_trading_signal_enhanced(
+        self,
+        symbol: str,
+        interval: str = "60",
+        use_phase3: bool = True
+    ) -> TradingSignal:
+        """
+        Get ENHANCED trading signal for a symbol (Phase 3)
+
+        This is the Phase 3 entry point that includes:
+        - Technical indicators (Phase 1)
+        - ML price predictions
+        - Sentiment analysis
+        - Multi-timeframe confirmation
+
+        Args:
+            symbol: Trading pair (e.g., BTCUSDT)
+            interval: Timeframe in minutes
+            use_phase3: If False, fallback to Phase 1 signals only
+
+        Returns:
+            Enhanced TradingSignal with all Phase 3 features
+        """
+        import time
+        timestamp = int(time.time() * 1000)
+
+        # Fetch all indicators
+        indicators, atr_data = await self.fetch_all_indicators(symbol, interval)
+
+        # Use enhanced aggregation if enabled
+        if use_phase3 and self.settings.enable_ml_predictions:
+            signal = await self.aggregate_signals_enhanced(
+                symbol=symbol,
+                interval=interval,
+                indicators=indicators,
+                timestamp=timestamp,
+                atr_data=atr_data
+            )
+        else:
+            # Fallback to Phase 1 aggregation
+            signal = self.aggregate_signals(indicators, timestamp, atr_data)
+
+        signal.symbol = symbol
+        return signal
+
+    async def get_trading_signal_with_vp(
+        self,
+        symbol: str,
+        primary_interval: str = "60",
+        timeframes: Optional[List[str]] = None,
+        enable_vp: bool = True,
+        vp_lookback: int = 100
+    ) -> TradingSignal:
+        """
+        Get trading signal with Volume Profile integration (Phase 3 - VP Strategy)
+
+        Combines multi-timeframe confirmation with volume profile analysis
+        for enhanced entry/exit levels and strategy selection.
+
+        Args:
+            symbol: Trading pair
+            primary_interval: Primary timeframe
+            timeframes: Timeframes for MTF analysis
+            enable_vp: Enable volume profile analysis
+            vp_lookback: Number of candles for VP calculation
+
+        Returns:
+            TradingSignal with VP enhancements
+        """
+        from app.volume_profile import get_vp_calculator
+        from app.vp_strategy import get_vp_strategy_analyzer
+        import time
+
+        # Get multi-timeframe signal first (Phase 2)
+        signal = await self.get_trading_signal_multi_timeframe(
+            symbol=symbol,
+            primary_interval=primary_interval,
+            timeframes=timeframes
+        )
+
+        # If VP not enabled, return MTF signal as-is
+        if not enable_vp:
+            return signal
+
+        try:
+            # Fetch historical candles for VP calculation
+            candles = await self._fetch_candles_for_vp(
+                symbol=symbol,
+                interval=primary_interval,
+                limit=vp_lookback
+            )
+
+            if not candles or len(candles) < 10:
+                logger.warning(f"⚠️ Insufficient candles for VP calculation ({len(candles) if candles else 0})")
+                return signal
+
+            # Calculate volume profile
+            vp_calculator = get_vp_calculator()
+            vp_profile = vp_calculator.calculate_profile(
+                symbol=symbol,
+                interval=primary_interval,
+                candles=candles
+            )
+
+            if not vp_profile:
+                logger.warning(f"⚠️ VP calculation failed for {symbol}")
+                return signal
+
+            # Get current price from signal metadata
+            current_price = None
+            for indicator_name, indicator_signal in signal.indicators.items():
+                if hasattr(indicator_signal, 'metadata') and indicator_signal.metadata:
+                    if "current_price" in indicator_signal.metadata:
+                        current_price = Decimal(str(indicator_signal.metadata["current_price"]))
+                        break
+
+            if not current_price:
+                logger.warning(f"⚠️ No current price found in signal")
+                return signal
+
+            # Analyze VP strategy
+            vp_analyzer = get_vp_strategy_analyzer()
+
+            # Convert signal to dict for VP analyzer
+            mtf_signal_dict = {
+                'action': signal.action,
+                'confidence': signal.confidence,
+                'metadata': signal.metadata
+            }
+
+            vp_signal = vp_analyzer.analyze_vp_signal(
+                symbol=symbol,
+                current_price=current_price,
+                vp_profile=vp_profile,
+                mtf_signal=mtf_signal_dict
+            )
+
+            # Combine VP signal with MTF signal
+            combined = vp_analyzer.combine_with_mtf_signal(vp_signal, mtf_signal_dict)
+
+            # Update original signal with VP enhancements
+            signal.confidence = combined['confidence']
+            signal.metadata.update(combined.get('metadata', {}))
+            signal.metadata['vp_strategy'] = combined.get('vp_strategy')
+            signal.metadata['vp_position'] = combined.get('vp_position')
+            signal.metadata['vp_confidence_modifier'] = combined.get('vp_confidence_modifier')
+
+            logger.info(
+                f"📊 VP Analysis: {vp_signal.strategy_type.value} "
+                f"| Position: {vp_signal.price_position} "
+                f"| Modifier: {combined.get('vp_confidence_modifier', 1.0):.2f}x"
+            )
+            logger.info(f"   VP Levels: POC=${vp_profile.poc:.2f}, VAH=${vp_profile.vah:.2f}, VAL=${vp_profile.val:.2f}")
+            logger.info(f"   {vp_signal.reasoning}")
+
+        except Exception as e:
+            logger.error(f"❌ VP analysis error for {symbol}: {e}", exc_info=True)
+            # Return original signal if VP fails
+            return signal
+
+        return signal
+
+    async def _fetch_candles_for_vp(
+        self,
+        symbol: str,
+        interval: str,
+        limit: int = 100
+    ) -> List[Dict]:
+        """
+        Fetch historical candles for volume profile calculation
+
+        Args:
+            symbol: Trading symbol
+            interval: Timeframe interval
+            limit: Number of candles to fetch
+
+        Returns:
+            List of candle dicts with OHLCV data
+        """
+        try:
+            # Fetch klines from TA service
+            url = f"{self.base_url}/api/v1/klines/{symbol}"
+            params = {
+                "interval": interval,
+                "limit": limit
+            }
+
+            response = await self.client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            klines = data.get('klines', [])
+
+            # Convert to candle format expected by VP calculator
+            candles = []
+            for k in klines:
+                candles.append({
+                    'timestamp': datetime.fromtimestamp(k[0] / 1000),
+                    'open': float(k[1]),
+                    'high': float(k[2]),
+                    'low': float(k[3]),
+                    'close': float(k[4]),
+                    'volume': float(k[5])
+                })
+
+            logger.info(f"✓ Fetched {len(candles)} candles for VP calculation")
+            return candles
+
+        except Exception as e:
+            logger.error(f"❌ Error fetching candles for VP: {e}")
+            return []
 
 
 # Global signal aggregator instance

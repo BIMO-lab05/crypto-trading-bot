@@ -124,10 +124,11 @@ class Phase1MetricsProvider:
 
                     # Parse VALIDATOR
                     if "VALIDATOR" in line or "Volume" in line:
-                        if "confirmed" in line.lower():
-                            metrics["validator"]["confirmed"] += 1
-                        elif "NOT confirmed" in line or "rejected" in line.lower():
+                        # Check for rejection first (before generic "confirmed")
+                        if "NOT confirmed" in line or "rejected" in line.lower():
                             metrics["validator"]["rejected"] += 1
+                        elif "confirmed" in line.lower():
+                            metrics["validator"]["confirmed"] += 1
 
                     # Parse ATR volatility
                     if "ATR" in line:

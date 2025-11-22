@@ -1,0 +1,86 @@
+{
+  "generated_at": "2025-11-20T12:54:22.155241",
+  "data_source": "Real Bybit Data (90 days)",
+  "date_range": "2025-08-22 to 2025-11-20",
+  "test_config": {
+    "initial_capital": 10000.0,
+    "commission_rate": 0.001,
+    "risk_per_trade": 0.02
+  },
+  "results": {
+    "BTCUSDT": {
+      "total_trades": 584,
+      "winning_trades": 128,
+      "losing_trades": 456,
+      "win_rate": 21.92,
+      "total_pnl": -7056.59,
+      "total_return_pct": -70.57,
+      "sharpe_ratio": -13.47,
+      "max_drawdown": 70.94,
+      "profit_factor": 0.39,
+      "avg_win": 35.11,
+      "avg_loss": -25.33,
+      "largest_win": 282.02,
+      "largest_loss": -171.0,
+      "avg_trade_duration_hours": 3.3,
+      "long_trades": 287,
+      "short_trades": 297,
+      "long_win_rate": 19.16,
+      "short_win_rate": 24.58,
+      "gross_profit": 4494.27,
+      "gross_loss": 11550.86,
+      "final_capital": 2943.41,
+      "symbol": "BTCUSDT",
+      "strategy_params": {
+        "bb_length": 20,
+        "kc_length": 20,
+        "min_momentum_threshold": 0.5,
+        "stop_loss_pct": 2.0,
+        "take_profit_pct": 4.0,
+        "require_squeeze_release": false,
+        "require_volume_confirmation": false
+      }
+    },
+    "ETHUSDT": {
+      "total_trades": 594,
+      "winning_trades": 182,
+      "losing_trades": 412,
+      "win_rate": 30.64,
+      "total_pnl": -7287.14,
+      "total_return_pct": -72.87,
+      "sharpe_ratio": -8.67,
+      "max_drawdown": 72.87,
+      "profit_factor": 0.55,
+      "avg_win": 48.45,
+      "avg_loss": -39.09,
+      "largest_win": 432.21,
+      "largest_loss": -260.83,
+      "avg_trade_duration_hours": 3.2,
+      "long_trades": 277,
+      "short_trades": 317,
+      "long_win_rate": 28.16,
+      "short_win_rate": 32.81,
+      "gross_profit": 8817.36,
+      "gross_loss": 16104.5,
+      "final_capital": 2712.86,
+      "symbol": "ETHUSDT",
+      "strategy_params": {
+        "bb_length": 20,
+        "kc_length": 20,
+        "min_momentum_threshold": 0.5,
+        "stop_loss_pct": 2.0,
+        "take_profit_pct": 4.0,
+        "require_squeeze_release": false,
+        "require_volume_confirmation": false
+      }
+    }
+  },
+  "recommendation": {
+    "btc_profitable": false,
+    "eth_profitable": false,
+    "add_to_trading": {
+      "BTCUSDT": false,
+      "ETHUSDT": false
+    }
+  }
+}

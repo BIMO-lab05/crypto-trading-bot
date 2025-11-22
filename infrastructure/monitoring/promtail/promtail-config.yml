@@ -1,0 +1,256 @@
+# Promtail Configuration
+# Log shipping agent - sends logs to Loki
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: info
+
+# Position tracking - where Promtail left off reading logs
+positions:
+  filename: /tmp/positions.yaml
+
+# Loki client configuration
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 1048576  # 1MB
+
+    external_labels:
+      cluster: 'crypto-bot-production'
+      environment: '${ENVIRONMENT:-development}'
+
+    # Retry configuration
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+    # Timeout settings
+    timeout: 10s
+
+# Scrape configurations - where to collect logs from
+scrape_configs:
+  # Service logs (JSON format from structured logging)
+  - job_name: service-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: service-logs
+          __path__: /services/*/logs/service.log
+
+    # Pipeline stages to parse JSON logs
+    pipeline_stages:
+      # Parse JSON
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            service: service
+            message: message
+            request_id: request_id
+            user_id: user_id
+            endpoint: endpoint
+            method: method
+            status_code: status_code
+            duration_ms: duration_ms
+
+      # Set timestamp from log
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+      # Add labels
+      - labels:
+          level:
+          service:
+          request_id:
+
+      # Output to Loki
+      - output:
+          source: message
+
+  # API Gateway logs
+  - job_name: api-gateway
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: api-gateway
+          service: api-gateway
+          __path__: /services/api-gateway/logs/*.log
+
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            request_id: request_id
+            endpoint: endpoint
+            method: method
+            status_code: status_code
+            duration_ms: duration_ms
+      - labels:
+          level:
+          request_id:
+          endpoint:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  # Trading Engine logs
+  - job_name: trading-engine
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: trading-engine
+          service: trading-engine
+          __path__: /services/trading-engine/logs/*.log
+
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            trade_id: trade_id
+            symbol: symbol
+            action: action
+            price: price
+            quantity: quantity
+      - labels:
+          level:
+          symbol:
+          action:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  # Market Data Service logs
+  - job_name: market-data
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: market-data-service
+          service: market-data-service
+          __path__: /services/market-data-service/logs/*.log
+
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            symbol: symbol
+            data_type: data_type
+      - labels:
+          level:
+          symbol:
+          data_type:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  # System logs
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: system
+          __path__: /var/log/syslog
+
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\w+\s+\d+\s+\d+:\d+:\d+)\s+(?P<host>\S+)\s+(?P<process>\S+):\s+(?P<message>.*)$'
+      - labels:
+          host:
+          process:
+      - timestamp:
+          source: timestamp
+          format: 'Jan  2 15:04:05'
+
+  # Docker container logs
+  - job_name: docker
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          __path__: /var/lib/docker/containers/*/*.log
+
+    pipeline_stages:
+      - json:
+          expressions:
+            stream: stream
+            log: log
+            time: time
+      - labels:
+          stream:
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+
+  # PostgreSQL logs
+  - job_name: postgres
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: postgres
+          __path__: /var/log/postgresql/*.log
+
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+\w+)\s+\[(?P<pid>\d+)\]\s+(?P<level>\w+):\s+(?P<message>.*)$'
+      - labels:
+          level:
+          pid:
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02 15:04:05.000 MST'
+
+  # Redis logs
+  - job_name: redis
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: redis
+          __path__: /var/log/redis/*.log
+
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<pid>\d+):(?P<role>\w+)\s+(?P<timestamp>\d+\s+\w+\s+\d+:\d+:\d+\.\d+)\s+(?P<level>[\.\*\#\-])\s+(?P<message>.*)$'
+      - labels:
+          level:
+          role:
+
+  # Backup logs
+  - job_name: backups
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: backups
+          __path__: /var/log/backups.log
+
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            backup_type: backup_type
+            status: status
+      - labels:
+          level:
+          backup_type:
+          status:
+      - timestamp:
+          source: timestamp
+          format: RFC3339

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":separateMajorReleases"
+  ],
+  "description": "Renovate configuration for automated dependency updates (alternative to Dependabot)",
+  "enabledManagers": ["pip_requirements", "dockerfile", "github-actions"],
+  "schedule": {
+    "schedule": ["before 10am on monday"]
+  },
+  "timezone": "UTC",
+  "labels": ["dependencies", "automated"],
+  "assignees": ["siradj05"],
+  "reviewers": ["siradj05"],
+  "packageRules": [
+    {
+      "description": "Group all non-major updates together",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch",
+      "automerge": false
+    },
+    {
+      "description": "Auto-merge patch updates for testing dependencies",
+      "matchPackagePatterns": ["^pytest", "^coverage"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Group core framework updates",
+      "matchPackageNames": ["fastapi", "uvicorn", "pydantic", "pydantic-settings"],
+      "groupName": "core framework",
+      "schedule": ["before 10am on monday"]
+    },
+    {
+      "description": "Group database dependencies",
+      "matchPackagePatterns": ["^sqlalchemy", "^alembic", "^asyncpg", "^psycopg"],
+      "groupName": "database",
+      "schedule": ["before 10am on monday"]
+    },
+    {
+      "description": "Group monitoring dependencies",
+      "matchPackagePatterns": ["^prometheus", "^sentry", "^opentelemetry"],
+      "groupName": "monitoring",
+      "schedule": ["before 10am on monday"]
+    },
+    {
+      "description": "Group testing dependencies",
+      "matchPackagePatterns": ["^pytest", "^coverage"],
+      "groupName": "testing",
+      "schedule": ["before 10am on monday"]
+    },
+    {
+      "description": "Group development tools",
+      "matchPackageNames": ["black", "isort", "mypy", "flake8"],
+      "groupName": "dev-tools",
+      "schedule": ["before 10am on monday"]
+    },
+    {
+      "description": "Require approval for major updates",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "stabilityDays": 3
+    },
+    {
+      "description": "Security updates - high priority",
+      "matchDatasources": ["pypi"],
+      "matchUpdateTypes": ["patch"],
+      "matchConfidence": ["high", "very high"],
+      "labels": ["security", "dependencies"],
+      "prPriority": 10
+    },
+    {
+      "description": "Pin Docker base images",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": true,
+      "pinDigests": true
+    }
+  ],
+  "pip_requirements": {
+    "fileMatch": ["^requirements\\.txt$", "^requirements/.*\\.txt$"]
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security", "dependencies"],
+    "assignees": ["siradj05"],
+    "enabled": true
+  },
+  "prConcurrentLimit": 10,
+  "prCreation": "immediate",
+  "prHourlyLimit": 2,
+  "rebaseWhen": "behind-base-branch",
+  "separateMinorPatch": true,
+  "separateMajorMinor": true,
+  "commitMessagePrefix": "deps:",
+  "commitMessageAction": "update",
+  "commitMessageExtra": "to {{newVersion}}",
+  "ignorePresets": [],
+  "ignoreDeps": [],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/__pycache__/**",
+    "**/.venv/**",
+    "**/venv/**"
+  ],
+  "postUpdateOptions": ["gomodTidy"],
+  "rangeStrategy": "pin",
+  "semanticCommitScope": "deps",
+  "semanticCommitType": "chore",
+  "statusCheckVerify": true,
+  "platformAutomerge": false,
+  "python": {
+    "enabled": true
+  }
+}

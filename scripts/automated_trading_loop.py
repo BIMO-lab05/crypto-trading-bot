@@ -54,7 +54,7 @@ class TradingConfig:
     # API endpoints
     api_gateway_url: str = "http://localhost:8000"
 
-    # Trading parameters
+    # Trading parameters - UPDATED: Added SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT
     symbols: List[str] = None
     interval_minutes: int = 5  # Check signals every 5 minutes
     signal_interval: int = 60  # Use 60-minute candles for analysis
@@ -81,7 +81,8 @@ class TradingConfig:
     def __post_init__(self):
         """Initialize default symbols"""
         if self.symbols is None:
-            self.symbols = ["BTCUSDT", "ETHUSDT"]
+            # Default symbols - now includes 7 trading pairs
+            self.symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"]
 
 
 class TradingBot:
@@ -386,8 +387,9 @@ class TradingBot:
 async def main():
     """Main entry point"""
     # Load configuration (can be from file or environment)
+    # UPDATED: Default symbols now include all 7 trading pairs
     config = TradingConfig(
-        symbols=["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+        symbols=["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"],
         interval_minutes=5,
         signal_interval=60,
         min_confidence=0.65,

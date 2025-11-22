@@ -13,9 +13,9 @@ numpy==1.26.3             # Numerical computing
 scipy==1.12.0             # Scientific computing
 
 # Technical Analysis Libraries
-TA-Lib==0.4.28            # Technical analysis library (requires system install)
-pandas-ta==0.3.14b0       # Pandas TA extension
-ta==0.11.0                # Alternative TA library
+# TA-Lib removed - requires gcc/system install, adding complexity
+# pandas-ta removed - numpy 2.0 requirement incompatible with pandas 2.2.0
+ta==0.11.0                # Comprehensive TA library (RSI, MACD, BB, EMA, SMA, etc)
 
 # Machine Learning (for advanced signals)
 scikit-learn==1.4.0       # ML algorithms
@@ -30,7 +30,7 @@ redis==5.0.1              # Sync Redis client
 pika==1.3.2               # RabbitMQ client
 
 # HTTP Client
-httpx==0.26.0             # HTTP client
+httpx==0.27.0             # HTTP client
 
 # Monitoring & Logging
 prometheus-client==0.19.0 # Metrics

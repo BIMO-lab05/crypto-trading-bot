@@ -28,6 +28,8 @@ class ServiceProxy:
             "trading-engine": settings.trading_engine_url,
             "portfolio-manager": settings.portfolio_manager_url,
             "risk-metrics": settings.risk_metrics_url,
+            "ml-prediction": settings.ml_prediction_url,
+            "sentiment-analysis": settings.sentiment_analysis_url,
         }
 
     async def initialize(self):

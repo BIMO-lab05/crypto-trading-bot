@@ -57,7 +57,7 @@ class RiskManager:
 
         # Check daily loss limit
         max_loss = Decimal(str(self.settings.paper_initial_balance)) * Decimal(str(self.settings.max_daily_loss_pct / 100))
-        if self.daily_pnl < -max_loss:
+        if self.daily_pnl <= -max_loss:
             return True
 
         return False
@@ -100,6 +100,11 @@ class RiskManager:
 
         # Maximum position value based on percentage
         max_position_value = account_balance * Decimal(str(self.settings.max_position_size_pct / 100))
+
+        # Fixed: Protect against division by zero (Critical Issue)
+        if entry_price <= 0:
+            logger.error(f"Invalid entry price: {entry_price}. Must be positive.")
+            return Decimal("0")
 
         # Calculate quantity
         quantity = max_position_value / entry_price

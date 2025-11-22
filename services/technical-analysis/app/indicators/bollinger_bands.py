@@ -66,12 +66,21 @@ class BollingerBandsCalculator:
             # Get current price
             current_price = df['close'].iloc[-1]
 
+            # Fixed: Calculate bandwidth with division by zero protection (Critical Issue #2)
+            # When middle_band is 0 or very close to 0, bandwidth calculation would crash
+            middle_val = middle_band.iloc[-1]
+            if middle_val == 0 or np.isnan(middle_val):
+                logger.warning(f"Middle band is {middle_val}, cannot calculate bandwidth")
+                bandwidth = 0.0
+            else:
+                bandwidth = float((upper_band.iloc[-1] - lower_band.iloc[-1]) / middle_val)
+
             result = {
                 "upper_band": float(upper_band.iloc[-1]),
-                "middle_band": float(middle_band.iloc[-1]),
+                "middle_band": float(middle_val),
                 "lower_band": float(lower_band.iloc[-1]),
                 "current_price": float(current_price),
-                "bandwidth": float((upper_band.iloc[-1] - lower_band.iloc[-1]) / middle_band.iloc[-1])
+                "bandwidth": bandwidth
             }
 
             logger.debug(f"Calculated BB: {result}")
@@ -223,11 +232,16 @@ class BollingerBandsCalculator:
             upper_band = middle_band + (std * self.std_dev)
             lower_band = middle_band - (std * self.std_dev)
 
+            # Fixed: Calculate bandwidth with division by zero protection (Critical Issue #2)
+            # When middle_band has 0 values, bandwidth calculation would crash
+            # Replace 0 with inf to avoid division by zero (results in inf bandwidth for those rows)
+            bandwidth = (upper_band - lower_band) / middle_band.replace(0, np.inf)
+
             result_df = pd.DataFrame({
                 'upper_band': upper_band,
                 'middle_band': middle_band,
                 'lower_band': lower_band,
-                'bandwidth': (upper_band - lower_band) / middle_band
+                'bandwidth': bandwidth
             })
 
             return result_df

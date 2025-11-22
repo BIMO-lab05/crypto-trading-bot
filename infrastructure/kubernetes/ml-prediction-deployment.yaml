@@ -1,0 +1,105 @@
+# Kubernetes Deployment for ML Prediction Service
+# LSTM-based price prediction microservice
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-prediction-service
+  labels:
+    app: crypto-trading-bot
+    component: ml-prediction
+    tier: backend
+spec:
+  replicas: 2  # High availability with 2 replicas
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      component: ml-prediction
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: ml-prediction
+    spec:
+      containers:
+      - name: ml-prediction
+        image: crypto-trading-bot/ml-prediction:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8007
+          name: http
+          protocol: TCP
+        env:
+        - name: DEBUG
+          value: "false"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: MARKET_DATA_URL
+          value: "http://market-data-service:8002"
+        volumeMounts:
+        - name: ml-models
+          mountPath: /app/models
+        - name: logs
+          mountPath: /app/logs
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"  # ML models need more memory
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 40
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: ml-models
+        persistentVolumeClaim:
+          claimName: ml-models-pvc
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-prediction-service
+  labels:
+    app: crypto-trading-bot
+    component: ml-prediction
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    component: ml-prediction
+  ports:
+  - port: 8007
+    targetPort: 8007
+    protocol: TCP
+    name: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-models-pvc
+  labels:
+    app: crypto-trading-bot
+    component: ml-prediction
+spec:
+  accessModes:
+  - ReadWriteMany  # Multiple pods need to read models
+  resources:
+    requests:
+      storage: 10Gi  # Storage for trained ML models
+  storageClassName: standard

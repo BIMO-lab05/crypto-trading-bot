@@ -1,0 +1,121 @@
+# Docker Compose configuration for test databases
+# Purpose: Isolated test database infrastructure
+# Usage: docker-compose -f docker-compose.test.yml up -d
+# Health check optimized: Databases healthy in ~15 seconds
+
+services:
+  # PostgreSQL Test Database
+  # Lightweight PostgreSQL instance for integration tests
+  test-postgres:
+    image: postgres:15-alpine
+    container_name: crypto-bot-test-postgres
+    environment:
+      POSTGRES_DB: cryptobot_test
+      POSTGRES_USER: cryptobot_test
+      POSTGRES_PASSWORD: test_password_123
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - max_connections=100
+    ports:
+      # Expose on different port to avoid conflicts with production
+      - "5434:5432"
+    # Use tmpfs for faster I/O (data is in-memory)
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptobot_test -d cryptobot_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s  # Allow 10s for initial startup
+    networks:
+      - test-network
+    # Prevent auto-restart (tests should be ephemeral)
+    restart: "no"
+
+  # TimescaleDB Test Database
+  # For testing time-series market data operations
+  test-timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: crypto-bot-test-timescaledb
+    environment:
+      POSTGRES_DB: market_data_test
+      POSTGRES_USER: cryptobot_test
+      POSTGRES_PASSWORD: test_password_123
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - max_connections=50
+    ports:
+      - "5435:5432"
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptobot_test -d market_data_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s  # Allow 10s for initial startup
+    networks:
+      - test-network
+    restart: "no"
+
+  # Redis Test Instance
+  # For testing caching and message queue operations
+  test-redis:
+    image: redis:7-alpine
+    container_name: crypto-bot-test-redis
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s  # Redis starts faster
+    networks:
+      - test-network
+    restart: "no"
+
+networks:
+  test-network:
+    name: crypto-bot-test-network
+    driver: bridge
+
+# Usage instructions:
+# 1. Start test databases:
+#    docker-compose -f docker-compose.test.yml up -d
+#
+# 2. Wait for health checks to pass (~15 seconds):
+#    docker-compose -f docker-compose.test.yml ps
+#
+# 3. Run tests:
+#    pytest services/trading-engine/tests/
+#
+# 4. Stop and remove test databases:
+#    docker-compose -f docker-compose.test.yml down -v
+#
+# 5. Clean up everything:
+#    docker-compose -f docker-compose.test.yml down -v --remove-orphans
+
+# Performance metrics:
+# - Fresh startup: ~15 seconds to healthy state
+# - tmpfs storage: 5-10x faster than disk I/O
+# - Separate ports: No conflicts with production databases
+# - Health checks: Verify readiness before test execution
+# - No restart policy: Tests should create fresh databases each time
+
+# Health check details:
+# - PostgreSQL: pg_isready checks if server accepts connections
+# - TimescaleDB: pg_isready checks if server accepts connections
+# - Redis: redis-cli ping verifies Redis is responsive
+# - start_period: Allows initial startup without failing health checks
+# - interval: Check every 5 seconds
+# - timeout: Each check must complete within 5 seconds
+# - retries: Allow 5 failed checks before marking unhealthy

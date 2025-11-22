@@ -1,0 +1,294 @@
+# ==============================================================================
+# Weekly Performance Report Configuration
+# ==============================================================================
+# This configuration file controls the automated weekly performance reporting
+# system for the crypto trading bot.
+#
+# Last Updated: 2025-11-19
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# DATABASE CONNECTION
+# ------------------------------------------------------------------------------
+# PostgreSQL database containing trading data
+database:
+  host: localhost
+  port: 5432
+  user: cryptobot
+  password: cryptobot_secure_2024
+  database: cryptobot
+
+  # Connection pool settings (optional)
+  pool_size: 10
+  max_overflow: 20
+  pool_timeout: 30
+
+# ------------------------------------------------------------------------------
+# EMAIL CONFIGURATION
+# ------------------------------------------------------------------------------
+# SMTP settings for email delivery of reports
+email:
+  # SMTP server settings
+  server: smtp.gmail.com
+  port: 587
+  username: your-email@gmail.com
+  password: your-app-specific-password  # Use app-specific password for Gmail
+  from_email: crypto-bot@trading.com
+
+  # Email recipients
+  recipients:
+    - trader@example.com
+    - manager@example.com
+    - team@example.com
+
+  # Email subject template (optional)
+  subject_template: "Weekly Trading Performance Report - {start_date} to {end_date}"
+
+  # Enable/disable email sending
+  enabled: true
+
+  # Send even if no trades executed
+  send_if_no_trades: false
+
+# ------------------------------------------------------------------------------
+# REPORT GENERATION
+# ------------------------------------------------------------------------------
+report:
+  # Output directory for generated reports
+  # Reports are organized by date: output_directory/YYYY-MM-DD/
+  output_directory: /mnt/d/Bimo_max/crypto-trading-bot/reports
+
+  # Report formats to generate
+  # Options: json, markdown, html, csv
+  formats:
+    - markdown
+    - html
+    - json
+    - csv
+
+  # Include charts and visualizations
+  include_charts: true
+
+  # Chart settings
+  charts:
+    # DPI for chart images (higher = better quality, larger file size)
+    dpi: 300
+
+    # Chart style: whitegrid, darkgrid, white, dark, ticks
+    style: whitegrid
+
+    # Color scheme
+    colors:
+      profit: "#06A77D"
+      loss: "#D62828"
+      primary: "#2E86AB"
+      secondary: "#9D4EDD"
+
+  # Report retention (days)
+  # Old reports will be automatically cleaned up
+  retention_days: 90
+
+  # Create archive after report generation
+  create_archive: true
+  archive_format: zip  # zip or tar.gz
+
+# ------------------------------------------------------------------------------
+# SCHEDULING
+# ------------------------------------------------------------------------------
+# Automated report generation schedule
+schedule:
+  # Day of week to generate report (Monday, Tuesday, etc.)
+  day: Monday
+
+  # Time to generate report (24-hour format)
+  time: "09:00"
+
+  # Timezone
+  timezone: UTC
+
+  # Report period
+  # Options: weekly, biweekly, monthly
+  period: weekly
+
+  # Custom date range (overrides period if set)
+  # custom_start: "2025-11-01"
+  # custom_end: "2025-11-07"
+
+# ------------------------------------------------------------------------------
+# METRICS CONFIGURATION
+# ------------------------------------------------------------------------------
+metrics:
+  # Minimum trades required for certain metrics
+  min_trades_for_sharpe: 10
+  min_trades_for_win_rate: 5
+
+  # Risk-free rate for Sharpe ratio calculation (annual percentage)
+  risk_free_rate: 0.0
+
+  # Number of trading days per year (for annualization)
+  # Crypto: 365, Traditional: 252
+  trading_days_per_year: 365
+
+  # Metrics to include in summary
+  summary_metrics:
+    - total_trades
+    - win_rate
+    - total_pnl
+    - roi_percentage
+    - sharpe_ratio
+    - max_drawdown
+    - profit_factor
+
+  # Breakdown by symbol
+  include_symbol_breakdown: true
+
+  # Breakdown by strategy
+  include_strategy_breakdown: true
+
+  # Include trade-by-trade details
+  include_trade_details: false
+
+# ------------------------------------------------------------------------------
+# ALERTS
+# ------------------------------------------------------------------------------
+# Alert thresholds for report highlights
+alerts:
+  # Alert if win rate drops below threshold
+  min_win_rate: 45.0
+
+  # Alert if max drawdown exceeds threshold (percentage)
+  max_drawdown_threshold: 15.0
+
+  # Alert if Sharpe ratio is below threshold
+  min_sharpe_ratio: 0.5
+
+  # Alert if daily loss exceeds threshold (percentage)
+  max_daily_loss: 5.0
+
+  # Send alert email if thresholds breached
+  send_alert_email: true
+
+  # Alert email recipients (overrides normal recipients)
+  alert_recipients:
+    - risk-manager@example.com
+    - senior-trader@example.com
+
+# ------------------------------------------------------------------------------
+# ADVANCED OPTIONS
+# ------------------------------------------------------------------------------
+advanced:
+  # Enable debug mode (more verbose logging)
+  debug: false
+
+  # Parallel processing for chart generation
+  parallel_charts: true
+
+  # Maximum number of parallel workers
+  max_workers: 4
+
+  # Cache database queries
+  cache_queries: true
+  cache_ttl_seconds: 300
+
+  # Performance optimizations
+  optimizations:
+    # Use chunked reading for large datasets
+    chunk_size: 10000
+
+    # Pre-calculate common aggregations
+    precompute_aggregations: true
+
+  # Export raw data alongside reports
+  export_raw_data: false
+
+  # Include backtesting comparison (if available)
+  include_backtest_comparison: false
+
+# ------------------------------------------------------------------------------
+# LOGGING
+# ------------------------------------------------------------------------------
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: INFO
+
+  # Log file path
+  log_file: /mnt/d/Bimo_max/crypto-trading-bot/logs/performance_report.log
+
+  # Log rotation
+  rotate_logs: true
+  max_log_size_mb: 10
+  backup_count: 5
+
+  # Include timestamps in logs
+  include_timestamp: true
+
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# ------------------------------------------------------------------------------
+# NOTIFICATIONS (ALTERNATIVE TO EMAIL)
+# ------------------------------------------------------------------------------
+# Additional notification channels
+notifications:
+  # Telegram notifications
+  telegram:
+    enabled: false
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+
+  # Slack notifications
+  slack:
+    enabled: false
+    webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+  # Discord notifications
+  discord:
+    enabled: false
+    webhook_url: "https://discord.com/api/webhooks/YOUR/WEBHOOK/URL"
+
+# ------------------------------------------------------------------------------
+# CUSTOM QUERIES
+# ------------------------------------------------------------------------------
+# Define custom SQL queries for additional metrics
+custom_queries:
+  # Example: Average trade size by symbol
+  avg_trade_size:
+    enabled: false
+    query: |
+      SELECT
+        symbol,
+        AVG(quantity * price) as avg_trade_size
+      FROM trades
+      WHERE executed_at >= %(start_date)s AND executed_at < %(end_date)s
+      GROUP BY symbol
+      ORDER BY avg_trade_size DESC
+
+  # Example: Hourly trading activity
+  hourly_activity:
+    enabled: false
+    query: |
+      SELECT
+        EXTRACT(HOUR FROM executed_at) as hour,
+        COUNT(*) as trade_count,
+        SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins
+      FROM trades
+      WHERE executed_at >= %(start_date)s AND executed_at < %(end_date)s
+      GROUP BY EXTRACT(HOUR FROM executed_at)
+      ORDER BY hour
+
+# ==============================================================================
+# END OF CONFIGURATION
+# ==============================================================================
+#
+# USAGE NOTES:
+# 1. Update database credentials to match your environment
+# 2. Configure SMTP settings for email delivery
+# 3. Adjust schedule to match your preferred reporting time
+# 4. Customize alert thresholds based on your risk tolerance
+# 5. Enable/disable features as needed
+#
+# SECURITY NOTES:
+# - Never commit this file with real passwords to version control
+# - Use environment variables for sensitive values in production
+# - Restrict file permissions: chmod 600 performance_report_config.yaml
+# ==============================================================================

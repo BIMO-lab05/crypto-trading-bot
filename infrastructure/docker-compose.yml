@@ -1,8 +1,5 @@
 # Docker Compose configuration for Crypto Trading Bot
-# Services: PostgreSQL, TimescaleDB, Redis, RabbitMQ
-# Version: 3.8
-
-version: '3.8'
+# Services: PostgreSQL, TimescaleDB, Redis, RabbitMQ, Vault
 
 services:
   # PostgreSQL - Main application database
@@ -13,11 +10,17 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-cryptobot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cryptobot_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-cryptobot}
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - postgres_wal_archive:/var/lib/postgresql/wal_archive
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     networks:
       - crypto-bot-network
     healthcheck:
@@ -26,6 +29,14 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # TimescaleDB - Time-series data for market data
   timescaledb:
@@ -35,11 +46,18 @@ services:
       POSTGRES_USER: ${TIMESCALE_USER:-cryptobot}
       POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-timescale_dev_password}
       POSTGRES_DB: ${TIMESCALE_DB:-market_data}
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
     ports:
       - "5433:5432"
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
+      - timescaledb_wal_archive:/var/lib/postgresql/wal_archive
       - ./scripts/init-timescale.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./scripts/optimize_databases.sql:/app/optimize_databases.sql:ro
     networks:
       - crypto-bot-network
     healthcheck:
@@ -48,16 +66,25 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
 
   # Redis - Caching and session storage
   redis:
     image: redis:7-alpine
     container_name: crypto-bot-redis
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_dev_password}
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass ${REDIS_PASSWORD:-redis_dev_password}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
     networks:
       - crypto-bot-network
     healthcheck:
@@ -66,6 +93,14 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # RabbitMQ - Message broker for inter-service communication
   rabbitmq:
@@ -89,6 +124,53 @@ services:
       timeout: 10s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # HashiCorp Vault - Secrets management
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: crypto-bot-vault
+    environment:
+      VAULT_ADDR: http://0.0.0.0:8200
+      VAULT_API_ADDR: http://0.0.0.0:8200
+      # Development mode only - DO NOT use in production!
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:-dev-only-token}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"  # API port
+    volumes:
+      - vault_data:/vault/file
+      - vault_logs:/vault/logs
+      - ./vault/vault-config.hcl:/vault/config/vault.hcl:ro
+    networks:
+      - crypto-bot-network
+    cap_add:
+      - IPC_LOCK  # Required for mlock
+    command: server
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    profiles:
+      - security  # Run with 'docker-compose --profile security up'
 
   # PgAdmin - PostgreSQL web interface (optional, for development)
   pgadmin:
@@ -115,11 +197,19 @@ services:
 volumes:
   postgres_data:
     driver: local
+  postgres_wal_archive:
+    driver: local
   timescaledb_data:
+    driver: local
+  timescaledb_wal_archive:
     driver: local
   redis_data:
     driver: local
   rabbitmq_data:
+    driver: local
+  vault_data:
+    driver: local
+  vault_logs:
     driver: local
   pgadmin_data:
     driver: local

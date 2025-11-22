@@ -12,12 +12,12 @@ CREATE TABLE IF NOT EXISTS market_data.candles (
     time TIMESTAMPTZ NOT NULL,
     symbol VARCHAR(20) NOT NULL,
     interval VARCHAR(10) NOT NULL,  -- 1m, 5m, 15m, 1h, 4h, 1d
-    open DECIMAL(20, 8) NOT NULL,
-    high DECIMAL(20, 8) NOT NULL,
-    low DECIMAL(20, 8) NOT NULL,
-    close DECIMAL(20, 8) NOT NULL,
-    volume DECIMAL(20, 8) NOT NULL,
-    quote_volume DECIMAL(20, 8),
+    open DECIMAL(30, 8) NOT NULL,
+    high DECIMAL(30, 8) NOT NULL,
+    low DECIMAL(30, 8) NOT NULL,
+    close DECIMAL(30, 8) NOT NULL,
+    volume DECIMAL(30, 8) NOT NULL,
+    quote_volume DECIMAL(30, 8),
     trades_count INTEGER,
     UNIQUE(time, symbol, interval)
 );
@@ -29,8 +29,8 @@ SELECT create_hypertable('market_data.candles', 'time', if_not_exists => TRUE);
 CREATE TABLE IF NOT EXISTS market_data.ticks (
     time TIMESTAMPTZ NOT NULL,
     symbol VARCHAR(20) NOT NULL,
-    price DECIMAL(20, 8) NOT NULL,
-    quantity DECIMAL(20, 8) NOT NULL,
+    price DECIMAL(30, 8) NOT NULL,
+    quantity DECIMAL(30, 8) NOT NULL,
     side VARCHAR(10) NOT NULL CHECK (side IN ('BUY', 'SELL')),
     trade_id VARCHAR(50),
     is_buyer_maker BOOLEAN
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS market_data.indicators (
     symbol VARCHAR(20) NOT NULL,
     interval VARCHAR(10) NOT NULL,
     indicator_name VARCHAR(50) NOT NULL,
-    value DECIMAL(20, 8),
+    value DECIMAL(30, 8),
     metadata JSONB,
     UNIQUE(time, symbol, interval, indicator_name)
 );

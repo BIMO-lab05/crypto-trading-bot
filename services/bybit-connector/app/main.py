@@ -1,28 +1,270 @@
 """
 Bybit Connector Service - FastAPI Application
 Purpose: REST API service for interfacing with Bybit exchange
+Features: Rate limiting, structured logging, Prometheus metrics
 """
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
+import sys
+import uuid
+from pathlib import Path
+
+# Add shared utilities to path
+
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.responses import Response
 from typing import Optional, List, Dict, Any
 import logging
+import json
+import re
+import time
+from pathlib import Path
 from contextlib import asynccontextmanager
+from starlette.middleware.base import BaseHTTPMiddleware
+
+# Fixed: Create logs directory to prevent startup crashes (Critical Issue #3)
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+# Rate limiting imports
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Prometheus metrics imports
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+
+# JSON logging imports
+from pythonjsonlogger import jsonlogger
 
 from app.config import get_settings, Settings
 from app.bybit_rest_client import BybitRestClient, create_rest_client
 from app.exceptions import BybitConnectorException
+from app.models import PlaceOrderRequest, CancelOrderRequest
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+# ============================================================================
+# STRUCTURED JSON LOGGING WITH SECRET MASKING
+# ============================================================================
+
+class SecretMaskingFormatter(jsonlogger.JsonFormatter):
+    """Custom JSON formatter that masks sensitive data in logs"""
+
+    # Patterns to identify secrets in log messages and extra fields
+    SECRET_PATTERNS = [
+        (re.compile(r'(api_key["\s:=]+)([^\s,}"]+)', re.IGNORECASE), r'\1***MASKED***'),
+        (re.compile(r'(api_secret["\s:=]+)([^\s,}"]+)', re.IGNORECASE), r'\1***MASKED***'),
+        (re.compile(r'(password["\s:=]+)([^\s,}"]+)', re.IGNORECASE), r'\1***MASKED***'),
+        (re.compile(r'(token["\s:=]+)([^\s,}"]+)', re.IGNORECASE), r'\1***MASKED***'),
+        (re.compile(r'(secret["\s:=]+)([^\s,}"]+)', re.IGNORECASE), r'\1***MASKED***'),
+        (re.compile(r'(authorization["\s:]*:["\s]*)([^\s,}"]+)', re.IGNORECASE), r'\1***MASKED***'),
+        (re.compile(r'(bearer["\s]+)([^\s,}"]+)', re.IGNORECASE), r'\1***MASKED***'),
+    ]
+
+    def add_fields(self, log_record, record, message_dict):
+        """Override to add custom fields and mask secrets"""
+        # Add standard fields
+        super(SecretMaskingFormatter, self).add_fields(log_record, record, message_dict)
+
+        # Add timestamp in ISO format
+        log_record['timestamp'] = self.formatTime(record, self.datefmt)
+
+        # Add log level
+        log_record['level'] = record.levelname
+
+        # Add logger name
+        log_record['logger'] = record.name
+
+        # Add thread info for debugging
+        log_record['thread'] = record.thread
+
+        # Mask secrets in the message
+        if 'message' in log_record:
+            log_record['message'] = self._mask_secrets(str(log_record['message']))
+
+        # Mask secrets in all extra fields
+        for key, value in list(log_record.items()):
+            if isinstance(value, str):
+                log_record[key] = self._mask_secrets(value)
+            elif isinstance(value, dict):
+                log_record[key] = self._mask_dict_secrets(value)
+
+    def _mask_secrets(self, text: str) -> str:
+        """Apply regex patterns to mask secrets in text"""
+        for pattern, replacement in self.SECRET_PATTERNS:
+            text = pattern.sub(replacement, text)
+        return text
+
+    def _mask_dict_secrets(self, data: dict) -> dict:
+        """Recursively mask secrets in dictionaries"""
+        masked = {}
+        for key, value in data.items():
+            # Mask common secret field names
+            if any(secret_key in key.lower() for secret_key in ['api_key', 'api_secret', 'password', 'token', 'secret', 'authorization']):
+                masked[key] = '***MASKED***'
+            elif isinstance(value, str):
+                masked[key] = self._mask_secrets(value)
+            elif isinstance(value, dict):
+                masked[key] = self._mask_dict_secrets(value)
+            else:
+                masked[key] = value
+        return masked
+
+
+# Configure JSON logging with secret masking
+def setup_json_logging():
+    """Setup structured JSON logging with secret masking for container environments"""
+    # Create handler for stdout (standard for containers)
+    handler = logging.StreamHandler()
+
+    # Use custom JSON formatter with secret masking
+    formatter = SecretMaskingFormatter(
+        fmt='%(timestamp)s %(level)s %(name)s %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S',
+        json_ensure_ascii=False
+    )
+
+    handler.setFormatter(formatter)
+
+    # Get root logger and configure it
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Remove existing handlers to avoid duplicates
+    root_logger.handlers = []
+
+    # Add our custom handler
+    root_logger.addHandler(handler)
+
+    return logging.getLogger(__name__)
+
+
+# Initialize structured logging
+logger = setup_json_logging()
+
+
+# ============================================================================
+# PROMETHEUS METRICS
+# ============================================================================
+
+# HTTP request counter - tracks total requests by method, endpoint, and status
+http_requests_total = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status_code']
 )
-logger = logging.getLogger(__name__)
 
-# Global client instance
-rest_client: Optional[BybitRestClient] = None
+# HTTP request duration histogram - tracks request latency distribution
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration in seconds',
+    ['method', 'endpoint'],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0]
+)
+
+# Active requests gauge - tracks concurrent requests
+http_requests_active = Gauge(
+    'http_requests_active',
+    'Number of active HTTP requests'
+)
+
+# Circuit breaker state gauge - monitors circuit breaker status
+circuit_breaker_state = Gauge(
+    'circuit_breaker_state',
+    'Circuit breaker state (0=closed, 1=open, 2=half-open)'
+)
+
+
+# ============================================================================
+# PROMETHEUS METRICS MIDDLEWARE
+# ============================================================================
+
+class PrometheusMiddleware(BaseHTTPMiddleware):
+    """Middleware to collect Prometheus metrics for all HTTP requests"""
+
+    async def dispatch(self, request: Request, call_next):
+        """Process request and collect metrics"""
+        # Skip metrics endpoint itself to avoid recursion
+        if request.url.path == "/metrics":
+            return await call_next(request)
+
+        # Extract method and path
+        method = request.method
+        path = request.url.path
+
+        # Normalize path to group by endpoint pattern (not dynamic values)
+        endpoint = self._normalize_endpoint(path)
+
+        # Increment active requests
+        http_requests_active.inc()
+
+        # Start timer for duration measurement
+        start_time = time.time()
+
+        try:
+            # Process the request
+            response = await call_next(request)
+
+            # Record successful request
+            status_code = response.status_code
+
+        except Exception as e:
+            # Record failed request
+            status_code = 500
+            logger.error(f"Request failed: {str(e)}", extra={
+                "method": method,
+                "endpoint": endpoint,
+                "error": str(e)
+            })
+            raise
+
+        finally:
+            # Calculate request duration
+            duration = time.time() - start_time
+
+            # Decrement active requests
+            http_requests_active.dec()
+
+            # Record metrics
+            http_requests_total.labels(
+                method=method,
+                endpoint=endpoint,
+                status_code=status_code
+            ).inc()
+
+            http_request_duration_seconds.labels(
+                method=method,
+                endpoint=endpoint
+            ).observe(duration)
+
+            # Log request with structured data
+            logger.info(
+                f"{method} {endpoint} {status_code}",
+                extra={
+                    "method": method,
+                    "endpoint": endpoint,
+                    "status_code": status_code,
+                    "duration_seconds": round(duration, 4),
+                    "client_ip": request.client.host if request.client else None
+                }
+            )
+
+        return response
+
+    def _normalize_endpoint(self, path: str) -> str:
+        """Normalize dynamic path segments to avoid high cardinality in metrics"""
+        # Replace UUIDs, IDs, and other dynamic segments with placeholders
+        normalized = re.sub(r'/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '/{uuid}', path, flags=re.IGNORECASE)
+        normalized = re.sub(r'/\d+', '/{id}', normalized)
+        return normalized
+
+
+# ============================================================================
+# RATE LIMITING CONFIGURATION
+# ============================================================================
+
+# Initialize rate limiter using client IP address
+limiter = Limiter(key_func=get_remote_address)
 
 
 # ============================================================================
@@ -31,21 +273,38 @@ rest_client: Optional[BybitRestClient] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage application lifecycle (startup/shutdown)"""
+    """
+    Manage application lifecycle (startup/shutdown)
+
+    Fixed: Wrapped in try/finally to ensure cleanup happens even if startup fails
+    (Critical Issue #4 - Unhandled Exception in Lifespan)
+    """
     # Startup
-    global rest_client
     settings = get_settings()
-    
-    logger.info(f"Starting Bybit Connector Service (testnet={settings.bybit_testnet})")
-    rest_client = create_rest_client(settings)
-    logger.info("Bybit REST client initialized")
-    
-    yield
-    
-    # Shutdown
-    if rest_client:
-        await rest_client.close()
-    logger.info("Bybit Connector Service stopped")
+
+    logger.info(
+        f"Starting Bybit Connector Service",
+        extra={
+            "testnet": settings.bybit_testnet,
+            "service_version": "1.0.0",
+            "environment": "development" if settings.debug else "production"
+        }
+    )
+
+    try:
+        # Initialize REST client and store in app state
+        app.state.rest_client = create_rest_client(settings)
+        logger.info("Bybit REST client initialized successfully")
+
+        yield
+
+    finally:
+        # Shutdown - guaranteed to run even if startup or yield fails
+        if hasattr(app.state, 'rest_client') and app.state.rest_client:
+            await app.state.rest_client.close()
+            logger.info("Bybit REST client closed")
+
+        logger.info("Bybit Connector Service stopped gracefully")
 
 
 # ============================================================================
@@ -54,78 +313,98 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Bybit Connector Service",
-    description="Microservice for interfacing with Bybit exchange API",
+    description="Microservice for interfacing with Bybit exchange API with rate limiting, metrics, and structured logging",
     version="1.0.0",
     lifespan=lifespan
 )
 
-# CORS middleware
+# Add Prometheus metrics middleware (must be added before other middleware)
+app.add_middleware(PrometheusMiddleware)
+
+# Fixed: CORS middleware with restricted methods and headers (Critical Issue #2 - Security)
+# Only allow necessary HTTP methods, not all methods including dangerous ones like DELETE/PATCH
+settings_instance = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure properly in production
+    allow_origins=["*"],  # Allow all origins for dashboard access
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],  # Only allow safe methods for trading API
+    allow_headers=["Content-Type", "Authorization", "Accept", "Origin"],  # Only necessary headers
 )
 
+# Add rate limiter state to app
+app.state.limiter = limiter
 
-# ============================================================================
-# PYDANTIC MODELS
-# ============================================================================
-
-class PlaceOrderRequest(BaseModel):
-    """Request model for placing an order"""
-    category: str = Field(default="linear", description="Product category")
-    symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
-    side: str = Field(..., description="Buy or Sell")
-    order_type: str = Field(..., description="Market or Limit")
-    qty: str = Field(..., description="Order quantity")
-    price: Optional[str] = Field(None, description="Order price (required for Limit)")
-    time_in_force: str = Field(default="GTC", description="Time in force")
-    reduce_only: bool = Field(default=False)
-    order_link_id: Optional[str] = None
-
-
-class CancelOrderRequest(BaseModel):
-    """Request model for cancelling an order"""
-    category: str = Field(default="linear")
-    symbol: str = Field(...)
-    order_id: Optional[str] = None
-    order_link_id: Optional[str] = None
+# Add rate limit exceeded handler
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ============================================================================
 # DEPENDENCY INJECTION
 # ============================================================================
 
-def get_rest_client() -> BybitRestClient:
-    """Dependency to get REST client"""
-    if rest_client is None:
+def get_rest_client(request: Request) -> BybitRestClient:
+    """Dependency to get REST client from app state"""
+    if not hasattr(request.app.state, 'rest_client') or request.app.state.rest_client is None:
+        logger.error("Bybit client not initialized in app state")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Bybit client not initialized"
         )
-    return rest_client
+    return request.app.state.rest_client
+
+
+# ============================================================================
+# PROMETHEUS METRICS ENDPOINT
+# ============================================================================
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    """
+    Prometheus metrics endpoint
+    Returns metrics in Prometheus text format
+    """
+    # Update circuit breaker state metric before returning
+    try:
+        # This will be updated when we access the circuit breaker status
+        pass
+    except:
+        pass
+
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ============================================================================
 # HEALTH ENDPOINTS
+# Rate Limit: 60 requests/minute - frequently accessed for health checks
 # ============================================================================
 
 @app.get("/health", tags=["Health"])
-async def health_check():
-    """Health check endpoint"""
+@limiter.limit("60/minute")
+async def health_check(request: Request):
+    """
+    Basic health check endpoint
+    Returns 200 if service is running
+    Rate limited to 60 requests/minute
+    """
     return {"status": "healthy", "service": "bybit-connector"}
 
 
 @app.get("/ready", tags=["Health"])
-async def readiness_check(client: BybitRestClient = Depends(get_rest_client)):
-    """Readiness check - verifies service can connect to Bybit"""
+@limiter.limit("60/minute")
+async def readiness_check(request: Request, client: BybitRestClient = Depends(get_rest_client)):
+    """
+    Readiness check - verifies service can connect to Bybit
+    Tests actual connectivity to Bybit API
+    Rate limited to 60 requests/minute
+    """
     try:
         # Try to get ticker data (public endpoint, no auth needed)
         await client.get_ticker(category="linear", symbol="BTCUSDT")
+        logger.info("Readiness check passed - Bybit connection OK")
         return {"status": "ready", "bybit_connection": "ok"}
     except Exception as e:
+        logger.error(f"Readiness check failed: {str(e)}", extra={"error": str(e)})
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Bybit connection failed: {str(e)}"
@@ -134,47 +413,86 @@ async def readiness_check(client: BybitRestClient = Depends(get_rest_client)):
 
 # ============================================================================
 # ACCOUNT ENDPOINTS
+# Rate Limit: 20 requests/minute - moderate frequency for account queries
 # ============================================================================
 
 @app.get("/api/v1/account/balance", tags=["Account"])
+@limiter.limit("20/minute")
 async def get_balance(
+    request: Request,
     account_type: str = "UNIFIED",
     coin: Optional[str] = None,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Get wallet balance"""
+    """
+    Get wallet balance
+    Returns account balance for specified account type and coin
+    Rate limited to 20 requests/minute
+    """
     try:
+        logger.info(
+            "Fetching wallet balance",
+            extra={"account_type": account_type, "coin": coin}
+        )
         result = await client.get_wallet_balance(account_type=account_type, coin=coin)
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(f"Failed to get balance: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.get("/api/v1/account/positions", tags=["Account"])
+@limiter.limit("20/minute")
 async def get_positions(
+    request: Request,
     category: str = "linear",
     symbol: Optional[str] = None,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Get position information"""
+    """
+    Get position information
+    Returns current open positions
+    Rate limited to 20 requests/minute
+    """
     try:
+        logger.info(
+            "Fetching positions",
+            extra={"category": category, "symbol": symbol}
+        )
         result = await client.get_positions(category=category, symbol=symbol)
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(f"Failed to get positions: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # ============================================================================
 # TRADING ENDPOINTS
+# Rate Limit: 10 requests/minute - strict limit to prevent API abuse
 # ============================================================================
 
 @app.post("/api/v1/order/place", tags=["Trading"])
+@limiter.limit("10/minute")
 async def place_order(
+    request: Request,
     order: PlaceOrderRequest,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Place a new order"""
+    """
+    Place a new order
+    Creates a new trading order on Bybit
+    Rate limited to 10 requests/minute for safety
+    """
     try:
+        logger.info(
+            "Placing order",
+            extra={
+                "symbol": order.symbol,
+                "side": order.side,
+                "order_type": order.order_type,
+                "qty": str(order.qty)
+            }
+        )
         result = await client.place_order(
             category=order.category,
             symbol=order.symbol,
@@ -186,54 +504,104 @@ async def place_order(
             reduce_only=order.reduce_only,
             order_link_id=order.order_link_id
         )
+        logger.info(
+            "Order placed successfully",
+            extra={"order_id": result.get('orderId'), "symbol": order.symbol}
+        )
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(
+            f"Failed to place order: {str(e)}",
+            extra={"symbol": order.symbol, "error": str(e)}
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.post("/api/v1/order/cancel", tags=["Trading"])
+@limiter.limit("10/minute")
 async def cancel_order(
-    request: CancelOrderRequest,
+    request: Request,
+    cancel_request: CancelOrderRequest,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Cancel an order"""
+    """
+    Cancel an order
+    Cancels an existing order by ID
+    Rate limited to 10 requests/minute
+    """
     try:
+        logger.info(
+            "Cancelling order",
+            extra={
+                "symbol": cancel_request.symbol,
+                "order_id": cancel_request.order_id
+            }
+        )
         result = await client.cancel_order(
-            category=request.category,
-            symbol=request.symbol,
-            order_id=request.order_id,
-            order_link_id=request.order_link_id
+            category=cancel_request.category,
+            symbol=cancel_request.symbol,
+            order_id=cancel_request.order_id,
+            order_link_id=cancel_request.order_link_id
+        )
+        logger.info(
+            "Order cancelled successfully",
+            extra={"order_id": cancel_request.order_id}
         )
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(
+            f"Failed to cancel order: {str(e)}",
+            extra={"order_id": cancel_request.order_id, "error": str(e)}
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.get("/api/v1/order/open", tags=["Trading"])
+@limiter.limit("20/minute")
 async def get_open_orders(
+    request: Request,
     category: str = "linear",
     symbol: Optional[str] = None,
     limit: int = 50,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Get open orders"""
+    """
+    Get open orders
+    Returns list of currently open orders
+    Rate limited to 20 requests/minute
+    """
     try:
+        logger.info(
+            "Fetching open orders",
+            extra={"category": category, "symbol": symbol, "limit": limit}
+        )
         result = await client.get_open_orders(category=category, symbol=symbol, limit=limit)
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(f"Failed to get open orders: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.get("/api/v1/order/history", tags=["Trading"])
+@limiter.limit("20/minute")
 async def get_order_history(
+    request: Request,
     category: str = "linear",
     symbol: Optional[str] = None,
     limit: int = 50,
     cursor: Optional[str] = None,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Get order history"""
+    """
+    Get order history
+    Returns historical orders with pagination
+    Rate limited to 20 requests/minute
+    """
     try:
+        logger.info(
+            "Fetching order history",
+            extra={"category": category, "symbol": symbol, "limit": limit}
+        )
         result = await client.get_order_history(
             category=category,
             symbol=symbol,
@@ -242,37 +610,65 @@ async def get_order_history(
         )
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(f"Failed to get order history: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # ============================================================================
 # MARKET DATA ENDPOINTS
+# Rate Limit: 30 requests/minute - higher limit for frequently accessed data
 # ============================================================================
 
 @app.get("/api/v1/market/ticker", tags=["Market Data"])
+@limiter.limit("30/minute")
 async def get_ticker(
+    request: Request,
     category: str = "linear",
     symbol: Optional[str] = None,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Get latest ticker data"""
+    """
+    Get latest ticker data
+    Returns current market ticker information
+    Rate limited to 30 requests/minute
+    """
     try:
+        logger.debug(
+            "Fetching ticker",
+            extra={"category": category, "symbol": symbol}
+        )
         result = await client.get_ticker(category=category, symbol=symbol)
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(f"Failed to get ticker: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.get("/api/v1/market/kline", tags=["Market Data"])
+@limiter.limit("30/minute")
 async def get_kline(
+    request: Request,
     category: str = "linear",
     symbol: str = "BTCUSDT",
     interval: str = "60",
     limit: int = 200,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Get kline/candlestick data"""
+    """
+    Get kline/candlestick data
+    Returns historical price candles
+    Rate limited to 30 requests/minute
+    """
     try:
+        logger.debug(
+            "Fetching kline data",
+            extra={
+                "category": category,
+                "symbol": symbol,
+                "interval": interval,
+                "limit": limit
+            }
+        )
         result = await client.get_kline(
             category=category,
             symbol=symbol,
@@ -281,45 +677,103 @@ async def get_kline(
         )
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(f"Failed to get kline: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.get("/api/v1/market/orderbook", tags=["Market Data"])
+@limiter.limit("30/minute")
 async def get_orderbook(
+    request: Request,
     category: str = "linear",
     symbol: str = "BTCUSDT",
     limit: int = 25,
     client: BybitRestClient = Depends(get_rest_client)
 ):
-    """Get orderbook depth"""
+    """
+    Get orderbook depth
+    Returns current market orderbook (bids/asks)
+    Rate limited to 30 requests/minute
+    """
     try:
+        logger.debug(
+            "Fetching orderbook",
+            extra={"category": category, "symbol": symbol, "limit": limit}
+        )
         result = await client.get_orderbook(category=category, symbol=symbol, limit=limit)
         return {"success": True, "data": result}
     except BybitConnectorException as e:
+        logger.error(f"Failed to get orderbook: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # ============================================================================
 # MONITORING ENDPOINTS
+# Rate Limit: 20 requests/minute - moderate frequency for monitoring
 # ============================================================================
 
 @app.get("/api/v1/status/circuit-breaker", tags=["Monitoring"])
-async def get_circuit_breaker_status(client: BybitRestClient = Depends(get_rest_client)):
-    """Get circuit breaker status"""
-    return {"success": True, "data": client.get_circuit_breaker_status()}
+@limiter.limit("20/minute")
+async def get_circuit_breaker_status(
+    request: Request,
+    client: BybitRestClient = Depends(get_rest_client)
+):
+    """
+    Get circuit breaker status
+    Returns current state of the circuit breaker
+    Rate limited to 20 requests/minute
+    """
+    status_data = client.get_circuit_breaker_status()
+
+    # Update Prometheus gauge based on circuit breaker state
+    state_mapping = {"closed": 0, "open": 1, "half_open": 2}
+    circuit_breaker_state.set(state_mapping.get(status_data.get("state"), 0))
+
+    logger.info(
+        "Circuit breaker status checked",
+        extra={"state": status_data.get("state")}
+    )
+
+    return {"success": True, "data": status_data}
 
 
 @app.post("/api/v1/status/circuit-breaker/reset", tags=["Monitoring"])
-async def reset_circuit_breaker(client: BybitRestClient = Depends(get_rest_client)):
-    """Reset circuit breaker"""
+@limiter.limit("10/minute")
+async def reset_circuit_breaker(
+    request: Request,
+    client: BybitRestClient = Depends(get_rest_client)
+):
+    """
+    Reset circuit breaker
+    Manually resets the circuit breaker to closed state
+    Rate limited to 10 requests/minute (admin operation)
+    """
+    logger.warning("Circuit breaker manually reset")
     client.reset_circuit_breaker()
+
+    # Update metric to reflect reset state
+    circuit_breaker_state.set(0)  # 0 = closed
+
     return {"success": True, "message": "Circuit breaker reset"}
 
+
+# ============================================================================
+# APPLICATION ENTRY POINT
+# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn
     settings = get_settings()
-    
+
+    logger.info(
+        "Starting uvicorn server",
+        extra={
+            "host": settings.service_host,
+            "port": settings.service_port,
+            "debug": settings.debug
+        }
+    )
+
     uvicorn.run(
         "main:app",
         host=settings.service_host,

@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     
     # TimescaleDB (market data storage)
     timescale_host: str = Field(default="localhost")
-    timescale_port: int = Field(default=5433)
+    timescale_port: int = Field(default=5432)  # Internal Docker port, not host-mapped port
     timescale_user: str = Field(default="cryptobot")
     timescale_password: str = Field(default="change_this_secure_password")
     timescale_db: str = Field(default="market_data")

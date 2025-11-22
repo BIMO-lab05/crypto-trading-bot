@@ -1,0 +1,42 @@
+{
+  "symbol": "SOLUSDT",
+  "interval": "60",
+  "model_version": "v20251120_220444",
+  "last_trained": "2025-11-20T22:04:44.288273",
+  "training_stats": {
+    "train_samples": 395,
+    "test_samples": 99,
+    "final_train_loss": 0.003988933749496937,
+    "final_val_loss": 0.0004569993761833757,
+    "mae": 0.0023144100722629376,
+    "rmse": 0.002696696755901723,
+    "r2_score": -6.918548350031062
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "return_1",
+    "return_5",
+    "return_10",
+    "price_momentum_5",
+    "price_momentum_10",
+    "sma_7",
+    "sma_14",
+    "sma_30",
+    "ema_7",
+    "ema_14",
+    "price_vs_sma7",
+    "price_vs_sma14",
+    "high_low_range",
+    "volatility_10",
+    "volatility_20",
+    "volume_sma_7",
+    "volume_ratio",
+    "rsi_14"
+  ],
+  "sequence_length": 60,
+  "prediction_horizon": 5
+}

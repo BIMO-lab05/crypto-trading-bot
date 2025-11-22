@@ -42,7 +42,9 @@ def mock_aggregator():
         strategy="TEST_STRATEGY",
         indicators={},
         timestamp=1234567890,
-        metadata={}
+        aggregated_score=0.75,  # Added required field
+        consensus_count=5,  # Added required field
+        metadata={"current_price": 50000.0}  # Added price for execute tests
     ))
     return aggregator
 
@@ -114,7 +116,7 @@ class TestHealthEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-        assert data["service"] == "Trading Engine Service"
+        assert data["service"] == "trading-engine"  # Fixed: actual service name from config
         assert data["technical_analysis_connection"] is True
         assert data["database_connection"] is True
         assert "timestamp" in data
@@ -356,13 +358,14 @@ class TestTradingControlEndpoints:
     """Test trading control endpoints"""
 
     def test_start_trading_not_implemented(self, client):
-        """Test starting automated trading (not yet implemented)"""
+        """Test starting automated trading"""
         response = client.post("/api/v1/trading/start")
 
         assert response.status_code == 200
         data = response.json()
-        assert data["success"] is False
-        assert "not yet implemented" in data["message"].lower()
+        # AutoTrader is now implemented, should return success: true
+        assert data["success"] is True
+        assert data["trading_enabled"] is True
 
     def test_stop_trading(self, client):
         """Test stopping automated trading"""

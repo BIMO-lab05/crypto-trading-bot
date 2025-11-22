@@ -24,17 +24,18 @@ def get_engine():
     
     if _engine is None:
         settings = get_settings()
-        
+
+        # Use TimescaleDB for market data storage
         _engine = create_async_engine(
-            settings.timescale_url,
+            settings.timescale_url,  # Changed from postgres_url to timescale_url
             echo=settings.debug,  # Log SQL queries in debug mode
             pool_size=settings.db_pool_min_size,
             max_overflow=settings.db_pool_max_size - settings.db_pool_min_size,
             pool_pre_ping=True,  # Verify connections before using
             pool_recycle=3600,  # Recycle connections after 1 hour
         )
-        
-        logger.info(f"Created database engine: {settings.timescale_host}:{settings.timescale_port}")
+
+        logger.info(f"Created database engine for TimescaleDB: {settings.timescale_host}:{settings.timescale_port}")
     
     return _engine
 

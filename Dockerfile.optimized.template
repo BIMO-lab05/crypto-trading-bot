@@ -1,0 +1,76 @@
+# Optimized Multi-stage Dockerfile Template
+# Use this template for all microservices to ensure consistent optimization
+
+# ============================================================================
+# Stage 1: Base image with dependencies
+# ============================================================================
+FROM python:3.10-slim AS base
+
+# Set environment variables for Python optimization
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies (layer cached unless apt packages change)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# ============================================================================
+# Stage 2: Dependencies installation
+# ============================================================================
+FROM base AS dependencies
+
+# Copy only requirements file first (maximizes cache hit rate)
+COPY requirements.txt .
+
+# Install Python dependencies in separate layer
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
+
+# ============================================================================
+# Stage 3: Application code
+# ============================================================================
+FROM dependencies AS application
+
+# Copy application code (changes frequently, so placed last)
+COPY app/ ./app/
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/data
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose port (parameterize in actual service Dockerfile)
+EXPOSE 8000
+
+# Health check (customize per service)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ============================================================================
+# OPTIMIZATION NOTES:
+# ============================================================================
+# 1. Multi-stage build reduces final image size
+# 2. Dependencies layer cached separately from code
+# 3. System packages cleaned up to reduce image size
+# 4. Non-root user for security
+# 5. PYTHONDONTWRITEBYTECODE prevents .pyc files
+# 6. PYTHONUNBUFFERED ensures logs appear immediately
+# 7. Health check built into image
+# 8. Build cache optimized by layer ordering
+# ============================================================================

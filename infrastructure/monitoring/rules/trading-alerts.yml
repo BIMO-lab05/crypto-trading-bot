@@ -1,0 +1,412 @@
+# Prometheus Alert Rules for Crypto Trading Bot
+# Comprehensive alerting rules based on MONITORING_GUIDE.md
+# Last Updated: 2025-11-21
+
+groups:
+  # =================================================================
+  # CRITICAL ALERTS - Immediate Action Required
+  # =================================================================
+  - name: critical_alerts
+    interval: 15s
+    rules:
+      # Alert 1: Trading Engine Down
+      - alert: TradingEngineDown
+        expr: up{job="trading-engine"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: trading-engine
+          category: availability
+          runbook: "https://github.com/crypto-bot/runbooks/trading-engine-down.md"
+        annotations:
+          summary: "Trading Engine is down"
+          description: "Trading Engine has been down for 30 seconds. No trades can be executed."
+          action: "1. Check service logs: docker logs crypto-bot-trading\n2. Verify database connectivity\n3. Check Bybit API status\n4. Restart service if needed: docker restart crypto-bot-trading"
+          dashboard: "http://localhost:3000/d/trading-performance"
+
+      # Alert 2: Daily Loss Exceeded
+      - alert: DailyLossExceeded
+        expr: daily_loss_percentage > 5
+        for: 1m
+        labels:
+          severity: critical
+          component: risk-management
+          category: financial
+          runbook: "https://github.com/crypto-bot/runbooks/daily-loss-exceeded.md"
+        annotations:
+          summary: "Daily loss limit exceeded"
+          description: "Current daily loss: {{ $value | humanizePercentage }}. Emergency stop may be required."
+          action: "1. Review recent trades in dashboard\n2. Check market conditions\n3. Consider emergency stop\n4. Analyze trading strategy performance"
+          dashboard: "http://localhost:3000/d/trading-performance"
+
+      # Alert 3: Service Down (Generic)
+      - alert: ServiceDown
+        expr: up{job=~"api-gateway|market-data-service|bybit-connector|portfolio-manager|technical-analysis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: "{{ $labels.job }}"
+          category: availability
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for 1 minute."
+          action: "Restart service: docker restart crypto-bot-{{ $labels.job }}"
+
+      # Alert 4: High Error Rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (job) (rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+            sum by (job) (rate(http_requests_total[5m]))
+          ) * 100 > 5
+        for: 5m
+        labels:
+          severity: critical
+          service: "{{ $labels.job }}"
+          category: reliability
+        annotations:
+          summary: "High error rate in {{ $labels.job }}"
+          description: "Error rate is {{ $value | humanizePercentage }} in the last 5 minutes."
+          action: "1. Check service logs for errors\n2. Review recent deployments\n3. Check upstream dependencies\n4. Verify database health"
+
+      # Alert 5: Database Down
+      - alert: DatabaseDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+          category: availability
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "Database has been unreachable for 1 minute. All services affected."
+          action: "1. Check database container: docker ps | grep postgres\n2. Check logs: docker logs crypto-bot-postgres\n3. Verify disk space\n4. Check for connection limits"
+
+  # =================================================================
+  # WARNING ALERTS - Investigation Required
+  # =================================================================
+  - name: warning_alerts
+    interval: 30s
+    rules:
+      # Alert 6: High API Latency
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.99,
+            sum by (job, le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+          category: performance
+        annotations:
+          summary: "High API latency detected in {{ $labels.job }}"
+          description: "P99 latency is {{ $value | humanizeDuration }} for the last 5 minutes."
+          action: "1. Check database query performance\n2. Review cache hit rate\n3. Check system resources (CPU, memory)\n4. Look for slow queries in logs"
+
+      # Alert 7: Memory Usage High
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            process_resident_memory_bytes{job=~".*"}
+            / 1024 / 1024 / 1024
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: "{{ $labels.job }}"
+          category: resources
+        annotations:
+          summary: "High memory usage in {{ $labels.job }}"
+          description: "Memory usage is {{ $value | humanize }}GB for 10 minutes."
+          action: "1. Check for memory leaks\n2. Review application logs\n3. Monitor garbage collection\n4. Consider increasing memory limits"
+
+      # Alert 8: Circuit Breaker Triggered
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_active_gauge == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: circuit-breaker
+          category: resilience
+        annotations:
+          summary: "Circuit breaker {{ $labels.breaker_name }} is open"
+          description: "Circuit breaker has been open for 1 minute. Requests are being blocked."
+          action: "1. Check downstream service health\n2. Review error logs\n3. Verify network connectivity\n4. Consider manual intervention"
+
+      # Alert 9: Low Win Rate
+      - alert: LowWinRate
+        expr: win_rate < 40
+        for: 1h
+        labels:
+          severity: warning
+          component: trading-strategy
+          category: performance
+        annotations:
+          summary: "Win rate below threshold"
+          description: "Current win rate is {{ $value | humanizePercentage }}."
+          action: "1. Review trading strategy parameters\n2. Check market conditions\n3. Analyze recent trades\n4. Consider strategy adjustment"
+
+      # Alert 10: Bybit Rate Limit Hit
+      - alert: BybitRateLimitHit
+        expr: |
+          rate(http_requests_total{
+            job="bybit-connector",
+            status_code="429"
+          }[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: bybit-connector
+          category: external-api
+        annotations:
+          summary: "Bybit API rate limit exceeded"
+          description: "Rate limit errors detected: {{ $value | humanize }} per second."
+          action: "1. Reduce API call frequency\n2. Implement request queuing\n3. Review rate limit configuration\n4. Check for retry storms"
+
+      # Alert 11: High Database Connections
+      - alert: HighDatabaseConnections
+        expr: pg_stat_database_numbackends > 180
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          category: resources
+        annotations:
+          summary: "High number of database connections"
+          description: "Current connections: {{ $value | humanize }}"
+          action: "1. Check for connection leaks\n2. Review connection pool settings\n3. Identify long-running queries\n4. Consider increasing max_connections"
+
+      # Alert 12: Low Cache Hit Rate
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            rate(cache_hits_total[5m])
+            /
+            (rate(cache_hits_total[5m]) + rate(cache_misses_total[5m]))
+          ) < 0.70
+        for: 10m
+        labels:
+          severity: warning
+          component: caching
+          category: performance
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} for the last 10 minutes."
+          action: "1. Review cache TTL settings\n2. Check cache eviction policy\n3. Monitor cache size\n4. Consider increasing cache capacity"
+
+      # Alert 13: Slow Database Queries
+      - alert: SlowDatabaseQueries
+        expr: rate(pg_stat_statements_mean_exec_time[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          category: performance
+        annotations:
+          summary: "Slow database queries detected"
+          description: "Average query execution time is {{ $value | humanize }}ms."
+          action: "1. Review slow query log\n2. Check for missing indexes\n3. Analyze query execution plans\n4. Consider query optimization"
+
+  # =================================================================
+  # INFO ALERTS - Awareness and Monitoring
+  # =================================================================
+  - name: info_alerts
+    interval: 60s
+    rules:
+      # Alert 14: High CPU Usage
+      - alert: HighCPUUsage
+        expr: |
+          (
+            100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+          ) > 80
+        for: 15m
+        labels:
+          severity: info
+          component: system
+          category: resources
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | humanizePercentage }} for 15 minutes."
+          action: "Monitor for performance degradation. Consider scaling if persistent."
+
+      # Alert 15: Low Disk Space
+      - alert: LowDiskSpace
+        expr: |
+          (
+            (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100
+          ) < 20
+        for: 10m
+        labels:
+          severity: info
+          component: system
+          category: resources
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Available disk space is {{ $value | humanizePercentage }}."
+          action: "1. Clean up old logs\n2. Archive historical data\n3. Consider expanding disk"
+
+      # Alert 16: Deployment Completed
+      - alert: DeploymentCompleted
+        expr: deployment_status{status="success"} == 1
+        for: 1m
+        labels:
+          severity: info
+          component: deployment
+          category: operations
+        annotations:
+          summary: "Deployment completed successfully"
+          description: "Service {{ $labels.service }} has been deployed successfully."
+          action: "Monitor service health and metrics for anomalies."
+
+      # Alert 17: Backup Completed
+      - alert: BackupCompleted
+        expr: backup_status{status="success"} == 1
+        for: 1m
+        labels:
+          severity: info
+          component: backup
+          category: operations
+        annotations:
+          summary: "Backup completed successfully"
+          description: "Database backup completed at {{ $labels.timestamp }}."
+          action: "Verify backup integrity and upload to remote storage."
+
+  # =================================================================
+  # TRADING-SPECIFIC ALERTS
+  # =================================================================
+  - name: trading_alerts
+    interval: 30s
+    rules:
+      # Alert 18: High Unrealized Loss
+      - alert: HighUnrealizedLoss
+        expr: sum(position_unrealized_pnl) < -1000
+        for: 5m
+        labels:
+          severity: warning
+          component: portfolio
+          category: financial
+        annotations:
+          summary: "High unrealized loss in portfolio"
+          description: "Total unrealized loss is ${{ $value | humanize }}."
+          action: "1. Review open positions\n2. Check market conditions\n3. Consider reducing exposure\n4. Evaluate stop-loss levels"
+
+      # Alert 19: Position Size Exceeded
+      - alert: PositionSizeExceeded
+        expr: max by (symbol) (active_positions) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: risk-management
+          category: financial
+        annotations:
+          summary: "Too many positions in {{ $labels.symbol }}"
+          description: "{{ $value | humanize }} positions open for {{ $labels.symbol }}."
+          action: "Review position sizing strategy and risk management rules."
+
+      # Alert 20: No Trades Executed
+      - alert: NoTradesExecuted
+        expr: increase(trade_executions_total[1h]) == 0
+        for: 2h
+        labels:
+          severity: info
+          component: trading-engine
+          category: operations
+        annotations:
+          summary: "No trades executed in the last 2 hours"
+          description: "Trading engine hasn't executed any trades recently."
+          action: "1. Check if trading is paused\n2. Verify market data is flowing\n3. Review strategy signals\n4. Check for connectivity issues"
+
+  # =================================================================
+  # RISK MANAGEMENT ALERTS
+  # =================================================================
+  - name: risk_alerts
+    interval: 30s
+    rules:
+      # Alert 21: Risk Limit Violations
+      - alert: RiskLimitViolation
+        expr: increase(risk_limit_violations_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: risk-management
+          category: compliance
+        annotations:
+          summary: "Risk limit violation detected"
+          description: "{{ $value | humanize }} risk limit violations in the last 5 minutes."
+          action: "1. Review violated risk limits\n2. Check position sizes\n3. Evaluate current exposure\n4. Consider emergency risk reduction"
+
+      # Alert 22: High Drawdown
+      - alert: HighDrawdown
+        expr: drawdown_current_gauge > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: portfolio
+          category: financial
+        annotations:
+          summary: "Portfolio drawdown is high"
+          description: "Current drawdown is {{ $value | humanizePercentage }}."
+          action: "1. Review recent trading performance\n2. Analyze losing trades\n3. Consider reducing position sizes\n4. Evaluate strategy effectiveness"
+
+      # Alert 23: Low Sharpe Ratio
+      - alert: LowSharpeRatio
+        expr: sharpe_ratio_gauge < 1.0
+        for: 1h
+        labels:
+          severity: info
+          component: risk-metrics
+          category: performance
+        annotations:
+          summary: "Sharpe ratio is low"
+          description: "Sharpe ratio is {{ $value | humanize }}, indicating poor risk-adjusted returns."
+          action: "Review strategy performance and consider optimization."
+
+  # =================================================================
+  # SYSTEM HEALTH ALERTS
+  # =================================================================
+  - name: system_health_alerts
+    interval: 30s
+    rules:
+      # Alert 24: Container Restart
+      - alert: ContainerRestarted
+        expr: changes(container_last_seen[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: docker
+          category: availability
+        annotations:
+          summary: "Container {{ $labels.name }} has restarted"
+          description: "Container restart detected. Check for crashes or OOM kills."
+          action: "1. Check container logs\n2. Review exit code\n3. Monitor resource usage\n4. Check for memory limits"
+
+      # Alert 25: File Descriptor Usage High
+      - alert: HighFileDescriptorUsage
+        expr: |
+          (
+            (process_open_fds / process_max_fds) * 100
+          ) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+          category: resources
+        annotations:
+          summary: "High file descriptor usage in {{ $labels.job }}"
+          description: "File descriptor usage is {{ $value | humanizePercentage }}."
+          action: "1. Check for file descriptor leaks\n2. Review open connections\n3. Increase limits if needed\n4. Investigate unclosed resources"
+
+      # Alert 26: Prometheus Target Down
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: monitoring
+          category: observability
+        annotations:
+          summary: "Prometheus cannot scrape {{ $labels.job }}"
+          description: "Target has been down for 2 minutes."
+          action: "1. Verify service is running\n2. Check network connectivity\n3. Verify /metrics endpoint\n4. Review Prometheus logs"

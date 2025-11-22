@@ -82,8 +82,11 @@ class Stochastic:
             df['lowest_low'] = df['low'].rolling(window=self.period).min()
             df['highest_high'] = df['high'].rolling(window=self.period).max()
 
-            # Raw %K
-            df['k_raw'] = 100 * (df['close'] - df['lowest_low']) / (df['highest_high'] - df['lowest_low'])
+            # Fixed: Calculate raw %K with division by zero protection (Critical Issue #3)
+            # When highest_high == lowest_low (flat market), division would crash
+            # Replace 0 range with inf to avoid division by zero
+            price_range = (df['highest_high'] - df['lowest_low']).replace(0, np.inf)
+            df['k_raw'] = 100 * (df['close'] - df['lowest_low']) / price_range
 
             # Smooth %K
             df['k'] = df['k_raw'].rolling(window=self.smooth_k).mean()

@@ -18,6 +18,7 @@ from app.models.performance import (
     PeriodPerformance,
     AssetPerformance
 )
+from app.models.transaction import Transaction, TransactionHistoryResponse
 from app.models.response import (
     HealthResponse,
     StatusResponse,
@@ -52,6 +53,9 @@ __all__ = [
     "DailyPerformance",
     "PeriodPerformance",
     "AssetPerformance",
+    # Transaction Models
+    "Transaction",
+    "TransactionHistoryResponse",
     # Response Models
     "HealthResponse",
     "StatusResponse",

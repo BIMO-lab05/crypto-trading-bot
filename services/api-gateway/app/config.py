@@ -41,6 +41,14 @@ class Settings(BaseSettings):
         default="http://localhost:8007",
         description="Risk & Metrics service URL"
     )
+    ml_prediction_url: str = Field(
+        default="http://localhost:8007",
+        description="ML Prediction service URL"
+    )
+    sentiment_analysis_url: str = Field(
+        default="http://localhost:8008",
+        description="Sentiment Analysis service URL"
+    )
 
     # Security
     jwt_secret_key: str = Field(

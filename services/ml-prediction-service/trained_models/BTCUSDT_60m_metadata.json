@@ -1,0 +1,42 @@
+{
+  "symbol": "BTCUSDT",
+  "interval": "60",
+  "model_version": "v20251120_220104",
+  "last_trained": "2025-11-20T22:01:04.411719",
+  "training_stats": {
+    "train_samples": 492,
+    "test_samples": 123,
+    "final_train_loss": 0.010415993630886078,
+    "final_val_loss": 0.005376178305596113,
+    "mae": 0.02345420576846845,
+    "rmse": 0.031070440693427914,
+    "r2_score": 0.8437163740834788
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "return_1",
+    "return_5",
+    "return_10",
+    "price_momentum_5",
+    "price_momentum_10",
+    "sma_7",
+    "sma_14",
+    "sma_30",
+    "ema_7",
+    "ema_14",
+    "price_vs_sma7",
+    "price_vs_sma14",
+    "high_low_range",
+    "volatility_10",
+    "volatility_20",
+    "volume_sma_7",
+    "volume_ratio",
+    "rsi_14"
+  ],
+  "sequence_length": 60,
+  "prediction_horizon": 5
+}

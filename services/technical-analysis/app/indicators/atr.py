@@ -65,6 +65,12 @@ class ATR:
             logger.warning(f"Insufficient data for ATR: need {self.period + 1} candles")
             return self._default_response(current_price)
 
+        # Fixed: Validate current_price before calculation (Critical Issue #4)
+        # Division by zero would crash if current_price is 0 or invalid
+        if current_price <= 0 or np.isnan(current_price) or np.isinf(current_price):
+            logger.error(f"Invalid current_price: {current_price}. Cannot calculate ATR percentage.")
+            return self._default_response(1.0)  # Use 1.0 as safe fallback for calculations
+
         try:
             # Calculate True Range
             df = pd.DataFrame({

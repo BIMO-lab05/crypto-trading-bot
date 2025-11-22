@@ -3,9 +3,9 @@ Performance Models
 Purpose: Performance metrics and tracking
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -41,7 +41,6 @@ class PerformanceMetrics(BaseModel):
 class PerformanceSnapshot(PerformanceMetrics):
     """Performance snapshot with timestamp"""
     id: Optional[int] = Field(default=None, description="Snapshot ID")
-    snapshot_at: datetime = Field(default_factory=datetime.utcnow, description="Snapshot timestamp")
+    snapshot_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Snapshot timestamp")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

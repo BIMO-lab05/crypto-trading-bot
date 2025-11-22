@@ -92,7 +92,7 @@ class TestTrendGatekeeper:
 
         assert action == SignalAction.BUY, "Signal should pass"
         assert blocked is False
-        assert confidence == 0.49, "Confidence reduced by 0.7x"  # 0.7 * 0.7 = 0.49
+        assert abs(confidence - 0.49) < 0.001, "Confidence reduced by 0.7x"  # 0.7 * 0.7 = 0.49
 
     def test_hold_signal_passes_through(self):
         """Test that HOLD signals always pass through"""
@@ -194,9 +194,9 @@ class TestSignalVoter:
     def test_calculate_votes_all_buy(self):
         """Test vote calculation when all indicators say BUY"""
         indicators = {
-            "RSI": IndicatorSignal("RSI", SignalAction.BUY, 0.8, Decimal("30")),
-            "MACD": IndicatorSignal("MACD", SignalAction.BUY, 0.7, Decimal("0.5")),
-            "BB": IndicatorSignal("BB", SignalAction.BUY, 0.9, Decimal("100"))
+            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.8, value=30),
+            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.7, value=0.5),
+            "BB": IndicatorSignal(name="BB", signal=SignalAction.BUY, confidence=0.9, value=100)
         }
 
         score, consensus, buy_count, sell_count, hold_count = \
@@ -211,9 +211,9 @@ class TestSignalVoter:
     def test_calculate_votes_mixed_signals(self):
         """Test vote calculation with mixed signals"""
         indicators = {
-            "RSI": IndicatorSignal("RSI", SignalAction.BUY, 0.8, Decimal("30")),
-            "MACD": IndicatorSignal("MACD", SignalAction.SELL, 0.7, Decimal("-0.5")),
-            "BB": IndicatorSignal("BB", SignalAction.HOLD, 0.5, Decimal("100"))
+            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.8, value=30),
+            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.SELL, confidence=0.7, value=-0.5),
+            "BB": IndicatorSignal(name="BB", signal=SignalAction.HOLD, confidence=0.5, value=100)
         }
 
         score, consensus, buy_count, sell_count, hold_count = \
@@ -249,10 +249,10 @@ class TestSignalVoter:
     def test_filter_non_voting_indicators(self):
         """Test filtering out GATEKEEPER and VALIDATOR from voting"""
         all_indicators = {
-            "RSI": IndicatorSignal("RSI", SignalAction.BUY, 0.8, Decimal("30")),
-            "TREND_FILTER": IndicatorSignal("TREND_FILTER", SignalAction.BUY, 0.9, Decimal("5")),
-            "VOLUME_CONFIRMATION": IndicatorSignal("VOLUME_CONFIRMATION", SignalAction.HOLD, 0.5, Decimal("1.2")),
-            "MACD": IndicatorSignal("MACD", SignalAction.SELL, 0.7, Decimal("-0.5"))
+            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.8, value=30),
+            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=0.9, value=5),
+            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.HOLD, confidence=0.5, value=1.2),
+            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.SELL, confidence=0.7, value=-0.5)
         }
 
         voting_indicators = self.voter.filter_non_voting_indicators(all_indicators)
@@ -283,15 +283,15 @@ class TestCoreAggregator:
     def test_aggregate_signals_strong_buy(self):
         """Test aggregation with strong BUY consensus"""
         indicators = {
-            "RSI": IndicatorSignal("RSI", SignalAction.BUY, 0.9, Decimal("25")),
-            "MACD": IndicatorSignal("MACD", SignalAction.BUY, 0.8, Decimal("1.5")),
-            "BB": IndicatorSignal("BB", SignalAction.BUY, 0.85, Decimal("100")),
-            "SMA": IndicatorSignal("SMA", SignalAction.BUY, 0.75, Decimal("50")),
-            "EMA": IndicatorSignal("EMA", SignalAction.BUY, 0.8, Decimal("50")),
-            "STOCHASTIC": IndicatorSignal("STOCHASTIC", SignalAction.BUY, 0.7, Decimal("20")),
-            "TREND_FILTER": IndicatorSignal("TREND_FILTER", SignalAction.BUY, 0.9, Decimal("5"),
+            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.9, value=25),
+            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.8, value=1.5),
+            "BB": IndicatorSignal(name="BB", signal=SignalAction.BUY, confidence=0.85, value=100),
+            "SMA": IndicatorSignal(name="SMA", signal=SignalAction.BUY, confidence=0.75, value=50),
+            "EMA": IndicatorSignal(name="EMA", signal=SignalAction.BUY, confidence=0.8, value=50),
+            "STOCHASTIC": IndicatorSignal(name="STOCHASTIC", signal=SignalAction.BUY, confidence=0.7, value=20),
+            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=0.9, value=5.0,
                                            metadata={"trend": "BULLISH"}),
-            "VOLUME_CONFIRMATION": IndicatorSignal("VOLUME_CONFIRMATION", SignalAction.BUY, 0.8, Decimal("1.5"),
+            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.BUY, confidence=0.8, value=1.5,
                                                   metadata={"confirmed": True, "strength": "STRONG"})
         }
 
@@ -306,15 +306,15 @@ class TestCoreAggregator:
     def test_aggregate_signals_blocked_by_gatekeeper(self):
         """Test that counter-trend trades are blocked"""
         indicators = {
-            "RSI": IndicatorSignal("RSI", SignalAction.BUY, 0.9, Decimal("25")),
-            "MACD": IndicatorSignal("MACD", SignalAction.BUY, 0.8, Decimal("1.5")),
-            "BB": IndicatorSignal("BB", SignalAction.BUY, 0.85, Decimal("100")),
-            "SMA": IndicatorSignal("SMA", SignalAction.BUY, 0.75, Decimal("50")),
-            "EMA": IndicatorSignal("EMA", SignalAction.BUY, 0.8, Decimal("50")),
-            "STOCHASTIC": IndicatorSignal("STOCHASTIC", SignalAction.BUY, 0.7, Decimal("20")),
-            "TREND_FILTER": IndicatorSignal("TREND_FILTER", SignalAction.SELL, 0.9, Decimal("-5"),
+            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.9, value=25),
+            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.8, value=1.5),
+            "BB": IndicatorSignal(name="BB", signal=SignalAction.BUY, confidence=0.85, value=100),
+            "SMA": IndicatorSignal(name="SMA", signal=SignalAction.BUY, confidence=0.75, value=50),
+            "EMA": IndicatorSignal(name="EMA", signal=SignalAction.BUY, confidence=0.8, value=50),
+            "STOCHASTIC": IndicatorSignal(name="STOCHASTIC", signal=SignalAction.BUY, confidence=0.7, value=20),
+            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.SELL, confidence=0.9, value=-5.0,
                                            metadata={"trend": "BEARISH"}),  # Counter-trend!
-            "VOLUME_CONFIRMATION": IndicatorSignal("VOLUME_CONFIRMATION", SignalAction.BUY, 0.8, Decimal("1.5"),
+            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.BUY, confidence=0.8, value=1.5,
                                                   metadata={"confirmed": True, "strength": "STRONG"})
         }
 
@@ -328,13 +328,13 @@ class TestCoreAggregator:
     def test_aggregate_signals_low_volume_penalty(self):
         """Test that low volume reduces confidence"""
         indicators = {
-            "RSI": IndicatorSignal("RSI", SignalAction.BUY, 0.9, Decimal("25")),
-            "MACD": IndicatorSignal("MACD", SignalAction.BUY, 0.8, Decimal("1.5")),
-            "BB": IndicatorSignal("BB", SignalAction.BUY, 0.85, Decimal("100")),
-            "SMA": IndicatorSignal("SMA", SignalAction.BUY, 0.75, Decimal("50")),
-            "TREND_FILTER": IndicatorSignal("TREND_FILTER", SignalAction.BUY, 0.9, Decimal("5"),
+            "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.9, value=25),
+            "MACD": IndicatorSignal(name="MACD", signal=SignalAction.BUY, confidence=0.8, value=1.5),
+            "BB": IndicatorSignal(name="BB", signal=SignalAction.BUY, confidence=0.85, value=100),
+            "SMA": IndicatorSignal(name="SMA", signal=SignalAction.BUY, confidence=0.75, value=50),
+            "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=0.9, value=5.0,
                                            metadata={"trend": "BULLISH"}),
-            "VOLUME_CONFIRMATION": IndicatorSignal("VOLUME_CONFIRMATION", SignalAction.HOLD, 0.3, Decimal("0.7"),
+            "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.HOLD, confidence=0.3, value=0.7,
                                                   metadata={"confirmed": False, "strength": "WEAK"})  # Low volume!
         }
 

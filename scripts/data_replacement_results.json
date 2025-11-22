@@ -1,0 +1,16 @@
+{
+  "BTCUSDT": {
+    "status": "success",
+    "candles_inserted": 2160,
+    "date_range": "2025-08-22 11:00:00+00:00 to 2025-11-20 10:00:00+00:00",
+    "price_range": "$88850.10 to $125981.30",
+    "avg_price": "$110653.35"
+  },
+  "ETHUSDT": {
+    "status": "success",
+    "candles_inserted": 2160,
+    "date_range": "2025-08-22 11:00:00+00:00 to 2025-11-20 10:00:00+00:00",
+    "price_range": "$2880.16 to $4934.40",
+    "avg_price": "$4077.78"
+  }
+}

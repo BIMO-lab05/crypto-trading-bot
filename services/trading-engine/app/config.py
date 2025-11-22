@@ -109,7 +109,7 @@ class Settings(BaseSettings):
 
     # Redis Configuration
     redis_host: str = Field(default="localhost")
-    redis_port: int = Field(default=6380)
+    redis_port: int = Field(default=6379)
     redis_db: int = Field(default=2)
     redis_password: str = Field(default="")
 

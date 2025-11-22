@@ -1,0 +1,149 @@
+"""
+Bybit Connector Service - Request/Response Models
+Purpose: Pydantic models for input validation and type safety
+"""
+
+from enum import Enum
+from typing import Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+# ============================================================================
+# ENUMS FOR VALIDATION
+# ============================================================================
+
+class OrderSide(str, Enum):
+    """Valid order sides for Bybit"""
+    BUY = "Buy"
+    SELL = "Sell"
+
+
+class OrderType(str, Enum):
+    """Valid order types for Bybit"""
+    MARKET = "Market"
+    LIMIT = "Limit"
+
+
+class TimeInForce(str, Enum):
+    """Valid time in force values for Bybit"""
+    GTC = "GTC"  # Good Till Cancel
+    IOC = "IOC"  # Immediate or Cancel
+    FOK = "FOK"  # Fill or Kill
+    POST_ONLY = "PostOnly"  # Post Only
+
+
+class Category(str, Enum):
+    """Valid product categories for Bybit"""
+    LINEAR = "linear"
+    INVERSE = "inverse"
+    OPTION = "option"
+    SPOT = "spot"
+
+
+# ============================================================================
+# REQUEST MODELS
+# ============================================================================
+
+class PlaceOrderRequest(BaseModel):
+    """Request model for placing an order with comprehensive validation"""
+    category: Category = Field(default=Category.LINEAR, description="Product category")
+    symbol: str = Field(..., min_length=6, max_length=20, description="Trading pair (e.g., BTCUSDT)")
+    side: OrderSide = Field(..., description="Buy or Sell")
+    order_type: OrderType = Field(..., description="Market or Limit")
+    qty: str = Field(..., description="Order quantity (as string for precision)")
+    price: Optional[str] = Field(None, description="Order price (required for Limit orders)")
+    time_in_force: TimeInForce = Field(default=TimeInForce.GTC, description="Time in force")
+    reduce_only: bool = Field(default=False, description="Reduce only flag")
+    order_link_id: Optional[str] = Field(None, max_length=36, description="User-defined order ID")
+
+    @field_validator("symbol")
+    @classmethod
+    def validate_symbol(cls, v: str) -> str:
+        """Validate symbol format"""
+        v = v.upper()
+        if not v.replace("USDT", "").replace("USDC", "").replace("USD", "").isalnum():
+            raise ValueError("Symbol must be alphanumeric with USDT/USDC/USD suffix")
+        return v
+
+    @field_validator("qty")
+    @classmethod
+    def validate_qty(cls, v: str) -> str:
+        """Validate quantity is a positive number"""
+        try:
+            qty_float = float(v)
+            if qty_float <= 0:
+                raise ValueError("Quantity must be positive")
+        except ValueError as e:
+            raise ValueError(f"Quantity must be a valid positive number: {e}")
+        return v
+
+    @field_validator("price")
+    @classmethod
+    def validate_price(cls, v: Optional[str], info) -> Optional[str]:
+        """Validate price for limit orders"""
+        if v is not None:
+            try:
+                price_float = float(v)
+                if price_float <= 0:
+                    raise ValueError("Price must be positive")
+            except ValueError as e:
+                raise ValueError(f"Price must be a valid positive number: {e}")
+        return v
+
+    @model_validator(mode='after')
+    def validate_order_requirements(self):
+        """Validate order type requirements"""
+        # Limit orders require price
+        if self.order_type == OrderType.LIMIT and not self.price:
+            raise ValueError("Limit orders require a price")
+        return self
+
+
+class CancelOrderRequest(BaseModel):
+    """Request model for cancelling an order"""
+    category: Category = Field(default=Category.LINEAR, description="Product category")
+    symbol: str = Field(..., min_length=6, max_length=20, description="Trading symbol")
+    order_id: Optional[str] = Field(None, description="Order ID")
+    order_link_id: Optional[str] = Field(None, description="User-defined order ID")
+
+    @field_validator("symbol")
+    @classmethod
+    def validate_symbol(cls, v: str) -> str:
+        """Validate and normalize symbol"""
+        return v.upper()
+
+    @model_validator(mode='after')
+    def validate_id_provided(self):
+        """Validate that at least one ID is provided"""
+        if not self.order_id and not self.order_link_id:
+            raise ValueError("Either order_id or order_link_id must be provided")
+        return self
+
+
+# ============================================================================
+# RESPONSE MODELS (Optional - for documentation)
+# ============================================================================
+
+class OrderResponse(BaseModel):
+    """Standard order response from Bybit"""
+    order_id: str
+    order_link_id: Optional[str] = None
+    symbol: str
+    side: str
+    order_type: str
+    qty: str
+    price: Optional[str] = None
+    status: str
+
+    class Config:
+        extra = "allow"  # Allow additional fields from Bybit
+
+
+class BalanceResponse(BaseModel):
+    """Wallet balance response"""
+    total_equity: Optional[str] = None
+    available_balance: Optional[str] = None
+    used_margin: Optional[str] = None
+
+    class Config:
+        extra = "allow"  # Allow additional fields from Bybit

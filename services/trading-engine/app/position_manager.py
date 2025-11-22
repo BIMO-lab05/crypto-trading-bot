@@ -8,7 +8,7 @@ import logging
 from typing import List, Optional
 from decimal import Decimal
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from app.models import Position, PositionCreate, PositionStatus, PositionSide
 from app.risk_manager import get_risk_manager
 from app.repositories import get_position_repository
@@ -211,7 +211,7 @@ class PositionManager:
         position.realized_pnl = position.unrealized_pnl
         position.unrealized_pnl = Decimal("0")
         position.status = PositionStatus.CLOSED
-        position.closed_at = datetime.utcnow()
+        position.closed_at = datetime.now(timezone.utc)
 
         # Update risk manager daily P&L
         self.risk_manager.update_daily_pnl(position.realized_pnl)

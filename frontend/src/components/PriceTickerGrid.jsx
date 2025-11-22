@@ -4,15 +4,16 @@ import { useMultipleTickers } from '../hooks/useTicker'
 /**
  * PriceTickerGrid component displays real-time price data
  * Shows: current price, 24h change, volume for multiple symbols
+ * UPDATED: Now supports 7 trading pairs (added SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT)
  */
-export default function PriceTickerGrid({ symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'] }) {
+export default function PriceTickerGrid({ symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT'] }) {
   const { data: tickers, isLoading, error } = useMultipleTickers(symbols)
 
   if (isLoading) {
     return (
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h2 className="text-2xl font-bold text-gray-800 mb-6">Live Prices</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {symbols.map((symbol) => (
             <div key={symbol} className="animate-pulse bg-gray-50 rounded-lg p-4">
               <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
@@ -46,7 +47,7 @@ export default function PriceTickerGrid({ symbols = ['BTCUSDT', 'ETHUSDT', 'BNBU
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {symbols.map((symbol) => {
           const ticker = tickers?.[symbol]?.ticker || {}
 

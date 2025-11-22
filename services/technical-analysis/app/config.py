@@ -69,7 +69,8 @@ class Settings(BaseSettings):
 
     model_config = {
         "env_file": ".env",
-        "case_sensitive": False
+        "case_sensitive": False,
+        "extra": "ignore"  # Ignore extra environment variables (like DB_* from other services)
     }
 
 

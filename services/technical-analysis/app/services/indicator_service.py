@@ -1,0 +1,317 @@
+"""
+Indicator Service - Business Logic Layer
+Handles indicator calculations and data fetching orchestration
+Extracted from main.py using Strangler Fig pattern
+"""
+
+import logging
+from typing import Dict, Any, Optional
+from fastapi import HTTPException
+
+from app.fetcher import get_fetcher
+from app.indicators import (
+    RSICalculator,
+    MACDCalculator,
+    BollingerBandsCalculator,
+    SMACalculator,
+    EMACalculator
+)
+from app.indicators.trend_filter import TrendFilter
+from app.indicators.volume_confirmation import VolumeConfirmation
+from app.indicators.atr import ATR
+from app.indicators.stochastic import Stochastic
+
+logger = logging.getLogger(__name__)
+
+
+class IndicatorService:
+    """
+    Service for calculating technical indicators
+    Encapsulates business logic for indicator calculations
+    """
+
+    @staticmethod
+    async def calculate_rsi(
+        symbol: str,
+        interval: str,
+        period: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate RSI indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available for symbol")
+
+        calculator = RSICalculator(period=period)
+        rsi_value, signal, confidence = calculator.calculate_with_signal(df)
+
+        if rsi_value is None:
+            raise HTTPException(status_code=400, detail="Insufficient data to calculate RSI")
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "rsi": round(rsi_value, 2),
+            "signal": signal,
+            "confidence": confidence
+        }
+
+    @staticmethod
+    async def calculate_macd(
+        symbol: str,
+        interval: str,
+        fast: int,
+        slow: int,
+        signal: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate MACD indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        calculator = MACDCalculator(fast, slow, signal)
+        macd_data, macd_signal, confidence = calculator.calculate_with_signal(df)
+
+        if macd_data is None:
+            raise HTTPException(status_code=400, detail="Insufficient data to calculate MACD")
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "macd_line": round(macd_data["macd_line"], 2),
+            "signal_line": round(macd_data["signal_line"], 2),
+            "histogram": round(macd_data["histogram"], 2),
+            "signal": macd_signal,
+            "confidence": confidence
+        }
+
+    @staticmethod
+    async def calculate_bollinger_bands(
+        symbol: str,
+        interval: str,
+        period: int,
+        std_dev: float,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate Bollinger Bands indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        calculator = BollingerBandsCalculator(period, std_dev)
+        bb_data, bb_signal, confidence = calculator.calculate_with_signal(df)
+
+        if bb_data is None:
+            raise HTTPException(status_code=400, detail="Insufficient data to calculate Bollinger Bands")
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "upper_band": round(bb_data["upper_band"], 2),
+            "middle_band": round(bb_data["middle_band"], 2),
+            "lower_band": round(bb_data["lower_band"], 2),
+            "current_price": round(bb_data["current_price"], 2),
+            "signal": bb_signal,
+            "confidence": confidence
+        }
+
+    @staticmethod
+    async def calculate_sma(
+        symbol: str,
+        interval: str,
+        period: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate SMA indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        calculator = SMACalculator(period)
+        sma_value = calculator.calculate(df)
+
+        if sma_value is None:
+            raise HTTPException(status_code=400, detail="Insufficient data to calculate SMA")
+
+        current_price = float(df['close'].iloc[-1])
+        signal, confidence = calculator.generate_signal(sma_value, current_price)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "value": round(sma_value, 2),
+            "current_price": round(current_price, 2),
+            "signal": signal,
+            "confidence": confidence
+        }
+
+    @staticmethod
+    async def calculate_ema(
+        symbol: str,
+        interval: str,
+        period: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate EMA indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        calculator = EMACalculator(period)
+        ema_value = calculator.calculate(df)
+
+        if ema_value is None:
+            raise HTTPException(status_code=400, detail="Insufficient data to calculate EMA")
+
+        current_price = float(df['close'].iloc[-1])
+        signal, confidence = calculator.generate_signal(ema_value, current_price)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "value": round(ema_value, 2),
+            "current_price": round(current_price, 2),
+            "signal": signal,
+            "confidence": confidence
+        }
+
+    @staticmethod
+    async def calculate_trend_filter(
+        symbol: str,
+        interval: str,
+        fast_period: int,
+        slow_period: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate Trend Filter indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        if len(df) < slow_period:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {slow_period} candles, got {len(df)}"
+            )
+
+        close_prices = df['close'].tolist()
+        trend_filter = TrendFilter(fast_period=fast_period, slow_period=slow_period)
+        result = trend_filter.calculate(close_prices)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "data": result
+        }
+
+    @staticmethod
+    async def calculate_volume_confirmation(
+        symbol: str,
+        interval: str,
+        period: int,
+        signal_type: str,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate Volume Confirmation indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        if len(df) < period:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {period} candles, got {len(df)}"
+            )
+
+        volumes = df['volume'].tolist()
+        volume_conf = VolumeConfirmation(period=period)
+        result = volume_conf.calculate(volumes, signal_type)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "data": result
+        }
+
+    @staticmethod
+    async def calculate_atr(
+        symbol: str,
+        interval: str,
+        period: int,
+        current_price: Optional[float],
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate ATR indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        if len(df) < period + 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {period + 1} candles, got {len(df)}"
+            )
+
+        highs = df['high'].tolist()
+        lows = df['low'].tolist()
+        closes = df['close'].tolist()
+
+        if current_price is None:
+            current_price = closes[-1]
+
+        atr_indicator = ATR(period=period)
+        result = atr_indicator.calculate(highs, lows, closes, current_price)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "current_price": current_price,
+            "data": result
+        }
+
+    @staticmethod
+    async def calculate_stochastic(
+        symbol: str,
+        interval: str,
+        period: int,
+        smooth_k: int,
+        smooth_d: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate Stochastic Oscillator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        if len(df) < period + smooth_k:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {period + smooth_k} candles, got {len(df)}"
+            )
+
+        highs = df['high'].tolist()
+        lows = df['low'].tolist()
+        closes = df['close'].tolist()
+
+        stoch = Stochastic(
+            period=period,
+            smooth_k=smooth_k,
+            smooth_d=smooth_d
+        )
+        result = stoch.calculate(highs, lows, closes)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "data": result
+        }

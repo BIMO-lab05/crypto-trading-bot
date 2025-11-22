@@ -8,7 +8,7 @@ import logging
 from typing import AsyncGenerator, Optional
 from contextlib import asynccontextmanager, contextmanager
 
-from sqlalchemy import create_engine, event, pool
+from sqlalchemy import create_engine, event, pool, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from sqlalchemy.pool import NullPool
@@ -195,7 +195,7 @@ class DatabaseManager:
                 self.init_sync_engine()
 
             with self._sync_engine.connect() as conn:
-                conn.execute("SELECT 1")
+                conn.execute(text("SELECT 1"))
             return True
         except Exception as e:
             logger.error(f"Database health check failed: {e}")

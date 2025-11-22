@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class HistoricalDataDownloader:
     """Downloads historical market data for backtesting"""
 
-    def __init__(self, market_data_url: str = "http://localhost:8003"):
+    def __init__(self, market_data_url: str = "http://localhost:8002"):
         """
         Initialize downloader
 
@@ -182,7 +182,7 @@ async def main():
     parser.add_argument('--interval', type=str, default='60', help='Interval in minutes (default: 60)')
     parser.add_argument('--days', type=int, default=90, help='Days of historical data (default: 90)')
     parser.add_argument('--output', type=str, help='Output CSV file')
-    parser.add_argument('--market-data-url', type=str, default='http://localhost:8003', help='Market data service URL')
+    parser.add_argument('--market-data-url', type=str, default='http://localhost:8002', help='Market data service URL')
 
     args = parser.parse_args()
 

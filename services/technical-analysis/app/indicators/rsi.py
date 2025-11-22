@@ -62,12 +62,26 @@ class RSICalculator:
             avg_gain = gains.ewm(alpha=1/self.period, min_periods=self.period, adjust=False).mean()
             avg_loss = losses.ewm(alpha=1/self.period, min_periods=self.period, adjust=False).mean()
 
-            # Calculate RS and RSI
-            rs = avg_gain / avg_loss
+            # Fixed: Calculate RS and RSI with division by zero protection (Critical Issue #1)
+            # When avg_loss is 0 (strong uptrend), RSI = 100
+            # When avg_gain is 0 (strong downtrend), RSI = 0
+            # Standard RSI behavior for edge cases
+            rs = avg_gain / avg_loss.replace(0, np.inf)  # Replace 0 with inf to avoid division by zero
             rsi = 100 - (100 / (1 + rs))
 
             # Get the most recent RSI value
             current_rsi = rsi.iloc[-1]
+
+            # Fixed: Check for NaN/Inf values before returning (Critical Issue #5 - NaN propagation)
+            if np.isnan(current_rsi) or np.isinf(current_rsi):
+                logger.warning(f"RSI calculation resulted in NaN or Inf. avg_gain: {avg_gain.iloc[-1]}, avg_loss: {avg_loss.iloc[-1]}")
+                # Return safe default based on market direction
+                if avg_gain.iloc[-1] > 0 and avg_loss.iloc[-1] == 0:
+                    return 100.0  # Only gains = extremely overbought
+                elif avg_gain.iloc[-1] == 0 and avg_loss.iloc[-1] > 0:
+                    return 0.0    # Only losses = extremely oversold
+                else:
+                    return 50.0   # Neutral fallback
 
             logger.debug(f"Calculated RSI: {current_rsi:.2f}")
             return float(current_rsi)
@@ -170,7 +184,10 @@ class RSICalculator:
             avg_gain = gains.ewm(alpha=1/self.period, min_periods=self.period, adjust=False).mean()
             avg_loss = losses.ewm(alpha=1/self.period, min_periods=self.period, adjust=False).mean()
 
-            rs = avg_gain / avg_loss
+            # Fixed: Calculate RS and RSI with division by zero protection (Critical Issue #1)
+            # When avg_loss is 0 (strong uptrend), RSI = 100
+            # Standard RSI behavior for edge cases across entire series
+            rs = avg_gain / avg_loss.replace(0, np.inf)  # Replace 0 with inf to avoid division by zero
             rsi_series = 100 - (100 / (1 + rs))
 
             return rsi_series

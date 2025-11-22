@@ -4,6 +4,15 @@ Provides REST API for sending alerts via email and Telegram
 """
 
 from fastapi import FastAPI, HTTPException
+import sys
+import uuid
+from pathlib import Path
+
+# Add shared utilities to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
+from utils.structured_logging import setup_logging, RequestContextLogger
+from utils.graceful_shutdown import GracefulShutdownHandler
+
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Optional

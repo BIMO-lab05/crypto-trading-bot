@@ -1,0 +1,12 @@
+# Shared Utils Requirements
+# Rock-solid foundation utilities
+
+# Structured logging
+python-json-logger==2.0.7
+
+# Database pooling
+asyncpg==0.29.0          # PostgreSQL/TimescaleDB async driver
+aioredis==2.0.1          # Redis async client
+
+# Async support
+asyncio-extra==1.3.2

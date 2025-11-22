@@ -1,0 +1,17 @@
+# Grafana Dashboards Configuration
+# Auto-provisions dashboard files from directory
+
+apiVersion: 1
+
+providers:
+  # Default provider - load dashboards from directory
+  - name: 'default'
+    orgId: 1
+    folder: 'Crypto Trading Bot'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

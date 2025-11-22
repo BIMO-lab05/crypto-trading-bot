@@ -1,0 +1,98 @@
+# Kubernetes Deployment for Sentiment Analysis Service
+# News and social media sentiment analysis microservice
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-analysis-service
+  labels:
+    app: crypto-trading-bot
+    component: sentiment-analysis
+    tier: backend
+spec:
+  replicas: 2  # High availability with 2 replicas
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      component: sentiment-analysis
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: sentiment-analysis
+    spec:
+      containers:
+      - name: sentiment-analysis
+        image: crypto-trading-bot/sentiment-analysis:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8008
+          name: http
+          protocol: TCP
+        env:
+        - name: DEBUG
+          value: "false"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: NEWS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: crypto-bot-secrets
+              key: news-api-key
+        - name: TWITTER_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: crypto-bot-secrets
+              key: twitter-api-key
+        - name: TWITTER_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: crypto-bot-secrets
+              key: twitter-api-secret
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        resources:
+          requests:
+            cpu: "300m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"  # Sentiment models need memory
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8008
+          initialDelaySeconds: 40
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8008
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentiment-analysis-service
+  labels:
+    app: crypto-trading-bot
+    component: sentiment-analysis
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    component: sentiment-analysis
+  ports:
+  - port: 8008
+    targetPort: 8008
+    protocol: TCP
+    name: http

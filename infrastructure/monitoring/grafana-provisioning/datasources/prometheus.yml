@@ -1,0 +1,40 @@
+# Grafana Datasource Provisioning Configuration
+# Automatically configures Prometheus as a datasource when Grafana starts
+# No manual configuration needed in the Grafana UI
+
+apiVersion: 1
+
+# List of datasources to configure
+datasources:
+  # Prometheus datasource configuration
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # URL of the Prometheus server (internal Docker network address)
+    url: http://prometheus:9090
+    # Make this the default datasource
+    isDefault: true
+    # Enable by default
+    editable: true
+    # JSON data configuration
+    jsonData:
+      # Time interval for Prometheus queries
+      timeInterval: "15s"
+      # Query timeout
+      queryTimeout: "60s"
+      # HTTP method for queries (POST is more reliable for large queries)
+      httpMethod: POST
+      # Enable custom query parameters
+      customQueryParameters: ""
+      # Scrape interval alignment
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: 2.45.0
+      # Cache level (use 'Low' for real-time data)
+      cacheLevel: 'Low'
+      # Disable metrics lookup (improves performance)
+      disableMetricsLookup: false
+      # Increment query ID for better caching
+      incrementalQuerying: false
+      # Query splitting and result caching
+      incrementalQueryOverlapWindow: "10m"

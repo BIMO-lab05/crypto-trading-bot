@@ -1,0 +1,25 @@
+# Kustomization file for Crypto Trading Bot
+# Deploy all services with: kubectl apply -k infrastructure/kubernetes/
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: crypto-trading-bot
+
+resources:
+  # Phase 3 Services
+  - ml-prediction-deployment.yaml
+  - sentiment-analysis-deployment.yaml
+
+  # Secrets (create secrets.yaml from secrets-template.yaml)
+  # - secrets.yaml
+
+commonLabels:
+  app: crypto-trading-bot
+  managed-by: kustomize
+
+images:
+  - name: crypto-trading-bot/ml-prediction
+    newTag: latest
+  - name: crypto-trading-bot/sentiment-analysis
+    newTag: latest

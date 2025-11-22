@@ -12,6 +12,7 @@ import logging
 from app.models.portfolio import Portfolio, PortfolioSnapshot, RebalanceRecommendation
 from app.models.asset import AssetHolding, AssetType
 from app.models.performance import AssetPerformance
+from app.models.transaction import Transaction
 from app.models.enums import AllocationStrategy
 from app.config import settings
 
@@ -25,6 +26,9 @@ class PortfolioManager:
         self.portfolios: Dict[str, Portfolio] = {}
         self.http_client: Optional[httpx.AsyncClient] = None
 
+        # Transaction history tracking
+        self.transaction_history: Dict[str, List[Transaction]] = {}  # portfolio_id -> transactions
+
         # Create default portfolio
         self._create_default_portfolio()
 
@@ -36,6 +40,7 @@ class PortfolioManager:
             cash_balance=Decimal(str(settings.initial_capital))
         )
         self.portfolios["default"] = default_portfolio
+        self.transaction_history["default"] = []  # Initialize transaction history
         logger.info(f"✓ Created default portfolio with ${settings.initial_capital} capital")
 
     async def initialize(self):
@@ -56,6 +61,90 @@ class PortfolioManager:
     def list_portfolios(self) -> List[Portfolio]:
         """List all portfolios"""
         return list(self.portfolios.values())
+
+    def get_transaction_history(
+        self,
+        portfolio_id: str = "default",
+        limit: Optional[int] = None,
+        symbol: Optional[str] = None
+    ) -> List[Transaction]:
+        """
+        Get transaction history for a portfolio
+
+        Args:
+            portfolio_id: Portfolio identifier
+            limit: Maximum number of transactions to return (most recent first)
+            symbol: Filter by specific symbol (optional)
+
+        Returns:
+            List of Transaction objects
+        """
+        transactions = self.transaction_history.get(portfolio_id, [])
+
+        # Filter by symbol if specified
+        if symbol:
+            transactions = [t for t in transactions if t.symbol == symbol]
+
+        # Sort by timestamp (most recent first)
+        transactions = sorted(transactions, key=lambda t: t.timestamp, reverse=True)
+
+        # Apply limit if specified
+        if limit:
+            transactions = transactions[:limit]
+
+        return transactions
+
+    def _record_transaction(
+        self,
+        portfolio_id: str,
+        symbol: str,
+        action: str,
+        quantity: Decimal,
+        price: Decimal,
+        realized_pnl: Optional[Decimal] = None
+    ) -> Transaction:
+        """
+        Record a transaction in the history
+
+        Args:
+            portfolio_id: Portfolio identifier
+            symbol: Asset symbol
+            action: "BUY" or "SELL"
+            quantity: Quantity traded
+            price: Price per unit
+            realized_pnl: Realized P&L (for SELL transactions)
+
+        Returns:
+            Created Transaction object
+        """
+        total_amount = quantity * price
+
+        # Calculate realized P&L percentage for SELL transactions
+        realized_pnl_pct = None
+        if realized_pnl is not None and total_amount > 0:
+            realized_pnl_pct = (realized_pnl / total_amount) * Decimal("100")
+
+        transaction = Transaction(
+            portfolio_id=portfolio_id,
+            symbol=symbol,
+            action=action,
+            quantity=str(quantity),
+            price=str(price),
+            total_amount=str(total_amount),
+            realized_pnl=str(realized_pnl) if realized_pnl is not None else None,
+            realized_pnl_pct=str(realized_pnl_pct) if realized_pnl_pct is not None else None
+        )
+
+        # Initialize history list if it doesn't exist
+        if portfolio_id not in self.transaction_history:
+            self.transaction_history[portfolio_id] = []
+
+        # Add to history
+        self.transaction_history[portfolio_id].append(transaction)
+
+        logger.info(f"✓ Recorded transaction: {action} {quantity} {symbol} @ ${price}")
+
+        return transaction
 
     async def sync_with_trading_engine(self, portfolio_id: str = "default") -> bool:
         """Sync portfolio with Trading Engine positions"""
@@ -267,6 +356,8 @@ class PortfolioManager:
             if not portfolio:
                 return False, "Portfolio not found", None
 
+            realized_pnl = None
+
             if action == "BUY":
                 portfolio.add_asset(
                     symbol=symbol,
@@ -275,15 +366,27 @@ class PortfolioManager:
                     price=price
                 )
                 logger.info(f"✓ BUY: {quantity} {symbol} @ ${price}")
-                return True, f"Bought {quantity} {symbol}", None
+                message = f"Bought {quantity} {symbol}"
 
             elif action == "SELL":
                 realized_pnl = portfolio.remove_asset(symbol, quantity, price)
                 logger.info(f"✓ SELL: {quantity} {symbol} @ ${price}, P&L: ${realized_pnl}")
-                return True, f"Sold {quantity} {symbol}", realized_pnl
+                message = f"Sold {quantity} {symbol}"
 
             else:
                 return False, f"Invalid action: {action}", None
+
+            # Record transaction in history
+            self._record_transaction(
+                portfolio_id=portfolio_id,
+                symbol=symbol,
+                action=action,
+                quantity=quantity,
+                price=price,
+                realized_pnl=realized_pnl
+            )
+
+            return True, message, realized_pnl
 
         except Exception as e:
             logger.error(f"Transaction error: {e}")

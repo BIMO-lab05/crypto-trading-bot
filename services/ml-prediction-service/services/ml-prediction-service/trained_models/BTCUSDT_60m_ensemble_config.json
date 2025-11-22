@@ -1,0 +1,7 @@
+{
+  "symbol": "BTCUSDT",
+  "interval": "60",
+  "lstm_weight": 0.0,
+  "gru_weight": 1.0,
+  "last_updated": "2025-11-21T23:29:07.945593"
+}

@@ -1,0 +1,19 @@
+# HashiCorp Vault Client Dependencies
+# Install with: pip install -r requirements-vault.txt
+
+# Vault Python client
+hvac==2.1.0
+
+# Required by hvac
+requests==2.31.0
+urllib3==2.1.0
+
+# For secret encryption/decryption
+cryptography==41.0.7
+
+# For configuration management
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# For environment variable management
+python-dotenv==1.0.0

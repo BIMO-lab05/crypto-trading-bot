@@ -2,10 +2,19 @@ import React from 'react'
 import PortfolioCard from './PortfolioCard'
 import PriceTickerGrid from './PriceTickerGrid'
 import EmergencyStop from './EmergencyStop'
+import TradingSignals from './TradingSignals'
+import PriceChart from './PriceChart'
 
 /**
  * Dashboard component - Main layout for the trading bot interface
  * Combines all major components into a cohesive dashboard view
+ *
+ * Components included:
+ * - PriceTickerGrid: Real-time price tickers for multiple symbols
+ * - TradingSignals: Technical analysis signals
+ * - PriceChart: 24-hour price chart with volume visualization
+ * - PortfolioCard: Current holdings and balance
+ * - EmergencyStop: Safety mechanism to stop all trading
  */
 export default function Dashboard() {
   return (
@@ -69,7 +78,17 @@ export default function Dashboard() {
             <PriceTickerGrid symbols={['BTCUSDT', 'ETHUSDT', 'BNBUSDT']} />
           </section>
 
-          {/* Portfolio and Emergency Stop - Middle Section */}
+          {/* Price Chart - Second Section */}
+          <section>
+            <PriceChart symbol="BTCUSDT" interval="60" />
+          </section>
+
+          {/* Trading Signals - Third Section */}
+          <section>
+            <TradingSignals symbols={['BTCUSDT', 'ETHUSDT', 'BNBUSDT']} interval={60} />
+          </section>
+
+          {/* Portfolio and Emergency Stop - Fourth Section */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <PortfolioCard />

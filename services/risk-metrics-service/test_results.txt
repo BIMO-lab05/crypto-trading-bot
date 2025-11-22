@@ -1,0 +1,913 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /mnt/d/Bimo_max/crypto-trading-bot/services/risk-metrics-service
+configfile: pytest.ini
+testpaths: tests
+plugins: Faker-37.12.0, asyncio-1.2.0, cov-7.0.0, anyio-4.10.0, mock-3.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 141 items
+
+tests/test_api.py::TestHealthEndpoints::test_health_check_success 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+PASSED                                                                   [  0%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestHealthEndpoints::test_status_endpoint 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/status "HTTP/1.1 200 OK"
+PASSED                                                                   [  1%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestHealthEndpoints::test_root_endpoint 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/ "HTTP/1.1 200 OK"
+PASSED                                                                   [  2%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestRiskMetricsEndpoints::test_get_capital_metrics 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/risk/capital "HTTP/1.1 200 OK"
+PASSED                                                                   [  2%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestRiskMetricsEndpoints::test_get_exposure_metrics 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/risk/exposure "HTTP/1.1 200 OK"
+PASSED                                                                   [  3%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestRiskMetricsEndpoints::test_get_drawdown_metrics 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/risk/drawdown "HTTP/1.1 200 OK"
+PASSED                                                                   [  4%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestRiskMetricsEndpoints::test_get_var_metrics 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/risk/var?confidence_level=0.95&time_horizon_days=1 "HTTP/1.1 200 OK"
+PASSED                                                                   [  4%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestRiskMetricsEndpoints::test_get_var_custom_params 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/risk/var?confidence_level=0.99&time_horizon_days=5 "HTTP/1.1 200 OK"
+PASSED                                                                   [  5%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestRiskScorecardEndpoint::test_get_risk_scorecard 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/risk/scorecard "HTTP/1.1 200 OK"
+PASSED                                                                   [  6%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestRiskScorecardEndpoint::test_risk_scorecard_portfolio_unavailable 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/risk/scorecard "HTTP/1.1 200 OK"
+FAILED                                                                   [  7%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestPerformanceEndpoints::test_get_performance_metrics 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:18 [INFO] HTTP Request: GET http://testserver/performance/metrics "HTTP/1.1 200 OK"
+PASSED                                                                   [  7%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:18 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18 [INFO] Redis connection closed
+2025-11-19 19:28:18 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestPerformanceEndpoints::test_get_sharpe_ratio 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:18 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:18 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:18 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://testserver/performance/sharpe "HTTP/1.1 200 OK"
+PASSED                                                                   [  8%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestAlertEndpoints::test_get_active_alerts 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://testserver/alerts "HTTP/1.1 200 OK"
+FAILED                                                                   [  9%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestCircuitBreakerEndpoints::test_get_circuit_breaker_status 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [CRITICAL] Circuit breaker TRIPPED (failure #1): Exposure 375.00% critically high (limit: 24%) | Cooldown: 300.0s
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://testserver/circuit-breaker "HTTP/1.1 200 OK"
+PASSED                                                                   [  9%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestCircuitBreakerEndpoints::test_reset_circuit_breaker_without_auth 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: POST http://testserver/circuit-breaker/reset "HTTP/1.1 401 Unauthorized"
+PASSED                                                                   [ 10%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestCircuitBreakerEndpoints::test_reset_circuit_breaker_invalid_auth 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: POST http://testserver/circuit-breaker/reset "HTTP/1.1 403 Forbidden"
+PASSED                                                                   [ 11%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestCircuitBreakerEndpoints::test_reset_circuit_breaker_success 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: POST http://testserver/circuit-breaker/reset "HTTP/1.1 200 OK"
+PASSED                                                                   [ 12%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestConfigurationEndpoints::test_get_risk_limits 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://testserver/config/limits "HTTP/1.1 200 OK"
+PASSED                                                                   [ 12%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestConfigurationEndpoints::test_update_risk_limits_without_auth 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: PUT http://testserver/config/limits "HTTP/1.1 401 Unauthorized"
+PASSED                                                                   [ 13%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestConfigurationEndpoints::test_update_risk_limits_invalid_auth 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: PUT http://testserver/config/limits "HTTP/1.1 403 Forbidden"
+PASSED                                                                   [ 14%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestConfigurationEndpoints::test_update_risk_limits_success 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [WARNING] Risk limits update requested: max_position_size=0.03 max_portfolio_risk=0.06 max_drawdown=0.12 max_daily_loss=0.06 max_exposure=0.25 max_leverage=2.5 min_sharpe_ratio=1.8
+2025-11-19 19:28:19 [INFO] Invalidated 7 keys matching 'risk_metrics:*'
+2025-11-19 19:28:19 [INFO] HTTP Request: PUT http://testserver/config/limits "HTTP/1.1 200 OK"
+PASSED                                                                   [ 14%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestErrorHandling::test_portfolio_service_down 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://testserver/risk/capital "HTTP/1.1 503 Service Unavailable"
+PASSED                                                                   [ 15%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestErrorHandling::test_invalid_endpoint 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://testserver/invalid/endpoint "HTTP/1.1 404 Not Found"
+PASSED                                                                   [ 16%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestErrorHandling::test_invalid_http_method 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: POST http://testserver/risk/capital "HTTP/1.1 405 Method Not Allowed"
+PASSED                                                                   [ 17%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestErrorHandling::test_var_invalid_confidence_level 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://testserver/risk/var?confidence_level=1.5 "HTTP/1.1 200 OK"
+PASSED                                                                   [ 17%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestCORSAndSecurity::test_cors_headers_present 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: OPTIONS http://testserver/health "HTTP/1.1 405 Method Not Allowed"
+PASSED                                                                   [ 18%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestCORSAndSecurity::test_protected_endpoint_requires_auth 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: POST http://testserver/circuit-breaker/reset "HTTP/1.1 401 Unauthorized"
+2025-11-19 19:28:19 [INFO] HTTP Request: PUT http://testserver/config/limits "HTTP/1.1 401 Unauthorized"
+PASSED                                                                   [ 19%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:19 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19 [INFO] Redis connection closed
+2025-11-19 19:28:19 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestPerformanceAndLoad::test_concurrent_requests 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:19 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:19 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:19 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:19 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://localhost:8006/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+PASSED                                                                   [ 19%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:20 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:20 [INFO] Redis connection closed
+2025-11-19 19:28:20 [INFO] ✅ Shutdown complete
+
+tests/test_api.py::TestPerformanceAndLoad::test_response_time 
+-------------------------------- live log setup --------------------------------
+2025-11-19 19:28:20 [INFO] 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:20 [INFO] ✅ Performance monitoring enabled
+2025-11-19 19:28:20 [INFO] ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:20 [INFO] ✅ Request batching enabled
+2025-11-19 19:28:20 [INFO] ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:20 [INFO] ✅ Risk & Metrics Service ready
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [INFO] HTTP Request: GET http://testserver/risk/scorecard "HTTP/1.1 200 OK"
+PASSED                                                                   [ 20%]
+------------------------------ live log teardown -------------------------------
+2025-11-19 19:28:20 [INFO] Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:20 [INFO] Redis connection closed
+2025-11-19 19:28:20 [INFO] ✅ Shutdown complete
+
+tests/test_auth.py::TestAdminAuthentication::test_verify_admin_key_valid PASSED [ 21%]
+tests/test_auth.py::TestAdminAuthentication::test_verify_admin_key_invalid PASSED [ 21%]
+tests/test_auth.py::TestAdminAuthentication::test_verify_admin_key_missing PASSED [ 22%]
+tests/test_auth.py::TestAdminAuthentication::test_verify_admin_key_empty_string PASSED [ 23%]
+tests/test_auth.py::TestAdminAuthentication::test_verify_admin_key_case_sensitive PASSED [ 24%]
+tests/test_auth.py::TestAdminAuthentication::test_verify_admin_key_whitespace PASSED [ 24%]
+tests/test_auth.py::TestAdminAuthentication::test_verify_admin_key_partial_match PASSED [ 25%]
+tests/test_cache.py::TestDecimalEncoder::test_encode_decimal PASSED      [ 26%]
+tests/test_cache.py::TestDecimalEncoder::test_encode_datetime PASSED     [ 26%]
+tests/test_cache.py::TestDecimalEncoder::test_encode_regular_object PASSED [ 27%]
+tests/test_cache.py::TestRiskMetricsCache::test_initialization PASSED    [ 28%]
+tests/test_cache.py::TestRiskMetricsCache::test_generate_key PASSED      [ 29%]
+tests/test_cache.py::TestRiskMetricsCache::test_connect_success 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [ERROR] Failed to connect to Redis: object AsyncMock can't be used in 'await' expression
+FAILED                                                                   [ 29%]
+tests/test_cache.py::TestRiskMetricsCache::test_connect_failure 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [ERROR] Failed to connect to Redis: Connection failed
+PASSED                                                                   [ 30%]
+tests/test_cache.py::TestRiskMetricsCache::test_get_cache_hit PASSED     [ 31%]
+tests/test_cache.py::TestRiskMetricsCache::test_get_cache_miss PASSED    [ 31%]
+tests/test_cache.py::TestRiskMetricsCache::test_get_disabled_cache PASSED [ 32%]
+tests/test_cache.py::TestRiskMetricsCache::test_get_error_handling 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [ERROR] Cache get error: Redis error
+PASSED                                                                   [ 33%]
+tests/test_cache.py::TestRiskMetricsCache::test_set_success PASSED       [ 34%]
+tests/test_cache.py::TestRiskMetricsCache::test_set_with_decimal PASSED  [ 34%]
+tests/test_cache.py::TestRiskMetricsCache::test_set_custom_ttl PASSED    [ 35%]
+tests/test_cache.py::TestRiskMetricsCache::test_set_disabled_cache PASSED [ 36%]
+tests/test_cache.py::TestRiskMetricsCache::test_delete_success PASSED    [ 36%]
+tests/test_cache.py::TestRiskMetricsCache::test_delete_not_found PASSED  [ 37%]
+tests/test_cache.py::TestRiskMetricsCache::test_invalidate_pattern 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [ERROR] Cache invalidation error: 'async for' requires an object with __aiter__ method, got coroutine
+FAILED                                                                   [ 38%]
+tests/test_cache.py::TestRiskMetricsCache::test_invalidate_pattern_no_keys 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [ERROR] Cache invalidation error: 'async for' requires an object with __aiter__ method, got coroutine
+PASSED                                                                   [ 39%]
+tests/test_cache.py::TestRiskMetricsCache::test_get_stats PASSED         [ 39%]
+tests/test_cache.py::TestRiskMetricsCache::test_get_stats_no_requests PASSED [ 40%]
+tests/test_cache.py::TestRiskMetricsCache::test_reset_stats 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [INFO] Cache statistics reset
+PASSED                                                                   [ 41%]
+tests/test_cache.py::TestRiskMetricsCache::test_disconnect 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [INFO] Redis connection closed
+PASSED                                                                   [ 41%]
+tests/test_cache.py::TestCacheIntegration::test_full_cache_workflow PASSED [ 42%]
+tests/test_cache.py::TestCacheIntegration::test_cache_key_consistency PASSED [ 43%]
+tests/test_cache.py::TestCacheIntegration::test_cache_key_parameter_order_independence PASSED [ 43%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_state_transition_closed_to_open 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [ 44%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_state_transition_open_to_half_open 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+2025-11-19 19:28:20 [INFO] Circuit breaker transitioning from OPEN to HALF_OPEN (cooldown expired)
+PASSED                                                                   [ 45%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_state_transition_half_open_to_closed_on_success 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [INFO] Trade success in HALF_OPEN state (1/1)
+2025-11-19 19:28:20 [INFO] Circuit breaker transitioning from HALF_OPEN to CLOSED (recovery successful)
+PASSED                                                                   [ 46%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_state_transition_half_open_to_open_on_failure 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [WARNING] Trade failed in HALF_OPEN state - returning to OPEN
+2025-11-19 19:28:20 [INFO] Extended cooldown to 600.0s
+PASSED                                                                   [ 46%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_exponential_backoff_cooldown 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+2025-11-19 19:28:20 [INFO] Circuit breaker transitioning from OPEN to HALF_OPEN (cooldown expired)
+2025-11-19 19:28:20 [WARNING] Trade failed in HALF_OPEN state - returning to OPEN
+2025-11-19 19:28:20 [INFO] Extended cooldown to 600.0s
+2025-11-19 19:28:20 [INFO] Circuit breaker transitioning from OPEN to HALF_OPEN (cooldown expired)
+2025-11-19 19:28:20 [WARNING] Trade failed in HALF_OPEN state - returning to OPEN
+2025-11-19 19:28:20 [INFO] Extended cooldown to 1200.0s
+2025-11-19 19:28:20 [INFO] Circuit breaker transitioning from OPEN to HALF_OPEN (cooldown expired)
+2025-11-19 19:28:20 [WARNING] Trade failed in HALF_OPEN state - returning to OPEN
+2025-11-19 19:28:20 [INFO] Extended cooldown to 2400.0s
+PASSED                                                                   [ 47%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_max_cooldown_limit 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #11): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 3600s
+PASSED                                                                   [ 48%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_cooldown_period_prevents_trading 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [ 48%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_half_open_allows_limited_trading PASSED [ 49%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_manual_reset 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+2025-11-19 19:28:20 [WARNING] Circuit breaker manually reset to CLOSED state
+PASSED                                                                   [ 50%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_record_trade_result_tracks_successes 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [INFO] Trade success in HALF_OPEN state (1/1)
+2025-11-19 19:28:20 [INFO] Trade success in HALF_OPEN state (2/1)
+PASSED                                                                   [ 51%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_record_trade_result_only_in_half_open 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [WARNING] Trade result recorded but circuit breaker not in HALF_OPEN state (current: CircuitBreakerState.CLOSED)
+PASSED                                                                   [ 51%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_state_persistence_across_checks 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [ 52%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_multiple_violations_recorded 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -7.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [ 53%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerStateMachine::test_cooldown_calculation_accuracy 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [ 53%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerEdgeCases::test_trip_on_exact_threshold PASSED [ 54%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerEdgeCases::test_trip_just_beyond_threshold 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -5.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [ 55%]
+tests/test_circuit_breaker_state_machine.py::TestCircuitBreakerEdgeCases::test_recovery_with_zero_successes_required 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:20 [INFO] Circuit breaker transitioning from HALF_OPEN to CLOSED (recovery successful)
+PASSED                                                                   [ 56%]
+tests/test_performance.py::TestPerformanceMetric::test_create_metric PASSED [ 56%]
+tests/test_performance.py::TestPerformanceMetric::test_default_values PASSED [ 57%]
+tests/test_performance.py::TestPerformanceMonitor::test_initialization PASSED [ 58%]
+tests/test_performance.py::TestPerformanceMonitor::test_record_metric PASSED [ 58%]
+tests/test_performance.py::TestPerformanceMonitor::test_record_multiple_metrics PASSED [ 59%]
+tests/test_performance.py::TestPerformanceMonitor::test_record_cache_hits PASSED [ 60%]
+tests/test_performance.py::TestPerformanceMonitor::test_record_errors PASSED [ 60%]
+tests/test_performance.py::TestPerformanceMonitor::test_measure_context_manager_success PASSED [ 61%]
+tests/test_performance.py::TestPerformanceMonitor::test_measure_context_manager_error PASSED [ 62%]
+tests/test_performance.py::TestPerformanceMonitor::test_get_summary_empty PASSED [ 63%]
+tests/test_performance.py::TestPerformanceMonitor::test_get_summary PASSED [ 63%]
+tests/test_performance.py::TestPerformanceMonitor::test_get_summary_time_window PASSED [ 64%]
+tests/test_performance.py::TestPerformanceMonitor::test_get_endpoint_stats PASSED [ 65%]
+tests/test_performance.py::TestPerformanceMonitor::test_max_history_limit PASSED [ 65%]
+tests/test_performance.py::TestRequestBatcher::test_initialization PASSED [ 66%]
+tests/test_performance.py::TestRequestBatcher::test_execute_single_request PASSED [ 67%]
+tests/test_performance.py::TestRequestBatcher::test_batch_processing_by_size PASSED [ 68%]
+tests/test_performance.py::TestRequestBatcher::test_batch_processing_by_timeout PASSED [ 68%]
+tests/test_performance.py::TestRequestBatcher::test_different_batch_keys PASSED [ 69%]
+tests/test_performance.py::TestRequestBatcher::test_error_propagation 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:21 [ERROR] Batch processing error for test_batch: Test error
+2025-11-19 19:28:21 [ERROR] Batch processing error for test_batch: Test error
+2025-11-19 19:28:21 [ERROR] Batch processing error for test_batch: Test error
+PASSED                                                                   [ 70%]
+tests/test_performance.py::TestConnectionPool::test_initialization PASSED [ 70%]
+tests/test_performance.py::TestConnectionPool::test_acquire_connection PASSED [ 71%]
+tests/test_performance.py::TestConnectionPool::test_multiple_concurrent_connections PASSED [ 72%]
+tests/test_performance.py::TestConnectionPool::test_connection_limit PASSED [ 73%]
+tests/test_performance.py::TestConnectionPool::test_connection_release_on_error PASSED [ 73%]
+tests/test_performance.py::TestConnectionPool::test_get_stats PASSED     [ 74%]
+tests/test_performance.py::TestConnectionPool::test_stats_during_use PASSED [ 75%]
+tests/test_performance.py::TestPerformanceIntegration::test_full_monitoring_workflow PASSED [ 75%]
+tests/test_performance.py::TestPerformanceIntegration::test_monitor_with_pool PASSED [ 76%]
+tests/test_risk_engine.py::TestRiskEngineCapitalMetrics::test_calculate_capital_metrics_with_positions PASSED [ 77%]
+tests/test_risk_engine.py::TestRiskEngineCapitalMetrics::test_calculate_capital_metrics_no_positions PASSED [ 78%]
+tests/test_risk_engine.py::TestRiskEngineCapitalMetrics::test_calculate_capital_metrics_fully_invested PASSED [ 78%]
+tests/test_risk_engine.py::TestRiskEngineExposureMetrics::test_calculate_exposure_metrics_diversified PASSED [ 79%]
+tests/test_risk_engine.py::TestRiskEngineExposureMetrics::test_calculate_exposure_metrics_concentrated PASSED [ 80%]
+tests/test_risk_engine.py::TestRiskEngineExposureMetrics::test_calculate_exposure_metrics_empty_portfolio PASSED [ 80%]
+tests/test_risk_engine.py::TestRiskEngineDrawdownMetrics::test_calculate_drawdown_metrics_with_drawdown PASSED [ 81%]
+tests/test_risk_engine.py::TestRiskEngineDrawdownMetrics::test_calculate_drawdown_metrics_at_all_time_high PASSED [ 82%]
+tests/test_risk_engine.py::TestRiskEngineDrawdownMetrics::test_calculate_drawdown_metrics_single_value PASSED [ 82%]
+tests/test_risk_engine.py::TestRiskEngineDrawdownMetrics::test_calculate_drawdown_metrics_zero_historical_value PASSED [ 83%]
+tests/test_risk_engine.py::TestRiskEnginePerformanceMetrics::test_calculate_performance_metrics_with_returns PASSED [ 84%]
+tests/test_risk_engine.py::TestRiskEnginePerformanceMetrics::test_calculate_performance_metrics_all_winning_trades PASSED [ 85%]
+tests/test_risk_engine.py::TestRiskEnginePerformanceMetrics::test_calculate_performance_metrics_no_returns PASSED [ 85%]
+tests/test_risk_engine.py::TestRiskEnginePerformanceMetrics::test_calculate_performance_metrics_sharpe_calculation PASSED [ 86%]
+tests/test_risk_engine.py::TestRiskEngineVaRCalculation::test_calculate_var_with_returns PASSED [ 87%]
+tests/test_risk_engine.py::TestRiskEngineVaRCalculation::test_calculate_var_historical_method PASSED [ 87%]
+tests/test_risk_engine.py::TestRiskEngineVaRCalculation::test_calculate_var_insufficient_data PASSED [ 88%]
+tests/test_risk_engine.py::TestRiskEngineVaRCalculation::test_calculate_var_custom_confidence PASSED [ 89%]
+tests/test_risk_engine.py::TestRiskEngineVaRCalculation::test_calculate_var_multiday_horizon PASSED [ 90%]
+tests/test_risk_engine.py::TestRiskEngineRiskScore::test_calculate_risk_score_comprehensive PASSED [ 90%]
+tests/test_risk_engine.py::TestRiskEngineRiskScore::test_calculate_risk_score_low_risk PASSED [ 91%]
+tests/test_risk_engine.py::TestRiskEngineRiskScore::test_calculate_risk_score_boundaries PASSED [ 92%]
+tests/test_risk_engine.py::TestRiskEngineAlerts::test_generate_risk_alerts_no_violations PASSED [ 92%]
+tests/test_risk_engine.py::TestRiskEngineAlerts::test_generate_risk_alerts_high_utilization PASSED [ 93%]
+tests/test_risk_engine.py::TestRiskEngineAlerts::test_generate_risk_alerts_multiple_violations PASSED [ 94%]
+tests/test_risk_engine.py::TestRiskEngineAlerts::test_generate_risk_alerts_concentration PASSED [ 95%]
+tests/test_risk_engine.py::TestRiskEngineCircuitBreaker::test_circuit_breaker_normal_conditions PASSED [ 95%]
+tests/test_risk_engine.py::TestRiskEngineCircuitBreaker::test_circuit_breaker_excessive_daily_loss 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:21 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [ 96%]
+tests/test_risk_engine.py::TestRiskEngineCircuitBreaker::test_circuit_breaker_excessive_drawdown 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:21 [CRITICAL] Circuit breaker TRIPPED (failure #1): Drawdown 12.00% exceeds limit of 10.0% | Cooldown: 300.0s
+PASSED                                                                   [ 97%]
+tests/test_risk_engine.py::TestRiskEngineCircuitBreaker::test_circuit_breaker_excessive_exposure 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:21 [CRITICAL] Circuit breaker TRIPPED (failure #1): Exposure 25.00% critically high (limit: 24%) | Cooldown: 300.0s
+PASSED                                                                   [ 97%]
+tests/test_risk_engine.py::TestRiskEngineCircuitBreaker::test_circuit_breaker_multiple_violations 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:21 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -7.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [ 98%]
+tests/test_risk_engine.py::TestRiskEngineCircuitBreaker::test_circuit_breaker_disabled PASSED [ 99%]
+tests/test_risk_engine.py::TestRiskEngineCircuitBreaker::test_circuit_breaker_cooldown 
+-------------------------------- live log call ---------------------------------
+2025-11-19 19:28:21 [CRITICAL] Circuit breaker TRIPPED (failure #1): Daily loss -6.00% exceeds limit of 5.0% | Cooldown: 300.0s
+PASSED                                                                   [100%]
+
+=================================== FAILURES ===================================
+_____ TestRiskScorecardEndpoint.test_risk_scorecard_portfolio_unavailable ______
+tests/test_api.py:176: in test_risk_scorecard_portfolio_unavailable
+    assert response.status_code == 503
+E   assert 200 == 503
+E    +  where 200 = <Response [200 OK]>.status_code
+---------------------------- Captured stderr setup -----------------------------
+2025-11-19 19:28:18,748 - app.main - INFO - 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:18,750 - app.main - INFO - ✅ Performance monitoring enabled
+2025-11-19 19:28:18,755 - app.cache - INFO - ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:18,756 - app.main - INFO - ✅ Request batching enabled
+2025-11-19 19:28:18,758 - app.main - INFO - ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:18,786 - app.main - INFO - ✅ Risk & Metrics Service ready
+------------------------------ Captured log setup ------------------------------
+INFO     app.main:main.py:80 🚀 Starting risk-metrics-service on port 8007
+INFO     app.main:main.py:88 ✅ Performance monitoring enabled
+INFO     app.cache:cache.py:84 ✅ Redis cache connected: redis://localhost:6379
+INFO     app.main:main.py:107 ✅ Request batching enabled
+INFO     app.main:main.py:114 ✅ HTTP connection pool initialized (max: 100)
+INFO     app.main:main.py:125 ✅ Risk & Metrics Service ready
+----------------------------- Captured stderr call -----------------------------
+2025-11-19 19:28:18,794 - httpx - INFO - HTTP Request: GET http://testserver/risk/scorecard "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/risk/scorecard "HTTP/1.1 200 OK"
+--------------------------- Captured stderr teardown ---------------------------
+2025-11-19 19:28:18,904 - app.main - INFO - Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:18,905 - app.cache - INFO - Redis connection closed
+2025-11-19 19:28:18,906 - app.main - INFO - ✅ Shutdown complete
+---------------------------- Captured log teardown -----------------------------
+INFO     app.main:main.py:130 Initiating graceful shutdown for risk-metrics-service
+INFO     app.cache:cache.py:95 Redis connection closed
+INFO     app.main:main.py:140 ✅ Shutdown complete
+__________________ TestAlertEndpoints.test_get_active_alerts ___________________
+tests/test_api.py:244: in test_get_active_alerts
+    assert alert["severity"] in ["info", "warning", "critical"]
+E   AssertionError: assert 'high' in ['info', 'warning', 'critical']
+---------------------------- Captured stderr setup -----------------------------
+2025-11-19 19:28:19,024 - app.main - INFO - 🚀 Starting risk-metrics-service on port 8007
+2025-11-19 19:28:19,025 - app.main - INFO - ✅ Performance monitoring enabled
+2025-11-19 19:28:19,030 - app.cache - INFO - ✅ Redis cache connected: redis://localhost:6379
+2025-11-19 19:28:19,031 - app.main - INFO - ✅ Request batching enabled
+2025-11-19 19:28:19,032 - app.main - INFO - ✅ HTTP connection pool initialized (max: 100)
+2025-11-19 19:28:19,053 - app.main - INFO - ✅ Risk & Metrics Service ready
+------------------------------ Captured log setup ------------------------------
+INFO     app.main:main.py:80 🚀 Starting risk-metrics-service on port 8007
+INFO     app.main:main.py:88 ✅ Performance monitoring enabled
+INFO     app.cache:cache.py:84 ✅ Redis cache connected: redis://localhost:6379
+INFO     app.main:main.py:107 ✅ Request batching enabled
+INFO     app.main:main.py:114 ✅ HTTP connection pool initialized (max: 100)
+INFO     app.main:main.py:125 ✅ Risk & Metrics Service ready
+----------------------------- Captured stderr call -----------------------------
+2025-11-19 19:28:19,060 - httpx - INFO - HTTP Request: GET http://testserver/alerts "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/alerts "HTTP/1.1 200 OK"
+--------------------------- Captured stderr teardown ---------------------------
+2025-11-19 19:28:19,097 - app.main - INFO - Initiating graceful shutdown for risk-metrics-service
+2025-11-19 19:28:19,099 - app.cache - INFO - Redis connection closed
+2025-11-19 19:28:19,100 - app.main - INFO - ✅ Shutdown complete
+---------------------------- Captured log teardown -----------------------------
+INFO     app.main:main.py:130 Initiating graceful shutdown for risk-metrics-service
+INFO     app.cache:cache.py:95 Redis connection closed
+INFO     app.main:main.py:140 ✅ Shutdown complete
+__________________ TestRiskMetricsCache.test_connect_success ___________________
+tests/test_cache.py:91: in test_connect_success
+    assert cache.client is not None
+E   assert None is not None
+E    +  where None = <app.cache.RiskMetricsCache object at 0x7eeb86887a70>.client
+----------------------------- Captured stderr call -----------------------------
+2025-11-19 19:28:20,499 - app.cache - ERROR - Failed to connect to Redis: object AsyncMock can't be used in 'await' expression
+------------------------------ Captured log call -------------------------------
+ERROR    app.cache:cache.py:86 Failed to connect to Redis: object AsyncMock can't be used in 'await' expression
+_________________ TestRiskMetricsCache.test_invalidate_pattern _________________
+tests/test_cache.py:234: in test_invalidate_pattern
+    assert result == 3
+E   assert 0 == 3
+----------------------------- Captured stderr call -----------------------------
+2025-11-19 19:28:20,606 - app.cache - ERROR - Cache invalidation error: 'async for' requires an object with __aiter__ method, got coroutine
+------------------------------ Captured log call -------------------------------
+ERROR    app.cache:cache.py:240 Cache invalidation error: 'async for' requires an object with __aiter__ method, got coroutine
+=============================== warnings summary ===============================
+../../../../../../home/siradj05/.local/lib/python3.12/site-packages/pydantic/_internal/_config.py:323
+  /home/siradj05/.local/lib/python3.12/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+tests/test_api.py: 29 warnings
+  /mnt/d/Bimo_max/crypto-trading-bot/services/risk-metrics-service/app/cache.py:94: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.0.
+    await self.client.close()
+
+tests/test_cache.py::TestRiskMetricsCache::test_invalidate_pattern
+tests/test_cache.py::TestRiskMetricsCache::test_invalidate_pattern_no_keys
+  /mnt/d/Bimo_max/crypto-trading-bot/services/risk-metrics-service/app/cache.py:229: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    async for key in self.client.scan_iter(match=pattern):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.3-final-0 ________________
+
+Name                     Stmts   Miss Branch BrPart  Cover   Missing
+--------------------------------------------------------------------
+app/__init__.py              1      0      0      0   100%
+app/auth.py                 10      0      4      0   100%
+app/backtest_models.py      76     76      0      0     0%   6-120
+app/backtesting.py         216    216     58      0     0%   6-594
+app/cache.py               125     19     24      6    83%   15-16, 66-67, 72, 92->exit, 96-97, 184-187, 201, 209-212, 225, 236, 277
+app/config.py               42      0      0      0   100%
+app/main.py                313     54     88     35    75%   86->91, 99, 102->110, 133->137, 137->140, 173, 183-194, 200, 217-219, 226-229, 265->269, 269->273, 273->276, 282-287, 297-305, 327->330, 337, 382->384, 384->386, 386->388, 388->391, 410->413, 426, 439->442, 455, 459, 468->471, 484, 488, 499->502, 524, 528, 539->542, 561, 583->586, 622, 661-666, 700->703, 716-721, 730-733, 766-767
+app/models.py              153     10     20      9    89%   43, 45, 136, 241, 245, 247, 251, 253, 259, 263
+app/performance.py         142      5     46      6    93%   114, 172->171, 265->exit, 284, 297->296, 304->303, 369-371
+app/risk_engine.py         276     10    102     14    93%   109, 113->99, 151, 165, 171->175, 176->180, 278->283, 287->291, 318, 322, 344, 393->399, 450, 481-484
+--------------------------------------------------------------------
+TOTAL                     1354    390    342     70    69%
+Coverage HTML written to dir htmlcov
+=========================== short test summary info ============================
+FAILED tests/test_api.py::TestRiskScorecardEndpoint::test_risk_scorecard_portfolio_unavailable - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/test_api.py::TestAlertEndpoints::test_get_active_alerts - AssertionError: assert 'high' in ['info', 'warning', 'critical']
+FAILED tests/test_cache.py::TestRiskMetricsCache::test_connect_success - assert None is not None
+ +  where None = <app.cache.RiskMetricsCache object at 0x7eeb86887a70>.client
+FAILED tests/test_cache.py::TestRiskMetricsCache::test_invalidate_pattern - assert 0 == 3
+================== 4 failed, 137 passed, 32 warnings in 5.25s ==================

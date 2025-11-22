@@ -1,0 +1,42 @@
+{
+  "symbol": "XRPUSDT",
+  "interval": "60",
+  "model_version": "v20251120_220530",
+  "last_trained": "2025-11-20T22:05:30.303995",
+  "training_stats": {
+    "train_samples": 375,
+    "test_samples": 94,
+    "final_train_loss": 0.0042457543313503265,
+    "final_val_loss": 0.0012958520092070103,
+    "mae": 0.025417299558601537,
+    "rmse": 0.03401643380203078,
+    "r2_score": 0.17594900978495653
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "return_1",
+    "return_5",
+    "return_10",
+    "price_momentum_5",
+    "price_momentum_10",
+    "sma_7",
+    "sma_14",
+    "sma_30",
+    "ema_7",
+    "ema_14",
+    "price_vs_sma7",
+    "price_vs_sma14",
+    "high_low_range",
+    "volatility_10",
+    "volatility_20",
+    "volume_sma_7",
+    "volume_ratio",
+    "rsi_14"
+  ],
+  "sequence_length": 60,
+  "prediction_horizon": 5
+}

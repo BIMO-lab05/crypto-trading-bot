@@ -1,0 +1,207 @@
+# Prometheus Configuration for Crypto Trading Bot
+# Scrapes metrics from all Phase 3 services and infrastructure
+# Data retention: 15 days
+# Scrape interval: 15 seconds (production-grade frequency)
+
+global:
+  # How frequently to scrape targets by default
+  scrape_interval: 15s
+  # How long until a scrape request times out
+  scrape_timeout: 10s
+  # How frequently to evaluate rules
+  evaluation_interval: 15s
+
+  # External labels to add to any time series or alerts
+  external_labels:
+    cluster: 'crypto-trading-bot'
+    environment: 'production'
+
+# Alertmanager configuration (optional - for future alert routing)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - 'alertmanager:9093'  # Uncomment when alertmanager is configured
+
+# Rule files configuration (for alert rules and recording rules)
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+# Scrape configuration - defines all services to monitor
+scrape_configs:
+
+  # =================================================================
+  # PHASE 3 SERVICES - ML, Sentiment Analysis, Risk Metrics
+  # =================================================================
+
+  # ML Prediction Service - LSTM price forecasting
+  - job_name: 'ml-prediction-service'
+    static_configs:
+      - targets: ['ml-prediction:8007']
+        labels:
+          service: 'ml-prediction'
+          phase: '3'
+          type: 'ai-service'
+    metrics_path: '/metrics'
+    scrape_interval: 30s  # ML predictions are less frequent
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ml-prediction:8007'
+
+  # Sentiment Analysis Service - News and social sentiment
+  - job_name: 'sentiment-analysis-service'
+    static_configs:
+      - targets: ['sentiment-analysis:8008']
+        labels:
+          service: 'sentiment-analysis'
+          phase: '3'
+          type: 'ai-service'
+    metrics_path: '/metrics'
+    scrape_interval: 30s  # Sentiment updates are less frequent
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'sentiment-analysis:8008'
+
+  # Risk Metrics Service - Portfolio risk analysis
+  - job_name: 'risk-metrics-service'
+    static_configs:
+      - targets: ['risk-metrics:8009']
+        labels:
+          service: 'risk-metrics'
+          phase: '3'
+          type: 'analytics-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s  # Risk metrics need frequent updates
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'risk-metrics:8009'
+
+  # =================================================================
+  # PHASE 1 & 2 SERVICES - Core Trading Infrastructure
+  # =================================================================
+
+  # API Gateway - Main entry point
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8000']
+        labels:
+          service: 'api-gateway'
+          phase: '1'
+          type: 'gateway'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Bybit Connector - Exchange API integration
+  - job_name: 'bybit-connector'
+    static_configs:
+      - targets: ['bybit-connector:8001']
+        labels:
+          service: 'bybit-connector'
+          phase: '1'
+          type: 'exchange-connector'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Market Data Service - Real-time market data
+  - job_name: 'market-data-service'
+    static_configs:
+      - targets: ['market-data:8002']
+        labels:
+          service: 'market-data'
+          phase: '1'
+          type: 'data-service'
+    metrics_path: '/metrics'
+    scrape_interval: 10s  # Market data needs frequent scraping
+
+  # Portfolio Manager - Balance and positions
+  - job_name: 'portfolio-manager'
+    static_configs:
+      - targets: ['portfolio-manager:8003']
+        labels:
+          service: 'portfolio-manager'
+          phase: '1'
+          type: 'core-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Technical Analysis - Trading indicators
+  - job_name: 'technical-analysis'
+    static_configs:
+      - targets: ['technical-analysis:8004']
+        labels:
+          service: 'technical-analysis'
+          phase: '2'
+          type: 'analytics-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Trading Engine - Core trading logic
+  - job_name: 'trading-engine'
+    static_configs:
+      - targets: ['trading-engine:8005']
+        labels:
+          service: 'trading-engine'
+          phase: '2'
+          type: 'core-service'
+    metrics_path: '/metrics'
+    scrape_interval: 10s  # Trading decisions need frequent monitoring
+
+  # Notification Service - Alerts and notifications
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:8006']
+        labels:
+          service: 'notification'
+          phase: '1'
+          type: 'support-service'
+    metrics_path: '/metrics'
+    scrape_interval: 30s  # Notifications are less frequent
+
+  # =================================================================
+  # INFRASTRUCTURE MONITORING
+  # =================================================================
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          type: 'monitoring'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Node Exporter - System metrics (CPU, memory, disk, network)
+  # Uncomment when node_exporter is added to docker-compose
+  # - job_name: 'node-exporter'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']
+  #       labels:
+  #         service: 'node-exporter'
+  #         type: 'infrastructure'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 15s
+
+  # cAdvisor - Container metrics (Docker container statistics)
+  # Uncomment when cAdvisor is added to docker-compose
+  # - job_name: 'cadvisor'
+  #   static_configs:
+  #     - targets: ['cadvisor:8080']
+  #       labels:
+  #         service: 'cadvisor'
+  #         type: 'infrastructure'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 15s
+
+# =================================================================
+# SERVICE DISCOVERY CONFIGURATION (for Kubernetes)
+# =================================================================
+# Uncomment and configure when deploying to Kubernetes
+# kubernetes_sd_configs:
+#   - role: pod
+#     namespaces:
+#       names:
+#         - crypto-trading-bot

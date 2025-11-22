@@ -1,0 +1,222 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                   CRYPTO TRADING BOT - MONITORING STATUS                    ║
+║                           Quick Reference Guide                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+DATE: 2025-11-21
+OVERALL STATUS: 🟡 PARTIALLY OPERATIONAL (20% metrics coverage)
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ MONITORING STACK                                                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Component         │ Status  │ Port │ Access URL                              │
+├───────────────────┼─────────┼──────┼─────────────────────────────────────────┤
+│ Prometheus        │ ✅ UP   │ 9090 │ http://localhost:9090                   │
+│ Grafana           │ ✅ UP   │ 3001 │ http://localhost:3001 (admin/crypto-*)  │
+│ AlertManager      │ ⚠️ OFF  │ 9093 │ Not started                             │
+│ Loki (Logs)       │ ⚠️ OFF  │ 3100 │ Not started                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ SERVICE METRICS ENDPOINTS                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Service               │ Port │ /metrics │ Prometheus │ Issues              │
+├───────────────────────┼──────┼──────────┼────────────┼─────────────────────┤
+│ bybit-connector       │ 8001 │ ✅ 200   │ ✅ UP      │ None                │
+│ market-data           │ 8002 │ ✅ 200   │ ✅ UP      │ None                │
+│ portfolio-manager     │ 8003 │ ❌ 404   │ ❌ DOWN    │ Endpoint missing    │
+│ technical-analysis    │ 8004 │ ❌ 404   │ ❌ DOWN    │ Endpoint missing    │
+│ trading-engine        │ 8005 │ ❌ 404   │ ❌ DOWN    │ Endpoint missing    │
+│ notification          │ 8006 │ ❌ 404   │ ❌ DOWN    │ Endpoint missing    │
+│ ml-prediction         │ 8007 │ ❌ 404   │ ❌ DOWN    │ Endpoint missing    │
+│ sentiment-analysis    │ 8008 │ ❌ 404   │ ❌ DOWN    │ Endpoint missing    │
+│ risk-metrics          │ 8009 │ ❌ 404   │ ❌ DOWN    │ Endpoint missing    │
+│ api-gateway           │ 8000 │ ❌ 404   │ ❌ DOWN    │ Endpoint missing    │
+├───────────────────────┴──────┴──────────┴────────────┴─────────────────────┤
+│ SUCCESS RATE: 2/10 services (20%)                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ AVAILABLE METRICS (Working Services Only)                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ✅ STANDARD METRICS (All working services)                                  │
+│    • http_requests_total - Request counts by endpoint/status               │
+│    • http_request_duration_seconds - Request latency histogram             │
+│    • process_resident_memory_bytes - Memory usage                          │
+│    • process_cpu_seconds_total - CPU usage                                 │
+│    • process_open_fds - File descriptor usage                              │
+│                                                                              │
+│ ❌ CUSTOM BUSINESS METRICS (Defined but not exposed)                        │
+│    • trading_signals_total - Trading signals generated                     │
+│    • trade_executions_total - Trade executions                             │
+│    • active_positions - Current open positions                             │
+│    • position_unrealized_pnl - P&L per position                            │
+│    • account_balance / account_total_equity - Account balances             │
+│    • daily_loss_amount / daily_loss_percentage - Loss tracking             │
+│    • win_rate / roi - Performance metrics                                  │
+│    • risk_score_gauge - Risk scores                                        │
+│    • portfolio_value_gauge - Portfolio value                               │
+│    • drawdown_current_gauge - Drawdown tracking                            │
+│    • circuit_breaker_trips - Circuit breaker events                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ GRAFANA DASHBOARDS                                                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ✅ Configured:                                                               │
+│    • Phase 3 AI Services (showing "No data" due to missing metrics)        │
+│                                                                              │
+│ ❌ Missing (Recommended):                                                    │
+│    • System Health Overview                                                 │
+│    • Trading Performance Dashboard                                          │
+│    • API Performance Dashboard                                              │
+│    • Market Data Quality Dashboard                                          │
+│    • Risk Management Dashboard                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ALERTING STATUS                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ AlertManager:     ❌ Not deployed (commented out)                           │
+│ Alert Rules:      ❌ None configured                                        │
+│ Notifications:    ❌ No channels configured                                 │
+│                                                                              │
+│ RECOMMENDED ALERTS (9 defined in guide):                                    │
+│   Critical (4):                                                              │
+│     • TradingEngineDown - Engine offline >30s                               │
+│     • DailyLossExceeded - Loss >5%                                          │
+│     • ServiceDown - Any service offline >1min                               │
+│     • HighErrorRate - Error rate >5% for 5min                               │
+│   Warning (5):                                                               │
+│     • HighAPILatency - P99 >1s for 5min                                     │
+│     • HighMemoryUsage - Memory >1GB for 10min                               │
+│     • CircuitBreakerOpen - CB activated                                     │
+│     • LowWinRate - Win rate <40% for 1hr                                    │
+│     • BybitRateLimitHit - Rate limit errors                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ PRIORITY ACTIONS                                                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ 🔴 PRIORITY 1: Fix Metrics Endpoints (1-2 hours)                            │
+│    Action: Add /metrics endpoint to 8 services                              │
+│    Impact: Enable monitoring for 80% of services                            │
+│                                                                              │
+│    Quick Fix for Each Service:                                              │
+│    1. Edit services/[SERVICE]/app/main.py                                   │
+│    2. Add: from prometheus_client import make_asgi_app                      │
+│    3. Add: metrics_app = make_asgi_app()                                    │
+│    4. Add: app.mount("/metrics", metrics_app)                               │
+│    5. Run: docker restart crypto-bot-[SERVICE]                              │
+│                                                                              │
+│ 🟡 PRIORITY 2: Create Dashboards (2-3 hours)                                │
+│    Action: Create 5 essential dashboards in Grafana                         │
+│    Impact: Operational visibility for trading and system health             │
+│                                                                              │
+│ 🟡 PRIORITY 3: Configure Alerting (1-2 hours)                               │
+│    Action: Enable AlertManager + configure notifications                    │
+│    Impact: Automated incident detection and response                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ QUICK COMMANDS                                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ # Check monitoring stack                                                    │
+│ docker ps | grep -E "(prometheus|grafana)"                                  │
+│                                                                              │
+│ # Test all metrics endpoints                                                │
+│ for p in 8000 8001 8002 8003 8004 8005 8006 8007 8008 8009; do             │
+│   echo "Port $p: $(curl -s -o /dev/null -w '%{http_code}' \                │
+│     http://localhost:$p/metrics)"                                           │
+│ done                                                                         │
+│                                                                              │
+│ # View Prometheus targets                                                   │
+│ curl -s http://localhost:9090/api/v1/targets | python3 -m json.tool        │
+│                                                                              │
+│ # Access Grafana                                                            │
+│ open http://localhost:3001                                                  │
+│ # Login: admin / crypto-bot-admin                                           │
+│                                                                              │
+│ # Check specific service metrics                                            │
+│ curl http://localhost:8001/metrics | head -50                              │
+│ curl http://localhost:8002/metrics | head -50                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ DOCUMENTATION                                                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ✅ Created Files:                                                            │
+│    • /docs/MONITORING_GUIDE.md (~30KB)                                      │
+│      Complete guide with metrics, dashboards, alerts, troubleshooting       │
+│                                                                              │
+│    • /MONITORING_STATUS_REPORT.md                                           │
+│      Executive summary and action plan                                      │
+│                                                                              │
+│    • /MONITORING_QUICK_REFERENCE.txt (this file)                            │
+│      Quick reference and commands                                           │
+│                                                                              │
+│ 📚 Existing Documentation:                                                  │
+│    • /infrastructure/monitoring/README.md                                   │
+│    • /infrastructure/monitoring/MONITORING_SETUP_GUIDE.md                   │
+│    • /infrastructure/monitoring/PROMETHEUS_INSTRUMENTATION_GUIDE.md         │
+│    • /docs/operations/RUNBOOK.md                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ EXAMPLE PROMETHEUS QUERIES                                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ # Request rate per service                                                  │
+│ sum by (job) (rate(http_requests_total[5m]))                                │
+│                                                                              │
+│ # P99 latency                                                                │
+│ histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))    │
+│                                                                              │
+│ # Error rate percentage                                                     │
+│ sum(rate(http_requests_total{status_code=~"5.."}[5m]))                      │
+│ / sum(rate(http_requests_total[5m])) * 100                                  │
+│                                                                              │
+│ # Memory usage by service                                                   │
+│ process_resident_memory_bytes{job=~".*"} / 1024 / 1024                      │
+│                                                                              │
+│ # Bybit rate limit hits                                                     │
+│ sum(rate(http_requests_total{job="bybit-connector",status_code="429"}[5m]))│
+│                                                                              │
+│ # Total active positions (when metrics working)                             │
+│ sum(active_positions)                                                        │
+│                                                                              │
+│ # Daily P&L percentage (when metrics working)                               │
+│ daily_loss_percentage                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ WORKING EXAMPLE: BYBIT CONNECTOR METRICS                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ $ curl http://localhost:8001/metrics | grep http_requests_total            │
+│                                                                              │
+│ http_requests_total{endpoint="/health",method="GET",status_code="200"} 1550│
+│ http_requests_total{endpoint="/api/v1/market/kline",                        │
+│   method="GET",status_code="200"} 2431                                      │
+│ http_requests_total{endpoint="/api/v1/market/kline",                        │
+│   method="GET",status_code="429"} 984  ← Rate limit hits!                  │
+│ http_requests_total{endpoint="/api/v1/market/ticker",                       │
+│   method="GET",status_code="200"} 567                                       │
+│                                                                              │
+│ process_resident_memory_bytes 2.103296e+07  ← ~21MB                         │
+│ process_cpu_seconds_total 123.95                                            │
+│ process_open_fds 16                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ NEXT STEPS                                                                   ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║ 1. Read /docs/MONITORING_GUIDE.md for complete documentation                ║
+║ 2. Fix metrics endpoints on 8 services (highest priority)                   ║
+║ 3. Verify Prometheus scraping: http://localhost:9090/targets                ║
+║ 4. Create System Health dashboard in Grafana                                ║
+║ 5. Enable AlertManager for automated alerting                               ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+REPORT GENERATED: 2025-11-21
+STATUS: Monitoring infrastructure exists but needs configuration completion
+ESTIMATED TIME TO FIX: 4-7 hours
+PRIORITY: HIGH - Critical for production operations

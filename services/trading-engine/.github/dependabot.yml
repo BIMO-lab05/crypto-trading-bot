@@ -1,0 +1,104 @@
+# Dependabot configuration for automated dependency updates
+# See: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Python dependencies (pip)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    # Group dependencies by type
+    groups:
+      # Core framework updates
+      framework:
+        patterns:
+          - "fastapi"
+          - "uvicorn"
+          - "pydantic"
+      # Testing dependencies
+      testing:
+        patterns:
+          - "pytest*"
+          - "coverage"
+          - "httpx"
+      # Database dependencies
+      database:
+        patterns:
+          - "sqlalchemy"
+          - "alembic"
+          - "psycopg2*"
+          - "redis"
+      # Monitoring dependencies
+      monitoring:
+        patterns:
+          - "prometheus*"
+          - "opentelemetry*"
+    # Security updates
+    open-pull-requests-limit: 10
+    # Review settings
+    reviewers:
+      - "siradj05"
+    # Commit message prefix
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    # PR labels
+    labels:
+      - "dependencies"
+      - "automated"
+    # Ignore specific versions (if needed)
+    ignore:
+      # Example: ignore major version updates for stable packages
+      # - dependency-name: "fastapi"
+      #   update-types: ["version-update:semver-major"]
+    # Allow only security updates for production dependencies
+    # Uncomment to enable security-only updates:
+    # target-branch: "main"
+    # versioning-strategy: increase
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "siradj05"
+
+  # Docker dependencies
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    commit-message:
+      prefix: "docker"
+    labels:
+      - "dependencies"
+      - "docker"
+    reviewers:
+      - "siradj05"
+
+# Security settings
+# Dependabot will automatically:
+# - Create PRs for security vulnerabilities
+# - Update vulnerable dependencies
+# - Follow semantic versioning rules
+# - Run tests before merging (if configured in branch protection)
+
+# Best Practices:
+# 1. Enable branch protection rules requiring tests to pass
+# 2. Set up auto-merge for security updates after CI passes
+# 3. Review and merge grouped updates weekly
+# 4. Monitor for breaking changes in major version updates

@@ -1,0 +1,991 @@
+{
+  "timestamp": "2025-11-21T23:36:32.374410",
+  "service_health": {
+    "healthy": true,
+    "ready": true,
+    "tensorflow": true,
+    "market_data": true
+  },
+  "models_found": {
+    "BTCUSDT": {
+      "LSTM": {
+        "exists": true,
+        "size_mb": 1.52,
+        "metadata": {
+          "symbol": "BTCUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220104",
+          "last_trained": "2025-11-20T22:01:04.411719",
+          "training_stats": {
+            "train_samples": 492,
+            "test_samples": 123,
+            "final_train_loss": 0.010415993630886078,
+            "final_val_loss": 0.005376178305596113,
+            "mae": 0.02345420576846845,
+            "rmse": 0.031070440693427914,
+            "r2_score": 0.8437163740834788
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5
+        }
+      },
+      "GRU": {
+        "exists": true,
+        "size_mb": 1.17,
+        "metadata": {
+          "model_type": "GRU",
+          "symbol": "BTCUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220129",
+          "last_trained": "2025-11-20T22:01:29.844810",
+          "training_stats": {
+            "train_samples": 492,
+            "test_samples": 123,
+            "epochs_trained": 19,
+            "final_train_loss": 0.0158750731498003,
+            "final_val_loss": 0.002718602539971471,
+            "mae": 0.0192150463565645,
+            "rmse": 0.024369567404816408,
+            "r2_score": 0.9038577476861054,
+            "mape": 1018128149162.8469,
+            "directional_accuracy": 0.7560975609756098,
+            "total_parameters": 98245
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5,
+          "inference_time_ms": 75.1345157623291
+        }
+      }
+    },
+    "ETHUSDT": {
+      "LSTM": {
+        "exists": true,
+        "size_mb": 1.52,
+        "metadata": {
+          "symbol": "ETHUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220159",
+          "last_trained": "2025-11-20T22:01:59.979500",
+          "training_stats": {
+            "train_samples": 492,
+            "test_samples": 123,
+            "final_train_loss": 0.007038300856947899,
+            "final_val_loss": 0.006683615036308765,
+            "mae": 0.026266635269069194,
+            "rmse": 0.03190124161448672,
+            "r2_score": 0.6967948830583139
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5
+        }
+      },
+      "GRU": {
+        "exists": true,
+        "size_mb": 1.17,
+        "metadata": {
+          "model_type": "GRU",
+          "symbol": "ETHUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220237",
+          "last_trained": "2025-11-20T22:02:37.670104",
+          "training_stats": {
+            "train_samples": 492,
+            "test_samples": 123,
+            "epochs_trained": 28,
+            "final_train_loss": 0.011908156797289848,
+            "final_val_loss": 0.0014274929417297244,
+            "mae": 0.019161916044522376,
+            "rmse": 0.026081141671022334,
+            "r2_score": 0.7973369613972168,
+            "mape": 3423912791697.886,
+            "directional_accuracy": 0.8455284552845529,
+            "total_parameters": 98245
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5,
+          "inference_time_ms": 68.55463981628418
+        }
+      }
+    },
+    "BNBUSDT": {
+      "LSTM": {
+        "exists": true,
+        "size_mb": 1.52,
+        "metadata": {
+          "symbol": "BNBUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220301",
+          "last_trained": "2025-11-20T22:03:01.609661",
+          "training_stats": {
+            "train_samples": 435,
+            "test_samples": 109,
+            "final_train_loss": 0.0017941916594281793,
+            "final_val_loss": 1.3688725175597938e-06,
+            "mae": 0.0007575433024595913,
+            "rmse": 0.0007578949779001757,
+            "r2_score": -1076.7989716393895
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5
+        }
+      },
+      "GRU": {
+        "exists": true,
+        "size_mb": 1.17,
+        "metadata": {
+          "model_type": "GRU",
+          "symbol": "BNBUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220357",
+          "last_trained": "2025-11-20T22:03:57.793321",
+          "training_stats": {
+            "train_samples": 435,
+            "test_samples": 109,
+            "epochs_trained": 50,
+            "final_train_loss": 0.0017599751008674502,
+            "final_val_loss": 1.607131935088546e-06,
+            "mae": 0.002053858411816829,
+            "rmse": 0.0020539881494827743,
+            "r2_score": -7915.178410483457,
+            "mape": 6.99555774791572,
+            "directional_accuracy": 0.46788990825688076,
+            "total_parameters": 98245
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5,
+          "inference_time_ms": 67.54016876220703
+        }
+      }
+    },
+    "SOLUSDT": {
+      "LSTM": {
+        "exists": true,
+        "size_mb": 1.52,
+        "metadata": {
+          "symbol": "SOLUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220444",
+          "last_trained": "2025-11-20T22:04:44.288273",
+          "training_stats": {
+            "train_samples": 395,
+            "test_samples": 99,
+            "final_train_loss": 0.003988933749496937,
+            "final_val_loss": 0.0004569993761833757,
+            "mae": 0.0023144100722629376,
+            "rmse": 0.002696696755901723,
+            "r2_score": -6.918548350031062
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5
+        }
+      },
+      "GRU": {
+        "exists": true,
+        "size_mb": 1.17,
+        "metadata": {
+          "model_type": "GRU",
+          "symbol": "SOLUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220515",
+          "last_trained": "2025-11-20T22:05:15.321777",
+          "training_stats": {
+            "train_samples": 395,
+            "test_samples": 99,
+            "epochs_trained": 27,
+            "final_train_loss": 0.006903715897351503,
+            "final_val_loss": 1.0142360224563163e-05,
+            "mae": 0.0011355529021865398,
+            "rmse": 0.0014197695944251647,
+            "r2_score": -1.1949118830794871,
+            "mape": 1.6148543758893048,
+            "directional_accuracy": 0.48484848484848486,
+            "total_parameters": 98245
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5,
+          "inference_time_ms": 81.2990665435791
+        }
+      }
+    },
+    "XRPUSDT": {
+      "LSTM": {
+        "exists": true,
+        "size_mb": 1.52,
+        "metadata": {
+          "symbol": "XRPUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220530",
+          "last_trained": "2025-11-20T22:05:30.303995",
+          "training_stats": {
+            "train_samples": 375,
+            "test_samples": 94,
+            "final_train_loss": 0.0042457543313503265,
+            "final_val_loss": 0.0012958520092070103,
+            "mae": 0.025417299558601537,
+            "rmse": 0.03401643380203078,
+            "r2_score": 0.17594900978495653
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5
+        }
+      },
+      "GRU": {
+        "exists": true,
+        "size_mb": 1.17,
+        "metadata": {
+          "model_type": "GRU",
+          "symbol": "XRPUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220546",
+          "last_trained": "2025-11-20T22:05:46.921776",
+          "training_stats": {
+            "train_samples": 375,
+            "test_samples": 94,
+            "epochs_trained": 12,
+            "final_train_loss": 0.004343466833233833,
+            "final_val_loss": 0.002162693999707699,
+            "mae": 0.008236196873574084,
+            "rmse": 0.01614297402296497,
+            "r2_score": 0.8144146805585755,
+            "mape": 413661714911.918,
+            "directional_accuracy": 0.4574468085106383,
+            "total_parameters": 98245
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5,
+          "inference_time_ms": 64.51702117919922
+        }
+      }
+    },
+    "ADAUSDT": {
+      "LSTM": {
+        "exists": true,
+        "size_mb": 1.52,
+        "metadata": {
+          "symbol": "ADAUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220603",
+          "last_trained": "2025-11-20T22:06:03.590628",
+          "training_stats": {
+            "train_samples": 384,
+            "test_samples": 97,
+            "final_train_loss": 0.004487186204642057,
+            "final_val_loss": 0.0027318166103214025,
+            "mae": 0.002809956068273175,
+            "rmse": 0.003087008450305643,
+            "r2_score": -10450.50447238765
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5
+        }
+      },
+      "GRU": {
+        "exists": true,
+        "size_mb": 1.17,
+        "metadata": {
+          "model_type": "GRU",
+          "symbol": "ADAUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220619",
+          "last_trained": "2025-11-20T22:06:19.249705",
+          "training_stats": {
+            "train_samples": 384,
+            "test_samples": 97,
+            "epochs_trained": 15,
+            "final_train_loss": 0.004510705824941397,
+            "final_val_loss": 0.00023824059462640435,
+            "mae": 0.0017008552497255666,
+            "rmse": 0.002093612790716696,
+            "r2_score": -4806.241054445076,
+            "mape": 214.63963952749936,
+            "directional_accuracy": 0.5257731958762887,
+            "total_parameters": 98245
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5,
+          "inference_time_ms": 62.25919723510742
+        }
+      }
+    },
+    "DOGEUSDT": {
+      "LSTM": {
+        "exists": true,
+        "size_mb": 1.52,
+        "metadata": {
+          "symbol": "DOGEUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220708",
+          "last_trained": "2025-11-20T22:07:08.751244",
+          "training_stats": {
+            "train_samples": 472,
+            "test_samples": 119,
+            "final_train_loss": 0.0020117827225476503,
+            "final_val_loss": 7.97924349171808e-06,
+            "mae": 0.0019521760097705122,
+            "rmse": 0.0019797717351104347,
+            "r2_score": -35.122740229529924
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5
+        }
+      },
+      "GRU": {
+        "exists": true,
+        "size_mb": 1.17,
+        "metadata": {
+          "model_type": "GRU",
+          "symbol": "DOGEUSDT",
+          "interval": "60",
+          "model_version": "v20251120_220814",
+          "last_trained": "2025-11-20T22:08:14.993496",
+          "training_stats": {
+            "train_samples": 472,
+            "test_samples": 119,
+            "epochs_trained": 50,
+            "final_train_loss": 0.003804747946560383,
+            "final_val_loss": 1.876733949757181e-05,
+            "mae": 0.004025789005216241,
+            "rmse": 0.0040392427588025245,
+            "r2_score": -149.36624653283383,
+            "mape": 1.9808302751037772,
+            "directional_accuracy": 0.4789915966386555,
+            "total_parameters": 98245
+          },
+          "feature_columns": [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "return_1",
+            "return_5",
+            "return_10",
+            "price_momentum_5",
+            "price_momentum_10",
+            "sma_7",
+            "sma_14",
+            "sma_30",
+            "ema_7",
+            "ema_14",
+            "price_vs_sma7",
+            "price_vs_sma14",
+            "high_low_range",
+            "volatility_10",
+            "volatility_20",
+            "volume_sma_7",
+            "volume_ratio",
+            "rsi_14"
+          ],
+          "sequence_length": 60,
+          "prediction_horizon": 5,
+          "inference_time_ms": 825.6266117095947
+        }
+      }
+    }
+  },
+  "models_loaded": [],
+  "training_results": {
+    "timestamp": "2025-11-20T22:08:17.559911",
+    "total_symbols": 7,
+    "total_models_attempted": 14,
+    "results": [
+      {
+        "model_type": "LSTM",
+        "symbol": "BTCUSDT",
+        "status": "SUCCESS",
+        "r2_score": 0.8437163740834788,
+        "mae": 0.02345420576846845,
+        "rmse": 0.031070440693427914,
+        "training_samples": 492,
+        "training_duration": 31.12643,
+        "model_version": "v20251120_220104",
+        "meets_target": false
+      },
+      {
+        "model_type": "GRU",
+        "symbol": "BTCUSDT",
+        "status": "SUCCESS",
+        "r2_score": 0.9038577476861054,
+        "mae": 0.0192150463565645,
+        "rmse": 0.024369567404816408,
+        "training_samples": 492,
+        "training_duration": 24.436303,
+        "model_version": "v20251120_220129",
+        "meets_target": false
+      },
+      {
+        "model_type": "LSTM",
+        "symbol": "ETHUSDT",
+        "status": "SUCCESS",
+        "r2_score": 0.6967948830583139,
+        "mae": 0.026266635269069194,
+        "rmse": 0.03190124161448672,
+        "training_samples": 492,
+        "training_duration": 28.078102,
+        "model_version": "v20251120_220159",
+        "meets_target": false
+      },
+      {
+        "model_type": "GRU",
+        "symbol": "ETHUSDT",
+        "status": "SUCCESS",
+        "r2_score": 0.7973369613972168,
+        "mae": 0.019161916044522376,
+        "rmse": 0.026081141671022334,
+        "training_samples": 492,
+        "training_duration": 36.104695,
+        "model_version": "v20251120_220237",
+        "meets_target": false
+      },
+      {
+        "model_type": "LSTM",
+        "symbol": "BNBUSDT",
+        "status": "SUCCESS",
+        "r2_score": -1076.7989716393895,
+        "mae": 0.0007575433024595913,
+        "rmse": 0.0007578949779001757,
+        "training_samples": 435,
+        "training_duration": 21.899244,
+        "model_version": "v20251120_220301",
+        "meets_target": false
+      },
+      {
+        "model_type": "GRU",
+        "symbol": "BNBUSDT",
+        "status": "SUCCESS",
+        "r2_score": -7915.178410483457,
+        "mae": 0.002053858411816829,
+        "rmse": 0.0020539881494827743,
+        "training_samples": 435,
+        "training_duration": 53.874259,
+        "model_version": "v20251120_220357",
+        "meets_target": false
+      },
+      {
+        "model_type": "LSTM",
+        "symbol": "SOLUSDT",
+        "status": "SUCCESS",
+        "r2_score": -6.918548350031062,
+        "mae": 0.0023144100722629376,
+        "rmse": 0.002696696755901723,
+        "training_samples": 395,
+        "training_duration": 44.465016,
+        "model_version": "v20251120_220444",
+        "meets_target": false
+      },
+      {
+        "model_type": "GRU",
+        "symbol": "SOLUSDT",
+        "status": "SUCCESS",
+        "r2_score": -1.1949118830794871,
+        "mae": 0.0011355529021865398,
+        "rmse": 0.0014197695944251647,
+        "training_samples": 395,
+        "training_duration": 30.012158,
+        "model_version": "v20251120_220515",
+        "meets_target": false
+      },
+      {
+        "model_type": "LSTM",
+        "symbol": "XRPUSDT",
+        "status": "SUCCESS",
+        "r2_score": 0.17594900978495653,
+        "mae": 0.025417299558601537,
+        "rmse": 0.03401643380203078,
+        "training_samples": 375,
+        "training_duration": 12.960428,
+        "model_version": "v20251120_220530",
+        "meets_target": false
+      },
+      {
+        "model_type": "GRU",
+        "symbol": "XRPUSDT",
+        "status": "SUCCESS",
+        "r2_score": 0.8144146805585755,
+        "mae": 0.008236196873574084,
+        "rmse": 0.01614297402296497,
+        "training_samples": 375,
+        "training_duration": 15.579779,
+        "model_version": "v20251120_220546",
+        "meets_target": false
+      },
+      {
+        "model_type": "LSTM",
+        "symbol": "ADAUSDT",
+        "status": "SUCCESS",
+        "r2_score": -10450.50447238765,
+        "mae": 0.002809956068273175,
+        "rmse": 0.003087008450305643,
+        "training_samples": 384,
+        "training_duration": 14.655835,
+        "model_version": "v20251120_220603",
+        "meets_target": false
+      },
+      {
+        "model_type": "GRU",
+        "symbol": "ADAUSDT",
+        "status": "SUCCESS",
+        "r2_score": -4806.241054445076,
+        "mae": 0.0017008552497255666,
+        "rmse": 0.002093612790716696,
+        "training_samples": 384,
+        "training_duration": 14.61448,
+        "model_version": "v20251120_220619",
+        "meets_target": false
+      },
+      {
+        "model_type": "LSTM",
+        "symbol": "DOGEUSDT",
+        "status": "SUCCESS",
+        "r2_score": -35.122740229529924,
+        "mae": 0.0019521760097705122,
+        "rmse": 0.0019797717351104347,
+        "training_samples": 472,
+        "training_duration": 47.477263,
+        "model_version": "v20251120_220708",
+        "meets_target": false
+      },
+      {
+        "model_type": "GRU",
+        "symbol": "DOGEUSDT",
+        "status": "SUCCESS",
+        "r2_score": -149.36624653283383,
+        "mae": 0.004025789005216241,
+        "rmse": 0.0040392427588025245,
+        "training_samples": 472,
+        "training_duration": 65.243404,
+        "model_version": "v20251120_220814",
+        "meets_target": false
+      }
+    ]
+  },
+  "api_tests": [
+    {
+      "symbol": "BTCUSDT",
+      "model_type": "LSTM",
+      "status": "FAILED",
+      "error": "No trained LSTM model found for BTCUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "BTCUSDT",
+      "model_type": "GRU",
+      "status": "FAILED",
+      "error": "No trained GRU model found for BTCUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "ETHUSDT",
+      "model_type": "LSTM",
+      "status": "FAILED",
+      "error": "No trained LSTM model found for ETHUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "ETHUSDT",
+      "model_type": "GRU",
+      "status": "FAILED",
+      "error": "No trained GRU model found for ETHUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "BNBUSDT",
+      "model_type": "LSTM",
+      "status": "FAILED",
+      "error": "No trained LSTM model found for BNBUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "BNBUSDT",
+      "model_type": "GRU",
+      "status": "FAILED",
+      "error": "No trained GRU model found for BNBUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "SOLUSDT",
+      "model_type": "LSTM",
+      "status": "FAILED",
+      "error": "No trained LSTM model found for SOLUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "SOLUSDT",
+      "model_type": "GRU",
+      "status": "FAILED",
+      "error": "No trained GRU model found for SOLUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "XRPUSDT",
+      "model_type": "LSTM",
+      "status": "FAILED",
+      "error": "No trained LSTM model found for XRPUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "XRPUSDT",
+      "model_type": "GRU",
+      "status": "FAILED",
+      "error": "No trained GRU model found for XRPUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "ADAUSDT",
+      "model_type": "LSTM",
+      "status": "FAILED",
+      "error": "No trained LSTM model found for ADAUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "ADAUSDT",
+      "model_type": "GRU",
+      "status": "FAILED",
+      "error": "No trained GRU model found for ADAUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "model_type": "LSTM",
+      "status": "FAILED",
+      "error": "No trained LSTM model found for DOGEUSDT 60m. Please train the model first."
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "model_type": "GRU",
+      "status": "FAILED",
+      "error": "No trained GRU model found for DOGEUSDT 60m. Please train the model first."
+    }
+  ],
+  "recommendations": [
+    "WARNING: No models are loaded in the service - restart may be needed",
+    "RETRAIN: 13 models have R\u00b2 < 0.85 - need retraining with more data",
+    "  - BTCUSDT LSTM: R\u00b2=0.8437",
+    "  - ETHUSDT LSTM: R\u00b2=0.6968",
+    "  - ETHUSDT GRU: R\u00b2=0.7973",
+    "  - BNBUSDT LSTM: R\u00b2=-1076.7990",
+    "  - BNBUSDT GRU: R\u00b2=-7915.1784",
+    "  - SOLUSDT LSTM: R\u00b2=-6.9185",
+    "  - SOLUSDT GRU: R\u00b2=-1.1949",
+    "  - XRPUSDT LSTM: R\u00b2=0.1759",
+    "  - XRPUSDT GRU: R\u00b2=0.8144",
+    "  - ADAUSDT LSTM: R\u00b2=-10450.5045",
+    "  - ADAUSDT GRU: R\u00b2=-4806.2411",
+    "  - DOGEUSDT LSTM: R\u00b2=-35.1227",
+    "  - DOGEUSDT GRU: R\u00b2=-149.3662",
+    "ERROR: 14 prediction tests failed"
+  ]
+}

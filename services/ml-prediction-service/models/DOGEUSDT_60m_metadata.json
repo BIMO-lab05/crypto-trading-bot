@@ -1,0 +1,42 @@
+{
+  "symbol": "DOGEUSDT",
+  "interval": "60",
+  "model_version": "v20251120_220708",
+  "last_trained": "2025-11-20T22:07:08.751244",
+  "training_stats": {
+    "train_samples": 472,
+    "test_samples": 119,
+    "final_train_loss": 0.0020117827225476503,
+    "final_val_loss": 7.97924349171808e-06,
+    "mae": 0.0019521760097705122,
+    "rmse": 0.0019797717351104347,
+    "r2_score": -35.122740229529924
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "return_1",
+    "return_5",
+    "return_10",
+    "price_momentum_5",
+    "price_momentum_10",
+    "sma_7",
+    "sma_14",
+    "sma_30",
+    "ema_7",
+    "ema_14",
+    "price_vs_sma7",
+    "price_vs_sma14",
+    "high_low_range",
+    "volatility_10",
+    "volatility_20",
+    "volume_sma_7",
+    "volume_ratio",
+    "rsi_14"
+  ],
+  "sequence_length": 60,
+  "prediction_horizon": 5
+}

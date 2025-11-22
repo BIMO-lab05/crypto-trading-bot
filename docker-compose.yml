@@ -1,0 +1,364 @@
+services:
+  # API Gateway - Entry point for all requests
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: crypto-bot-api-gateway
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./services/api-gateway/.env
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+      - TIMESCALE_HOST=crypto-bot-timescaledb
+      - POSTGRES_HOST=crypto-bot-postgres
+      - REDIS_HOST=crypto-bot-redis
+      - RABBITMQ_HOST=crypto-bot-rabbitmq
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      - MARKET_DATA_URL=http://market-data:8002
+      - PORTFOLIO_MANAGER_URL=http://portfolio-manager:8003
+      - TECHNICAL_ANALYSIS_URL=http://technical-analysis:8004
+      - TRADING_ENGINE_URL=http://trading-engine:8005
+      - NOTIFICATION_URL=http://notification-service:8006
+      - ML_PREDICTION_URL=http://ml-prediction:8007
+      - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
+      - RISK_METRICS_URL=http://risk-metrics:8009
+    volumes:
+      - ./services/api-gateway/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend - React dashboard for monitoring and control
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: crypto-bot-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=http://api-gateway:8000
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Bybit Connector - Exchange API integration
+  bybit-connector:
+    build:
+      context: ./services/bybit-connector
+      dockerfile: Dockerfile
+    container_name: crypto-bot-bybit
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./services/bybit-connector/.env
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./services/bybit-connector/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Market Data Service - Real-time market data collection
+  market-data:
+    build:
+      context: ./services/market-data-service
+      dockerfile: Dockerfile
+    container_name: crypto-bot-market-data
+    ports:
+      - "8002:8002"
+    env_file:
+      - ./services/market-data-service/.env
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - SERVICE_PORT=8002
+      - TIMESCALE_HOST=crypto-bot-timescaledb
+      - POSTGRES_HOST=crypto-bot-postgres
+      - REDIS_HOST=crypto-bot-redis
+      - RABBITMQ_HOST=crypto-bot-rabbitmq
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+    volumes:
+      - ./services/market-data-service/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    depends_on:
+      bybit-connector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Portfolio Manager - Balance and position tracking
+  portfolio-manager:
+    build:
+      context: .
+      dockerfile: ./services/portfolio-manager/Dockerfile
+    container_name: crypto-bot-portfolio
+    ports:
+      - "8003:8003"
+    env_file:
+      - ./services/portfolio-manager/.env
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - TIMESCALE_HOST=crypto-bot-timescaledb
+      - POSTGRES_HOST=crypto-bot-postgres
+      - REDIS_HOST=crypto-bot-redis
+      - RABBITMQ_HOST=crypto-bot-rabbitmq
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      - USE_DATABASE=true
+      - DATABASE_URL=postgresql://cryptobot:cryptobot_dev_password@crypto-bot-postgres:5432/cryptobot
+      - DB_HOST=crypto-bot-postgres
+      - DB_PORT=5432
+      - DB_NAME=cryptobot
+      - DB_USER=cryptobot
+      - DB_PASSWORD=cryptobot_dev_password
+    volumes:
+      - ./services/portfolio-manager/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    depends_on:
+      bybit-connector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Technical Analysis - Trading indicators
+  technical-analysis:
+    build:
+      context: ./services/technical-analysis
+      dockerfile: Dockerfile
+    container_name: crypto-bot-ta
+    ports:
+      - "8004:8004"
+    env_file:
+      - ./services/technical-analysis/.env
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - TIMESCALE_HOST=crypto-bot-timescaledb
+      - POSTGRES_HOST=crypto-bot-postgres
+      - REDIS_HOST=crypto-bot-redis
+      - RABBITMQ_HOST=crypto-bot-rabbitmq
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      - MARKET_DATA_URL=http://market-data:8002
+    volumes:
+      - ./services/technical-analysis/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    depends_on:
+      bybit-connector:
+        condition: service_healthy
+      market-data:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Trading Engine - Core trading logic
+  trading-engine:
+    build:
+      context: .
+      dockerfile: ./services/trading-engine/Dockerfile
+    container_name: crypto-bot-trading
+    ports:
+      - "8005:8005"
+    env_file:
+      - ./services/trading-engine/.env
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - TIMESCALE_HOST=crypto-bot-timescaledb
+      - POSTGRES_HOST=crypto-bot-postgres
+      - REDIS_HOST=crypto-bot-redis
+      - RABBITMQ_HOST=crypto-bot-rabbitmq
+      - MAX_RISK_PER_TRADE=0.02
+      - EMERGENCY_STOP_LOSS=0.05
+      - PAPER_TRADING_MODE=true
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      - MARKET_DATA_URL=http://market-data:8002
+      - PORTFOLIO_MANAGER_URL=http://portfolio-manager:8003
+      - TECHNICAL_ANALYSIS_URL=http://technical-analysis:8004
+      - ML_PREDICTION_URL=http://ml-prediction:8007
+      - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
+      - ENABLE_ML_PREDICTIONS=true
+      - ENABLE_SENTIMENT_ANALYSIS=true
+    volumes:
+      - ./services/trading-engine/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    depends_on:
+      bybit-connector:
+        condition: service_healthy
+      technical-analysis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Notification Service - Alerts and notifications
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: crypto-bot-notification
+    ports:
+      - "8006:8006"
+    env_file:
+      - ./services/notification-service/.env
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - TIMESCALE_HOST=crypto-bot-timescaledb
+      - POSTGRES_HOST=crypto-bot-postgres
+      - REDIS_HOST=crypto-bot-redis
+      - RABBITMQ_HOST=crypto-bot-rabbitmq
+    volumes:
+      - ./services/notification-service/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ML Prediction Service - LSTM price forecasting
+  ml-prediction:
+    build:
+      context: ./services/ml-prediction-service
+      dockerfile: Dockerfile
+    container_name: crypto-bot-ml-prediction
+    ports:
+      - "8007:8007"
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - MARKET_DATA_URL=http://market-data:8002
+    volumes:
+      - ./services/ml-prediction-service/logs:/app/logs
+      - ./services/ml-prediction-service/models:/app/models
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    depends_on:
+      market-data:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Sentiment Analysis Service - News and social sentiment
+  sentiment-analysis:
+    build:
+      context: ./services/sentiment-analysis-service
+      dockerfile: Dockerfile
+    container_name: crypto-bot-sentiment
+    ports:
+      - "8008:8008"
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - NEWS_API_KEY=${NEWS_API_KEY:-}
+      - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN:-}
+    volumes:
+      - ./services/sentiment-analysis-service/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Risk Metrics Service - Risk analysis and metrics
+  risk-metrics:
+    build:
+      context: ./services/risk-metrics-service
+      dockerfile: Dockerfile
+    container_name: crypto-bot-risk-metrics
+    ports:
+      - "8009:8009"
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - TRADING_ENGINE_URL=http://trading-engine:8005
+      - PORTFOLIO_MANAGER_URL=http://portfolio-manager:8003
+    volumes:
+      - ./services/risk-metrics-service/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    depends_on:
+      trading-engine:
+        condition: service_healthy
+      portfolio-manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  crypto-bot-network:
+    external: true
+    name: infrastructure_crypto-bot-network
+
+volumes:
+  logs:
+    name: crypto-bot-logs
+

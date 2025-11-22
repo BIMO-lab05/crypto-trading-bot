@@ -17,6 +17,26 @@ class Settings(BaseSettings):
     service_port: int = Field(default=8006, ge=1024, le=65535, description="Service port")
     log_level: str = Field(default="INFO", description="Logging level")
 
+    # HTTP Configuration
+    http_timeout: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=300.0,
+        description="HTTP request timeout in seconds"
+    )
+
+    # Rate Limiting
+    rate_limit_transactions_per_minute: int = Field(
+        default=30,
+        ge=1,
+        le=1000,
+        description="Maximum transactions allowed per minute"
+    )
+    enable_rate_limiting: bool = Field(
+        default=True,
+        description="Enable rate limiting for API endpoints"
+    )
+
     # External Service URLs
     trading_engine_url: str = Field(
         default="http://localhost:8005",

@@ -546,5 +546,62 @@ locust -f tests/performance/locustfile.py --host=http://localhost:8000
 
 ---
 
-**Last Updated**: 2025-10-30
-**Version**: 1.0
+---
+
+## Current Test Status (Trading Engine)
+
+**Last Test Run**: 2025-11-09
+
+### Test Statistics
+- **Total Tests**: 128 unit + integration tests (34 skipped)
+- **Pass Rate**: 100% (all tests passing)
+- **Code Coverage**: 51%
+- **Deprecation Warnings**: 0 (all datetime.utcnow() warnings eliminated)
+
+### Test Distribution
+```
+Unit Tests:
+├── test_paper_trading.py        - 15 tests (Paper trading execution)
+├── test_position_manager.py     - 19 tests (Position management)
+├── test_repositories.py         - 9 tests (Database operations)
+├── test_risk_manager.py         - 29 tests (Risk management)
+├── test_signal_aggregator.py    - 19 tests (Signal aggregation)
+└── test_voter.py                - 13 tests (Voting and consensus)
+
+Integration Tests:
+├── test_paper_trading.py        - 8 tests (End-to-end paper trading)
+├── test_position_manager.py     - 10 tests (Position lifecycle)
+└── test_database_persistence.py - 13 tests (Skipped - require database)
+
+Performance Benchmarks:
+└── test_database_performance.py - 5 benchmarks (All passing)
+    ├── Position creation: 0.00ms average
+    ├── Bulk trade logging: 662,989 trades/sec
+    ├── Position queries: 0.00ms average
+    ├── Concurrent operations: 1.41ms for 10 ops
+    └── Connection pool: 1.32ms acquisition time
+```
+
+### Coverage by Module
+```
+app/paper_trading.py        - 97%  (Excellent)
+app/position_manager.py     - 98%  (Excellent)
+app/repositories.py         - 88%  (Good)
+app/risk_manager.py         - 94%  (Excellent)
+app/signal_aggregator.py    - 81%  (Good)
+app/aggregation/voter.py    - 92%  (Excellent)
+app/models/                 - 88-94% (Good-Excellent)
+```
+
+### Recent Improvements
+- ✅ Fixed all datetime.utcnow() deprecation warnings
+- ✅ Updated to Pydantic v2 ConfigDict pattern
+- ✅ Added comprehensive signal aggregator tests (19 tests)
+- ✅ Added voter module tests (13 tests)
+- ✅ Completed performance benchmarks
+- ✅ Increased coverage from 38% to 51%
+
+---
+
+**Last Updated**: 2025-11-09
+**Version**: 1.1

@@ -1,0 +1,287 @@
+# Prometheus Alert Rules for Phase 3 Services
+# Defines conditions that trigger alerts for ML, Sentiment, and Risk services
+
+groups:
+  # =================================================================
+  # ML PREDICTION SERVICE ALERTS
+  # =================================================================
+  - name: ml_prediction_alerts
+    interval: 30s
+    rules:
+      # Alert when ML prediction accuracy drops below 70%
+      - alert: LowMLPredictionAccuracy
+        expr: avg(ml_prediction_accuracy) < 0.70
+        for: 5m
+        labels:
+          severity: warning
+          service: ml-prediction
+          phase: "3"
+        annotations:
+          summary: "ML prediction accuracy is low"
+          description: "ML prediction accuracy has been below 70% for the last 5 minutes. Current value: {{ $value | humanizePercentage }}"
+
+      # Alert when ML inference time is too high
+      - alert: HighMLInferenceLatency
+        expr: histogram_quantile(0.95, rate(ml_model_inference_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: ml-prediction
+          phase: "3"
+        annotations:
+          summary: "ML model inference latency is high"
+          description: "ML model inference p95 latency is above 500ms. Current value: {{ $value | humanizeDuration }}"
+
+      # Alert when ML cache hit rate is low
+      - alert: LowMLCacheHitRate
+        expr: rate(ml_cache_hits_total[5m]) / (rate(ml_cache_hits_total[5m]) + rate(ml_cache_misses_total[5m])) < 0.70
+        for: 10m
+        labels:
+          severity: info
+          service: ml-prediction
+          phase: "3"
+        annotations:
+          summary: "ML cache hit rate is low"
+          description: "ML cache hit rate is below 70% for the last 10 minutes. Current value: {{ $value | humanizePercentage }}"
+
+      # Alert when ML service has high error rate
+      - alert: HighMLErrorRate
+        expr: rate(ml_prediction_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          service: ml-prediction
+          phase: "3"
+        annotations:
+          summary: "High error rate in ML Prediction service"
+          description: "ML Prediction service is experiencing more than 0.1 errors per second. Current rate: {{ $value | humanize }}"
+
+      # Alert when ML service is down
+      - alert: MLPredictionServiceDown
+        expr: up{job="ml-prediction-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ml-prediction
+          phase: "3"
+        annotations:
+          summary: "ML Prediction service is down"
+          description: "ML Prediction service has been down for more than 1 minute"
+
+  # =================================================================
+  # SENTIMENT ANALYSIS SERVICE ALERTS
+  # =================================================================
+  - name: sentiment_analysis_alerts
+    interval: 30s
+    rules:
+      # Alert when sentiment analysis API latency is high
+      - alert: HighSentimentAPILatency
+        expr: histogram_quantile(0.95, rate(sentiment_api_latency_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          service: sentiment-analysis
+          phase: "3"
+        annotations:
+          summary: "Sentiment analysis API latency is high"
+          description: "Sentiment API p95 latency is above 1 second. Current value: {{ $value | humanizeDuration }}"
+
+      # Alert when news fetch success rate is low
+      - alert: LowNewsFetchSuccessRate
+        expr: rate(sentiment_news_fetch_success_total[5m]) / (rate(sentiment_news_fetch_success_total[5m]) + rate(sentiment_news_fetch_failure_total[5m])) < 0.90
+        for: 10m
+        labels:
+          severity: warning
+          service: sentiment-analysis
+          phase: "3"
+        annotations:
+          summary: "News fetch success rate is low"
+          description: "News fetch success rate is below 90% for the last 10 minutes. Current value: {{ $value | humanizePercentage }}"
+
+      # Alert when sentiment score is extremely bearish
+      - alert: ExtremeBearishSentiment
+        expr: avg(sentiment_score) < -0.7
+        for: 15m
+        labels:
+          severity: info
+          service: sentiment-analysis
+          phase: "3"
+        annotations:
+          summary: "Market sentiment is extremely bearish"
+          description: "Average sentiment score has been below -0.7 for 15 minutes. Current value: {{ $value | humanize }}"
+
+      # Alert when sentiment score is extremely bullish
+      - alert: ExtremeBullishSentiment
+        expr: avg(sentiment_score) > 0.7
+        for: 15m
+        labels:
+          severity: info
+          service: sentiment-analysis
+          phase: "3"
+        annotations:
+          summary: "Market sentiment is extremely bullish"
+          description: "Average sentiment score has been above 0.7 for 15 minutes. Current value: {{ $value | humanize }}"
+
+      # Alert when sentiment service has high error rate
+      - alert: HighSentimentErrorRate
+        expr: rate(sentiment_analysis_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          service: sentiment-analysis
+          phase: "3"
+        annotations:
+          summary: "High error rate in Sentiment Analysis service"
+          description: "Sentiment Analysis service is experiencing more than 0.1 errors per second. Current rate: {{ $value | humanize }}"
+
+      # Alert when sentiment service is down
+      - alert: SentimentAnalysisServiceDown
+        expr: up{job="sentiment-analysis-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: sentiment-analysis
+          phase: "3"
+        annotations:
+          summary: "Sentiment Analysis service is down"
+          description: "Sentiment Analysis service has been down for more than 1 minute"
+
+  # =================================================================
+  # RISK METRICS SERVICE ALERTS
+  # =================================================================
+  - name: risk_metrics_alerts
+    interval: 30s
+    rules:
+      # Alert when portfolio risk is too high
+      - alert: HighPortfolioRisk
+        expr: portfolio_risk_percentage > 5.0
+        for: 5m
+        labels:
+          severity: critical
+          service: risk-metrics
+          phase: "3"
+        annotations:
+          summary: "Portfolio risk is critically high"
+          description: "Portfolio risk has exceeded 5% for the last 5 minutes. Current value: {{ $value | humanizePercentage }}"
+
+      # Alert when portfolio drawdown is significant
+      - alert: HighPortfolioDrawdown
+        expr: portfolio_drawdown_percentage > 10.0
+        for: 5m
+        labels:
+          severity: warning
+          service: risk-metrics
+          phase: "3"
+        annotations:
+          summary: "Portfolio drawdown is high"
+          description: "Portfolio drawdown has exceeded 10% for the last 5 minutes. Current value: {{ $value | humanizePercentage }}"
+
+      # Alert when Sharpe ratio is too low (poor risk-adjusted returns)
+      - alert: LowSharpeRatio
+        expr: sharpe_ratio < 1.0
+        for: 1h
+        labels:
+          severity: info
+          service: risk-metrics
+          phase: "3"
+        annotations:
+          summary: "Sharpe ratio is low"
+          description: "Sharpe ratio has been below 1.0 for the last hour. Current value: {{ $value | humanize }}"
+
+      # Alert when position size is too large
+      - alert: LargePositionSize
+        expr: max(position_size_percentage) > 10.0
+        for: 5m
+        labels:
+          severity: warning
+          service: risk-metrics
+          phase: "3"
+        annotations:
+          summary: "Position size is too large"
+          description: "A position exceeds 10% of portfolio. Current max: {{ $value | humanizePercentage }}"
+
+      # Alert when win rate drops below 50%
+      - alert: LowWinRate
+        expr: rate(winning_trades_total[1h]) / (rate(winning_trades_total[1h]) + rate(losing_trades_total[1h])) < 0.50
+        for: 2h
+        labels:
+          severity: warning
+          service: risk-metrics
+          phase: "3"
+        annotations:
+          summary: "Win rate is below 50%"
+          description: "Win rate has been below 50% for the last 2 hours. Current value: {{ $value | humanizePercentage }}"
+
+      # Alert when risk service has high error rate
+      - alert: HighRiskMetricsErrorRate
+        expr: rate(risk_metrics_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          service: risk-metrics
+          phase: "3"
+        annotations:
+          summary: "High error rate in Risk Metrics service"
+          description: "Risk Metrics service is experiencing more than 0.1 errors per second. Current rate: {{ $value | humanize }}"
+
+      # Alert when risk service is down
+      - alert: RiskMetricsServiceDown
+        expr: up{job="risk-metrics-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: risk-metrics
+          phase: "3"
+        annotations:
+          summary: "Risk Metrics service is down"
+          description: "Risk Metrics service has been down for more than 1 minute"
+
+  # =================================================================
+  # SYSTEM-WIDE ALERTS FOR PHASE 3
+  # =================================================================
+  - name: phase3_system_alerts
+    interval: 30s
+    rules:
+      # Alert when any Phase 3 service has high response time
+      - alert: HighPhase3ServiceLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{phase="3"}[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          phase: "3"
+        annotations:
+          summary: "High latency in Phase 3 service"
+          description: "Service {{ $labels.service }} has p95 latency above 1 second. Current value: {{ $value | humanizeDuration }}"
+
+      # Alert when any Phase 3 service memory usage is high
+      - alert: HighPhase3MemoryUsage
+        expr: process_resident_memory_bytes{service=~"ml-prediction|sentiment-analysis|risk-metrics"} / 1024 / 1024 > 1024
+        for: 10m
+        labels:
+          severity: warning
+          phase: "3"
+        annotations:
+          summary: "High memory usage in Phase 3 service"
+          description: "Service {{ $labels.service }} is using more than 1GB of memory. Current: {{ $value | humanize }}MB"
+
+      # Alert when request rate suddenly drops (possible service issue)
+      - alert: Phase3LowRequestRate
+        expr: rate(http_requests_total{phase="3"}[5m]) < 0.01
+        for: 10m
+        labels:
+          severity: info
+          phase: "3"
+        annotations:
+          summary: "Low request rate in Phase 3 service"
+          description: "Service {{ $labels.service }} has very low request rate. Current: {{ $value | humanize }} req/s"
+
+      # Alert when Prometheus is having trouble scraping Phase 3 services
+      - alert: Phase3ScrapeFailing
+        expr: up{job=~"ml-prediction-service|sentiment-analysis-service|risk-metrics-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          phase: "3"
+        annotations:
+          summary: "Cannot scrape Phase 3 service"
+          description: "Prometheus cannot scrape metrics from {{ $labels.job }}"

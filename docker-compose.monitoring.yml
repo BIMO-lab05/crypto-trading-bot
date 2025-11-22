@@ -1,0 +1,190 @@
+# Docker Compose Override for Monitoring Stack
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+# Adds Prometheus, Grafana, and optional infrastructure monitoring tools
+
+version: '3.8'
+
+services:
+  # =================================================================
+  # PROMETHEUS - Metrics Collection and Storage
+  # =================================================================
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: crypto-bot-prometheus
+    ports:
+      - "9090:9090"  # Prometheus UI
+    volumes:
+      # Mount Prometheus configuration
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Mount alert rules directory (create rules as needed)
+      - ./infrastructure/monitoring/rules:/etc/prometheus/rules:ro
+      # Persistent storage for metrics data
+      - prometheus-data:/prometheus
+    command:
+      # Configuration file location
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      # Data storage location
+      - '--storage.tsdb.path=/prometheus'
+      # Data retention period (15 days)
+      - '--storage.tsdb.retention.time=15d'
+      # Web console configuration
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      # Enable admin API for management operations
+      - '--web.enable-admin-api'
+      # Enable lifecycle management (reload config via API)
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "com.crypto-bot.component=monitoring"
+      - "com.crypto-bot.service=prometheus"
+
+  # =================================================================
+  # GRAFANA - Metrics Visualization and Dashboards
+  # =================================================================
+  grafana:
+    image: grafana/grafana:10.0.3
+    container_name: crypto-bot-grafana
+    ports:
+      - "3001:3000"  # Grafana UI (port 3001 to avoid conflict with frontend on 3000)
+    environment:
+      # Admin credentials (CHANGE IN PRODUCTION!)
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=crypto-bot-admin
+      # Anonymous access disabled for security
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      # Default organization settings
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+      # Server configuration
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_SERVER_DOMAIN=localhost
+      # Install plugins (optional)
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      # Enable unified alerting (Grafana 10.x uses unified alerting only)
+      - GF_ALERTING_ENABLED=false
+      - GF_UNIFIED_ALERTING_ENABLED=true
+    volumes:
+      # Persistent storage for Grafana data
+      - grafana-data:/var/lib/grafana
+      # Dashboard provisioning configuration (includes dashboards and datasources)
+      - ./infrastructure/monitoring/grafana-provisioning:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+    networks:
+      - crypto-bot-network
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.crypto-bot.component=monitoring"
+      - "com.crypto-bot.service=grafana"
+
+  # =================================================================
+  # NODE EXPORTER (Optional) - System Metrics
+  # =================================================================
+  # Uncomment to enable host system monitoring (CPU, memory, disk, network)
+  # node-exporter:
+  #   image: prom/node-exporter:v1.6.1
+  #   container_name: crypto-bot-node-exporter
+  #   ports:
+  #     - "9100:9100"
+  #   command:
+  #     - '--path.rootfs=/host'
+  #     - '--path.procfs=/host/proc'
+  #     - '--path.sysfs=/host/sys'
+  #     - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+  #   volumes:
+  #     - /:/host:ro,rslave
+  #   restart: unless-stopped
+  #   networks:
+  #     - crypto-bot-network
+  #   labels:
+  #     - "com.crypto-bot.component=monitoring"
+  #     - "com.crypto-bot.service=node-exporter"
+
+  # =================================================================
+  # CADVISOR (Optional) - Container Metrics
+  # =================================================================
+  # Uncomment to enable container-level monitoring
+  # cadvisor:
+  #   image: gcr.io/cadvisor/cadvisor:v0.47.2
+  #   container_name: crypto-bot-cadvisor
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - /:/rootfs:ro
+  #     - /var/run:/var/run:ro
+  #     - /sys:/sys:ro
+  #     - /var/lib/docker/:/var/lib/docker:ro
+  #     - /dev/disk/:/dev/disk:ro
+  #   privileged: true
+  #   devices:
+  #     - /dev/kmsg
+  #   restart: unless-stopped
+  #   networks:
+  #     - crypto-bot-network
+  #   labels:
+  #     - "com.crypto-bot.component=monitoring"
+  #     - "com.crypto-bot.service=cadvisor"
+
+  # =================================================================
+  # ALERTMANAGER (Optional) - Alert Routing and Management
+  # =================================================================
+  # Uncomment to enable alert management and routing to Slack, email, etc.
+  # alertmanager:
+  #   image: prom/alertmanager:v0.26.0
+  #   container_name: crypto-bot-alertmanager
+  #   ports:
+  #     - "9093:9093"
+  #   volumes:
+  #     - ./infrastructure/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+  #     - alertmanager-data:/alertmanager
+  #   command:
+  #     - '--config.file=/etc/alertmanager/alertmanager.yml'
+  #     - '--storage.path=/alertmanager'
+  #   restart: unless-stopped
+  #   networks:
+  #     - crypto-bot-network
+  #   labels:
+  #     - "com.crypto-bot.component=monitoring"
+  #     - "com.crypto-bot.service=alertmanager"
+
+# =================================================================
+# NETWORKS
+# =================================================================
+networks:
+  crypto-bot-network:
+    external: true  # Use existing network from main docker-compose.yml
+
+# =================================================================
+# VOLUMES - Persistent Data Storage
+# =================================================================
+volumes:
+  # Prometheus time-series database storage
+  prometheus-data:
+    driver: local
+    name: crypto-bot-prometheus-data
+
+  # Grafana configuration and dashboard storage
+  grafana-data:
+    driver: local
+    name: crypto-bot-grafana-data
+
+  # Alertmanager data storage (uncomment if using alertmanager)
+  # alertmanager-data:
+  #   driver: local
+  #   name: crypto-bot-alertmanager-data

@@ -78,7 +78,7 @@ class KlineRepository:
                 total_inserted += len(batch)
                 logger.info(f"Inserted batch {i//batch_size + 1}: {len(batch)} klines")
 
-            await session.commit()
+            # Commit is handled by get_db_session() context manager
 
             logger.info(f"Upserted total {total_inserted} klines")
             return total_inserted
@@ -183,10 +183,10 @@ class TickerRepository:
                 price_change_24h=ticker_data.get('price_change_24h'),
                 created_at=int(time.time() * 1000)
             )
-            
+
             session.add(ticker)
-            await session.commit()
-            
+            # Commit is handled by get_db_session() context manager
+
             logger.info(f"Saved ticker for {ticker_data['symbol']}")
             return True
     

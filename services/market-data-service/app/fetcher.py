@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 from app.config import get_settings
+from app.circuit_breaker import bybit_connector_retry
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,21 @@ class BybitDataFetcher:
         """
         settings = get_settings()
         self.base_url = base_url or settings.bybit_connector_url
+
+        # Configure connection pooling for optimal performance
+        limits = httpx.Limits(
+            max_connections=100,        # Total connection pool size
+            max_keepalive_connections=20,  # Keep 20 connections alive for reuse
+            keepalive_expiry=30.0       # Keep connections alive for 30 seconds
+        )
+
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
-            timeout=30.0
+            timeout=30.0,
+            limits=limits
+            # Note: http2=True requires httpx[http2] extra package
         )
-        logger.info(f"Initialized BybitDataFetcher: {self.base_url}")
+        logger.info(f"Initialized BybitDataFetcher with connection pooling: {self.base_url}")
     
     async def close(self):
         """Close HTTP client"""
@@ -53,6 +64,7 @@ class BybitDataFetcher:
             logger.error(f"Health check failed: {e}")
             return False
     
+    @bybit_connector_retry
     async def get_kline(
         self,
         symbol: str,
@@ -132,6 +144,7 @@ class BybitDataFetcher:
             logger.error(f"Error fetching klines for {symbol}: {e}")
             return []
     
+    @bybit_connector_retry
     async def get_ticker(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Fetch latest ticker data

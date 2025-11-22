@@ -1,0 +1,100 @@
+{
+  "services_health": {
+    "api_gateway": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 131.76
+    },
+    "bybit": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 3.78
+    },
+    "market_data": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 8.22
+    },
+    "portfolio": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 46.6
+    },
+    "technical_analysis": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 4.8
+    },
+    "trading_engine": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 11.28
+    },
+    "notification": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 2.9
+    },
+    "ml_prediction": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 2.32
+    },
+    "sentiment": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 2.39
+    },
+    "risk_metrics": {
+      "status": 200,
+      "healthy": true,
+      "response_time_ms": 46.36
+    }
+  },
+  "integration_tests": {
+    "market_data": {
+      "success": true,
+      "klines_count": 100
+    },
+    "technical_analysis": {
+      "success": true,
+      "signal": "SELL",
+      "confidence": 0.615
+    },
+    "ml_prediction": {
+      "success": false
+    },
+    "portfolio": {
+      "success": true,
+      "total_value": "10000.0"
+    },
+    "risk_metrics": {
+      "success": true,
+      "risk_level": "LOW",
+      "risk_score": 0.0
+    }
+  },
+  "performance_metrics": {
+    "technical_analysis": {
+      "requests": 10,
+      "successful": 10,
+      "avg_response_ms": 39.26,
+      "success_rate": 100.0
+    },
+    "portfolio": {
+      "requests": 10,
+      "successful": 10,
+      "avg_response_ms": 1.65,
+      "success_rate": 100.0
+    },
+    "risk_metrics": {
+      "requests": 10,
+      "successful": 10,
+      "avg_response_ms": 11.99,
+      "success_rate": 100.0
+    }
+  },
+  "data_completeness": {},
+  "errors": [],
+  "production_readiness_score": 84.0
+}
