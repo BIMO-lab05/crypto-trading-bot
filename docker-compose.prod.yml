@@ -1,0 +1,518 @@
+# Production Docker Compose Configuration
+# Crypto Trading Bot - Microservices Architecture
+# Version: 1.0.0
+# Optimized for production deployment with health checks, resource limits, and security
+
+version: '3.8'
+
+# ============================================================================
+# INFRASTRUCTURE SERVICES (Shared Dependencies)
+# ============================================================================
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-restart-policy: &default-restart
+  restart_policy:
+    condition: on-failure
+    delay: 5s
+    max_attempts: 3
+    window: 120s
+
+services:
+  # PostgreSQL - Primary database
+  postgres:
+    image: postgres:14-alpine
+    container_name: crypto-bot-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-cryptobot}
+      POSTGRES_USER: ${DB_USER:-cryptobot}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cryptobot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      <<: *default-restart
+    logging: *default-logging
+
+  # TimescaleDB - Time-series data for market prices
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: crypto-bot-timescaledb
+    environment:
+      POSTGRES_DB: ${TIMESCALE_DB:-marketdata}
+      POSTGRES_USER: ${TIMESCALE_USER:-cryptobot}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER:-cryptobot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      <<: *default-restart
+    logging: *default-logging
+
+  # Redis - Caching and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-bot-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      <<: *default-restart
+    logging: *default-logging
+
+  # RabbitMQ - Message broker
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: crypto-bot-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cryptobot}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      <<: *default-restart
+    logging: *default-logging
+
+# ============================================================================
+# APPLICATION SERVICES (Microservices)
+# ============================================================================
+
+  # API Gateway - Port 8000
+  api-gateway:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/api-gateway:${VERSION:-latest}
+    container_name: crypto-bot-api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://${DB_USER:-cryptobot}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-cryptobot}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-cryptobot}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+    volumes:
+      - ./logs/api-gateway:/app/logs
+    networks:
+      - crypto-bot-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      <<: *default-restart
+    logging: *default-logging
+
+  # Trading Engine - Port 8001
+  trading-engine:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/trading-engine:${VERSION:-latest}
+    container_name: crypto-bot-trading-engine
+    ports:
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
+      - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.02}
+      - EMERGENCY_STOP_LOSS=${EMERGENCY_STOP_LOSS:-0.05}
+      - DATABASE_URL=postgresql://${DB_USER:-cryptobot}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-cryptobot}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-cryptobot}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    volumes:
+      - ./logs/trading-engine:/app/logs
+      - ./data/trading-engine:/app/data
+    networks:
+      - crypto-bot-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bybit-connector:
+        condition: service_healthy
+      technical-analysis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      <<: *default-restart
+    logging: *default-logging
+
+  # Portfolio Manager - Port 8002
+  portfolio-manager:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/portfolio-manager:${VERSION:-latest}
+    container_name: crypto-bot-portfolio-manager
+    ports:
+      - "8002:8002"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://${DB_USER:-cryptobot}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-cryptobot}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/2
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-cryptobot}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    volumes:
+      - ./logs/portfolio-manager:/app/logs
+    networks:
+      - crypto-bot-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      <<: *default-restart
+    logging: *default-logging
+
+  # Technical Analysis - Port 8003
+  technical-analysis:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/technical-analysis:${VERSION:-latest}
+    container_name: crypto-bot-technical-analysis
+    ports:
+      - "8003:8003"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/3
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-cryptobot}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    volumes:
+      - ./logs/technical-analysis:/app/logs
+      - ./cache/technical-analysis:/app/cache
+    networks:
+      - crypto-bot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      market-data-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      <<: *default-restart
+    logging: *default-logging
+
+  # Bybit Connector - Port 8004
+  bybit-connector:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/bybit-connector:${VERSION:-latest}
+    container_name: crypto-bot-bybit-connector
+    ports:
+      - "8004:8004"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - BYBIT_API_KEY=${BYBIT_API_KEY}
+      - BYBIT_API_SECRET=${BYBIT_API_SECRET}
+      - BYBIT_TESTNET=${BYBIT_TESTNET:-true}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/4
+    volumes:
+      - ./logs/bybit-connector:/app/logs
+    networks:
+      - crypto-bot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      <<: *default-restart
+    logging: *default-logging
+
+  # Market Data Service - Port 8005
+  market-data-service:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/market-data-service:${VERSION:-latest}
+    container_name: crypto-bot-market-data
+    ports:
+      - "8005:8005"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - TIMESCALE_URL=postgresql://${TIMESCALE_USER:-cryptobot}:${TIMESCALE_PASSWORD}@timescaledb:5432/${TIMESCALE_DB:-marketdata}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-cryptobot}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    volumes:
+      - ./logs/market-data-service:/app/logs
+    networks:
+      - crypto-bot-network
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bybit-connector:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      <<: *default-restart
+    logging: *default-logging
+
+  # Notification Service - Port 8006
+  notification-service:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/notification-service:${VERSION:-latest}
+    container_name: crypto-bot-notification
+    ports:
+      - "8006:8006"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-cryptobot}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    volumes:
+      - ./logs/notification-service:/app/logs
+    networks:
+      - crypto-bot-network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+      <<: *default-restart
+    logging: *default-logging
+
+  # ML Prediction Service - Port 8007
+  ml-prediction-service:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/ml-prediction-service:${VERSION:-latest}
+    container_name: crypto-bot-ml-prediction
+    ports:
+      - "8007:8007"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/6
+      - OMP_NUM_THREADS=2
+      - TF_CPP_MIN_LOG_LEVEL=2
+    volumes:
+      - ./logs/ml-prediction-service:/app/logs
+      - ./models/ml-prediction:/app/models
+      - ./cache/ml-prediction:/app/cache
+    networks:
+      - crypto-bot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      market-data-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      <<: *default-restart
+    logging: *default-logging
+
+  # Risk Metrics Service - Port 8008
+  risk-metrics-service:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/risk-metrics-service:${VERSION:-latest}
+    container_name: crypto-bot-risk-metrics
+    ports:
+      - "8008:8008"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/7
+      - DATABASE_URL=postgresql://${DB_USER:-cryptobot}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-cryptobot}
+    volumes:
+      - ./logs/risk-metrics-service:/app/logs
+      - ./cache/risk-metrics:/app/cache
+    networks:
+      - crypto-bot-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      portfolio-manager:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      <<: *default-restart
+    logging: *default-logging
+
+  # Sentiment Analysis Service - Port 8009
+  sentiment-analysis-service:
+    image: ${REGISTRY:-localhost:5000}/crypto-trading-bot/sentiment-analysis-service:${VERSION:-latest}
+    container_name: crypto-bot-sentiment
+    ports:
+      - "8009:8009"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - NEWS_API_KEY=${NEWS_API_KEY}
+      - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/8
+    volumes:
+      - ./logs/sentiment-analysis-service:/app/logs
+      - ./cache/sentiment-analysis:/app/cache
+    networks:
+      - crypto-bot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      <<: *default-restart
+    logging: *default-logging
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+
+networks:
+  crypto-bot-network:
+    driver: bridge
+    name: crypto-bot-network
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+
+volumes:
+  postgres_data:
+    name: crypto-bot-postgres-data
+  timescale_data:
+    name: crypto-bot-timescale-data
+  redis_data:
+    name: crypto-bot-redis-data
+  rabbitmq_data:
+    name: crypto-bot-rabbitmq-data
