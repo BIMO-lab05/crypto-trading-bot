@@ -1,0 +1,196 @@
+# Flake8 configuration for Python linting
+# https://flake8.pycqa.org/en/latest/user/configuration.html
+
+[flake8]
+
+# Maximum line length
+max-line-length = 100
+
+# Maximum complexity (cyclomatic complexity)
+max-complexity = 10
+
+# File patterns to exclude from linting
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    env,
+    .env,
+    build,
+    dist,
+    *.egg-info,
+    .tox,
+    .pytest_cache,
+    .mypy_cache,
+    htmlcov,
+    node_modules,
+    migrations,
+    alembic,
+    # Specific files
+    setup.py,
+    # Generated files
+    *_pb2.py,
+    *_pb2_grpc.py
+
+# Error codes to ignore
+ignore =
+    # E203: whitespace before ':' (conflicts with black)
+    E203,
+    # W503: line break before binary operator (conflicts with black)
+    W503,
+    # E501: line too long (handled by black)
+    E501,
+    # E402: module level import not at top of file
+    # E402,
+    # W504: line break after binary operator
+    W504,
+    # E731: do not assign a lambda expression
+    # E731,
+    # F401: imported but unused (sometimes needed for type hints)
+    # F401,
+    # E266: too many leading '#' for block comment
+    E266,
+
+# Select specific error codes to check
+select =
+    # Pycodestyle errors
+    E,
+    # Pycodestyle warnings
+    W,
+    # Pyflakes
+    F,
+    # McCabe complexity
+    C,
+    # Naming conventions
+    N,
+
+# Per-file ignores
+per-file-ignores =
+    # __init__.py files can have unused imports
+    __init__.py:F401,F403,
+    # Test files can have unused imports and fixtures
+    test_*.py:F401,F811,
+    # Conftest can have unused imports
+    conftest.py:F401,F811,
+    # Settings files can be complex
+    settings.py:E501,
+    config.py:E501,
+
+# Enable counting of errors
+count = True
+
+# Show statistics for each error/warning code
+statistics = True
+
+# Output format
+format = default
+
+# Show source code for each error
+show-source = True
+
+# Show pep8 name for each error
+show-pep8 = True
+
+# Maximum number of allowed doc line length
+max-doc-length = 100
+
+# Docstring conventions
+docstring-convention = google
+
+# Import order style (cryptography, stdlib, thirdparty, firstparty, localfolder)
+import-order-style = google
+
+# Application import names (for import order checking)
+application-import-names =
+    services,
+    shared,
+
+# Inline quotes preference
+inline-quotes = double
+
+# Multiline quotes preference
+multiline-quotes = double
+
+# Docstring quotes preference
+docstring-quotes = double
+
+# Avoid escape sequences in docstrings
+avoid-escape = True
+
+# Require code and test files to have a copyright notice
+# require-copyright = True
+# copyright-check = True
+# copyright-author = Your Company
+# copyright-min-file-size = 1
+
+# Builtins to treat as defined
+builtins =
+    _,
+    __,
+
+# Enable off-by-default extensions
+enable-extensions =
+    # Check for Google style docstrings
+    # G,
+
+# Specify hanging indent size
+hang-closing = True
+indent-size = 4
+
+# Jobs (parallel execution)
+jobs = auto
+
+# Benchmark mode (show timing information)
+# benchmark = True
+
+# Naming conventions (pep8-naming plugin)
+# Class names should be CapWords
+classmethod-decorators = classmethod
+
+# Ignore specific naming conventions
+ignore-names =
+    setUp,
+    tearDown,
+    setUpClass,
+    tearDownClass,
+    setUpModule,
+    tearDownModule,
+    test_*,
+
+# Maximum annotation complexity
+max-annotations-complexity = 4
+
+# Maximum expression complexity
+max-expression-complexity = 7
+
+# Maximum function length
+max-function-length = 100
+
+# Maximum number of arguments
+max-arguments = 10
+
+# Maximum number of local variables
+max-local-variables = 15
+
+# Maximum number of return statements
+max-returns = 6
+
+# Maximum number of branches
+max-branches = 12
+
+# Maximum number of statements
+max-statements = 50
+
+# Maximum string usage (for i18n)
+# max-string-usages = 10
+
+# McCabe complexity
+# Fail if complexity is above this number
+# max-complexity is already set above
+
+# Require specific plugins
+# required-plugins =
+#     flake8-bugbear,
+#     flake8-comprehensions,
+#     flake8-docstrings,

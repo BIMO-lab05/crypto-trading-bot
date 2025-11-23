@@ -1,0 +1,516 @@
+# Production Environment Overrides
+# Full production configuration with high availability and performance
+
+global:
+  environment: production
+  imageRegistry: your-registry.azurecr.io
+  imagePullPolicy: IfNotPresent
+
+  # Production Bybit API
+  bybit:
+    apiUrl: https://api.bybit.com
+    wsUrl: wss://stream.bybit.com
+
+  # Production logging
+  logging:
+    level: INFO
+    format: json
+
+  # Enable all security features
+  networkPolicy:
+    enabled: true
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2  # Higher availability in production
+
+# API Gateway - Production Settings
+api-gateway:
+  replicaCount: 5
+
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    hosts:
+      - host: api.cryptobot.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: api-gateway-prod-tls
+        hosts:
+          - api.cryptobot.example.com
+
+  # Production affinity rules
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - api-gateway
+          topologyKey: kubernetes.io/hostname
+
+# Trading Engine - Production Settings
+trading-engine:
+  replicaCount: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 75
+
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  env:
+    - name: MAX_POSITION_SIZE_PERCENT
+      value: "2.0"
+    - name: STOP_LOSS_PERCENT
+      value: "5.0"
+    - name: PAPER_TRADING
+      value: "false"  # Real trading in production (ensure proper authorization!)
+
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - trading-engine
+          topologyKey: kubernetes.io/hostname
+
+# Portfolio Manager - Production Settings
+portfolio-manager:
+  replicaCount: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - portfolio-manager
+            topologyKey: kubernetes.io/hostname
+
+# Technical Analysis - Production Settings
+technical-analysis:
+  replicaCount: 5
+
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    limits:
+      cpu: 3000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - technical-analysis
+            topologyKey: kubernetes.io/hostname
+
+# Bybit Connector - Production Settings
+bybit-connector:
+  replicaCount: 3  # Fixed replicas for connection stability
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - bybit-connector
+          topologyKey: kubernetes.io/hostname
+
+# Market Data Service - Production Settings
+market-data-service:
+  replicaCount: 5
+
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    limits:
+      cpu: 3000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - market-data-service
+            topologyKey: kubernetes.io/hostname
+
+# Notification Service - Production Settings
+notification-service:
+  replicaCount: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# ML Prediction - Production Settings
+ml-prediction-service:
+  replicaCount: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
+
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+    requests:
+      cpu: 2000m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: premium-ssd  # Use premium storage for ML models
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - ml-prediction-service
+            topologyKey: kubernetes.io/hostname
+
+# Risk Metrics - Production Settings
+risk-metrics-service:
+  replicaCount: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+# Sentiment Analysis - Production Settings
+sentiment-analysis-service:
+  replicaCount: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 75
+
+  resources:
+    limits:
+      cpu: 3000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+# PostgreSQL - Production Settings
+postgresql:
+  replicaCount: 1  # Consider using PostgreSQL HA solution for production
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: premium-ssd
+
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"
+    retention: 14  # Keep 2 weeks of backups
+
+  # High availability configuration
+  replication:
+    enabled: true
+    replicas: 2
+
+# TimescaleDB - Production Settings
+timescaledb:
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+    requests:
+      cpu: 2000m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 100Gi
+    storageClass: premium-ssd
+
+  timescale:
+    compressionEnabled: true
+    retentionDays: 365
+    chunkTimeInterval: "1 day"
+
+  backup:
+    enabled: true
+    schedule: "0 3 * * *"
+    retention: 30
+
+# Redis - Production Settings
+redis:
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: premium-ssd
+
+  # Redis Sentinel for HA
+  sentinel:
+    enabled: true
+    replicas: 3
+
+# RabbitMQ - Production Settings
+rabbitmq:
+  replicaCount: 3  # Clustered RabbitMQ
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: premium-ssd
+
+  # RabbitMQ cluster configuration
+  clustering:
+    enabled: true
+    replicaCount: 3
+
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - rabbitmq
+          topologyKey: kubernetes.io/hostname
+
+# Prometheus - Production Settings
+prometheus:
+  enabled: true
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: premium-ssd
+
+  retention: 30d
+
+  # High availability
+  replicaCount: 2
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - prometheus
+            topologyKey: kubernetes.io/hostname
+
+# Grafana - Production Settings
+grafana:
+  enabled: true
+
+  replicaCount: 2
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: premium-ssd
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    hosts:
+      - host: grafana.cryptobot.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: grafana-prod-tls
+        hosts:
+          - grafana.cryptobot.example.com
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - grafana
+            topologyKey: kubernetes.io/hostname

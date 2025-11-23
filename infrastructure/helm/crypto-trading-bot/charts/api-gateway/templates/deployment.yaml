@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "api-gateway.fullname" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "api-gateway.labels" . | nindent 4 }}
+    app: api-gateway
+    component: gateway
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "api-gateway.selectorLabels" . | nindent 6 }}
+      app: api-gateway
+  template:
+    metadata:
+      annotations:
+        {{- if .Values.global.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.global.metrics.port }}"
+        prometheus.io/path: "{{ .Values.global.metrics.path }}"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "api-gateway.selectorLabels" . | nindent 8 }}
+        app: api-gateway
+        component: gateway
+        version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "api-gateway.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: api-gateway
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.global.metrics.port }}
+              protocol: TCP
+          env:
+            # Service-specific environment variables
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+            # Common environment variables from parent chart
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.global.logging.level | quote }}
+            - name: LOG_FORMAT
+              value: {{ .Values.global.logging.format | quote }}
+            # Database connections
+            - name: POSTGRES_HOST
+              value: {{ .Values.global.postgresql.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.global.postgresql.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.global.postgresql.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.global.postgresql.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.postgresql.existingSecret }}
+                  key: {{ .Values.global.postgresql.existingSecretPasswordKey }}
+            # Redis connection
+            - name: REDIS_HOST
+              value: {{ .Values.global.redis.host | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.global.redis.port | quote }}
+            - name: REDIS_DB
+              value: {{ .Values.global.redis.database | quote }}
+            {{- if .Values.global.redis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.redis.existingSecret }}
+                  key: {{ .Values.global.redis.existingSecretPasswordKey }}
+            {{- end }}
+            # RabbitMQ connection
+            - name: RABBITMQ_HOST
+              value: {{ .Values.global.rabbitmq.host | quote }}
+            - name: RABBITMQ_PORT
+              value: {{ .Values.global.rabbitmq.port | quote }}
+            - name: RABBITMQ_USER
+              value: {{ .Values.global.rabbitmq.username | quote }}
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.rabbitmq.existingSecret }}
+                  key: {{ .Values.global.rabbitmq.existingSecretPasswordKey }}
+          {{- if .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

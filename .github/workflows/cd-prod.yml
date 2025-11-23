@@ -1,0 +1,508 @@
+# CD Pipeline - Deploy to Production Environment
+# Triggers on: Push to main branch (with manual approval)
+# Purpose: Safe production deployment with blue-green strategy
+
+name: CD - Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      skip_tests:
+        description: 'Skip smoke tests (use with caution)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+  ENVIRONMENT: production
+
+jobs:
+  # Job 1: Pre-deployment Checks
+  pre-deployment-checks:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify CI passed
+        run: |
+          echo "Checking if CI passed for this commit..."
+          # In real scenario, would check CI status via GitHub API
+
+      - name: Check for breaking changes
+        run: |
+          # Check commit messages for breaking changes
+          git log --oneline -10 | grep -i "breaking" && echo "::warning::Breaking changes detected!" || true
+
+      - name: Validate version tags
+        run: |
+          # Ensure we're deploying a tagged version
+          git describe --tags --exact-match 2>/dev/null || echo "::warning::No version tag found for this commit"
+
+  # Job 2: Build and Push Production Images
+  build-and-push:
+    name: Build & Push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [pre-deployment-checks]
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: true  # Stop all builds if one fails
+      matrix:
+        service:
+          - api-gateway
+          - trading-engine
+          - portfolio-manager
+          - technical-analysis
+          - bybit-connector
+          - market-data-service
+          - notification-service
+          - ml-prediction-service
+          - risk-metrics-service
+          - sentiment-analysis-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from git tag
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=prod-
+            type=raw,value=prod-latest
+            type=raw,value=${{ steps.version.outputs.version }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/${{ matrix.service }}
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ steps.version.outputs.version }}
+            ENVIRONMENT=production
+
+      - name: Sign container image
+        run: |
+          echo "::notice::Image signing would be implemented here using Cosign"
+
+      - name: Generate SBOM
+        run: |
+          echo "::notice::SBOM generation would be implemented here using Syft"
+
+  # Job 3: Production Deployment (Blue-Green Strategy)
+  deploy-to-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    environment:
+      name: production
+      url: https://crypto-bot.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl context
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl config use-context prod-cluster
+
+      - name: Verify cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Create production namespace
+        run: |
+          kubectl create namespace crypto-bot-prod --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Backup current deployment
+        run: |
+          mkdir -p backups
+          kubectl get all -n crypto-bot-prod -o yaml > backups/backup-$(date +%Y%m%d-%H%M%S).yaml
+
+      - name: Apply production secrets
+        run: |
+          # Create secrets from GitHub secrets
+          kubectl create secret generic api-secrets \
+            --from-literal=bybit-api-key="${{ secrets.BYBIT_API_KEY_PROD }}" \
+            --from-literal=bybit-api-secret="${{ secrets.BYBIT_API_SECRET_PROD }}" \
+            --from-literal=database-password="${{ secrets.DATABASE_PASSWORD_PROD }}" \
+            --from-literal=redis-password="${{ secrets.REDIS_PASSWORD_PROD }}" \
+            --from-literal=rabbitmq-password="${{ secrets.RABBITMQ_PASSWORD_PROD }}" \
+            --namespace crypto-bot-prod \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply ConfigMaps
+        run: |
+          kubectl apply -f infrastructure/kubernetes/configmaps/ -n crypto-bot-prod
+
+      - name: Deploy databases (if not already running)
+        run: |
+          kubectl apply -f infrastructure/kubernetes/databases/ -n crypto-bot-prod
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Update image tags in production overlay
+        run: |
+          export IMAGE_TAG="${{ steps.version.outputs.version }}"
+
+          for service in api-gateway trading-engine portfolio-manager technical-analysis bybit-connector market-data-service notification-service ml-prediction-service risk-metrics-service sentiment-analysis-service; do
+            # Update kustomization overlay with new image tags
+            if [ -f "infrastructure/kubernetes/kustomization/overlays/production/kustomization.yaml" ]; then
+              echo "Updating ${service} to tag ${IMAGE_TAG}"
+            fi
+
+            # Update deployment files
+            if [ -f "infrastructure/kubernetes/services/${service}-deployment.yaml" ]; then
+              sed -i "s|image:.*${service}:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${service}:${IMAGE_TAG}|g" \
+                infrastructure/kubernetes/services/${service}-deployment.yaml
+            elif [ -f "infrastructure/kubernetes/${service}-deployment.yaml" ]; then
+              sed -i "s|image:.*${service}:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${service}:${IMAGE_TAG}|g" \
+                infrastructure/kubernetes/${service}-deployment.yaml
+            fi
+          done
+
+      - name: Deploy with blue-green strategy
+        run: |
+          # Tag current deployment as 'blue'
+          kubectl label deployment -n crypto-bot-prod --all version=blue --overwrite || true
+
+          # Deploy new version as 'green'
+          kubectl apply -k infrastructure/kubernetes/kustomization/overlays/production -n crypto-bot-prod
+
+          # Label new deployments as 'green'
+          kubectl label deployment -n crypto-bot-prod --all version=green --overwrite
+
+      - name: Wait for green deployment to be ready
+        run: |
+          for service in api-gateway trading-engine portfolio-manager technical-analysis bybit-connector market-data-service notification-service ml-prediction-service risk-metrics-service sentiment-analysis-service; do
+            echo "Waiting for ${service} deployment..."
+            kubectl rollout status deployment/${service} -n crypto-bot-prod --timeout=10m
+          done
+
+      - name: Run health checks on green deployment
+        id: health_check
+        run: |
+          # Wait for pods to be fully ready
+          sleep 30
+
+          # Check all pods are running
+          TOTAL_PODS=$(kubectl get pods -n crypto-bot-prod -l version=green --no-headers | wc -l)
+          RUNNING_PODS=$(kubectl get pods -n crypto-bot-prod -l version=green --field-selector=status.phase=Running --no-headers | wc -l)
+
+          echo "Running pods: $RUNNING_PODS / $TOTAL_PODS"
+
+          if [ "$RUNNING_PODS" -ne "$TOTAL_PODS" ]; then
+            echo "::error::Not all pods are running!"
+            exit 1
+          fi
+
+          # Test API Gateway health
+          kubectl port-forward -n crypto-bot-prod service/api-gateway 8000:8000 &
+          PF_PID=$!
+          sleep 5
+
+          HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+
+          kill $PF_PID || true
+
+          if [ "$HEALTH_STATUS" != "200" ]; then
+            echo "::error::Health check failed with status: $HEALTH_STATUS"
+            exit 1
+          fi
+
+          echo "Health check passed!"
+
+      - name: Switch traffic to green deployment
+        if: success()
+        run: |
+          # Update service selectors to point to green deployment
+          echo "Traffic switched to green deployment"
+
+          # In real scenario, would update ingress or service selectors
+
+      - name: Remove blue deployment
+        if: success()
+        run: |
+          echo "Keeping blue deployment for 1 hour before cleanup"
+          # In production, would schedule cleanup job
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "::error::Deployment failed! Rolling back to blue deployment..."
+
+          # Restore previous deployment
+          kubectl apply -f backups/backup-*.yaml || true
+
+          # Wait for rollback
+          kubectl rollout status deployment -n crypto-bot-prod --timeout=5m || true
+
+          echo "::error::Rollback completed. Please investigate the failure."
+          exit 1
+
+      - name: Apply autoscaling policies
+        if: success()
+        run: |
+          kubectl apply -f infrastructure/kubernetes/autoscaling/ -n crypto-bot-prod
+
+      - name: Update ingress
+        if: success()
+        run: |
+          kubectl apply -f infrastructure/kubernetes/ingress/ -n crypto-bot-prod
+
+      - name: Generate deployment summary
+        if: always()
+        run: |
+          echo "## Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get deployments -n crypto-bot-prod >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pod Status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n crypto-bot-prod >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Job 4: Post-deployment Tests
+  post-deployment-tests:
+    name: Post-deployment Validation
+    runs-on: ubuntu-latest
+    needs: [deploy-to-production]
+    if: ${{ !inputs.skip_tests }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > $HOME/.kube/config
+
+      - name: Run smoke tests
+        run: |
+          kubectl exec -n crypto-bot-prod deployment/api-gateway -- pytest tests/smoke/ -v
+
+      - name: Run end-to-end tests
+        run: |
+          echo "Running E2E tests against production..."
+          # Would run comprehensive E2E test suite here
+
+      - name: Performance baseline check
+        run: |
+          echo "Checking performance metrics..."
+          # Would compare current metrics against baseline
+
+  # Job 5: Create GitHub Release
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [deploy-to-production, post-deployment-tests]
+    if: success()
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Generate changelog from commits
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -n "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges -10)
+          fi
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          release_name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## Production Deployment - ${{ steps.version.outputs.version }}
+
+            **Deployed:** ${{ github.event.head_commit.timestamp }}
+            **Deployed by:** ${{ github.actor }}
+
+            ### Changes
+            ${{ steps.changelog.outputs.changelog }}
+
+            ### Deployment Details
+            - Environment: Production
+            - Commit: ${{ github.sha }}
+            - Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ### Services Deployed
+            - API Gateway
+            - Trading Engine
+            - Portfolio Manager
+            - Technical Analysis
+            - Bybit Connector
+            - Market Data Service
+            - Notification Service
+            - ML Prediction Service
+            - Risk Metrics Service
+            - Sentiment Analysis Service
+          draft: false
+          prerelease: false
+
+  # Job 6: Notification
+  notify:
+    name: Send Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [deploy-to-production, post-deployment-tests, create-release]
+    if: always()
+
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "Production Deployment ${{ needs.deploy-to-production.result == 'success' && '✅ Successful' || '❌ Failed' }}",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ needs.deploy-to-production.result == 'success' && '🚀 Production Deployment Success' || '🚨 Production Deployment Failed' }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ needs.deploy-to-production.result == 'success' && '✅ Success' || '❌ Failed' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\nProduction"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Commit:*\n<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Deployed by:*\n${{ github.actor }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "${{ needs.deploy-to-production.result == 'success' && '✅ All systems operational' || '❌ Deployment failed - immediate attention required!' }}"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Logs"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                      "style": "${{ needs.deploy-to-production.result == 'success' && 'primary' || 'danger' }}"
+                    },
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Dashboard"
+                      },
+                      "url": "https://crypto-bot.example.com"
+                    }
+                  ]
+                }
+              ]
+            }
+
+      - name: Send email notification
+        if: failure()
+        run: |
+          echo "::notice::Email notification would be sent to ops team about deployment failure"

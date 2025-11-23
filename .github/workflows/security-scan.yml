@@ -1,0 +1,422 @@
+# Security Scanning Pipeline
+# Triggers on: Schedule (daily), Manual, Push to main/develop
+# Purpose: Comprehensive security scanning and vulnerability detection
+
+name: Security Scanning
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # Job 1: Dependency Vulnerability Scanning
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety pip-audit
+
+      - name: Scan all service dependencies with Safety
+        run: |
+          mkdir -p security-reports
+
+          for service in services/*/; do
+            service_name=$(basename "$service")
+            echo "Scanning dependencies for ${service_name}..."
+
+            if [ -f "${service}requirements.txt" ]; then
+              echo "=== Safety Scan for ${service_name} ===" | tee -a security-reports/safety-report.txt
+              safety check -r "${service}requirements.txt" --json > "security-reports/safety-${service_name}.json" || true
+              safety check -r "${service}requirements.txt" --full-report | tee -a security-reports/safety-report.txt || true
+            fi
+          done
+
+      - name: Scan with pip-audit
+        run: |
+          for service in services/*/; do
+            service_name=$(basename "$service")
+
+            if [ -f "${service}requirements.txt" ]; then
+              echo "=== pip-audit for ${service_name} ===" | tee -a security-reports/pip-audit-report.txt
+              pip-audit -r "${service}requirements.txt" --format json > "security-reports/pip-audit-${service_name}.json" || true
+              pip-audit -r "${service}requirements.txt" | tee -a security-reports/pip-audit-report.txt || true
+            fi
+          done
+
+      - name: Check for known vulnerabilities
+        run: |
+          # Parse JSON reports and fail if critical vulnerabilities found
+          CRITICAL_COUNT=0
+
+          for report in security-reports/safety-*.json; do
+            if [ -f "$report" ]; then
+              COUNT=$(jq '[.[] | select(.severity == "critical")] | length' "$report" 2>/dev/null || echo "0")
+              CRITICAL_COUNT=$((CRITICAL_COUNT + COUNT))
+            fi
+          done
+
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "::error::Found $CRITICAL_COUNT critical vulnerabilities!"
+            echo "Critical vulnerabilities found: $CRITICAL_COUNT" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "::notice::No critical vulnerabilities found"
+          fi
+
+      - name: Upload dependency scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-scan-results
+          path: security-reports/
+          retention-days: 90
+
+  # Job 2: Docker Image Scanning
+  docker-image-scan:
+    name: Scan Docker Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - trading-engine
+          - portfolio-manager
+          - technical-analysis
+          - bybit-connector
+          - market-data-service
+          - notification-service
+          - ml-prediction-service
+          - risk-metrics-service
+          - sentiment-analysis-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: services/${{ matrix.service }}
+          file: services/${{ matrix.service }}/Dockerfile
+          push: false
+          load: true
+          tags: crypto-bot/${{ matrix.service }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Trivy scanning
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: crypto-bot/${{ matrix.service }}:scan
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+          category: trivy-${{ matrix.service }}
+
+      - name: Run Trivy for JSON report
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: crypto-bot/${{ matrix.service }}:scan
+          format: 'json'
+          output: 'trivy-results-${{ matrix.service }}.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Run Trivy for table output
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: crypto-bot/${{ matrix.service }}:scan
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      # Grype scanning (alternative scanner)
+      - name: Run Grype vulnerability scanner
+        uses: anchore/scan-action@v3
+        id: grype
+        with:
+          image: crypto-bot/${{ matrix.service }}:scan
+          fail-build: false
+          severity-cutoff: high
+
+      - name: Upload Grype results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: grype-${{ matrix.service }}
+
+      - name: Upload image scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-scan-${{ matrix.service }}
+          path: |
+            trivy-results-${{ matrix.service }}.sarif
+            trivy-results-${{ matrix.service }}.json
+          retention-days: 90
+
+  # Job 3: Static Application Security Testing (SAST)
+  sast-scan:
+    name: SAST - Static Code Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install SAST tools
+        run: |
+          pip install bandit semgrep
+
+      # Bandit - Python security linting
+      - name: Run Bandit security linter
+        run: |
+          mkdir -p security-reports
+          bandit -r services/ shared/ \
+            -f json \
+            -o security-reports/bandit-report.json \
+            --severity-level medium \
+            --confidence-level medium || true
+
+          bandit -r services/ shared/ \
+            -f txt \
+            -o security-reports/bandit-report.txt \
+            --severity-level medium \
+            --confidence-level medium || true
+
+          cat security-reports/bandit-report.txt
+
+      - name: Parse Bandit results
+        run: |
+          HIGH_SEVERITY=$(jq '[.results[] | select(.issue_severity == "HIGH")] | length' security-reports/bandit-report.json)
+
+          if [ "$HIGH_SEVERITY" -gt 0 ]; then
+            echo "::warning::Found $HIGH_SEVERITY high-severity security issues"
+          fi
+
+      # Semgrep - Advanced SAST
+      - name: Run Semgrep
+        run: |
+          semgrep --config=auto \
+            --json \
+            --output=security-reports/semgrep-report.json \
+            services/ shared/ || true
+
+          semgrep --config=auto \
+            --text \
+            services/ shared/ || true
+
+      - name: Upload SAST results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sast-results
+          path: security-reports/
+          retention-days: 90
+
+  # Job 4: Secret Scanning
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --json --only-verified
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # Job 5: Infrastructure as Code Scanning
+  iac-scan:
+    name: Infrastructure Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Checkov - Terraform/K8s security
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infrastructure/
+          framework: kubernetes,dockerfile
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: true
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+      # KICS - Kubernetes security
+      - name: Run KICS Scan
+        uses: checkmarx/kics-github-action@v1.7.0
+        with:
+          path: infrastructure/kubernetes/
+          output_path: kics-results/
+          output_formats: 'json,sarif'
+          fail_on: high
+
+      - name: Upload KICS results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: kics-results/results.sarif
+          category: kics
+
+  # Job 6: License Compliance Scanning
+  license-scan:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install license checker
+        run: |
+          pip install pip-licenses
+
+      - name: Check licenses
+        run: |
+          mkdir -p security-reports
+
+          for service in services/*/; do
+            service_name=$(basename "$service")
+
+            if [ -f "${service}requirements.txt" ]; then
+              echo "=== Licenses for ${service_name} ===" | tee -a security-reports/licenses.txt
+              pip install -r "${service}requirements.txt" --quiet
+              pip-licenses --format=markdown | tee -a security-reports/licenses.txt
+              pip-licenses --format=json > "security-reports/licenses-${service_name}.json"
+            fi
+          done
+
+      - name: Check for forbidden licenses
+        run: |
+          # Define forbidden licenses (GPL, AGPL, etc. that may conflict with commercial use)
+          FORBIDDEN="GPL|AGPL"
+
+          if grep -iE "$FORBIDDEN" security-reports/licenses.txt; then
+            echo "::warning::Found potentially problematic licenses. Review required."
+          fi
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report
+          path: security-reports/
+          retention-days: 90
+
+  # Job 7: Security Report Summary
+  security-summary:
+    name: Generate Security Summary
+    runs-on: ubuntu-latest
+    needs:
+      - dependency-scan
+      - docker-image-scan
+      - sast-scan
+      - secret-scan
+      - iac-scan
+      - license-scan
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-reports/
+
+      - name: Generate security summary
+        run: |
+          echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Scan Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scanner | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Scan | ${{ needs.dependency-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Image Scan | ${{ needs.docker-image-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SAST Scan | ${{ needs.sast-scan.result == 'success' && '✅ Passed' || '⚠️ Warnings' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Scan | ${{ needs.secret-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IaC Scan | ${{ needs.iac-scan.result == 'success' && '✅ Passed' || '⚠️ Warnings' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| License Scan | ${{ needs.license-scan.result == 'success' && '✅ Passed' || '⚠️ Review' }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Send notification on failure
+        if: failure()
+        run: |
+          echo "::error::Security scans detected issues requiring immediate attention"

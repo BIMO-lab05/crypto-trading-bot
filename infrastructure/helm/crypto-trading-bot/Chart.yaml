@@ -1,0 +1,187 @@
+# Main Helm Chart for Crypto Trading Bot Microservices
+# This umbrella chart orchestrates all microservices and infrastructure components
+
+apiVersion: v2
+name: crypto-trading-bot
+description: Production-ready autonomous cryptocurrency trading bot with microservices architecture
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+# Keywords for Helm Hub/Artifact Hub
+keywords:
+  - crypto
+  - trading
+  - microservices
+  - bybit
+  - kubernetes
+  - autonomous-trading
+  - technical-analysis
+  - machine-learning
+
+# Maintainers information
+maintainers:
+  - name: Crypto Bot Team
+    email: team@cryptobot.example.com
+    url: https://github.com/crypto-trading-bot
+
+# Home and source URLs
+home: https://cryptobot.example.com
+sources:
+  - https://github.com/crypto-trading-bot/crypto-trading-bot
+
+# Icon for the chart
+icon: https://cryptobot.example.com/icon.png
+
+# Chart dependencies - all microservices and infrastructure
+dependencies:
+  # Core Trading Services
+  - name: api-gateway
+    version: 1.0.0
+    condition: api-gateway.enabled
+    tags:
+      - core
+      - gateway
+
+  - name: trading-engine
+    version: 1.0.0
+    condition: trading-engine.enabled
+    tags:
+      - core
+      - trading
+
+  - name: portfolio-manager
+    version: 1.0.0
+    condition: portfolio-manager.enabled
+    tags:
+      - core
+      - trading
+
+  - name: technical-analysis
+    version: 1.0.0
+    condition: technical-analysis.enabled
+    tags:
+      - core
+      - analysis
+
+  - name: bybit-connector
+    version: 1.0.0
+    condition: bybit-connector.enabled
+    tags:
+      - core
+      - exchange
+
+  - name: market-data-service
+    version: 1.0.0
+    condition: market-data-service.enabled
+    tags:
+      - core
+      - data
+
+  # Supporting Services
+  - name: notification-service
+    version: 1.0.0
+    condition: notification-service.enabled
+    tags:
+      - support
+      - notifications
+
+  - name: ml-prediction-service
+    version: 1.0.0
+    condition: ml-prediction-service.enabled
+    tags:
+      - ml
+      - prediction
+
+  - name: risk-metrics-service
+    version: 1.0.0
+    condition: risk-metrics-service.enabled
+    tags:
+      - analytics
+      - risk
+
+  - name: sentiment-analysis-service
+    version: 1.0.0
+    condition: sentiment-analysis-service.enabled
+    tags:
+      - ml
+      - analysis
+
+  # Databases and Data Stores
+  - name: postgresql
+    version: 1.0.0
+    condition: postgresql.enabled
+    tags:
+      - database
+      - storage
+
+  - name: timescaledb
+    version: 1.0.0
+    condition: timescaledb.enabled
+    tags:
+      - database
+      - timeseries
+
+  - name: redis
+    version: 1.0.0
+    condition: redis.enabled
+    tags:
+      - cache
+      - storage
+
+  - name: rabbitmq
+    version: 1.0.0
+    condition: rabbitmq.enabled
+    tags:
+      - messaging
+      - queue
+
+  # Monitoring and Observability
+  - name: prometheus
+    version: 1.0.0
+    condition: prometheus.enabled
+    tags:
+      - monitoring
+      - metrics
+
+  - name: grafana
+    version: 1.0.0
+    condition: grafana.enabled
+    tags:
+      - monitoring
+      - visualization
+
+# Annotations for additional metadata
+annotations:
+  # Category for Helm Hub
+  category: Financial
+
+  # Licenses
+  licenses: Apache-2.0
+
+  # Artifact Hub specific annotations
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial release with 10 microservices
+    - kind: added
+      description: Complete monitoring stack with Prometheus and Grafana
+    - kind: added
+      description: Production-grade security and autoscaling
+
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/operator: "false"
+  artifacthub.io/prerelease: "false"
+
+  # Documentation links
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://docs.cryptobot.example.com
+    - name: Support
+      url: https://github.com/crypto-trading-bot/issues
+
+  # Screenshots
+  artifacthub.io/screenshots: |
+    - title: Dashboard Overview
+      url: https://cryptobot.example.com/screenshots/dashboard.png
+    - title: Trading Metrics
+      url: https://cryptobot.example.com/screenshots/metrics.png

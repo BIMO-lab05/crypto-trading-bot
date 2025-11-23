@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "api-gateway.fullname" . }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "api-gateway.labels" . | nindent 4 }}
+    app: api-gateway
+data:
+  # API Gateway configuration
+  config.yaml: |
+    server:
+      host: 0.0.0.0
+      port: {{ .Values.service.targetPort }}
+      workers: 4
+
+    logging:
+      level: {{ .Values.global.logging.level }}
+      format: {{ .Values.global.logging.format }}
+
+    cors:
+      {{- range .Values.env }}
+      {{- if eq .name "CORS_ORIGINS" }}
+      origins:
+        - {{ .value }}
+      {{- end }}
+      {{- end }}
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      headers:
+        - "*"
+
+    rate_limiting:
+      enabled: true
+      {{- range .Values.env }}
+      {{- if eq .name "MAX_CONNECTIONS" }}
+      max_requests: {{ .value }}
+      {{- end }}
+      {{- end }}
+      window_seconds: 60
+
+    health_check:
+      enabled: true
+      path: /health
+
+    metrics:
+      enabled: {{ .Values.global.metrics.enabled }}
+      port: {{ .Values.global.metrics.port }}
+      path: {{ .Values.global.metrics.path }}

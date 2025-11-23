@@ -1,0 +1,254 @@
+# Development Environment Overrides
+# Optimized for local development with minimal resources
+
+global:
+  environment: development
+  imageRegistry: localhost:5000
+  imagePullPolicy: Always  # Always pull for development
+
+  # Use testnet for development
+  bybit:
+    apiUrl: https://api-testnet.bybit.com
+    wsUrl: wss://stream-testnet.bybit.com
+
+  # Verbose logging for development
+  logging:
+    level: DEBUG
+    format: text  # Human-readable logs
+
+  # Disable network policies for easier debugging
+  networkPolicy:
+    enabled: false
+
+# API Gateway - Development Settings
+api-gateway:
+  replicaCount: 1  # Single replica for dev
+
+  autoscaling:
+    enabled: false  # No autoscaling in dev
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  service:
+    type: NodePort  # Use NodePort for local access
+
+  ingress:
+    enabled: false  # No ingress in dev
+
+# Trading Engine - Development Settings
+trading-engine:
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  env:
+    - name: MAX_POSITION_SIZE_PERCENT
+      value: "1.0"  # Smaller position sizes for dev
+    - name: PAPER_TRADING
+      value: "true"  # Always paper trading in dev
+
+# Portfolio Manager - Development Settings
+portfolio-manager:
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Technical Analysis - Development Settings
+technical-analysis:
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Bybit Connector - Development Settings
+bybit-connector:
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Market Data Service - Development Settings
+market-data-service:
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Notification Service - Development Settings
+notification-service:
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 250m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# ML Prediction - Development Settings
+ml-prediction-service:
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  persistence:
+    enabled: false  # Use emptyDir in dev
+
+# Risk Metrics - Development Settings
+risk-metrics-service:
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Sentiment Analysis - Development Settings
+sentiment-analysis-service:
+  replicaCount: 1
+
+  autoscaling:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# PostgreSQL - Development Settings
+postgresql:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  persistence:
+    size: 1Gi  # Smaller storage for dev
+
+  backup:
+    enabled: false  # No backups in dev
+
+# TimescaleDB - Development Settings
+timescaledb:
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  persistence:
+    size: 5Gi  # Smaller storage for dev
+
+  timescale:
+    compressionEnabled: false  # Disable compression for dev
+    retentionDays: 30  # Shorter retention
+
+# Redis - Development Settings
+redis:
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  persistence:
+    size: 1Gi
+
+# RabbitMQ - Development Settings
+rabbitmq:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  persistence:
+    size: 1Gi
+
+  management:
+    service:
+      type: NodePort  # Access management UI locally
+
+# Prometheus - Development Settings
+prometheus:
+  enabled: false  # Disable in dev to save resources
+
+# Grafana - Development Settings
+grafana:
+  enabled: false  # Disable in dev to save resources

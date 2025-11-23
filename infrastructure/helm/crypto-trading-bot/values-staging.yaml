@@ -1,0 +1,321 @@
+# Staging Environment Overrides
+# Production-like environment for testing with moderate resources
+
+global:
+  environment: staging
+  imageRegistry: your-registry.azurecr.io
+  imagePullPolicy: IfNotPresent
+
+  # Use testnet but with production-like settings
+  bybit:
+    apiUrl: https://api-testnet.bybit.com
+    wsUrl: wss://stream-testnet.bybit.com
+
+  # Production-level logging
+  logging:
+    level: INFO
+    format: json
+
+  # Enable network policies
+  networkPolicy:
+    enabled: true
+
+# API Gateway - Staging Settings
+api-gateway:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  service:
+    type: LoadBalancer
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-staging
+    hosts:
+      - host: api-staging.cryptobot.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: api-gateway-staging-tls
+        hosts:
+          - api-staging.cryptobot.example.com
+
+# Trading Engine - Staging Settings
+trading-engine:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  env:
+    - name: MAX_POSITION_SIZE_PERCENT
+      value: "1.5"
+    - name: PAPER_TRADING
+      value: "true"  # Still paper trading in staging
+
+# Portfolio Manager - Staging Settings
+portfolio-manager:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Technical Analysis - Staging Settings
+technical-analysis:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+# Bybit Connector - Staging Settings
+bybit-connector:
+  replicaCount: 2
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Market Data Service - Staging Settings
+market-data-service:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+# Notification Service - Staging Settings
+notification-service:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# ML Prediction - Staging Settings
+ml-prediction-service:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    size: 5Gi
+
+# Risk Metrics - Staging Settings
+risk-metrics-service:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Sentiment Analysis - Staging Settings
+sentiment-analysis-service:
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+# PostgreSQL - Staging Settings
+postgresql:
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  persistence:
+    size: 5Gi
+
+  backup:
+    enabled: true
+    retention: 3  # Keep 3 days in staging
+
+# TimescaleDB - Staging Settings
+timescaledb:
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  persistence:
+    size: 20Gi
+
+  timescale:
+    compressionEnabled: true
+    retentionDays: 90
+
+# Redis - Staging Settings
+redis:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  persistence:
+    size: 2Gi
+
+# RabbitMQ - Staging Settings
+rabbitmq:
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  persistence:
+    size: 2Gi
+
+# Prometheus - Staging Settings
+prometheus:
+  enabled: true
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 1Gi
+
+  persistence:
+    size: 10Gi
+
+  retention: 7d
+
+# Grafana - Staging Settings
+grafana:
+  enabled: true
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  persistence:
+    size: 2Gi
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-staging
+    hosts:
+      - host: grafana-staging.cryptobot.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: grafana-staging-tls
+        hosts:
+          - grafana-staging.cryptobot.example.com

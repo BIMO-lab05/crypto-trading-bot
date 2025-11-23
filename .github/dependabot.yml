@@ -1,0 +1,291 @@
+# Dependabot configuration for automated dependency updates
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Python dependencies for all services
+  - package-ecosystem: "pip"
+    directory: "/services/api-gateway"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "api-gateway"
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "devops-team"
+    assignees:
+      - "devops-team"
+
+  - package-ecosystem: "pip"
+    directory: "/services/trading-engine"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "trading-engine"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/services/portfolio-manager"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "portfolio-manager"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/services/technical-analysis"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "technical-analysis"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/services/bybit-connector"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "bybit-connector"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/services/market-data-service"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "market-data-service"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/services/notification-service"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "notification-service"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/services/ml-prediction-service"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "ml-prediction-service"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/services/risk-metrics-service"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "risk-metrics-service"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "pip"
+    directory: "/services/sentiment-analysis-service"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "python"
+      - "sentiment-analysis-service"
+    commit-message:
+      prefix: "chore"
+
+  # Docker dependencies
+  - package-ecosystem: "docker"
+    directory: "/services/api-gateway"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/trading-engine"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/portfolio-manager"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/technical-analysis"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/bybit-connector"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/market-data-service"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/notification-service"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/ml-prediction-service"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/risk-metrics-service"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/services/sentiment-analysis-service"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore"
+
+  # Frontend dependencies (npm)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "03:00"
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "frontend"
+    commit-message:
+      prefix: "chore"
+    versioning-strategy: increase

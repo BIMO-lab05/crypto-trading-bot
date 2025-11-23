@@ -1,0 +1,187 @@
+# Reusable Workflow - Build Service
+# Purpose: Reusable workflow for building Docker images for individual services
+# Usage: Called from other workflows with service-specific parameters
+
+name: Build Service (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Name of the service to build'
+        required: true
+        type: string
+      dockerfile_path:
+        description: 'Path to the Dockerfile'
+        required: true
+        type: string
+      image_tag:
+        description: 'Docker image tag'
+        required: true
+        type: string
+      push_to_registry:
+        description: 'Whether to push the image to registry'
+        required: false
+        type: boolean
+        default: false
+      registry:
+        description: 'Container registry URL'
+        required: false
+        type: string
+        default: 'ghcr.io'
+      run_security_scan:
+        description: 'Whether to run security scan'
+        required: false
+        type: boolean
+        default: true
+      build_args:
+        description: 'Additional build arguments (JSON format)'
+        required: false
+        type: string
+        default: '{}'
+
+    outputs:
+      image_digest:
+        description: 'SHA256 digest of the built image'
+        value: ${{ jobs.build.outputs.digest }}
+      image_full_name:
+        description: 'Full image name with tag'
+        value: ${{ jobs.build.outputs.full_name }}
+      security_scan_passed:
+        description: 'Whether security scan passed'
+        value: ${{ jobs.build.outputs.scan_passed }}
+
+    secrets:
+      registry_username:
+        description: 'Registry username'
+        required: false
+      registry_password:
+        description: 'Registry password'
+        required: false
+
+jobs:
+  build:
+    name: Build ${{ inputs.service_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      full_name: ${{ steps.meta.outputs.tags }}
+      scan_passed: ${{ steps.scan_result.outputs.passed }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: ${{ inputs.push_to_registry }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry_username || github.actor }}
+          password: ${{ secrets.registry_password || secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.service_name }}
+          tags: |
+            type=raw,value=${{ inputs.image_tag }}
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Parse build arguments
+        id: build_args
+        run: |
+          BUILD_ARGS=$(echo '${{ inputs.build_args }}' | jq -r 'to_entries | map("--build-arg \(.key)=\(.value)") | join(" ")')
+          echo "args=${BUILD_ARGS}" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.dockerfile_path }}
+          file: ${{ inputs.dockerfile_path }}/Dockerfile
+          push: ${{ inputs.push_to_registry }}
+          load: ${{ !inputs.push_to_registry }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ inputs.service_name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.service_name }}
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ inputs.image_tag }}
+            ${{ steps.build_args.outputs.args }}
+
+      - name: Run Trivy security scan
+        if: ${{ inputs.run_security_scan }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.service_name }}:${{ inputs.image_tag }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy results to GitHub Security
+        if: ${{ inputs.run_security_scan }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: trivy-${{ inputs.service_name }}
+
+      - name: Run Trivy scan (table output)
+        if: ${{ inputs.run_security_scan }}
+        uses: aquasecurity/trivy-action@master
+        id: trivy_scan
+        continue-on-error: true
+        with:
+          image-ref: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.service_name }}:${{ inputs.image_tag }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Set scan result
+        id: scan_result
+        run: |
+          if [ "${{ steps.trivy_scan.outcome }}" == "success" ]; then
+            echo "passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "passed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate build summary
+        run: |
+          echo "## Build Summary: ${{ inputs.service_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service:** ${{ inputs.service_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tag:** ${{ inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Pushed to Registry:** ${{ inputs.push_to_registry }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Security Scan:** ${{ steps.scan_result.outputs.passed == 'true' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Full Image Names:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Export image (if not pushed)
+        if: ${{ !inputs.push_to_registry }}
+        run: |
+          docker save ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.service_name }}:${{ inputs.image_tag }} | gzip > ${{ inputs.service_name }}-image.tar.gz
+
+      - name: Upload image artifact
+        if: ${{ !inputs.push_to_registry }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-${{ inputs.service_name }}
+          path: ${{ inputs.service_name }}-image.tar.gz
+          retention-days: 7

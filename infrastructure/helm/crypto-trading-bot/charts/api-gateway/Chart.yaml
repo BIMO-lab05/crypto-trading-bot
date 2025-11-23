@@ -1,0 +1,16 @@
+# API Gateway Service Chart
+apiVersion: v2
+name: api-gateway
+description: API Gateway service for crypto trading bot
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - api-gateway
+  - microservice
+  - fastapi
+
+maintainers:
+  - name: Crypto Bot Team
+    email: team@cryptobot.example.com

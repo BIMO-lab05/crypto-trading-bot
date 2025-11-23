@@ -1,0 +1,399 @@
+# Release Pipeline - Automated Release Creation
+# Triggers on: Tag push (v*.*.*)
+# Purpose: Create GitHub releases with changelogs and deploy to production
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.2.3)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # Job 1: Validate Release
+  validate-release:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      version: ${{ steps.extract_version.outputs.version }}
+      is_prerelease: ${{ steps.check_prerelease.outputs.is_prerelease }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for changelog generation
+
+      - name: Extract version from tag
+        id: extract_version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.extract_version.outputs.version }}"
+
+          if [[ ! $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9]+)?$ ]]; then
+            echo "::error::Invalid version format: $VERSION"
+            echo "Expected format: v1.2.3 or v1.2.3-beta1"
+            exit 1
+          fi
+
+      - name: Check if prerelease
+        id: check_prerelease
+        run: |
+          VERSION="${{ steps.extract_version.outputs.version }}"
+
+          if [[ $VERSION =~ -[a-z0-9]+ ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "This is a pre-release version"
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "This is a stable release version"
+          fi
+
+      - name: Verify CI passed
+        run: |
+          echo "Verifying that CI passed for this commit..."
+          # In real scenario, would check CI status via GitHub API
+          echo "CI status check would be performed here"
+
+  # Job 2: Generate Changelog
+  generate-changelog:
+    name: Generate Changelog
+    runs-on: ubuntu-latest
+    needs: [validate-release]
+    timeout-minutes: 10
+
+    outputs:
+      changelog: ${{ steps.changelog.outputs.changelog }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+
+          # Find previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${VERSION}^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
+
+          echo "Generating changelog from ${PREVIOUS_TAG} to ${VERSION}"
+
+          # Generate changelog with categorization
+          CHANGELOG=$(cat << 'EOF'
+          ## What's Changed
+
+          ### Features
+          EOF
+          )
+
+          # Add feature commits
+          FEATURES=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges | grep -i "feat\|feature" || echo "")
+          if [ -n "$FEATURES" ]; then
+            CHANGELOG="${CHANGELOG}
+          ${FEATURES}
+          "
+          fi
+
+          CHANGELOG="${CHANGELOG}
+
+          ### Bug Fixes
+          "
+
+          # Add bug fix commits
+          BUGFIXES=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges | grep -i "fix\|bug" || echo "")
+          if [ -n "$BUGFIXES" ]; then
+            CHANGELOG="${CHANGELOG}
+          ${BUGFIXES}
+          "
+          fi
+
+          CHANGELOG="${CHANGELOG}
+
+          ### Improvements
+          "
+
+          # Add improvement commits
+          IMPROVEMENTS=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges | grep -i "improve\|enhance\|refactor\|perf" || echo "")
+          if [ -n "$IMPROVEMENTS" ]; then
+            CHANGELOG="${CHANGELOG}
+          ${IMPROVEMENTS}
+          "
+          fi
+
+          CHANGELOG="${CHANGELOG}
+
+          ### Documentation
+          "
+
+          # Add documentation commits
+          DOCS=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges | grep -i "docs\|documentation" || echo "")
+          if [ -n "$DOCS" ]; then
+            CHANGELOG="${CHANGELOG}
+          ${DOCS}
+          "
+          fi
+
+          # Save changelog
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Update CHANGELOG.md
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+
+          # Prepend to CHANGELOG.md
+          if [ -f CHANGELOG.md ]; then
+            echo "# ${VERSION} (${DATE})
+
+          ${{ steps.changelog.outputs.changelog }}
+
+          $(cat CHANGELOG.md)" > CHANGELOG.md
+          else
+            echo "# Changelog
+
+          ## ${VERSION} (${DATE})
+
+          ${{ steps.changelog.outputs.changelog }}" > CHANGELOG.md
+          fi
+
+      - name: Commit updated CHANGELOG
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add CHANGELOG.md
+          git commit -m "docs: update CHANGELOG for ${{ needs.validate-release.outputs.version }}" || true
+
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG.md
+          retention-days: 90
+
+  # Job 3: Build Release Images
+  build-release-images:
+    name: Build Release Images
+    runs-on: ubuntu-latest
+    needs: [validate-release]
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service:
+          - api-gateway
+          - trading-engine
+          - portfolio-manager
+          - technical-analysis
+          - bybit-connector
+          - market-data-service
+          - notification-service
+          - ml-prediction-service
+          - risk-metrics-service
+          - sentiment-analysis-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version number
+        id: version
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          VERSION_NUMBER=${VERSION#v}  # Remove 'v' prefix
+          echo "number=${VERSION_NUMBER}" >> $GITHUB_OUTPUT
+
+      - name: Build and push release image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/${{ matrix.service }}
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}:${{ needs.validate-release.outputs.version }}
+            ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}:${{ steps.version.outputs.number }}
+            ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}:latest
+          labels: |
+            org.opencontainers.image.title=${{ matrix.service }}
+            org.opencontainers.image.version=${{ needs.validate-release.outputs.version }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}:buildcache,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ needs.validate-release.outputs.version }}
+            ENVIRONMENT=production
+
+  # Job 4: Create GitHub Release
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate-release, generate-changelog, build-release-images]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download changelog
+        uses: actions/download-artifact@v4
+        with:
+          name: changelog
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ needs.validate-release.outputs.version }}
+          name: Release ${{ needs.validate-release.outputs.version }}
+          body: |
+            # Crypto Trading Bot - ${{ needs.validate-release.outputs.version }}
+
+            ${{ needs.generate-changelog.outputs.changelog }}
+
+            ## Docker Images
+
+            All services are available at:
+            ```
+            ${{ env.REGISTRY }}/${{ github.repository }}/<service>:${{ needs.validate-release.outputs.version }}
+            ```
+
+            ### Services
+            - api-gateway
+            - trading-engine
+            - portfolio-manager
+            - technical-analysis
+            - bybit-connector
+            - market-data-service
+            - notification-service
+            - ml-prediction-service
+            - risk-metrics-service
+            - sentiment-analysis-service
+
+            ## Installation
+
+            ### Kubernetes Deployment
+            ```bash
+            kubectl apply -k infrastructure/kubernetes/kustomization/overlays/production
+            ```
+
+            ### Docker Compose
+            ```bash
+            export VERSION=${{ needs.validate-release.outputs.version }}
+            docker-compose up -d
+            ```
+
+            ## Documentation
+
+            - [Installation Guide](docs/SETUP.md)
+            - [API Documentation](docs/api/openapi.yaml)
+            - [Architecture Overview](docs/architecture/SYSTEM_OVERVIEW.md)
+
+            ## Checksums
+
+            Docker image digests are available in the registry.
+
+            ---
+
+            **Full Changelog**: ${{ github.server_url }}/${{ github.repository }}/compare/${{ github.event.before }}...${{ needs.validate-release.outputs.version }}
+          draft: false
+          prerelease: ${{ needs.validate-release.outputs.is_prerelease == 'true' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Job 5: Deploy to Production (for stable releases)
+  deploy-production:
+    name: Deploy to Production
+    needs: [validate-release, create-github-release]
+    if: ${{ needs.validate-release.outputs.is_prerelease == 'false' }}
+    uses: ./.github/workflows/deploy-k8s.yml
+    with:
+      environment: production
+      namespace: crypto-bot-prod
+      image_tags: |
+        {
+          "api-gateway": "${{ env.REGISTRY }}/${{ github.repository }}/api-gateway:${{ needs.validate-release.outputs.version }}",
+          "trading-engine": "${{ env.REGISTRY }}/${{ github.repository }}/trading-engine:${{ needs.validate-release.outputs.version }}",
+          "portfolio-manager": "${{ env.REGISTRY }}/${{ github.repository }}/portfolio-manager:${{ needs.validate-release.outputs.version }}",
+          "technical-analysis": "${{ env.REGISTRY }}/${{ github.repository }}/technical-analysis:${{ needs.validate-release.outputs.version }}",
+          "bybit-connector": "${{ env.REGISTRY }}/${{ github.repository }}/bybit-connector:${{ needs.validate-release.outputs.version }}",
+          "market-data-service": "${{ env.REGISTRY }}/${{ github.repository }}/market-data-service:${{ needs.validate-release.outputs.version }}",
+          "notification-service": "${{ env.REGISTRY }}/${{ github.repository }}/notification-service:${{ needs.validate-release.outputs.version }}",
+          "ml-prediction-service": "${{ env.REGISTRY }}/${{ github.repository }}/ml-prediction-service:${{ needs.validate-release.outputs.version }}",
+          "risk-metrics-service": "${{ env.REGISTRY }}/${{ github.repository }}/risk-metrics-service:${{ needs.validate-release.outputs.version }}",
+          "sentiment-analysis-service": "${{ env.REGISTRY }}/${{ github.repository }}/sentiment-analysis-service:${{ needs.validate-release.outputs.version }}"
+        }
+      deployment_strategy: blue-green
+      run_smoke_tests: true
+      rollback_on_failure: true
+    secrets:
+      kube_config: ${{ secrets.KUBE_CONFIG_PROD }}
+      api_secrets: ${{ secrets.PROD_API_SECRETS }}
+
+  # Job 6: Post-release Tasks
+  post-release:
+    name: Post-release Tasks
+    runs-on: ubuntu-latest
+    needs: [validate-release, create-github-release]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create release branch
+        if: ${{ needs.validate-release.outputs.is_prerelease == 'false' }}
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          MAJOR_MINOR=$(echo $VERSION | grep -oP 'v\d+\.\d+')
+
+          git checkout -b release/${MAJOR_MINOR}
+          git push origin release/${MAJOR_MINOR}
+
+      - name: Notify team
+        run: |
+          echo "::notice::Release ${{ needs.validate-release.outputs.version }} completed successfully"
+
+      - name: Update documentation
+        run: |
+          echo "Documentation update tasks would run here"
+          # Could trigger documentation site rebuild, update version badges, etc.

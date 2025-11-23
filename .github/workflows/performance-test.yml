@@ -1,0 +1,541 @@
+# Performance Testing Pipeline
+# Triggers on: Manual, Weekly schedule, Pull requests to main
+# Purpose: Load testing, performance benchmarking, and regression detection
+
+name: Performance Testing
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'  # Weekly on Sunday at 3 AM UTC
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Test duration in minutes'
+        required: false
+        default: '10'
+      users:
+        description: 'Number of virtual users'
+        required: false
+        default: '100'
+      target_env:
+        description: 'Target environment'
+        required: false
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - development
+  pull_request:
+    branches:
+      - main
+    types: [labeled]
+
+env:
+  K6_VERSION: '0.47.0'
+  LOCUST_VERSION: '2.17.0'
+
+jobs:
+  # Job 1: Setup Performance Test Environment
+  setup-perf-env:
+    name: Setup Performance Test Environment
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'perf-test')
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_DEV }}" | base64 -d > $HOME/.kube/config
+
+      - name: Create performance test namespace
+        run: |
+          kubectl create namespace crypto-bot-perf --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy services for performance testing
+        run: |
+          kubectl apply -k infrastructure/kubernetes/kustomization/overlays/development -n crypto-bot-perf
+
+          # Wait for services to be ready
+          kubectl wait --for=condition=ready pod -l app=api-gateway -n crypto-bot-perf --timeout=300s
+
+      - name: Get service endpoints
+        id: endpoints
+        run: |
+          API_GATEWAY_IP=$(kubectl get svc api-gateway -n crypto-bot-perf -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "api_gateway=${API_GATEWAY_IP}" >> $GITHUB_OUTPUT
+
+    outputs:
+      api_gateway_endpoint: ${{ steps.endpoints.outputs.api_gateway }}
+
+  # Job 2: K6 Load Testing
+  k6-load-test:
+    name: K6 Load Testing
+    runs-on: ubuntu-latest
+    needs: [setup-perf-env]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Create k6 test script
+        run: |
+          mkdir -p performance-tests
+
+          cat > performance-tests/load-test.js << 'EOF'
+          import http from 'k6/http';
+          import { check, sleep } from 'k6';
+          import { Rate } from 'k6/metrics';
+
+          // Custom metrics
+          const errorRate = new Rate('errors');
+
+          export const options = {
+            stages: [
+              { duration: '2m', target: 50 },   // Ramp up to 50 users
+              { duration: '5m', target: 100 },  // Stay at 100 users
+              { duration: '2m', target: 200 },  // Spike to 200 users
+              { duration: '5m', target: 100 },  // Back to 100 users
+              { duration: '2m', target: 0 },    // Ramp down to 0
+            ],
+            thresholds: {
+              http_req_duration: ['p(95)<500', 'p(99)<1000'],  // 95% < 500ms, 99% < 1s
+              http_req_failed: ['rate<0.05'],  // Error rate < 5%
+              errors: ['rate<0.1'],
+            },
+          };
+
+          const BASE_URL = __ENV.API_GATEWAY_URL || 'http://localhost:8000';
+
+          export default function () {
+            // Test 1: Health check
+            let healthRes = http.get(`${BASE_URL}/health`);
+            check(healthRes, {
+              'health check status is 200': (r) => r.status === 200,
+            }) || errorRate.add(1);
+
+            sleep(1);
+
+            // Test 2: Get market data
+            let marketRes = http.get(`${BASE_URL}/api/v1/market/btc-usdt/ticker`);
+            check(marketRes, {
+              'market data status is 200': (r) => r.status === 200,
+              'market data response time < 200ms': (r) => r.timings.duration < 200,
+            }) || errorRate.add(1);
+
+            sleep(1);
+
+            // Test 3: Get portfolio
+            let portfolioRes = http.get(`${BASE_URL}/api/v1/portfolio/summary`, {
+              headers: { 'Authorization': 'Bearer test-token' },
+            });
+            check(portfolioRes, {
+              'portfolio status is 200 or 401': (r) => r.status === 200 || r.status === 401,
+            });
+
+            sleep(2);
+
+            // Test 4: Get technical analysis
+            let taRes = http.get(`${BASE_URL}/api/v1/analysis/btc-usdt/signals`);
+            check(taRes, {
+              'TA status is 200': (r) => r.status === 200,
+              'TA response time < 500ms': (r) => r.timings.duration < 500,
+            }) || errorRate.add(1);
+
+            sleep(2);
+          }
+
+          export function handleSummary(data) {
+            return {
+              'performance-tests/k6-summary.json': JSON.stringify(data),
+              'performance-tests/k6-summary.html': htmlReport(data),
+            };
+          }
+
+          function htmlReport(data) {
+            return `
+              <!DOCTYPE html>
+              <html>
+              <head><title>K6 Performance Test Results</title></head>
+              <body>
+                <h1>K6 Load Test Results</h1>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+              </body>
+              </html>
+            `;
+          }
+          EOF
+
+      - name: Run k6 load test
+        env:
+          API_GATEWAY_URL: http://${{ needs.setup-perf-env.outputs.api_gateway_endpoint }}:8000
+        run: |
+          k6 run performance-tests/load-test.js \
+            --out json=performance-tests/k6-results.json \
+            --summary-export=performance-tests/k6-summary.json
+
+      - name: Parse k6 results
+        run: |
+          echo "## K6 Load Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Extract key metrics
+          if [ -f performance-tests/k6-summary.json ]; then
+            P95=$(jq -r '.metrics.http_req_duration.values.["p(95)"]' performance-tests/k6-summary.json)
+            P99=$(jq -r '.metrics.http_req_duration.values.["p(99)"]' performance-tests/k6-summary.json)
+            ERROR_RATE=$(jq -r '.metrics.http_req_failed.values.rate' performance-tests/k6-summary.json)
+            RPS=$(jq -r '.metrics.http_reqs.values.rate' performance-tests/k6-summary.json)
+
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| P95 Latency | ${P95}ms |" >> $GITHUB_STEP_SUMMARY
+            echo "| P99 Latency | ${P99}ms |" >> $GITHUB_STEP_SUMMARY
+            echo "| Error Rate | ${ERROR_RATE}% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Requests/sec | ${RPS} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload k6 results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-results
+          path: performance-tests/
+          retention-days: 30
+
+  # Job 3: Locust Load Testing
+  locust-load-test:
+    name: Locust Load Testing
+    runs-on: ubuntu-latest
+    needs: [setup-perf-env]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Locust
+        run: |
+          pip install locust==${{ env.LOCUST_VERSION }}
+
+      - name: Create Locust test script
+        run: |
+          mkdir -p performance-tests
+
+          cat > performance-tests/locustfile.py << 'EOF'
+          from locust import HttpUser, task, between, events
+          import json
+          import time
+
+          class CryptoTradingBotUser(HttpUser):
+              wait_time = between(1, 3)
+              host = "http://localhost:8000"
+
+              def on_start(self):
+                  """Called when a user starts"""
+                  pass
+
+              @task(3)
+              def health_check(self):
+                  """Health check endpoint - most frequent"""
+                  with self.client.get("/health", catch_response=True) as response:
+                      if response.status_code == 200:
+                          response.success()
+                      else:
+                          response.failure(f"Got status code {response.status_code}")
+
+              @task(5)
+              def get_market_data(self):
+                  """Get market ticker data"""
+                  symbols = ['btc-usdt', 'eth-usdt', 'bnb-usdt']
+                  for symbol in symbols:
+                      with self.client.get(f"/api/v1/market/{symbol}/ticker", catch_response=True) as response:
+                          if response.status_code == 200:
+                              response.success()
+                          elif response.elapsed.total_seconds() > 0.5:
+                              response.failure(f"Request took too long: {response.elapsed.total_seconds()}s")
+
+              @task(2)
+              def get_technical_analysis(self):
+                  """Get technical analysis signals"""
+                  with self.client.get("/api/v1/analysis/btc-usdt/signals", catch_response=True) as response:
+                      if response.status_code == 200:
+                          try:
+                              json_response = response.json()
+                              if 'signals' in json_response:
+                                  response.success()
+                              else:
+                                  response.failure("Invalid response format")
+                          except json.JSONDecodeError:
+                              response.failure("Invalid JSON response")
+
+              @task(1)
+              def get_portfolio(self):
+                  """Get portfolio summary"""
+                  headers = {'Authorization': 'Bearer test-token'}
+                  with self.client.get("/api/v1/portfolio/summary", headers=headers, catch_response=True) as response:
+                      # Accept both 200 and 401 (unauthorized) as valid for load testing
+                      if response.status_code in [200, 401]:
+                          response.success()
+
+              @task(1)
+              def get_trade_history(self):
+                  """Get trade history"""
+                  with self.client.get("/api/v1/trades/history?limit=10", catch_response=True) as response:
+                      if response.status_code in [200, 401]:
+                          response.success()
+
+          @events.quitting.add_listener
+          def _(environment, **kw):
+              """Generate custom report on test completion"""
+              if environment.stats.total.fail_ratio > 0.05:
+                  print(f"Test failed due to failure ratio > 5%: {environment.stats.total.fail_ratio}")
+                  environment.process_exit_code = 1
+              else:
+                  environment.process_exit_code = 0
+          EOF
+
+      - name: Run Locust headless
+        env:
+          API_GATEWAY_URL: http://${{ needs.setup-perf-env.outputs.api_gateway_endpoint }}:8000
+        run: |
+          locust -f performance-tests/locustfile.py \
+            --headless \
+            --users ${{ github.event.inputs.users || 100 }} \
+            --spawn-rate 10 \
+            --run-time ${{ github.event.inputs.duration || 10 }}m \
+            --host ${API_GATEWAY_URL} \
+            --html performance-tests/locust-report.html \
+            --csv performance-tests/locust
+
+      - name: Upload Locust results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: locust-results
+          path: performance-tests/
+          retention-days: 30
+
+  # Job 4: Database Performance Testing
+  database-perf-test:
+    name: Database Performance Test
+    runs-on: ubuntu-latest
+    needs: [setup-perf-env]
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: perf_test_db
+          POSTGRES_USER: perf_user
+          POSTGRES_PASSWORD: perf_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install psycopg2-binary pytest pytest-benchmark
+
+      - name: Run database performance benchmarks
+        env:
+          DATABASE_URL: postgresql://perf_user:perf_password@localhost:5432/perf_test_db
+        run: |
+          cat > test_db_perf.py << 'EOF'
+          import pytest
+          import psycopg2
+          import time
+          import os
+
+          @pytest.fixture
+          def db_connection():
+              conn = psycopg2.connect(os.environ['DATABASE_URL'])
+              yield conn
+              conn.close()
+
+          def test_insert_performance(db_connection, benchmark):
+              """Test insert performance"""
+              def insert_trade():
+                  cursor = db_connection.cursor()
+                  cursor.execute("""
+                      INSERT INTO trades (symbol, side, price, quantity, timestamp)
+                      VALUES (%s, %s, %s, %s, NOW())
+                  """, ('BTC-USDT', 'BUY', 50000.0, 0.1))
+                  db_connection.commit()
+                  cursor.close()
+
+              # Create table
+              cursor = db_connection.cursor()
+              cursor.execute("""
+                  CREATE TABLE IF NOT EXISTS trades (
+                      id SERIAL PRIMARY KEY,
+                      symbol VARCHAR(20),
+                      side VARCHAR(10),
+                      price DECIMAL(20, 8),
+                      quantity DECIMAL(20, 8),
+                      timestamp TIMESTAMP DEFAULT NOW()
+                  )
+              """)
+              db_connection.commit()
+
+              benchmark(insert_trade)
+
+          def test_select_performance(db_connection, benchmark):
+              """Test select performance"""
+              def select_trades():
+                  cursor = db_connection.cursor()
+                  cursor.execute("SELECT * FROM trades LIMIT 100")
+                  results = cursor.fetchall()
+                  cursor.close()
+                  return results
+
+              benchmark(select_trades)
+          EOF
+
+          pytest test_db_perf.py -v --benchmark-only --benchmark-json=performance-tests/db-benchmark.json || true
+
+      - name: Upload database benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: database-benchmark
+          path: performance-tests/
+          retention-days: 30
+
+  # Job 5: API Latency Profiling
+  api-latency-profiling:
+    name: API Latency Profiling
+    runs-on: ubuntu-latest
+    needs: [setup-perf-env]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install hey (HTTP load generator)
+        run: |
+          curl -sf https://gobinaries.com/rakyll/hey | sh
+
+      - name: Profile API endpoints
+        env:
+          API_GATEWAY: http://${{ needs.setup-perf-env.outputs.api_gateway_endpoint }}:8000
+        run: |
+          mkdir -p performance-tests
+
+          # Test health endpoint
+          hey -n 10000 -c 100 -m GET ${API_GATEWAY}/health > performance-tests/latency-health.txt
+
+          # Test market data endpoint
+          hey -n 5000 -c 50 -m GET ${API_GATEWAY}/api/v1/market/btc-usdt/ticker > performance-tests/latency-market.txt
+
+          # Test TA endpoint
+          hey -n 1000 -c 20 -m GET ${API_GATEWAY}/api/v1/analysis/btc-usdt/signals > performance-tests/latency-ta.txt
+
+      - name: Parse latency results
+        run: |
+          echo "## API Latency Profiling Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Health Endpoint" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -A 10 "Summary:" performance-tests/latency-health.txt >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload latency results
+        uses: actions/upload-artifact@v4
+        with:
+          name: latency-profiling
+          path: performance-tests/
+          retention-days: 30
+
+  # Job 6: Performance Regression Detection
+  regression-detection:
+    name: Detect Performance Regressions
+    runs-on: ubuntu-latest
+    needs: [k6-load-test, locust-load-test, api-latency-profiling]
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all performance results
+        uses: actions/download-artifact@v4
+        with:
+          path: all-perf-results/
+
+      - name: Compare with baseline
+        run: |
+          echo "## Performance Regression Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # In production, would compare against stored baseline metrics
+          echo "Baseline comparison would be performed here" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for regressions
+        run: |
+          # Parse k6 results
+          if [ -f all-perf-results/k6-results/k6-summary.json ]; then
+            P95=$(jq -r '.metrics.http_req_duration.values.["p(95)"]' all-perf-results/k6-results/k6-summary.json)
+
+            # Check if P95 exceeds threshold (500ms)
+            if (( $(echo "$P95 > 500" | bc -l) )); then
+              echo "::warning::P95 latency ($P95ms) exceeds threshold (500ms)"
+            fi
+          fi
+
+  # Job 7: Cleanup
+  cleanup:
+    name: Cleanup Test Environment
+    runs-on: ubuntu-latest
+    needs: [k6-load-test, locust-load-test, database-perf-test, api-latency-profiling]
+    if: always()
+
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_DEV }}" | base64 -d > $HOME/.kube/config
+
+      - name: Delete performance test namespace
+        run: |
+          kubectl delete namespace crypto-bot-perf --ignore-not-found=true

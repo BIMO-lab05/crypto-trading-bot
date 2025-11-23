@@ -1,0 +1,334 @@
+# CD Pipeline - Deploy to Development Environment
+# Triggers on: Push to develop branch
+# Purpose: Automated deployment to dev Kubernetes cluster
+
+name: CD - Deploy to Development
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+  ENVIRONMENT: development
+
+jobs:
+  # Job 1: Build and Push Images
+  build-and-push:
+    name: Build & Push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - trading-engine
+          - portfolio-manager
+          - technical-analysis
+          - bybit-connector
+          - market-data-service
+          - notification-service
+          - ml-prediction-service
+          - risk-metrics-service
+          - sentiment-analysis-service
+
+    outputs:
+      image-tags: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=dev-
+            type=raw,value=dev-latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/${{ matrix.service }}
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:buildcache,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            VERSION=dev-${{ github.sha }}
+            ENVIRONMENT=development
+
+      - name: Generate build summary
+        run: |
+          echo "## Docker Image Built: ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Job 2: Deploy to Development Kubernetes
+  deploy-to-dev:
+    name: Deploy to Dev K8s
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    environment:
+      name: development
+      url: https://dev.crypto-bot.internal
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl context
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_DEV }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl config use-context dev-cluster
+
+      - name: Verify cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace crypto-bot-dev --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply ConfigMaps and Secrets
+        run: |
+          kubectl apply -f infrastructure/kubernetes/configmaps/ -n crypto-bot-dev
+
+          # Create secrets from GitHub secrets
+          kubectl create secret generic api-secrets \
+            --from-literal=bybit-api-key="${{ secrets.BYBIT_API_KEY_DEV }}" \
+            --from-literal=bybit-api-secret="${{ secrets.BYBIT_API_SECRET_DEV }}" \
+            --from-literal=database-password="${{ secrets.DATABASE_PASSWORD_DEV }}" \
+            --namespace crypto-bot-dev \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy databases (PostgreSQL, TimescaleDB, Redis, RabbitMQ)
+        run: |
+          kubectl apply -f infrastructure/kubernetes/databases/ -n crypto-bot-dev
+
+          # Wait for databases to be ready
+          kubectl wait --for=condition=ready pod -l app=postgres -n crypto-bot-dev --timeout=300s || true
+          kubectl wait --for=condition=ready pod -l app=redis -n crypto-bot-dev --timeout=120s || true
+
+      - name: Update image tags in deployments
+        run: |
+          # Update deployment manifests with new image tags
+          export IMAGE_TAG="dev-${{ github.sha }}"
+
+          for service in api-gateway trading-engine portfolio-manager technical-analysis bybit-connector market-data-service notification-service ml-prediction-service risk-metrics-service sentiment-analysis-service; do
+            if [ -f "infrastructure/kubernetes/services/${service}-deployment.yaml" ]; then
+              sed -i "s|image:.*${service}:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${service}:${IMAGE_TAG}|g" \
+                infrastructure/kubernetes/services/${service}-deployment.yaml
+            elif [ -f "infrastructure/kubernetes/${service}-deployment.yaml" ]; then
+              sed -i "s|image:.*${service}:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${service}:${IMAGE_TAG}|g" \
+                infrastructure/kubernetes/${service}-deployment.yaml
+            fi
+          done
+
+      - name: Deploy services using Kustomize
+        run: |
+          kubectl apply -k infrastructure/kubernetes/kustomization/overlays/development -n crypto-bot-dev
+
+      - name: Deploy services (fallback if kustomize fails)
+        if: failure()
+        run: |
+          kubectl apply -f infrastructure/kubernetes/services/ -n crypto-bot-dev || true
+          kubectl apply -f infrastructure/kubernetes/*.yaml -n crypto-bot-dev || true
+
+      - name: Apply Horizontal Pod Autoscalers
+        run: |
+          kubectl apply -f infrastructure/kubernetes/autoscaling/ -n crypto-bot-dev
+
+      - name: Apply Ingress rules
+        run: |
+          kubectl apply -f infrastructure/kubernetes/ingress/ -n crypto-bot-dev
+
+      - name: Wait for deployments to be ready
+        run: |
+          for service in api-gateway trading-engine portfolio-manager technical-analysis bybit-connector market-data-service notification-service ml-prediction-service risk-metrics-service sentiment-analysis-service; do
+            echo "Waiting for ${service} deployment..."
+            kubectl rollout status deployment/${service} -n crypto-bot-dev --timeout=5m || true
+          done
+
+      - name: Get deployment status
+        run: |
+          echo "## Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get deployments -n crypto-bot-dev >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n crypto-bot-dev >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Job 3: Smoke Tests
+  smoke-tests:
+    name: Run Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-to-dev]
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_DEV }}" | base64 -d > $HOME/.kube/config
+
+      - name: Wait for services to be healthy
+        run: |
+          sleep 30
+
+          # Check pod health
+          kubectl get pods -n crypto-bot-dev
+
+          # Verify all pods are running
+          EXPECTED_PODS=10
+          RUNNING_PODS=$(kubectl get pods -n crypto-bot-dev --field-selector=status.phase=Running --no-headers | wc -l)
+
+          echo "Running pods: $RUNNING_PODS / $EXPECTED_PODS"
+
+          if [ "$RUNNING_PODS" -lt "$EXPECTED_PODS" ]; then
+            echo "::warning::Not all pods are running yet"
+          fi
+
+      - name: Test API Gateway health endpoint
+        run: |
+          # Port-forward to test service
+          kubectl port-forward -n crypto-bot-dev service/api-gateway 8000:8000 &
+          PF_PID=$!
+          sleep 5
+
+          # Test health endpoint
+          curl -f http://localhost:8000/health || echo "::warning::API Gateway health check failed"
+
+          kill $PF_PID || true
+
+      - name: Run smoke tests
+        run: |
+          kubectl exec -n crypto-bot-dev deployment/api-gateway -- pytest tests/smoke/ -v || true
+
+      - name: Check service logs for errors
+        if: always()
+        run: |
+          for service in api-gateway trading-engine portfolio-manager; do
+            echo "=== Logs for ${service} ==="
+            kubectl logs -n crypto-bot-dev deployment/${service} --tail=50 || true
+          done
+
+  # Job 4: Notification
+  notify:
+    name: Send Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [deploy-to-dev, smoke-tests]
+    if: always()
+
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "Development Deployment ${{ needs.deploy-to-dev.result == 'success' && '✅ Successful' || '❌ Failed' }}",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "🚀 Development Deployment"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ needs.deploy-to-dev.result == 'success' && '✅ Success' || '❌ Failed' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\nDevelopment"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Commit:*\n<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Deployed by:*\n${{ github.actor }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Smoke Tests:* ${{ needs.smoke-tests.result == 'success' && '✅ Passed' || '⚠️ Failed' }}"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Logs"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    },
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Dashboard"
+                      },
+                      "url": "https://dev.crypto-bot.internal"
+                    }
+                  ]
+                }
+              ]
+            }

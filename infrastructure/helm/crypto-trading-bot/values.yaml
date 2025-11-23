@@ -1,0 +1,967 @@
+# Default values for crypto-trading-bot
+# This is a YAML-formatted file for configuring all microservices and infrastructure
+# Declare variables to be passed into your templates
+
+# =============================================================================
+# GLOBAL CONFIGURATION
+# These settings are shared across all subcharts
+# =============================================================================
+global:
+  # Container image configuration
+  imageRegistry: docker.io
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+    # - name: regcred
+
+  # Environment identifier
+  environment: production
+
+  # Kubernetes namespace
+  namespace: crypto-bot
+
+  # Storage configuration
+  storageClass: standard
+
+  # Database connection settings
+  postgresql:
+    host: postgresql
+    port: 5432
+    database: cryptobot
+    username: cryptobot
+    # Password should be stored in external secret management
+    existingSecret: postgresql-secret
+    existingSecretPasswordKey: password
+
+  # TimescaleDB connection settings
+  timescaledb:
+    host: timescaledb
+    port: 5432
+    database: marketdata
+    username: timescale
+    existingSecret: timescaledb-secret
+    existingSecretPasswordKey: password
+
+  # Redis connection settings
+  redis:
+    host: redis
+    port: 6379
+    database: 0
+    existingSecret: redis-secret
+    existingSecretPasswordKey: password
+
+  # RabbitMQ connection settings
+  rabbitmq:
+    host: rabbitmq
+    port: 5672
+    managementPort: 15672
+    username: admin
+    existingSecret: rabbitmq-secret
+    existingSecretPasswordKey: password
+
+  # Bybit API configuration (testnet by default)
+  bybit:
+    apiUrl: https://api-testnet.bybit.com
+    wsUrl: wss://stream-testnet.bybit.com
+    existingSecret: bybit-secret
+    existingSecretApiKeyKey: api-key
+    existingSecretApiSecretKey: api-secret
+
+  # Monitoring configuration
+  metrics:
+    enabled: true
+    serviceMonitor: true
+    port: 9090
+    path: /metrics
+
+  # Logging configuration
+  logging:
+    level: INFO
+    format: json
+
+  # Security context for all pods
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Container security context
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Network policies
+  networkPolicy:
+    enabled: true
+    policyTypes:
+      - Ingress
+      - Egress
+
+  # Pod disruption budgets
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# =============================================================================
+# API GATEWAY SERVICE
+# Entry point for all external API requests
+# =============================================================================
+api-gateway:
+  enabled: true
+
+  # Number of replicas
+  replicaCount: 3
+
+  # Container image
+  image:
+    repository: crypto-bot/api-gateway
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  # Horizontal Pod Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  # Service configuration
+  service:
+    type: LoadBalancer
+    port: 8000
+    targetPort: 8000
+    annotations: {}
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: api.cryptobot.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: api-gateway-tls
+        hosts:
+          - api.cryptobot.example.com
+
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 30
+
+  # Environment variables
+  env:
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: CORS_ORIGINS
+      value: "https://cryptobot.example.com"
+    - name: MAX_CONNECTIONS
+      value: "1000"
+
+  # Pod annotations
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity rules
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - api-gateway
+            topologyKey: kubernetes.io/hostname
+
+# =============================================================================
+# TRADING ENGINE SERVICE
+# Core trading logic and strategy execution
+# =============================================================================
+trading-engine:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: crypto-bot/trading-engine
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 75
+
+  service:
+    type: ClusterIP
+    port: 8001
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8001
+    initialDelaySeconds: 60
+    periodSeconds: 15
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8001
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  env:
+    - name: MAX_POSITION_SIZE_PERCENT
+      value: "2.0"
+    - name: STOP_LOSS_PERCENT
+      value: "5.0"
+    - name: PAPER_TRADING
+      value: "true"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+# =============================================================================
+# PORTFOLIO MANAGER SERVICE
+# Position tracking and balance management
+# =============================================================================
+portfolio-manager:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: crypto-bot/portfolio-manager
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+  service:
+    type: ClusterIP
+    port: 8002
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8002
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8002
+    initialDelaySeconds: 15
+    periodSeconds: 5
+
+  env:
+    - name: SYNC_INTERVAL_SECONDS
+      value: "60"
+    - name: MAX_PORTFOLIO_VALUE
+      value: "100000"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+# =============================================================================
+# TECHNICAL ANALYSIS SERVICE
+# Technical indicators and signal generation
+# =============================================================================
+technical-analysis:
+  enabled: true
+  replicaCount: 3
+
+  image:
+    repository: crypto-bot/technical-analysis
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 3000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+  service:
+    type: ClusterIP
+    port: 8003
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8003
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8003
+    initialDelaySeconds: 15
+    periodSeconds: 5
+
+  env:
+    - name: CACHE_TTL_SECONDS
+      value: "300"
+    - name: INDICATORS
+      value: "RSI,MACD,BB,EMA,SMA"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+# =============================================================================
+# BYBIT CONNECTOR SERVICE
+# Exchange API integration
+# =============================================================================
+bybit-connector:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: crypto-bot/bybit-connector
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: false  # Fixed replicas for connection stability
+
+  service:
+    type: ClusterIP
+    port: 8004
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8004
+    initialDelaySeconds: 30
+    periodSeconds: 15
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8004
+    initialDelaySeconds: 20
+    periodSeconds: 10
+
+  env:
+    - name: RATE_LIMIT_PER_SECOND
+      value: "50"
+    - name: WEBSOCKET_RECONNECT_DELAY
+      value: "5"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+# =============================================================================
+# MARKET DATA SERVICE
+# Real-time and historical market data collection
+# =============================================================================
+market-data-service:
+  enabled: true
+  replicaCount: 3
+
+  image:
+    repository: crypto-bot/market-data-service
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 3000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+  service:
+    type: ClusterIP
+    port: 8005
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8005
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8005
+    initialDelaySeconds: 15
+    periodSeconds: 5
+
+  env:
+    - name: BATCH_SIZE
+      value: "1000"
+    - name: FLUSH_INTERVAL_SECONDS
+      value: "60"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+# =============================================================================
+# NOTIFICATION SERVICE
+# Alert and notification delivery
+# =============================================================================
+notification-service:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: crypto-bot/notification-service
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+  service:
+    type: ClusterIP
+    port: 8006
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8006
+    initialDelaySeconds: 20
+    periodSeconds: 10
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8006
+    initialDelaySeconds: 10
+    periodSeconds: 5
+
+  env:
+    - name: SMTP_HOST
+      value: "smtp.gmail.com"
+    - name: SMTP_PORT
+      value: "587"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+# =============================================================================
+# ML PREDICTION SERVICE
+# Machine learning price prediction
+# =============================================================================
+ml-prediction-service:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: crypto-bot/ml-prediction-service
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+    requests:
+      cpu: 2000m
+      memory: 2Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 75
+
+  service:
+    type: ClusterIP
+    port: 8007
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8007
+    initialDelaySeconds: 60
+    periodSeconds: 15
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8007
+    initialDelaySeconds: 45
+    periodSeconds: 10
+
+  env:
+    - name: MODEL_PATH
+      value: "/models"
+    - name: PREDICTION_HORIZON_HOURS
+      value: "24"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+  # Persistent volume for ML models
+  persistence:
+    enabled: true
+    size: 10Gi
+    mountPath: /models
+
+# =============================================================================
+# RISK METRICS SERVICE
+# Risk calculation and monitoring
+# =============================================================================
+risk-metrics-service:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: crypto-bot/risk-metrics-service
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+  service:
+    type: ClusterIP
+    port: 8008
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8008
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8008
+    initialDelaySeconds: 15
+    periodSeconds: 5
+
+  env:
+    - name: VAR_CONFIDENCE_LEVEL
+      value: "0.95"
+    - name: CALCULATION_WINDOW_DAYS
+      value: "30"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+# =============================================================================
+# SENTIMENT ANALYSIS SERVICE
+# Market sentiment analysis from social media
+# =============================================================================
+sentiment-analysis-service:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: crypto-bot/sentiment-analysis-service
+    tag: "1.0.0"
+
+  resources:
+    limits:
+      cpu: 3000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 75
+
+  service:
+    type: ClusterIP
+    port: 8009
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8009
+    initialDelaySeconds: 45
+    periodSeconds: 15
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8009
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  env:
+    - name: TWITTER_API_ENABLED
+      value: "false"
+    - name: REDDIT_API_ENABLED
+      value: "true"
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+
+# =============================================================================
+# POSTGRESQL DATABASE
+# Main relational database for transactional data
+# =============================================================================
+postgresql:
+  enabled: true
+
+  image:
+    repository: postgres
+    tag: "16-alpine"
+
+  # StatefulSet replicas
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+  # Persistence configuration
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""  # Use default
+    accessMode: ReadWriteOnce
+
+  # PostgreSQL configuration
+  config:
+    maxConnections: 200
+    sharedBuffers: "1GB"
+    effectiveCacheSize: "3GB"
+    maintenanceWorkMem: "256MB"
+    walLevel: "replica"
+    maxWalSize: "2GB"
+
+  # Backup configuration
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # 2 AM daily
+    retention: 7  # Keep 7 days of backups
+
+# =============================================================================
+# TIMESCALEDB
+# Time-series database for market data
+# =============================================================================
+timescaledb:
+  enabled: true
+
+  image:
+    repository: timescale/timescaledb
+    tag: "2.13.1-pg16"
+
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+    requests:
+      cpu: 2000m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  config:
+    maxConnections: 300
+    sharedBuffers: "2GB"
+    effectiveCacheSize: "6GB"
+    maintenanceWorkMem: "512MB"
+    workMem: "16MB"
+
+  # TimescaleDB specific settings
+  timescale:
+    compressionEnabled: true
+    retentionDays: 365
+    chunkTimeInterval: "1 day"
+
+# =============================================================================
+# REDIS
+# Caching and session storage
+# =============================================================================
+redis:
+  enabled: true
+
+  image:
+    repository: redis
+    tag: "7-alpine"
+
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  config:
+    maxmemory: "1gb"
+    maxmemoryPolicy: "allkeys-lru"
+    appendonly: "yes"
+    saveInterval: "60 1000"
+
+# =============================================================================
+# RABBITMQ
+# Message broker for inter-service communication
+# =============================================================================
+rabbitmq:
+  enabled: true
+
+  image:
+    repository: rabbitmq
+    tag: "3.12-management-alpine"
+
+  replicaCount: 1
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  # RabbitMQ management UI
+  management:
+    enabled: true
+    service:
+      type: ClusterIP
+      port: 15672
+
+  config:
+    vmMemoryHighWatermark: 0.8
+    diskFreeLimit: "1GB"
+
+# =============================================================================
+# PROMETHEUS
+# Metrics collection and monitoring
+# =============================================================================
+prometheus:
+  enabled: true
+
+  image:
+    repository: prom/prometheus
+    tag: "v2.48.0"
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 2Gi
+
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  # Retention period
+  retention: 15d
+
+  # Scrape interval
+  scrapeInterval: 15s
+
+  # Service monitors
+  serviceMonitor:
+    enabled: true
+
+  # Alert manager
+  alertmanager:
+    enabled: true
+
+# =============================================================================
+# GRAFANA
+# Metrics visualization
+# =============================================================================
+grafana:
+  enabled: true
+
+  image:
+    repository: grafana/grafana
+    tag: "10.2.2"
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  # Admin credentials (use secret in production)
+  adminUser: admin
+  adminPasswordSecret: grafana-secret
+  adminPasswordKey: password
+
+  # Ingress for Grafana
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: grafana.cryptobot.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.cryptobot.example.com
+
+  # Data sources
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      isDefault: true
