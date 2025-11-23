@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     # Service info
     service_name: str = "Sentiment Analysis Service"
+    api_version: str = "1.0.0"
     service_port: int = 8008
     environment: str = os.getenv("ENVIRONMENT", "development")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -42,6 +43,10 @@ class Settings(BaseSettings):
 
     # ===== Sentiment Analysis Settings =====
 
+    # Cache TTL for sentiment scores (in seconds)
+    # Longer cache = fewer API calls but less fresh data
+    cache_ttl: int = 900  # 15 minutes
+
     # Cache TTL for sentiment scores (in minutes)
     # Longer cache = fewer API calls but less fresh data
     sentiment_cache_ttl_minutes: int = 15
@@ -53,6 +58,9 @@ class Settings(BaseSettings):
     # How many hours back to analyze sentiment
     # Longer period = more data but potentially less relevant
     sentiment_lookback_hours: int = 24
+
+    # CORS origins
+    cors_origins: list = ["*"]
 
     # ===== Scoring Weights =====
     # These weights control how different sources influence combined sentiment
