@@ -1,0 +1,111 @@
+# Kustomize Base Configuration
+# Base resources for crypto trading bot
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Namespace for all resources
+namespace: crypto-bot
+
+# Common labels applied to all resources
+commonLabels:
+  app: crypto-trading-bot
+  managed-by: kustomize
+  version: "1.0"
+
+# Common annotations
+commonAnnotations:
+  project: "crypto-trading-bot"
+  team: "crypto-bot-team"
+
+# Resources to include
+resources:
+  # Namespace
+  - ../../namespaces/crypto-bot-namespace.yaml
+
+  # ConfigMaps
+  - ../../configmaps/app-config.yaml
+  - ../../configmaps/monitoring-config.yaml
+
+  # Secrets (templates - customize in overlays)
+  - ../../secrets/db-secrets.yaml
+  - ../../secrets/api-secrets.yaml
+  - ../../secrets/bybit-secrets.yaml
+
+  # Storage
+  - ../../storage/postgres-pvc.yaml
+  - ../../storage/timescale-pvc.yaml
+  - ../../storage/redis-pvc.yaml
+  - ../../storage/rabbitmq-pvc.yaml
+
+  # Databases
+  - ../../databases/postgres-statefulset.yaml
+  - ../../databases/postgres-service.yaml
+  - ../../databases/timescale-statefulset.yaml
+  - ../../databases/timescale-service.yaml
+  - ../../databases/redis-deployment.yaml
+  - ../../databases/redis-service.yaml
+  - ../../databases/rabbitmq-statefulset.yaml
+  - ../../databases/rabbitmq-service.yaml
+
+  # Microservices
+  - ../../services/api-gateway-deployment.yaml
+  - ../../services/api-gateway-service.yaml
+  - ../../services/trading-engine-deployment.yaml
+  - ../../services/trading-engine-service.yaml
+  - ../../services/portfolio-manager-deployment.yaml
+  - ../../services/portfolio-manager-service.yaml
+  - ../../services/technical-analysis-deployment.yaml
+  - ../../services/technical-analysis-service.yaml
+  - ../../services/bybit-connector-deployment.yaml
+  - ../../services/bybit-connector-service.yaml
+  - ../../services/market-data-service-deployment.yaml
+  - ../../services/market-data-service-service.yaml
+  - ../../services/notification-service-deployment.yaml
+  - ../../services/notification-service-service.yaml
+  - ../../services/ml-prediction-service-deployment.yaml
+  - ../../services/ml-prediction-service-service.yaml
+  - ../../services/risk-metrics-service-deployment.yaml
+  - ../../services/risk-metrics-service-service.yaml
+  - ../../services/sentiment-analysis-service-deployment.yaml
+  - ../../services/sentiment-analysis-service-service.yaml
+
+  # Ingress
+  - ../../ingress/api-gateway-ingress.yaml
+  - ../../ingress/rabbitmq-ingress.yaml
+
+  # Monitoring
+  - ../../monitoring/prometheus-deployment.yaml
+  - ../../monitoring/prometheus-service.yaml
+  - ../../monitoring/grafana-deployment.yaml
+  - ../../monitoring/grafana-service.yaml
+
+  # Autoscaling
+  - ../../autoscaling/api-gateway-hpa.yaml
+  - ../../autoscaling/trading-engine-hpa.yaml
+  - ../../autoscaling/ml-prediction-hpa.yaml
+
+# Images to customize
+images:
+  - name: crypto-bot/api-gateway
+    newTag: latest
+  - name: crypto-bot/trading-engine
+    newTag: latest
+  - name: crypto-bot/portfolio-manager
+    newTag: latest
+  - name: crypto-bot/technical-analysis
+    newTag: latest
+  - name: crypto-bot/bybit-connector
+    newTag: latest
+  - name: crypto-bot/market-data-service
+    newTag: latest
+  - name: crypto-bot/notification-service
+    newTag: latest
+  - name: crypto-bot/ml-prediction-service
+    newTag: latest
+  - name: crypto-bot/risk-metrics-service
+    newTag: latest
+  - name: crypto-bot/sentiment-analysis-service
+    newTag: latest

@@ -1,0 +1,38 @@
+# Risk-metrics-service Service
+# Service exposure configuration
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-metrics-service-service
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: microservice
+    service: risk-metrics-service
+  annotations:
+    description: "Risk-metrics-service service endpoint"
+spec:
+  type: ClusterIP
+  
+  ports:
+  - name: http
+    port: 8008
+    targetPort: 8008
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  
+  selector:
+    app: crypto-trading-bot
+    service: risk-metrics-service
+  
+  # Session affinity
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800

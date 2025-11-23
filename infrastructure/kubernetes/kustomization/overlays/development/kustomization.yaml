@@ -1,0 +1,75 @@
+# Kustomize Development Overlay
+# Development-specific configuration
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base configuration
+bases:
+  - ../../base
+
+# Namespace suffix for development
+nameSuffix: -dev
+
+# Additional labels for development
+commonLabels:
+  environment: development
+  tier: dev
+
+# Resource adjustments for development
+patches:
+  # Reduce replicas for development
+  - target:
+      kind: Deployment
+      name: api-gateway
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  - target:
+      kind: Deployment
+      name: trading-engine
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Reduce resource limits for development
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 512Mi
+
+# ConfigMap patches for development
+configMapGenerator:
+  - name: app-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - TRADING_MODE=paper
+      - ENABLE_AUTO_TRADING=false
+      - BYBIT_NETWORK=testnet
+
+# Images with dev tags
+images:
+  - name: crypto-bot/api-gateway
+    newTag: dev
+  - name: crypto-bot/trading-engine
+    newTag: dev
+  - name: crypto-bot/portfolio-manager
+    newTag: dev
+  - name: crypto-bot/technical-analysis
+    newTag: dev
+  - name: crypto-bot/bybit-connector
+    newTag: dev
+  - name: crypto-bot/market-data-service
+    newTag: dev

@@ -1,0 +1,38 @@
+# Technical-analysis Service
+# Service exposure configuration
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: technical-analysis-service
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: microservice
+    service: technical-analysis
+  annotations:
+    description: "Technical-analysis service endpoint"
+spec:
+  type: ClusterIP
+  
+  ports:
+  - name: http
+    port: 8003
+    targetPort: 8003
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  
+  selector:
+    app: crypto-trading-bot
+    service: technical-analysis
+  
+  # Session affinity
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800

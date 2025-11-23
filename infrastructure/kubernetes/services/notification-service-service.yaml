@@ -1,0 +1,38 @@
+# Notification-service Service
+# Service exposure configuration
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service-service
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: microservice
+    service: notification-service
+  annotations:
+    description: "Notification-service service endpoint"
+spec:
+  type: ClusterIP
+  
+  ports:
+  - name: http
+    port: 8006
+    targetPort: 8006
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  
+  selector:
+    app: crypto-trading-bot
+    service: notification-service
+  
+  # Session affinity
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800

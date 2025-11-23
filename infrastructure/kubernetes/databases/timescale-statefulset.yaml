@@ -1,0 +1,138 @@
+# TimescaleDB StatefulSet
+# Time-series market data database
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timescale
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: timescaledb
+spec:
+  serviceName: timescale-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      component: database
+      database: timescaledb
+
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: database
+        database: timescaledb
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+    spec:
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsNonRoot: true
+
+      initContainers:
+      - name: init-chmod-data
+        image: busybox:latest
+        command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data && chmod 700 /var/lib/postgresql/data"]
+        volumeMounts:
+        - name: timescale-storage
+          mountPath: /var/lib/postgresql/data
+        securityContext:
+          runAsUser: 0
+
+      containers:
+      - name: timescaledb
+        image: timescale/timescaledb:latest-pg15
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - name: postgres
+          containerPort: 5432
+          protocol: TCP
+
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: TIMESCALE_USER
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: TIMESCALE_DB
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: TIMESCALE_PASSWORD
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        # TimescaleDB specific settings
+        - name: TIMESCALEDB_TELEMETRY
+          value: "off"
+
+        # Resource limits for time-series database
+        resources:
+          requests:
+            cpu: "2"
+            memory: 2Gi
+          limits:
+            cpu: "4"
+            memory: 4Gi
+
+        volumeMounts:
+        - name: timescale-storage
+          mountPath: /var/lib/postgresql/data
+        - name: timescale-wal
+          mountPath: /var/lib/postgresql/wal_archive
+        - name: timescale-backup
+          mountPath: /var/lib/postgresql/backup
+
+        livenessProbe:
+          exec:
+            command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        startupProbe:
+          exec:
+            command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+
+      volumes:
+      - name: timescale-storage
+        persistentVolumeClaim:
+          claimName: timescale-pvc
+      - name: timescale-wal
+        persistentVolumeClaim:
+          claimName: timescale-wal-pvc
+      - name: timescale-backup
+        persistentVolumeClaim:
+          claimName: timescale-backup-pvc
+
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60

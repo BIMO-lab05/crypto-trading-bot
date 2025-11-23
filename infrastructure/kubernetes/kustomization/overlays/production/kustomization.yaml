@@ -1,0 +1,123 @@
+# Kustomize Production Overlay
+# Production-specific configuration
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base configuration
+bases:
+  - ../../base
+
+# Namespace suffix for production
+nameSuffix: -prod
+
+# Additional labels for production
+commonLabels:
+  environment: production
+  tier: prod
+
+# Production-specific patches
+patches:
+  # Increase replicas for high availability
+  - target:
+      kind: Deployment
+      name: api-gateway
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 5
+
+  - target:
+      kind: Deployment
+      name: trading-engine
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+
+  - target:
+      kind: Deployment
+      name: technical-analysis
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+
+  # Add pod disruption budgets
+  - target:
+      kind: Deployment
+      name: api-gateway
+    patch: |-
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: api-gateway-pdb
+      spec:
+        minAvailable: 2
+        selector:
+          matchLabels:
+            service: api-gateway
+
+# ConfigMap overrides for production
+configMapGenerator:
+  - name: app-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - TRADING_MODE=paper  # Set to 'live' only when ready!
+      - ENABLE_AUTO_TRADING=false  # Disable by default for safety
+      - BYBIT_NETWORK=mainnet
+      - HEALTH_CHECK_INTERVAL=10s
+      - METRICS_ENABLED=true
+
+# Production secret generator (customize with actual values)
+secretGenerator:
+  - name: db-secrets
+    behavior: merge
+    envs:
+      - db-secrets.env
+  - name: api-secrets
+    behavior: merge
+    envs:
+      - api-secrets.env
+  - name: bybit-secrets
+    behavior: merge
+    envs:
+      - bybit-secrets.env
+
+# Images with production tags
+images:
+  - name: crypto-bot/api-gateway
+    newTag: v1.0.0
+  - name: crypto-bot/trading-engine
+    newTag: v1.0.0
+  - name: crypto-bot/portfolio-manager
+    newTag: v1.0.0
+  - name: crypto-bot/technical-analysis
+    newTag: v1.0.0
+  - name: crypto-bot/bybit-connector
+    newTag: v1.0.0
+  - name: crypto-bot/market-data-service
+    newTag: v1.0.0
+  - name: crypto-bot/notification-service
+    newTag: v1.0.0
+  - name: crypto-bot/ml-prediction-service
+    newTag: v1.0.0
+  - name: crypto-bot/risk-metrics-service
+    newTag: v1.0.0
+  - name: crypto-bot/sentiment-analysis-service
+    newTag: v1.0.0
+
+# Resource adjustments for production
+replicas:
+  - name: postgres
+    count: 1  # Consider using managed database in production
+  - name: timescale
+    count: 1
+  - name: redis
+    count: 2  # Enable Redis replication
+  - name: rabbitmq
+    count: 3  # RabbitMQ cluster

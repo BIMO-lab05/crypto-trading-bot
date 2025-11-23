@@ -1,0 +1,152 @@
+# Sentiment-analysis-service Deployment
+# Microservice deployment configuration
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-analysis-service
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: microservice
+    service: sentiment-analysis-service
+  annotations:
+    description: "Sentiment-analysis-service microservice"
+spec:
+  replicas: 2
+  
+  # Deployment strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: sentiment-analysis-service
+  
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: microservice
+        service: sentiment-analysis-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      # Init container for dependency checks
+      initContainers:
+      - name: wait-for-dependencies
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          until nc -z postgres-service 5432; do echo waiting for postgres; sleep 2; done
+          until nc -z redis-service 6379; do echo waiting for redis; sleep 2; done
+          until nc -z rabbitmq-service 5672; do echo waiting for rabbitmq; sleep 2; done
+          echo "Dependencies are ready"
+      
+      containers:
+      - name: sentiment-analysis-service
+        image: crypto-bot/sentiment-analysis-service:latest
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - name: http
+          containerPort: 8009
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        
+        # Environment variables
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: db-secrets
+        - secretRef:
+            name: api-secrets
+
+        
+        env:
+        - name: SERVICE_NAME
+          value: "sentiment-analysis-service"
+        - name: SERVICE_PORT
+          value: "8009"
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: ENVIRONMENT
+        
+        # Resource limits
+        resources:
+          requests:
+            cpu: "1"
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 512Mi
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8009
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8009
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+          successThreshold: 1
+        
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8009
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 30
+      
+      # Pod anti-affinity for high availability
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: service
+                  operator: In
+                  values:
+                  - sentiment-analysis-service
+              topologyKey: kubernetes.io/hostname
+      
+      # Restart policy
+      restartPolicy: Always
+      
+      # Termination grace period
+      terminationGracePeriodSeconds: 30

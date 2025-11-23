@@ -1,0 +1,29 @@
+# RabbitMQ Persistent Volume Claim
+# Message queue storage
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: messaging
+    service: rabbitmq
+  annotations:
+    description: "RabbitMQ message queue persistent storage"
+spec:
+  storageClassName: standard
+
+  accessModes:
+    - ReadWriteOnce
+
+  # RabbitMQ storage for durable queues and messages
+  # 5Gi is sufficient for message persistence
+  resources:
+    requests:
+      storage: 5Gi
+
+  volumeMode: Filesystem

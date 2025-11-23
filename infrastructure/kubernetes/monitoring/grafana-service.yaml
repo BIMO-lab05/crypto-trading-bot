@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: crypto-bot
+  labels:
+    app: grafana
+spec:
+  type: LoadBalancer
+  ports:
+  - name: web
+    port: 3000
+    targetPort: 3000
+  selector:
+    app: grafana

@@ -1,0 +1,31 @@
+# Redis Persistent Volume Claim
+# Cache and session storage
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: cache
+    database: redis
+  annotations:
+    description: "Redis cache and session storage"
+    persistence-mode: "AOF"
+spec:
+  # Fast storage for cache performance
+  storageClassName: standard
+
+  accessModes:
+    - ReadWriteOnce
+
+  # Redis data size is typically small
+  # 5Gi is sufficient for cache and session data
+  resources:
+    requests:
+      storage: 5Gi
+
+  volumeMode: Filesystem

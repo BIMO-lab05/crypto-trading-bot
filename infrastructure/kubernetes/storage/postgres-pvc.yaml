@@ -1,0 +1,79 @@
+# PostgreSQL Persistent Volume Claim
+# Main application database storage
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: postgres
+  annotations:
+    description: "PostgreSQL main application database storage"
+spec:
+  # Storage class - adjust based on cloud provider
+  # AWS: gp3, gp2
+  # GCP: pd-ssd, pd-standard
+  # Azure: managed-premium, managed-standard
+  storageClassName: standard
+
+  # Access mode
+  accessModes:
+    - ReadWriteOnce  # Single node read-write access
+
+  # Storage capacity
+  resources:
+    requests:
+      storage: 10Gi
+
+  # Volume mode
+  volumeMode: Filesystem
+---
+# PostgreSQL WAL (Write-Ahead Log) archive storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-wal-pvc
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: postgres
+    purpose: wal-archive
+  annotations:
+    description: "PostgreSQL WAL archive for point-in-time recovery"
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  volumeMode: Filesystem
+---
+# PostgreSQL backup storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-pvc
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: postgres
+    purpose: backup
+  annotations:
+    description: "PostgreSQL database backups"
+    backup-retention: "30 days"
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  volumeMode: Filesystem

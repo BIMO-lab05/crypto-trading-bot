@@ -1,0 +1,81 @@
+# TimescaleDB Persistent Volume Claim
+# Time-series market data storage
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timescale-pvc
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: timescaledb
+  annotations:
+    description: "TimescaleDB time-series market data storage"
+    data-retention: "90 days"
+spec:
+  # For time-series data, use fast SSD storage
+  # AWS: gp3 (preferred), io2 (high IOPS)
+  # GCP: pd-ssd
+  # Azure: managed-premium
+  storageClassName: standard
+
+  accessModes:
+    - ReadWriteOnce
+
+  # Large capacity for historical market data
+  # Estimate: ~500MB per day per symbol with 1m candles
+  # 50Gi = approximately 100 days of data for multiple symbols
+  resources:
+    requests:
+      storage: 50Gi
+
+  volumeMode: Filesystem
+---
+# TimescaleDB WAL archive
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timescale-wal-pvc
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: timescaledb
+    purpose: wal-archive
+  annotations:
+    description: "TimescaleDB WAL archive for recovery"
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  volumeMode: Filesystem
+---
+# TimescaleDB backup storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timescale-backup-pvc
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: timescaledb
+    purpose: backup
+  annotations:
+    description: "TimescaleDB compressed backups"
+    backup-retention: "30 days"
+    backup-compression: "enabled"
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+  volumeMode: Filesystem

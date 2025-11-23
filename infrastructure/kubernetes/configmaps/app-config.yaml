@@ -1,0 +1,177 @@
+# Application configuration for all microservices
+# Contains non-sensitive configuration data
+# Version: 1.0
+# Created: 2025-11-23
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: configuration
+data:
+  # Environment setting
+  ENVIRONMENT: "production"
+
+  # Logging configuration
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  LOG_OUTPUT: "stdout"
+
+  # Database connection strings (non-sensitive parts)
+  # Actual passwords come from secrets
+  POSTGRES_HOST: "postgres-service"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "cryptobot"
+  POSTGRES_USER: "cryptobot"
+
+  TIMESCALE_HOST: "timescale-service"
+  TIMESCALE_PORT: "5432"
+  TIMESCALE_DB: "market_data"
+  TIMESCALE_USER: "cryptobot"
+
+  # Redis configuration
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # RabbitMQ configuration
+  RABBITMQ_HOST: "rabbitmq-service"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_VHOST: "cryptobot"
+  RABBITMQ_USER: "cryptobot"
+
+  # Service endpoints (internal cluster DNS)
+  API_GATEWAY_URL: "http://api-gateway-service:8000"
+  TRADING_ENGINE_URL: "http://trading-engine-service:8001"
+  PORTFOLIO_MANAGER_URL: "http://portfolio-manager-service:8002"
+  TECHNICAL_ANALYSIS_URL: "http://technical-analysis-service:8003"
+  BYBIT_CONNECTOR_URL: "http://bybit-connector-service:8004"
+  MARKET_DATA_SERVICE_URL: "http://market-data-service:8005"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:8006"
+  ML_PREDICTION_SERVICE_URL: "http://ml-prediction-service:8007"
+  RISK_METRICS_SERVICE_URL: "http://risk-metrics-service:8008"
+  SENTIMENT_ANALYSIS_SERVICE_URL: "http://sentiment-analysis-service:8009"
+
+  # Trading configuration
+  TRADING_MODE: "paper"  # paper or live
+  DEFAULT_SYMBOL: "BTCUSDT"
+  MAX_POSITION_SIZE: "0.02"  # 2% of portfolio
+  MAX_DAILY_LOSS: "0.05"  # 5% stop loss
+
+  # Technical analysis settings
+  RSI_PERIOD: "14"
+  MACD_FAST: "12"
+  MACD_SLOW: "26"
+  MACD_SIGNAL: "9"
+  BB_PERIOD: "20"
+  BB_STD: "2"
+
+  # Market data settings
+  CANDLE_INTERVAL: "1m"
+  HISTORICAL_DAYS: "30"
+
+  # API rate limiting
+  RATE_LIMIT_PER_MINUTE: "60"
+  RATE_LIMIT_BURST: "10"
+
+  # Health check configuration
+  HEALTH_CHECK_INTERVAL: "30s"
+  HEALTH_CHECK_TIMEOUT: "5s"
+  HEALTH_CHECK_RETRIES: "3"
+
+  # Monitoring
+  METRICS_ENABLED: "true"
+  METRICS_PORT: "9090"
+  TRACING_ENABLED: "true"
+
+  # Feature flags
+  ENABLE_ML_PREDICTIONS: "true"
+  ENABLE_SENTIMENT_ANALYSIS: "true"
+  ENABLE_NOTIFICATIONS: "true"
+  ENABLE_AUTO_TRADING: "false"  # Disabled by default for safety
+---
+# Message queue topics configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mq-topics-config
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: messaging
+data:
+  # RabbitMQ exchange and queue configuration
+  exchanges.json: |
+    {
+      "market_data": {
+        "type": "topic",
+        "durable": true,
+        "auto_delete": false
+      },
+      "trading_signals": {
+        "type": "topic",
+        "durable": true,
+        "auto_delete": false
+      },
+      "trade_execution": {
+        "type": "direct",
+        "durable": true,
+        "auto_delete": false
+      },
+      "notifications": {
+        "type": "fanout",
+        "durable": true,
+        "auto_delete": false
+      }
+    }
+
+  queues.json: |
+    {
+      "market.data.btcusdt": {
+        "durable": true,
+        "exclusive": false,
+        "auto_delete": false,
+        "max_length": 10000
+      },
+      "analysis.signals": {
+        "durable": true,
+        "exclusive": false,
+        "auto_delete": false,
+        "max_length": 5000
+      },
+      "trade.execute": {
+        "durable": true,
+        "exclusive": false,
+        "auto_delete": false,
+        "max_length": 1000
+      },
+      "trade.result": {
+        "durable": true,
+        "exclusive": false,
+        "auto_delete": false,
+        "max_length": 5000
+      },
+      "portfolio.update": {
+        "durable": true,
+        "exclusive": false,
+        "auto_delete": false,
+        "max_length": 5000
+      },
+      "alert.critical": {
+        "durable": true,
+        "exclusive": false,
+        "auto_delete": false,
+        "max_length": 1000
+      }
+    }
+
+  routing_keys.json: |
+    {
+      "market.data.#": "market_data",
+      "analysis.signal.#": "trading_signals",
+      "trade.#": "trade_execution",
+      "alert.#": "notifications"
+    }
