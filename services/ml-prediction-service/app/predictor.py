@@ -6,7 +6,7 @@ Handles model training, prediction, and persistence
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Union
 import logging
 import json
 from pathlib import Path
@@ -157,9 +157,12 @@ class LSTMPricePredictor:
         except Exception as e:
             logger.error(f"Error saving model: {e}")
 
-    def _create_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _create_features(self, data: Union[pd.DataFrame, List[Dict]]) -> pd.DataFrame:
         """
         Engineer features from price data + technical indicators
+
+        Args:
+            data: Either a DataFrame or list of dicts with OHLCV data
 
         Features:
         - Price features: open, high, low, close, volume
@@ -168,7 +171,11 @@ class LSTMPricePredictor:
         - Moving averages: SMA/EMA various periods
         - Volatility: ATR, historical volatility
         """
-        df = df.copy()
+        # Convert list to DataFrame if needed
+        if isinstance(data, list):
+            df = pd.DataFrame(data)
+        else:
+            df = data.copy()
 
         # Price returns (log returns for better distribution)
         df['return_1'] = np.log(df['close'] / df['close'].shift(1))
@@ -294,18 +301,22 @@ class LSTMPricePredictor:
 
         return model
 
-    async def train(self, historical_data: pd.DataFrame) -> ModelInfo:
+    async def train(self, historical_data: Union[pd.DataFrame, List[Dict]]) -> ModelInfo:
         """
         Train LSTM model on historical data
 
         Args:
-            historical_data: DataFrame with columns [timestamp, open, high, low, close, volume]
+            historical_data: DataFrame or list with columns [timestamp, open, high, low, close, volume]
 
         Returns:
             ModelInfo with training statistics
         """
         if not TENSORFLOW_AVAILABLE:
             raise RuntimeError("TensorFlow not available. Cannot train model.")
+
+        # Convert to DataFrame if needed
+        if isinstance(historical_data, list):
+            historical_data = pd.DataFrame(historical_data)
 
         logger.info(f"Training model for {self.symbol} {self.interval}m with {len(historical_data)} samples")
         start_time = datetime.utcnow()
@@ -392,7 +403,7 @@ class LSTMPricePredictor:
             logger.error(f"Training failed: {e}")
             raise
 
-    async def predict(self, recent_data: pd.DataFrame) -> PricePrediction:
+    async def predict(self, recent_data: Union[pd.DataFrame, List[Dict]]) -> PricePrediction:
         """
         Make price predictions using trained model
 
@@ -404,6 +415,10 @@ class LSTMPricePredictor:
         """
         if not TENSORFLOW_AVAILABLE or self.model is None:
             raise RuntimeError("Model not available for predictions")
+
+        # Convert to DataFrame if needed
+        if isinstance(recent_data, list):
+            recent_data = pd.DataFrame(recent_data)
 
         try:
             # Feature engineering on recent data

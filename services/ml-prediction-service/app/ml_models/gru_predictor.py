@@ -7,7 +7,7 @@ GRUs are faster to train and can perform as well as LSTMs on some tasks
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Union
 import logging
 import json
 from pathlib import Path
@@ -159,12 +159,19 @@ class GRUPricePredictor:
         except Exception as e:
             logger.error(f"Error saving GRU model: {e}")
 
-    def _create_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _create_features(self, data: Union[pd.DataFrame, List[Dict]]) -> pd.DataFrame:
         """
         Engineer features from price data + technical indicators
         Same feature engineering as LSTM for consistency
+
+        Args:
+            data: Either a DataFrame or list of dicts with OHLCV data
         """
-        df = df.copy()
+        # Convert list to DataFrame if needed
+        if isinstance(data, list):
+            df = pd.DataFrame(data)
+        else:
+            df = data.copy()
 
         # Price returns (log returns for better distribution)
         df['return_1'] = np.log(df['close'] / df['close'].shift(1))
@@ -292,18 +299,22 @@ class GRUPricePredictor:
 
         return model
 
-    async def train(self, historical_data: pd.DataFrame) -> ModelInfo:
+    async def train(self, historical_data: Union[pd.DataFrame, List[Dict]]) -> ModelInfo:
         """
         Train GRU model on historical data
 
         Args:
-            historical_data: DataFrame with columns [timestamp, open, high, low, close, volume]
+            historical_data: DataFrame or list with columns [timestamp, open, high, low, close, volume]
 
         Returns:
             ModelInfo with training statistics
         """
         if not TENSORFLOW_AVAILABLE:
             raise RuntimeError("TensorFlow not available. Cannot train GRU model.")
+
+        # Convert to DataFrame if needed
+        if isinstance(historical_data, list):
+            historical_data = pd.DataFrame(historical_data)
 
         logger.info(f"Training GRU model for {self.symbol} {self.interval}m with {len(historical_data)} samples")
         start_time = datetime.utcnow()
@@ -390,7 +401,7 @@ class GRUPricePredictor:
             logger.error(f"GRU training failed: {e}")
             raise
 
-    async def predict(self, recent_data: pd.DataFrame) -> PricePrediction:
+    async def predict(self, recent_data: Union[pd.DataFrame, List[Dict]]) -> PricePrediction:
         """
         Make price predictions using trained GRU model
 
@@ -402,6 +413,10 @@ class GRUPricePredictor:
         """
         if not TENSORFLOW_AVAILABLE or self.model is None:
             raise RuntimeError("GRU model not available for predictions")
+
+        # Convert to DataFrame if needed
+        if isinstance(recent_data, list):
+            recent_data = pd.DataFrame(recent_data)
 
         try:
             # Feature engineering on recent data
