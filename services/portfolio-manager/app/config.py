@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # Service Configuration
     service_name: str = Field(default="portfolio-manager", description="Service identifier")
-    service_port: int = Field(default=8006, ge=1024, le=65535, description="Service port")
+    service_port: int = Field(default=8003, ge=1024, le=65535, description="Service port")
     log_level: str = Field(default="INFO", description="Logging level")
 
     # HTTP Configuration
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
         description="Trading Engine service URL"
     )
     market_data_url: str = Field(
-        default="http://localhost:8003",
+        default="http://localhost:8002",
         description="Market Data service URL"
     )
 

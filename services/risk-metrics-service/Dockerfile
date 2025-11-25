@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Risk Metrics Service
 # Risk analysis and portfolio metrics
-# Port: 8008
+# Port: 8009
 
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
@@ -43,7 +43,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/home/appuser/.local/bin:$PATH \
     SERVICE_NAME=risk-metrics-service \
-    SERVICE_PORT=8008
+    SERVICE_PORT=8009
 
 WORKDIR /app
 
@@ -65,9 +65,9 @@ RUN mkdir -p /app/logs /app/cache && chown -R appuser:appuser /app
 
 USER appuser
 
-EXPOSE 8008
+EXPOSE 8009
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8008/health || exit 1
+    CMD curl -f http://localhost:8009/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8008", "--workers", "2"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8009", "--workers", "2"]

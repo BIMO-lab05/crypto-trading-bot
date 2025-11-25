@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Technical Analysis Service
 # Trading indicators and signal generation
-# Port: 8003
+# Port: 8004
 
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
@@ -44,7 +44,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/home/appuser/.local/bin:$PATH \
     SERVICE_NAME=technical-analysis \
-    SERVICE_PORT=8003
+    SERVICE_PORT=8004
 
 WORKDIR /app
 
@@ -66,9 +66,9 @@ RUN mkdir -p /app/logs /app/cache && chown -R appuser:appuser /app
 
 USER appuser
 
-EXPOSE 8003
+EXPOSE 8004
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8003/health || exit 1
+    CMD curl -f http://localhost:8004/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2"]

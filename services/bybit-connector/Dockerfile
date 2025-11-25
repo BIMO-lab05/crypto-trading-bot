@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Bybit Connector Service
 # Exchange API integration with WebSocket support
-# Port: 8004
+# Port: 8001
 
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
@@ -41,7 +41,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/home/appuser/.local/bin:$PATH \
     SERVICE_NAME=bybit-connector \
-    SERVICE_PORT=8004
+    SERVICE_PORT=8001
 
 WORKDIR /app
 
@@ -61,9 +61,9 @@ RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 
 USER appuser
 
-EXPOSE 8004
+EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8004/health || exit 1
+    CMD curl -f http://localhost:8001/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]

@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Portfolio Manager Service
 # Position tracking and P&L calculations
-# Port: 8002
+# Port: 8003
 
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
@@ -47,7 +47,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/home/appuser/.local/bin:$PATH \
     SERVICE_NAME=portfolio-manager \
-    SERVICE_PORT=8002 \
+    SERVICE_PORT=8003 \
     PYTHONPATH=/app
 
 WORKDIR /app
@@ -72,9 +72,9 @@ RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 
 USER appuser
 
-EXPOSE 8002
+EXPOSE 8003
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8002/health || exit 1
+    CMD curl -f http://localhost:8003/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]

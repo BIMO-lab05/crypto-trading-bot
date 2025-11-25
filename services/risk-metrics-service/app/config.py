@@ -11,13 +11,13 @@ class Settings(BaseSettings):
 
     # Service Configuration
     service_name: str = "risk-metrics-service"
-    service_port: int = 8007
+    service_port: int = 8009
     service_host: str = "0.0.0.0"
     log_level: str = "INFO"
 
     # External Services
-    portfolio_manager_url: str = "http://localhost:8006"
-    market_data_url: str = "http://localhost:8003"
+    portfolio_manager_url: str = "http://localhost:8003"
+    market_data_url: str = "http://localhost:8002"
 
     # Risk Management Parameters
     max_portfolio_risk: float = 0.05  # 5% max portfolio risk

@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Trading Engine Service
 # Core trading logic and strategy execution
-# Port: 8001
+# Port: 8005
 
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
@@ -44,7 +44,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/home/appuser/.local/bin:$PATH \
     SERVICE_NAME=trading-engine \
-    SERVICE_PORT=8001 \
+    SERVICE_PORT=8005 \
     PYTHONPATH=/app
 
 WORKDIR /app
@@ -69,9 +69,9 @@ RUN mkdir -p /app/logs /app/data && chown -R appuser:appuser /app
 
 USER appuser
 
-EXPOSE 8001
+EXPOSE 8005
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8001/health || exit 1
+    CMD curl -f http://localhost:8005/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "2"]
