@@ -22,6 +22,7 @@ from app.config import get_settings
 from app.signal_aggregator import get_aggregator, close_aggregator
 from app.multi_timeframe import get_multi_timeframe_analyzer, close_multi_timeframe_analyzer
 from app.repositories import get_portfolio_repository
+from app.position_manager import get_position_manager
 from database.connection import db_manager
 from app.models import (
     HealthResponse,
@@ -523,7 +524,8 @@ async def execute_sqzmom_trade(
 
     # Check if should execute (unless forced)
     if not force:
-        current_positions = 0  # TODO: Get from position manager
+        position_manager = get_position_manager()
+        current_positions = len(position_manager.get_open_positions())
         should_execute, reason = await sqzmom_strategy.should_execute_trade(
             signal,
             current_positions
