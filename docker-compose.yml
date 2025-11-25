@@ -123,8 +123,8 @@ services:
   # Portfolio Manager - Balance and position tracking
   portfolio-manager:
     build:
-      context: .
-      dockerfile: ./services/portfolio-manager/Dockerfile
+      context: ./services/portfolio-manager
+      dockerfile: Dockerfile
     container_name: crypto-bot-portfolio
     ports:
       - "8003:8003"
@@ -199,8 +199,8 @@ services:
   # Trading Engine - Core trading logic
   trading-engine:
     build:
-      context: .
-      dockerfile: ./services/trading-engine/Dockerfile
+      context: ./services/trading-engine
+      dockerfile: Dockerfile
     container_name: crypto-bot-trading
     ports:
       - "8005:8005"

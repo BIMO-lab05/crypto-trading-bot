@@ -21,12 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy shared modules requirements first
-COPY ../../shared/requirements.txt ./shared-requirements.txt
+# Copy requirements files
 COPY requirements.txt .
 
 # Install dependencies
-RUN pip install --user --no-cache-dir -r shared-requirements.txt || true
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # ============================================================================
@@ -60,8 +58,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy installed packages from builder
 COPY --from=builder /root/.local /home/appuser/.local
 
-# Copy shared modules
-COPY --chown=appuser:appuser ../../shared ./shared
+# Create shared directory
+RUN mkdir -p ./shared
 
 # Copy application code
 COPY --chown=appuser:appuser app/ ./app/
