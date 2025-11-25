@@ -9,14 +9,9 @@ from decimal import Decimal
 from uuid import UUID
 from datetime import datetime, timezone
 
-# Import shared database infrastructure
-import sys
-from pathlib import Path
-# Add shared module to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
-
-from database.connection import db_manager
-from database.models import Position as DBPosition, Trade as DBTrade, Portfolio as DBPortfolio
+# Import local database module (works in Docker without shared directory)
+from app.database.connection import db_manager
+from app.database.models import Position as DBPosition, Trade as DBTrade, Portfolio as DBPortfolio
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 

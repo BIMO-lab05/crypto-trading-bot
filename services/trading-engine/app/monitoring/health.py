@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 # Database imports
 try:
-    from database.connection import db_manager
+    from app.database.connection import db_manager
     DB_AVAILABLE = True
 except ImportError:
     DB_AVAILABLE = False

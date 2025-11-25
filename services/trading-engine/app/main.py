@@ -23,7 +23,7 @@ from app.signal_aggregator import get_aggregator, close_aggregator
 from app.multi_timeframe import get_multi_timeframe_analyzer, close_multi_timeframe_analyzer
 from app.repositories import get_portfolio_repository
 from app.position_manager import get_position_manager
-from database.connection import db_manager
+from app.database.connection import db_manager
 from app.models import (
     HealthResponse,
     StatusResponse,

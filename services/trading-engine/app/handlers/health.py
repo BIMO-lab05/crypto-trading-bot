@@ -16,7 +16,7 @@ from app.position_manager import get_position_manager
 from app.paper_trading import get_paper_engine
 from app.models import HealthResponse, StatusResponse
 from app.monitoring import get_health_monitor
-from database.connection import db_manager
+from app.database.connection import db_manager
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
