@@ -214,10 +214,8 @@ volumes:
   pgadmin_data:
     driver: local
 
-# Network configuration
+# Network configuration - use existing network created by main docker-compose
 networks:
   crypto-bot-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.25.0.0/16
+    external: true
+    name: infrastructure_crypto-bot-network

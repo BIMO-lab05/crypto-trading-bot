@@ -20,10 +20,16 @@ from pathlib import Path
 # Prometheus metrics imports
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
-# Add shared utilities to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
-from utils.structured_logging import setup_logging, RequestContextLogger
-from utils.graceful_shutdown import GracefulShutdownHandler
+# Import local utils (fallback for Docker container where shared utils are not available)
+try:
+    # Try shared utils first (for local development)
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
+    from utils.structured_logging import setup_logging, RequestContextLogger
+    from utils.graceful_shutdown import GracefulShutdownHandler
+except ImportError:
+    # Fall back to local utils (for Docker container)
+    from app.utils.structured_logging import setup_logging, RequestContextLogger
+    from app.utils.graceful_shutdown import GracefulShutdownHandler
 
 from fastapi.middleware.cors import CORSMiddleware
 
