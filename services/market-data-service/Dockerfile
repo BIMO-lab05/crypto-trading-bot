@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Market Data Service
 # Real-time market data collection and storage
-# Port: 8005
+# Port: 8002
 
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
@@ -42,7 +42,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/home/appuser/.local/bin:$PATH \
     SERVICE_NAME=market-data-service \
-    SERVICE_PORT=8005
+    SERVICE_PORT=8002
 
 WORKDIR /app
 
@@ -63,9 +63,9 @@ RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 
 USER appuser
 
-EXPOSE 8005
+EXPOSE 8002
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8005/health || exit 1
+    CMD curl -f http://localhost:8002/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "2"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
