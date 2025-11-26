@@ -5,7 +5,7 @@ Purpose: Centralized configuration management using Pydantic settings
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Literal
+from typing import Literal, List
 
 
 class Settings(BaseSettings):
@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     default_symbol: str = Field(
         default="BTCUSDT",
         description="Default trading symbol"
+    )
+    trading_symbols: List[str] = Field(
+        default=["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+        description="List of symbols to trade in auto-trader"
     )
     default_interval: str = Field(
         default="60",

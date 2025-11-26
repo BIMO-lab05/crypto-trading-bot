@@ -54,7 +54,7 @@ class AutoTrader:
             position_sizing_method: Position sizing method (default: CONFIDENCE_ADJUSTED)
             use_performance_data: Use performance tracker for Kelly calculation
         """
-        self.symbols = symbols or [settings.default_symbol]
+        self.symbols = symbols or settings.trading_symbols
         self.interval = interval
         self.check_frequency = check_frequency_seconds
         self.enable_vp = enable_volume_profile
