@@ -688,6 +688,65 @@ async def get_trading_performance():
 
 
 # ============================================================================
+# PHASE 1 MONITORING ENDPOINTS
+# ============================================================================
+
+@app.get("/api/trading/phase1/metrics")
+async def get_phase1_metrics(hours: int = 24):
+    """
+    Get Phase 1 performance metrics
+
+    Analyzes signal processing over specified timeframe:
+    - Filtering rates (GATEKEEPER rejection rate)
+    - Validator acceptance rate
+    - Signal quality metrics
+    - Volume confirmation stats
+    """
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/phase1/metrics",
+        method="GET",
+        query_params={"hours": hours}
+    )
+
+
+@app.get("/api/trading/phase1/health")
+async def get_phase1_health():
+    """
+    Get Phase 1 system health status
+
+    Checks:
+    - GATEKEEPER operational status
+    - VALIDATOR operational status
+    - Trend filter availability
+    - Volume confirmation availability
+    """
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/phase1/health",
+        method="GET"
+    )
+
+
+@app.get("/api/trading/phase1/latest")
+async def get_phase1_latest():
+    """
+    Get the most recent Phase 1 signal
+
+    Returns the last signal processed through Phase 1 enhancements
+    including all filtering and validation results.
+    """
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/phase1/latest",
+        method="GET"
+    )
+
+
+# ============================================================================
 # PORTFOLIO MANAGER ROUTES
 # ============================================================================
 

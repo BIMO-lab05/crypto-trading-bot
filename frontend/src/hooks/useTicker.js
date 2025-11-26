@@ -41,7 +41,11 @@ export function useMultipleTickers(symbols = []) {
 export function useKlines(symbol, interval = '60', params = {}) {
   return useQuery({
     queryKey: ['klines', symbol, interval, params],
-    queryFn: () => marketAPI.getKlines(symbol, interval, params),
+    queryFn: async () => {
+      const response = await marketAPI.getKlines(symbol, interval, params)
+      // Extract data array from API response { success: true, data: [...] }
+      return response?.data || response || []
+    },
     refetchInterval: 60000, // Refetch every minute
     enabled: !!symbol,
   })
