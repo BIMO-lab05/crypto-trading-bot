@@ -77,6 +77,16 @@ export const tradingAPI = {
   // Get multiple signals
   getMultipleSignals: (symbols, interval = 60) =>
     Promise.all(symbols.map(symbol => tradingAPI.getSignal(symbol, interval))),
+
+  // Get trading bot status
+  getStatus: () => api.get('/trading/status'),
+
+  // Get trading positions
+  getPositions: (status = 'open') =>
+    api.get('/trading/positions', { params: { status } }),
+
+  // Get trading performance metrics
+  getPerformance: () => api.get('/trading/performance'),
 }
 
 // System health endpoint

@@ -665,6 +665,28 @@ async def get_positions(status: str = "open"):
     )
 
 
+@app.get("/api/trading/status")
+async def get_trading_status():
+    """Get trading bot status"""
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/trading/status",
+        method="GET"
+    )
+
+
+@app.get("/api/trading/performance")
+async def get_trading_performance():
+    """Get trading performance metrics from trading-engine"""
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/performance",
+        method="GET"
+    )
+
+
 # ============================================================================
 # PORTFOLIO MANAGER ROUTES
 # ============================================================================
