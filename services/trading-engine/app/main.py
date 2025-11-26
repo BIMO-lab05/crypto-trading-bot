@@ -92,6 +92,11 @@ async def lifespan(app: FastAPI):
                 initial_balance=Decimal(str(settings.paper_initial_balance))
             )
             logger.info("✅ Paper trading portfolio verified")
+
+            # Load open positions from database into memory
+            position_manager = get_position_manager()
+            loaded_count = await position_manager.load_positions_from_db()
+            logger.info(f"✅ Loaded {loaded_count} positions from database")
         else:
             logger.warning("⚠️ Database connection failed - trades will not be persisted")
     except Exception as e:

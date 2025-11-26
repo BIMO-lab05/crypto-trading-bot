@@ -262,6 +262,47 @@ class PositionManager:
             "closed": len(self.get_closed_positions())
         }
 
+    async def load_positions_from_db(self) -> int:
+        """
+        Load open positions from database into memory at startup.
+
+        Returns:
+            Number of positions loaded
+        """
+        try:
+            db_positions = await self.position_repo.get_open_positions()
+            loaded_count = 0
+
+            for db_pos in db_positions:
+                # Convert DB position to in-memory Position model
+                position = Position(
+                    symbol=db_pos.symbol,
+                    side=PositionSide(db_pos.side),
+                    entry_price=Decimal(str(db_pos.entry_price)),
+                    quantity=Decimal(str(db_pos.quantity)),
+                    current_price=Decimal(str(db_pos.current_price or db_pos.entry_price)),
+                    stop_loss=Decimal(str(db_pos.stop_loss)) if db_pos.stop_loss else None,
+                    take_profit=Decimal(str(db_pos.take_profit)) if db_pos.take_profit else None,
+                    strategy=db_pos.strategy,
+                    status=PositionStatus.OPEN
+                )
+                # Use the DB position_id
+                position.id = db_pos.position_id
+
+                self.positions[position.id] = position
+                loaded_count += 1
+                logger.info(
+                    f"Loaded position from DB: {db_pos.symbol} {db_pos.side} "
+                    f"@ {db_pos.entry_price} (ID: {db_pos.position_id})"
+                )
+
+            logger.info(f"✅ Loaded {loaded_count} open positions from database")
+            return loaded_count
+
+        except Exception as e:
+            logger.error(f"Failed to load positions from database: {e}")
+            return 0
+
 
 # Global position manager instance
 _position_manager: Optional[PositionManager] = None
