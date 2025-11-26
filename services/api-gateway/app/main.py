@@ -404,7 +404,7 @@ async def get_kline(symbol: str, interval: str = "60", limit: int = 100):
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="market-data",
-        path=f"/api/v1/kline/{symbol}",
+        path=f"/api/v1/klines/{symbol}",
         method="GET",
         query_params={"interval": interval, "limit": limit}
     )
