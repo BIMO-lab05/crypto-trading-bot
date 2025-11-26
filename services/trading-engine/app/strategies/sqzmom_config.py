@@ -2,6 +2,7 @@
 SQZMOM Strategy Configuration
 Purpose: Optimized parameters from backtesting results
 Date: 2025-11-20
+Updated: 2025-11-26 - Enabled auto_trading, lowered min_confidence
 
 Backtesting Results Summary:
 - SOLUSDT: +2,706% return (22% win rate, 4.76 Sharpe)
@@ -19,6 +20,11 @@ Optimized Parameters:
 - take_profit_pct: 3.0% (tighter than default 4.0%)
 - require_squeeze_release: False (more entry opportunities)
 - require_volume_confirmation: False (avoid missing signals)
+
+Trading Mode Update (2025-11-26):
+- auto_trading: True (enabled for automatic trade execution)
+- min_confidence: 0.5 (lowered from 0.7 for more trade opportunities)
+- paper_trading: True (safety mode for simulated trades)
 """
 
 from typing import Dict, List
@@ -99,20 +105,20 @@ class SQZMOMConfig(BaseModel):
         description="Maximum concurrent positions across all symbols"
     )
     min_confidence: float = Field(
-        default=0.7,
+        default=0.5,
         ge=0.0,
         le=1.0,
-        description="Minimum signal confidence to execute trade (70%)"
+        description="Minimum signal confidence to execute trade (lowered from 0.7 to 0.5 for more trades)"
     )
 
-    # Trading mode (safety first)
+    # Trading mode - AUTO TRADING ENABLED
     paper_trading: bool = Field(
         default=True,
-        description="Enable paper trading mode (True = simulated trades)"
+        description="Enable paper trading mode (True = simulated trades for safety)"
     )
     auto_trading: bool = Field(
-        default=False,
-        description="Enable automatic trade execution (False = manual approval required)"
+        default=True,
+        description="Enable automatic trade execution (True = trades execute automatically)"
     )
 
     # Symbol-specific overrides (for fine-tuning based on backtesting)
@@ -123,7 +129,7 @@ class SQZMOMConfig(BaseModel):
                 "position_size_pct": 2.5,  # Slightly larger position
                 "stop_loss_pct": 1.5,
                 "take_profit_pct": 3.0,
-                "min_confidence": 0.65,  # Can be slightly less conservative
+                "min_confidence": 0.45,  # Lowered for more trade opportunities
                 "description": "Best SQZMOM performer: +2,706% return, 22% win rate, 4.76 Sharpe"
             },
             "DOGEUSDT": {
@@ -131,7 +137,7 @@ class SQZMOMConfig(BaseModel):
                 "position_size_pct": 1.5,  # Smaller position (more volatile)
                 "stop_loss_pct": 1.5,
                 "take_profit_pct": 3.5,  # Slightly wider TP (more volatile)
-                "min_confidence": 0.75,  # More conservative (higher volatility)
+                "min_confidence": 0.55,  # Slightly more conservative (higher volatility)
                 "description": "Strong performer: +630% return, 28% win rate, 5.41 Sharpe"
             },
             "BNBUSDT": {
@@ -139,7 +145,7 @@ class SQZMOMConfig(BaseModel):
                 "position_size_pct": 2.0,  # Standard position
                 "stop_loss_pct": 1.5,
                 "take_profit_pct": 3.0,
-                "min_confidence": 0.70,  # Standard confidence
+                "min_confidence": 0.50,  # Standard confidence
                 "description": "Solid performer: +330% return, 31% win rate"
             }
         },
@@ -169,7 +175,8 @@ class SQZMOMConfig(BaseModel):
                 "position_size_pct": 2.0,
                 "max_positions": 3,
                 "paper_trading": True,
-                "auto_trading": False
+                "auto_trading": True,
+                "min_confidence": 0.5
             }
         }
 

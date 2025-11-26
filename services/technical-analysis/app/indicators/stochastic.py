@@ -1,6 +1,10 @@
 """
 Stochastic Oscillator Indicator
 Momentum indicator comparing closing price to price range over time
+
+Updated: Widened thresholds to generate more BUY/SELL signals
+- Overbought threshold: 80 -> 75 (more SELL signals)
+- Oversold threshold: 20 -> 25 (more BUY signals)
 """
 
 from typing import Dict, List
@@ -15,12 +19,12 @@ class Stochastic:
     Stochastic Oscillator (%K, %D)
 
     Formula:
-    %K = 100 × (Close - Lowest Low) / (Highest High - Lowest Low)
+    %K = 100 x (Close - Lowest Low) / (Highest High - Lowest Low)
     %D = SMA(%K, smooth_period)
 
-    Signals:
-    - Overbought: %K > 80 (potential reversal down)
-    - Oversold: %K < 20 (potential reversal up)
+    Signals (Updated for more signal generation):
+    - Overbought: %K > 75 (potential reversal down) - widened from 80
+    - Oversold: %K < 25 (potential reversal up) - widened from 20
     - Bullish: %K crosses above %D
     - Bearish: %K crosses below %D
     """
@@ -30,8 +34,8 @@ class Stochastic:
         period: int = 14,
         smooth_k: int = 3,
         smooth_d: int = 3,
-        overbought: int = 80,
-        oversold: int = 20
+        overbought: int = 75,  # Updated: Changed from 80 to 75 for more signals
+        oversold: int = 25     # Updated: Changed from 20 to 25 for more signals
     ):
         self.period = period
         self.smooth_k = smooth_k
@@ -101,6 +105,7 @@ class Stochastic:
             d_prev = df['d'].iloc[-2] if len(df) > 1 else d_current
 
             # Determine condition
+            # Updated thresholds: overbought=75, oversold=25 (widened from 80/20)
             if k_current > self.overbought:
                 condition = "OVERBOUGHT"
             elif k_current < self.oversold:
@@ -119,7 +124,8 @@ class Stochastic:
             else:
                 crossover = "NONE"
 
-            # Generate signal
+            # Generate signal (Updated logic for more signals)
+            # Added intermediate zones for signal generation
             if condition == "OVERSOLD" and (crossover == "BULLISH" or k_current > d_current):
                 signal = "BUY"
                 confidence = 0.9  # High confidence in oversold + bullish
@@ -128,10 +134,19 @@ class Stochastic:
                 confidence = 0.9
             elif crossover == "BULLISH":
                 signal = "BUY"
-                confidence = 0.6  # Moderate confidence on crossover only
+                confidence = 0.65  # Moderate confidence on crossover only (increased from 0.6)
             elif crossover == "BEARISH":
                 signal = "SELL"
-                confidence = 0.6
+                confidence = 0.65
+            # Added: Generate signals in intermediate zones
+            elif k_current < 35 and k_current > d_current:
+                # Low zone, %K above %D - Moderate BUY
+                signal = "BUY"
+                confidence = 0.5
+            elif k_current > 65 and k_current < d_current:
+                # High zone, %K below %D - Moderate SELL
+                signal = "SELL"
+                confidence = 0.5
             else:
                 signal = "HOLD"
                 confidence = 0.3

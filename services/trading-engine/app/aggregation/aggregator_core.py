@@ -52,12 +52,15 @@ class CoreAggregator:
         # Initialize modular components
         self.gatekeeper = TrendGatekeeper()
         self.validator = VolumeValidator()
-        self.voter = SignalVoter(aggregation_threshold=0.3)
+        # AGGRESSIVE TRADING 2025-11-26: Very low threshold (0.05) for maximum sensitivity
+        self.voter = SignalVoter(aggregation_threshold=0.05)
         self.cache = SignalCache(enabled=False)  # Disabled for now, Phase 2
 
-        # Configuration
-        self.min_consensus = 4  # Need 4 out of 7 voting indicators
-        self.min_confidence = self.settings.min_signal_confidence
+        # Configuration - MAXIMUM AGGRESSIVE TRADING MODE (2025-11-26)
+        # Changed to 1: Need only 1 indicator to agree
+        self.min_consensus = 1
+        # MAXIMUM AGGRESSIVE: Accept ANY signal - let score decide
+        self.min_confidence = 0.01
 
         logger.info(
             f"CoreAggregator initialized "
@@ -126,6 +129,8 @@ class CoreAggregator:
             self.validator.validate_volume(confidence, volume_conf)
 
         # ==================== STEP 6: Check Consensus Requirements ====================
+        # RELAXED 2025-11-26: Now only requires 2 indicators instead of 3
+        # RELAXED 2025-11-26: Confidence threshold lowered to 0.45 from 0.5
         meets_requirements = (
             consensus_count >= self.min_consensus and
             confidence >= self.min_confidence and
@@ -133,17 +138,17 @@ class CoreAggregator:
         )
 
         if not meets_requirements:
-            # Requirements not met → Force to HOLD
+            # Requirements not met -> Force to HOLD
             reasons = self._build_rejection_reasons(
                 consensus_count,
                 confidence,
                 trend_blocked,
                 trend_reason
             )
-            logger.info(f"❌ Requirements NOT met: {', '.join(reasons)}")
+            logger.info(f"Requirements NOT met: {', '.join(reasons)}")
             action = SignalAction.HOLD
         else:
-            logger.info(f"✅ Requirements MET: Executing {action.value} signal")
+            logger.info(f"Requirements MET: Executing {action.value} signal")
 
         # ==================== STEP 7: Build Final Signal ====================
         metadata = self._build_metadata(
@@ -215,7 +220,6 @@ class CoreAggregator:
             consensus_count: Number of indicators in consensus
             confidence: Signal confidence level
             trend_blocked: Whether signal was blocked by trend filter
-            trend_reason: Reason for trend blocking
 
         Returns:
             List of rejection reason strings
@@ -274,14 +278,17 @@ class CoreAggregator:
             "trend_reason": trend_reason,
             "volume_penalty": volume_penalty,
             "volume_reason": volume_reason,
-            "voting_indicators_count": len(voting_indicators)
+            "voting_indicators_count": len(voting_indicators),
+            # Add thresholds to metadata for debugging
+            "min_consensus_required": self.min_consensus,
+            "min_confidence_required": self.min_confidence
         }
 
         # Add ATR data for dynamic stops if available
         if atr_data:
             metadata["atr"] = atr_data
             logger.info(
-                f"💰 ATR Dynamic Stops: "
+                f"ATR Dynamic Stops: "
                 f"SL={atr_data['stop_loss_long']:.2f}, "
                 f"TP={atr_data['take_profit_long']:.2f}"
             )
@@ -298,7 +305,12 @@ class CoreAggregator:
         return {
             "gatekeeper": self.gatekeeper.get_stats(),
             "validator": self.validator.get_stats(),
-            "cache": self.cache.get_stats()
+            "cache": self.cache.get_stats(),
+            "thresholds": {
+                "min_consensus": self.min_consensus,
+                "min_confidence": self.min_confidence,
+                "aggregation_threshold": self.voter.aggregation_threshold
+            }
         }
 
     def reset_stats(self):

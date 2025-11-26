@@ -8,11 +8,12 @@ Timeframe Hierarchy:
 - 60m (medium-term): Primary trading signals (baseline)
 - 240m (long-term): Trend direction confirmation
 
-Alignment Scoring:
-- All 3 agree (BUY/SELL): Very strong (+20% confidence boost)
-- 2/3 agree: Moderate (no change)
-- Split decision: Weak (-20% confidence penalty)
-- Contradictory: Very weak (-40% confidence penalty)
+ADJUSTED FOR MORE AGGRESSIVE TRADING:
+Alignment Scoring (Relaxed):
+- All 3 agree (BUY/SELL): Strong (+15% confidence boost)
+- 2/3 agree: Moderate (+5% boost)
+- Split decision: Minimal (-10% penalty)
+- Contradictory: Moderate penalty (-20% penalty) instead of -40%
 """
 
 import logging
@@ -57,7 +58,7 @@ class MultiTimeframeAnalysis:
     primary_action: SignalAction      # Action from primary (60m) timeframe
     consensus_action: SignalAction     # Weighted consensus action
     alignment_strength: AlignmentStrength
-    confidence_modifier: float         # Multiplier for confidence (0.6 to 1.2)
+    confidence_modifier: float         # Multiplier for confidence (0.8 to 1.15) - RELAXED
     timeframe_signals: Dict[str, TimeframeSignal]
     agreement_pct: float              # Percentage agreement (0-100)
     reasoning: str
@@ -71,7 +72,7 @@ class MultiTimeframeAnalyzer:
     - Fetches signals from 15m, 60m, 240m timeframes
     - Calculates weighted consensus
     - Determines alignment strength
-    - Applies confidence modifiers
+    - Applies confidence modifiers (RELAXED penalties)
     - Provides reasoning for decisions
 
     Integration:
@@ -102,7 +103,7 @@ class MultiTimeframeAnalyzer:
             AlignmentStrength.CONTRADICTORY: 0
         }
 
-        logger.info("MultiTimeframeAnalyzer initialized")
+        logger.info("MultiTimeframeAnalyzer initialized (relaxed mode)")
         logger.info(f"  Timeframes: {self.timeframes} minutes")
         logger.info(f"  Weights: 15m={self.weights['15']}, 60m={self.weights['60']}, 240m={self.weights['240']}")
 
@@ -140,7 +141,7 @@ class MultiTimeframeAnalyzer:
         # Determine alignment strength
         alignment = self._determine_alignment(timeframe_signals)
 
-        # Calculate confidence modifier
+        # Calculate confidence modifier (RELAXED)
         confidence_modifier = self._calculate_confidence_modifier(alignment, timeframe_signals)
 
         # Calculate agreement percentage
@@ -153,7 +154,7 @@ class MultiTimeframeAnalyzer:
         self.alignment_counts[alignment] += 1
 
         # Log analysis
-        logger.info(f"🔍 Multi-Timeframe Analysis:")
+        logger.info(f"Multi-Timeframe Analysis:")
         logger.info(f"   15m: {timeframe_signals.get('15').action.value if '15' in timeframe_signals else 'N/A'}")
         logger.info(f"   60m: {timeframe_signals.get('60').action.value if '60' in timeframe_signals else 'N/A'} (primary)")
         logger.info(f"   240m: {timeframe_signals.get('240').action.value if '240' in timeframe_signals else 'N/A'}")
@@ -181,7 +182,9 @@ class MultiTimeframeAnalyzer:
 
         Uses weighted voting:
         - Each timeframe contributes its score * weight
-        - Positive score → BUY, Negative → SELL, Near zero → HOLD
+        - Positive score -> BUY, Negative -> SELL, Near zero -> HOLD
+
+        RELAXED: Lower threshold (0.2 instead of 0.3) for BUY/SELL consensus
         """
         weighted_score = 0.0
         total_weight = 0.0
@@ -199,10 +202,10 @@ class MultiTimeframeAnalyzer:
         else:
             consensus_score = 0.0
 
-        # Convert score to action
-        if consensus_score >= 0.3:
+        # Convert score to action - LOWERED threshold from 0.3 to 0.2
+        if consensus_score >= 0.2:
             return SignalAction.BUY
-        elif consensus_score <= -0.3:
+        elif consensus_score <= -0.2:
             return SignalAction.SELL
         else:
             return SignalAction.HOLD
@@ -260,19 +263,20 @@ class MultiTimeframeAnalyzer:
         """
         Calculate confidence modifier based on alignment strength
 
-        Modifiers:
-        - VERY_STRONG: 1.2x (+20% boost)
-        - STRONG: 1.1x (+10% boost)
+        RELAXED Modifiers (less harsh penalties):
+        - VERY_STRONG: 1.15x (+15% boost)
+        - STRONG: 1.05x (+5% boost)
         - MODERATE: 1.0x (no change)
-        - WEAK: 0.8x (-20% penalty)
-        - CONTRADICTORY: 0.6x (-40% penalty)
+        - WEAK: 0.9x (-10% penalty) - was 0.8x
+        - CONTRADICTORY: 0.8x (-20% penalty) - was 0.6x
         """
+        # RELAXED modifiers - less harsh penalties
         base_modifiers = {
-            AlignmentStrength.VERY_STRONG: 1.2,
-            AlignmentStrength.STRONG: 1.1,
-            AlignmentStrength.MODERATE: 1.0,
-            AlignmentStrength.WEAK: 0.8,
-            AlignmentStrength.CONTRADICTORY: 0.6
+            AlignmentStrength.VERY_STRONG: 1.15,   # was 1.2
+            AlignmentStrength.STRONG: 1.05,        # was 1.1
+            AlignmentStrength.MODERATE: 1.0,       # unchanged
+            AlignmentStrength.WEAK: 0.9,           # was 0.8
+            AlignmentStrength.CONTRADICTORY: 0.8   # was 0.6
         }
 
         modifier = base_modifiers.get(alignment, 1.0)
@@ -284,9 +288,9 @@ class MultiTimeframeAnalyzer:
 
             # If long-term and medium-term align (excluding HOLD)
             if long_term_action == medium_term_action and long_term_action != SignalAction.HOLD:
-                modifier *= 1.05  # Small additional boost for trend alignment
+                modifier *= 1.03  # Small additional boost for trend alignment
 
-        return min(1.3, max(0.5, modifier))  # Cap between 0.5x and 1.3x
+        return min(1.2, max(0.75, modifier))  # Cap between 0.75x and 1.2x (was 0.5x to 1.3x)
 
     def _calculate_agreement_percentage(
         self,
@@ -319,15 +323,15 @@ class MultiTimeframeAnalyzer:
 
         # Base reasoning
         if alignment == AlignmentStrength.VERY_STRONG:
-            return f"All timeframes agree ({actions_str}) → Strong {consensus.value} signal"
+            return f"All timeframes agree ({actions_str}) -> Strong {consensus.value} signal"
         elif alignment == AlignmentStrength.STRONG:
-            return f"2/3 timeframes align ({actions_str}) → Good {consensus.value} signal"
+            return f"2/3 timeframes align ({actions_str}) -> Good {consensus.value} signal"
         elif alignment == AlignmentStrength.MODERATE:
-            return f"Moderate agreement ({actions_str}) → Cautious {consensus.value}"
+            return f"Moderate agreement ({actions_str}) -> Cautious {consensus.value}"
         elif alignment == AlignmentStrength.WEAK:
-            return f"Weak alignment ({actions_str}) → Low confidence"
+            return f"Weak alignment ({actions_str}) -> Proceed with caution"
         else:  # CONTRADICTORY
-            return f"Conflicting signals ({actions_str}) → High uncertainty"
+            return f"Conflicting signals ({actions_str}) -> Elevated risk"
 
     def get_stats(self) -> Dict:
         """Get analyzer statistics"""

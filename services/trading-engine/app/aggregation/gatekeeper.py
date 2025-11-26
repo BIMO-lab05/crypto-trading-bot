@@ -13,25 +13,26 @@ logger = logging.getLogger(__name__)
 
 class TrendGatekeeper:
     """
-    GATEKEEPER: Blocks counter-trend trades
+    GATEKEEPER: Filters counter-trend trades (relaxed version for more trading)
 
     Responsibilities:
     - Analyzes trend direction from TREND_FILTER indicator
-    - Blocks BUY signals in BEARISH trends
-    - Blocks SELL signals in BULLISH trends
+    - Applies penalties to counter-trend signals (instead of blocking)
     - Reduces confidence in NEUTRAL trends
 
-    Phase 1 Integration:
-    - Applied BEFORE voting aggregation
-    - Can completely block a signal
-    - Works in conjunction with VolumeValidator
+    ADJUSTED FOR MORE AGGRESSIVE TRADING (2025-11-26):
+    - Counter-trend trades are penalized but NOT fully blocked
+    - Raised blocking threshold from 0.8 to 0.9 (only blocks very strong trends)
+    - Allows more trading in ranging/neutral markets
+    - Reduced penalties across the board
     """
 
     def __init__(self):
         """Initialize trend gatekeeper"""
         self.blocked_count = 0
         self.passed_count = 0
-        logger.info("TrendGatekeeper initialized")
+        self.penalized_count = 0
+        logger.info("TrendGatekeeper initialized (aggressive mode - 2025-11-26)")
 
     def check_signal(
         self,
@@ -40,7 +41,7 @@ class TrendGatekeeper:
         trend_filter: Optional[IndicatorSignal]
     ) -> Tuple[SignalAction, float, bool, str]:
         """
-        Check if signal should be blocked by trend filter
+        Check if signal should be penalized by trend filter
 
         Args:
             action: Preliminary trading action (BUY/SELL/HOLD)
@@ -50,16 +51,18 @@ class TrendGatekeeper:
         Returns:
             Tuple of (modified_action, modified_confidence, blocked, reason)
 
-        Logic:
-        - BUY + BEARISH trend → BLOCK (set to HOLD, confidence *= 0.2)
-        - SELL + BULLISH trend → BLOCK (set to HOLD, confidence *= 0.2)
-        - Any + NEUTRAL trend → ALLOW with reduced confidence (* 0.7)
-        - Any + matching trend → ALLOW unchanged
-        - HOLD signals → ALLOW unchanged (no need to filter)
+        RELAXED Logic (more aggressive trading - 2025-11-26):
+        - BUY + BEARISH trend + very high trend confidence (>=0.9) -> BLOCK
+        - BUY + BEARISH trend + lower trend confidence -> PENALIZE (0.6x instead of 0.5x)
+        - SELL + BULLISH trend + very high trend confidence (>=0.9) -> BLOCK
+        - SELL + BULLISH trend + lower trend confidence -> PENALIZE (0.6x instead of 0.5x)
+        - Any + NEUTRAL trend -> ALLOW with minimal penalty (0.9x instead of 0.85x)
+        - Any + matching trend -> ALLOW unchanged
+        - HOLD signals -> ALLOW unchanged (no need to filter)
         """
         # If no trend filter available, pass through unchanged
         if not trend_filter:
-            logger.warning("⚠️  Trend Filter not available - proceeding without trend check")
+            logger.warning("Trend Filter not available - proceeding without trend check")
             return action, confidence, False, "No trend filter"
 
         # HOLD signals don't need filtering
@@ -68,7 +71,8 @@ class TrendGatekeeper:
 
         # Extract trend from indicator metadata
         trend = trend_filter.metadata.get("trend")
-        logger.info(f"🔍 Trend Filter: {trend} (confidence: {trend_filter.confidence:.2f})")
+        trend_confidence = trend_filter.confidence
+        logger.info(f"Trend Filter: {trend} (confidence: {trend_confidence:.2f})")
 
         trend_blocked = False
         trend_reason = ""
@@ -77,48 +81,74 @@ class TrendGatekeeper:
 
         # Check for counter-trend trades
         if action == SignalAction.BUY and trend == "BEARISH":
-            # Block BUY in BEARISH trend
-            trend_blocked = True
-            trend_reason = "Counter-trend (BUY in BEARISH trend)"
-            modified_action = SignalAction.HOLD
-            modified_confidence *= 0.2  # Drastically reduce confidence
-            logger.warning(f"🚫 BLOCKED: {trend_reason}")
-            self.blocked_count += 1
+            # Counter-trend BUY in BEARISH
+            # ADJUSTED 2025-11-26: Raised blocking threshold from 0.8 to 0.9
+            if trend_confidence >= 0.9:
+                # Very strong bearish trend - block the trade
+                trend_blocked = True
+                trend_reason = "Counter-trend blocked (BUY in very strong BEARISH)"
+                modified_action = SignalAction.HOLD
+                modified_confidence *= 0.3
+                logger.warning(f"BLOCKED: {trend_reason}")
+                self.blocked_count += 1
+            else:
+                # Bearish trend but not overwhelming - penalize but allow
+                trend_blocked = False
+                trend_reason = "Counter-trend penalty (BUY in BEARISH)"
+                # ADJUSTED 2025-11-26: Reduced penalty from 0.5x to 0.6x
+                modified_confidence *= 0.6
+                logger.info(f"PENALIZED: {trend_reason}")
+                self.penalized_count += 1
 
         elif action == SignalAction.SELL and trend == "BULLISH":
-            # Block SELL in BULLISH trend
-            trend_blocked = True
-            trend_reason = "Counter-trend (SELL in BULLISH trend)"
-            modified_action = SignalAction.HOLD
-            modified_confidence *= 0.2
-            logger.warning(f"🚫 BLOCKED: {trend_reason}")
-            self.blocked_count += 1
+            # Counter-trend SELL in BULLISH
+            # ADJUSTED 2025-11-26: Raised blocking threshold from 0.8 to 0.9
+            if trend_confidence >= 0.9:
+                # Very strong bullish trend - block the trade
+                trend_blocked = True
+                trend_reason = "Counter-trend blocked (SELL in very strong BULLISH)"
+                modified_action = SignalAction.HOLD
+                modified_confidence *= 0.3
+                logger.warning(f"BLOCKED: {trend_reason}")
+                self.blocked_count += 1
+            else:
+                # Bullish trend but not overwhelming - penalize but allow
+                trend_blocked = False
+                trend_reason = "Counter-trend penalty (SELL in BULLISH)"
+                # ADJUSTED 2025-11-26: Reduced penalty from 0.5x to 0.6x
+                modified_confidence *= 0.6
+                logger.info(f"PENALIZED: {trend_reason}")
+                self.penalized_count += 1
 
         elif trend == "NEUTRAL":
-            # Neutral trend: allow but reduce confidence
-            modified_confidence *= 0.7
-            trend_reason = "Neutral trend (reduced confidence)"
-            logger.info(f"⚠️  {trend_reason}")
+            # Neutral trend: allow with minimal penalty
+            # ADJUSTED 2025-11-26: Reduced penalty from 0.85x to 0.9x
+            modified_confidence *= 0.9
+            trend_reason = "Neutral trend (minimal penalty)"
+            logger.info(f"NEUTRAL: {trend_reason}")
             self.passed_count += 1
 
         else:
             # Trend aligns with signal - pass through
             trend_reason = f"{action.value} aligned with {trend} trend"
-            logger.info(f"✅ PASSED: {trend_reason}")
+            logger.info(f"PASSED: {trend_reason}")
             self.passed_count += 1
 
         return modified_action, modified_confidence, trend_blocked, trend_reason
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, any]:
         """Get gatekeeper statistics"""
+        total = self.blocked_count + self.passed_count + self.penalized_count
         return {
             "blocked": self.blocked_count,
             "passed": self.passed_count,
-            "total": self.blocked_count + self.passed_count,
+            "penalized": self.penalized_count,
+            "total": total,
             "block_rate": (
-                self.blocked_count / (self.blocked_count + self.passed_count)
-                if (self.blocked_count + self.passed_count) > 0
-                else 0.0
+                self.blocked_count / total if total > 0 else 0.0
+            ),
+            "penalty_rate": (
+                self.penalized_count / total if total > 0 else 0.0
             )
         }
 
@@ -126,4 +156,5 @@ class TrendGatekeeper:
         """Reset statistics counters"""
         self.blocked_count = 0
         self.passed_count = 0
+        self.penalized_count = 0
         logger.info("Gatekeeper stats reset")

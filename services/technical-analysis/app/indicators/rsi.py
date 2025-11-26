@@ -1,6 +1,11 @@
 """
 RSI (Relative Strength Index) Calculator
 Purpose: Calculate RSI and generate trading signals
+
+Updated: Widened thresholds to generate more BUY/SELL signals
+- Oversold threshold: 30 -> 35 (more BUY signals)
+- Overbought threshold: 70 -> 65 (more SELL signals)
+- Neutral zone: 40-60 -> 45-55 (narrower HOLD range)
 """
 
 import pandas as pd
@@ -32,9 +37,12 @@ class RSICalculator:
             period: Number of periods for RSI calculation (default: 14)
         """
         self.period = period
-        self.overbought_threshold = 70  # RSI > 70 = overbought (sell signal)
-        self.oversold_threshold = 30   # RSI < 30 = oversold (buy signal)
-        logger.info(f"RSI Calculator initialized with period={period}")
+        # Updated: Widened thresholds to generate more signals
+        # Previous: overbought=70, oversold=30 (too conservative)
+        # New: overbought=65, oversold=35 (more balanced signal generation)
+        self.overbought_threshold = 65  # RSI > 65 = overbought (sell signal)
+        self.oversold_threshold = 35    # RSI < 35 = oversold (buy signal)
+        logger.info(f"RSI Calculator initialized with period={period}, overbought={self.overbought_threshold}, oversold={self.oversold_threshold}")
 
     def calculate(self, df: pd.DataFrame) -> Optional[float]:
         """
@@ -100,45 +108,48 @@ class RSICalculator:
         Returns:
             Tuple of (SignalType, confidence)
 
-        Signal Logic:
-            - RSI < 30: Strong BUY (oversold)
-            - RSI < 40: Weak BUY
-            - RSI 40-60: HOLD/NEUTRAL
-            - RSI > 60: Weak SELL
-            - RSI > 70: Strong SELL (overbought)
+        Signal Logic (Updated for more signals):
+            - RSI < 35: Strong BUY (oversold)
+            - RSI < 45: Moderate BUY (slightly oversold)
+            - RSI 45-55: HOLD/NEUTRAL (narrowed from 40-60)
+            - RSI > 55: Moderate SELL (slightly overbought)
+            - RSI > 65: Strong SELL (overbought)
         """
         # Calculate confidence based on distance from thresholds
         if rsi < self.oversold_threshold:
-            # Oversold - BUY signal
+            # Oversold - Strong BUY signal
             # Confidence increases as RSI gets lower
             confidence = min(1.0, (self.oversold_threshold - rsi) / self.oversold_threshold)
             signal = SignalType.BUY
-            logger.info(f"RSI {rsi:.2f} < {self.oversold_threshold} → BUY (confidence: {confidence:.2f})")
+            logger.info(f"RSI {rsi:.2f} < {self.oversold_threshold} -> Strong BUY (confidence: {confidence:.2f})")
 
         elif rsi > self.overbought_threshold:
-            # Overbought - SELL signal
+            # Overbought - Strong SELL signal
             # Confidence increases as RSI gets higher
             confidence = min(1.0, (rsi - self.overbought_threshold) / (100 - self.overbought_threshold))
             signal = SignalType.SELL
-            logger.info(f"RSI {rsi:.2f} > {self.overbought_threshold} → SELL (confidence: {confidence:.2f})")
+            logger.info(f"RSI {rsi:.2f} > {self.overbought_threshold} -> Strong SELL (confidence: {confidence:.2f})")
 
-        elif rsi < 40:
-            # Slightly oversold - weak BUY
-            confidence = (40 - rsi) / 10 * 0.5  # Max 0.5 confidence
+        elif rsi < 45:
+            # Slightly oversold - Moderate BUY
+            # Updated: Threshold increased from 40 to 45 for more signals
+            confidence = (45 - rsi) / 10 * 0.6  # Max 0.6 confidence (increased from 0.5)
             signal = SignalType.BUY
-            logger.debug(f"RSI {rsi:.2f} slightly low → weak BUY")
+            logger.info(f"RSI {rsi:.2f} slightly low -> Moderate BUY (confidence: {confidence:.2f})")
 
-        elif rsi > 60:
-            # Slightly overbought - weak SELL
-            confidence = (rsi - 60) / 10 * 0.5  # Max 0.5 confidence
+        elif rsi > 55:
+            # Slightly overbought - Moderate SELL
+            # Updated: Threshold decreased from 60 to 55 for more signals
+            confidence = (rsi - 55) / 10 * 0.6  # Max 0.6 confidence (increased from 0.5)
             signal = SignalType.SELL
-            logger.debug(f"RSI {rsi:.2f} slightly high → weak SELL")
+            logger.info(f"RSI {rsi:.2f} slightly high -> Moderate SELL (confidence: {confidence:.2f})")
 
         else:
-            # Neutral range (40-60)
+            # Narrow neutral range (45-55) - HOLD
+            # Updated: Narrowed from 40-60 to generate fewer HOLD signals
             signal = SignalType.HOLD
             confidence = 0.3  # Low confidence for hold
-            logger.debug(f"RSI {rsi:.2f} neutral → HOLD")
+            logger.debug(f"RSI {rsi:.2f} neutral (45-55) -> HOLD")
 
         return signal, round(confidence, 2)
 

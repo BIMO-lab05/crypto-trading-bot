@@ -86,18 +86,20 @@ class Settings(BaseSettings):
         description="Default take profit as % from entry"
     )
 
-    # Signal Thresholds
+    # Signal Thresholds - ADJUSTED FOR MORE AGGRESSIVE TRADING (2025-11-26)
+    # Changed from 0.5 to 0.45 to allow trades with 45%+ confidence
     min_signal_confidence: float = Field(
-        default=0.6,
+        default=0.45,
         ge=0.0,
         le=1.0,
-        description="Minimum signal confidence to trade"
+        description="Minimum signal confidence to trade (lowered from 0.5 to 0.45)"
     )
+    # Changed from 3 to 2 for more flexibility (2 out of 6-7 voting indicators)
     min_consensus_indicators: int = Field(
-        default=3,
+        default=2,
         ge=1,
         le=10,
-        description="Minimum indicators in agreement"
+        description="Minimum indicators in agreement (2 out of 6-7 voting indicators)"
     )
 
     # Database Configuration

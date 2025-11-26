@@ -21,27 +21,30 @@ class SignalVoter:
     - Counts BUY/SELL/HOLD votes
     - Determines consensus and preliminary action
 
-    Phase 1 Integration:
-    - Excludes GATEKEEPER and VALIDATOR from voting
-    - Works with 7 voting indicators (RSI, MACD, BB, SMA, EMA, Trend, Stochastic)
-    - Requires 4/7 consensus (stricter than original 3/5)
+    ADJUSTED FOR MORE AGGRESSIVE TRADING (2025-11-26):
+    - Lowered aggregation_threshold from 0.2 to 0.15
+    - Works with 6-7 voting indicators (RSI, MACD, BB, SMA, EMA, Trend, Stochastic)
+    - Only needs 2/7 consensus (relaxed from 3/7)
 
     Voting Logic:
-    - BUY → +1.0
-    - SELL → -1.0
-    - HOLD/NEUTRAL → 0.0
+    - BUY -> +1.0
+    - SELL -> -1.0
+    - HOLD/NEUTRAL -> 0.0
     - Weighted by confidence
     """
 
-    def __init__(self, aggregation_threshold: float = 0.3):
+    def __init__(self, aggregation_threshold: float = 0.05):
         """
         Initialize signal voter
 
         Args:
             aggregation_threshold: Score threshold for BUY/SELL decisions
-                                  Scores >= +threshold → BUY
-                                  Scores <= -threshold → SELL
-                                  Scores in between → HOLD
+                                  Scores >= +threshold -> BUY
+                                  Scores <= -threshold -> SELL
+                                  Scores in between -> HOLD
+
+                                  LOWERED from 0.15 to 0.05 for AGGRESSIVE trading (2025-11-26)
+                                  Any slight bias should trigger a trade
         """
         self.aggregation_threshold = aggregation_threshold
         logger.info(f"SignalVoter initialized with threshold={aggregation_threshold}")
@@ -140,25 +143,25 @@ class SignalVoter:
         Returns:
             Tuple of (preliminary_action, preliminary_confidence)
 
-        Logic:
-        - score >= +threshold → BUY with confidence = |score|
-        - score <= -threshold → SELL with confidence = |score|
-        - score in between → HOLD with confidence = 1.0 - |score|
+        Logic (with AGGRESSIVE threshold of 0.05 as of 2025-11-26):
+        - score >= +0.05 -> BUY with confidence = |score|
+        - score <= -0.05 -> SELL with confidence = |score|
+        - score in between -> HOLD with confidence = 1.0 - |score|
         """
         if aggregated_score >= self.aggregation_threshold:
-            # Strong BUY signal
+            # BUY signal
             action = SignalAction.BUY
             confidence = min(abs(aggregated_score), 1.0)  # Cap at 1.0
             logger.info(f"Preliminary: BUY (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")
 
         elif aggregated_score <= -self.aggregation_threshold:
-            # Strong SELL signal
+            # SELL signal
             action = SignalAction.SELL
             confidence = min(abs(aggregated_score), 1.0)  # Cap at 1.0
             logger.info(f"Preliminary: SELL (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")
 
         else:
-            # Weak signal → HOLD
+            # Weak signal -> HOLD
             action = SignalAction.HOLD
             confidence = 1.0 - abs(aggregated_score)  # Higher confidence for scores near 0
             logger.info(f"Preliminary: HOLD (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")

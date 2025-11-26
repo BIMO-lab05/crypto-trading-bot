@@ -1,6 +1,13 @@
 """
 Bollinger Bands Calculator
 Purpose: Calculate Bollinger Bands and generate trading signals
+
+Updated: Widened signal zones to generate more BUY/SELL signals
+- Strong BUY zone: 0.1 -> 0.15 (price position)
+- Moderate BUY zone: 0.3 -> 0.35
+- Strong SELL zone: 0.9 -> 0.85
+- Moderate SELL zone: 0.7 -> 0.65
+- HOLD zone narrowed: 0.3-0.7 -> 0.35-0.65
 """
 
 import pandas as pd
@@ -21,8 +28,8 @@ class BollingerBandsCalculator:
 
     Components:
         - Middle Band = SMA(period)
-        - Upper Band = Middle Band + (std_dev × StdDev)
-        - Lower Band = Middle Band - (std_dev × StdDev)
+        - Upper Band = Middle Band + (std_dev x StdDev)
+        - Lower Band = Middle Band - (std_dev x StdDev)
     """
 
     def __init__(self, period: int = 20, std_dev: float = 2.0):
@@ -100,10 +107,12 @@ class BollingerBandsCalculator:
         Returns:
             Tuple of (SignalType, confidence)
 
-        Signal Logic:
-            - Price near/below lower band → BUY (oversold)
-            - Price near/above upper band → SELL (overbought)
-            - Price in middle → HOLD
+        Signal Logic (Updated for more signals):
+            - Price near/below lower band (position <= 0.15) -> Strong BUY
+            - Price in lower zone (position <= 0.35) -> Moderate BUY
+            - Price near/above upper band (position >= 0.85) -> Strong SELL
+            - Price in upper zone (position >= 0.65) -> Moderate SELL
+            - Price in middle (0.35-0.65) -> HOLD (narrowed from 0.3-0.7)
         """
         upper = bb_data["upper_band"]
         middle = bb_data["middle_band"]
@@ -118,36 +127,42 @@ class BollingerBandsCalculator:
         price_position = (price - lower) / band_range
 
         # Generate signal based on price position
-        if price_position <= 0.1:
-            # Price at or below lower band - strong BUY
+        # Updated: Widened BUY/SELL zones for more signals
+        if price_position <= 0.15:
+            # Price at or below lower band - Strong BUY
+            # Updated: Threshold widened from 0.1 to 0.15
             signal = SignalType.BUY
-            confidence = 1.0 - price_position * 5  # Higher confidence at lower band
-            logger.info(f"Price {price:.2f} at lower band {lower:.2f} → BUY (pos: {price_position:.2f})")
+            confidence = 1.0 - price_position * 4  # Higher confidence at lower band
+            logger.info(f"Price {price:.2f} at lower band {lower:.2f} -> Strong BUY (pos: {price_position:.2f})")
 
-        elif price_position <= 0.3:
-            # Price near lower band - moderate BUY
+        elif price_position <= 0.35:
+            # Price in lower zone - Moderate BUY
+            # Updated: Threshold widened from 0.3 to 0.35
             signal = SignalType.BUY
-            confidence = 0.7 - (price_position - 0.1) * 2
-            logger.info(f"Price {price:.2f} near lower band → BUY")
+            confidence = 0.7 - (price_position - 0.15) * 1.5  # Confidence decreases as price rises
+            logger.info(f"Price {price:.2f} in lower zone -> Moderate BUY (pos: {price_position:.2f})")
 
-        elif price_position >= 0.9:
-            # Price at or above upper band - strong SELL
+        elif price_position >= 0.85:
+            # Price at or above upper band - Strong SELL
+            # Updated: Threshold lowered from 0.9 to 0.85
             signal = SignalType.SELL
             confidence = price_position
-            logger.info(f"Price {price:.2f} at upper band {upper:.2f} → SELL (pos: {price_position:.2f})")
+            logger.info(f"Price {price:.2f} at upper band {upper:.2f} -> Strong SELL (pos: {price_position:.2f})")
 
-        elif price_position >= 0.7:
-            # Price near upper band - moderate SELL
+        elif price_position >= 0.65:
+            # Price in upper zone - Moderate SELL
+            # Updated: Threshold lowered from 0.7 to 0.65
             signal = SignalType.SELL
-            confidence = (price_position - 0.7) * 2
-            logger.info(f"Price {price:.2f} near upper band → SELL")
+            confidence = (price_position - 0.65) * 2.5 + 0.4  # Confidence increases as price rises
+            logger.info(f"Price {price:.2f} in upper zone -> Moderate SELL (pos: {price_position:.2f})")
 
         else:
             # Price in middle of bands - HOLD
+            # Updated: Narrowed HOLD zone from 0.3-0.7 to 0.35-0.65
             signal = SignalType.HOLD
             # Lower confidence when price is in middle
             confidence = 0.3
-            logger.debug(f"Price {price:.2f} in middle of bands → HOLD")
+            logger.debug(f"Price {price:.2f} in middle of bands (0.35-0.65) -> HOLD")
 
         # Adjust confidence based on bandwidth (volatility)
         bandwidth = bb_data.get("bandwidth", 0.04)
