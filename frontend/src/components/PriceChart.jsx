@@ -40,8 +40,8 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
 
     return data.map((candle) => {
       // Extract OHLCV data from API response
-      // API returns: [open_time, open, high, low, close, volume, ...]
-      const openTime = Array.isArray(candle) ? candle[0] : candle.open_time
+      // API returns: { timestamp, open, high, low, close, volume, ... }
+      const openTime = Array.isArray(candle) ? candle[0] : (candle.timestamp || candle.open_time)
       const open = parseFloat(Array.isArray(candle) ? candle[1] : candle.open)
       const high = parseFloat(Array.isArray(candle) ? candle[2] : candle.high)
       const low = parseFloat(Array.isArray(candle) ? candle[3] : candle.low)
