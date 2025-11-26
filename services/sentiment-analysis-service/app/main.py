@@ -86,15 +86,13 @@ async def lifespan(app: FastAPI):
 
         # Initialize news fetcher
         news_fetcher = NewsFetcher(
-            api_key=settings.news_api_key,
-            cache_ttl=settings.cache_ttl
+            api_key=settings.news_api_key
         )
         logger.info("News fetcher initialized")
 
         # Initialize Twitter fetcher
         twitter_fetcher = TwitterFetcher(
-            bearer_token=settings.twitter_bearer_token,
-            cache_ttl=settings.cache_ttl
+            bearer_token=settings.twitter_bearer_token
         )
         logger.info("Twitter fetcher initialized")
 

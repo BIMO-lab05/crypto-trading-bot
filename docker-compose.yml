@@ -336,6 +336,9 @@ services:
       - LOG_LEVEL=INFO
       - TRADING_ENGINE_URL=http://trading-engine:8005
       - PORTFOLIO_MANAGER_URL=http://portfolio-manager:8003
+      - REDIS_HOST=crypto-bot-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=redis_dev_password
     volumes:
       - ./services/risk-metrics-service/logs:/app/logs
     restart: unless-stopped

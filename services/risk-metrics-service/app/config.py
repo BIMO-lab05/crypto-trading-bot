@@ -57,8 +57,17 @@ class Settings(BaseSettings):
 
     # Redis Cache Configuration
     redis_enabled: bool = True
-    redis_url: str = "redis://localhost:6379"
+    redis_host: str = "localhost"  # Use REDIS_HOST env var in Docker
+    redis_port: int = 6379
+    redis_password: Optional[str] = None  # Use REDIS_PASSWORD env var in Docker
     redis_cache_ttl: int = 30  # Cache TTL in seconds (30s for high-frequency updates)
+
+    @property
+    def redis_url(self) -> str:
+        """Construct Redis URL from host, port, and optional password"""
+        if self.redis_password:
+            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}"
+        return f"redis://{self.redis_host}:{self.redis_port}"
 
     # HTTP Connection Pool Configuration
     max_http_connections: int = 100  # Maximum concurrent HTTP connections
