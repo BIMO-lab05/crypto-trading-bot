@@ -27,7 +27,7 @@ from app.utils import (
 
 # Import core modules
 from app.config import get_settings
-from app.database import init_database, close_database
+from app.database import init_database, close_database, create_hypertables
 from app.fetcher import create_fetcher
 from app.cache import close_redis
 from app.scheduler import start_scheduler, stop_scheduler
@@ -79,6 +79,13 @@ async def lifespan(app: FastAPI):
     # Initialize database
     await init_database()
     logger.info("Database initialized")
+
+    # Create TimescaleDB hypertables (safe to run multiple times)
+    try:
+        await create_hypertables()
+        logger.info("✅ TimescaleDB hypertables configured")
+    except Exception as e:
+        logger.warning(f"⚠️ TimescaleDB hypertable setup: {e} (may not be TimescaleDB)")
 
     # Initialize data fetcher
     app.state.fetcher = create_fetcher()

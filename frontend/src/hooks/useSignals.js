@@ -9,7 +9,7 @@ export function useSignal(symbol, interval = 60) {
   return useQuery({
     queryKey: ['signal', symbol, interval],
     queryFn: () => tradingAPI.getSignal(symbol, interval),
-    refetchInterval: 10000, // Refetch every 10 seconds
+    refetchInterval: 5000, // Refetch every 5 seconds
     enabled: !!symbol, // Only run if symbol is provided
   })
 }
@@ -31,7 +31,7 @@ export function useMultipleSignals(symbols = [], interval = 60) {
         return acc
       }, {})
     },
-    refetchInterval: 10000, // Refetch every 10 seconds
+    refetchInterval: 5000, // Refetch every 5 seconds
     enabled: symbols.length > 0,
   })
 }

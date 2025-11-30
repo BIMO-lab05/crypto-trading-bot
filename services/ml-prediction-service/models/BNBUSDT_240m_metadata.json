@@ -1,0 +1,42 @@
+{
+  "symbol": "BNBUSDT",
+  "interval": "240",
+  "model_version": "v20251127_225459",
+  "last_trained": "2025-11-27T22:54:59.540034",
+  "training_stats": {
+    "train_samples": 89,
+    "test_samples": 23,
+    "final_train_loss": 0.014264870434999466,
+    "final_val_loss": 0.009462738409638405,
+    "mae": 0.06642658239802392,
+    "rmse": 0.08111408343860894,
+    "r2_score": -1.948584324422769
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "return_1",
+    "return_5",
+    "return_10",
+    "price_momentum_5",
+    "price_momentum_10",
+    "sma_7",
+    "sma_14",
+    "sma_30",
+    "ema_7",
+    "ema_14",
+    "price_vs_sma7",
+    "price_vs_sma14",
+    "high_low_range",
+    "volatility_10",
+    "volatility_20",
+    "volume_sma_7",
+    "volume_ratio",
+    "rsi_14"
+  ],
+  "sequence_length": 60,
+  "prediction_horizon": 5
+}

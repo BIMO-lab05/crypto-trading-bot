@@ -616,11 +616,11 @@ async def get_order_history(
 
 # ============================================================================
 # MARKET DATA ENDPOINTS
-# Rate Limit: 30 requests/minute - higher limit for frequently accessed data
+# Rate Limit: 200 requests/minute - increased for multi-symbol trading (20 symbols)
 # ============================================================================
 
 @app.get("/api/v1/market/ticker", tags=["Market Data"])
-@limiter.limit("30/minute")
+@limiter.limit("200/minute")
 async def get_ticker(
     request: Request,
     category: str = "linear",
@@ -630,7 +630,7 @@ async def get_ticker(
     """
     Get latest ticker data
     Returns current market ticker information
-    Rate limited to 30 requests/minute
+    Rate limited to 200 requests/minute (increased for multi-symbol trading)
     """
     try:
         logger.debug(
@@ -645,7 +645,7 @@ async def get_ticker(
 
 
 @app.get("/api/v1/market/kline", tags=["Market Data"])
-@limiter.limit("30/minute")
+@limiter.limit("200/minute")
 async def get_kline(
     request: Request,
     category: str = "linear",
@@ -657,7 +657,7 @@ async def get_kline(
     """
     Get kline/candlestick data
     Returns historical price candles
-    Rate limited to 30 requests/minute
+    Rate limited to 200 requests/minute (increased for multi-symbol trading)
     """
     try:
         logger.debug(
@@ -682,7 +682,7 @@ async def get_kline(
 
 
 @app.get("/api/v1/market/orderbook", tags=["Market Data"])
-@limiter.limit("30/minute")
+@limiter.limit("200/minute")
 async def get_orderbook(
     request: Request,
     category: str = "linear",
@@ -693,7 +693,7 @@ async def get_orderbook(
     """
     Get orderbook depth
     Returns current market orderbook (bids/asks)
-    Rate limited to 30 requests/minute
+    Rate limited to 200 requests/minute (increased for multi-symbol trading)
     """
     try:
         logger.debug(

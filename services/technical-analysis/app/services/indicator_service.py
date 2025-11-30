@@ -14,7 +14,11 @@ from app.indicators import (
     MACDCalculator,
     BollingerBandsCalculator,
     SMACalculator,
-    EMACalculator
+    EMACalculator,
+    RSIDivergenceCalculator,
+    IchimokuCalculator,
+    EnhancedSqueezeMomentum,
+    ADXCalculator
 )
 from app.indicators.trend_filter import TrendFilter
 from app.indicators.volume_confirmation import VolumeConfirmation
@@ -310,6 +314,189 @@ class IndicatorService:
             smooth_d=smooth_d
         )
         result = stoch.calculate(highs, lows, closes)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "data": result
+        }
+
+    @staticmethod
+    async def calculate_rsi_divergence(
+        symbol: str,
+        interval: str,
+        period: int,
+        lookback: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate RSI Divergence indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        if len(df) < period + lookback:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {period + lookback} candles, got {len(df)}"
+            )
+
+        calculator = RSIDivergenceCalculator(rsi_period=period, lookback=lookback)
+        result = calculator.calculate_with_signal(df)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "data": result
+        }
+
+    @staticmethod
+    async def calculate_ichimoku(
+        symbol: str,
+        interval: str,
+        tenkan_period: int,
+        kijun_period: int,
+        senkou_b_period: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate Ichimoku Cloud indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        min_required = senkou_b_period + 26
+        if len(df) < min_required:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {min_required} candles, got {len(df)}"
+            )
+
+        calculator = IchimokuCalculator(
+            tenkan_period=tenkan_period,
+            kijun_period=kijun_period,
+            senkou_b_period=senkou_b_period
+        )
+        result = calculator.calculate_with_signal(df)
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "data": result
+        }
+
+    @staticmethod
+    async def calculate_enhanced_sqzmom(
+        symbol: str,
+        interval: str,
+        bb_period: int,
+        bb_mult: float,
+        kc_period: int,
+        kc_mult: float,
+        mom_period: int,
+        limit: int
+    ) -> Dict[str, Any]:
+        """Calculate Enhanced Squeeze Momentum indicator"""
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        min_required = max(bb_period, kc_period) + mom_period
+        if len(df) < min_required:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {min_required} candles, got {len(df)}"
+            )
+
+        calculator = EnhancedSqueezeMomentum(
+            bb_length=bb_period,
+            bb_mult=bb_mult,
+            kc_length=kc_period,
+            kc_mult=kc_mult,
+            momentum_length=mom_period
+        )
+        result_df = calculator.calculate(df)
+
+        if result_df is None or result_df.empty:
+            return {
+                "timestamp": int(df.index[-1].timestamp() * 1000),
+                "data": {"error": "Calculation failed"}
+            }
+
+        # Get the latest values
+        latest = result_df.iloc[-1]
+        result = {
+            "squeeze_on": bool(latest.get('squeeze_on', False)),
+            "squeeze_off": bool(latest.get('squeeze_off', False)),
+            "momentum": float(latest.get('momentum', 0)),
+            "momentum_color": str(latest.get('momentum_color', 'gray')),
+            "squeeze_firing": bool(latest.get('squeeze_firing', False)),
+            "signal": str(latest.get('signal', 'HOLD')),
+            "confidence": float(latest.get('confidence', 0.5))
+        }
+
+        return {
+            "timestamp": int(df.index[-1].timestamp() * 1000),
+            "data": result
+        }
+
+    @staticmethod
+    async def calculate_adx(
+        symbol: str,
+        interval: str,
+        period: int,
+        trending_threshold: float,
+        weak_trend_threshold: float,
+        strong_trend_threshold: float,
+        limit: int
+    ) -> Dict[str, Any]:
+        """
+        Calculate ADX (Average Directional Index) indicator
+
+        ADX measures trend strength and provides market regime classification:
+        - STRONG_TREND: ADX >= strong_trend_threshold (default 30)
+        - TRENDING: ADX >= trending_threshold (default 25)
+        - WEAK_TREND: ADX >= weak_trend_threshold (default 20)
+        - RANGING: ADX < weak_trend_threshold
+
+        Args:
+            symbol: Trading symbol (e.g., BTCUSDT)
+            interval: Candlestick interval (e.g., "60" for 1 hour)
+            period: ADX calculation period (default 14)
+            trending_threshold: ADX value for TRENDING classification (default 25)
+            weak_trend_threshold: ADX value for WEAK_TREND classification (default 20)
+            strong_trend_threshold: ADX value for STRONG_TREND classification (default 30)
+            limit: Number of candles to fetch
+
+        Returns:
+            Dictionary containing ADX data, market regime, and trend direction
+        """
+        fetcher = get_fetcher()
+        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit)
+
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No data available")
+
+        # ADX needs period * 2 + 1 candles for proper smoothing
+        min_required = period * 2 + 1
+        if len(df) < min_required:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {min_required} candles, got {len(df)}"
+            )
+
+        highs = df['high'].tolist()
+        lows = df['low'].tolist()
+        closes = df['close'].tolist()
+
+        calculator = ADXCalculator(
+            period=period,
+            trending_threshold=trending_threshold,
+            weak_trend_threshold=weak_trend_threshold,
+            strong_trend_threshold=strong_trend_threshold
+        )
+        result = calculator.calculate(highs, lows, closes)
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),

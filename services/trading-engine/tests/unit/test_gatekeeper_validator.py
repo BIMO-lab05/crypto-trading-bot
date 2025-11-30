@@ -53,9 +53,9 @@ class TestTrendGatekeeper:
         assert blocked is False
 
     def test_block_buy_in_bearish_trend(self, gatekeeper):
-        """Test blocking BUY signal in BEARISH trend"""
+        """Test blocking BUY signal in very strong BEARISH trend (>=0.75 confidence)"""
         trend_filter = Mock(spec=IndicatorSignal)
-        trend_filter.confidence = 0.9
+        trend_filter.confidence = 0.9  # Very strong trend
         trend_filter.metadata = {"trend": "BEARISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
@@ -65,15 +65,15 @@ class TestTrendGatekeeper:
         )
 
         assert action == SignalAction.HOLD  # Changed to HOLD
-        assert conf == 0.8 * 0.2  # 80% penalty
+        assert conf == 0.8 * 0.3  # 70% penalty (0.3x multiplier for blocked signals)
         assert blocked is True
         assert "Counter-trend" in reason
         assert gatekeeper.blocked_count == 1
 
     def test_block_sell_in_bullish_trend(self, gatekeeper):
-        """Test blocking SELL signal in BULLISH trend"""
+        """Test blocking SELL signal in very strong BULLISH trend (>=0.75 confidence)"""
         trend_filter = Mock(spec=IndicatorSignal)
-        trend_filter.confidence = 0.9
+        trend_filter.confidence = 0.9  # Very strong trend
         trend_filter.metadata = {"trend": "BULLISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
@@ -83,7 +83,7 @@ class TestTrendGatekeeper:
         )
 
         assert action == SignalAction.HOLD  # Changed to HOLD
-        assert conf == 0.8 * 0.2  # 80% penalty
+        assert conf == 0.8 * 0.3  # 70% penalty (0.3x multiplier for blocked signals)
         assert blocked is True
         assert "Counter-trend" in reason
         assert gatekeeper.blocked_count == 1
@@ -124,7 +124,7 @@ class TestTrendGatekeeper:
         assert gatekeeper.passed_count == 1
 
     def test_neutral_trend_reduces_confidence(self, gatekeeper):
-        """Test that NEUTRAL trend reduces confidence"""
+        """Test that NEUTRAL trend reduces confidence (10% penalty)"""
         trend_filter = Mock(spec=IndicatorSignal)
         trend_filter.confidence = 0.8
         trend_filter.metadata = {"trend": "NEUTRAL"}
@@ -136,7 +136,7 @@ class TestTrendGatekeeper:
         )
 
         assert action == SignalAction.BUY  # Unchanged
-        assert conf == 1.0 * 0.7  # 30% penalty
+        assert conf == 1.0 * 0.9  # 10% penalty (RESEARCH-BASED 2025-11-26)
         assert blocked is False
         assert "Neutral trend" in reason
         assert gatekeeper.passed_count == 1
@@ -240,14 +240,14 @@ class TestVolumeValidator:
         assert validator.strength_stats["MODERATE"] == 1
 
     def test_validate_volume_not_confirmed_weak(self, validator):
-        """Test validation with NOT CONFIRMED + WEAK volume (50% penalty)"""
+        """Test validation with NOT CONFIRMED + WEAK volume (40% penalty - RESEARCH-BASED)"""
         volume_conf = Mock(spec=IndicatorSignal)
         volume_conf.metadata = {"confirmed": False, "strength": "WEAK"}
 
         conf, penalty, reason = validator.validate_volume(0.8, volume_conf)
 
-        assert conf == pytest.approx(0.40)  # 0.8 * 0.5 = 50% penalty
-        assert penalty == 0.5
+        assert conf == pytest.approx(0.48)  # 0.8 * 0.6 = 40% penalty (RESEARCH-BASED 2025-11-26)
+        assert penalty == 0.6
         assert "Weak volume" in reason
         assert validator.rejected_count == 1
         assert validator.strength_stats["WEAK"] == 1
@@ -344,20 +344,20 @@ class TestGatekeeperValidatorIntegration:
         assert penalty == 1.0
 
     def test_pipeline_gatekeeper_blocks(self):
-        """Test pipeline where gatekeeper blocks signal"""
+        """Test pipeline where gatekeeper blocks signal in very strong counter-trend"""
         gatekeeper = TrendGatekeeper()
         validator = VolumeValidator()
 
-        # Setup trend filter (BEARISH)
+        # Setup trend filter (BEARISH with very high confidence)
         trend_filter = Mock(spec=IndicatorSignal)
-        trend_filter.confidence = 0.9
+        trend_filter.confidence = 0.9  # Very strong trend (>=0.75)
         trend_filter.metadata = {"trend": "BEARISH"}
 
         # Setup volume confirmation (CONFIRMED + STRONG)
         volume_conf = Mock(spec=IndicatorSignal)
         volume_conf.metadata = {"confirmed": True, "strength": "STRONG"}
 
-        # Pass through gatekeeper (should block BUY in BEARISH)
+        # Pass through gatekeeper (should block BUY in very strong BEARISH)
         action, conf, blocked, _ = gatekeeper.check_signal(
             SignalAction.BUY,
             0.8,
@@ -365,17 +365,17 @@ class TestGatekeeperValidatorIntegration:
         )
 
         assert action == SignalAction.HOLD  # Blocked
-        assert conf == pytest.approx(0.16)  # 80% penalty
+        assert conf == pytest.approx(0.24)  # 70% penalty (0.8 * 0.3)
         assert blocked is True
 
         # Pass through validator (STRONG volume but doesn't matter - already blocked)
         conf, penalty, _ = validator.validate_volume(conf, volume_conf)
 
-        assert conf == pytest.approx(0.16)  # Still low from gatekeeper penalty
+        assert conf == pytest.approx(0.24)  # Still low from gatekeeper penalty
         assert penalty == 1.0  # STRONG volume = no penalty
 
     def test_pipeline_validator_penalizes_weak(self):
-        """Test pipeline where validator applies WEAK volume penalty (50%)"""
+        """Test pipeline where validator applies WEAK volume penalty (40% - RESEARCH-BASED)"""
         gatekeeper = TrendGatekeeper()
         validator = VolumeValidator()
 
@@ -399,11 +399,11 @@ class TestGatekeeperValidatorIntegration:
         assert conf == 0.8
         assert not blocked
 
-        # Pass through validator (WEAK = 50% penalty)
+        # Pass through validator (WEAK = 40% penalty - RESEARCH-BASED 2025-11-26)
         conf, penalty, _ = validator.validate_volume(conf, volume_conf)
 
-        assert conf == pytest.approx(0.40)  # 0.8 * 0.5 = 50% penalty
-        assert penalty == 0.5
+        assert conf == pytest.approx(0.48)  # 0.8 * 0.6 = 40% penalty
+        assert penalty == 0.6
 
     def test_pipeline_both_penalize_minimal(self):
         """Test pipeline where both gatekeeper and validator reduce confidence (MINIMAL volume)"""
@@ -419,7 +419,7 @@ class TestGatekeeperValidatorIntegration:
         volume_conf = Mock(spec=IndicatorSignal)
         volume_conf.metadata = {"confirmed": False, "strength": "MINIMAL"}
 
-        # Pass through gatekeeper (NEUTRAL trend = 30% penalty)
+        # Pass through gatekeeper (NEUTRAL trend = 10% penalty - RESEARCH-BASED)
         action, conf, blocked, _ = gatekeeper.check_signal(
             SignalAction.BUY,
             1.0,
@@ -427,17 +427,17 @@ class TestGatekeeperValidatorIntegration:
         )
 
         assert action == SignalAction.BUY
-        assert conf == 0.7  # 1.0 * 0.7 (30% penalty)
+        assert conf == 0.9  # 1.0 * 0.9 (10% penalty - RESEARCH-BASED 2025-11-26)
         assert not blocked
 
         # Pass through validator (MINIMAL = 70% penalty)
         conf, penalty, _ = validator.validate_volume(conf, volume_conf)
 
-        assert conf == pytest.approx(0.21)  # 0.7 * 0.3 (combined penalties)
+        assert conf == pytest.approx(0.27)  # 0.9 * 0.3 (combined penalties)
         assert penalty == 0.3
 
     def test_pipeline_both_penalize_moderate(self):
-        """Test pipeline with NEUTRAL trend + MODERATE unconfirmed volume (30% penalty each)"""
+        """Test pipeline with NEUTRAL trend + MODERATE unconfirmed volume"""
         gatekeeper = TrendGatekeeper()
         validator = VolumeValidator()
 
@@ -450,7 +450,7 @@ class TestGatekeeperValidatorIntegration:
         volume_conf = Mock(spec=IndicatorSignal)
         volume_conf.metadata = {"confirmed": False, "strength": "MODERATE"}
 
-        # Pass through gatekeeper
+        # Pass through gatekeeper (NEUTRAL = 10% penalty - RESEARCH-BASED)
         action, conf, blocked, _ = gatekeeper.check_signal(
             SignalAction.BUY,
             1.0,
@@ -458,11 +458,11 @@ class TestGatekeeperValidatorIntegration:
         )
 
         assert action == SignalAction.BUY
-        assert conf == 0.7  # 1.0 * 0.7 (30% penalty)
+        assert conf == 0.9  # 1.0 * 0.9 (10% penalty - RESEARCH-BASED 2025-11-26)
         assert not blocked
 
         # Pass through validator (MODERATE unconfirmed = 30% penalty)
         conf, penalty, _ = validator.validate_volume(conf, volume_conf)
 
-        assert conf == pytest.approx(0.49)  # 0.7 * 0.7 (both 30% penalties)
+        assert conf == pytest.approx(0.63)  # 0.9 * 0.7 (combined penalties)
         assert penalty == 0.7

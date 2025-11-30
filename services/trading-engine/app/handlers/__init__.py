@@ -35,6 +35,9 @@ from .phase1 import (
     get_latest_phase1_signal
 )
 
+# Trade history endpoints
+from .trades import get_trade_history
+
 __all__ = [
     # Health
     "health_check",
@@ -56,4 +59,6 @@ __all__ = [
     "get_phase1_metrics_endpoint",
     "get_phase1_health",
     "get_latest_phase1_signal",
+    # Trade History
+    "get_trade_history",
 ]

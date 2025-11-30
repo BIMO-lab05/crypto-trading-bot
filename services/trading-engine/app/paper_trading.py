@@ -26,13 +26,14 @@ class PaperTradingEngine:
     2. Simulated order execution
     3. Commission simulation
     4. Position tracking
+    5. Balance sync with database positions on startup
     """
 
     def __init__(self):
         """Initialize paper trading engine with database persistence"""
         self.settings = get_settings()
-        self.balance = Decimal(str(self.settings.paper_initial_balance))
-        self.initial_balance = self.balance
+        self.initial_balance = Decimal(str(self.settings.paper_initial_balance))
+        self.balance = self.initial_balance  # Will be adjusted in sync_balance_with_positions
         self.commission_pct = Decimal(str(self.settings.paper_commission_pct / 100))
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
@@ -42,9 +43,33 @@ class PaperTradingEngine:
         self.portfolio_repo = get_portfolio_repository()
 
         logger.info("Paper Trading Engine initialized")
-        logger.info(f"  Initial balance: ${self.balance}")
+        logger.info(f"  Initial balance: ${self.initial_balance}")
         logger.info(f"  Commission: {self.settings.paper_commission_pct}%")
         logger.info(f"  Database persistence: ENABLED")
+
+    def sync_balance_with_positions(self):
+        """
+        Sync cash balance with open positions loaded from database.
+        Call this after positions are loaded from database to deduct their cost.
+        """
+        open_positions = self.position_manager.get_open_positions()
+        if not open_positions:
+            logger.info("No open positions to sync balance with")
+            return
+
+        # Calculate total cost of open positions (entry price * quantity + commission)
+        total_position_cost = Decimal('0')
+        for pos in open_positions:
+            position_value = pos.entry_price * pos.quantity
+            commission = position_value * self.commission_pct
+            total_position_cost += position_value + commission
+
+        # Adjust balance
+        self.balance = self.initial_balance - total_position_cost
+
+        logger.info(f"Balance synced with {len(open_positions)} open positions:")
+        logger.info(f"  Total position cost: ${total_position_cost:.2f}")
+        logger.info(f"  Adjusted balance: ${self.balance:.2f}")
 
     def get_balance(self) -> Decimal:
         """Get current account balance"""
@@ -229,28 +254,44 @@ class PaperTradingEngine:
         return True, None
 
     def get_performance_summary(self) -> dict:
-        """Get performance summary"""
-        total_equity = self.get_total_equity()
+        """Get performance summary with accurate unrealized PnL"""
+        # Get unrealized PnL from open positions
+        unrealized_pnl = self.position_manager.get_total_unrealized_pnl()
+
+        # Total equity = cash balance + unrealized PnL
+        total_equity = self.balance + unrealized_pnl
         total_pnl = total_equity - self.initial_balance
         roi = (total_pnl / self.initial_balance * 100) if self.initial_balance > 0 else 0
 
+        # Calculate realized PnL from closed positions
         closed_positions = self.position_manager.get_closed_positions()
+        realized_pnl = sum(pos.realized_pnl for pos in closed_positions)
         winning_trades = sum(1 for pos in closed_positions if pos.realized_pnl > 0)
         losing_trades = sum(1 for pos in closed_positions if pos.realized_pnl < 0)
         total_trades = len(closed_positions)
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
 
+        # Get open positions for exposure calculation
+        open_positions = self.position_manager.get_open_positions()
+        total_exposure = sum(
+            float(pos.entry_price * pos.quantity)
+            for pos in open_positions
+        )
+
         return {
             "initial_balance": float(self.initial_balance),
             "current_balance": float(self.balance),
             "total_equity": float(total_equity),
+            "total_exposure": float(total_exposure),
+            "unrealized_pnl": float(unrealized_pnl),
+            "realized_pnl": float(realized_pnl),
             "total_pnl": float(total_pnl),
             "roi": round(float(roi), 2),
             "total_trades": total_trades,
             "winning_trades": winning_trades,
             "losing_trades": losing_trades,
             "win_rate": round(win_rate, 2),
-            "open_positions": len(self.position_manager.get_open_positions())
+            "open_positions": len(open_positions)
         }
 
 

@@ -4,9 +4,27 @@ Analyzes text sentiment using lexicon-based and ML approaches
 """
 
 import logging
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List, NamedTuple
 from datetime import datetime
+from dataclasses import dataclass
 import re
+
+
+@dataclass
+class SentimentResult:
+    """
+    Structured result from sentiment analysis
+
+    Attributes:
+        score: Sentiment score from -1.0 (bearish) to 1.0 (bullish)
+        label: Sentiment label (POSITIVE, NEGATIVE, NEUTRAL)
+        confidence: Confidence in the analysis (0.0 to 1.0)
+        method: Analysis method used (lexicon, ml, finbert)
+    """
+    score: float
+    label: str
+    confidence: float = 0.5
+    method: str = "lexicon"
 
 # Try to import transformers for advanced sentiment analysis
 try:
@@ -33,25 +51,51 @@ class SentimentAnalyzer:
         Args:
             use_ml: Whether to use ML-based sentiment analysis (requires transformers)
         """
-        self.use_ml = use_ml and TRANSFORMERS_AVAILABLE
+        import os
+        import threading
+
+        # Initialize lexicon keywords first (always available)
+        self._init_lexicon_keywords()
+
+        # Check environment variable to skip ML for faster startup
+        skip_ml = os.environ.get('SKIP_ML_MODEL', 'false').lower() == 'true'
+        self.use_ml = use_ml and TRANSFORMERS_AVAILABLE and not skip_ml
 
         # Initialize ML model if available
         self.ml_analyzer = None
-        if self.use_ml:
-            try:
-                # Use FinBERT for financial sentiment analysis
-                logger.info("Loading sentiment analysis model...")
-                self.ml_analyzer = pipeline(
-                    "sentiment-analysis",
-                    model="ProsusAI/finbert",
-                    max_length=512,
-                    truncation=True
-                )
-                logger.info("Sentiment analysis model loaded successfully")
-            except Exception as e:
-                logger.warning(f"Failed to load ML model: {e}. Falling back to lexicon-based analysis.")
-                self.use_ml = False
+        self._ml_loading = False
 
+        if self.use_ml:
+            # Load model in background thread to not block startup
+            self._ml_loading = True
+            threading.Thread(target=self._load_ml_model, daemon=True).start()
+            logger.info("ML model loading started in background thread")
+        else:
+            if skip_ml:
+                logger.info("ML model loading skipped (SKIP_ML_MODEL=true)")
+            else:
+                logger.info("Using lexicon-based analysis (transformers not available)")
+
+    def _load_ml_model(self):
+        """Load ML model in background thread"""
+        try:
+            # Use FinBERT for financial sentiment analysis
+            logger.info("Loading sentiment analysis model (FinBERT)...")
+            self.ml_analyzer = pipeline(
+                "sentiment-analysis",
+                model="ProsusAI/finbert",
+                max_length=512,
+                truncation=True
+            )
+            logger.info("Sentiment analysis model loaded successfully")
+        except Exception as e:
+            logger.warning(f"Failed to load ML model: {e}. Using lexicon-based analysis.")
+            self.use_ml = False
+        finally:
+            self._ml_loading = False
+
+    def _init_lexicon_keywords(self):
+        """Initialize lexicon-based sentiment keywords"""
         # Lexicon-based sentiment keywords
         self.bullish_keywords = {
             # Positive price action

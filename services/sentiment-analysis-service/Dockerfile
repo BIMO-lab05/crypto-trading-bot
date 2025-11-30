@@ -42,7 +42,11 @@ ENV PYTHONUNBUFFERED=1 \
     PATH=/home/appuser/.local/bin:$PATH \
     SERVICE_NAME=sentiment-analysis-service \
     SERVICE_PORT=8008 \
-    TRANSFORMERS_CACHE=/app/cache/huggingface
+    # HuggingFace cache directories - all pointing to /app/cache/huggingface
+    HF_HOME=/app/cache/huggingface \
+    HF_HUB_CACHE=/app/cache/huggingface/hub \
+    TRANSFORMERS_CACHE=/app/cache/huggingface \
+    XDG_CACHE_HOME=/app/cache
 
 WORKDIR /app
 
@@ -58,7 +62,9 @@ COPY --from=builder /root/.local /home/appuser/.local
 COPY --chown=appuser:appuser app/ ./app/
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /app/logs /app/cache/huggingface && chown -R appuser:appuser /app
+# Include HuggingFace cache directories and fallback .cache directory
+RUN mkdir -p /app/logs /app/cache/huggingface/hub /home/appuser/.cache && \
+    chown -R appuser:appuser /app /home/appuser/.cache
 
 USER appuser
 

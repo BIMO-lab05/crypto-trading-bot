@@ -97,8 +97,8 @@ async def get_atr(
 
     Returns volatility-based risk management levels:
     - ATR: Average True Range value
-    - Stop-loss: Entry ± (2 × ATR)
-    - Take-profit: Entry ± (4 × ATR)
+    - Stop-loss: Entry +/- (2 x ATR)
+    - Take-profit: Entry +/- (4 x ATR)
     - Volatility classification
     """
     try:
@@ -158,4 +158,179 @@ async def get_stochastic(
         raise
     except Exception as e:
         logger.error(f"Error calculating Stochastic for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def get_rsi_divergence(
+    symbol: str,
+    interval: str = Query(default="60"),
+    period: int = Query(default=14, ge=7, le=30, description="RSI period"),
+    lookback: int = Query(default=20, ge=10, le=50, description="Lookback for divergence detection"),
+    limit: int = Query(default=200, ge=100, le=500)
+):
+    """
+    Calculate RSI Divergence
+
+    Detects bullish and bearish divergences:
+    - Bullish: Price makes lower low, RSI makes higher low
+    - Bearish: Price makes higher high, RSI makes lower high
+    """
+    try:
+        data = await IndicatorService.calculate_rsi_divergence(
+            symbol, interval, period, lookback, limit
+        )
+        return {
+            "success": True,
+            "symbol": symbol,
+            "interval": interval,
+            "timestamp": data["timestamp"],
+            "data": data["data"],
+            "parameters": {
+                "period": period,
+                "lookback": lookback
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error calculating RSI Divergence for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def get_ichimoku(
+    symbol: str,
+    interval: str = Query(default="60"),
+    tenkan_period: int = Query(default=9, ge=5, le=20, description="Tenkan-sen (conversion) period"),
+    kijun_period: int = Query(default=26, ge=20, le=50, description="Kijun-sen (base) period"),
+    senkou_b_period: int = Query(default=52, ge=40, le=100, description="Senkou Span B period"),
+    limit: int = Query(default=200, ge=100, le=500)
+):
+    """
+    Calculate Ichimoku Cloud
+
+    Returns all 5 components:
+    - Tenkan-sen (Conversion Line): Short-term trend
+    - Kijun-sen (Base Line): Medium-term trend
+    - Senkou Span A: Leading span A (cloud boundary)
+    - Senkou Span B: Leading span B (cloud boundary)
+    - Chikou Span: Lagging span (current close shifted back)
+    """
+    try:
+        data = await IndicatorService.calculate_ichimoku(
+            symbol, interval, tenkan_period, kijun_period, senkou_b_period, limit
+        )
+        return {
+            "success": True,
+            "symbol": symbol,
+            "interval": interval,
+            "timestamp": data["timestamp"],
+            "data": data["data"],
+            "parameters": {
+                "tenkan_period": tenkan_period,
+                "kijun_period": kijun_period,
+                "senkou_b_period": senkou_b_period
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error calculating Ichimoku for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def get_enhanced_sqzmom(
+    symbol: str,
+    interval: str = Query(default="60"),
+    bb_period: int = Query(default=20, ge=10, le=50, description="Bollinger Bands period"),
+    bb_mult: float = Query(default=2.0, ge=1.0, le=3.0, description="Bollinger Bands multiplier"),
+    kc_period: int = Query(default=20, ge=10, le=50, description="Keltner Channel period"),
+    kc_mult: float = Query(default=1.5, ge=1.0, le=3.0, description="Keltner Channel multiplier"),
+    mom_period: int = Query(default=12, ge=5, le=30, description="Momentum period"),
+    limit: int = Query(default=200, ge=100, le=500)
+):
+    """
+    Calculate Enhanced Squeeze Momentum
+
+    Identifies squeeze conditions and momentum direction:
+    - Squeeze ON: BB inside KC (low volatility compression)
+    - Squeeze OFF: BB outside KC (volatility expansion)
+    - Momentum: Linear regression based momentum histogram
+    - Firing: First bar after squeeze releases
+    """
+    try:
+        data = await IndicatorService.calculate_enhanced_sqzmom(
+            symbol, interval, bb_period, bb_mult, kc_period, kc_mult, mom_period, limit
+        )
+        return {
+            "success": True,
+            "symbol": symbol,
+            "interval": interval,
+            "timestamp": data["timestamp"],
+            "data": data["data"],
+            "parameters": {
+                "bb_period": bb_period,
+                "bb_mult": bb_mult,
+                "kc_period": kc_period,
+                "kc_mult": kc_mult,
+                "mom_period": mom_period
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error calculating Enhanced SQZMOM for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def get_adx(
+    symbol: str,
+    interval: str = Query(default="60"),
+    period: int = Query(default=14, ge=7, le=30, description="ADX period"),
+    trending_threshold: float = Query(default=25.0, ge=15.0, le=40.0, description="ADX threshold for TRENDING"),
+    weak_trend_threshold: float = Query(default=20.0, ge=10.0, le=30.0, description="ADX threshold for WEAK_TREND"),
+    strong_trend_threshold: float = Query(default=30.0, ge=25.0, le=50.0, description="ADX threshold for STRONG_TREND"),
+    limit: int = Query(default=100, ge=50, le=500)
+):
+    """
+    Calculate ADX (Average Directional Index)
+
+    Measures trend strength and provides market regime classification:
+    - ADX: Average Directional Index value (0-100)
+    - +DI: Positive Directional Indicator (upward movement strength)
+    - -DI: Negative Directional Indicator (downward movement strength)
+    - Market Regime Classification:
+      - STRONG_TREND: ADX >= strong_trend_threshold (default 30)
+      - TRENDING: ADX >= trending_threshold (default 25)
+      - WEAK_TREND: ADX >= weak_trend_threshold (default 20)
+      - RANGING: ADX < weak_trend_threshold
+    - Trend Direction: BULLISH (+DI > -DI), BEARISH (-DI > +DI), NEUTRAL
+
+    Trading Applications:
+    - Use trend-following strategies when ADX > 25
+    - Use mean-reversion strategies when ADX < 20
+    - +DI > -DI suggests bullish momentum
+    - -DI > +DI suggests bearish momentum
+    """
+    try:
+        data = await IndicatorService.calculate_adx(
+            symbol, interval, period, trending_threshold,
+            weak_trend_threshold, strong_trend_threshold, limit
+        )
+        return {
+            "success": True,
+            "symbol": symbol,
+            "interval": interval,
+            "timestamp": data["timestamp"],
+            "data": data["data"],
+            "parameters": {
+                "period": period,
+                "trending_threshold": trending_threshold,
+                "weak_trend_threshold": weak_trend_threshold,
+                "strong_trend_threshold": strong_trend_threshold
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error calculating ADX for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

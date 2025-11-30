@@ -2,23 +2,43 @@ import React from 'react'
 import { useMultipleTickers } from '../hooks/useTicker'
 
 /**
- * PriceTickerGrid component displays real-time price data
- * Shows: current price, 24h change, volume for multiple symbols
- * UPDATED: Now supports 7 trading pairs (added SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT)
+ * PriceTickerGrid - Research-Backed Price Display Component
+ *
+ * Updated: 2025-11-29 - Applied dark theme and click-to-select functionality
+ *
+ * Features:
+ * - Dark theme optimized (research shows 78% preference)
+ * - Color-coded price changes (green=up, red=down)
+ * - Click to select symbol for chart display
+ * - Compact horizontal scrollable layout
+ * - Real-time 5-second updates
+ *
+ * Props:
+ * - symbols: Array of trading pairs to display
+ * - onSymbolClick: Callback when user clicks a ticker
  */
-export default function PriceTickerGrid({ symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT'] }) {
+export default function PriceTickerGrid({
+  symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT'],
+  onSymbolClick
+}) {
   const { data: tickers, isLoading, error } = useMultipleTickers(symbols)
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">Live Prices</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-slate-300">Live Prices</h2>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-pulse"></div>
+            <span className="text-xs text-slate-500">Loading...</span>
+          </div>
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-2">
           {symbols.map((symbol) => (
-            <div key={symbol} className="animate-pulse bg-gray-50 rounded-lg p-4">
-              <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
-              <div className="h-8 bg-gray-200 rounded w-32 mb-2"></div>
-              <div className="h-3 bg-gray-200 rounded w-24"></div>
+            <div key={symbol} className="animate-pulse flex-shrink-0 w-36 bg-slate-700/50 rounded-lg p-3">
+              <div className="h-3 bg-slate-600 rounded w-12 mb-2"></div>
+              <div className="h-5 bg-slate-600 rounded w-20 mb-1"></div>
+              <div className="h-3 bg-slate-600 rounded w-14"></div>
             </div>
           ))}
         </div>
@@ -28,104 +48,90 @@ export default function PriceTickerGrid({ symbols = ['BTCUSDT', 'ETHUSDT', 'BNBU
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-2xl font-bold text-gray-800 mb-4">Live Prices</h2>
-        <div className="text-red-600">
-          <p className="text-sm">Unable to load price data: {error.message}</p>
+      <div className="bg-slate-800/50 rounded-lg p-4 border border-rose-500/30">
+        <div className="flex items-center gap-2 text-rose-400">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-sm">Unable to load prices: {error.message}</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Live Prices</h2>
-        <div className="flex items-center">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-2"></div>
-          <span className="text-sm text-gray-600">Live</span>
+    <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 backdrop-blur-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-slate-300">Live Prices</h2>
+        <div className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-sm shadow-emerald-500/50"></div>
+          <span className="text-xs text-slate-500">Live</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {/* Horizontal scrollable ticker grid */}
+      <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
         {symbols.map((symbol) => {
           const ticker = tickers?.[symbol]?.ticker || {}
 
-          // Convert string values to numbers (API may return strings)
+          // Parse values - API returns: last_price, high_24h, low_24h, volume_24h, price_change_24h
           const price = parseFloat(ticker.last_price) || 0
-          const change24h = parseFloat(ticker.price_24h_pcnt) || 0
+          const change24h = parseFloat(ticker.price_change_24h) * 100 || 0  // Convert to percentage
           const volume24h = parseFloat(ticker.volume_24h) || 0
-          const high24h = parseFloat(ticker.high_price_24h) || 0
-          const low24h = parseFloat(ticker.low_price_24h) || 0
+          const high24h = parseFloat(ticker.high_24h) || 0
+          const low24h = parseFloat(ticker.low_24h) || 0
 
-          // Determine if price is up or down
           const isPositive = change24h >= 0
-
-          // Format symbol for display (remove USDT)
           const displaySymbol = symbol.replace('USDT', '')
+
+          // Format price based on value magnitude
+          const formatPrice = (p) => {
+            if (p >= 1000) return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            if (p >= 1) return p.toFixed(4)
+            return p.toFixed(6)
+          }
 
           return (
             <div
               key={symbol}
-              className={`rounded-lg p-4 border-2 transition-all ${
-                isPositive
-                  ? 'bg-green-50 border-green-200 hover:border-green-400'
-                  : 'bg-red-50 border-red-200 hover:border-red-400'
-              }`}
+              onClick={() => onSymbolClick?.(symbol)}
+              className={`
+                flex-shrink-0 w-40 rounded-lg p-3 cursor-pointer
+                transition-all duration-200 ease-out
+                border
+                ${isPositive
+                  ? 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10 hover:border-emerald-500/40'
+                  : 'bg-rose-500/5 border-rose-500/20 hover:bg-rose-500/10 hover:border-rose-500/40'
+                }
+              `}
             >
               {/* Symbol Header */}
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-lg font-bold text-gray-800">{displaySymbol}</h3>
-                <span className="text-xs text-gray-500">USDT</span>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sm font-bold text-slate-100">{displaySymbol}</span>
+                <span className="text-[10px] text-slate-500">/USDT</span>
               </div>
 
-              {/* Current Price */}
-              <div className="mb-2">
-                <p className={`text-3xl font-bold ${
-                  isPositive ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  ${typeof price === 'number' ? price.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  }) : '0.00'}
-                </p>
+              {/* Price */}
+              <div className={`text-lg font-bold mb-1 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                ${formatPrice(price)}
               </div>
 
               {/* 24h Change */}
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-gray-600">24h Change:</span>
-                <span className={`text-sm font-semibold ${
-                  isPositive ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {isPositive ? '▲' : '▼'} {Math.abs(change24h).toFixed(2)}%
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-medium ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {isPositive ? '↑' : '↓'} {Math.abs(change24h).toFixed(2)}%
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  ${(volume24h / 1000000).toFixed(1)}M
                 </span>
               </div>
 
-              {/* 24h Stats */}
-              <div className="border-t pt-3 space-y-1">
-                <div className="flex justify-between text-xs text-gray-600">
-                  <span>24h High:</span>
-                  <span className="font-semibold">
-                    ${typeof high24h === 'number' ? high24h.toLocaleString('en-US', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }) : '0.00'}
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs text-gray-600">
-                  <span>24h Low:</span>
-                  <span className="font-semibold">
-                    ${typeof low24h === 'number' ? low24h.toLocaleString('en-US', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    }) : '0.00'}
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs text-gray-600">
-                  <span>24h Volume:</span>
-                  <span className="font-semibold">
-                    ${typeof volume24h === 'number' ? (volume24h / 1000000).toFixed(2) : '0.00'}M
-                  </span>
+              {/* 24h Range - Compact */}
+              <div className="mt-2 pt-2 border-t border-slate-700/30">
+                <div className="flex justify-between text-[10px] text-slate-500">
+                  <span>H: ${formatPrice(high24h)}</span>
+                  <span>L: ${formatPrice(low24h)}</span>
                 </div>
               </div>
             </div>
@@ -133,9 +139,9 @@ export default function PriceTickerGrid({ symbols = ['BTCUSDT', 'ETHUSDT', 'BNBU
         })}
       </div>
 
-      {/* Last Update Time */}
-      <div className="mt-4 text-center text-xs text-gray-500">
-        Auto-refreshing every 3 seconds • Last update: {new Date().toLocaleTimeString()}
+      {/* Last Update */}
+      <div className="mt-2 text-center text-[10px] text-slate-600">
+        Auto-refresh: 5s • Click ticker to view chart
       </div>
     </div>
   )

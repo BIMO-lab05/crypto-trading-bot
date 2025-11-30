@@ -1,10 +1,14 @@
 import axios from 'axios'
 
-// Create axios instance with base configuration
-// All requests will be proxied through Vite to http://localhost:8000
+/**
+ * API Service Configuration
+ *
+ * UPDATED 2025-11-30: Increased timeout from 10s to 20s to prevent request failures
+ * All requests are proxied through Vite to http://localhost:8000 (api-gateway)
+ */
 const api = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 20000, // Increased from 10s to 20s to prevent timeout errors
   headers: {
     'Content-Type': 'application/json',
   },
@@ -39,11 +43,13 @@ export const portfolioAPI = {
   // Get current portfolio status
   getPortfolio: () => api.get('/portfolio'),
 
-  // Get portfolio performance metrics
-  getPerformance: () => api.get('/portfolio/performance'),
+  // Get portfolio performance metrics (use trading engine for accurate P&L)
+  getPerformance: () => api.get('/trading/performance'),
 
-  // Get trade history
-  getTradeHistory: (params) => api.get('/portfolio/trades', { params }),
+  // Get trade history from trading engine (closed positions with P&L)
+  // UPDATED 2025-11-30: Changed from /portfolio/trades to /trading/trades/history
+  // to get closed positions from database instead of empty transactions
+  getTradeHistory: (params) => api.get('/trading/trades/history', { params }),
 
   // Execute buy order
   buy: (symbol, quantity) => api.post('/portfolio/buy', { symbol, quantity }),
@@ -60,9 +66,9 @@ export const marketAPI = {
   // Get ticker data for a symbol
   getTicker: (symbol) => api.get(`/market/ticker/${symbol}`),
 
-  // Get kline/candlestick data
+  // Get kline/candlestick data (note: backend uses 'klines' plural)
   getKlines: (symbol, interval, params) =>
-    api.get(`/market/kline/${symbol}`, { params: { interval, ...params } }),
+    api.get(`/market/klines/${symbol}`, { params: { interval, ...params } }),
 
   // Get orderbook
   getOrderbook: (symbol) => api.get(`/market/orderbook/${symbol}`),
@@ -78,8 +84,8 @@ export const tradingAPI = {
   getMultipleSignals: (symbols, interval = 60) =>
     Promise.all(symbols.map(symbol => tradingAPI.getSignal(symbol, interval))),
 
-  // Get trading bot status
-  getStatus: () => api.get('/trading/status'),
+  // Get trading bot status (note: backend uses /api/v1/trading/status)
+  getStatus: () => api.get('/trading/trading/status'),
 
   // Get trading positions
   getPositions: (status = 'open') =>
@@ -120,9 +126,11 @@ export const mlAPI = {
   getModelInfo: (symbol, interval = 60) =>
     api.get(`/ml/models/${symbol}`, { params: { interval } }),
 
-  // Train a new model
+  // Train a new model (API expects query parameters)
   trainModel: (symbol, interval = 60, lookbackDays = 90) =>
-    api.post('/ml/models/train', { symbol, interval, lookback_days: lookbackDays }),
+    api.post('/ml/models/train', null, {
+      params: { symbol, interval, lookback_days: lookbackDays }
+    }),
 
   // Retrain existing model
   retrainModel: (symbol, interval = 60, lookbackDays = 90) =>
@@ -170,6 +178,24 @@ export const enhancedTradingAPI = {
   // Get Phase 1 vs Phase 3 comparison
   getSignalComparison: (symbol, interval = 60) =>
     api.get(`/trading/signals/compare/${symbol}`, { params: { interval } }),
+}
+
+// Auto Trader & Trading Enhancements endpoints (NEW - 2025-11-30)
+export const autoTraderAPI = {
+  // Get auto trader status with all enhancements
+  getStatus: () => api.get('/trading/auto-trader/status'),
+
+  // Start auto trader
+  start: () => api.post('/trading/auto-trader/start'),
+
+  // Stop auto trader
+  stop: () => api.post('/trading/auto-trader/stop'),
+
+  // Get performance analytics report
+  getPerformanceReport: () => api.get('/trading/auto-trader/performance-report'),
+
+  // Force signal check
+  forceSignalCheck: () => api.post('/trading/auto-trader/force-check'),
 }
 
 export default api

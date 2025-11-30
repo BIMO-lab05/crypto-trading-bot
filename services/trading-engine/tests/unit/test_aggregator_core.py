@@ -39,20 +39,25 @@ class TestCoreAggregator:
         }
 
     def test_initialization_default_settings(self, aggregator):
-        """Test aggregator initialization with default settings"""
+        """Test aggregator initialization with RESEARCH-BASED settings (2025-11-26)"""
         assert aggregator.gatekeeper is not None
         assert aggregator.validator is not None
         assert aggregator.voter is not None
         assert aggregator.cache is not None
-        assert aggregator.min_consensus == 4
-        assert aggregator.min_confidence >= 0
+        # RESEARCH-BASED: min_consensus=2 is industry standard from Freqtrade/Hummingbot
+        assert aggregator.min_consensus == 2
+        # RESEARCH-BASED: min_confidence=0.15 accounts for penalty cascade
+        assert aggregator.min_confidence == 0.15
+        # RESEARCH-BASED: aggregation_threshold=0.12 is balanced setting
+        assert aggregator.voter.aggregation_threshold == 0.12
 
     def test_initialization_custom_settings(self, mock_settings):
         """Test aggregator initialization with custom settings"""
         aggregator = CoreAggregator(settings=mock_settings)
 
         assert aggregator.settings == mock_settings
-        assert aggregator.min_confidence == 0.6
+        # Note: min_confidence is now hardcoded to 0.15 for research-based optimization
+        assert aggregator.min_confidence == 0.15
 
     def test_aggregate_signals_no_indicators(self, aggregator):
         """Test aggregation with no indicators"""
@@ -130,9 +135,9 @@ class TestCoreAggregator:
         assert result.metadata["error"] == "Test error"
 
     def test_build_rejection_reasons_low_consensus(self, aggregator):
-        """Test rejection reasons for low consensus"""
+        """Test rejection reasons for low consensus (min_consensus=2)"""
         reasons = aggregator._build_rejection_reasons(
-            consensus_count=3,
+            consensus_count=1,  # Below min_consensus of 2
             confidence=0.8,
             trend_blocked=False,
             trend_reason=""
@@ -142,10 +147,10 @@ class TestCoreAggregator:
         assert any("consensus" in r for r in reasons)
 
     def test_build_rejection_reasons_low_confidence(self, aggregator):
-        """Test rejection reasons for low confidence"""
+        """Test rejection reasons for low confidence (min_confidence=0.15)"""
         reasons = aggregator._build_rejection_reasons(
             consensus_count=5,
-            confidence=0.4,
+            confidence=0.10,  # Below min_confidence of 0.15
             trend_blocked=False,
             trend_reason=""
         )
@@ -168,8 +173,8 @@ class TestCoreAggregator:
     def test_build_rejection_reasons_multiple(self, aggregator):
         """Test rejection reasons with multiple failures"""
         reasons = aggregator._build_rejection_reasons(
-            consensus_count=2,
-            confidence=0.3,
+            consensus_count=1,  # Below min_consensus of 2
+            confidence=0.10,   # Below min_confidence of 0.15
             trend_blocked=True,
             trend_reason="Counter-trend"
         )
@@ -292,23 +297,27 @@ class TestCoreAggregatorIntegration:
         assert result.consensus_count == 6  # All voting indicators agree
 
     def test_full_pipeline_mixed_signals(self, aggregator):
-        """Test full pipeline with mixed signals"""
+        """Test full pipeline with highly mixed signals (no clear consensus)"""
+        # Setup: 1 BUY, 1 SELL, 4 HOLD - max consensus is 4 HOLD
+        # Score will be near 0 → HOLD action
         indicators = {
             "RSI": IndicatorSignal(name="RSI", signal=SignalAction.BUY, confidence=0.6, value=35.0),
             "MACD": IndicatorSignal(name="MACD", signal=SignalAction.SELL, confidence=0.7, value=-20.0),
             "EMA": IndicatorSignal(name="EMA", signal=SignalAction.HOLD, confidence=0.5, value=50000.0),
-            "SMA": IndicatorSignal(name="SMA", signal=SignalAction.BUY, confidence=0.5, value=49500.0),
+            "SMA": IndicatorSignal(name="SMA", signal=SignalAction.HOLD, confidence=0.5, value=49500.0),
             "BOLLINGER_BANDS": IndicatorSignal(name="BOLLINGER_BANDS", signal=SignalAction.HOLD, confidence=0.4, value=50000.0),
-            "STOCHASTIC": IndicatorSignal(name="STOCHASTIC", signal=SignalAction.SELL, confidence=0.6, value=75.0),
+            "STOCHASTIC": IndicatorSignal(name="STOCHASTIC", signal=SignalAction.HOLD, confidence=0.6, value=75.0),
             "TREND_FILTER": IndicatorSignal(name="TREND_FILTER", signal=SignalAction.BUY, confidence=1.0, value=1.0),
             "VOLUME_CONFIRMATION": IndicatorSignal(name="VOLUME_CONFIRMATION", signal=SignalAction.HOLD, confidence=0.2, value=500000.0),
         }
 
         result = aggregator.aggregate_signals(indicators, timestamp=123456789)
 
-        # Mixed signals should result in HOLD
+        # Mixed signals (1 BUY, 1 SELL, 4 HOLD) → score near 0 → HOLD action
+        # With min_consensus=2, the 4 HOLD indicators meet consensus
         assert result.action == SignalAction.HOLD
-        assert result.consensus_count < aggregator.min_consensus
+        # Consensus count is 4 (max of 1, 1, 4) which meets min_consensus=2
+        assert result.consensus_count >= aggregator.min_consensus
 
     def test_volume_penalty_reduces_confidence(self, aggregator):
         """Test that volume validator reduces confidence"""

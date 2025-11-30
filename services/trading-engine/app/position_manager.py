@@ -2,16 +2,22 @@
 Position Manager
 Purpose: Track and manage trading positions
 Enhanced: Database persistence for positions
+
+UPDATED 2025-11-29: Research-backed position management
+- Added trailing stop support with ATR-based distance
+- Added partial exit handling at multiple take profit levels
+- Integrated with ATRStopCalculator for dynamic stop levels
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 from decimal import Decimal
 from uuid import UUID
 from datetime import datetime, timezone
 from app.models import Position, PositionCreate, PositionStatus, PositionSide
 from app.risk_manager import get_risk_manager
 from app.repositories import get_position_repository
+from app.atr_stops import get_atr_calculator, ATRStopCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +48,10 @@ class PositionManager:
         quantity: Decimal,
         stop_loss: Optional[Decimal] = None,
         take_profit: Optional[Decimal] = None,
-        strategy: Optional[str] = None
+        strategy: Optional[str] = None,
+        take_profit_1: Optional[Decimal] = None,
+        take_profit_2: Optional[Decimal] = None,
+        take_profit_3: Optional[Decimal] = None
     ) -> Position:
         """
         Create a new position
@@ -53,8 +62,11 @@ class PositionManager:
             entry_price: Entry price
             quantity: Position quantity
             stop_loss: Optional stop loss price
-            take_profit: Optional take profit price
+            take_profit: Optional take profit price (final target)
             strategy: Strategy name
+            take_profit_1: Optional TP1 - first partial exit target
+            take_profit_2: Optional TP2 - second partial exit target
+            take_profit_3: Optional TP3 - third partial exit target
 
         Returns:
             Created position
@@ -66,6 +78,19 @@ class PositionManager:
         if take_profit is None:
             take_profit = self.risk_manager.calculate_take_profit(entry_price, side)
 
+        # Auto-calculate TP1/TP2/TP3 if not provided but we have SL and TP
+        # Based on ATR multiples: TP1 @ 0.8x, TP2 @ 1.3x, TP3 @ 2.0x
+        if take_profit_1 is None and stop_loss and entry_price:
+            risk_distance = abs(entry_price - stop_loss)
+            if side == PositionSide.LONG:
+                take_profit_1 = entry_price + (risk_distance * Decimal("0.8"))
+                take_profit_2 = entry_price + (risk_distance * Decimal("1.3"))
+                take_profit_3 = entry_price + (risk_distance * Decimal("2.0"))
+            else:  # SHORT
+                take_profit_1 = entry_price - (risk_distance * Decimal("0.8"))
+                take_profit_2 = entry_price - (risk_distance * Decimal("1.3"))
+                take_profit_3 = entry_price - (risk_distance * Decimal("2.0"))
+
         # Create position
         position = Position(
             symbol=symbol,
@@ -76,7 +101,10 @@ class PositionManager:
             stop_loss=stop_loss,
             take_profit=take_profit,
             strategy=strategy,
-            status=PositionStatus.OPEN
+            status=PositionStatus.OPEN,
+            take_profit_1=take_profit_1,
+            take_profit_2=take_profit_2,
+            take_profit_3=take_profit_3
         )
 
         # Store position in memory
@@ -87,6 +115,10 @@ class PositionManager:
             f"{symbol} {side.value} {quantity} @ {entry_price} | "
             f"SL: {stop_loss} | TP: {take_profit}"
         )
+        if take_profit_1:
+            logger.info(
+                f"  Partial TPs: TP1=${take_profit_1:.2f} | TP2=${take_profit_2:.2f} | TP3=${take_profit_3:.2f}"
+            )
 
         # Persist to database (async, non-blocking)
         import asyncio
@@ -110,6 +142,47 @@ class PositionManager:
     def get_open_positions(self) -> List[Position]:
         """Get all open positions"""
         return [pos for pos in self.positions.values() if pos.status == PositionStatus.OPEN]
+
+    def update_positions_with_tp_levels(self) -> int:
+        """
+        Update existing positions with calculated TP1/TP2/TP3 levels
+
+        For positions that don't have partial take profit levels set,
+        calculate them based on the risk distance (entry to stop loss).
+
+        Returns:
+            Number of positions updated
+        """
+        updated = 0
+        for position in self.positions.values():
+            if position.status != PositionStatus.OPEN:
+                continue
+
+            # Skip if already has TP levels
+            if position.take_profit_1 is not None:
+                continue
+
+            # Calculate TP levels based on risk distance
+            if position.stop_loss and position.entry_price:
+                risk_distance = abs(position.entry_price - position.stop_loss)
+
+                if position.side == PositionSide.LONG:
+                    position.take_profit_1 = position.entry_price + (risk_distance * Decimal("0.8"))
+                    position.take_profit_2 = position.entry_price + (risk_distance * Decimal("1.3"))
+                    position.take_profit_3 = position.entry_price + (risk_distance * Decimal("2.0"))
+                else:  # SHORT
+                    position.take_profit_1 = position.entry_price - (risk_distance * Decimal("0.8"))
+                    position.take_profit_2 = position.entry_price - (risk_distance * Decimal("1.3"))
+                    position.take_profit_3 = position.entry_price - (risk_distance * Decimal("2.0"))
+
+                logger.info(
+                    f"Updated {position.symbol} with TP levels: "
+                    f"TP1=${position.take_profit_1:.2f}, TP2=${position.take_profit_2:.2f}, TP3=${position.take_profit_3:.2f}"
+                )
+                updated += 1
+
+        logger.info(f"Updated {updated} positions with TP levels")
+        return updated
 
     def get_closed_positions(self) -> List[Position]:
         """Get all closed positions"""
@@ -261,6 +334,282 @@ class PositionManager:
             "open": len(self.get_open_positions()),
             "closed": len(self.get_closed_positions())
         }
+
+    # ============================================================================
+    # RESEARCH-BACKED: Trailing Stops and Partial Exits (2025-11-29)
+    # ============================================================================
+
+    def update_position_with_trailing(
+        self,
+        position_id: UUID,
+        current_price: Decimal,
+        atr_value: Optional[float] = None
+    ) -> Tuple[Position, Optional[Dict]]:
+        """
+        Update position with trailing stop and check for partial exits
+
+        This is the main method for managing open positions. It:
+        1. Updates P&L
+        2. Updates trailing stop if enabled
+        3. Checks for partial exit triggers
+
+        Args:
+            position_id: Position ID
+            current_price: Current market price
+            atr_value: ATR value for trailing stop distance (optional)
+
+        Returns:
+            Tuple of (updated_position, partial_exit_info or None)
+        """
+        position = self.positions.get(position_id)
+        if not position:
+            raise ValueError(f"Position {position_id} not found")
+
+        # Update P&L
+        position.update_pnl(current_price)
+
+        partial_exit = None
+
+        # Update trailing stop if enabled and ATR provided
+        if atr_value and position.trailing_stop_enabled:
+            atr_calc = get_atr_calculator()
+            trail_distance = Decimal(str(atr_value * atr_calc.multipliers["trailing"]))
+
+            if position.update_trailing_stop(current_price, trail_distance):
+                logger.info(
+                    f"Trailing stop updated: {position.symbol} -> {position.trailing_stop:.2f}"
+                )
+
+        # Check for partial exit
+        partial_exit = position.check_partial_exit(current_price)
+
+        if partial_exit:
+            logger.info(
+                f"Partial exit triggered: {position.symbol} {partial_exit['level']} - "
+                f"Exit {partial_exit['exit_quantity']:.4f} ({partial_exit['exit_percentage']:.0f}%)"
+            )
+
+        return position, partial_exit
+
+    def execute_partial_exit(
+        self,
+        position_id: UUID,
+        exit_info: Dict,
+        exit_price: Decimal
+    ) -> Tuple[Position, Decimal]:
+        """
+        Execute a partial exit for a position
+
+        Args:
+            position_id: Position ID
+            exit_info: Exit info from check_partial_exit()
+            exit_price: Price at which to execute the exit
+
+        Returns:
+            Tuple of (updated_position, realized_pnl_from_exit)
+        """
+        position = self.positions.get(position_id)
+        if not position:
+            raise ValueError(f"Position {position_id} not found")
+
+        # Calculate realized P&L for this partial exit
+        exit_quantity = exit_info["exit_quantity"]
+        if position.side == PositionSide.LONG:
+            partial_pnl = (exit_price - position.entry_price) * exit_quantity
+        else:
+            partial_pnl = (position.entry_price - exit_price) * exit_quantity
+
+        # Apply the partial exit
+        position.apply_partial_exit(exit_info, partial_pnl)
+
+        logger.info(
+            f"✓ Partial exit executed: {position.symbol} {exit_info['level']} | "
+            f"Qty: {exit_quantity:.4f} @ {exit_price} | "
+            f"P&L: {partial_pnl:+.2f} | "
+            f"Remaining: {position.remaining_quantity:.4f}"
+        )
+
+        # Update risk manager with realized P&L
+        self.risk_manager.update_daily_pnl(partial_pnl)
+
+        return position, partial_pnl
+
+    def check_all_exit_conditions(
+        self,
+        position_id: UUID,
+        current_price: Decimal
+    ) -> Tuple[bool, str, Optional[Dict]]:
+        """
+        Check all exit conditions for a position
+
+        Order of checks:
+        1. Stop loss (original)
+        2. Trailing stop (if enabled)
+        3. Partial exit (TP1, TP2, TP3)
+        4. Full take profit (legacy)
+
+        Args:
+            position_id: Position ID
+            current_price: Current market price
+
+        Returns:
+            Tuple of (should_exit, reason, exit_info_or_none)
+        """
+        position = self.positions.get(position_id)
+        if not position:
+            return False, "Position not found", None
+
+        if position.status != PositionStatus.OPEN:
+            return False, "Position not open", None
+
+        # 1. Check stop loss
+        if position.check_stop_loss(current_price):
+            return True, "Stop loss triggered", None
+
+        # 2. Check trailing stop
+        if position.check_trailing_stop(current_price):
+            return True, "Trailing stop triggered", None
+
+        # 3. Check partial exits
+        partial_exit = position.check_partial_exit(current_price)
+        if partial_exit:
+            if partial_exit["level"] == "TP3":
+                return True, "TP3 - Full exit", partial_exit
+            return False, f"{partial_exit['level']} - Partial exit", partial_exit
+
+        # 4. Check legacy take profit
+        if position.check_take_profit(current_price):
+            return True, "Take profit triggered", None
+
+        return False, "No exit conditions met", None
+
+    def set_position_stops(
+        self,
+        position_id: UUID,
+        stop_loss: Optional[Decimal] = None,
+        take_profit: Optional[Decimal] = None,
+        tp1: Optional[Decimal] = None,
+        tp2: Optional[Decimal] = None,
+        tp3: Optional[Decimal] = None,
+        trailing_stop: Optional[Decimal] = None,
+        enable_trailing: bool = False
+    ) -> Position:
+        """
+        Set stop loss and take profit levels for a position
+
+        Args:
+            position_id: Position ID
+            stop_loss: Stop loss price
+            take_profit: Primary take profit price
+            tp1: Take profit level 1 (1:1 R:R)
+            tp2: Take profit level 2 (2:1 R:R)
+            tp3: Take profit level 3 (3:1 R:R)
+            trailing_stop: Initial trailing stop level
+            enable_trailing: Whether to enable trailing stop
+
+        Returns:
+            Updated position
+        """
+        position = self.positions.get(position_id)
+        if not position:
+            raise ValueError(f"Position {position_id} not found")
+
+        if stop_loss:
+            position.stop_loss = stop_loss
+        if take_profit:
+            position.take_profit = take_profit
+        if tp1:
+            position.take_profit_1 = tp1
+        if tp2:
+            position.take_profit_2 = tp2
+        if tp3:
+            position.take_profit_3 = tp3
+        if trailing_stop:
+            position.trailing_stop = trailing_stop
+        position.trailing_stop_enabled = enable_trailing
+
+        logger.info(
+            f"Position stops updated: {position.symbol} | "
+            f"SL: {stop_loss} | TP: {take_profit} | "
+            f"TP1/2/3: {tp1}/{tp2}/{tp3} | "
+            f"Trailing: {trailing_stop} ({'enabled' if enable_trailing else 'disabled'})"
+        )
+
+        return position
+
+    def create_position_with_atr_stops(
+        self,
+        symbol: str,
+        side: PositionSide,
+        entry_price: Decimal,
+        quantity: Decimal,
+        atr_value: float,
+        strategy: Optional[str] = None
+    ) -> Position:
+        """
+        Create a position with ATR-based stop levels
+
+        This is the preferred method for creating positions as it:
+        - Sets dynamic stops based on market volatility
+        - Configures multiple take profit levels for partial exits
+        - Prepares trailing stop (enabled after TP1)
+
+        Args:
+            symbol: Trading symbol
+            side: Position side (LONG/SHORT)
+            entry_price: Entry price
+            quantity: Position quantity
+            atr_value: Current ATR value
+            strategy: Strategy name
+
+        Returns:
+            Created position with all stop levels set
+        """
+        atr_calc = get_atr_calculator()
+        stop_levels = atr_calc.calculate_stops(
+            float(entry_price),
+            atr_value,
+            side.value
+        )
+
+        # Create position with ATR-based stops
+        position = Position(
+            symbol=symbol,
+            side=side,
+            entry_price=entry_price,
+            quantity=quantity,
+            current_price=entry_price,
+            stop_loss=Decimal(str(stop_levels.stop_loss)),
+            take_profit=Decimal(str(stop_levels.take_profit_2)),  # Legacy: use TP2
+            take_profit_1=Decimal(str(stop_levels.take_profit_1)),
+            take_profit_2=Decimal(str(stop_levels.take_profit_2)),
+            take_profit_3=Decimal(str(stop_levels.take_profit_3)),
+            trailing_stop=Decimal(str(stop_levels.trailing_stop)),
+            trailing_stop_enabled=False,  # Enabled after TP1
+            strategy=strategy,
+            status=PositionStatus.OPEN
+        )
+
+        # Store position
+        self.positions[position.id] = position
+
+        logger.info(
+            f"✓ Position created with ATR stops: {position.id} | "
+            f"{symbol} {side.value} {quantity} @ {entry_price} | "
+            f"SL: {stop_levels.stop_loss:.2f} | "
+            f"TP1/2/3: {stop_levels.take_profit_1:.2f}/{stop_levels.take_profit_2:.2f}/{stop_levels.take_profit_3:.2f}"
+        )
+
+        # Persist to database
+        import asyncio
+        try:
+            asyncio.create_task(
+                self.position_repo.create(position, portfolio_id="paper_trading")
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist position to database: {e}")
+
+        return position
 
     async def load_positions_from_db(self) -> int:
         """

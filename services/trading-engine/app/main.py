@@ -31,7 +31,8 @@ from app.models import (
     PositionListResponse,
     PositionResponse,
     PerformanceResponse,
-    TradingControlResponse
+    TradingControlResponse,
+    TradeHistoryResponse
 )
 
 # Import all handler functions (Phase 3: Modular architecture)
@@ -49,7 +50,8 @@ from app.handlers import (
     get_auto_trading_status,
     get_phase1_metrics_endpoint,
     get_phase1_health,
-    get_latest_phase1_signal
+    get_latest_phase1_signal,
+    get_trade_history
 )
 
 # Import SQZMOM strategy (NEW)
@@ -97,6 +99,13 @@ async def lifespan(app: FastAPI):
             position_manager = get_position_manager()
             loaded_count = await position_manager.load_positions_from_db()
             logger.info(f"✅ Loaded {loaded_count} positions from database")
+
+            # Sync paper trading balance with loaded positions
+            # This deducts position costs from initial balance so balance reflects actual cash
+            from app.paper_trading import get_paper_engine
+            paper_engine = get_paper_engine()
+            paper_engine.sync_balance_with_positions()
+            logger.info(f"✅ Paper trading balance synced: ${paper_engine.get_balance():.2f}")
         else:
             logger.warning("⚠️ Database connection failed - trades will not be persisted")
     except Exception as e:
@@ -120,10 +129,37 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Max positions: {sqzmom_config.max_positions}")
     logger.info("=" * 60)
 
+    # AUTO-START: Start the auto trader automatically on service startup
+    # This runs regardless of database status
+    try:
+        from app.auto_trader import get_auto_trader
+        auto_trader = get_auto_trader()
+        await auto_trader.start()
+        logger.info("=" * 60)
+        logger.info("✅ AUTO TRADER STARTED AUTOMATICALLY")
+        logger.info(f"   Trading symbols: {auto_trader.symbols}")
+        logger.info(f"   Check frequency: {auto_trader.check_frequency}s")
+        logger.info(f"   Strategy mode: {auto_trader.strategy_mode.value}")
+        logger.info("   Bot is now ACTIVE and monitoring markets!")
+        logger.info("=" * 60)
+    except Exception as e:
+        logger.error(f"❌ Failed to auto-start trading: {e}")
+
     yield
 
     # Cleanup
     logger.info("Shutting down Trading Engine Service")
+
+    # Stop auto trader if running
+    try:
+        from app.auto_trader import get_auto_trader
+        auto_trader = get_auto_trader()
+        if auto_trader.is_running:
+            await auto_trader.stop()
+            logger.info("✅ Auto Trader stopped")
+    except Exception as e:
+        logger.error(f"Error stopping auto trader: {e}")
+
     await close_aggregator()
     await close_multi_timeframe_analyzer()
 
@@ -241,6 +277,27 @@ async def position_endpoint(position_id: str):
     return await get_position(position_id)
 
 
+@app.post("/api/v1/positions/update-tp-levels", tags=["Positions"])
+async def update_tp_levels_endpoint():
+    """
+    Update all open positions with calculated TP1/TP2/TP3 levels
+
+    For positions that don't have partial take profit levels set,
+    calculate them based on the risk distance (entry to stop loss).
+
+    Returns:
+        Number of positions updated
+    """
+    from app.position_manager import get_position_manager
+    position_mgr = get_position_manager()
+    updated = position_mgr.update_positions_with_tp_levels()
+    return {
+        "success": True,
+        "updated_positions": updated,
+        "message": f"Updated {updated} positions with TP1/TP2/TP3 levels"
+    }
+
+
 # ============================================================================
 # PERFORMANCE ENDPOINTS
 # ============================================================================
@@ -249,6 +306,28 @@ async def position_endpoint(position_id: str):
 async def performance_endpoint():
     """Get performance metrics"""
     return await get_performance()
+
+
+# ============================================================================
+# TRADE HISTORY ENDPOINTS
+# ============================================================================
+
+@app.get("/api/v1/trades/history", response_model=TradeHistoryResponse, tags=["Trade History"])
+async def trade_history_endpoint(limit: int = 50):
+    """
+    Get trade history with statistics
+
+    Returns closed trades with win/loss stats including:
+    - Win rate percentage
+    - Total realized P&L
+    - Average win/loss
+    - Best/worst trade
+    - Profit factor
+
+    Args:
+        limit: Maximum number of trades to return (default 50)
+    """
+    return await get_trade_history(limit)
 
 
 # ============================================================================

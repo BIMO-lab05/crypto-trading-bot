@@ -6,6 +6,11 @@ REFACTORED: Using Strangler Fig pattern
 - Modular components in app/aggregation/
 - CoreAggregator orchestrates gatekeeper, validator, voter
 - Improved testability and maintainability
+
+UPDATE 2025-11-26: Added new advanced indicators
+- RSI Divergence: Detects bullish/bearish divergences for reversal signals
+- Ichimoku Cloud: Japanese trading system with 5 components for trend/momentum
+- Enhanced SQZMOM: Squeeze momentum with firing detection for breakout entries
 """
 
 import httpx
@@ -25,9 +30,15 @@ class SignalAggregator:
 
     Process:
     1. Fetch all indicators from Technical Analysis Service
-    2. Normalize signals (BUY/SELL/HOLD → numerical score)
+    2. Normalize signals (BUY/SELL/HOLD -> numerical score)
     3. Weight by confidence
     4. Generate final trading decision
+
+    Indicator Categories (2025-11-26):
+    - Original 5: RSI, MACD, Bollinger Bands, SMA, EMA
+    - Phase 1: Trend Filter (GATEKEEPER), Volume Confirmation (VALIDATOR), Stochastic
+    - Advanced: RSI Divergence, Ichimoku Cloud, Enhanced SQZMOM
+    - Risk Management: ATR (not a voting indicator)
     """
 
     def __init__(self):
@@ -83,10 +94,22 @@ class SignalAggregator:
         symbol: str,
         interval: str = "60"
     ) -> Optional[IndicatorSignal]:
-        """Fetch MACD indicator"""
+        """
+        Fetch MACD indicator with research-optimized parameters
+
+        RESEARCH-BACKED PARAMETERS (Kang 2021 Study):
+        - Standard 12-26-9: -3.6% annual return
+        - Optimized 5-35-5: +11.0% annual return (+14.6% improvement)
+        """
         try:
             url = f"{self.base_url}/api/v1/indicators/macd/{symbol}"
-            params = {"interval": interval}
+            # RESEARCH-OPTIMIZED 2025-11-29: Use 5-35-5 parameters
+            params = {
+                "interval": interval,
+                "fast": 5,      # Kang 2021: captures short-term momentum
+                "slow": 35,     # Kang 2021: stable trend baseline
+                "signal": 5     # Kang 2021: faster signal response
+            }
 
             response = await self.client.get(url, params=params)
             response.raise_for_status()
@@ -99,7 +122,8 @@ class SignalAggregator:
                 value=data["histogram"],
                 metadata={
                     "macd_line": data["macd_line"],
-                    "signal_line": data["signal_line"]
+                    "signal_line": data["signal_line"],
+                    "parameters": data.get("parameters", {"fast": 5, "slow": 35, "signal": 5})
                 }
             )
 
@@ -112,10 +136,20 @@ class SignalAggregator:
         symbol: str,
         interval: str = "60"
     ) -> Optional[IndicatorSignal]:
-        """Fetch Bollinger Bands indicator"""
+        """
+        Fetch Bollinger Bands indicator with research-optimized parameters
+
+        RESEARCH-OPTIMIZED 2025-11-29:
+        - Wider bands (2.5 SD) work better for crypto volatility
+        - Reduces false breakout signals in volatile markets
+        """
         try:
             url = f"{self.base_url}/api/v1/indicators/bollinger/{symbol}"
-            params = {"interval": interval}
+            # RESEARCH-OPTIMIZED 2025-11-29: Use 2.5 SD for crypto
+            params = {
+                "interval": interval,
+                "std_dev": 2.5  # Widened for crypto volatility (prev: 2.0)
+            }
 
             response = await self.client.get(url, params=params)
             response.raise_for_status()
@@ -352,6 +386,253 @@ class SignalAggregator:
             logger.error(f"Error fetching Stochastic for {symbol}: {e}")
             return None
 
+    # ==================== ADVANCED INDICATORS (2025-11-26) ====================
+
+    async def fetch_rsi_divergence(
+        self,
+        symbol: str,
+        interval: str = "60",
+        period: int = 14,
+        lookback: int = 20
+    ) -> Optional[IndicatorSignal]:
+        """
+        Fetch RSI Divergence indicator
+
+        Role: REVERSAL DETECTOR - Identifies potential trend reversals
+        Detects bullish and bearish divergences between price and RSI
+
+        Signals:
+        - Bullish divergence: Price makes lower low, RSI makes higher low -> BUY
+        - Bearish divergence: Price makes higher high, RSI makes lower high -> SELL
+        - No divergence: HOLD
+
+        Weight: 1.2x (high weight due to strong reversal signal quality)
+        """
+        try:
+            url = f"{self.base_url}/api/v1/indicators/rsi-divergence/{symbol}"
+            params = {
+                "interval": interval,
+                "period": period,
+                "lookback": lookback
+            }
+
+            response = await self.client.get(url, params=params)
+            response.raise_for_status()
+            result = response.json()
+            data = result["data"]
+
+            # Handle list format: [indicator_data, signal, confidence, details]
+            # or dict format: {"signal": ..., "confidence": ..., ...}
+            if isinstance(data, list):
+                # List format: [data_dict, signal_str, confidence_float, ...]
+                indicator_data = data[0] if len(data) > 0 else {}
+                signal_value = data[1] if len(data) > 1 else "HOLD"
+                confidence = data[2] if len(data) > 2 else 0.5
+                details = data[3] if len(data) > 3 else {}
+                # Merge indicator_data and details
+                rsi_value = indicator_data.get("current_rsi", details.get("current_rsi", 50.0))
+                bullish_div = indicator_data.get("bullish_divergence") or details.get("bullish_divergence")
+                bearish_div = indicator_data.get("bearish_divergence") or details.get("bearish_divergence")
+            else:
+                # Dict format (original expected)
+                signal_value = data.get("signal", "HOLD")
+                confidence = data.get("confidence", 0.5)
+                rsi_value = data.get("rsi", data.get("current_rsi", 50.0))
+                bullish_div = data.get("bullish_divergence")
+                bearish_div = data.get("bearish_divergence")
+
+            # Determine divergence type
+            divergence_type = "NONE"
+            if bullish_div and isinstance(bullish_div, dict) and bullish_div.get("detected"):
+                divergence_type = "BULLISH"
+            elif bearish_div and isinstance(bearish_div, dict) and bearish_div.get("detected"):
+                divergence_type = "BEARISH"
+
+            return IndicatorSignal(
+                name="RSI_DIVERGENCE",
+                signal=SignalAction(signal_value),
+                confidence=confidence,
+                value=rsi_value,
+                metadata={
+                    "divergence_type": divergence_type,
+                    "bullish_divergence": bullish_div,
+                    "bearish_divergence": bearish_div,
+                    "period": period,
+                    "lookback": lookback,
+                    "role": "REVERSAL_DETECTOR",
+                    "weight": 1.2  # High weight for divergence signals
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error fetching RSI Divergence for {symbol}: {e}")
+            return None
+
+    async def fetch_ichimoku(
+        self,
+        symbol: str,
+        interval: str = "60",
+        tenkan_period: int = 9,
+        kijun_period: int = 26,
+        senkou_b_period: int = 52
+    ) -> Optional[IndicatorSignal]:
+        """
+        Fetch Ichimoku Cloud indicator
+
+        Role: MULTI-ASPECT TREND - Japanese trading system with 5 components
+        Provides comprehensive trend, momentum, and support/resistance analysis
+
+        Components:
+        - Tenkan-sen (Conversion Line): Short-term trend (9 periods)
+        - Kijun-sen (Base Line): Medium-term trend (26 periods)
+        - Senkou Span A: Leading span A (cloud boundary)
+        - Senkou Span B: Leading span B (cloud boundary)
+        - Chikou Span: Lagging span
+
+        Signals:
+        - Price above cloud + TK cross up -> Strong BUY
+        - Price below cloud + TK cross down -> Strong SELL
+        - Price in cloud -> HOLD (consolidation)
+
+        Weight: 1.3x (high weight due to multi-factor confirmation)
+        """
+        try:
+            url = f"{self.base_url}/api/v1/indicators/ichimoku/{symbol}"
+            params = {
+                "interval": interval,
+                "tenkan_period": tenkan_period,
+                "kijun_period": kijun_period,
+                "senkou_b_period": senkou_b_period
+            }
+
+            response = await self.client.get(url, params=params)
+            response.raise_for_status()
+            result = response.json()
+            data = result["data"]
+
+            # Handle list format: [indicator_data, signal, confidence]
+            # or dict format: {"signal": ..., "confidence": ..., ...}
+            if isinstance(data, list):
+                # List format: [data_dict, signal_str, confidence_float]
+                indicator_data = data[0] if len(data) > 0 else {}
+                signal_value = data[1] if len(data) > 1 else "HOLD"
+                confidence = data[2] if len(data) > 2 else 0.5
+            else:
+                # Dict format (original expected)
+                indicator_data = data
+                signal_value = data.get("signal", "HOLD")
+                confidence = data.get("confidence", 0.5)
+
+            return IndicatorSignal(
+                name="ICHIMOKU",
+                signal=SignalAction(signal_value),
+                confidence=confidence,
+                value=indicator_data.get("current_price", 0.0),
+                metadata={
+                    "tenkan_sen": indicator_data.get("tenkan_sen", 0.0),
+                    "kijun_sen": indicator_data.get("kijun_sen", 0.0),
+                    "senkou_span_a": indicator_data.get("senkou_span_a", 0.0),
+                    "senkou_span_b": indicator_data.get("senkou_span_b", 0.0),
+                    "chikou_span": indicator_data.get("chikou_span", 0.0),
+                    "cloud_color": indicator_data.get("cloud_color", "NEUTRAL"),
+                    "price_position": indicator_data.get("price_position", "IN_CLOUD"),
+                    "tk_cross": indicator_data.get("tk_cross", "NONE"),
+                    "cloud_thickness": indicator_data.get("cloud_thickness", 0.0),
+                    "tenkan_period": tenkan_period,
+                    "kijun_period": kijun_period,
+                    "senkou_b_period": senkou_b_period,
+                    "role": "MULTI_ASPECT_TREND",
+                    "weight": 1.3  # High weight for multi-factor analysis
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error fetching Ichimoku for {symbol}: {e}")
+            return None
+
+    async def fetch_enhanced_sqzmom(
+        self,
+        symbol: str,
+        interval: str = "60",
+        bb_period: int = 20,
+        bb_mult: float = 2.0,
+        kc_period: int = 20,
+        kc_mult: float = 1.5,
+        mom_period: int = 12
+    ) -> Optional[IndicatorSignal]:
+        """
+        Fetch Enhanced Squeeze Momentum indicator
+
+        Role: BREAKOUT DETECTOR - Identifies volatility compression and momentum direction
+        Based on John Carter's TTM Squeeze with enhancements
+
+        Components:
+        - Squeeze ON: Bollinger Bands inside Keltner Channel (low volatility)
+        - Squeeze OFF: Bollinger Bands outside Keltner Channel (volatility expansion)
+        - Momentum: Linear regression based momentum histogram
+        - Firing: First bar after squeeze releases (high probability breakout)
+
+        Signals:
+        - Squeeze firing + positive momentum -> BUY (breakout long)
+        - Squeeze firing + negative momentum -> SELL (breakout short)
+        - Squeeze ON -> HOLD (wait for breakout)
+        - No squeeze + momentum -> Follow momentum direction
+
+        Weight: 1.4x (highest weight for breakout signals due to high win rate)
+        """
+        try:
+            url = f"{self.base_url}/api/v1/indicators/sqzmom-enhanced/{symbol}"
+            params = {
+                "interval": interval,
+                "bb_period": bb_period,
+                "bb_mult": bb_mult,
+                "kc_period": kc_period,
+                "kc_mult": kc_mult,
+                "mom_period": mom_period
+            }
+
+            response = await self.client.get(url, params=params)
+            response.raise_for_status()
+            result = response.json()
+            data = result["data"]
+
+            # Extract signal, confidence from response
+            signal_value = data.get("signal", "HOLD")
+            confidence = data.get("confidence", 0.5)
+
+            return IndicatorSignal(
+                name="SQZMOM_ENHANCED",
+                signal=SignalAction(signal_value),
+                confidence=confidence,
+                value=data.get("momentum", 0.0),
+                metadata={
+                    "squeeze_on": data.get("squeeze_on", False),
+                    "squeeze_off": data.get("squeeze_off", False),
+                    "firing": data.get("firing", False),
+                    "momentum": data.get("momentum", 0.0),
+                    "momentum_direction": data.get("momentum_direction", "NEUTRAL"),
+                    "momentum_increasing": data.get("momentum_increasing", False),
+                    "squeeze_count": data.get("squeeze_count", 0),
+                    "bb_upper": data.get("bb_upper", 0.0),
+                    "bb_lower": data.get("bb_lower", 0.0),
+                    "kc_upper": data.get("kc_upper", 0.0),
+                    "kc_lower": data.get("kc_lower", 0.0),
+                    "bb_period": bb_period,
+                    "bb_mult": bb_mult,
+                    "kc_period": kc_period,
+                    "kc_mult": kc_mult,
+                    "mom_period": mom_period,
+                    "role": "BREAKOUT_DETECTOR",
+                    "weight": 1.4  # Highest weight for breakout signals
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Error fetching Enhanced SQZMOM for {symbol}: {e}")
+            return None
+
+    # ==================== FETCH ALL INDICATORS ====================
+
     async def fetch_all_indicators(
         self,
         symbol: str,
@@ -362,10 +643,19 @@ class SignalAggregator:
 
         Returns:
             tuple: (indicators_dict, atr_data)
-            - indicators_dict: All voting indicators (RSI, MACD, BB, SMA, EMA, Trend Filter, Stochastic)
+            - indicators_dict: All voting indicators
             - atr_data: ATR data for dynamic stops (Dict or None)
+
+        Indicator Categories (2025-11-26 Update):
+        - Original 5: RSI, MACD, Bollinger Bands, SMA, EMA
+        - Phase 1: Trend Filter (GATEKEEPER), Volume Confirmation (VALIDATOR), Stochastic
+        - Advanced (NEW): RSI Divergence, Ichimoku, Enhanced SQZMOM
+        - Risk Management: ATR (not a voting indicator)
+
+        Total voting indicators: 11 (excludes ATR, TREND_FILTER, VOLUME_CONFIRMATION)
         """
         logger.info(f"Fetching all indicators for {symbol} ({interval}m)")
+        logger.info(f"  Including advanced indicators: RSI_DIVERGENCE, ICHIMOKU, SQZMOM_ENHANCED")
 
         # Fetch all indicators concurrently
         import asyncio
@@ -380,6 +670,11 @@ class SignalAggregator:
             "TREND_FILTER": self.fetch_trend_filter(symbol, interval),
             "VOLUME_CONFIRMATION": self.fetch_volume_confirmation(symbol, interval),
             "STOCHASTIC": self.fetch_stochastic(symbol, interval),
+            # Advanced indicators (2025-11-26)
+            "RSI_DIVERGENCE": self.fetch_rsi_divergence(symbol, interval),
+            "ICHIMOKU": self.fetch_ichimoku(symbol, interval),
+            "SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom(symbol, interval),
+            # Risk management (non-voting)
             "ATR": self.fetch_atr(symbol, interval)
         }
 
@@ -388,20 +683,35 @@ class SignalAggregator:
         # Build indicator dictionary and extract ATR separately
         indicators = {}
         atr_data = None
+        success_count = 0
+        fail_count = 0
 
         for name, result in zip(tasks.keys(), results):
             if name == "ATR":
                 # ATR is stored separately (not a voting indicator)
                 if isinstance(result, dict):
                     atr_data = result
-                    logger.info(f"  ✓ ATR: {result['volatility']} volatility ({result['atr_pct']:.2f}%)")
+                    logger.info(f"  [OK] ATR: {result['volatility']} volatility ({result['atr_pct']:.2f}%)")
+                    success_count += 1
                 else:
-                    logger.warning(f"  ✗ ATR: Failed to fetch")
+                    logger.warning(f"  [FAIL] ATR: Failed to fetch")
+                    fail_count += 1
             elif isinstance(result, IndicatorSignal):
                 indicators[name] = result
-                logger.info(f"  ✓ {name}: {result.signal.value} (conf: {result.confidence})")
+                # Log with indicator role if available
+                role = result.metadata.get("role", "VOTER")
+                weight = result.metadata.get("weight", 1.0)
+                if weight != 1.0:
+                    logger.info(f"  [OK] {name}: {result.signal.value} (conf: {result.confidence:.2f}, role: {role}, weight: {weight}x)")
+                else:
+                    logger.info(f"  [OK] {name}: {result.signal.value} (conf: {result.confidence:.2f}, role: {role})")
+                success_count += 1
             else:
-                logger.warning(f"  ✗ {name}: Failed to fetch")
+                logger.warning(f"  [FAIL] {name}: Failed to fetch - {result if isinstance(result, Exception) else 'Unknown error'}")
+                fail_count += 1
+
+        logger.info(f"Indicator fetch complete: {success_count} success, {fail_count} failed")
+        logger.info(f"Voting indicators available: {len([k for k in indicators.keys() if k not in ['TREND_FILTER', 'VOLUME_CONFIRMATION']])}")
 
         return indicators, atr_data
 
@@ -410,10 +720,10 @@ class SignalAggregator:
         Convert signal action to numerical score
         REFACTORED: Delegates to SignalVoter
 
-        BUY    → +1.0
-        SELL   → -1.0
-        HOLD   →  0.0
-        NEUTRAL→  0.0
+        BUY    -> +1.0
+        SELL   -> -1.0
+        HOLD   ->  0.0
+        NEUTRAL->  0.0
         """
         # Delegate to modular voter component
         return self.core_aggregator.voter.signal_to_score(signal)
@@ -505,6 +815,7 @@ class SignalAggregator:
         This is the main entry point for getting a trading signal.
 
         PHASE 1 UPDATE: Now fetches and includes ATR data for dynamic stops
+        2025-11-26 UPDATE: Now includes advanced indicators (RSI Divergence, Ichimoku, SQZMOM)
         """
         import time
         timestamp = int(time.time() * 1000)
@@ -522,7 +833,8 @@ class SignalAggregator:
         self,
         symbol: str,
         primary_interval: str = "60",
-        timeframes: Optional[List[str]] = None
+        timeframes: Optional[List[str]] = None,
+        regime_analysis=None  # Optional: Pre-fetched market regime analysis (2025-11-28)
     ) -> TradingSignal:
         """
         Get trading signal with multi-timeframe confirmation (Phase 2)
@@ -534,6 +846,7 @@ class SignalAggregator:
             symbol: Trading pair (e.g., BTCUSDT)
             primary_interval: Primary timeframe (default: 60m)
             timeframes: List of timeframes to analyze (default: ["15", "60", "240"])
+            regime_analysis: Pre-fetched market regime analysis (optional, 2025-11-28)
 
         Returns:
             TradingSignal with multi-timeframe confidence adjustment
@@ -548,7 +861,7 @@ class SignalAggregator:
         if timeframes is None:
             timeframes = ["15", "60", "240"]
 
-        logger.info(f"🔍 Multi-timeframe analysis for {symbol}")
+        logger.info(f"Multi-timeframe analysis for {symbol}")
         logger.info(f"   Timeframes: {timeframes}m, Primary: {primary_interval}m")
 
         # Fetch signals from all timeframes concurrently
@@ -561,9 +874,9 @@ class SignalAggregator:
         for interval, task in signal_tasks.items():
             try:
                 signals[interval] = await task
-                logger.info(f"   ✓ {interval}m: {signals[interval].action.value} (conf: {signals[interval].confidence:.2f})")
+                logger.info(f"   [OK] {interval}m: {signals[interval].action.value} (conf: {signals[interval].confidence:.2f})")
             except Exception as e:
-                logger.error(f"   ✗ {interval}m: Failed to fetch - {e}")
+                logger.error(f"   [FAIL] {interval}m: Failed to fetch - {e}")
 
         # Ensure we have at least the primary signal
         if primary_interval not in signals:
@@ -587,10 +900,10 @@ class SignalAggregator:
         original_confidence = primary_signal.confidence
         adjusted_confidence = original_confidence * mtf_analysis.confidence_modifier
 
-        logger.info(f"   📊 Multi-timeframe adjustment:")
+        logger.info(f"   Multi-timeframe adjustment:")
         logger.info(f"      Alignment: {mtf_analysis.alignment_strength.value}")
         logger.info(f"      Modifier: {mtf_analysis.confidence_modifier:.2f}x")
-        logger.info(f"      Confidence: {original_confidence:.2f} → {adjusted_confidence:.2f}")
+        logger.info(f"      Confidence: {original_confidence:.2f} -> {adjusted_confidence:.2f}")
         logger.info(f"      Reasoning: {mtf_analysis.reasoning}")
 
         # Update signal with multi-timeframe analysis
@@ -612,6 +925,20 @@ class SignalAggregator:
                 for interval, tf in mtf_analysis.timeframe_signals.items()
             }
         }
+
+        # Add market regime data if available (2025-11-28)
+        if regime_analysis:
+            primary_signal.metadata["market_regime"] = {
+                "regime": regime_analysis.regime.value,
+                "direction": regime_analysis.direction.value,
+                "adx": regime_analysis.adx,
+                "plus_di": regime_analysis.plus_di,
+                "minus_di": regime_analysis.minus_di,
+                "confidence": regime_analysis.confidence,
+                "confidence_modifier": regime_analysis.confidence_modifier,
+                "description": regime_analysis.description,
+                "strategy_recommendation": regime_analysis.strategy_recommendation
+            }
 
         return primary_signal
 
@@ -708,7 +1035,7 @@ class SignalAggregator:
             )
 
             if not candles or len(candles) < 10:
-                logger.warning(f"⚠️ Insufficient candles for VP calculation ({len(candles) if candles else 0})")
+                logger.warning(f"Insufficient candles for VP calculation ({len(candles) if candles else 0})")
                 return signal
 
             # Calculate volume profile
@@ -720,7 +1047,7 @@ class SignalAggregator:
             )
 
             if not vp_profile:
-                logger.warning(f"⚠️ VP calculation failed for {symbol}")
+                logger.warning(f"VP calculation failed for {symbol}")
                 return signal
 
             # Get current price from signal metadata
@@ -732,7 +1059,7 @@ class SignalAggregator:
                         break
 
             if not current_price:
-                logger.warning(f"⚠️ No current price found in signal")
+                logger.warning(f"No current price found in signal")
                 return signal
 
             # Analyze VP strategy
@@ -763,7 +1090,7 @@ class SignalAggregator:
             signal.metadata['vp_confidence_modifier'] = combined.get('vp_confidence_modifier')
 
             logger.info(
-                f"📊 VP Analysis: {vp_signal.strategy_type.value} "
+                f"VP Analysis: {vp_signal.strategy_type.value} "
                 f"| Position: {vp_signal.price_position} "
                 f"| Modifier: {combined.get('vp_confidence_modifier', 1.0):.2f}x"
             )
@@ -771,7 +1098,7 @@ class SignalAggregator:
             logger.info(f"   {vp_signal.reasoning}")
 
         except Exception as e:
-            logger.error(f"❌ VP analysis error for {symbol}: {e}", exc_info=True)
+            logger.error(f"VP analysis error for {symbol}: {e}", exc_info=True)
             # Return original signal if VP fails
             return signal
 
@@ -819,11 +1146,11 @@ class SignalAggregator:
                     'volume': float(k[5])
                 })
 
-            logger.info(f"✓ Fetched {len(candles)} candles for VP calculation")
+            logger.info(f"Fetched {len(candles)} candles for VP calculation")
             return candles
 
         except Exception as e:
-            logger.error(f"❌ Error fetching candles for VP: {e}")
+            logger.error(f"Error fetching candles for VP: {e}")
             return []
 
 

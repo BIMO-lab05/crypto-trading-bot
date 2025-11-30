@@ -1,6 +1,7 @@
 {
   "name": "crypto-trading-dashboard",
   "version": "1.0.0",
+  "type": "module",
   "description": "Real-time cryptocurrency trading dashboard",
   "private": true,
   "scripts": {

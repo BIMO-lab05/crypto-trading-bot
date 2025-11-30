@@ -23,8 +23,12 @@ class Settings(BaseSettings):
         default="http://localhost:8004",
         description="Technical Analysis Service URL"
     )
-    bybit_connector_url: str = Field(
+    market_data_url: str = Field(
         default="http://localhost:8002",
+        description="Market Data Service URL for fetching live prices"
+    )
+    bybit_connector_url: str = Field(
+        default="http://bybit-connector:8001",
         description="Bybit Connector Service URL"
     )
     portfolio_manager_url: str = Field(
@@ -50,12 +54,42 @@ class Settings(BaseSettings):
         description="Default trading symbol"
     )
     trading_symbols: List[str] = Field(
-        default=["BTCUSDT", "ETHUSDT", "SOLUSDT"],
-        description="List of symbols to trade in auto-trader"
+        default=[
+            # Top 20 crypto by volume - more symbols = more opportunities
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+            "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
+            "MATICUSDT", "LTCUSDT", "ATOMUSDT", "NEARUSDT", "APTUSDT",
+            "ARBUSDT", "OPUSDT", "SUIUSDT", "INJUSDT", "SEIUSDT"
+        ],
+        description="List of symbols to trade in auto-trader (20 symbols for 20 trades/day target)"
     )
     default_interval: str = Field(
         default="60",
         description="Default candlestick interval"
+    )
+
+    # Trade Frequency Settings - TARGET 20 TRADES/DAY
+    max_daily_trades: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of trades per day"
+    )
+    check_frequency_seconds: int = Field(
+        default=30,
+        ge=10,
+        le=300,
+        description="How often to check for signals (seconds)"
+    )
+    allow_same_symbol_reentry: bool = Field(
+        default=True,
+        description="Allow re-entry on same symbol after position closed"
+    )
+    min_time_between_trades_same_symbol: int = Field(
+        default=60,
+        ge=0,
+        le=3600,
+        description="Minimum seconds between trades on same symbol"
     )
 
     # Risk Management
@@ -72,10 +106,10 @@ class Settings(BaseSettings):
         description="Maximum daily loss as % of capital"
     )
     max_total_exposure_pct: float = Field(
-        default=20.0,
+        default=80.0,
         ge=5.0,
         le=100.0,
-        description="Maximum total exposure as % of capital"
+        description="Maximum total exposure as % of capital (80% to allow 20+ positions)"
     )
     default_stop_loss_pct: float = Field(
         default=3.0,
@@ -84,26 +118,26 @@ class Settings(BaseSettings):
         description="Default stop loss as % from entry"
     )
     default_take_profit_pct: float = Field(
-        default=6.0,
+        default=4.0,
         ge=1.0,
         le=50.0,
-        description="Default take profit as % from entry"
+        description="Default take profit as % from entry (reduced for faster exits)"
     )
 
-    # Signal Thresholds - ADJUSTED FOR MORE AGGRESSIVE TRADING (2025-11-26)
-    # Changed from 0.5 to 0.45 to allow trades with 45%+ confidence
+    # Signal Thresholds - ULTRA AGGRESSIVE MODE (2025-11-29)
+    # Very low thresholds for maximum trading frequency
     min_signal_confidence: float = Field(
-        default=0.45,
+        default=0.05,
         ge=0.0,
         le=1.0,
-        description="Minimum signal confidence to trade (lowered from 0.5 to 0.45)"
+        description="ULTRA LOW: Accept almost any signal"
     )
-    # Changed from 3 to 2 for more flexibility (2 out of 6-7 voting indicators)
+    # Only need 1 indicator for consensus
     min_consensus_indicators: int = Field(
-        default=2,
+        default=1,
         ge=1,
         le=10,
-        description="Minimum indicators in agreement (2 out of 6-7 voting indicators)"
+        description="LOWERED: Just 1 strong indicator can trigger trade"
     )
 
     # Database Configuration

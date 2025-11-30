@@ -1,16 +1,16 @@
 {
   "symbol": "BNBUSDT",
   "interval": "60",
-  "model_version": "v20251120_220301",
-  "last_trained": "2025-11-20T22:03:01.609661",
+  "model_version": "v20251127_225447",
+  "last_trained": "2025-11-27T22:54:47.445887",
   "training_stats": {
-    "train_samples": 435,
-    "test_samples": 109,
-    "final_train_loss": 0.0017941916594281793,
-    "final_val_loss": 1.3688725175597938e-06,
-    "mae": 0.0007575433024595913,
-    "rmse": 0.0007578949779001757,
-    "r2_score": -1076.7989716393895
+    "train_samples": 104,
+    "test_samples": 27,
+    "final_train_loss": 0.009983831085264683,
+    "final_val_loss": 0.05353936180472374,
+    "mae": 0.11368268836850771,
+    "rmse": 0.12253347560897744,
+    "r2_score": 0.3201916280665119
   },
   "feature_columns": [
     "open",

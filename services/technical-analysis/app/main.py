@@ -3,7 +3,7 @@ Technical Analysis Service - FastAPI Application
 Purpose: REST API for technical indicators and trading signals
 
 REFACTORED: Phase 3 Complete - Using modular handlers
-Architecture: main.py → handlers → services → domain
+Architecture: main.py -> handlers -> services -> domain
 """
 
 import logging
@@ -38,6 +38,10 @@ from app.handlers import (
     get_volume_confirmation,
     get_atr,
     get_stochastic,
+    get_rsi_divergence,
+    get_ichimoku,
+    get_enhanced_sqzmom,
+    get_adx,
     get_aggregated_signal,
     get_multi_timeframe_analysis,
     get_sqzmom,
@@ -70,16 +74,16 @@ async def lifespan(app: FastAPI):
     """
     logger.info(f"Starting {settings.service_name} on port {settings.service_port}")
     logger.info(f"Market Data URL: {settings.market_data_url}")
-    logger.info("🎯 Using modular architecture (Phase 3 refactoring complete)")
+    logger.info("Using modular architecture (Phase 3 refactoring complete)")
 
     try:
         # Check Market Data Service connection
         fetcher = get_fetcher()
         is_healthy = await fetcher.health_check()
         if is_healthy:
-            logger.info("✅ Market Data Service connection verified")
+            logger.info("Market Data Service connection verified")
         else:
-            logger.warning("⚠️ Market Data Service not available")
+            logger.warning("Market Data Service not available")
 
         yield
 
@@ -93,7 +97,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Technical Analysis Service",
     description="Calculate technical indicators and generate trading signals",
-    version="2.1.0",  # Updated: Added SQZMOM indicator
+    version="2.2.0",  # Updated: Added ADX indicator for market regime detection
     lifespan=lifespan
 )
 
@@ -131,15 +135,17 @@ async def ready():
 async def rsi_endpoint(
     symbol: str,
     interval: str = Query(default="60", description="Candlestick interval"),
-    period: int = Query(default=14, ge=2, le=200, description="RSI period"),
+    # RESEARCH-OPTIMIZED 2025-11-28: Period 9 optimal for crypto volatility (prev: 14)
+    period: int = Query(default=9, ge=2, le=200, description="RSI period (optimized for crypto)"),
     limit: int = Query(default=200, ge=50, le=1000, description="Number of candles to fetch")
 ):
     """
     Calculate RSI (Relative Strength Index)
 
     RSI measures momentum and identifies overbought/oversold conditions.
-    - RSI > 70: Overbought (potential sell)
-    - RSI < 30: Oversold (potential buy)
+    RESEARCH-OPTIMIZED: Using 80/20 thresholds for crypto (more extreme than 70/30)
+    - RSI > 80: Overbought (potential sell)
+    - RSI < 20: Oversold (potential buy)
     """
     return await get_rsi(symbol, interval, period, limit)
 
@@ -148,14 +154,16 @@ async def rsi_endpoint(
 async def macd_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    fast: int = Query(default=12, ge=2, le=50),
-    slow: int = Query(default=26, ge=10, le=200),
-    signal: int = Query(default=9, ge=2, le=50),
+    # RESEARCH-OPTIMIZED 2025-11-28: 8/17/9 reduces lag for crypto (prev: 12/26/9)
+    fast: int = Query(default=8, ge=2, le=50, description="Fast EMA period (optimized)"),
+    slow: int = Query(default=17, ge=10, le=200, description="Slow EMA period (optimized)"),
+    signal: int = Query(default=9, ge=2, le=50, description="Signal line period"),
     limit: int = Query(default=200, ge=100, le=1000)
 ):
     """
     Calculate MACD (Moving Average Convergence Divergence)
 
+    RESEARCH-OPTIMIZED: Using 8/17/9 for faster response in crypto markets
     MACD is a trend-following momentum indicator.
     - MACD crosses above Signal: Bullish (buy)
     - MACD crosses below Signal: Bearish (sell)
@@ -286,8 +294,8 @@ async def atr_endpoint(
 
     Returns volatility-based risk management levels:
     - ATR: Average True Range value
-    - Stop-loss: Entry ± (2 × ATR)
-    - Take-profit: Entry ± (4 × ATR) [1:2 risk/reward]
+    - Stop-loss: Entry +/- (2 x ATR)
+    - Take-profit: Entry +/- (4 x ATR) [1:2 risk/reward]
     - Volatility: LOW/MEDIUM/HIGH/EXTREME classification
 
     **Adapts to market conditions**:
@@ -297,6 +305,48 @@ async def atr_endpoint(
     - Extreme volatility (ATR > 4%): Very wide stops
     """
     return await get_atr(symbol, interval, period, current_price, limit)
+
+
+@app.get("/api/v1/indicators/adx/{symbol}", tags=["Indicators"])
+async def adx_endpoint(
+    symbol: str,
+    interval: str = Query(default="60"),
+    period: int = Query(default=14, ge=7, le=30, description="ADX period"),
+    trending_threshold: float = Query(default=25.0, ge=15.0, le=40.0, description="ADX threshold for TRENDING"),
+    weak_trend_threshold: float = Query(default=20.0, ge=10.0, le=30.0, description="ADX threshold for WEAK_TREND"),
+    strong_trend_threshold: float = Query(default=30.0, ge=25.0, le=50.0, description="ADX threshold for STRONG_TREND"),
+    limit: int = Query(default=100, ge=50, le=500)
+):
+    """
+    Calculate ADX (Average Directional Index)
+
+    **Market Regime Detection**: Identifies trend strength for strategy selection
+
+    Measures trend strength and provides market regime classification:
+    - ADX: Average Directional Index value (0-100)
+    - +DI: Positive Directional Indicator (upward movement strength)
+    - -DI: Negative Directional Indicator (downward movement strength)
+
+    **Market Regime Classification**:
+    - STRONG_TREND: ADX >= 30 (use aggressive trend-following)
+    - TRENDING: ADX 25-30 (use standard trend-following)
+    - WEAK_TREND: ADX 20-25 (cautious trend-following)
+    - RANGING: ADX < 20 (use mean-reversion strategies)
+
+    **Trend Direction**:
+    - BULLISH: +DI > -DI (upward momentum dominates)
+    - BEARISH: -DI > +DI (downward momentum dominates)
+    - NEUTRAL: +DI approximately equals -DI
+
+    **Trading Applications**:
+    - Trend-following works best when ADX > 25
+    - Mean-reversion works best when ADX < 20
+    - Adjust position sizing based on ADX (higher ADX = more confidence)
+    """
+    return await get_adx(
+        symbol, interval, period, trending_threshold,
+        weak_trend_threshold, strong_trend_threshold, limit
+    )
 
 
 @app.get("/api/v1/indicators/stochastic/{symbol}", tags=["Indicators"])
@@ -329,6 +379,89 @@ async def stochastic_endpoint(
     - Volume confirmation (validate breakouts)
     """
     return await get_stochastic(symbol, interval, period, smooth_k, smooth_d, limit)
+
+
+@app.get("/api/v1/indicators/rsi-divergence/{symbol}", tags=["Indicators"])
+async def rsi_divergence_endpoint(
+    symbol: str,
+    interval: str = Query(default="60"),
+    period: int = Query(default=14, ge=7, le=30, description="RSI period"),
+    lookback: int = Query(default=20, ge=10, le=50, description="Lookback for divergence detection"),
+    limit: int = Query(default=200, ge=100, le=500)
+):
+    """
+    Calculate RSI Divergence
+
+    **Detects bullish and bearish divergences for high-probability reversal signals**
+
+    Divergence Types:
+    - **Bullish Divergence**: Price makes lower low, RSI makes higher low (BUY signal)
+    - **Bearish Divergence**: Price makes higher high, RSI makes lower high (SELL signal)
+    - **Hidden Bullish**: Price makes higher low, RSI makes lower low (trend continuation BUY)
+    - **Hidden Bearish**: Price makes lower high, RSI makes higher high (trend continuation SELL)
+
+    **Signal Confidence** based on divergence strength and RSI zone
+    """
+    return await get_rsi_divergence(symbol, interval, period, lookback, limit)
+
+
+@app.get("/api/v1/indicators/ichimoku/{symbol}", tags=["Indicators"])
+async def ichimoku_endpoint(
+    symbol: str,
+    interval: str = Query(default="60"),
+    tenkan_period: int = Query(default=9, ge=5, le=20, description="Tenkan-sen (conversion) period"),
+    kijun_period: int = Query(default=26, ge=20, le=50, description="Kijun-sen (base) period"),
+    senkou_b_period: int = Query(default=52, ge=40, le=100, description="Senkou Span B period"),
+    limit: int = Query(default=200, ge=100, le=500)
+):
+    """
+    Calculate Ichimoku Cloud (Ichimoku Kinko Hyo)
+
+    **Complete trend and support/resistance analysis in one indicator**
+
+    Components:
+    - **Tenkan-sen**: Short-term trend (9-period midpoint)
+    - **Kijun-sen**: Medium-term trend (26-period midpoint)
+    - **Senkou Span A**: Leading span A (Tenkan+Kijun midpoint, shifted 26 forward)
+    - **Senkou Span B**: Leading span B (52-period midpoint, shifted 26 forward)
+    - **Chikou Span**: Lagging span (current close, shifted 26 back)
+
+    **Trading Signals**:
+    - BUY: Price above cloud + TK cross bullish + Chikou above price
+    - SELL: Price below cloud + TK cross bearish + Chikou below price
+    - HOLD: Inside cloud or conflicting signals
+    """
+    return await get_ichimoku(symbol, interval, tenkan_period, kijun_period, senkou_b_period, limit)
+
+
+@app.get("/api/v1/indicators/sqzmom-enhanced/{symbol}", tags=["Indicators"])
+async def enhanced_sqzmom_endpoint(
+    symbol: str,
+    interval: str = Query(default="60"),
+    bb_period: int = Query(default=20, ge=10, le=50, description="Bollinger Bands period"),
+    bb_mult: float = Query(default=2.0, ge=1.0, le=3.0, description="Bollinger Bands multiplier"),
+    kc_period: int = Query(default=20, ge=10, le=50, description="Keltner Channel period"),
+    kc_mult: float = Query(default=1.5, ge=1.0, le=3.0, description="Keltner Channel multiplier"),
+    mom_period: int = Query(default=12, ge=5, le=30, description="Momentum period"),
+    limit: int = Query(default=200, ge=100, le=500)
+):
+    """
+    Calculate Enhanced Squeeze Momentum
+
+    **Advanced version with squeeze firing detection and momentum histogram**
+
+    Features:
+    - **Squeeze State**: ON (BB inside KC), OFF (BB outside KC)
+    - **Squeeze Firing**: First bar after squeeze releases (high probability breakout)
+    - **Momentum**: Linear regression based histogram
+    - **Color Coding**: Lime/Green (bullish), Red/Maroon (bearish)
+
+    **Trading Signals**:
+    - BUY: Squeeze fires + positive momentum + increasing
+    - SELL: Squeeze fires + negative momentum + decreasing
+    - HOLD: Squeeze still on or momentum unclear
+    """
+    return await get_enhanced_sqzmom(symbol, interval, bb_period, bb_mult, kc_period, kc_mult, mom_period, limit)
 
 
 # ============================================================================
@@ -547,7 +680,7 @@ async def root():
     """Root endpoint with service information"""
     return {
         "service": settings.service_name,
-        "version": "2.1.0",  # Updated: Added SQZMOM indicator
+        "version": "2.2.0",  # Updated: Added ADX indicator
         "status": "running",
         "architecture": "Modular (Phase 3 Complete)",
         "endpoints": {
@@ -563,6 +696,7 @@ async def root():
                 "trend_filter": "/api/v1/indicators/trend/{symbol} [PHASE 1]",
                 "volume_confirmation": "/api/v1/indicators/volume/{symbol} [PHASE 1]",
                 "atr": "/api/v1/indicators/atr/{symbol} [PHASE 1]",
+                "adx": "/api/v1/indicators/adx/{symbol} [MARKET REGIME]",
                 "stochastic": "/api/v1/indicators/stochastic/{symbol} [PHASE 1]",
                 "sqzmom": "/api/v1/indicators/sqzmom/{symbol} [LazyBear]"
             },
@@ -578,17 +712,18 @@ async def root():
             }
         },
         "refactoring": {
-            "status": "Phase 3 Complete ✅",
+            "status": "Phase 3 Complete",
             "original_lines": 987,
             "current_lines": "~500",
             "reduction": "49%",
             "modules": 9,
-            "architecture": "main.py → handlers → services → domain"
+            "architecture": "main.py -> handlers -> services -> domain"
         },
         "new_features": {
             "sqzmom_indicator": "LazyBear's Squeeze Momentum Indicator",
             "sqzmom_strategy": "Complete trading strategy with entry/exit rules",
-            "backtest_data": "Historical SQZMOM data for strategy validation"
+            "backtest_data": "Historical SQZMOM data for strategy validation",
+            "adx_indicator": "ADX-based market regime detection (TRENDING/RANGING/WEAK_TREND)"
         }
     }
 

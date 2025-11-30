@@ -82,18 +82,105 @@ async def get_db_session():
         await session.close()
 
 
-async def init_database():
-    """Initialize database (create tables)"""
+async def init_database(max_retries: int = 10, retry_delay: float = 2.0):
+    """
+    Initialize database (create tables) with retry logic
+
+    Handles the case where database is still starting up by retrying
+    the connection with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of connection attempts
+        retry_delay: Initial delay between retries (doubles each attempt)
+    """
+    import asyncio
+
     engine = get_engine()
-    
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            async with engine.begin() as conn:
+                # Create all tables
+                await conn.run_sync(Base.metadata.create_all)
+                logger.info("Database tables created")
+                return  # Success - exit function
+
+        except Exception as e:
+            last_error = e
+            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+            logger.warning(
+                f"Database connection attempt {attempt + 1}/{max_retries} failed: {e}. "
+                f"Retrying in {wait_time:.1f}s..."
+            )
+            await asyncio.sleep(wait_time)
+
+    # All retries exhausted
+    logger.error(f"Failed to connect to database after {max_retries} attempts")
+    raise last_error
+
+
+async def create_hypertables():
+    """
+    Convert tables to TimescaleDB hypertables
+
+    This should be run AFTER init_database() creates the tables.
+    Safe to run multiple times (uses if_not_exists).
+    """
+    from sqlalchemy import text
+
+    engine = get_engine()
+
+    # Individual SQL statements for better error handling
+    hypertable_statements = [
+        # Convert klines to hypertable
+        """SELECT create_hypertable('klines', 'timestamp',
+            chunk_time_interval => 86400000,
+            if_not_exists => TRUE,
+            migrate_data => TRUE
+        )""",
+        # Convert tickers to hypertable
+        """SELECT create_hypertable('tickers', 'timestamp',
+            chunk_time_interval => 86400000,
+            if_not_exists => TRUE,
+            migrate_data => TRUE
+        )""",
+        # Convert orderbook_snapshots to hypertable
+        """SELECT create_hypertable('orderbook_snapshots', 'timestamp',
+            chunk_time_interval => 86400000,
+            if_not_exists => TRUE,
+            migrate_data => TRUE
+        )""",
+    ]
+
+    retention_statements = [
+        # Keep klines for 90 days
+        "SELECT add_retention_policy('klines', INTERVAL '90 days', if_not_exists => TRUE)",
+        # Keep tickers for 30 days
+        "SELECT add_retention_policy('tickers', INTERVAL '30 days', if_not_exists => TRUE)",
+        # Keep orderbook snapshots for 7 days
+        "SELECT add_retention_policy('orderbook_snapshots', INTERVAL '7 days', if_not_exists => TRUE)",
+    ]
+
     async with engine.begin() as conn:
-        # Create all tables
-        await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables created")
-        
-        # Note: TimescaleDB hypertable conversion should be done manually
-        # or via migration script, not here
-        logger.info("Run TimescaleDB hypertable creation separately")
+        # Create hypertables
+        for stmt in hypertable_statements:
+            try:
+                await conn.execute(text(stmt))
+                logger.info(f"Hypertable created successfully")
+            except Exception as e:
+                # Log but continue - hypertable may already exist
+                logger.warning(f"Hypertable creation: {e}")
+
+        # Add retention policies
+        for stmt in retention_statements:
+            try:
+                await conn.execute(text(stmt))
+                logger.info(f"Retention policy added")
+            except Exception as e:
+                logger.warning(f"Retention policy: {e}")
+
+        logger.info("TimescaleDB hypertables and policies configured")
 
 
 async def close_database():

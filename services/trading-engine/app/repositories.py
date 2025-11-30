@@ -178,6 +178,33 @@ class PositionRepository:
             logger.error(f"Failed to get open positions from database: {e}")
             return []
 
+    async def get_closed_positions(self, portfolio_id: str = "paper_trading", limit: int = 50) -> List[DBPosition]:
+        """
+        Get all closed positions from database for a portfolio
+
+        Args:
+            portfolio_id: Portfolio ID (default: paper_trading)
+            limit: Maximum number of positions to return (default: 50)
+
+        Returns:
+            List of closed DBPosition objects, sorted by closed_at descending
+        """
+        try:
+            async with self.db.get_async_session() as session:
+                result = await session.execute(
+                    select(DBPosition)
+                    .where(DBPosition.portfolio_id == portfolio_id)
+                    .where(DBPosition.status == 'CLOSED')
+                    .order_by(DBPosition.closed_at.desc())
+                    .limit(limit)
+                )
+                positions = result.scalars().all()
+                logger.info(f"Retrieved {len(positions)} closed positions from database")
+                return positions
+        except Exception as e:
+            logger.error(f"Failed to get closed positions from database: {e}")
+            return []
+
 
 class TradeRepository:
     """

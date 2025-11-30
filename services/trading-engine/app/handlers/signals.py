@@ -3,6 +3,8 @@ Signal Endpoint Handlers
 Extracted from main.py - Responsibility: Signal fetching and trading execution
 
 Handles trading signal retrieval and analysis with optional execution.
+
+UPDATED: Signal recording now handled by CoreAggregator with real filter data
 """
 
 import logging
@@ -27,6 +29,7 @@ async def get_trading_signal(
     Get trading signal for a symbol
 
     Fetches all technical indicators and aggregates them into a trading signal.
+    Signal is automatically recorded by CoreAggregator with real filter data.
 
     Args:
         symbol: Trading symbol (e.g., BTCUSDT)
@@ -40,6 +43,7 @@ async def get_trading_signal(
     """
     try:
         aggregator = await get_aggregator()
+        # CoreAggregator now records signal to Phase1MetricsProvider with real filter data
         signal = await aggregator.get_trading_signal(symbol, interval)
 
         return SignalResponse(

@@ -77,3 +77,26 @@ class TradingControlResponse(BaseModel):
     message: str = Field(description="Response message")
     trading_enabled: bool = Field(description="Trading enabled status")
     timestamp: int = Field(description="Response timestamp (ms)")
+
+
+class TradeHistoryStats(BaseModel):
+    """Trade history statistics"""
+    total_trades: int = Field(description="Total number of closed trades")
+    winning_trades: int = Field(description="Number of profitable trades")
+    losing_trades: int = Field(description="Number of losing trades")
+    win_rate: float = Field(description="Win rate percentage")
+    total_realized_pnl: float = Field(description="Total realized P&L")
+    avg_win: float = Field(description="Average winning trade P&L")
+    avg_loss: float = Field(description="Average losing trade P&L")
+    best_trade: float = Field(description="Best trade P&L")
+    worst_trade: float = Field(description="Worst trade P&L")
+    profit_factor: float = Field(description="Profit factor (gross wins / gross losses)")
+
+
+class TradeHistoryResponse(BaseModel):
+    """Trade history response"""
+    success: bool = Field(description="Request success status")
+    trades: List[Position] = Field(description="List of closed trades")
+    stats: TradeHistoryStats = Field(description="Trade statistics")
+    count: int = Field(description="Number of trades")
+    timestamp: int = Field(description="Response timestamp (ms)")

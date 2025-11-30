@@ -82,49 +82,50 @@ class TrendGatekeeper:
         # Check for counter-trend trades
         if action == SignalAction.BUY and trend == "BEARISH":
             # Counter-trend BUY in BEARISH
-            # ADJUSTED 2025-11-26: Raised blocking threshold from 0.8 to 0.9
-            if trend_confidence >= 0.9:
-                # Very strong bearish trend - block the trade
+            # AGGRESSIVE 2025-11-28: Only block at extreme confidence (>=0.95)
+            # - Changed from 0.75 to allow more counter-trend reversal trades
+            if trend_confidence >= 0.95:
+                # Extremely strong bearish trend - block the trade
                 trend_blocked = True
-                trend_reason = "Counter-trend blocked (BUY in very strong BEARISH)"
+                trend_reason = "Counter-trend blocked (BUY in extreme BEARISH)"
                 modified_action = SignalAction.HOLD
                 modified_confidence *= 0.3
                 logger.warning(f"BLOCKED: {trend_reason}")
                 self.blocked_count += 1
             else:
-                # Bearish trend but not overwhelming - penalize but allow
+                # Bearish trend - minimal penalty to allow reversal trades
                 trend_blocked = False
                 trend_reason = "Counter-trend penalty (BUY in BEARISH)"
-                # ADJUSTED 2025-11-26: Reduced penalty from 0.5x to 0.6x
-                modified_confidence *= 0.6
+                # AGGRESSIVE 2025-11-28: Reduced from 0.85x to 0.95x (5% penalty)
+                modified_confidence *= 0.95
                 logger.info(f"PENALIZED: {trend_reason}")
                 self.penalized_count += 1
 
         elif action == SignalAction.SELL and trend == "BULLISH":
             # Counter-trend SELL in BULLISH
-            # ADJUSTED 2025-11-26: Raised blocking threshold from 0.8 to 0.9
-            if trend_confidence >= 0.9:
-                # Very strong bullish trend - block the trade
+            # AGGRESSIVE 2025-11-28: Only block at extreme confidence (>=0.95)
+            if trend_confidence >= 0.95:
+                # Extremely strong bullish trend - block the trade
                 trend_blocked = True
-                trend_reason = "Counter-trend blocked (SELL in very strong BULLISH)"
+                trend_reason = "Counter-trend blocked (SELL in extreme BULLISH)"
                 modified_action = SignalAction.HOLD
                 modified_confidence *= 0.3
                 logger.warning(f"BLOCKED: {trend_reason}")
                 self.blocked_count += 1
             else:
-                # Bullish trend but not overwhelming - penalize but allow
+                # Bullish trend - minimal penalty to allow reversal trades
                 trend_blocked = False
                 trend_reason = "Counter-trend penalty (SELL in BULLISH)"
-                # ADJUSTED 2025-11-26: Reduced penalty from 0.5x to 0.6x
-                modified_confidence *= 0.6
+                # AGGRESSIVE 2025-11-28: Reduced from 0.85x to 0.95x (5% penalty)
+                modified_confidence *= 0.95
                 logger.info(f"PENALIZED: {trend_reason}")
                 self.penalized_count += 1
 
         elif trend == "NEUTRAL":
-            # Neutral trend: allow with minimal penalty
-            # ADJUSTED 2025-11-26: Reduced penalty from 0.85x to 0.9x
-            modified_confidence *= 0.9
-            trend_reason = "Neutral trend (minimal penalty)"
+            # Neutral trend: allow with no penalty
+            # AGGRESSIVE 2025-11-28: Removed penalty for neutral trends
+            modified_confidence *= 1.0  # No penalty
+            trend_reason = "Neutral trend (no penalty)"
             logger.info(f"NEUTRAL: {trend_reason}")
             self.passed_count += 1
 

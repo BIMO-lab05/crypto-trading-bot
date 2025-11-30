@@ -1,0 +1,42 @@
+{
+  "symbol": "ETHUSDT",
+  "interval": "5",
+  "model_version": "v20251128_142847",
+  "last_trained": "2025-11-28T14:28:47.023264",
+  "training_stats": {
+    "train_samples": 481,
+    "test_samples": 121,
+    "final_train_loss": 0.01236304733902216,
+    "final_val_loss": 0.009381052106618881,
+    "mae": 0.048168407370144134,
+    "rmse": 0.061521952750930795,
+    "r2_score": 0.5442096603230403
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "return_1",
+    "return_5",
+    "return_10",
+    "price_momentum_5",
+    "price_momentum_10",
+    "sma_7",
+    "sma_14",
+    "sma_30",
+    "ema_7",
+    "ema_14",
+    "price_vs_sma7",
+    "price_vs_sma14",
+    "high_low_range",
+    "volatility_10",
+    "volatility_20",
+    "volume_sma_7",
+    "volume_ratio",
+    "rsi_14"
+  ],
+  "sequence_length": 60,
+  "prediction_horizon": 5
+}

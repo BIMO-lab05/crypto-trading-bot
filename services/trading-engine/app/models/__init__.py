@@ -23,7 +23,9 @@ from app.models.response import (
     PositionListResponse,
     PerformanceResponse,
     StrategyListResponse,
-    TradingControlResponse
+    TradingControlResponse,
+    TradeHistoryStats,
+    TradeHistoryResponse
 )
 
 __all__ = [
@@ -57,5 +59,7 @@ __all__ = [
     "PositionListResponse",
     "PerformanceResponse",
     "StrategyListResponse",
-    "TradingControlResponse"
+    "TradingControlResponse",
+    "TradeHistoryStats",
+    "TradeHistoryResponse"
 ]

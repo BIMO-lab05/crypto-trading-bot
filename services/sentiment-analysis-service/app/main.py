@@ -38,6 +38,7 @@ from app.models import (
     ReadyResponse,
     NewsArticle,
     NewsSentiment,
+    SocialPost,
     SocialSentiment,
     CombinedSentiment,
     SentimentTrend
@@ -183,7 +184,7 @@ async def get_api_stats():
         "twitter_api": twitter_fetcher.get_api_stats() if twitter_fetcher else {},
         "cache_stats": {
             "news_cache_size": len(news_fetcher.news_cache) if news_fetcher else 0,
-            "twitter_cache_size": len(twitter_fetcher.twitter_cache) if twitter_fetcher else 0
+            "twitter_cache_size": len(twitter_fetcher.tweets_cache) if twitter_fetcher else 0
         }
     }
     return stats
@@ -283,7 +284,8 @@ async def get_news_sentiment(
         # Record metrics
         # sentiment_analyses_total.labels(symbol=symbol, source='news').inc()
         duration = (datetime.utcnow() - start_time).total_seconds()
-        sentiment_analysis_duration.labels(source='news').observe(duration)
+        if sentiment_analysis_duration:
+            sentiment_analysis_duration.labels(source='news').observe(duration)
 
         return NewsSentiment(
             symbol=symbol,
@@ -325,27 +327,31 @@ async def get_social_sentiment(
             twitter_data = await twitter_fetcher.fetch_crypto_tweets(
                 symbol=symbol,
                 lookback_hours=lookback_hours,
-                limit=100
+                max_tweets=100
             )
-            api_calls_total.labels(provider='twitter', status='success').inc()
+            if api_calls_total:
+                api_calls_total.labels(provider='twitter', status='success').inc()
         except Exception as e:
             logger.error(f"Error fetching Twitter data: {e}")
-            api_calls_total.labels(provider='twitter', status='failed').inc()
+            if api_calls_total:
+                api_calls_total.labels(provider='twitter', status='failed').inc()
             twitter_data = []
 
         if not twitter_data:
             # sentiment_analyses_total.labels(symbol=symbol, source='social').inc()
             return SocialSentiment(
                 symbol=symbol,
+                platform="twitter",
                 total_posts=0,
                 posts=[],
                 average_sentiment=0.0,
+                weighted_sentiment=0.0,
                 sentiment_label="NEUTRAL",
                 positive_count=0,
                 negative_count=0,
                 neutral_count=0,
-                confidence=0.0,
-                data_sources=['twitter', 'reddit']
+                total_engagement=0.0,
+                average_engagement=0.0
             )
 
         # Analyze sentiment for tweets
@@ -375,19 +381,55 @@ async def get_social_sentiment(
         # Record metrics
         # sentiment_analyses_total.labels(symbol=symbol, source='social').inc()
         duration = (datetime.utcnow() - start_time).total_seconds()
-        sentiment_analysis_duration.labels(source='social').observe(duration)
+        if sentiment_analysis_duration:
+            sentiment_analysis_duration.labels(source='social').observe(duration)
+
+        # Transform twitter data to SocialPost format
+        social_posts = []
+        total_engagement = 0.0
+        for i, post in enumerate(twitter_data[:10]):
+            # Get engagement score from the post data
+            engagement = post.get('engagement_score', 0.0) or post.get('engagement', 0.0) or 0.0
+            total_engagement += engagement
+
+            # Get sentiment from analyzed scores (calculated above)
+            post_sentiment = sentiment_scores[i] if i < len(sentiment_scores) else 0.0
+
+            # Get posted time - handle both created_at and posted_at field names
+            posted_time = post.get('created_at') or post.get('posted_at')
+            if isinstance(posted_time, str):
+                try:
+                    posted_time = datetime.fromisoformat(posted_time.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    posted_time = datetime.utcnow()
+            elif posted_time is None:
+                posted_time = datetime.utcnow()
+
+            social_posts.append(SocialPost(
+                platform="twitter",
+                text=post.get('text', ''),
+                author=post.get('author'),
+                posted_at=posted_time,
+                engagement_score=engagement,
+                sentiment_score=round(post_sentiment, 3),
+                sentiment_label="POSITIVE" if post_sentiment > 0.1 else ("NEGATIVE" if post_sentiment < -0.1 else "NEUTRAL")
+            ))
+
+        avg_engagement = total_engagement / len(social_posts) if social_posts else 0.0
 
         return SocialSentiment(
             symbol=symbol,
+            platform="twitter",
             total_posts=len(twitter_data),
-            posts=twitter_data[:10],  # Return top 10
+            posts=social_posts,
             average_sentiment=round(avg_sentiment, 3),
+            weighted_sentiment=round(avg_sentiment, 3),
             sentiment_label=sentiment_label,
             positive_count=distribution['positive'],
             negative_count=distribution['negative'],
             neutral_count=distribution['neutral'],
-            confidence=round(confidence, 2),
-            data_sources=['twitter']
+            total_engagement=total_engagement,
+            average_engagement=avg_engagement
         )
 
     except Exception as e:
@@ -470,22 +512,49 @@ async def get_combined_sentiment(
         # Record metrics
         # sentiment_analyses_total.labels(symbol=symbol, source='combined').inc()
         duration = (datetime.utcnow() - start_time).total_seconds()
-        sentiment_analysis_duration.labels(source='combined').observe(duration)
+        if sentiment_analysis_duration:
+            sentiment_analysis_duration.labels(source='combined').observe(duration)
+
+        # Determine trading signal based on sentiment
+        if combined_sentiment_value > 0.3:
+            trading_signal = "BUY"
+            signal_strength = min(combined_sentiment_value, 1.0)
+        elif combined_sentiment_value < -0.3:
+            trading_signal = "SELL"
+            signal_strength = min(abs(combined_sentiment_value), 1.0)
+        else:
+            trading_signal = "HOLD"
+            signal_strength = 0.3
+
+        # Determine data quality
+        sources_used = []
+        if news_sentiment and not isinstance(news_sentiment, Exception):
+            sources_used.append("news")
+        if social_sentiment and not isinstance(social_sentiment, Exception):
+            sources_used.append("social")
+
+        if len(sources_used) >= 2:
+            data_quality = "EXCELLENT"
+        elif len(sources_used) == 1:
+            data_quality = "GOOD"
+        else:
+            data_quality = "FAIR"
+            sources_used = ["market_data"]  # Fallback source
 
         return CombinedSentiment(
             symbol=symbol,
-            combined_label=combined_label,
-            combined_score=round(combined_sentiment_value, 3),
-            confidence=round(abs(combined_sentiment_value), 2),
             news_sentiment=news_sentiment if not isinstance(news_sentiment, Exception) else None,
-            social_sentiment=social_sentiment if not isinstance(social_sentiment, Exception) else None,
-            market_sentiment={
-                "label": "NEUTRAL",
-                "score": 0.0,
-                "weight": 0.3
-            },
-            analyzed_at=datetime.utcnow().isoformat(),
-            analysis_duration_ms=round(duration * 1000)
+            social_sentiment={"twitter": social_sentiment} if social_sentiment and not isinstance(social_sentiment, Exception) else None,
+            overall_sentiment=round(combined_sentiment_value, 3),
+            sentiment_label=combined_label,
+            sentiment_strength=round(abs(combined_sentiment_value), 2),
+            confidence=round(abs(combined_sentiment_value), 2),
+            data_quality=data_quality,
+            trading_signal=trading_signal,
+            signal_strength=round(signal_strength, 2),
+            sources_used=sources_used,
+            analysis_timestamp=datetime.utcnow(),
+            next_update_at=datetime.utcnow() + timedelta(minutes=15)
         )
 
     except Exception as e:
@@ -539,19 +608,51 @@ async def get_sentiment_trend(
         else:
             trend_direction = "STABLE"
 
-        # Calculate average
-        avg_score = sum(p["sentiment_score"] for p in data_points) / len(data_points) if data_points else 0.0
+        # Calculate statistics
+        scores = [p["sentiment_score"] for p in data_points]
+        timestamps = [datetime.fromisoformat(p["timestamp"]) if isinstance(p["timestamp"], str) else p["timestamp"] for p in data_points]
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+
+        # Calculate volatility (standard deviation)
+        if len(scores) > 1:
+            variance = sum((s - avg_score) ** 2 for s in scores) / len(scores)
+            volatility = variance ** 0.5
+        else:
+            volatility = 0.0
+
+        # Calculate trend strength (0-1 based on consistency)
+        if len(scores) >= 2:
+            consistent_direction = sum(1 for i in range(1, len(scores)) if (scores[i] - scores[i-1]) * (scores[-1] - scores[0]) > 0)
+            trend_strength = consistent_direction / (len(scores) - 1) if len(scores) > 1 else 0.5
+        else:
+            trend_strength = 0.5
+
+        # Determine momentum
+        if len(scores) >= 3:
+            recent_change = abs(scores[-1] - scores[-2])
+            earlier_change = abs(scores[-2] - scores[-3])
+            if recent_change > earlier_change * 1.2:
+                momentum = "ACCELERATING"
+            elif recent_change < earlier_change * 0.8:
+                momentum = "DECELERATING"
+            else:
+                momentum = "STEADY"
+        else:
+            momentum = "STEADY"
 
         # sentiment_analyses_total.labels(symbol=symbol, source='trend').inc()
 
         return SentimentTrend(
             symbol=symbol,
-            timeframe_hours=hours,
-            current_sentiment=data_points[-1]["sentiment_label"] if data_points else "NEUTRAL",
+            timeframe=f"{hours}h",
+            timestamps=timestamps,
+            sentiment_scores=scores,
             trend_direction=trend_direction,
-            data_points=data_points,
-            average_score=round(avg_score, 3),
-            analyzed_at=datetime.utcnow().isoformat()
+            trend_strength=round(min(trend_strength, 1.0), 2),
+            current_sentiment=round(scores[-1], 3) if scores else 0.0,
+            average_sentiment=round(avg_score, 3),
+            sentiment_volatility=round(volatility, 3),
+            momentum=momentum
         )
 
     except Exception as e:
@@ -568,7 +669,7 @@ async def get_sentiment(
 
     Returns combined sentiment from all sources
     """
-    return await get_combined_sentiment(symbol)
+    return await get_combined_sentiment(symbol, 24)
 
 
 @app.get("/api/v1/sentiment/aggregate", tags=["Sentiment"])

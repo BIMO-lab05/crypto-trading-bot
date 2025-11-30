@@ -33,8 +33,13 @@ async def get_aggregated_signal(
             raise HTTPException(status_code=404, detail="No data available")
 
         # Calculate multiple indicators
-        rsi_calc = RSICalculator(period=14)
-        macd_calc = MACDCalculator()
+        # RESEARCH-OPTIMIZED 2025-11-29: Use settings for optimal parameters
+        rsi_calc = RSICalculator(period=settings.default_rsi_period)
+        macd_calc = MACDCalculator(
+            fast_period=settings.default_macd_fast,
+            slow_period=settings.default_macd_slow,
+            signal_period=settings.default_macd_signal
+        )
         trend_filter = TrendFilter()
 
         rsi_value = rsi_calc.calculate(df)
@@ -139,9 +144,13 @@ async def get_multi_timeframe_analysis(
                 if df.empty:
                     return None
 
-                # Calculate indicators
-                rsi_calc = RSICalculator(period=14)
-                macd_calc = MACDCalculator()
+                # Calculate indicators (RESEARCH-OPTIMIZED 2025-11-29)
+                rsi_calc = RSICalculator(period=settings.default_rsi_period)
+                macd_calc = MACDCalculator(
+                    fast_period=settings.default_macd_fast,
+                    slow_period=settings.default_macd_slow,
+                    signal_period=settings.default_macd_signal
+                )
                 trend_filter = TrendFilter()
 
                 rsi_value = rsi_calc.calculate(df)

@@ -3,17 +3,93 @@ Position Endpoint Handlers
 Extracted from main.py - Responsibility: Position management endpoints
 
 Handles position querying and retrieval.
+
+UPDATED 2025-11-28: Fetch live prices from market-data-service
+- Positions now include real-time current_price from market-data-service
+- unrealized_pnl is recalculated with live prices before returning
+
+UPDATED 2025-11-30: Fixed httpx client connection issues
+- Removed global client to prevent connection pool deadlocks
+- Use context manager for proper connection cleanup
+- Parallel fetching with asyncio.gather for better performance
 """
 
 import logging
 import time
+import asyncio
+import httpx
+from decimal import Decimal
+from typing import Dict, Tuple
 from uuid import UUID
 from fastapi import HTTPException
 
 from app.position_manager import get_position_manager
 from app.models import PositionListResponse, PositionResponse
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+async def fetch_single_price(symbol: str, base_url: str) -> Tuple[str, Decimal | None]:
+    """
+    Fetch live price for a single symbol
+
+    Args:
+        symbol: Trading symbol (e.g., 'BTCUSDT')
+        base_url: Market data service base URL
+
+    Returns:
+        Tuple of (symbol, price) where price is None on error
+    """
+    try:
+        url = f"{base_url}/api/v1/latest/{symbol}"
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get(url)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success") and data.get("data"):
+                    close_price = data["data"].get("close")
+                    if close_price is not None:
+                        logger.debug(f"Fetched live price for {symbol}: {close_price}")
+                        return (symbol, Decimal(str(close_price)))
+            else:
+                logger.warning(f"Failed to fetch price for {symbol}: HTTP {response.status_code}")
+    except asyncio.TimeoutError:
+        logger.warning(f"Timeout fetching price for {symbol}")
+    except Exception as e:
+        logger.warning(f"Error fetching live price for {symbol}: {e}")
+
+    return (symbol, None)
+
+
+async def fetch_live_prices(symbols: list[str]) -> Dict[str, Decimal]:
+    """
+    Fetch live prices for multiple symbols from market-data-service in parallel
+
+    Args:
+        symbols: List of trading symbols (e.g., ['BTCUSDT', 'ETHUSDT'])
+
+    Returns:
+        Dict mapping symbol to current price
+    """
+    if not symbols:
+        return {}
+
+    settings = get_settings()
+    base_url = settings.market_data_url
+
+    # Fetch all prices in parallel using asyncio.gather
+    tasks = [fetch_single_price(symbol, base_url) for symbol in symbols]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    prices: Dict[str, Decimal] = {}
+    for result in results:
+        if isinstance(result, tuple) and result[1] is not None:
+            prices[result[0]] = result[1]
+
+    logger.info(f"Fetched {len(prices)}/{len(symbols)} live prices")
+    return prices
 
 
 async def get_positions(status: str = "all") -> PositionListResponse:
@@ -24,7 +100,7 @@ async def get_positions(status: str = "all") -> PositionListResponse:
         status: Filter by status (all, open, closed)
 
     Returns:
-        PositionListResponse with list of positions
+        PositionListResponse with list of positions (with live prices!)
 
     Raises:
         HTTPException: If position retrieval fails
@@ -38,6 +114,24 @@ async def get_positions(status: str = "all") -> PositionListResponse:
             positions = position_manager.get_closed_positions()
         else:
             positions = position_manager.get_all_positions()
+
+        # Get unique symbols from open positions
+        open_positions = [p for p in positions if p.status.value == "OPEN"]
+        symbols = list(set(p.symbol for p in open_positions))
+
+        # Fetch live prices for all symbols
+        if symbols:
+            live_prices = await fetch_live_prices(symbols)
+
+            # Update each position with live price and recalculate PnL
+            for position in open_positions:
+                if position.symbol in live_prices:
+                    current_price = live_prices[position.symbol]
+                    position.update_pnl(current_price)
+                    logger.debug(
+                        f"Updated {position.symbol} position: "
+                        f"price={current_price}, pnl={position.unrealized_pnl}"
+                    )
 
         return PositionListResponse(
             success=True,
@@ -59,7 +153,7 @@ async def get_position(position_id: str) -> PositionResponse:
         position_id: UUID of the position
 
     Returns:
-        PositionResponse with position details
+        PositionResponse with position details (with live price!)
 
     Raises:
         HTTPException: If position not found or ID invalid
@@ -70,6 +164,12 @@ async def get_position(position_id: str) -> PositionResponse:
 
         if not position:
             raise HTTPException(status_code=404, detail="Position not found")
+
+        # Fetch live price for this position if it's open
+        if position.status.value == "OPEN":
+            live_prices = await fetch_live_prices([position.symbol])
+            if position.symbol in live_prices:
+                position.update_pnl(live_prices[position.symbol])
 
         return PositionResponse(
             success=True,

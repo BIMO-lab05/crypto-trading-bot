@@ -115,28 +115,39 @@ class VolumeValidator:
         else:
             # Volume is NOT confirmed - apply graduated penalties
             if strength == "MODERATE":
-                volume_penalty = 0.7  # 30% penalty
+                # PROFITABILITY FIX 2025-11-27: Reduced from 0.7x to 0.8x (20% penalty)
+                # - Combined with gatekeeper, this allows moderate-quality signals through
+                volume_penalty = 0.8  # 20% penalty
                 volume_reason = "Moderate volume (unconfirmed)"
-                logger.warning(f"⚠️  Volume MODERATE (unconfirmed) - Penalty: 0.7x")
+                logger.warning(f"⚠️  Volume MODERATE (unconfirmed) - Penalty: 0.8x")
                 self.rejected_count += 1
 
             elif strength == "WEAK":
-                volume_penalty = 0.5  # 50% penalty
+                # PROFITABILITY FIX 2025-11-27: Reduced from 0.6x to 0.75x (25% penalty)
+                # - 40% penalty combined with gatekeeper 15% = 49% total reduction
+                # - This was rejecting 100% of signals, bot executed 0 trades
+                # - 25% penalty allows quality signals while still filtering noise
+                # - Combined penalty now: 0.85 * 0.75 = 0.6375x (was 0.45x)
+                volume_penalty = 0.75  # 25% penalty
                 volume_reason = "Weak volume"
-                logger.warning(f"⚠️  Volume WEAK - Penalty: 0.5x")
+                logger.warning(f"⚠️  Volume WEAK - Penalty: 0.75x")
                 self.rejected_count += 1
 
             elif strength == "MINIMAL":
-                volume_penalty = 0.3  # 70% penalty (original aggressive penalty)
+                # PROFITABILITY FIX 2025-11-27: Reduced from 0.3x to 0.5x (50% penalty)
+                # - 70% penalty was too harsh, combined with gatekeeper = nearly 100% filter
+                # - 50% penalty still penalizes low-volume signals but allows some trades
+                volume_penalty = 0.5  # 50% penalty
                 volume_reason = "Minimal volume"
-                logger.warning(f"⚠️  Volume MINIMAL - Penalty: 0.3x")
+                logger.warning(f"⚠️  Volume MINIMAL - Penalty: 0.5x")
                 self.rejected_count += 1
 
             else:
-                # Unknown strength - use conservative penalty
-                volume_penalty = 0.8  # 20% penalty
+                # Unknown strength - use minimal penalty (AGGRESSIVE 2025-11-28)
+                # Changed from 0.8x to 0.95x to allow more trades
+                volume_penalty = 0.95  # 5% penalty only
                 volume_reason = f"Unknown volume strength ({strength})"
-                logger.warning(f"⚠️  Volume UNKNOWN: {strength} - Conservative penalty: 0.8x")
+                logger.warning(f"⚠️  Volume UNKNOWN: {strength} - Minimal penalty: 0.95x")
                 self.rejected_count += 1
 
         # Calculate modified confidence

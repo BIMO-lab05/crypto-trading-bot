@@ -38,7 +38,8 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
   const chartData = useMemo(() => {
     if (!data || !Array.isArray(data)) return []
 
-    return data.map((candle) => {
+    // First, transform all candles
+    const transformed = data.map((candle) => {
       // Extract OHLCV data from API response
       // API returns: { timestamp, open, high, low, close, volume, ... }
       const openTime = Array.isArray(candle) ? candle[0] : (candle.timestamp || candle.open_time)
@@ -47,6 +48,8 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
       const low = parseFloat(Array.isArray(candle) ? candle[3] : candle.low)
       const close = parseFloat(Array.isArray(candle) ? candle[4] : candle.close)
       const volume = parseFloat(Array.isArray(candle) ? candle[5] : candle.volume)
+      // Use turnover (USD value) for volume display - much more meaningful
+      const turnover = parseFloat(candle.turnover || volume * close)
 
       // Format timestamp for display
       const timestamp = new Date(openTime)
@@ -64,11 +67,15 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
         high,
         low,
         close,
-        volume,
+        volume: turnover, // Use turnover (USD) instead of volume (BTC)
+        volumeBTC: volume, // Keep original BTC volume for reference
         // Calculate mid-range for display purposes
         mid: (high + low) / 2,
       }
     })
+
+    // Sort by timestamp ascending (oldest first for chart)
+    return transformed.sort((a, b) => a.timestamp - b.timestamp)
   }, [data])
 
   // Calculate price range statistics for axis scaling

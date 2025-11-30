@@ -13,6 +13,29 @@ import {
   ResponsiveContainer
 } from 'recharts';
 
+// Type definitions for live prices
+interface TickerData {
+  symbol: string;
+  last_price: number;
+  price_change_24h: number;
+  high_24h: number;
+  low_24h: number;
+  volume_24h: number;
+}
+
+interface CryptoPrice {
+  symbol: string;
+  name: string;
+  icon: string;
+  price: number;
+  change24h: number;
+  high24h: number;
+  low24h: number;
+  volume24h: number;
+  loading: boolean;
+  error: boolean;
+}
+
 // Type definitions for Phase 1 metrics
 interface Phase1Metrics {
   period_hours: number;
@@ -71,12 +94,32 @@ interface SystemHealth {
   };
 }
 
+// Crypto symbols to track
+const TRACKED_CRYPTOS = [
+  { symbol: 'BTCUSDT', name: 'Bitcoin', icon: '₿' },
+  { symbol: 'ETHUSDT', name: 'Ethereum', icon: 'Ξ' },
+  { symbol: 'BNBUSDT', name: 'BNB', icon: '◆' },
+  { symbol: 'SOLUSDT', name: 'Solana', icon: '◎' },
+];
+
 const Phase1Dashboard: React.FC = () => {
   const [metrics, setMetrics] = useState<Phase1Metrics | null>(null);
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [timeRange, setTimeRange] = useState(24); // 1H, 24H, 7D
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cryptoPrices, setCryptoPrices] = useState<CryptoPrice[]>(
+    TRACKED_CRYPTOS.map(c => ({
+      ...c,
+      price: 0,
+      change24h: 0,
+      high24h: 0,
+      low24h: 0,
+      volume24h: 0,
+      loading: true,
+      error: false,
+    }))
+  );
 
   // Fetch Phase 1 metrics
   const fetchMetrics = async () => {
@@ -111,12 +154,50 @@ const Phase1Dashboard: React.FC = () => {
     }
   };
 
-  // Auto-refresh every 30 seconds
+  // Fetch live crypto prices
+  const fetchPrices = async () => {
+    const updatedPrices = await Promise.all(
+      TRACKED_CRYPTOS.map(async (crypto) => {
+        try {
+          const response = await fetch(
+            `http://localhost:8002/api/v1/ticker/${crypto.symbol}`
+          );
+          const data = await response.json();
+
+          if (data.success && data.data) {
+            return {
+              ...crypto,
+              price: data.data.last_price,
+              change24h: data.data.price_change_24h * 100,
+              high24h: data.data.high_24h,
+              low24h: data.data.low_24h,
+              volume24h: data.data.volume_24h,
+              loading: false,
+              error: false,
+            };
+          }
+          return { ...crypto, price: 0, change24h: 0, high24h: 0, low24h: 0, volume24h: 0, loading: false, error: true };
+        } catch {
+          return { ...crypto, price: 0, change24h: 0, high24h: 0, low24h: 0, volume24h: 0, loading: false, error: true };
+        }
+      })
+    );
+    setCryptoPrices(updatedPrices);
+  };
+
+  // Auto-refresh metrics every 30 seconds
   useEffect(() => {
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 30000);
     return () => clearInterval(interval);
   }, [timeRange]);
+
+  // Auto-refresh prices every 5 seconds
+  useEffect(() => {
+    fetchPrices();
+    const priceInterval = setInterval(fetchPrices, 5000);
+    return () => clearInterval(priceInterval);
+  }, []);
 
   // Prepare data for charts
   const signalDistributionData = metrics
@@ -155,6 +236,60 @@ const Phase1Dashboard: React.FC = () => {
           <p className="text-gray-600 mt-2">
             Real-time monitoring of trading signal filtering and quality control
           </p>
+        </div>
+
+        {/* Live Crypto Prices Ticker */}
+        <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl shadow-lg p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              Live Prices
+            </h2>
+            <span className="text-xs text-gray-400">Updates every 5s</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {cryptoPrices.map((crypto) => (
+              <div
+                key={crypto.symbol}
+                className="bg-gray-800/50 rounded-lg p-4 border border-gray-700 hover:border-gray-600 transition-all"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{crypto.icon}</span>
+                    <div>
+                      <div className="text-white font-semibold">{crypto.name}</div>
+                      <div className="text-gray-400 text-xs">{crypto.symbol}</div>
+                    </div>
+                  </div>
+                </div>
+                {crypto.loading ? (
+                  <div className="text-gray-400 text-lg">Loading...</div>
+                ) : crypto.error ? (
+                  <div className="text-red-400 text-lg">Error</div>
+                ) : (
+                  <>
+                    <div className="text-2xl font-bold text-white">
+                      ${crypto.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <div className={`flex items-center gap-1 text-sm mt-1 ${crypto.change24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      <span>{crypto.change24h >= 0 ? '▲' : '▼'}</span>
+                      <span>{Math.abs(crypto.change24h).toFixed(2)}%</span>
+                      <span className="text-gray-500 ml-2">24h</span>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-gray-700">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400">H: ${crypto.high24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span className="text-gray-400">L: ${crypto.low24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Vol: {(crypto.volume24h).toLocaleString(undefined, { maximumFractionDigits: 0 })} {crypto.symbol.replace('USDT', '')}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Error Alert */}

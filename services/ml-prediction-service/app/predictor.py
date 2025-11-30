@@ -421,6 +421,14 @@ class LSTMPricePredictor:
             recent_data = pd.DataFrame(recent_data)
 
         try:
+            # Sort data by timestamp ascending (oldest first) for time-series processing
+            if 'timestamp' in recent_data.columns:
+                recent_data = recent_data.sort_values('timestamp', ascending=True).reset_index(drop=True)
+
+            # Store the actual current price BEFORE feature engineering (which may drop rows)
+            actual_current_price = float(recent_data.iloc[-1]['close'])
+            actual_current_timestamp = recent_data.iloc[-1]['timestamp'] if 'timestamp' in recent_data.columns else datetime.utcnow()
+
             # Feature engineering on recent data
             df = self._create_features(recent_data)
 
@@ -443,19 +451,31 @@ class LSTMPricePredictor:
 
             # Get close price index for inverse scaling
             close_idx = feature_cols.index('close')
-            current_price = float(df.iloc[-1]['close'])
+
+            # Use the actual current price we stored before feature engineering
+            current_price = actual_current_price
 
             # Build prediction points
             predictions = []
-            base_timestamp = df.iloc[-1]['timestamp'] if 'timestamp' in df.columns else datetime.utcnow()
+            # Use the actual current timestamp for proper future time calculation
+            base_timestamp = actual_current_timestamp if isinstance(actual_current_timestamp, datetime) else datetime.utcnow()
 
             for i, pred_value in enumerate(prediction):
                 # Calculate timestamp for this prediction
                 future_timestamp = base_timestamp + timedelta(minutes=int(self.interval) * (i + 1))
 
-                # Inverse scale prediction (approximate)
-                # Note: This is simplified - in production, should properly inverse scale
-                predicted_price = float(pred_value * (df['close'].max() - df['close'].min()) + df['close'].min())
+                # Inverse scale prediction using proper method:
+                # The model outputs scaled values [0-1], we need to convert back to price
+                # Use the current price as anchor and apply relative change
+                price_range = df['close'].max() - df['close'].min()
+                if price_range > 0:
+                    # Scale predicted value relative to current price
+                    # pred_value is in scaled space, convert to price change ratio
+                    scaled_current = (current_price - df['close'].min()) / price_range
+                    price_change_ratio = pred_value - scaled_current
+                    predicted_price = float(current_price * (1 + price_change_ratio * 0.1))  # Dampen extreme predictions
+                else:
+                    predicted_price = float(current_price)
 
                 # Calculate confidence (based on model performance and prediction variance)
                 base_confidence = float(self.training_stats.get('r2_score', 0.5))

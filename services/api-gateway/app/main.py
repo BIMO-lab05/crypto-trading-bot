@@ -687,6 +687,30 @@ async def get_trading_performance():
     )
 
 
+@app.get("/api/trading/trades/history")
+async def get_trading_trades_history(limit: int = 50):
+    """
+    Get closed trades history from trading-engine database
+
+    ADDED 2025-11-30: Route to get closed positions with realized P&L
+    from PostgreSQL database for accurate trade history that persists
+    across service restarts.
+
+    Args:
+        limit: Maximum number of trades to return (default 50)
+
+    Returns:
+        List of closed trades with P&L and statistics
+    """
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/trades/history",
+        method="GET",
+        query_params={"limit": limit}
+    )
+
+
 # ============================================================================
 # PHASE 1 MONITORING ENDPOINTS
 # ============================================================================

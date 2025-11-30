@@ -1,13 +1,233 @@
 <!DOCTYPE html>
-<html lang="en">
+<!--
+  Crypto Trading Bot Dashboard
+
+  Purpose: Main HTML entry point for the React application
+  Features dark mode by default with class-based theme switching.
+
+  Author: Frontend Developer Agent
+  Date: 2025-11-28
+-->
+<html lang="en" class="dark">
   <head>
+    <!-- Character encoding -->
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+
+    <!-- Viewport configuration for responsive design -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+
+    <!-- Page title -->
     <title>Crypto Trading Bot Dashboard</title>
+
+    <!-- Meta description for SEO -->
+    <meta name="description" content="Autonomous cryptocurrency trading dashboard with real-time monitoring, technical analysis, and AI-powered trading signals." />
+
+    <!-- Theme color for browser UI (matches dark mode background) -->
+    <meta name="theme-color" content="#0f172a" />
+
+    <!-- Color scheme preference -->
+    <meta name="color-scheme" content="dark light" />
+
+    <!-- Prevent flash of wrong theme on load -->
+    <script>
+      /**
+       * Theme Initialization Script (Fixed for normal browsing mode)
+       *
+       * This script runs before the page renders to prevent flash of
+       * incorrect theme. Includes robust error handling for localStorage
+       * issues that can occur in normal browsing mode.
+       *
+       * Fixed: 2025-11-29 - Added localStorage error handling and cleanup
+       */
+      (function() {
+        // Storage key for theme preference
+        var THEME_KEY = 'crypto-trading-bot-theme';
+        var APP_VERSION_KEY = 'crypto-trading-bot-version';
+        var CURRENT_VERSION = '1.1.0'; // Bump this to force cache clear
+
+        /**
+         * Safely access localStorage with error handling
+         * Returns null if localStorage is unavailable or corrupted
+         */
+        function safeGetItem(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (e) {
+            console.warn('[Theme] localStorage read failed:', e.message);
+            return null;
+          }
+        }
+
+        /**
+         * Safely set localStorage item with error handling
+         */
+        function safeSetItem(key, value) {
+          try {
+            localStorage.setItem(key, value);
+            return true;
+          } catch (e) {
+            console.warn('[Theme] localStorage write failed:', e.message);
+            return false;
+          }
+        }
+
+        /**
+         * Clear corrupted localStorage data
+         * Called when version mismatch or invalid data detected
+         */
+        function clearCorruptedStorage() {
+          try {
+            // Only clear our app's keys, not all localStorage
+            localStorage.removeItem(THEME_KEY);
+            localStorage.removeItem(APP_VERSION_KEY);
+            localStorage.removeItem('crypto-trading-bot-query-cache');
+            console.info('[Theme] Cleared corrupted storage data');
+          } catch (e) {
+            console.warn('[Theme] Failed to clear storage:', e.message);
+          }
+        }
+
+        /**
+         * Apply theme to document
+         */
+        function applyTheme(theme) {
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+            document.documentElement.classList.remove('light');
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.classList.add('light');
+          }
+          document.documentElement.style.colorScheme = theme;
+
+          var themeColorMeta = document.querySelector('meta[name="theme-color"]');
+          if (themeColorMeta) {
+            themeColorMeta.content = theme === 'dark' ? '#0f172a' : '#f8fafc';
+          }
+        }
+
+        // Check version and clear storage if outdated
+        var storedVersion = safeGetItem(APP_VERSION_KEY);
+        if (storedVersion !== CURRENT_VERSION) {
+          clearCorruptedStorage();
+          safeSetItem(APP_VERSION_KEY, CURRENT_VERSION);
+        }
+
+        // Get stored theme with validation
+        var storedTheme = safeGetItem(THEME_KEY);
+
+        // Validate stored theme value
+        if (storedTheme && storedTheme !== 'dark' && storedTheme !== 'light') {
+          console.warn('[Theme] Invalid stored theme:', storedTheme);
+          clearCorruptedStorage();
+          storedTheme = null;
+        }
+
+        // Default to dark mode
+        var theme = storedTheme || 'dark';
+
+        // Apply the theme
+        applyTheme(theme);
+
+        // Store valid theme if not already stored
+        if (!storedTheme) {
+          safeSetItem(THEME_KEY, theme);
+        }
+      })();
+    </script>
+
+    <!-- Preconnect to external resources for faster loading -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Critical CSS for preventing layout shift -->
+    <style>
+      /* Prevent layout shift before CSS loads */
+      html, body, #root {
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+      }
+
+      /* Initial background colors to prevent flash */
+      html.dark body {
+        background-color: #0f172a;
+        color: #f1f5f9;
+      }
+
+      html:not(.dark) body {
+        background-color: #f8fafc;
+        color: #0f172a;
+      }
+
+      /* Loading indicator (shown while app initializes) */
+      .initial-loader {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: inherit;
+        z-index: 9999;
+      }
+
+      .loader-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid transparent;
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      /* Hide loader when app is ready */
+      .app-ready .initial-loader {
+        display: none;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Root element for React application -->
+    <div id="root">
+      <!-- Initial loading indicator (replaced by React app) -->
+      <div class="initial-loader">
+        <div class="loader-spinner"></div>
+      </div>
+    </div>
+
+    <!-- Main application script -->
     <script type="module" src="/src/main.jsx"></script>
+
+    <!-- Mark app as ready after hydration -->
+    <script>
+      // Remove initial loader once React takes over
+      window.addEventListener('load', function() {
+        // Small delay to ensure React has rendered
+        setTimeout(function() {
+          document.body.classList.add('app-ready');
+        }, 100);
+      });
+    </script>
+
+    <!-- No JavaScript fallback -->
+    <noscript>
+      <style>
+        .initial-loader { display: none; }
+      </style>
+      <div style="padding: 20px; text-align: center; font-family: sans-serif;">
+        <h1>JavaScript Required</h1>
+        <p>This application requires JavaScript to function. Please enable JavaScript in your browser settings.</p>
+      </div>
+    </noscript>
   </body>
 </html>

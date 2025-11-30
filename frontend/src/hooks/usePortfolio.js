@@ -4,11 +4,18 @@ import { portfolioAPI } from '../services/api'
 /**
  * Custom hook for fetching and managing portfolio data
  * Auto-refetches every 5 seconds for real-time updates
+ *
+ * UPDATED 2025-11-27: Added console.log debugging for data flow troubleshooting
  */
 export function usePortfolio() {
   return useQuery({
     queryKey: ['portfolio'],
-    queryFn: portfolioAPI.getPortfolio,
+    queryFn: async () => {
+      console.log('[usePortfolio] Fetching portfolio data...')
+      const data = await portfolioAPI.getPortfolio()
+      console.log('[usePortfolio] Received data:', data)
+      return data
+    },
     refetchInterval: 5000, // Refetch every 5 seconds
   })
 }
@@ -20,7 +27,7 @@ export function usePortfolioPerformance() {
   return useQuery({
     queryKey: ['portfolio', 'performance'],
     queryFn: portfolioAPI.getPerformance,
-    refetchInterval: 10000, // Refetch every 10 seconds
+    refetchInterval: 5000, // Refetch every 5 seconds
   })
 }
 
@@ -31,7 +38,7 @@ export function useTradeHistory(params = {}) {
   return useQuery({
     queryKey: ['trades', params],
     queryFn: () => portfolioAPI.getTradeHistory(params),
-    refetchInterval: 10000,
+    refetchInterval: 5000,
   })
 }
 

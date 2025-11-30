@@ -31,12 +31,21 @@ services:
     restart: unless-stopped
     networks:
       - crypto-bot-network
+      - infrastructure-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   # Frontend - React dashboard for monitoring and control
   frontend:
@@ -60,6 +69,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   # Bybit Connector - Exchange API integration
   bybit-connector:
@@ -85,6 +102,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # Market Data Service - Real-time market data collection
   market-data:
@@ -105,6 +130,8 @@ services:
       - REDIS_HOST=crypto-bot-redis
       - RABBITMQ_HOST=crypto-bot-rabbitmq
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      # 20 symbols for auto-trading (2025-11-29)
+      - DEFAULT_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,ADAUSDT,DOGEUSDT,AVAXUSDT,DOTUSDT,LINKUSDT,MATICUSDT,LTCUSDT,ATOMUSDT,NEARUSDT,APTUSDT,ARBUSDT,OPUSDT,SUIUSDT,INJUSDT,SEIUSDT
     volumes:
       - ./services/market-data-service/logs:/app/logs
     restart: unless-stopped
@@ -119,6 +146,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # Portfolio Manager - Balance and position tracking
   portfolio-manager:
@@ -159,6 +194,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # Technical Analysis - Trading indicators
   technical-analysis:
@@ -179,8 +222,11 @@ services:
       - RABBITMQ_HOST=crypto-bot-rabbitmq
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
       - MARKET_DATA_URL=http://market-data:8002
+    # Dev: Override command to use --reload for hot-reloading code changes
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--reload"]
     volumes:
       - ./services/technical-analysis/logs:/app/logs
+      - ./services/technical-analysis/app:/app/app  # Dev: source code mount
     restart: unless-stopped
     networks:
       - crypto-bot-network
@@ -195,6 +241,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # Trading Engine - Core trading logic
   trading-engine:
@@ -216,6 +270,7 @@ services:
       - MAX_RISK_PER_TRADE=0.02
       - EMERGENCY_STOP_LOSS=0.05
       - PAPER_TRADING_MODE=true
+      - TRADING_MODE=PAPER
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
       - MARKET_DATA_URL=http://market-data:8002
       - PORTFOLIO_MANAGER_URL=http://portfolio-manager:8003
@@ -224,8 +279,11 @@ services:
       - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
       - ENABLE_ML_PREDICTIONS=true
       - ENABLE_SENTIMENT_ANALYSIS=true
+    # Dev: Override command to use --reload for hot-reloading code changes
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--reload"]
     volumes:
       - ./services/trading-engine/logs:/app/logs
+      - ./services/trading-engine/app:/app/app  # Dev: source code mount
     restart: unless-stopped
     networks:
       - crypto-bot-network
@@ -240,6 +298,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # Notification Service - Alerts and notifications
   notification-service:
@@ -269,6 +335,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   # ML Prediction Service - LSTM price forecasting
   ml-prediction:
@@ -297,6 +371,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # Sentiment Analysis Service - News and social sentiment
   sentiment-analysis:
@@ -322,6 +404,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # Risk Metrics Service - Risk analysis and metrics
   risk-metrics:
@@ -355,13 +445,112 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
+  # ===========================================================================
+  # MONITORING SERVICES
+  # ===========================================================================
+
+  # Prometheus - Metrics collection and alerting
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: crypto-bot-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - crypto-bot-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # Grafana - Metrics visualization and dashboards
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: crypto-bot-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3001}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - crypto-bot-network
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+# ===========================================================================
+# NETWORKS - Simplified configuration (no external dependency)
+# ===========================================================================
 networks:
   crypto-bot-network:
+    name: crypto-bot-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+  infrastructure-network:
     external: true
     name: infrastructure_crypto-bot-network
 
+# ===========================================================================
+# VOLUMES
+# ===========================================================================
 volumes:
   logs:
     name: crypto-bot-logs
+  prometheus_data:
+    name: crypto-bot-prometheus-data
+  grafana_data:
+    name: crypto-bot-grafana-data
 

@@ -51,8 +51,10 @@ class Settings(BaseSettings):
     # Bybit Connector Service
     bybit_connector_url: str = Field(default="http://localhost:8002")
     
-    # Data Collection Settings
-    default_symbols: str = Field(default="BTCUSDT,ETHUSDT")
+    # Data Collection Settings - 20 symbols for auto-trading (2025-11-29)
+    default_symbols: str = Field(
+        default="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,ADAUSDT,DOGEUSDT,AVAXUSDT,DOTUSDT,LINKUSDT,MATICUSDT,LTCUSDT,ATOMUSDT,NEARUSDT,APTUSDT,ARBUSDT,OPUSDT,SUIUSDT,INJUSDT,SEIUSDT"
+    )
     default_interval: str = Field(default="60")  # 1 hour
     fetch_historical_days: int = Field(default=30)  # Fetch last 30 days on startup
     

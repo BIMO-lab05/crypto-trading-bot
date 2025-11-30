@@ -1,19 +1,20 @@
 import React from 'react'
-import { usePortfolio } from '../hooks/usePortfolio'
-import { usePositions, useTradingStatus } from '../hooks/usePositions'
+import { usePositions, useTradingStatus, usePerformance } from '../hooks/usePositions'
 
 /**
  * PortfolioCard component displays current portfolio status
  * Shows: cash balance, total P&L, positions, and exposure
  *
  * Data sources:
- * - Portfolio data: /api/portfolio (portfolio-manager service)
- * - Trading positions: /api/trading/positions (trading-engine service)
- * - Trading status: /api/trading/status (trading-engine service)
+ * - Performance data: /api/trading/performance (trading-engine service) - for balance
+ * - Trading positions: /api/trading/positions (trading-engine service) - for open positions
+ * - Trading status: /api/trading/status (trading-engine service) - for bot status
+ *
+ * UPDATED 2025-11-28: Now uses trading-engine performance for correct balance tracking
  */
 export default function PortfolioCard() {
-  // Fetch portfolio data from portfolio-manager
-  const { data: portfolioData, isLoading: portfolioLoading, error: portfolioError } = usePortfolio()
+  // Fetch performance data from trading-engine (correct balance!)
+  const { data: performanceData, isLoading: performanceLoading, error: performanceError } = usePerformance()
 
   // Fetch trading positions from trading-engine
   const { data: positionsData, isLoading: positionsLoading, error: positionsError } = usePositions()
@@ -21,8 +22,19 @@ export default function PortfolioCard() {
   // Fetch trading status
   const { data: statusData, isLoading: statusLoading } = useTradingStatus()
 
+  // Debug logging for data flow
+  console.log('[PortfolioCard] Data state:', {
+    performanceData,
+    positionsData,
+    statusData,
+    performanceLoading,
+    positionsLoading,
+    performanceError: performanceError?.message,
+    positionsError: positionsError?.message
+  })
+
   // Combined loading state
-  const isLoading = portfolioLoading || positionsLoading
+  const isLoading = performanceLoading || positionsLoading
 
   if (isLoading) {
     return (
@@ -38,51 +50,53 @@ export default function PortfolioCard() {
     )
   }
 
-  if (portfolioError && positionsError) {
+  if (performanceError && positionsError) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
         <div className="text-red-600">
           <h3 className="font-semibold mb-2">Error Loading Portfolio</h3>
-          <p className="text-sm">{portfolioError?.message || positionsError?.message}</p>
+          <p className="text-sm">{performanceError?.message || positionsError?.message}</p>
         </div>
       </div>
     )
   }
 
-  // Extract portfolio data
-  const portfolio = portfolioData?.portfolio || {}
+  // Extract performance metrics from trading-engine (correct balance source!)
+  const metrics = performanceData?.metrics || {}
 
   // Extract trading positions from trading-engine
   // API returns: { success: true, positions: [...], count: N }
-  const tradingPositions = positionsData?.positions || []
+  const positions = positionsData?.positions || []
 
   // Extract trading status
   const tradingStatus = statusData?.status || {}
 
-  // Use trading positions as the primary source for active positions
-  // Fall back to portfolio holdings if trading positions are not available
-  const portfolioHoldings = portfolio.holdings || []
-  const positions = tradingPositions.length > 0 ? tradingPositions : portfolioHoldings
+  // Get balance data from trading-engine performance (correct values!)
+  const cashBalance = parseFloat(metrics.current_balance) || 10000
+  const initialBalance = parseFloat(metrics.initial_balance) || 10000
+  const totalPnl = parseFloat(metrics.total_pnl) || 0
+  const roi = parseFloat(metrics.roi) || 0
 
-  // Convert string values to numbers (API returns strings)
-  const totalPnl = parseFloat(portfolio.total_pnl) || 0
-  const totalPnlPct = parseFloat(portfolio.total_pnl_percentage) || parseFloat(portfolio.total_return_pct) || 0
-  const cashBalance = parseFloat(portfolio.cash_balance) || 0
-  const totalValue = parseFloat(portfolio.total_value) || 0
-
-  // Calculate total exposure from trading positions
-  const totalExposure = positions.reduce((sum, pos) => {
-    // Handle different position data structures
-    const posValue = parseFloat(pos.current_value) ||
-                     (parseFloat(pos.entry_price) * parseFloat(pos.quantity)) || 0
-    return sum + posValue
-  }, 0)
-  const exposurePercentage = totalValue > 0 ? (totalExposure / totalValue * 100) : 0
-
-  // Calculate unrealized PnL from trading positions
+  // Calculate unrealized PnL from trading positions (live prices!)
   const unrealizedPnl = positions.reduce((sum, pos) => {
     return sum + (parseFloat(pos.unrealized_pnl) || 0)
   }, 0)
+
+  // Calculate total exposure from trading positions (using current_price * quantity)
+  const totalExposure = positions.reduce((sum, pos) => {
+    const currentPrice = parseFloat(pos.current_price) || parseFloat(pos.entry_price) || 0
+    const quantity = parseFloat(pos.quantity) || 0
+    return sum + (currentPrice * quantity)
+  }, 0)
+
+  // Total value = cash + positions value
+  const totalValue = cashBalance + totalExposure
+
+  // Calculate exposure percentage
+  const exposurePercentage = initialBalance > 0 ? (totalExposure / initialBalance * 100) : 0
+
+  // Calculate P&L percentage
+  const totalPnlPct = roi
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-6">
@@ -109,35 +123,39 @@ export default function PortfolioCard() {
       </div>
 
       {/* Balance Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div className="bg-gray-50 rounded-lg p-4">
+          <p className="text-sm text-gray-600 mb-1">Initial Balance</p>
+          <p className="text-xl font-bold text-gray-500">
+            ${initialBalance.toFixed(2)}
+          </p>
+        </div>
+
         <div className="bg-gray-50 rounded-lg p-4">
           <p className="text-sm text-gray-600 mb-1">Cash Balance</p>
-          <p className="text-2xl font-bold text-gray-800">
+          <p className="text-xl font-bold text-gray-800">
             ${cashBalance.toFixed(2)}
           </p>
         </div>
 
         <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-600 mb-1">Total Value</p>
-          <p className="text-2xl font-bold text-gray-800">
+          <p className="text-sm text-gray-600 mb-1">In Positions</p>
+          <p className="text-xl font-bold text-blue-600">
+            ${totalExposure.toFixed(2)}
+          </p>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-4">
+          <p className="text-sm text-gray-600 mb-1">Total Equity</p>
+          <p className="text-xl font-bold text-gray-800">
             ${totalValue.toFixed(2)}
           </p>
         </div>
 
         <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-600 mb-1">Total P&L</p>
-          <p className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            ${totalPnl.toFixed(2)}
-            <span className="text-sm ml-2">
-              ({totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%)
-            </span>
-          </p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-4">
           <p className="text-sm text-gray-600 mb-1">Unrealized P&L</p>
-          <p className={`text-2xl font-bold ${unrealizedPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            ${unrealizedPnl.toFixed(2)}
+          <p className={`text-xl font-bold ${unrealizedPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl.toFixed(2)}
           </p>
         </div>
       </div>

@@ -6,7 +6,7 @@ This package contains all HTTP endpoint handlers for the technical-analysis serv
 Handlers are thin orchestration layers that delegate business logic to service layer.
 
 Architecture:
-    Request → Handler (this package) → Service Layer → Domain Logic
+    Request -> Handler (this package) -> Service Layer -> Domain Logic
 """
 
 from .health import health_check, readiness_check
@@ -21,7 +21,11 @@ from .advanced import (
     get_trend_filter,
     get_volume_confirmation,
     get_atr,
-    get_stochastic
+    get_stochastic,
+    get_rsi_divergence,
+    get_ichimoku,
+    get_enhanced_sqzmom,
+    get_adx
 )
 from .analysis import (
     get_aggregated_signal,
@@ -48,6 +52,10 @@ __all__ = [
     "get_volume_confirmation",
     "get_atr",
     "get_stochastic",
+    "get_rsi_divergence",
+    "get_ichimoku",
+    "get_enhanced_sqzmom",
+    "get_adx",
     # Analysis Endpoints
     "get_aggregated_signal",
     "get_multi_timeframe_analysis",

@@ -620,6 +620,9 @@ async def train_model(
         # Fetch historical data
         logger.info(f"Fetching {request.lookback_days} days of data for LSTM training")
         limit = int((request.lookback_days * 24 * 60) / int(request.interval))  # Convert days to candles
+        # Cap at 10000 (market-data service maximum)
+        limit = min(limit, 10000)
+        logger.info(f"Calculated limit: {limit} candles (capped at 10000)")
         historical_data = await fetch_historical_data(request.symbol, request.interval, limit=limit)
 
         # Train model
@@ -692,6 +695,9 @@ async def train_gru_model(
         # Fetch historical data
         logger.info(f"Fetching {lookback_days} days of data for GRU training")
         limit = int((lookback_days * 24 * 60) / int(interval))  # Convert days to candles
+        # Cap at 10000 (market-data service maximum)
+        limit = min(limit, 10000)
+        logger.info(f"Calculated limit: {limit} candles (capped at 10000)")
         historical_data = await fetch_historical_data(symbol, interval, limit=limit)
 
         # Train GRU model
