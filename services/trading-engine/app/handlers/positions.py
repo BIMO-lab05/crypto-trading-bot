@@ -30,11 +30,14 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-async def fetch_single_price(symbol: str, base_url: str) -> Tuple[str, Decimal | None]:
+async def fetch_single_price(
+    client: httpx.AsyncClient, symbol: str, base_url: str
+) -> Tuple[str, Decimal | None]:
     """
-    Fetch live price for a single symbol
+    Fetch live price for a single symbol using shared client
 
     Args:
+        client: Shared httpx AsyncClient
         symbol: Trading symbol (e.g., 'BTCUSDT')
         base_url: Market data service base URL
 
@@ -43,22 +46,23 @@ async def fetch_single_price(symbol: str, base_url: str) -> Tuple[str, Decimal |
     """
     try:
         url = f"{base_url}/api/v1/latest/{symbol}"
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            response = await client.get(url)
+        response = await client.get(url)
 
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("success") and data.get("data"):
-                    close_price = data["data"].get("close")
-                    if close_price is not None:
-                        logger.debug(f"Fetched live price for {symbol}: {close_price}")
-                        return (symbol, Decimal(str(close_price)))
-            else:
-                logger.warning(f"Failed to fetch price for {symbol}: HTTP {response.status_code}")
-    except asyncio.TimeoutError:
-        logger.warning(f"Timeout fetching price for {symbol}")
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and data.get("data"):
+                close_price = data["data"].get("close")
+                if close_price is not None:
+                    logger.debug(f"Fetched live price for {symbol}: {close_price}")
+                    return (symbol, Decimal(str(close_price)))
+        else:
+            logger.warning(f"Failed to fetch price for {symbol}: HTTP {response.status_code}")
+    except (asyncio.TimeoutError, httpx.TimeoutException) as e:
+        logger.warning(f"Timeout fetching price for {symbol}: {type(e).__name__}")
+    except httpx.RequestError as e:
+        logger.warning(f"Request error fetching price for {symbol}: {type(e).__name__}: {e}")
     except Exception as e:
-        logger.warning(f"Error fetching live price for {symbol}: {e}")
+        logger.warning(f"Error fetching live price for {symbol}: {type(e).__name__}: {e}")
 
     return (symbol, None)
 
@@ -66,6 +70,8 @@ async def fetch_single_price(symbol: str, base_url: str) -> Tuple[str, Decimal |
 async def fetch_live_prices(symbols: list[str]) -> Dict[str, Decimal]:
     """
     Fetch live prices for multiple symbols from market-data-service in parallel
+
+    Uses a shared httpx client for efficient connection pooling.
 
     Args:
         symbols: List of trading symbols (e.g., ['BTCUSDT', 'ETHUSDT'])
@@ -79,9 +85,14 @@ async def fetch_live_prices(symbols: list[str]) -> Dict[str, Decimal]:
     settings = get_settings()
     base_url = settings.market_data_url
 
-    # Fetch all prices in parallel using asyncio.gather
-    tasks = [fetch_single_price(symbol, base_url) for symbol in symbols]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Use a shared client with connection pooling for efficient parallel requests
+    timeout = httpx.Timeout(15.0, connect=5.0, read=10.0)
+    limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
+
+    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+        # Fetch all prices in parallel using asyncio.gather
+        tasks = [fetch_single_price(client, symbol, base_url) for symbol in symbols]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
     prices: Dict[str, Decimal] = {}
     for result in results:
