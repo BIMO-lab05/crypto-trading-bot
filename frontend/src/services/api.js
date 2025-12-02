@@ -84,8 +84,8 @@ export const tradingAPI = {
   getMultipleSignals: (symbols, interval = 60) =>
     Promise.all(symbols.map(symbol => tradingAPI.getSignal(symbol, interval))),
 
-  // Get trading bot status (note: backend uses /api/v1/trading/status)
-  getStatus: () => api.get('/trading/trading/status'),
+  // Get trading bot status (maps to /api/v1/trading/status)
+  getStatus: () => api.get('/trading/status'),
 
   // Get trading positions
   getPositions: (status = 'open') =>
@@ -180,22 +180,23 @@ export const enhancedTradingAPI = {
     api.get(`/trading/signals/compare/${symbol}`, { params: { interval } }),
 }
 
-// Auto Trader & Trading Enhancements endpoints (NEW - 2025-11-30)
+// Auto Trader & Trading Enhancements endpoints (FIXED - 2025-12-01)
+// Updated to use correct backend endpoints
 export const autoTraderAPI = {
-  // Get auto trader status with all enhancements
-  getStatus: () => api.get('/trading/auto-trader/status'),
+  // Get trading status (includes auto trader info)
+  getStatus: () => api.get('/trading/status'),
 
-  // Start auto trader
-  start: () => api.post('/trading/auto-trader/start'),
+  // Start auto trading
+  start: () => api.post('/trading/start'),
 
-  // Stop auto trader
-  stop: () => api.post('/trading/auto-trader/stop'),
+  // Stop auto trading
+  stop: () => api.post('/trading/stop'),
 
-  // Get performance analytics report
-  getPerformanceReport: () => api.get('/trading/auto-trader/performance-report'),
+  // Get performance metrics
+  getPerformanceReport: () => api.get('/trading/performance'),
 
-  // Force signal check
-  forceSignalCheck: () => api.post('/trading/auto-trader/force-check'),
+  // Force signal check - not available, use status instead
+  forceSignalCheck: () => api.get('/trading/status'),
 }
 
 export default api

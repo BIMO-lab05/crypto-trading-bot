@@ -37,7 +37,7 @@ export function useAutoTraderStatus() {
     queryKey: ['auto-trader', 'status'],
     queryFn: async () => {
       console.log('[useAutoTraderStatus] Fetching auto trader status...')
-      const response = await api.get('/trading/auto-trader/status')
+      const response = await api.get('/trading/status')
       console.log('[useAutoTraderStatus] Received data:', response)
       return response
     },
@@ -58,7 +58,7 @@ export function usePerformanceAnalytics() {
     queryKey: ['auto-trader', 'performance-report'],
     queryFn: async () => {
       console.log('[usePerformanceAnalytics] Fetching performance report...')
-      const response = await api.get('/trading/auto-trader/performance-report')
+      const response = await api.get('/trading/performance')
       console.log('[usePerformanceAnalytics] Received data:', response)
       return response
     },

@@ -32,7 +32,7 @@ export default defineConfig({
         timeout: 10000,
         rewrite: (path) => path.replace(/^\/api\/market/, '/api/v1'),
       },
-      // Direct proxy to trading-engine signals (port 8005)
+      // Trading signals (port 8005)
       '/api/trading/signals': {
         target: 'http://localhost:8005',
         changeOrigin: true,
@@ -40,13 +40,37 @@ export default defineConfig({
         timeout: 10000,
         rewrite: (path) => path.replace(/^\/api\/trading\/signals/, '/api/v1/signals'),
       },
-      // Direct proxy to trading-engine (port 8005)
+      // Trading positions - maps to /api/v1/positions (port 8005)
+      '/api/trading/positions': {
+        target: 'http://localhost:8005',
+        changeOrigin: true,
+        secure: false,
+        timeout: 10000,
+        rewrite: (path) => path.replace(/^\/api\/trading\/positions/, '/api/v1/positions'),
+      },
+      // Trading performance - maps to /api/v1/performance (port 8005)
+      '/api/trading/performance': {
+        target: 'http://localhost:8005',
+        changeOrigin: true,
+        secure: false,
+        timeout: 10000,
+        rewrite: (path) => path.replace(/^\/api\/trading\/performance/, '/api/v1/performance'),
+      },
+      // Trading trades history - maps to /api/v1/trades/history (port 8005)
+      '/api/trading/trades': {
+        target: 'http://localhost:8005',
+        changeOrigin: true,
+        secure: false,
+        timeout: 10000,
+        rewrite: (path) => path.replace(/^\/api\/trading\/trades/, '/api/v1/trades'),
+      },
+      // Trading status/start/stop - maps to /api/v1/trading/* (port 8005)
       '/api/trading': {
         target: 'http://localhost:8005',
         changeOrigin: true,
         secure: false,
         timeout: 10000,
-        rewrite: (path) => path.replace(/^\/api\/trading/, '/api/v1'),
+        rewrite: (path) => path.replace(/^\/api\/trading/, '/api/v1/trading'),
       },
       // Portfolio manager health (port 8003)
       '/api/portfolio/health': {
@@ -113,14 +137,31 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    // Add hash to output files for cache busting
+    // Code splitting for smaller initial bundle (2025-12-01)
     rollupOptions: {
       output: {
         entryFileNames: 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
+        // Manual chunks for better code splitting
+        manualChunks: {
+          // React core - rarely changes
+          'react-vendor': ['react', 'react-dom'],
+          // Router - separate chunk
+          'router': ['react-router-dom'],
+          // Data fetching
+          'query': ['@tanstack/react-query', 'axios'],
+          // Charts - large, lazy loaded
+          'charts': ['recharts'],
+          // UI utilities
+          'ui': ['lucide-react', 'date-fns'],
+          // State management
+          'state': ['zustand'],
+        },
       },
     },
+    // Increase chunk size warning limit
+    chunkSizeWarningLimit: 500,
   },
   // Optimize dependency pre-bundling
   optimizeDeps: {

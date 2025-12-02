@@ -57,7 +57,7 @@ export function useTradingStatus() {
     queryKey: ['trading', 'status'],
     queryFn: async () => {
       console.log('[useTradingStatus] Fetching trading status...')
-      const response = await api.get('/trading/trading/status')
+      const response = await api.get('/trading/status')
       console.log('[useTradingStatus] Received data:', response)
       return response
     },
