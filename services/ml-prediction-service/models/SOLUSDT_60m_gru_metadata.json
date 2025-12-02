@@ -2,19 +2,19 @@
   "model_type": "GRU",
   "symbol": "SOLUSDT",
   "interval": "60",
-  "model_version": "v20251120_220515",
-  "last_trained": "2025-11-20T22:05:15.321777",
+  "model_version": "v20251130_172902",
+  "last_trained": "2025-11-30T17:29:02.085589",
   "training_stats": {
-    "train_samples": 395,
-    "test_samples": 99,
-    "epochs_trained": 27,
-    "final_train_loss": 0.006903715897351503,
-    "final_val_loss": 1.0142360224563163e-05,
-    "mae": 0.0011355529021865398,
-    "rmse": 0.0014197695944251647,
-    "r2_score": -1.1949118830794871,
-    "mape": 1.6148543758893048,
-    "directional_accuracy": 0.48484848484848486,
+    "train_samples": 157,
+    "test_samples": 40,
+    "epochs_trained": 49,
+    "final_train_loss": 0.015388470143079758,
+    "final_val_loss": 0.015904687345027924,
+    "mae": 0.0542546604095544,
+    "rmse": 0.06892937418608248,
+    "r2_score": 0.8423641697599434,
+    "mape": 0.08972930086014766,
+    "directional_accuracy": 0.85,
     "total_parameters": 98245
   },
   "feature_columns": [
@@ -44,5 +44,5 @@
   ],
   "sequence_length": 60,
   "prediction_horizon": 5,
-  "inference_time_ms": 81.2990665435791
+  "inference_time_ms": 74.36609268188477
 }

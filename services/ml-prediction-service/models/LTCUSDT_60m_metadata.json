@@ -1,0 +1,42 @@
+{
+  "symbol": "LTCUSDT",
+  "interval": "60",
+  "model_version": "v20251201_222657",
+  "last_trained": "2025-12-01T22:26:57.399434",
+  "training_stats": {
+    "train_samples": 724,
+    "test_samples": 182,
+    "final_train_loss": 0.0048110694624483585,
+    "final_val_loss": 0.0018817275995388627,
+    "mae": 0.019191563661042667,
+    "rmse": 0.02603370146107235,
+    "r2_score": 0.9270954305172089
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "return_1",
+    "return_5",
+    "return_10",
+    "price_momentum_5",
+    "price_momentum_10",
+    "sma_7",
+    "sma_14",
+    "sma_30",
+    "ema_7",
+    "ema_14",
+    "price_vs_sma7",
+    "price_vs_sma14",
+    "high_low_range",
+    "volatility_10",
+    "volatility_20",
+    "volume_sma_7",
+    "volume_ratio",
+    "rsi_14"
+  ],
+  "sequence_length": 60,
+  "prediction_horizon": 5
+}

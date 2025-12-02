@@ -2,19 +2,19 @@
   "model_type": "GRU",
   "symbol": "BTCUSDT",
   "interval": "60",
-  "model_version": "v20251120_220129",
-  "last_trained": "2025-11-20T22:01:29.844810",
+  "model_version": "v20251130_164621",
+  "last_trained": "2025-11-30T16:46:21.631920",
   "training_stats": {
-    "train_samples": 492,
-    "test_samples": 123,
-    "epochs_trained": 19,
-    "final_train_loss": 0.0158750731498003,
-    "final_val_loss": 0.002718602539971471,
-    "mae": 0.0192150463565645,
-    "rmse": 0.024369567404816408,
-    "r2_score": 0.9038577476861054,
-    "mape": 1018128149162.8469,
-    "directional_accuracy": 0.7560975609756098,
+    "train_samples": 157,
+    "test_samples": 40,
+    "epochs_trained": 38,
+    "final_train_loss": 0.012134646065533161,
+    "final_val_loss": 0.0126052126288414,
+    "mae": 0.049509108689159476,
+    "rmse": 0.06171933255904801,
+    "r2_score": 0.6141102340302316,
+    "mape": 0.061909431958250584,
+    "directional_accuracy": 0.8,
     "total_parameters": 98245
   },
   "feature_columns": [
@@ -44,5 +44,5 @@
   ],
   "sequence_length": 60,
   "prediction_horizon": 5,
-  "inference_time_ms": 75.1345157623291
+  "inference_time_ms": 113.9223575592041
 }

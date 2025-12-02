@@ -2,19 +2,19 @@
   "model_type": "GRU",
   "symbol": "ETHUSDT",
   "interval": "60",
-  "model_version": "v20251120_220237",
-  "last_trained": "2025-11-20T22:02:37.670104",
+  "model_version": "v20251130_170121",
+  "last_trained": "2025-11-30T17:01:21.498447",
   "training_stats": {
-    "train_samples": 492,
-    "test_samples": 123,
-    "epochs_trained": 28,
-    "final_train_loss": 0.011908156797289848,
-    "final_val_loss": 0.0014274929417297244,
-    "mae": 0.019161916044522376,
-    "rmse": 0.026081141671022334,
-    "r2_score": 0.7973369613972168,
-    "mape": 3423912791697.886,
-    "directional_accuracy": 0.8455284552845529,
+    "train_samples": 157,
+    "test_samples": 40,
+    "epochs_trained": 50,
+    "final_train_loss": 0.009141729213297367,
+    "final_val_loss": 0.012013386003673077,
+    "mae": 0.04764828992166148,
+    "rmse": 0.06361132752567389,
+    "r2_score": 0.7588514426693322,
+    "mape": 0.06924058833797067,
+    "directional_accuracy": 0.925,
     "total_parameters": 98245
   },
   "feature_columns": [
@@ -44,5 +44,5 @@
   ],
   "sequence_length": 60,
   "prediction_horizon": 5,
-  "inference_time_ms": 68.55463981628418
+  "inference_time_ms": 314.7594928741455
 }
