@@ -10,7 +10,15 @@ Architecture:
 """
 
 from .trading_service import TradingService
+from .notification_client import (
+    NotificationClient,
+    get_notification_client,
+    close_notification_client
+)
 
 __all__ = [
     "TradingService",
+    "NotificationClient",
+    "get_notification_client",
+    "close_notification_client",
 ]

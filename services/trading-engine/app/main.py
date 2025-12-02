@@ -51,7 +51,14 @@ from app.handlers import (
     get_phase1_metrics_endpoint,
     get_phase1_health,
     get_latest_phase1_signal,
-    get_trade_history
+    get_trade_history,
+    # Backtesting
+    list_strategies,
+    run_backtest,
+    get_backtest_quick_run,
+    compare_strategies,
+    get_equity_curve,
+    BacktestRequest
 )
 
 # Import SQZMOM strategy (NEW)
@@ -692,6 +699,98 @@ async def get_symbol_config(symbol: str):
 
 
 # ============================================================================
+# BACKTESTING ENDPOINTS
+# ============================================================================
+
+@app.get("/api/v1/backtest/strategies", tags=["Backtesting"])
+async def backtest_strategies_endpoint():
+    """
+    List all available backtesting strategies
+
+    Returns list of strategies with their parameters and default values.
+    Available strategies:
+    - rsi_momentum: RSI crossover strategy with ATR-based stops
+    - regime_adaptive: Hurst-based regime detection with adaptive RSI thresholds
+    """
+    return await list_strategies()
+
+
+@app.post("/api/v1/backtest/run", tags=["Backtesting"])
+async def backtest_run_endpoint(request: BacktestRequest):
+    """
+    Run a backtest with specified strategy and parameters
+
+    Runs a complete backtest simulation including:
+    - Trade execution with slippage and commission
+    - Stop loss and take profit management
+    - Performance metrics calculation (Sharpe, Sortino, Max Drawdown)
+    - Trade-by-trade analysis
+
+    Args:
+        request: Backtest configuration including strategy, symbol, and parameters
+    """
+    return await run_backtest(request)
+
+
+@app.get("/api/v1/backtest/quick/{strategy}", tags=["Backtesting"])
+async def backtest_quick_endpoint(
+    strategy: str,
+    symbol: str = Query(default="BTCUSDT", description="Trading symbol"),
+    days: int = Query(default=30, description="Number of days to backtest")
+):
+    """
+    Quick backtest with default parameters
+
+    Runs a backtest with default strategy parameters for quick testing.
+
+    Args:
+        strategy: Strategy name (rsi_momentum or regime_adaptive)
+        symbol: Trading symbol
+        days: Number of days of historical data
+    """
+    return await get_backtest_quick_run(strategy, symbol, days)
+
+
+@app.get("/api/v1/backtest/compare", tags=["Backtesting"])
+async def backtest_compare_endpoint(
+    symbol: str = Query(default="BTCUSDT", description="Trading symbol"),
+    days: int = Query(default=90, description="Number of days to backtest")
+):
+    """
+    Compare all available strategies
+
+    Runs all strategies on the same dataset for fair comparison.
+    Returns rankings by total return and Sharpe ratio.
+
+    Args:
+        symbol: Trading symbol
+        days: Number of days of historical data
+    """
+    return await compare_strategies(symbol, days)
+
+
+@app.get("/api/v1/backtest/equity-curve/{strategy}", tags=["Backtesting"])
+async def backtest_equity_curve_endpoint(
+    strategy: str,
+    symbol: str = Query(default="BTCUSDT", description="Trading symbol"),
+    days: int = Query(default=30, description="Number of days"),
+    sample_rate: int = Query(default=24, description="Sample every N points")
+):
+    """
+    Get equity curve data for charting
+
+    Returns sampled equity curve data suitable for visualization.
+
+    Args:
+        strategy: Strategy name
+        symbol: Trading symbol
+        days: Number of days
+        sample_rate: Sample every N data points (24 = daily for hourly data)
+    """
+    return await get_equity_curve(strategy, symbol, days, sample_rate)
+
+
+# ============================================================================
 # ROOT ENDPOINT
 # ============================================================================
 
@@ -731,6 +830,13 @@ async def root():
                 "signal": "/api/v1/strategies/sqzmom/signal/{symbol}",
                 "trade": "POST /api/v1/strategies/sqzmom/trade/{symbol}",
                 "symbol_config": "/api/v1/strategies/sqzmom/symbols/{symbol}/config"
+            },
+            "backtesting": {
+                "strategies": "/api/v1/backtest/strategies",
+                "run": "POST /api/v1/backtest/run",
+                "quick": "/api/v1/backtest/quick/{strategy}",
+                "compare": "/api/v1/backtest/compare",
+                "equity_curve": "/api/v1/backtest/equity-curve/{strategy}"
             }
         },
         "refactoring": {

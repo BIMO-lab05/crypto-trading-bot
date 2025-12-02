@@ -36,6 +36,64 @@ class Settings(BaseSettings):
         description="Portfolio Manager Service URL"
     )
 
+    # Phase 3 ML/AI Service URLs
+    ml_prediction_url: str = Field(
+        default="http://localhost:8007",
+        description="ML Prediction Service URL for trend/price predictions"
+    )
+    sentiment_analysis_url: str = Field(
+        default="http://localhost:8008",
+        description="Sentiment Analysis Service URL (Phase 3)"
+    )
+    notification_service_url: str = Field(
+        default="http://localhost:8006",
+        description="Notification Service URL for trade alerts"
+    )
+
+    # Notification Settings
+    enable_notifications: bool = Field(
+        default=True,
+        description="Enable trade notifications via Telegram/Email"
+    )
+    notify_on_trade_open: bool = Field(
+        default=True,
+        description="Send notification when trade is opened"
+    )
+    notify_on_trade_close: bool = Field(
+        default=True,
+        description="Send notification when trade is closed"
+    )
+    notify_on_daily_summary: bool = Field(
+        default=True,
+        description="Send daily PnL summary notification"
+    )
+
+    # Phase 3 Feature Flags - ENABLED 2025-12-02
+    enable_ml_predictions: bool = Field(
+        default=True,
+        description="Enable ML predictions in signal aggregation (30% weight)"
+    )
+    enable_sentiment_analysis: bool = Field(
+        default=True,
+        description="Enable sentiment analysis in signal aggregation (15% weight)"
+    )
+    enable_multi_timeframe: bool = Field(
+        default=False,
+        description="Enable multi-timeframe analysis (15% weight)"
+    )
+
+    # Multi-Timeframe Alignment Requirements (2025-12-01)
+    mtf_require_alignment: bool = Field(
+        default=True,
+        description="Require TF alignment before trading (reduces false signals)"
+    )
+    mtf_min_alignment_score: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=100.0,
+        description="Minimum MTF alignment score (0-100) to execute trades"
+    )
+
     # Trading Configuration
     trading_mode: Literal["PAPER", "LIVE"] = Field(
         default="PAPER",
@@ -55,25 +113,29 @@ class Settings(BaseSettings):
     )
     trading_symbols: List[str] = Field(
         default=[
-            # Top 20 crypto by volume - more symbols = more opportunities
-            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
-            "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
-            "MATICUSDT", "LTCUSDT", "ATOMUSDT", "NEARUSDT", "APTUSDT",
-            "ARBUSDT", "OPUSDT", "SUIUSDT", "INJUSDT", "SEIUSDT"
+            # OPTIMIZED LIST (2025-12-02) - Removed underperformers, prioritized winners
+            # Tier 1: Best performers (BNBUSDT 83% WR - highest priority)
+            "BNBUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT",
+            # Tier 2: Large caps (good liquidity) - REMOVED XRPUSDT (30% WR worst performer)
+            "ADAUSDT", "DOGEUSDT", "AVAXUSDT",
+            # Tier 3: Popular alts (moderate liquidity)
+            "LINKUSDT", "POLUSDT", "DOTUSDT", "LTCUSDT",
+            # Tier 4: Trending coins
+            "ARBUSDT", "OPUSDT", "APTUSDT", "SUIUSDT"
         ],
-        description="List of symbols to trade in auto-trader (20 symbols for 20 trades/day target)"
+        description="Optimized 15 trading pairs - removed XRPUSDT (worst performer)"
     )
     default_interval: str = Field(
         default="60",
         description="Default candlestick interval"
     )
 
-    # Trade Frequency Settings - TARGET 20 TRADES/DAY
+    # Trade Frequency Settings - EXPANDED for 16 symbols (2025-12-01)
     max_daily_trades: int = Field(
-        default=20,
+        default=40,
         ge=1,
         le=100,
-        description="Maximum number of trades per day"
+        description="Maximum trades per day (increased for 16 symbols)"
     )
     check_frequency_seconds: int = Field(
         default=30,
@@ -112,32 +174,57 @@ class Settings(BaseSettings):
         description="Maximum total exposure as % of capital (80% to allow 20+ positions)"
     )
     default_stop_loss_pct: float = Field(
-        default=3.0,
+        default=2.0,
         ge=0.5,
         le=10.0,
-        description="Default stop loss as % from entry"
+        description="Default stop loss as % from entry (2% for 1:2 R/R ratio)"
     )
     default_take_profit_pct: float = Field(
         default=4.0,
         ge=1.0,
         le=50.0,
-        description="Default take profit as % from entry (reduced for faster exits)"
+        description="Default take profit as % from entry (4% for 1:2 R/R ratio)"
     )
 
-    # Signal Thresholds - ULTRA AGGRESSIVE MODE (2025-11-29)
-    # Very low thresholds for maximum trading frequency
+    # Signal Thresholds - RESEARCH-OPTIMIZED (2025-12-02)
+    # Based on: 3Commas, Bitsgap, Cryptohopper best practices
+    # Higher thresholds = fewer but higher quality trades
     min_signal_confidence: float = Field(
-        default=0.05,
+        default=0.60,
         ge=0.0,
         le=1.0,
-        description="ULTRA LOW: Accept almost any signal"
+        description="RESEARCH: 0.60+ confidence for 55-65% win rate"
     )
-    # Only need 1 indicator for consensus
+    # Need 3 indicators from different categories for consensus
     min_consensus_indicators: int = Field(
-        default=1,
+        default=3,
         ge=1,
         le=10,
-        description="LOWERED: Just 1 strong indicator can trigger trade"
+        description="RESEARCH: 3 indicators from different categories (Trend+Momentum+Volume)"
+    )
+
+    # Time-Based Trading Filters (RESEARCH-BACKED 2025-12-01)
+    # Best trading hours: 14:00-17:00 UTC (London/NY overlap)
+    # Avoid: weekends, early morning UTC, low volume periods
+    enable_time_filters: bool = Field(
+        default=True,
+        description="Enable time-based trade filtering for quality"
+    )
+    trading_start_hour_utc: int = Field(
+        default=8,
+        ge=0,
+        le=23,
+        description="Start trading hour UTC (8:00 = European open)"
+    )
+    trading_end_hour_utc: int = Field(
+        default=21,
+        ge=0,
+        le=23,
+        description="End trading hour UTC (21:00 = US close)"
+    )
+    avoid_weekends: bool = Field(
+        default=True,
+        description="Avoid trading on weekends (lower volume)"
     )
 
     # Database Configuration

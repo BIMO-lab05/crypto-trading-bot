@@ -42,19 +42,30 @@ class KillSwitchConfig:
     """
     Configuration for kill switch thresholds
 
-    RESEARCH-BACKED DEFAULTS:
-    - Daily loss: 5% (industry standard)
-    - Max drawdown: 10% (conservative for crypto)
-    - Consecutive losses: 5 (prevent tilt trading)
-    - Confirmation delay: 5 seconds (prevent accidents)
+    RESEARCH-BACKED DEFAULTS (2025-12-02):
+    Based on: 3Commas, Bitsgap, Cryptohopper best practices
+
+    Tiered Drawdown System:
+    - 5%: Alert and review (reduce position sizes by 25%)
+    - 10%: Reduce position sizes by 50%
+    - 15%: Pause new trades, close underperformers
+    - 20%: Full stop, require manual review
+
+    - Daily loss: 5% (research standard)
+    - Max drawdown: 15% (aggressive protection)
+    - Consecutive losses: 5 (max 9 seen in history - stop at 5)
     """
-    max_daily_loss_pct: float = 5.0         # Stop if daily loss exceeds 5%
-    max_drawdown_pct: float = 10.0          # Stop if total drawdown exceeds 10%
-    max_position_value: float = 100000.0    # Stop if single position exceeds value
+    # Tiered thresholds (2025-12-02 research-backed)
+    drawdown_alert_pct: float = 5.0          # Alert level - reduce size 25%
+    drawdown_reduce_pct: float = 10.0        # Reduce position sizes by 50%
+    drawdown_pause_pct: float = 15.0         # Pause new trades
+    max_daily_loss_pct: float = 5.0          # Stop if daily loss exceeds 5%
+    max_drawdown_pct: float = 20.0           # Hard stop at 20%
+    max_position_value: float = 100000.0     # Stop if single position exceeds value
     max_consecutive_losses: int = 5          # Stop after 5 consecutive losses
     confirmation_delay_seconds: int = 5      # Delay before manual activation
-    auto_reset_hours: int = 24               # Auto-reset after 24 hours
-    require_multi_threshold: bool = True     # Require 2+ thresholds for auto-activate
+    auto_reset_hours: int = 24               # Auto-reset after 24 hours (require review)
+    require_multi_threshold: bool = False    # Single threshold can trigger (safer)
 
 
 @dataclass

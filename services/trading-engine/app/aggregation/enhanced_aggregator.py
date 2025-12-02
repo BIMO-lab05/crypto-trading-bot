@@ -241,7 +241,7 @@ class EnhancedAggregator(CoreAggregator):
         """Fetch multi-timeframe analysis"""
         try:
             url = f"{self.technical_analysis_url}/api/v1/analysis/multi-timeframe/{symbol}"
-            params = {"timeframes": "5m,15m,60m,240m"}  # 4 timeframes for speed
+            params = {"timeframes": "15,60,240"}  # 15m, 1h, 4h for MTF analysis
 
             response = await self.http_client.get(url, params=params)
 
@@ -479,14 +479,33 @@ class EnhancedAggregator(CoreAggregator):
             }
 
         # Add multi-timeframe metadata
+        # FIX 2025-12-01: Correctly map MTF API response fields
         if mtf_analysis:
+            # Extract individual timeframe signals from timeframe_details array
+            tf_details = mtf_analysis.get('timeframe_details', [])
+            tf_signals = {}
+            for tf in tf_details:
+                tf_name = tf.get('timeframe', '')
+                tf_signal = tf.get('signal', 'HOLD')
+                if '15m' in tf_name or tf.get('interval_minutes') == 15:
+                    tf_signals['short_term'] = tf_signal
+                elif '1h' in tf_name or tf.get('interval_minutes') == 60:
+                    tf_signals['medium_term'] = tf_signal
+                elif '4h' in tf_name or tf.get('interval_minutes') == 240:
+                    tf_signals['long_term'] = tf_signal
+
+            # Map API response to expected metadata format
+            # alignment_score is in 0-1 range, convert to percentage for consistency
+            raw_alignment = mtf_analysis.get('alignment_score', 0)
+            alignment_pct = raw_alignment * 100 if raw_alignment <= 1 else raw_alignment
+
             metadata['multi_timeframe'] = {
-                'alignment_score': mtf_analysis.get('alignment_score'),
-                'consensus_signal': mtf_analysis.get('consensus_signal'),
-                'signal_strength': mtf_analysis.get('signal_strength'),
-                'short_term': mtf_analysis.get('short_term_trend'),
-                'medium_term': mtf_analysis.get('medium_term_trend'),
-                'long_term': mtf_analysis.get('long_term_trend')
+                'alignment_score': alignment_pct,  # Now in percentage (0-100)
+                'consensus_signal': mtf_analysis.get('overall_signal', 'HOLD'),  # Map overall_signal -> consensus_signal
+                'signal_strength': mtf_analysis.get('confidence', 0),  # Map confidence -> signal_strength
+                'short_term': tf_signals.get('short_term', 'N/A'),  # 15m signal
+                'medium_term': tf_signals.get('medium_term', 'N/A'),  # 1h signal
+                'long_term': tf_signals.get('long_term', 'N/A')  # 4h signal
             }
 
         # Mark as Phase 3 enhanced signal
@@ -497,12 +516,15 @@ class EnhancedAggregator(CoreAggregator):
             'multi_timeframe_enabled': self.use_multi_timeframe
         }
 
-        # Create enhanced signal
+        # Create enhanced signal with all required fields
+        # FIX 2025-12-01: Include aggregated_score and consensus_count (required by TradingSignal model)
         return TradingSignal(
             symbol=symbol,
             action=enhanced_action,
             confidence=enhanced_confidence,
             timestamp=timestamp,
             indicators=base_signal.indicators,
+            aggregated_score=base_signal.aggregated_score,  # Copy from base Phase 1 signal
+            consensus_count=base_signal.consensus_count,    # Copy from base Phase 1 signal
             metadata=metadata
         )

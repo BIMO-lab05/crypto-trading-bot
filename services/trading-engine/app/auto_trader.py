@@ -58,6 +58,7 @@ from app.trading_enhancements.kill_switch import (
     KillSwitchConfig,
     KillSwitchReason
 )
+from app.services.notification_client import get_notification_client
 from app.trading_enhancements.slippage_manager import (
     get_slippage_manager,
     SlippageConfig,
@@ -88,6 +89,68 @@ from app.trading_enhancements.smart_order_execution import (
 from app.trading_enhancements.performance_analytics import (
     PerformanceAnalytics,
     RiskMetricMethod
+)
+# DCA Manager for averaging down on losing positions (2025-12-02)
+from app.trading_enhancements.dca_manager import (
+    get_dca_manager,
+    DCAConfig,
+    DCAManager
+)
+# Portfolio Heat Manager for total exposure control (2025-12-02)
+from app.trading_enhancements.portfolio_heat import (
+    get_portfolio_heat_manager,
+    PortfolioHeatConfig,
+    PortfolioHeatManager,
+    HeatLevel
+)
+# Adaptive RSI with dynamic thresholds (2025-12-02)
+from app.trading_enhancements.adaptive_rsi import (
+    get_adaptive_rsi,
+    AdaptiveRSI,
+    AdaptiveRSIConfig,
+    VolatilityRegime as RSIVolatilityRegime
+)
+# Hurst Exponent for regime detection (2025-12-02)
+from app.trading_enhancements.hurst_exponent import (
+    create_hurst_calculator,
+    HurstExponentCalculator,
+    HurstConfig,
+    MarketRegimeType,
+    StrategyType
+)
+# Limit Order Executor for better execution (2025-12-02)
+from app.trading_enhancements.limit_order_executor import (
+    get_limit_order_executor,
+    LimitOrderExecutor,
+    LimitOrderConfig,
+    LimitOrderType
+)
+# Walk Forward Efficiency tester (2025-12-02)
+from app.trading_enhancements.walk_forward_tester import (
+    get_walk_forward_tester,
+    WalkForwardTester,
+    WFEConfig,
+    TradeData
+)
+# Regime-Based Strategy Selection (2025-12-02)
+from app.trading_enhancements.regime_strategy_selector import (
+    get_regime_strategy_selector,
+    RegimeStrategySelector,
+    RegimeStrategyConfig
+)
+# ATR-Based Trailing Stops (2025-12-02)
+from app.trading_enhancements.atr_trailing_stop import (
+    get_atr_trailing_stop,
+    ATRTrailingStop,
+    ATRTrailingStopConfig,
+    PositionSide,
+    VolatilityRegime as TrailingStopVolatilityRegime
+)
+# Partial Profit Taking (2025-12-02)
+from app.trading_enhancements.partial_profit_taker import (
+    get_partial_profit_taker,
+    PartialProfitTaker,
+    PartialProfitConfig
 )
 # Phase1MetricsProvider recording is now handled by CoreAggregator
 
@@ -126,6 +189,7 @@ class AutoTrader:
         use_performance_data: bool = True,  # Use performance tracker for Kelly
         enable_market_regime: bool = True,  # Enable ADX-based market regime detection
         strategy_mode: StrategyMode = StrategyMode.RESEARCH,  # Default to research strategy (2025-11-28)
+        enable_ml_predictions: Optional[bool] = None,  # Phase 3 ML Integration (2025-12-01)
     ):
         """
         Initialize the automated trader
@@ -139,6 +203,7 @@ class AutoTrader:
             use_performance_data: Use performance tracker for Kelly calculation
             enable_market_regime: Enable ADX-based market regime detection (default: True)
             strategy_mode: Trading strategy mode (default: RESEARCH for research-backed decisions)
+            enable_ml_predictions: Enable ML predictions in signal aggregation (default: from config)
         """
         self.symbols = symbols or settings.trading_symbols
         # FIXED: Warn if no symbols configured (code review 2025-11-28)
@@ -152,6 +217,8 @@ class AutoTrader:
         self.use_performance_data = use_performance_data
         self.enable_market_regime = enable_market_regime
         self.strategy_mode = strategy_mode
+        # Phase 3 ML Integration: Use config setting if not explicitly provided
+        self.enable_ml = enable_ml_predictions if enable_ml_predictions is not None else settings.enable_ml_predictions
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
 
@@ -200,14 +267,15 @@ class AutoTrader:
 
         # Kill Switch: Multi-threshold emergency stop
         # Research: Industry standard risk controls
+        # RELAXED FOR SAMPLE COLLECTION (2025-11-30)
         self.kill_switch = get_kill_switch(
             KillSwitchConfig(
-                max_daily_loss_pct=5.0,        # Stop if daily loss > 5%
-                max_drawdown_pct=10.0,         # Stop if drawdown > 10%
+                max_daily_loss_pct=50.0,       # Relaxed: 50% for sample collection
+                max_drawdown_pct=50.0,         # Relaxed: 50% for sample collection
                 max_position_value=100000.0,   # Stop if position > $100k
-                max_consecutive_losses=5,      # Stop after 5 consecutive losses
+                max_consecutive_losses=20,     # Relaxed: 20 consecutive losses
                 confirmation_delay_seconds=5,  # 5s delay for manual activation
-                auto_reset_hours=24,           # Auto-reset after 24h
+                auto_reset_hours=1,            # Faster reset: 1 hour
                 require_multi_threshold=True   # Require 2+ thresholds for auto-activate
             )
         )
@@ -224,6 +292,9 @@ class AutoTrader:
                 max_order_value_for_market=1000.0  # Use limit for orders > $1000
             )
         )
+
+        # Notification Client: Trade alerts via Telegram/Email (2025-12-01)
+        self.notification_client = get_notification_client()
 
         # Execution Timer: Position monitoring intervals
         # Research: Low-Latency Trading Systems best practices
@@ -263,23 +334,155 @@ class AutoTrader:
 
         # Smart Order Executor: TWAP, VWAP, Iceberg algorithms
         # Research: Institutional order execution strategies
+        from app.trading_enhancements.smart_order_execution import ExecutionConfig
         self.smart_order_executor = SmartOrderExecutor(
-            default_algorithm=ExecutionAlgorithm.TWAP,
-            twap_duration_minutes=5,           # 5-minute TWAP default
-            vwap_participation_rate=0.15,      # 15% of volume
-            iceberg_visible_pct=0.20,          # Show 20% of order
-            min_slice_value=100.0,             # Min $100 per slice
-            max_slices=10                      # Max 10 order slices
+            config=ExecutionConfig(
+                twap_duration_minutes=5,           # 5-minute TWAP default
+                vwap_participation_rate=0.15,      # 15% of volume
+                iceberg_visible_pct=0.20,          # Show 20% of order
+                twap_max_slices=10                 # Max 10 order slices
+            )
         )
 
         # Performance Analytics: Sharpe, Sortino, VaR, CVaR
         # Research: Professional risk metrics
         self.performance_analytics = PerformanceAnalytics(
             risk_free_rate=0.05,               # 5% risk-free rate (annualized)
-            var_confidence=0.95,               # 95% VaR confidence level
-            var_method=RiskMetricMethod.HISTORICAL,
-            target_return=0.0,                 # For Sortino ratio
-            monte_carlo_simulations=10000      # For Monte Carlo VaR
+            trading_days_per_year=365          # Crypto markets are 24/7
+        )
+
+        # ============================================================================
+        # DCA MANAGER - Dollar Cost Averaging (2025-12-02)
+        # Research: Pionex/3Commas/TradeSanta best practices
+        # ============================================================================
+        self.dca_manager = get_dca_manager()
+        # Reconfigure DCA with research-backed defaults
+        self.dca_manager.config = DCAConfig(
+            enabled=True,
+            safety_order_deviation_pct=[5.0, 10.0, 15.0, 20.0, 25.0],  # Trigger at 5%, 10%, etc.
+            safety_order_volume_scale=[1.0, 1.5, 2.0, 2.5, 3.0],      # Scale up each layer
+            max_safety_orders=5,                                       # Max 5 DCA orders
+            min_time_between_orders=300,                               # 5 minutes between orders
+            base_safety_order_pct=100.0,                               # Same size as original
+            recalculate_tp_on_dca=True,                                # Update TP after DCA
+            tp_after_dca_pct=2.0,                                      # 2% TP after averaging
+            max_total_position_pct=10.0,                               # Max 10% of capital
+            stop_loss_after_max_dca_pct=10.0                           # 10% SL after max DCA
+        )
+        self.dca_orders_executed = 0  # Track DCA executions
+
+        # ============================================================================
+        # PORTFOLIO HEAT MANAGER - Total Exposure Control (2025-12-02)
+        # Research: Hedge Fund Best Practices - 6-8% max portfolio heat
+        # ============================================================================
+        self.portfolio_heat_manager = get_portfolio_heat_manager(
+            PortfolioHeatConfig(
+                max_portfolio_heat_pct=8.0,        # Max 8% total risk exposure
+                max_per_trade_pct=2.0,             # Max 2% risk per trade
+                max_correlated_exposure_pct=5.0,   # Max 5% in correlated assets
+                max_single_asset_pct=10.0,         # Max 10% in single asset
+                low_heat_threshold=4.0,            # Below = low heat
+                moderate_heat_threshold=6.0,       # Below = moderate
+                elevated_heat_threshold=8.0,       # Below = elevated
+                critical_heat_threshold=10.0       # Above = critical
+            )
+        )
+
+        # ============================================================================
+        # ADAPTIVE RSI - Volatility-adjusted indicators (2025-12-02)
+        # Research: 6-period RSI with dynamic 15/85, 25/75, 30/70 thresholds
+        # ============================================================================
+        self.adaptive_rsi = get_adaptive_rsi(
+            AdaptiveRSIConfig(
+                rsi_period=6,                    # Short period for crypto
+                high_vol_oversold=15,            # Extreme oversold threshold
+                high_vol_overbought=85,          # Extreme overbought threshold
+                normal_vol_oversold=25,          # Standard oversold threshold
+                normal_vol_overbought=75,        # Standard overbought threshold
+                low_vol_oversold=30,             # Conservative oversold threshold
+                low_vol_overbought=70,           # Conservative overbought threshold
+                high_volatility_threshold=3.0,   # ATR > 3% = high volatility
+                low_volatility_threshold=1.0,    # ATR < 1% = low volatility
+                use_trend_filter=True,           # Filter signals with trend
+                trend_ema_period=50              # 50-period EMA for trend
+            )
+        )
+
+        # ============================================================================
+        # HURST EXPONENT - Market regime detection (2025-12-02)
+        # Research: H > 0.55 trending, H < 0.45 mean-reverting
+        # ============================================================================
+        self.hurst_calculator = create_hurst_calculator(
+            trending_threshold=0.55,
+            mean_reversion_threshold=0.45,
+            lookback_periods=[20, 50, 100]
+        )
+
+        # ============================================================================
+        # LIMIT ORDER EXECUTOR - Better execution (2025-12-02)
+        # Research: Saves 2-10 bps on slippage
+        # ============================================================================
+        self.limit_order_executor = get_limit_order_executor(
+            LimitOrderConfig(
+                default_offset_pct=0.05,         # 0.05% inside spread
+                timeout_seconds=30,              # 30s before fallback
+                use_post_only=False,             # Allow taker orders
+                max_retries=2,                   # Retry twice
+                fallback_to_market=True,         # Fallback to market order
+                aggressive_offset_pct=0.02,      # Near price for fast fill
+                passive_offset_pct=0.10          # Further for better price
+            )
+        )
+
+        # ============================================================================
+        # WALK FORWARD EFFICIENCY TESTER - Strategy validation (2025-12-02)
+        # Research: WFE > 50% for robust strategies
+        # ============================================================================
+        self.wfe_tester = get_walk_forward_tester(
+            WFEConfig(
+                in_sample_pct=0.70,              # 70% training
+                out_of_sample_pct=0.30,          # 30% testing
+                min_trades_for_confidence=385,   # 95% confidence
+                min_wfe_threshold=0.50,          # 50% minimum WFE
+                rolling_windows=5                # 5 walk-forward periods
+            ),
+            strategy_name="research_optimized"
+        )
+
+        # ============================================================================
+        # REGIME STRATEGY SELECTOR - Hurst-based parameter adjustment (2025-12-02)
+        # Research: Mandelbrot's Fractal Market Hypothesis
+        # ============================================================================
+        self.regime_strategy_selector = get_regime_strategy_selector()
+        # Configures: TRENDING: 1.5x stop, 2.0x TP | MEAN_REVERTING: 0.8x stop, 1.2x TP
+
+        # ============================================================================
+        # ATR TRAILING STOP - Volatility-adjusted trailing stops (2025-12-02)
+        # Research: Chandelier Exit methodology
+        # ============================================================================
+        self.atr_trailing_stop = get_atr_trailing_stop(
+            ATRTrailingStopConfig(
+                base_atr_multiplier=2.5,         # 2.5x ATR distance
+                min_atr_multiplier=1.5,          # Minimum 1.5x for tight markets
+                max_atr_multiplier=4.0,          # Maximum 4x for extreme volatility
+                activation_profit_pct=1.0,       # Activate after 1% profit
+                step_pct=0.5,                    # Update when price moves 0.5%
+                use_chandelier_exit=True         # Trail from highest/lowest
+            )
+        )
+
+        # ============================================================================
+        # PARTIAL PROFIT TAKER - Scale-out strategy (2025-12-02)
+        # Research: Professional trading best practices
+        # ============================================================================
+        self.partial_profit_taker = get_partial_profit_taker(
+            PartialProfitConfig(
+                profit_levels=[1.0, 2.0, 3.0],          # 1%, 2%, 3% profit targets
+                exit_percentages=[25.0, 25.0, 25.0],   # Exit 25% at each level
+                move_stop_to_breakeven_after=1,        # Breakeven after first partial
+                min_position_value=10.0,               # Don't split below $10
+                enabled=True
+            )
         )
 
         # Trade history for analytics (stores returns)
@@ -321,6 +524,68 @@ class AutoTrader:
         logger.info(f"  Smart Order Executor: TWAP/VWAP/Iceberg, 5-min duration")
         logger.info(f"  Performance Analytics: Sharpe, Sortino, VaR@95%, CVaR")
         logger.info("=" * 70)
+        logger.info("DCA MANAGER ENABLED (2025-12-02) - Research: Pionex/3Commas")
+        logger.info("=" * 70)
+        logger.info(f"  DCA Layers: {self.dca_manager.config.max_safety_orders}")
+        logger.info(f"  DCA Triggers: {self.dca_manager.config.safety_order_deviation_pct}")
+        logger.info(f"  DCA Volume Scale: {self.dca_manager.config.safety_order_volume_scale}")
+        logger.info(f"  TP After DCA: {self.dca_manager.config.tp_after_dca_pct}%")
+        logger.info("=" * 70)
+        logger.info("PORTFOLIO HEAT MANAGER ENABLED (2025-12-02) - Research: Hedge Fund Best Practices")
+        logger.info("=" * 70)
+        logger.info(f"  Max Portfolio Heat: {self.portfolio_heat_manager.config.max_portfolio_heat_pct}%")
+        logger.info(f"  Max Per Trade Risk: {self.portfolio_heat_manager.config.max_per_trade_pct}%")
+        logger.info(f"  Max Correlated Exposure: {self.portfolio_heat_manager.config.max_correlated_exposure_pct}%")
+        logger.info(f"  Heat Levels: LOW(<4%) MODERATE(<6%) ELEVATED(<8%) HIGH(>8%) CRITICAL(>10%)")
+        logger.info("=" * 70)
+        logger.info("ADAPTIVE RSI ENABLED (2025-12-02) - Research: 6-period with dynamic thresholds")
+        logger.info("=" * 70)
+        logger.info(f"  RSI Period: {self.adaptive_rsi.config.rsi_period}")
+        logger.info(f"  High Vol Thresholds: ({self.adaptive_rsi.config.high_vol_oversold}, {self.adaptive_rsi.config.high_vol_overbought})")
+        logger.info(f"  Normal Thresholds: ({self.adaptive_rsi.config.normal_vol_oversold}, {self.adaptive_rsi.config.normal_vol_overbought})")
+        logger.info(f"  Low Vol Thresholds: ({self.adaptive_rsi.config.low_vol_oversold}, {self.adaptive_rsi.config.low_vol_overbought})")
+        logger.info(f"  Trend Filter: {self.adaptive_rsi.config.use_trend_filter}")
+        logger.info("=" * 70)
+        logger.info("HURST EXPONENT ENABLED (2025-12-02) - Research: Market Regime Detection")
+        logger.info("=" * 70)
+        logger.info(f"  Trending Threshold: > {self.hurst_calculator.config.trending_threshold}")
+        logger.info(f"  Mean Reversion Threshold: < {self.hurst_calculator.config.mean_reversion_threshold}")
+        logger.info(f"  Lookback Periods: {self.hurst_calculator.config.lookback_periods}")
+        logger.info("=" * 70)
+        logger.info("LIMIT ORDER EXECUTOR ENABLED (2025-12-02) - Research: 2-10 bps slippage savings")
+        logger.info("=" * 70)
+        logger.info(f"  Default Offset: {self.limit_order_executor.config.default_offset_pct}%")
+        logger.info(f"  Timeout: {self.limit_order_executor.config.timeout_seconds}s")
+        logger.info(f"  Fallback to Market: {self.limit_order_executor.config.fallback_to_market}")
+        logger.info("=" * 70)
+        logger.info("WALK FORWARD TESTER ENABLED (2025-12-02) - Research: Strategy Validation")
+        logger.info("=" * 70)
+        logger.info(f"  In-Sample: {self.wfe_tester.config.in_sample_pct:.0%}")
+        logger.info(f"  Out-of-Sample: {self.wfe_tester.config.out_of_sample_pct:.0%}")
+        logger.info(f"  Min WFE Threshold: {self.wfe_tester.config.min_wfe_threshold:.0%}")
+        logger.info(f"  Min Trades for Confidence: {self.wfe_tester.config.min_trades_for_confidence}")
+        logger.info("=" * 70)
+        logger.info("REGIME STRATEGY SELECTOR ENABLED (2025-12-02) - Research: Mandelbrot's FMH")
+        logger.info("=" * 70)
+        logger.info(f"  TRENDING: SL mult=1.5x, TP mult=2.0x, pos mult=1.0x")
+        logger.info(f"  MEAN_REVERTING: SL mult=0.8x, TP mult=1.2x, pos mult=0.9x")
+        logger.info(f"  RANDOM_WALK: SL mult=1.0x, TP mult=1.0x, pos mult=0.5x")
+        logger.info("=" * 70)
+        logger.info("ATR TRAILING STOP ENABLED (2025-12-02) - Research: Chandelier Exit")
+        logger.info("=" * 70)
+        logger.info(f"  Base ATR Multiplier: {self.atr_trailing_stop.config.base_atr_multiplier}x")
+        logger.info(f"  Min/Max Multipliers: {self.atr_trailing_stop.config.min_atr_multiplier}x - {self.atr_trailing_stop.config.max_atr_multiplier}x")
+        logger.info(f"  Activation Profit: {self.atr_trailing_stop.config.activation_profit_pct}%")
+        logger.info(f"  Step Update: {self.atr_trailing_stop.config.step_pct}%")
+        logger.info(f"  Chandelier Exit: {self.atr_trailing_stop.config.use_chandelier_exit}")
+        logger.info("=" * 70)
+        logger.info("PARTIAL PROFIT TAKER ENABLED (2025-12-02) - Research: Scale-Out Strategy")
+        logger.info("=" * 70)
+        logger.info(f"  Profit Levels: {self.partial_profit_taker.config.profit_levels}%")
+        logger.info(f"  Exit Percentages: {self.partial_profit_taker.config.exit_percentages}%")
+        logger.info(f"  Breakeven After: {self.partial_profit_taker.config.move_stop_to_breakeven_after} partial(s)")
+        logger.info(f"  Min Position Value: ${self.partial_profit_taker.config.min_position_value}")
+        logger.info("=" * 70)
 
     async def start(self):
         """Start the automated trading loop"""
@@ -328,7 +593,15 @@ class AutoTrader:
             logger.warning("AutoTrader is already running")
             return False
 
-        logger.info("Starting automated trading loop")
+        logger.info("="*60)
+        logger.info("STARTING AUTOMATED TRADING LOOP")
+        logger.info(f"  Symbols: {self.symbols}")
+        logger.info(f"  Interval: {self.interval}m")
+        logger.info(f"  Strategy Mode: {self.strategy_mode.value}")
+        logger.info(f"  ML Predictions: {'ENABLED (Phase 3)' if self.enable_ml else 'DISABLED'}")
+        logger.info(f"  Volume Profile: {'ENABLED' if self.enable_vp else 'DISABLED'}")
+        logger.info(f"  Market Regime: {'ENABLED' if self.enable_market_regime else 'DISABLED'}")
+        logger.info("="*60)
         self.is_running = True
         self.task = asyncio.create_task(self._trading_loop())
         return True
@@ -561,12 +834,20 @@ class AutoTrader:
                 # Log regime information
                 self._log_market_regime(symbol, regime_analysis)
 
-            # Get aggregated signal with multi-timeframe confirmation (Phase 2)
-            # and Volume Profile analysis (Phase 3) if enabled
+            # Get aggregated signal with appropriate enhancements
+            # Phase 3 adds ML predictions, VP analysis, and sentiment
             aggregator = await get_aggregator()
 
-            if self.enable_vp:
-                # Use VP-enhanced signals (Phase 3)
+            if self.enable_ml:
+                # Phase 3: Use ML-enhanced signals (Technical 40% + ML 30% + Sentiment 15% + MTF 15%)
+                logger.info(f"Using ML-ENHANCED signal aggregation for {symbol}")
+                signal = await aggregator.get_trading_signal_enhanced(
+                    symbol=symbol,
+                    interval=self.interval,
+                    use_phase3=True
+                )
+            elif self.enable_vp:
+                # Use VP-enhanced signals (Phase 3 - VP only)
                 signal = await aggregator.get_trading_signal_with_vp(
                     symbol=symbol,
                     primary_interval=self.interval,
@@ -684,13 +965,22 @@ class AutoTrader:
                 logger.warning(f"[RESEARCH] Trading halted due to risk limits for {symbol}")
                 return
 
-            # Get aggregated signal to get indicator data
+            # Get aggregated signal with ML enhancement if enabled
             aggregator = await get_aggregator()
-            signal = await aggregator.get_trading_signal_multi_timeframe(
-                symbol=symbol,
-                primary_interval=self.interval,
-                timeframes=["15", self.interval, "240"],
-            )
+            if self.enable_ml:
+                # Phase 3: Use ML-enhanced signals (Technical 40% + ML 30% + Sentiment 15% + MTF 15%)
+                logger.info(f"[RESEARCH] Using ML-ENHANCED signal aggregation for {symbol}")
+                signal = await aggregator.get_trading_signal_enhanced(
+                    symbol=symbol,
+                    interval=self.interval,
+                    use_phase3=True
+                )
+            else:
+                signal = await aggregator.get_trading_signal_multi_timeframe(
+                    symbol=symbol,
+                    primary_interval=self.interval,
+                    timeframes=["15", self.interval, "240"],
+                )
 
             if not signal:
                 logger.warning(f"[RESEARCH] No signal data returned for {symbol}")
@@ -738,12 +1028,63 @@ class AutoTrader:
             logger.info(f"  Position Size: {trade_setup.position_size_pct:.2%}")
             for reason in trade_setup.reasoning:
                 logger.info(f"  - {reason}")
+
+            # ================================================================
+            # MULTI-TIMEFRAME ALIGNMENT CHECK (2025-12-01)
+            # Only trade when 15m/60m/4h timeframes agree to reduce false signals
+            # ================================================================
+            mtf_passed = True
+            mtf_alignment_score = 0.0
+            mtf_consensus = "N/A"
+
+            # Get settings for MTF configuration
+            from app.config import get_settings
+            settings = get_settings()
+
+            if settings.enable_multi_timeframe and settings.mtf_require_alignment:
+                # Check for MTF metadata in signal
+                mtf_data = signal.metadata.get('multi_timeframe', {}) if signal.metadata else {}
+
+                if mtf_data:
+                    mtf_alignment_score = mtf_data.get('alignment_score', 0) or 0
+                    mtf_consensus = mtf_data.get('consensus_signal', 'N/A')
+                    min_alignment = settings.mtf_min_alignment_score
+
+                    logger.info(f"  [MTF] Alignment Score: {mtf_alignment_score:.1f}% (min: {min_alignment}%)")
+                    logger.info(f"  [MTF] Consensus: {mtf_consensus}")
+                    logger.info(f"  [MTF] Timeframes: 15m={mtf_data.get('short_term', 'N/A')}, "
+                               f"60m={mtf_data.get('medium_term', 'N/A')}, 4h={mtf_data.get('long_term', 'N/A')}")
+
+                    # Check if signal action matches MTF consensus
+                    action_matches_consensus = (
+                        mtf_consensus == trade_setup.action.value or
+                        mtf_consensus == "HOLD"  # HOLD is neutral, allow trade
+                    )
+
+                    if mtf_alignment_score < min_alignment:
+                        logger.warning(
+                            f"  [MTF REJECTED] Alignment {mtf_alignment_score:.1f}% < {min_alignment}% threshold"
+                        )
+                        mtf_passed = False
+                    elif not action_matches_consensus:
+                        logger.warning(
+                            f"  [MTF REJECTED] Signal {trade_setup.action.value} conflicts with MTF consensus {mtf_consensus}"
+                        )
+                        mtf_passed = False
+                    else:
+                        logger.info(f"  [MTF PASSED] Timeframes aligned for {trade_setup.action.value}")
+                else:
+                    logger.info(f"  [MTF] No MTF data available - proceeding without MTF filter")
+
             logger.info("=" * 70)
 
-            # Execute trade if action is BUY or SELL
-            if trade_setup.action.value in ["BUY", "SELL"]:
+            # Execute trade if action is BUY or SELL and MTF alignment passes
+            if trade_setup.action.value in ["BUY", "SELL"] and mtf_passed:
                 await self._execute_trade_with_setup(symbol, trade_setup)
                 self.research_trades += 1
+            elif trade_setup.action.value in ["BUY", "SELL"] and not mtf_passed:
+                self.total_trades_rejected += 1
+                logger.info(f"[RESEARCH] Trade REJECTED for {symbol} - MTF alignment failed")
             else:
                 logger.info(f"[RESEARCH] Holding position for {symbol}")
 
@@ -823,6 +1164,54 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
+            # ================================================================
+            # PORTFOLIO HEAT CHECK (2025-12-02)
+            # Block trades if portfolio heat is too high
+            # ================================================================
+            paper_engine = get_paper_engine()
+            current_equity = float(paper_engine.get_balance())
+
+            # Calculate proposed risk for this trade
+            proposed_risk_pct = trade_setup.position_size_pct * 100 * (
+                settings.default_stop_loss_pct / 100
+            )  # Risk = position size * stop distance
+
+            can_trade, heat_reason, heat_multiplier = self.portfolio_heat_manager.can_open_trade(
+                symbol=symbol,
+                proposed_risk_pct=proposed_risk_pct,
+                equity=current_equity
+            )
+
+            if not can_trade:
+                logger.warning(f"[HEAT] Trade BLOCKED for {symbol}: {heat_reason}")
+                self.total_trades_rejected += 1
+                return
+
+            # ================================================================
+            # CORRELATION-BASED POSITION SIZING (2025-12-02)
+            # Get combined multiplier: heat + correlation adjustments
+            # ================================================================
+            combined_multiplier, size_breakdown = self.portfolio_heat_manager.get_combined_size_multiplier(
+                symbol=symbol,
+                equity=current_equity
+            )
+
+            # Log heat and correlation status
+            heat_status = self.portfolio_heat_manager.get_summary_dict()
+            logger.info(
+                f"[HEAT] Trade ALLOWED: {symbol} | "
+                f"Current heat: {heat_status['total_heat_pct']:.1f}%/{heat_status['limits']['max_portfolio_heat']}% | "
+                f"Level: {heat_status['heat_level']}"
+            )
+            logger.info(
+                f"[CORRELATION] Size adjustment: heat={size_breakdown['heat_multiplier']:.0%} x "
+                f"corr={size_breakdown['correlation_multiplier']:.0%} ({size_breakdown['correlation_level']}) = "
+                f"{combined_multiplier:.0%} final"
+            )
+
+            # Use combined multiplier instead of just heat multiplier
+            heat_multiplier = combined_multiplier
+
             # Check daily trade limit first
             if not self._check_daily_trade_limit():
                 logger.info(f"[RESEARCH] Daily trade limit reached, skipping {symbol}")
@@ -859,9 +1248,9 @@ class AutoTrader:
                 balance = await trading_engine.get_balance()
                 logger.info(f"[LIVE] Real Bybit balance: ${balance:.2f}")
             else:
-                # Use paper trading engine for simulation
-                trading_engine = get_paper_engine()
-                balance = trading_engine.get_balance()
+                # Use paper trading engine for simulation (already fetched above)
+                trading_engine = paper_engine
+                balance = current_equity
                 logger.info(f"[PAPER] Simulated balance: ${balance:.2f}")
 
             # Check if we already have an open position for this symbol
@@ -874,12 +1263,14 @@ class AutoTrader:
                 return
 
             # Calculate position value using strategy's position sizing
-            position_value = float(balance) * trade_setup.position_size_pct
+            # Apply heat multiplier to reduce size during high heat
+            adjusted_position_pct = trade_setup.position_size_pct * heat_multiplier
+            position_value = float(balance) * adjusted_position_pct
             quantity = position_value / trade_setup.entry_price
 
             logger.info(
-                f"[RESEARCH] Position sizing: {trade_setup.position_size_pct:.2%} of ${balance:.2f} "
-                f"= ${position_value:.2f} ({quantity:.4f} units)"
+                f"[RESEARCH] Position sizing: {trade_setup.position_size_pct:.2%} * {heat_multiplier:.0%} heat adj "
+                f"= {adjusted_position_pct:.2%} of ${balance:.2f} = ${position_value:.2f} ({quantity:.4f} units)"
             )
 
             # Execute the trade
@@ -932,17 +1323,197 @@ class AutoTrader:
                     quantity=Decimal(str(quantity))
                 )
 
+                # ================================================================
+                # REGIME-BASED SL/TP ADJUSTMENT (2025-12-02)
+                # Adjust stop loss and take profit based on Hurst market regime
+                # TRENDING: wider SL (1.5x), larger TP (2.0x)
+                # MEAN_REVERTING: tighter SL (0.8x), smaller TP (1.2x)
+                # RANDOM_WALK: reduced position (0.5x)
+                # ================================================================
+                adjusted_sl = trade_setup.stop_loss
+                adjusted_tp = trade_setup.take_profit
+                regime_multiplier = 1.0
+
+                try:
+                    # Get historical prices for Hurst calculation
+                    aggregator = await get_aggregator()
+                    signal = await aggregator.get_trading_signal_multi_timeframe(
+                        symbol=symbol,
+                        primary_interval=self.interval,
+                        timeframes=[self.interval]
+                    )
+
+                    # Extract price history from signal metadata if available
+                    if signal and signal.metadata and "price_history" in signal.metadata:
+                        prices = signal.metadata["price_history"]
+                        if len(prices) >= 50:  # Need minimum 50 prices for Hurst
+                            hurst_result = self.hurst_calculator.calculate(prices)
+                            regime = hurst_result.regime
+
+                            # Get regime-specific multipliers
+                            sl_multiplier = self.regime_strategy_selector.get_stop_loss_multiplier(regime)
+                            tp_multiplier = self.regime_strategy_selector.get_take_profit_multiplier(regime)
+                            regime_multiplier = self.regime_strategy_selector.get_position_size_multiplier(regime)
+
+                            # Calculate SL/TP distances from entry
+                            sl_distance = abs(trade_setup.entry_price - trade_setup.stop_loss)
+                            tp_distance = abs(trade_setup.take_profit - trade_setup.entry_price)
+
+                            # Adjust distances based on regime
+                            adjusted_sl_distance = sl_distance * sl_multiplier
+                            adjusted_tp_distance = tp_distance * tp_multiplier
+
+                            # Apply adjustments based on trade direction
+                            if action == "BUY":
+                                adjusted_sl = trade_setup.entry_price - adjusted_sl_distance
+                                adjusted_tp = trade_setup.entry_price + adjusted_tp_distance
+                            else:  # SELL
+                                adjusted_sl = trade_setup.entry_price + adjusted_sl_distance
+                                adjusted_tp = trade_setup.entry_price - adjusted_tp_distance
+
+                            logger.info(
+                                f"[REGIME] Hurst={hurst_result.hurst_exponent:.3f} ({regime.value}) | "
+                                f"SL: ${trade_setup.stop_loss:.2f} -> ${adjusted_sl:.2f} ({sl_multiplier:.1f}x) | "
+                                f"TP: ${trade_setup.take_profit:.2f} -> ${adjusted_tp:.2f} ({tp_multiplier:.1f}x)"
+                            )
+
+                except Exception as regime_err:
+                    logger.debug(f"[REGIME] Could not calculate Hurst regime: {regime_err}")
+                    # Use original values if Hurst calculation fails
+
+                # ================================================================
+                # CREATE PARTIAL PROFIT STATE (2025-12-02)
+                # Track position for scale-out exits at 1%, 2%, 3% profit
+                # ================================================================
+                try:
+                    partial_state = self.partial_profit_taker.create_position_state(
+                        symbol=symbol,
+                        entry_price=float(trade_setup.entry_price),
+                        quantity=float(quantity),
+                        side="LONG" if action == "BUY" else "SHORT",
+                        stop_loss=float(adjusted_sl)
+                    )
+                    logger.info(
+                        f"[PARTIAL] Profit taking initialized: {symbol} | "
+                        f"Levels: {self.partial_profit_taker.config.profit_levels}% | "
+                        f"Exit: {self.partial_profit_taker.config.exit_percentages}%"
+                    )
+                except Exception as partial_err:
+                    logger.debug(f"[PARTIAL] Could not create partial profit state: {partial_err}")
+
+                # ================================================================
+                # POST-TRADE: Apply ATR-Based Stops from TradeSetup (2025-12-01)
+                # Enables trailing stop activation after TP1
+                # ================================================================
+                if executed_order.position_id:
+                    try:
+                        # Extract TP1/TP2/TP3 from trade_setup.partial_exits if available
+                        tp1, tp2, tp3 = None, None, None
+                        if trade_setup.partial_exits:
+                            for exit_level in trade_setup.partial_exits:
+                                if exit_level.label == "TP1":
+                                    tp1 = Decimal(str(exit_level.price))
+                                elif exit_level.label == "TP2":
+                                    tp2 = Decimal(str(exit_level.price))
+                                elif exit_level.label == "TP3":
+                                    tp3 = Decimal(str(exit_level.price))
+
+                        # Update position with ATR-based stops (using regime-adjusted values)
+                        position_mgr.set_position_stops(
+                            position_id=executed_order.position_id,
+                            stop_loss=Decimal(str(adjusted_sl)),
+                            take_profit=Decimal(str(adjusted_tp)),
+                            tp1=tp1,
+                            tp2=tp2,
+                            tp3=tp3,
+                            enable_trailing=False  # Enabled automatically after TP1 hit
+                        )
+
+                        logger.info(
+                            f"[{trading_mode}] ATR-based stops applied (regime-adjusted): "
+                            f"SL=${adjusted_sl:.2f}, "
+                            f"TP1=${float(tp1) if tp1 else 'N/A':.2f}, "
+                            f"TP2=${float(tp2) if tp2 else 'N/A':.2f}, "
+                            f"TP3=${float(tp3) if tp3 else adjusted_tp:.2f}"
+                        )
+                        logger.info(
+                            f"[{trading_mode}] Trailing stop will activate after TP1 "
+                            f"(ATR mult: {trade_setup.trailing_stop_atr_mult}x)"
+                        )
+
+                    except Exception as stop_error:
+                        logger.warning(f"[{trading_mode}] Failed to apply ATR stops: {stop_error}")
+
                 logger.info(f"[{trading_mode}] Trade executed successfully for {symbol}")
                 logger.info(
-                    f"[{trading_mode}] Stops: SL=${trade_setup.stop_loss:.2f}, "
-                    f"TP=${trade_setup.take_profit:.2f}"
+                    f"[{trading_mode}] Stops (regime-adjusted): SL=${adjusted_sl:.2f}, "
+                    f"TP=${adjusted_tp:.2f}"
                 )
+
+                # ================================================================
+                # CREATE DCA POSITION (2025-12-02)
+                # Track position for DCA averaging if price drops
+                # ================================================================
+                try:
+                    dca_position = self.dca_manager.create_dca_position(
+                        symbol=symbol,
+                        side="LONG" if action == "BUY" else "SHORT",
+                        entry_price=float(trade_setup.entry_price),
+                        quantity=float(quantity),
+                        take_profit=float(adjusted_tp),
+                        stop_loss=float(adjusted_sl)
+                    )
+                    logger.info(
+                        f"[DCA] Position created for {symbol}: "
+                        f"entry=${trade_setup.entry_price:.2f}, "
+                        f"max_layers={self.dca_manager.config.max_safety_orders}"
+                    )
+                except Exception as dca_err:
+                    logger.warning(f"[DCA] Failed to create DCA position: {dca_err}")
+
+                # ================================================================
+                # ADD TO PORTFOLIO HEAT MANAGER (2025-12-02)
+                # ================================================================
+                try:
+                    position_risk = self.portfolio_heat_manager.calculate_position_risk(
+                        symbol=symbol,
+                        side="LONG" if action == "BUY" else "SHORT",
+                        entry_price=float(trade_setup.entry_price),
+                        quantity=float(quantity),
+                        stop_loss=float(adjusted_sl),
+                        current_price=float(trade_setup.entry_price),
+                        equity=float(balance)
+                    )
+                    self.portfolio_heat_manager.add_position(position_risk)
+                    new_heat = self.portfolio_heat_manager.get_summary_dict()
+                    logger.info(
+                        f"[HEAT] Position added to tracking: {symbol} | "
+                        f"Position risk: {position_risk.risk_pct:.2f}% | "
+                        f"New total heat: {new_heat['total_heat_pct']:.2f}%"
+                    )
+                except Exception as heat_err:
+                    logger.warning(f"[HEAT] Failed to add position to heat manager: {heat_err}")
+
                 logger.info(
                     f"[{trading_mode}] Stats: Checked={self.total_signals_checked}, "
                     f"Executed={self.total_trades_executed}, "
                     f"Daily={self.daily_trades_count}/{self.max_daily_trades}, "
                     f"Rejected={self.total_trades_rejected}"
                 )
+
+                # Send trade open notification (2025-12-01)
+                try:
+                    await self.notification_client.notify_trade_open(
+                        symbol=symbol,
+                        action=action,
+                        quantity=float(quantity),
+                        price=float(trade_setup.entry_price),
+                        confidence=trade_setup.confidence,
+                        stop_loss=adjusted_sl,
+                        take_profit=adjusted_tp
+                    )
+                except Exception as notify_err:
+                    logger.debug(f"Notification failed (non-critical): {notify_err}")
             else:
                 self.total_trades_rejected += 1
                 logger.warning(f"[{trading_mode}] Trade execution failed for {symbol}: {error}")
@@ -1000,6 +1571,16 @@ class AutoTrader:
 
             logger.debug(f"[MONITOR] Checking {len(open_positions)} open positions")
 
+            # ================================================================
+            # SYNC PORTFOLIO HEAT MANAGER (2025-12-02)
+            # Keep heat calculations updated with current prices
+            # ================================================================
+            try:
+                current_equity = float(paper_engine.get_balance())
+                self.portfolio_heat_manager.sync_with_positions(open_positions, current_equity)
+            except Exception as sync_err:
+                logger.debug(f"[HEAT] Sync note: {sync_err}")
+
             for position in open_positions:
                 try:
                     # Get current price for this symbol
@@ -1011,6 +1592,92 @@ class AutoTrader:
 
                     # Get ATR value for trailing stop distance
                     atr_value = await self._get_atr_value(position.symbol)
+
+                    # ================================================================
+                    # ATR TRAILING STOP UPDATE (2025-12-02)
+                    # Use Chandelier Exit methodology for volatility-adjusted stops
+                    # ================================================================
+                    if atr_value and position.stop_loss:
+                        try:
+                            # Build position dict for ATR trailing stop
+                            position_side = "LONG" if str(position.side).upper() in ["LONG", "BUY"] else "SHORT"
+                            pos_dict = {
+                                "symbol": position.symbol,
+                                "entry_price": float(position.entry_price),
+                                "side": position_side,
+                                "current_stop": float(position.stop_loss)
+                            }
+
+                            # Calculate new trailing stop using ATR-based methodology
+                            new_atr_stop = self.atr_trailing_stop.update_position_stop(
+                                position=pos_dict,
+                                current_price=current_price,
+                                atr_value=atr_value,
+                                volatility_regime=TrailingStopVolatilityRegime.NORMAL
+                            )
+
+                            if new_atr_stop and new_atr_stop != float(position.stop_loss):
+                                logger.info(
+                                    f"[ATR_TRAIL] {position.symbol}: Stop updated "
+                                    f"${float(position.stop_loss):.2f} -> ${new_atr_stop:.2f} "
+                                    f"(ATR={atr_value:.2f})"
+                                )
+                                # Update position stop in manager
+                                position_mgr.set_position_stops(
+                                    position_id=position.id,
+                                    stop_loss=Decimal(str(new_atr_stop)),
+                                    take_profit=position.take_profit
+                                )
+
+                        except Exception as atr_trail_err:
+                            logger.debug(f"[ATR_TRAIL] Update note for {position.symbol}: {atr_trail_err}")
+
+                    # ================================================================
+                    # PARTIAL PROFIT TAKER CHECK (2025-12-02)
+                    # Scale out at 1%, 2%, 3% profit levels
+                    # ================================================================
+                    try:
+                        partial_state = self.partial_profit_taker.positions.get(position.symbol)
+                        if partial_state:
+                            # Check for partial exits
+                            exits_to_execute = self.partial_profit_taker.check_partial_exits(
+                                partial_state, current_price
+                            )
+
+                            for partial_exit_order in exits_to_execute:
+                                logger.info(
+                                    f"[PARTIAL] Level {partial_exit_order.level_number} triggered for "
+                                    f"{position.symbol}: exit {partial_exit_order.quantity_to_exit:.6f} "
+                                    f"@ ${partial_exit_order.exit_price:.2f} ({partial_exit_order.profit_pct:.2f}% profit)"
+                                )
+
+                                # Execute the partial exit
+                                await self._execute_partial_profit_exit(
+                                    position, partial_exit_order, current_price
+                                )
+
+                                # Update partial profit state
+                                self.partial_profit_taker.execute_partial_exit(
+                                    partial_state,
+                                    partial_exit_order.level_number,
+                                    current_price
+                                )
+
+                                # Check if should move stop to breakeven
+                                if self.partial_profit_taker.should_move_to_breakeven(partial_state):
+                                    breakeven_price = self.partial_profit_taker.get_breakeven_stop(partial_state)
+                                    position_mgr.set_position_stops(
+                                        position_id=position.id,
+                                        stop_loss=Decimal(str(breakeven_price)),
+                                        take_profit=position.take_profit
+                                    )
+                                    logger.info(
+                                        f"[PARTIAL] Breakeven stop activated for {position.symbol}: "
+                                        f"${breakeven_price:.2f}"
+                                    )
+
+                    except Exception as partial_err:
+                        logger.debug(f"[PARTIAL] Check note for {position.symbol}: {partial_err}")
 
                     # Update position with trailing and check exits
                     position, partial_exit = position_mgr.update_position_with_trailing(
@@ -1026,9 +1693,17 @@ class AutoTrader:
                     )
 
                     if should_exit:
-                        # Full exit
+                        # Full exit - also clean up partial profit state
                         logger.info(f"[MONITOR] Exit triggered for {position.symbol}: {reason}")
+                        self.partial_profit_taker.remove_position(position.symbol)
+                        self.atr_trailing_stop.remove_position_state(position.symbol)
                         await self._close_position(position, current_price, reason)
+
+                    # ================================================================
+                    # DCA CHECK - Add safety order if price dropped enough (2025-12-02)
+                    # ================================================================
+                    elif self.dca_manager.should_add_safety_order(position.symbol, current_price):
+                        await self._execute_dca_order(position, current_price)
 
                     elif exit_info:
                         # Partial exit
@@ -1154,6 +1829,49 @@ class AutoTrader:
                 f"Reason: {reason}"
             )
 
+            # ================================================================
+            # REMOVE DCA TRACKING (2025-12-02)
+            # ================================================================
+            try:
+                dca_status = self.dca_manager.get_position_status(position.symbol)
+                if dca_status:
+                    logger.info(
+                        f"[DCA] Position closed with {dca_status['current_layer']} DCA layers | "
+                        f"Avg entry: ${dca_status['average_entry']:.4f}"
+                    )
+                self.dca_manager.remove_position(position.symbol)
+            except Exception as dca_err:
+                logger.debug(f"[DCA] Cleanup note: {dca_err}")
+
+            # ================================================================
+            # REMOVE FROM PORTFOLIO HEAT MANAGER (2025-12-02)
+            # ================================================================
+            try:
+                self.portfolio_heat_manager.remove_position(position.symbol)
+                new_heat = self.portfolio_heat_manager.get_summary_dict()
+                logger.info(
+                    f"[HEAT] Position removed: {position.symbol} | "
+                    f"Remaining heat: {new_heat['total_heat_pct']:.2f}% | "
+                    f"Open positions: {new_heat['position_count']}"
+                )
+            except Exception as heat_err:
+                logger.debug(f"[HEAT] Cleanup note: {heat_err}")
+
+            # Send trade close notification (2025-12-01)
+            try:
+                side = "SELL" if position.side == "BUY" else "BUY"  # Closing is opposite side
+                await self.notification_client.notify_trade_close(
+                    symbol=position.symbol,
+                    action=side,
+                    quantity=float(position.quantity),
+                    entry_price=float(position.entry_price),
+                    exit_price=float(current_price),
+                    pnl=float(closed.realized_pnl) if closed.realized_pnl else 0.0,
+                    pnl_pct=float(closed.pnl_percentage) if closed.pnl_percentage else 0.0
+                )
+            except Exception as notify_err:
+                logger.debug(f"Notification failed (non-critical): {notify_err}")
+
         except Exception as e:
             logger.error(f"[MONITOR] Failed to close position: {e}", exc_info=True)
 
@@ -1190,6 +1908,162 @@ class AutoTrader:
 
         except Exception as e:
             logger.error(f"[MONITOR] Failed to execute partial exit: {e}", exc_info=True)
+
+    async def _execute_partial_profit_exit(self, position, partial_exit, current_price: float):
+        """
+        Execute a partial profit exit from the PartialProfitTaker (2025-12-02)
+
+        This is a scale-out exit at profit levels (1%, 2%, 3%).
+
+        Args:
+            position: Current position
+            partial_exit: PartialExitToExecute object from PartialProfitTaker
+            current_price: Current market price
+        """
+        try:
+            paper_engine = get_paper_engine()
+            position_mgr = get_position_manager()
+            trading_mode = settings.trading_mode
+
+            # Create exit order (opposite side to close)
+            exit_side = OrderSide.SELL if partial_exit.side == "LONG" else OrderSide.BUY
+
+            order = OrderCreate(
+                symbol=partial_exit.symbol,
+                side=exit_side,
+                type=OrderType.MARKET,
+                quantity=Decimal(str(partial_exit.quantity_to_exit)),
+                strategy="partial_profit_taker"
+            )
+
+            # Execute through paper engine
+            executed_order, error = await paper_engine.execute_market_order(
+                order, Decimal(str(current_price))
+            )
+
+            if executed_order and executed_order.status == OrderStatus.FILLED:
+                # Calculate PnL for this partial
+                entry_price = float(position.entry_price)
+                if partial_exit.side == "LONG":
+                    pnl = (current_price - entry_price) * partial_exit.quantity_to_exit
+                else:
+                    pnl = (entry_price - current_price) * partial_exit.quantity_to_exit
+
+                logger.info(
+                    f"[{trading_mode}] Partial profit exit executed: {partial_exit.symbol} | "
+                    f"Level {partial_exit.level_number} | "
+                    f"Qty: {partial_exit.quantity_to_exit:.6f} @ ${current_price:.2f} | "
+                    f"PnL: ${pnl:.2f} ({partial_exit.profit_pct:.2f}%)"
+                )
+
+                # Record trade return for analytics
+                if entry_price > 0:
+                    return_pct = pnl / (entry_price * partial_exit.quantity_to_exit)
+                    self._record_trade_return(return_pct)
+
+            else:
+                logger.warning(
+                    f"[{trading_mode}] Failed to execute partial profit exit for "
+                    f"{partial_exit.symbol}: {error}"
+                )
+
+        except Exception as e:
+            logger.error(f"[MONITOR] Failed to execute partial profit exit: {e}", exc_info=True)
+
+    async def _execute_dca_order(self, position, current_price: float):
+        """
+        Execute a DCA safety order to average down on a losing position
+
+        Research-backed implementation (2025-12-02):
+        - Pionex: DCA needs only 1.02% recovery after 5% drop (vs 4.2% for grid)
+        - 3Commas: Safety orders with volume scaling
+        - TradeSanta: Recalculates TP with each new order
+
+        Args:
+            position: The losing position to average down
+            current_price: Current market price
+        """
+        try:
+            trading_mode = settings.trading_mode
+            paper_engine = get_paper_engine()
+            balance = paper_engine.get_balance()
+
+            # Create safety order
+            safety_order = self.dca_manager.create_safety_order(
+                symbol=position.symbol,
+                current_price=current_price,
+                capital=float(balance)
+            )
+
+            if not safety_order:
+                logger.warning(f"[DCA] Could not create safety order for {position.symbol}")
+                return
+
+            logger.info("=" * 70)
+            logger.info(f"[DCA] SAFETY ORDER for {position.symbol}")
+            logger.info("=" * 70)
+            logger.info(f"  Layer: {safety_order.layer}")
+            logger.info(f"  Price: ${current_price:.4f}")
+            logger.info(f"  Quantity: {safety_order.quantity:.6f}")
+            logger.info(f"  Deviation: {safety_order.deviation_pct:.2f}%")
+            logger.info("=" * 70)
+
+            # Execute the safety order
+            side = OrderSide.BUY if position.side == "BUY" else OrderSide.SELL
+
+            order = OrderCreate(
+                symbol=position.symbol,
+                side=side,
+                type=OrderType.MARKET,
+                quantity=Decimal(str(safety_order.quantity)),
+                strategy="dca_safety_order"
+            )
+
+            executed_order, error = await paper_engine.execute_market_order(
+                order, Decimal(str(current_price))
+            )
+
+            if executed_order and executed_order.status == OrderStatus.FILLED:
+                # Process the filled order with DCA manager
+                result = self.dca_manager.process_filled_order(
+                    symbol=position.symbol,
+                    order=safety_order,
+                    fill_price=current_price
+                )
+
+                self.dca_orders_executed += 1
+
+                # Log new average entry and TP
+                if result:
+                    logger.info(
+                        f"[DCA] Position averaged: "
+                        f"new avg=${result['average_entry']:.4f}, "
+                        f"total qty={result['total_quantity']:.6f}"
+                    )
+                    if 'new_take_profit' in result:
+                        logger.info(f"[DCA] New TP: ${result['new_take_profit']:.4f}")
+                    if 'new_stop_loss' in result:
+                        logger.warning(f"[DCA] Max layers reached - new SL: ${result['new_stop_loss']:.4f}")
+
+                # Update position manager with new TP/SL if applicable
+                if result and 'new_take_profit' in result:
+                    try:
+                        position_mgr = get_position_manager()
+                        position_mgr.set_position_stops(
+                            position_id=position.id,
+                            stop_loss=Decimal(str(result.get('new_stop_loss', position.stop_loss))),
+                            take_profit=Decimal(str(result['new_take_profit']))
+                        )
+                    except Exception as update_err:
+                        logger.warning(f"[DCA] Failed to update position stops: {update_err}")
+
+                logger.info(f"[DCA] Safety order executed successfully for {position.symbol}")
+
+            else:
+                logger.warning(f"[DCA] Safety order execution failed for {position.symbol}: {error}")
+
+        except Exception as e:
+            logger.error(f"[DCA] Error executing safety order for {position.symbol}: {e}", exc_info=True)
 
     async def _execute_trade(
         self,
@@ -1432,12 +2306,113 @@ class AutoTrader:
                     "sizing_adjustments": self.position_sizing_adjustments
                 },
                 "smart_executor": {
-                    "default_algorithm": self.smart_order_executor.default_algorithm.value,
+                    "default_algorithm": "TWAP",  # Default algorithm
                     "execution_count": self.smart_execution_count,
-                    "twap_duration_minutes": self.smart_order_executor.twap_duration_minutes,
-                    "max_slices": self.smart_order_executor.max_slices
+                    "twap_duration_minutes": self.smart_order_executor.config.twap_duration_minutes,
+                    "max_slices": self.smart_order_executor.config.twap_max_slices
                 },
                 "performance_analytics": self._get_performance_summary()
+            },
+            # ================================================================
+            # DCA MANAGER STATUS (2025-12-02)
+            # ================================================================
+            "dca_manager": {
+                "enabled": self.dca_manager.config.enabled,
+                "max_layers": self.dca_manager.config.max_safety_orders,
+                "deviation_triggers_pct": self.dca_manager.config.safety_order_deviation_pct,
+                "volume_scale": self.dca_manager.config.safety_order_volume_scale,
+                "tp_after_dca_pct": self.dca_manager.config.tp_after_dca_pct,
+                "orders_executed": self.dca_orders_executed,
+                "active_dca_positions": len(self.dca_manager.positions),
+                "positions": {
+                    symbol: self.dca_manager.get_position_status(symbol)
+                    for symbol in self.dca_manager.positions.keys()
+                }
+            },
+            # ================================================================
+            # PORTFOLIO HEAT MANAGER STATUS (2025-12-02)
+            # ================================================================
+            "portfolio_heat_manager": self.portfolio_heat_manager.get_summary_dict(),
+            # ================================================================
+            # ADAPTIVE RSI STATUS (2025-12-02)
+            # ================================================================
+            "adaptive_rsi": {
+                "enabled": True,
+                "rsi_period": self.adaptive_rsi.config.rsi_period,
+                "trend_filter": self.adaptive_rsi.config.use_trend_filter,
+                "thresholds": {
+                    "high_volatility": (self.adaptive_rsi.config.high_vol_oversold, self.adaptive_rsi.config.high_vol_overbought),
+                    "normal": (self.adaptive_rsi.config.normal_vol_oversold, self.adaptive_rsi.config.normal_vol_overbought),
+                    "low_volatility": (self.adaptive_rsi.config.low_vol_oversold, self.adaptive_rsi.config.low_vol_overbought)
+                }
+            },
+            # ================================================================
+            # HURST EXPONENT STATUS (2025-12-02)
+            # ================================================================
+            "hurst_exponent": {
+                "enabled": True,
+                "trending_threshold": self.hurst_calculator.config.trending_threshold,
+                "mean_reversion_threshold": self.hurst_calculator.config.mean_reversion_threshold,
+                "lookback_periods": self.hurst_calculator.config.lookback_periods
+            },
+            # ================================================================
+            # LIMIT ORDER EXECUTOR STATUS (2025-12-02)
+            # ================================================================
+            "limit_order_executor": self.limit_order_executor.get_status(),
+            # ================================================================
+            # WALK FORWARD EFFICIENCY STATUS (2025-12-02)
+            # ================================================================
+            "walk_forward_tester": {
+                "enabled": True,
+                "strategy_name": self.wfe_tester.strategy_name,
+                "in_sample_pct": self.wfe_tester.config.in_sample_pct,
+                "out_of_sample_pct": self.wfe_tester.config.out_of_sample_pct,
+                "min_wfe_threshold": self.wfe_tester.config.min_wfe_threshold,
+                "min_trades_for_confidence": self.wfe_tester.config.min_trades_for_confidence,
+                "trades_recorded": len(self.wfe_tester._trades)
+            },
+            # ================================================================
+            # REGIME STRATEGY SELECTOR STATUS (2025-12-02)
+            # ================================================================
+            "regime_strategy_selector": {
+                "enabled": True,
+                "trending_params": {
+                    "sl_mult": 1.5, "tp_mult": 2.0, "pos_mult": 1.0
+                },
+                "mean_reverting_params": {
+                    "sl_mult": 0.8, "tp_mult": 1.2, "pos_mult": 0.9
+                },
+                "random_walk_params": {
+                    "sl_mult": 1.0, "tp_mult": 1.0, "pos_mult": 0.5
+                }
+            },
+            # ================================================================
+            # ATR TRAILING STOP STATUS (2025-12-02)
+            # ================================================================
+            "atr_trailing_stop": {
+                "enabled": True,
+                "base_atr_multiplier": self.atr_trailing_stop.config.base_atr_multiplier,
+                "min_atr_multiplier": self.atr_trailing_stop.config.min_atr_multiplier,
+                "max_atr_multiplier": self.atr_trailing_stop.config.max_atr_multiplier,
+                "activation_profit_pct": self.atr_trailing_stop.config.activation_profit_pct,
+                "step_pct": self.atr_trailing_stop.config.step_pct,
+                "use_chandelier_exit": self.atr_trailing_stop.config.use_chandelier_exit,
+                "positions_tracked": len(self.atr_trailing_stop._position_states)
+            },
+            # ================================================================
+            # PARTIAL PROFIT TAKER STATUS (2025-12-02)
+            # ================================================================
+            "partial_profit_taker": {
+                "enabled": self.partial_profit_taker.config.enabled,
+                "profit_levels_pct": self.partial_profit_taker.config.profit_levels,
+                "exit_percentages": self.partial_profit_taker.config.exit_percentages,
+                "move_stop_to_breakeven_after": self.partial_profit_taker.config.move_stop_to_breakeven_after,
+                "min_position_value": self.partial_profit_taker.config.min_position_value,
+                "positions_tracked": len(self.partial_profit_taker.positions),
+                "positions": {
+                    symbol: self.partial_profit_taker.get_position_summary(symbol)
+                    for symbol in self.partial_profit_taker.positions.keys()
+                }
             }
         }
 

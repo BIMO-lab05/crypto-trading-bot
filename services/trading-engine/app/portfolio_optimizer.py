@@ -77,21 +77,21 @@ class PortfolioOptimizer:
         Returns:
             Dictionary of symbol allocations
         """
-        # Define default portfolio: Major crypto assets
+        # Define default portfolio: Only symbols with available market data
+        # Updated 2025-11-30: Limited to symbols with data in TimescaleDB
         default_symbols = [
             # Large Cap (40% allocation)
             ("BTCUSDT", 0.20, 1, "large_cap"),  # Bitcoin
             ("ETHUSDT", 0.20, 1, "large_cap"),  # Ethereum
 
-            # Mid Cap (30% allocation)
-            ("BNBUSDT", 0.10, 2, "mid_cap"),    # Binance Coin
-            ("SOLUSDT", 0.10, 2, "mid_cap"),    # Solana
-            ("ADAUSDT", 0.10, 2, "mid_cap"),    # Cardano
+            # Mid Cap (35% allocation)
+            ("BNBUSDT", 0.12, 2, "mid_cap"),    # Binance Coin
+            ("SOLUSDT", 0.12, 2, "mid_cap"),    # Solana
+            ("XRPUSDT", 0.11, 2, "mid_cap"),    # XRP
 
-            # Small Cap / High Growth (30% allocation)
-            ("AVAXUSDT", 0.10, 3, "small_cap"), # Avalanche
-            ("DOTUSDT", 0.10, 3, "small_cap"),  # Polkadot
-            ("LINKUSDT", 0.10, 3, "small_cap"), # Chainlink
+            # Small Cap (25% allocation)
+            ("ADAUSDT", 0.13, 3, "small_cap"),  # Cardano
+            ("DOGEUSDT", 0.12, 3, "small_cap"), # Dogecoin
         ]
 
         # Get initial balance for calculations

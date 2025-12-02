@@ -60,16 +60,24 @@ class AdvancedSizingConfig:
     kelly_fraction: float = 0.25       # Use 25% of Kelly (conservative)
     min_kelly: float = 0.01            # Minimum 1% position
     max_kelly: float = 0.20            # Maximum 20% position
+    min_win_rate: float = 0.35         # Min win rate for Kelly sizing
+    min_profit_factor: float = 1.2     # Min profit factor for Kelly
 
     # ATR parameters
     atr_multiplier: float = 2.0        # ATR multiple for stop distance
     atr_risk_pct: float = 0.02         # Risk 2% per trade
+    atr_risk_multiplier: float = 2.0   # ATR risk multiplier alias
 
     # Anti-Martingale parameters
     base_size_pct: float = 0.02        # Start with 2%
     size_multiplier: float = 1.5       # Increase by 50% after wins
+    anti_martingale_factor: float = 1.5  # Anti-martingale multiplier alias
     max_pyramid_levels: int = 4        # Max 4 pyramid additions
+    max_consecutive_increases: int = 3  # Max consecutive size increases
     reset_on_loss: bool = True         # Reset size after loss
+
+    # Drawdown adjustment
+    use_drawdown_adjustment: bool = True  # Reduce sizing during drawdown
 
     # Fixed fractional
     fixed_risk_pct: float = 0.02       # Fixed 2% risk per trade

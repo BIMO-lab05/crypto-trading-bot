@@ -38,6 +38,16 @@ from .phase1 import (
 # Trade history endpoints
 from .trades import get_trade_history
 
+# Backtesting endpoints
+from .backtest import (
+    list_strategies,
+    run_backtest,
+    get_backtest_quick_run,
+    compare_strategies,
+    get_equity_curve,
+    BacktestRequest
+)
+
 __all__ = [
     # Health
     "health_check",
@@ -61,4 +71,11 @@ __all__ = [
     "get_latest_phase1_signal",
     # Trade History
     "get_trade_history",
+    # Backtesting
+    "list_strategies",
+    "run_backtest",
+    "get_backtest_quick_run",
+    "compare_strategies",
+    "get_equity_curve",
+    "BacktestRequest",
 ]

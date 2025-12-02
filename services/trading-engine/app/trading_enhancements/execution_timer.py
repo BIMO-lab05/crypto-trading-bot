@@ -43,7 +43,7 @@ class TimingConfig:
     - Price updates: 5-15 seconds for active positions
     - Trailing stop updates: 10-20 seconds
     """
-    position_check_interval: float = 15.0     # Seconds between position checks
+    position_check_interval: float = 5.0      # Reduced from 15s to catch SL/TP faster
     price_update_interval: float = 10.0       # Seconds between price updates
     trailing_stop_interval: float = 15.0      # Seconds for trailing stop updates
     signal_check_interval: float = 30.0       # Seconds between signal checks
