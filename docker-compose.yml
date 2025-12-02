@@ -173,7 +173,7 @@ services:
       - REDIS_HOST=crypto-bot-redis
       - RABBITMQ_HOST=crypto-bot-rabbitmq
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
-      - USE_DATABASE=true
+      - USE_DATABASE=false
       - DATABASE_URL=postgresql://cryptobot:cryptobot_dev_password@crypto-bot-postgres:5432/cryptobot
       - DB_HOST=crypto-bot-postgres
       - DB_PORT=5432

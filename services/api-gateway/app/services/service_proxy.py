@@ -3,6 +3,7 @@ Service Proxy
 Handles proxying requests to backend services
 """
 
+import asyncio
 import httpx
 import logging
 from typing import Optional, Dict, Any
@@ -159,10 +160,22 @@ class ServiceProxy:
             return False
 
     async def aggregate_health_checks(self) -> Dict[str, bool]:
-        """Check health of all backend services"""
-        health_checks = {}
+        """Check health of all backend services in PARALLEL for low latency"""
+        service_names = list(self.services.keys())
 
-        for service_name in self.services.keys():
-            health_checks[service_name] = await self.check_service_health(service_name)
+        # Run all health checks concurrently using asyncio.gather
+        results = await asyncio.gather(
+            *[self.check_service_health(name) for name in service_names],
+            return_exceptions=True
+        )
+
+        # Build result dictionary
+        health_checks = {}
+        for name, result in zip(service_names, results):
+            # Handle exceptions as unhealthy
+            if isinstance(result, Exception):
+                health_checks[name] = False
+            else:
+                health_checks[name] = result
 
         return health_checks

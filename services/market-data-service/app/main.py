@@ -212,11 +212,11 @@ async def collect_kline_endpoint(
     request: Request,
     symbol: str,
     interval: str = "60",
-    days: int = Query(default=7, ge=1, le=30),
-    fetcher=Depends(lambda r: r.app.state.fetcher),
-    api_key: str = Depends(lambda r: None)  # Will use verify_api_key in handler
+    days: int = Query(default=7, ge=1, le=30)
 ):
     """Fetch and store historical kline data"""
+    fetcher = request.app.state.fetcher
+    api_key = request.headers.get("X-API-Key")
     return await collect_kline_data(symbol, interval, days, fetcher, api_key)
 
 
@@ -224,11 +224,11 @@ async def collect_kline_endpoint(
 @limiter.limit("30/minute")
 async def collect_ticker_endpoint(
     request: Request,
-    symbol: str,
-    fetcher=Depends(lambda r: r.app.state.fetcher),
-    api_key: str = Depends(lambda r: None)
+    symbol: str
 ):
     """Fetch and store current ticker data"""
+    fetcher = request.app.state.fetcher
+    api_key = request.headers.get("X-API-Key")
     return await collect_ticker_data(symbol, fetcher, api_key)
 
 
@@ -238,11 +238,11 @@ async def collect_bulk_endpoint(
     request: Request,
     symbols: Optional[List[str]] = None,
     interval: str = "60",
-    days: int = Query(default=7, ge=1, le=30),
-    fetcher=Depends(lambda r: r.app.state.fetcher),
-    api_key: str = Depends(lambda r: None)
+    days: int = Query(default=7, ge=1, le=30)
 ):
     """Collect data for multiple symbols (max 10)"""
+    fetcher = request.app.state.fetcher
+    api_key = request.headers.get("X-API-Key")
     return await collect_bulk_data(symbols, interval, days, fetcher, api_key)
 
 
@@ -251,7 +251,7 @@ async def collect_bulk_endpoint(
 # ============================================================================
 
 @app.get("/api/v1/klines/{symbol}", tags=["Market Data"])
-@limiter.limit("60/minute")
+@limiter.limit("300/minute")
 async def klines_endpoint(
     request: Request,
     symbol: str,
@@ -265,7 +265,7 @@ async def klines_endpoint(
 
 
 @app.get("/api/v1/ticker/{symbol}", tags=["Market Data"])
-@limiter.limit("60/minute")
+@limiter.limit("300/minute")
 async def ticker_endpoint(
     request: Request,
     symbol: str
@@ -276,7 +276,7 @@ async def ticker_endpoint(
 
 
 @app.get("/api/v1/latest/{symbol}", tags=["Market Data"])
-@limiter.limit("60/minute")
+@limiter.limit("300/minute")
 async def latest_endpoint(
     request: Request,
     symbol: str,
@@ -299,31 +299,25 @@ async def scheduler_status_endpoint(request: Request):
 
 @app.post("/api/v1/scheduler/start", tags=["Scheduler"])
 @limiter.limit("10/minute")
-async def start_scheduler_endpoint(
-    request: Request,
-    api_key: str = Depends(lambda r: None)
-):
+async def start_scheduler_endpoint(request: Request):
     """Manually start the scheduler"""
+    api_key = request.headers.get("X-API-Key")
     return await start_scheduler_handler(api_key)
 
 
 @app.post("/api/v1/scheduler/stop", tags=["Scheduler"])
 @limiter.limit("10/minute")
-async def stop_scheduler_endpoint(
-    request: Request,
-    api_key: str = Depends(lambda r: None)
-):
+async def stop_scheduler_endpoint(request: Request):
     """Manually stop the scheduler"""
+    api_key = request.headers.get("X-API-Key")
     return await stop_scheduler_handler(api_key)
 
 
 @app.post("/api/v1/scheduler/collect", tags=["Scheduler"])
 @limiter.limit("5/minute")
-async def trigger_collection_endpoint(
-    request: Request,
-    api_key: str = Depends(lambda r: None)
-):
+async def trigger_collection_endpoint(request: Request):
     """Manually trigger a full data collection cycle"""
+    api_key = request.headers.get("X-API-Key")
     return await trigger_manual_collection_handler(api_key)
 
 

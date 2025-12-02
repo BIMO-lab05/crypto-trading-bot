@@ -46,6 +46,9 @@ async def health_check() -> HealthResponse:
             # Import database manager only if database is enabled
             from shared.database.connection import db_manager
             database_healthy = db_manager.health_check()
+        except ImportError:
+            # shared.database module not available - this is expected when not using database
+            database_healthy = False
         except Exception as e:
             logger.warning(f"Database check error: {e}")
             database_healthy = False
