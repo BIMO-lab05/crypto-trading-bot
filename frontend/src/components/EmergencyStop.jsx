@@ -21,11 +21,11 @@ export default function EmergencyStop() {
 
   if (showConfirm) {
     return (
-      <div className="bg-red-50 border-2 border-red-600 rounded-lg p-6">
+      <div className="bg-rose-500/10 border-2 border-rose-500/50 backdrop-blur-sm rounded-lg p-6">
         <div className="text-center">
           <div className="mb-4">
             <svg
-              className="mx-auto h-12 w-12 text-red-600"
+              className="mx-auto h-12 w-12 text-rose-400"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -39,18 +39,18 @@ export default function EmergencyStop() {
             </svg>
           </div>
 
-          <h3 className="text-xl font-bold text-red-800 mb-2">
+          <h3 className="text-xl font-bold text-rose-300 mb-2">
             Confirm Emergency Stop
           </h3>
 
-          <p className="text-red-700 mb-6">
+          <p className="text-rose-200 mb-6">
             This will immediately halt all trading operations. Open positions will remain, but no new trades will be executed. Are you sure you want to continue?
           </p>
 
           <div className="flex gap-3 justify-center">
             <button
               onClick={() => setShowConfirm(false)}
-              className="px-6 py-2 bg-gray-300 text-gray-800 rounded-lg font-semibold hover:bg-gray-400 transition-colors"
+              className="px-6 py-2 bg-slate-700 text-slate-100 rounded-lg font-semibold hover:bg-slate-600 transition-colors"
               disabled={emergencyStop.isPending}
             >
               Cancel
@@ -59,7 +59,7 @@ export default function EmergencyStop() {
             <button
               onClick={handleEmergencyStop}
               disabled={emergencyStop.isPending}
-              className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-2 bg-rose-600 text-white rounded-lg font-semibold hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {emergencyStop.isPending ? 'Stopping...' : 'Confirm Stop'}
             </button>
@@ -70,11 +70,11 @@ export default function EmergencyStop() {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-red-200">
+    <div className="bg-slate-800/50 rounded-lg border-2 border-rose-500/30 backdrop-blur-sm p-6">
       <div className="flex items-start space-x-4">
         <div className="flex-shrink-0">
           <svg
-            className="h-8 w-8 text-red-600"
+            className="h-8 w-8 text-rose-400"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -89,17 +89,17 @@ export default function EmergencyStop() {
         </div>
 
         <div className="flex-grow">
-          <h3 className="text-lg font-bold text-gray-800 mb-2">
+          <h3 className="text-lg font-bold text-slate-100 mb-2">
             Emergency Stop
           </h3>
 
-          <p className="text-gray-600 mb-4 text-sm">
+          <p className="text-slate-300 mb-4 text-sm">
             Use this button to immediately halt all trading operations. This is a safety feature for unexpected market conditions or system issues.
           </p>
 
           <button
             onClick={() => setShowConfirm(true)}
-            className="w-full md:w-auto px-6 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 active:bg-red-800 transition-colors shadow-md hover:shadow-lg transform hover:scale-105"
+            className="w-full md:w-auto px-6 py-3 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 active:bg-rose-800 transition-colors shadow-md hover:shadow-lg transform hover:scale-105"
           >
             <div className="flex items-center justify-center space-x-2">
               <svg
@@ -127,8 +127,8 @@ export default function EmergencyStop() {
         </div>
       </div>
 
-      <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-        <p className="text-xs text-yellow-800">
+      <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 backdrop-blur-sm rounded-md">
+        <p className="text-xs text-amber-300">
           <strong>Note:</strong> This will stop the trading bot from executing new trades. Existing open positions will not be automatically closed.
         </p>
       </div>

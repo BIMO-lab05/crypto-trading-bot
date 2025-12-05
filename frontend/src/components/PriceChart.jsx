@@ -122,14 +122,14 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
   // Loading state - show skeleton loader
   if (isLoading) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6">
+      <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm p-6">
         <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="w-full h-80 bg-gray-200 rounded mb-4"></div>
+          <div className="h-6 bg-slate-700 rounded w-1/3 mb-4"></div>
+          <div className="w-full h-80 bg-slate-700 rounded mb-4"></div>
           <div className="flex justify-between">
-            <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-            <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-            <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+            <div className="h-4 bg-slate-700 rounded w-1/4"></div>
+            <div className="h-4 bg-slate-700 rounded w-1/4"></div>
+            <div className="h-4 bg-slate-700 rounded w-1/4"></div>
           </div>
         </div>
       </div>
@@ -139,14 +139,14 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
   // Error state - show error message
   if (error) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6 border-l-4 border-red-500">
-        <h3 className="text-lg font-semibold text-red-600 mb-2">
+      <div className="bg-slate-800/50 rounded-lg border border-rose-500/50 backdrop-blur-sm p-6">
+        <h3 className="text-lg font-semibold text-rose-400 mb-2">
           Error Loading Price Chart
         </h3>
-        <p className="text-sm text-gray-600 mb-3">
+        <p className="text-sm text-slate-300 mb-3">
           {error?.message || 'Failed to fetch price data'}
         </p>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-slate-400">
           Make sure the backend API is running and accessible at /api/market/kline/{symbol}
         </p>
       </div>
@@ -156,14 +156,14 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
   // Empty data state
   if (chartData.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-700 mb-4">
+      <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm p-6">
+        <h3 className="text-lg font-semibold text-slate-200 mb-4">
           {symbol} Price Chart
         </h3>
-        <div className="flex items-center justify-center h-80 bg-gray-50 rounded border-2 border-dashed border-gray-300">
+        <div className="flex items-center justify-center h-80 bg-slate-700/30 rounded border-2 border-dashed border-slate-600">
           <div className="text-center">
-            <p className="text-gray-500 mb-2">No price data available</p>
-            <p className="text-sm text-gray-400">
+            <p className="text-slate-300 mb-2">No price data available</p>
+            <p className="text-sm text-slate-400">
               Data will appear once the API starts collecting klines
             </p>
           </div>
@@ -179,22 +179,22 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
   const priceChangePercent = previousPrice !== 0 ? (priceChange / previousPrice) * 100 : 0
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6">
+    <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm p-6">
       {/* Header with title and current price */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-2xl font-bold text-gray-800">
+          <h3 className="text-2xl font-bold text-slate-100">
             {symbol} Price Chart
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-slate-400">
             Last 24 hours ({interval}-minute candles)
           </p>
         </div>
         <div className="text-right">
-          <p className="text-3xl font-bold text-gray-800">
+          <p className="text-3xl font-bold text-slate-100">
             ${currentPrice.toFixed(2)}
           </p>
-          <p className={`text-sm font-semibold ${priceChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <p className={`text-sm font-semibold ${priceChange >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
             {priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}
             <span className="ml-2">
               ({priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%)
@@ -312,31 +312,31 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
       </ResponsiveContainer>
 
       {/* Data summary statistics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-200">
-        <div className="bg-gray-50 rounded p-3">
-          <p className="text-xs text-gray-600 font-medium mb-1">24H High</p>
-          <p className="text-lg font-bold text-gray-800">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-700/50">
+        <div className="bg-slate-700/30 rounded p-3">
+          <p className="text-xs text-slate-400 font-medium mb-1">24H High</p>
+          <p className="text-lg font-bold text-slate-100">
             ${stats.maxPrice.toFixed(2)}
           </p>
         </div>
 
-        <div className="bg-gray-50 rounded p-3">
-          <p className="text-xs text-gray-600 font-medium mb-1">24H Low</p>
-          <p className="text-lg font-bold text-gray-800">
+        <div className="bg-slate-700/30 rounded p-3">
+          <p className="text-xs text-slate-400 font-medium mb-1">24H Low</p>
+          <p className="text-lg font-bold text-slate-100">
             ${stats.minPrice.toFixed(2)}
           </p>
         </div>
 
-        <div className="bg-gray-50 rounded p-3">
-          <p className="text-xs text-gray-600 font-medium mb-1">Avg Volume</p>
-          <p className="text-lg font-bold text-gray-800">
+        <div className="bg-slate-700/30 rounded p-3">
+          <p className="text-xs text-slate-400 font-medium mb-1">Avg Volume</p>
+          <p className="text-lg font-bold text-slate-100">
             {(stats.avgVolume / 1000000).toFixed(2)}M
           </p>
         </div>
 
-        <div className="bg-gray-50 rounded p-3">
-          <p className="text-xs text-gray-600 font-medium mb-1">Data Points</p>
-          <p className="text-lg font-bold text-gray-800">
+        <div className="bg-slate-700/30 rounded p-3">
+          <p className="text-xs text-slate-400 font-medium mb-1">Data Points</p>
+          <p className="text-lg font-bold text-slate-100">
             {chartData.length}
           </p>
         </div>

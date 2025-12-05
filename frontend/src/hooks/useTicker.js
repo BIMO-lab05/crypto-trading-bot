@@ -13,9 +13,9 @@ export function useTicker(symbol) {
     queryKey: ['ticker', symbol],
     queryFn: async () => {
       const response = await marketAPI.getTicker(symbol)
-      // API returns { success: true, data: { last_price, ... } }
-      // Transform to { ticker: { last_price, ... } } for component compatibility
-      return { ticker: response?.data || response }
+      // FIXED 2025-12-04: API already returns { ticker: {...} } format
+      // Don't double-wrap, just return the response as-is
+      return response
     },
     refetchInterval: 15000, // Refetch every 15 seconds (was 5s, increased to reduce load)
     staleTime: 12000, // Consider data fresh for 12 seconds
@@ -48,11 +48,12 @@ export function useMultipleTickers(symbols = []) {
         }
       }
       // Convert array to object with symbol as key
-      // API returns { success: true, data: { last_price, ... } }
-      // Transform to { [symbol]: { ticker: { last_price, ... } } }
+      // FIXED 2025-12-04: API already returns { ticker: {...} } format
+      // Don't double-wrap, just use the response as-is
       return results.reduce((acc, response, index) => {
         if (response) {
-          acc[symbols[index]] = { ticker: response?.data || response }
+          // Response is already { ticker: {...} }, use it directly
+          acc[symbols[index]] = response
         }
         return acc
       }, {})

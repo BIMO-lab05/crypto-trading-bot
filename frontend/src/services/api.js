@@ -71,6 +71,9 @@ export const marketAPI = {
     api.get(`/market/klines/${symbol}`, { params: { interval, ...params } }),
 
   // Get orderbook
+  // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
+  // NOTE 2025-12-04: market-data-service does not have orderbook endpoint
+  // TODO: Implement /api/v1/orderbook/{symbol} in market-data-service if needed
   getOrderbook: (symbol) => api.get(`/market/orderbook/${symbol}`),
 }
 
@@ -116,6 +119,10 @@ export const mlAPI = {
     api.get(`/ml/predict/volatility/${symbol}`, { params: { interval } }),
 
   // Get ML-based trading signal
+  // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
+  // NOTE 2025-12-04: ml-prediction-service does not have signal endpoint
+  // Available endpoints: /predict/price, /predict/trend, /predict/volatility
+  // TODO: Implement /api/v1/predict/signal/{symbol} in ml-prediction-service if needed
   getMLSignal: (symbol, interval = 60) =>
     api.get(`/ml/predict/signal/${symbol}`, { params: { interval } }),
 
@@ -161,7 +168,8 @@ export const sentimentAPI = {
 // Phase 3: Multi-Timeframe Analysis endpoints
 export const multiTimeframeAPI = {
   // Get multi-timeframe analysis
-  getAnalysis: (symbol, timeframes = '5m,15m,60m,240m') =>
+  // FIXED 2025-12-04: Backend expects numeric intervals (5,15,60,240), not strings (5m,15m,60m,240m)
+  getAnalysis: (symbol, timeframes = '5,15,60,240') =>
     api.get(`/analysis/multi-timeframe/${symbol}`, { params: { timeframes } }),
 
   // Get timeframe-specific signal
@@ -170,12 +178,19 @@ export const multiTimeframeAPI = {
 }
 
 // Phase 3: Enhanced Trading Signals endpoints
+// NOTE 2025-12-04: These endpoints are NOT YET IMPLEMENTED in the backend trading-engine.
+// The frontend will display error messages until these are implemented.
+// Current backend endpoints available at /api/v1/signals/{symbol} provide Phase 1 signals only.
 export const enhancedTradingAPI = {
   // Get Phase 3 enhanced signal (includes ML + Sentiment + MTF)
+  // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
+  // TODO: Implement /api/v1/signals/enhanced/{symbol} in trading-engine
   getEnhancedSignal: (symbol, interval = 60) =>
     api.get(`/trading/signals/enhanced/${symbol}`, { params: { interval } }),
 
   // Get Phase 1 vs Phase 3 comparison
+  // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
+  // TODO: Implement /api/v1/signals/compare/{symbol} in trading-engine
   getSignalComparison: (symbol, interval = 60) =>
     api.get(`/trading/signals/compare/${symbol}`, { params: { interval } }),
 }
