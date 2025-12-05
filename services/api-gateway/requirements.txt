@@ -3,7 +3,7 @@
 
 # Web Framework
 fastapi==0.109.0          # Modern async web framework
-uvicorn[standard]==0.27.0 # ASGI server
+uvicorn[standard]==0.38.0 # ASGI server
 pydantic[email]==2.5.3    # Data validation with email support
 pydantic-settings==2.1.0  # Settings management
 email-validator==2.1.0    # Email validation for pydantic
