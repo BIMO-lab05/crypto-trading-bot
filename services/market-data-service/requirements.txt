@@ -51,7 +51,7 @@ freezegun==1.4.0          # Time mocking
 black==24.1.1             # Code formatter
 isort==5.13.2             # Import sorter
 mypy==1.8.0               # Type checker
-flake8==7.0.0             # Linter
+flake8==7.3.0             # Linter
 
 # Circuit Breaker & Retry Logic
 tenacity==8.2.3           # Retry and circuit breaker
