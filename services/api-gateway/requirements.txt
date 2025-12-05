@@ -2,7 +2,7 @@
 # Purpose: Route requests, handle authentication, rate limiting
 
 # Web Framework
-fastapi==0.109.0          # Modern async web framework
+fastapi==0.123.9          # Modern async web framework
 uvicorn[standard]==0.27.0 # ASGI server
 pydantic[email]==2.5.3    # Data validation with email support
 pydantic-settings==2.1.0  # Settings management
