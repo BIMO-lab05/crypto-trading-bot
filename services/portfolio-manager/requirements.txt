@@ -38,7 +38,7 @@ python-json-logger==2.0.7 # Structured logging
 apscheduler==3.10.4       # Background task scheduling for daily snapshots
 
 # Reporting
-matplotlib==3.8.2         # Chart generation for reports
+matplotlib==3.10.7         # Chart generation for reports
 plotly==5.18.0            # Interactive charts
 
 # Utilities
