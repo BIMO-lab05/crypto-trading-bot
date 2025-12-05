@@ -11,7 +11,7 @@ email-validator==2.1.0    # Email validation for pydantic
 # Authentication & Security
 python-jose[cryptography]==3.3.0  # JWT token handling
 passlib[bcrypt]==1.7.4    # Password hashing
-python-multipart==0.0.6   # Form data support
+python-multipart==0.0.20   # Form data support
 bcrypt==4.1.2             # Password hashing backend
 
 # Rate Limiting
