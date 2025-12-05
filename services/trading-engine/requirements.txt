@@ -49,7 +49,7 @@ freezegun==1.4.0          # Time mocking
 respx==0.20.0             # HTTP mocking for integration tests
 
 # Development
-black==24.1.1             # Code formatter
+black==25.11.0             # Code formatter
 isort==5.13.2             # Import sorter
 mypy==1.8.0               # Type checker
 flake8==7.0.0             # Linter
