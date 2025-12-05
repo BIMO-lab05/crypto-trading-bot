@@ -180,7 +180,7 @@ jobs:
 
       - name: Upload image artifact
         if: ${{ !inputs.push_to_registry }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: docker-image-${{ inputs.service_name }}
           path: ${{ inputs.service_name }}-image.tar.gz

@@ -191,7 +191,7 @@ jobs:
           git commit -m "docs: update CHANGELOG for ${{ needs.validate-release.outputs.version }}" || true
 
       - name: Upload changelog artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: changelog
           path: CHANGELOG.md

@@ -213,7 +213,7 @@ jobs:
           fi
 
       - name: Upload k6 results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: k6-results
@@ -331,7 +331,7 @@ jobs:
             --csv performance-tests/locust
 
       - name: Upload Locust results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: locust-results
@@ -431,7 +431,7 @@ jobs:
           pytest test_db_perf.py -v --benchmark-only --benchmark-json=performance-tests/db-benchmark.json || true
 
       - name: Upload database benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: database-benchmark
@@ -478,7 +478,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload latency results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: latency-profiling
           path: performance-tests/

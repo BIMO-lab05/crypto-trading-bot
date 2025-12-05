@@ -89,7 +89,7 @@ jobs:
           fi
 
       - name: Upload dependency scan results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: dependency-scan-results
@@ -183,7 +183,7 @@ jobs:
           category: grype-${{ matrix.service }}
 
       - name: Upload image scan results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: image-scan-${{ matrix.service }}
@@ -252,7 +252,7 @@ jobs:
             services/ shared/ || true
 
       - name: Upload SAST results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: sast-results
@@ -372,7 +372,7 @@ jobs:
           fi
 
       - name: Upload license report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: license-report
           path: security-reports/
