@@ -5,7 +5,7 @@
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
 # ============================================================================
-FROM python:3.12-slim as builder
+FROM python:3.14-slim as builder
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -27,7 +27,7 @@ RUN pip install --user --no-cache-dir -r requirements.txt
 # ============================================================================
 # Stage 2: Runtime - Minimal production image
 # ============================================================================
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 LABEL maintainer="crypto-trading-bot"
 LABEL service="notification-service"
