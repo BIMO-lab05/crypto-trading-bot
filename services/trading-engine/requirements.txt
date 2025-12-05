@@ -9,7 +9,7 @@ pydantic-settings==2.1.0  # Settings management
 
 # Data Processing
 pandas==2.2.0             # Data manipulation
-numpy==1.26.3             # Numerical computing
+numpy==2.3.5             # Numerical computing
 
 # Database
 asyncpg==0.29.0           # Async PostgreSQL driver
