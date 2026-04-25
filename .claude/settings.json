@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "plan",
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./services/**/.env)",
+      "Read(./services/**/.env.*)",
+      "Read(./secrets/**)",
+      "Read(./**/credentials/**)",
+      "Read(./**/.aws/**)",
+      "Read(./**/.ssh/**)",
+      "Bash(curl * api.bybit.com *)",
+      "Bash(curl * .telegram.org *)",
+      "Bash(wget *)",
+      "Bash(*BYBIT_API_KEY*)",
+      "Bash(*BYBIT_API_SECRET*)",
+      "Bash(*TELEGRAM_BOT_TOKEN*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard origin/main*)",
+      "Bash(git reset --hard origin/master*)"
+    ],
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git blame*)",
+      "Bash(git branch)",
+      "Bash(git branch *)",
+      "Bash(git fetch*)",
+      "Bash(git remote -v)",
+      "Bash(git remote show*)",
+      "Bash(git rev-parse*)",
+      "Bash(git ls-tree*)",
+      "Bash(git ls-files*)",
+      "Bash(git stash list)",
+      "Bash(docker ps*)",
+      "Bash(docker logs*)",
+      "Bash(docker images*)",
+      "Bash(docker inspect*)",
+      "Bash(docker compose ps*)",
+      "Bash(docker compose logs*)",
+      "Bash(docker compose config*)",
+      "Bash(docker exec * env)",
+      "Bash(docker exec * cat *)",
+      "Bash(docker exec * ls *)",
+      "Bash(docker exec * ps *)",
+      "Bash(pytest*)",
+      "Bash(python3 -m pytest*)",
+      "Bash(npm test*)",
+      "Bash(npm run lint*)",
+      "Bash(npm run build*)",
+      "Bash(npm run typecheck*)",
+      "Bash(curl -s http://localhost:*)",
+      "Bash(curl -sf http://localhost:*)",
+      "Bash(curl --max-time * http://localhost:*)",
+      "Bash(curl -s --max-time * http://localhost:*)",
+      "Bash(ls *)",
+      "Bash(wc *)",
+      "Bash(file *)",
+      "Bash(stat *)",
+      "Bash(which *)",
+      "Bash(grep -*)",
+      "Bash(rg *)",
+      "Bash(find . *)",
+      "Bash(head *)",
+      "Bash(tail *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/scripts/block-dangerous-bash.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/scripts/block-secret-writes.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
