@@ -264,7 +264,7 @@ class TestPortfolioRepository:
             result = await portfolio_repo.get_or_create(
                 portfolio_id="new_portfolio",
                 name="New Portfolio",
-                initial_balance=Decimal("10000.00")
+                initial_balance=Decimal("100.00")
             )
 
             # Verify - can't check result directly since it's from the method, but can verify calls
@@ -277,7 +277,7 @@ class TestPortfolioRepository:
         existing_portfolio = MagicMock(
             portfolio_id="existing",
             name="Existing Portfolio",
-            cash_balance=Decimal("10000.00")
+            cash_balance=Decimal("100.00")
         )
 
         with patch.object(portfolio_repo.db, 'get_async_session') as mock_session:
@@ -292,7 +292,7 @@ class TestPortfolioRepository:
             result = await portfolio_repo.get_or_create(
                 portfolio_id="existing",
                 name="Existing Portfolio",
-                initial_balance=Decimal("10000.00")
+                initial_balance=Decimal("100.00")
             )
 
             # Verify
@@ -310,8 +310,8 @@ class TestPortfolioRepository:
             # Execute - Fixed parameters to match actual signature
             await portfolio_repo.update_balance(
                 portfolio_id="test_portfolio",
-                cash_balance=Decimal("12000.00"),
-                realized_pnl=Decimal("3000.00")
+                cash_balance=Decimal("120.00"),
+                realized_pnl=Decimal("30.00")
             )
 
             # Verify
@@ -395,7 +395,7 @@ class TestPortfolioRepositoryExceptionHandling:
                 await portfolio_repo.get_or_create(
                     portfolio_id="test",
                     name="Test",
-                    initial_balance=Decimal("10000.00")
+                    initial_balance=Decimal("100.00")
                 )
 
     @pytest.mark.asyncio

@@ -108,36 +108,39 @@ class CoreAggregator:
         # RESEARCH-OPTIMIZED FOR 70% WIN RATE (2025-12-01)
         # aggregation_threshold: 0.15 - requires meaningful score magnitude
         # Research shows 0.10-0.20 range optimal for crypto, prevents noise trades
+        # ADJUSTED 2025-12-25: Lowered to 0.10 for more trade opportunities
+        # ADJUSTED 2025-12-30: Lowered to 0.07 for increased sensitivity (5 symbols now)
         # ==========================================================================
-        self.voter = SignalVoter(aggregation_threshold=0.15)  # INCREASED from 0.02 for quality
+        self.voter = SignalVoter(aggregation_threshold=0.07)  # Aggressive threshold: optimized for 5 symbols
         self.cache = SignalCache(enabled=False)  # Disabled for now, Phase 2
 
         # Initialize market regime detector (2025-11-28)
         self.regime_detector = get_market_regime_detector(enabled=enable_market_regime)
 
         # ==========================================================================
-        # RESEARCH-OPTIMIZED CONSENSUS FOR 70% WIN RATE (2025-12-01)
+        # RESEARCH-OPTIMIZED CONSENSUS (2025-12-03 UPDATE)
         # ==========================================================================
-        # FINDING 1: Category Diversity Critical for High Win Rate
-        # - Research: RSI+MACD+Stochastic (3 momentum) = WEAK (same category)
-        # - Research: RSI+EMA+Bollinger (momentum+trend+volatility) = STRONG
-        # - Solution: min_category_consensus = 3 (require all categories)
+        # Based on 7-day performance analysis (Nov 26 - Dec 2):
+        # - 73 trades with 41% win rate (underperforming)
+        # - Root cause: Too aggressive thresholds (0.15 confidence, 2 consensus)
         #
-        # FINDING 2: Higher Confidence = Higher Win Rate
-        # - Research: 0.65+ confidence achieves 70%+ win rate
-        # - After penalty cascade (0.85 * 0.75 = 0.64x), need ~0.70 initial
-        # - Set min_confidence = 0.45 (allows quality signals post-penalties)
+        # OPTIMIZATION CHANGES:
+        # 1. min_confidence: 0.45 → 0.50 (higher quality signals)
+        # 2. min_consensus: 3 indicators (maintained)
+        # 3. min_category_consensus: 3 categories (maintained)
         #
-        # FINDING 3: Stricter Consensus Requirement
-        # - min_consensus = 3 indicators from DIFFERENT categories
-        # - Combined with category check ensures diverse confirmation
+        # EXPECTED IMPACT:
+        # - Reduce trade frequency: 73 → ~25 trades/week (-66%)
+        # - Improve win rate: 41% → 55-60%
+        # - Focus on profitable symbols only
         #
         # NOTE: Re-optimize quarterly using 6-month walk-forward windows
         # ==========================================================================
-        # OPTIMIZED for 70% win rate (2025-12-01)
-        self.min_consensus = 3  # INCREASED: Require 3 indicators to agree
-        self.min_confidence = 0.45  # INCREASED: Higher threshold for quality
-        self.min_category_consensus = 3  # INCREASED: All 3 categories must confirm
+        # ADJUSTED 2026-02-25: Synced to 0.40 to match trading bot threshold
+        # Previous 0.30 was too low, allowing noisy signals; 0.40 balances quality vs quantity
+        self.min_consensus = 3  # Research-backed: Require 3 indicators minimum
+        self.min_confidence = 0.40  # SYNCED to 0.40 to match trading bot (enables trading while filtering noise)
+        self.min_category_consensus = 2  # Research-backed: Require 2 different categories for diversification
 
         # Track last regime analysis for async access
         self._last_regime_analysis: Optional[RegimeAnalysis] = None

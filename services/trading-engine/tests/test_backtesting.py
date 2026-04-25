@@ -94,7 +94,7 @@ def trending_up_bars() -> List[OHLCV]:
 def basic_config() -> BacktestConfig:
     """Basic backtest configuration"""
     return BacktestConfig(
-        initial_equity=10000.0,
+        initial_equity=100.0,
         commission_pct=0.1,
         slippage_pct=0.05,
         position_size_pct=10.0,
@@ -369,7 +369,7 @@ class TestBacktestConfig:
         """Test default configuration values"""
         config = BacktestConfig()
 
-        assert config.initial_equity == 10000.0
+        assert config.initial_equity == 100.0
         assert config.commission_pct == 0.1
         assert config.slippage_pct == 0.05
         assert config.position_size_pct == 10.0
@@ -577,8 +577,8 @@ class TestBacktestEngine:
         """Test engine initialization"""
         engine = BacktestEngine(basic_config)
 
-        assert engine.config.initial_equity == 10000.0
-        assert engine._equity == 10000.0
+        assert engine.config.initial_equity == 100.0
+        assert engine._equity == 100.0
         assert engine._position is None
         assert len(engine._trades) == 0
 
@@ -642,7 +642,7 @@ class TestBacktestEngine:
     def test_engine_commission_applied(self, sample_bars):
         """Test commission is applied to trades"""
         config = BacktestConfig(
-            initial_equity=10000.0,
+            initial_equity=100.0,
             commission_pct=1.0,  # 1% commission for easy calculation
             slippage_pct=0.0
         )
@@ -659,7 +659,7 @@ class TestBacktestEngine:
     def test_engine_slippage_applied(self, sample_bars):
         """Test slippage is applied to trades"""
         config = BacktestConfig(
-            initial_equity=10000.0,
+            initial_equity=100.0,
             commission_pct=0.0,
             slippage_pct=1.0  # 1% slippage for easy testing
         )
@@ -746,7 +746,7 @@ class TestStopLossAndTakeProfit:
             bars.append(bar)
 
         config = BacktestConfig(
-            initial_equity=10000.0,
+            initial_equity=100.0,
             use_stop_loss=True
         )
         strategy = SimpleTestStrategy("BTCUSDT")
@@ -769,13 +769,13 @@ class TestConvenienceFunctions:
         result = run_backtest(
             strategy=strategy,
             data=sample_bars,
-            initial_equity=10000.0,
+            initial_equity=100.0,
             commission_pct=0.1,
             slippage_pct=0.05
         )
 
         assert isinstance(result, BacktestResult)
-        assert result.config.initial_equity == 10000.0
+        assert result.config.initial_equity == 100.0
 
     def test_generate_sample_data(self):
         """Test sample data generation"""
@@ -1026,7 +1026,7 @@ class TestBacktestIntegration:
 
         # Configure backtest
         config = BacktestConfig(
-            initial_equity=10000.0,
+            initial_equity=100.0,
             commission_pct=0.1,
             slippage_pct=0.05,
             position_size_pct=20.0
@@ -1049,7 +1049,7 @@ class TestBacktestIntegration:
         assert len(result.equity_curve) == len(data)
 
         # Validate metrics
-        assert result.metrics.initial_equity == 10000.0
+        assert result.metrics.initial_equity == 100.0
         assert isinstance(result.metrics.sharpe_ratio, float)
         assert isinstance(result.metrics.max_drawdown_pct, float)
         assert result.metrics.total_trades >= 0

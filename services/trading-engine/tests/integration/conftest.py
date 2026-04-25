@@ -78,7 +78,7 @@ def test_settings() -> Settings:
     settings = get_settings()
     # Override settings for testing
     settings.trading_mode = "PAPER"
-    settings.paper_initial_balance = 10000.0
+    settings.paper_initial_balance = 100.0
     settings.min_signal_confidence = 0.6
     settings.max_position_size_pct = 2.0
     settings.max_daily_loss_pct = 5.0

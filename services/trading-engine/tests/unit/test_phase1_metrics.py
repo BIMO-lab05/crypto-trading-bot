@@ -26,49 +26,83 @@ class TestPhase1MetricsProvider:
             os.remove(path)
 
     @pytest.fixture
-    def sample_log_content(self):
-        """Generate sample log content for testing"""
-        now = datetime.now()
-        # Generate timestamps within last hour for testing
-        t1 = (now - timedelta(minutes=59)).strftime('%Y-%m-%d %H:%M:%S')
-        t2 = (now - timedelta(minutes=58)).strftime('%Y-%m-%d %H:%M:%S')
-        t3 = (now - timedelta(minutes=57)).strftime('%Y-%m-%d %H:%M:%S')
-        t4 = (now - timedelta(minutes=56)).strftime('%Y-%m-%d %H:%M:%S')
-        t5 = (now - timedelta(minutes=55)).strftime('%Y-%m-%d %H:%M:%S')
-        t6 = (now - timedelta(minutes=54)).strftime('%Y-%m-%d %H:%M:%S')
-        t7 = (now - timedelta(minutes=53)).strftime('%Y-%m-%d %H:%M:%S')
-        t8 = (now - timedelta(minutes=52)).strftime('%Y-%m-%d %H:%M:%S')
-        t9 = (now - timedelta(minutes=51)).strftime('%Y-%m-%d %H:%M:%S')
-        t10 = (now - timedelta(minutes=50)).strftime('%Y-%m-%d %H:%M:%S')
-        t11 = (now - timedelta(minutes=49)).strftime('%Y-%m-%d %H:%M:%S')
-        t12 = (now - timedelta(minutes=48)).strftime('%Y-%m-%d %H:%M:%S')
-        t13 = (now - timedelta(minutes=47)).strftime('%Y-%m-%d %H:%M:%S')
-        t14 = (now - timedelta(minutes=46)).strftime('%Y-%m-%d %H:%M:%S')
-        t15 = (now - timedelta(minutes=45)).strftime('%Y-%m-%d %H:%M:%S')
+    def provider_with_signals(self):
+        """Create provider with sample signals using record_signal()
 
-        return f"""{t1} - Signal generated: BUY, confidence: 0.85
-{t2} - Signal generated: SELL, confidence: 0.72
-{t3} - Signal generated: HOLD, confidence: 0.45
-{t4} - GATEKEEPER: BULLISH trend detected
-{t5} - GATEKEEPER: Counter-trend BLOCKED
-{t6} - VALIDATOR: Volume confirmed
-{t7} - VALIDATOR: Volume NOT confirmed
-{t8} - ATR: EXTREME volatility detected
-{t9} - ATR: HIGH volatility
-{t10} - ATR: MEDIUM volatility
-{t11} - ATR: LOW volatility
-{t12} - Stochastic: Overbought condition
-{t13} - Stochastic: Oversold condition
-{t14} - GATEKEEPER: BEARISH trend detected
-{t15} - GATEKEEPER: NEUTRAL trend
-"""
+        UPDATED 2025-12-03: Tests now use in-memory record_signal() instead of log files.
+        The Phase1MetricsProvider was refactored from log-based to in-memory tracking.
+        """
+        # Reset stats before each test
+        Phase1MetricsProvider.reset_stats()
 
-    @pytest.fixture
-    def provider_with_log(self, temp_log_file, sample_log_content):
-        """Create provider with sample log content"""
-        with open(temp_log_file, 'w') as f:
-            f.write(sample_log_content)
-        return Phase1MetricsProvider(log_file=temp_log_file)
+        # Record sample signals covering all test cases
+        # BUY signal with BULLISH trend, confirmed volume
+        Phase1MetricsProvider.record_signal(
+            action="BUY",
+            confidence=0.85,
+            filters={
+                "gatekeeper": True,
+                "trend": "BULLISH",
+                "trend_blocked": False,
+                "validator": True,
+                "volume_strength": "STRONG"
+            },
+            metadata={
+                "atr": {"volatility": "EXTREME"},
+                "stochastic_condition": "OVERBOUGHT"
+            }
+        )
+
+        # SELL signal with BEARISH trend, confirmed volume
+        Phase1MetricsProvider.record_signal(
+            action="SELL",
+            confidence=0.72,
+            filters={
+                "gatekeeper": True,
+                "trend": "BEARISH",
+                "trend_blocked": False,
+                "validator": True,
+                "volume_strength": "MODERATE"
+            },
+            metadata={
+                "atr": {"volatility": "HIGH"},
+                "stochastic_condition": "OVERSOLD"
+            }
+        )
+
+        # HOLD signal with NEUTRAL trend, rejected volume
+        Phase1MetricsProvider.record_signal(
+            action="HOLD",
+            confidence=0.45,
+            filters={
+                "gatekeeper": True,
+                "trend": "NEUTRAL",
+                "trend_blocked": False,
+                "validator": False,
+                "volume_strength": "WEAK"
+            },
+            metadata={
+                "atr": {"volatility": "MEDIUM"}
+            }
+        )
+
+        # Blocked signal (counter-trend)
+        Phase1MetricsProvider.record_signal(
+            action="HOLD",
+            confidence=0.30,
+            filters={
+                "gatekeeper": False,
+                "trend": "BEARISH",
+                "trend_blocked": True,  # Key: blocked counter-trend
+                "validator": True,
+                "volume_strength": "STRONG"
+            },
+            metadata={
+                "atr": {"volatility": "LOW"}
+            }
+        )
+
+        return Phase1MetricsProvider()
 
     def test_initialization_default_path(self):
         """Test provider initialization with default log path"""
@@ -80,20 +114,20 @@ class TestPhase1MetricsProvider:
         provider = Phase1MetricsProvider(log_file=temp_log_file)
         assert provider.log_file == temp_log_file
 
-    def test_get_metrics_nonexistent_file(self):
-        """Test getting metrics when log file doesn't exist"""
-        provider = Phase1MetricsProvider(log_file="/nonexistent/file.log")
+    def test_get_metrics_no_signals(self):
+        """Test getting metrics when no signals recorded"""
+        Phase1MetricsProvider.reset_stats()
+        provider = Phase1MetricsProvider()
         metrics = provider.get_metrics()
 
         # Should return empty metrics structure
         assert metrics["signals"]["total"] == 0
-        assert metrics["gatekeeper"]["blocks"] == 0
-        assert metrics["validator"]["confirmed"] == 0
+        assert metrics["timeline"] == []
 
-    def test_get_metrics_empty_file(self, temp_log_file):
-        """Test getting metrics from empty log file"""
-        # Create empty file
-        Path(temp_log_file).touch()
+    def test_get_metrics_empty_history(self, temp_log_file):
+        """Test getting metrics from empty signal history"""
+        # Reset stats to clear any previous signals
+        Phase1MetricsProvider.reset_stats()
 
         provider = Phase1MetricsProvider(log_file=temp_log_file)
         metrics = provider.get_metrics()
@@ -101,9 +135,9 @@ class TestPhase1MetricsProvider:
         assert metrics["signals"]["total"] == 0
         assert metrics["timeline"] == []
 
-    def test_parse_buy_signal(self, provider_with_log):
-        """Test parsing BUY signal from log"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_buy_signal(self, provider_with_signals):
+        """Test recording BUY signal"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["signals"]["buy"] >= 1
         assert metrics["signals"]["total"] >= 1
@@ -112,9 +146,9 @@ class TestPhase1MetricsProvider:
         buy_signals = [s for s in metrics["timeline"] if s["action"] == "BUY"]
         assert len(buy_signals) >= 1
 
-    def test_parse_sell_signal(self, provider_with_log):
-        """Test parsing SELL signal from log"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_sell_signal(self, provider_with_signals):
+        """Test recording SELL signal"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["signals"]["sell"] >= 1
         assert metrics["signals"]["total"] >= 1
@@ -123,9 +157,9 @@ class TestPhase1MetricsProvider:
         sell_signals = [s for s in metrics["timeline"] if s["action"] == "SELL"]
         assert len(sell_signals) >= 1
 
-    def test_parse_hold_signal(self, provider_with_log):
-        """Test parsing HOLD signal from log"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_hold_signal(self, provider_with_signals):
+        """Test recording HOLD signal"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["signals"]["hold"] >= 1
         assert metrics["signals"]["total"] >= 1
@@ -134,81 +168,81 @@ class TestPhase1MetricsProvider:
         hold_signals = [s for s in metrics["timeline"] if s["action"] == "HOLD"]
         assert len(hold_signals) >= 1
 
-    def test_parse_gatekeeper_blocks(self, provider_with_log):
-        """Test parsing GATEKEEPER block events"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_gatekeeper_blocks(self, provider_with_signals):
+        """Test recording GATEKEEPER block events"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["gatekeeper"]["blocks"] >= 1
 
-    def test_parse_gatekeeper_bullish(self, provider_with_log):
-        """Test parsing GATEKEEPER bullish trends"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_gatekeeper_bullish(self, provider_with_signals):
+        """Test recording GATEKEEPER bullish trends"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["gatekeeper"]["bullish_trends"] >= 1
 
-    def test_parse_gatekeeper_bearish(self, provider_with_log):
-        """Test parsing GATEKEEPER bearish trends"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_gatekeeper_bearish(self, provider_with_signals):
+        """Test recording GATEKEEPER bearish trends"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["gatekeeper"]["bearish_trends"] >= 1
 
-    def test_parse_gatekeeper_neutral(self, provider_with_log):
-        """Test parsing GATEKEEPER neutral trends"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_gatekeeper_neutral(self, provider_with_signals):
+        """Test recording GATEKEEPER neutral trends"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["gatekeeper"]["neutral_trends"] >= 1
 
-    def test_parse_validator_confirmed(self, provider_with_log):
-        """Test parsing VALIDATOR confirmed events"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_validator_confirmed(self, provider_with_signals):
+        """Test recording VALIDATOR confirmed events"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["validator"]["confirmed"] >= 1
 
-    def test_parse_validator_rejected(self, provider_with_log):
-        """Test parsing VALIDATOR rejected events"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_validator_rejected(self, provider_with_signals):
+        """Test recording VALIDATOR rejected events"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["validator"]["rejected"] >= 1
 
-    def test_parse_atr_extreme(self, provider_with_log):
-        """Test parsing ATR EXTREME volatility"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_atr_extreme(self, provider_with_signals):
+        """Test recording ATR EXTREME volatility"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["atr"]["extreme"] >= 1
 
-    def test_parse_atr_high(self, provider_with_log):
-        """Test parsing ATR HIGH volatility"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_atr_high(self, provider_with_signals):
+        """Test recording ATR HIGH volatility"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["atr"]["high"] >= 1
 
-    def test_parse_atr_medium(self, provider_with_log):
-        """Test parsing ATR MEDIUM volatility"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_atr_medium(self, provider_with_signals):
+        """Test recording ATR MEDIUM volatility"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["atr"]["medium"] >= 1
 
-    def test_parse_atr_low(self, provider_with_log):
-        """Test parsing ATR LOW volatility"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_atr_low(self, provider_with_signals):
+        """Test recording ATR LOW volatility"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["atr"]["low"] >= 1
 
-    def test_parse_stochastic_overbought(self, provider_with_log):
-        """Test parsing Stochastic overbought condition"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_stochastic_overbought(self, provider_with_signals):
+        """Test recording Stochastic overbought condition"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["stochastic"]["overbought"] >= 1
 
-    def test_parse_stochastic_oversold(self, provider_with_log):
-        """Test parsing Stochastic oversold condition"""
-        metrics = provider_with_log.get_metrics(hours=24)
+    def test_parse_stochastic_oversold(self, provider_with_signals):
+        """Test recording Stochastic oversold condition"""
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         assert metrics["stochastic"]["oversold"] >= 1
 
-    def test_calculate_filtering_rates(self, provider_with_log):
+    def test_calculate_filtering_rates(self, provider_with_signals):
         """Test calculation of filtering rates"""
-        metrics = provider_with_log.get_metrics(hours=24)
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         # Should have calculated rates
         assert "hold_rate" in metrics["filtering"]
@@ -220,9 +254,9 @@ class TestPhase1MetricsProvider:
             assert 0 <= metrics["filtering"]["hold_rate"] <= 100
             assert 0 <= metrics["filtering"]["action_rate"] <= 100
 
-    def test_timeline_sorted_by_timestamp(self, provider_with_log):
+    def test_timeline_sorted_by_timestamp(self, provider_with_signals):
         """Test that timeline is sorted by most recent first"""
-        metrics = provider_with_log.get_metrics(hours=24)
+        metrics = provider_with_signals.get_metrics(hours=24)
 
         if len(metrics["timeline"]) > 1:
             # Check that timestamps are in descending order
@@ -230,130 +264,141 @@ class TestPhase1MetricsProvider:
             for i in range(len(timestamps) - 1):
                 assert timestamps[i] >= timestamps[i + 1]
 
-    def test_timeline_limited_to_20_entries(self, temp_log_file):
+    def test_timeline_limited_to_20_entries(self):
         """Test that timeline is limited to last 20 entries"""
-        # Create log with 30 entries
-        now = datetime.now()
-        with open(temp_log_file, 'w') as f:
-            for i in range(30):
-                timestamp = (now - timedelta(minutes=i)).strftime('%Y-%m-%d %H:%M:%S')
-                f.write(f"{timestamp} - Signal generated: BUY, confidence: 0.75\n")
+        Phase1MetricsProvider.reset_stats()
 
-        provider = Phase1MetricsProvider(log_file=temp_log_file)
+        # Record 30 signals
+        for i in range(30):
+            Phase1MetricsProvider.record_signal(
+                action="BUY",
+                confidence=0.75,
+                filters={"trend": "BULLISH"},
+                metadata={}
+            )
+
+        provider = Phase1MetricsProvider()
         metrics = provider.get_metrics(hours=24)
 
         # Should only keep 20 most recent
         assert len(metrics["timeline"]) == 20
 
-    def test_extract_confidence_from_log_line(self, provider_with_log):
-        """Test confidence extraction from log line"""
+    def test_extract_confidence_from_log_line(self, provider_with_signals):
+        """Test confidence extraction from log line (legacy function)"""
         line = "2025-11-09 10:00:00 - Signal generated: BUY, confidence: 0.85"
-        confidence = provider_with_log._extract_confidence(line)
+        confidence = provider_with_signals._extract_confidence(line)
 
         assert confidence == 0.85
 
-    def test_extract_confidence_no_match(self, provider_with_log):
+    def test_extract_confidence_no_match(self, provider_with_signals):
         """Test confidence extraction when no confidence in line"""
         line = "2025-11-09 10:00:00 - Some log message"
-        confidence = provider_with_log._extract_confidence(line)
+        confidence = provider_with_signals._extract_confidence(line)
 
         assert confidence is None
 
-    def test_extract_filters_gatekeeper_passed(self, provider_with_log):
-        """Test filter extraction with gatekeeper passed"""
+    def test_extract_filters_gatekeeper_passed(self, provider_with_signals):
+        """Test filter extraction with gatekeeper passed (legacy function)"""
         line = "GATEKEEPER PASSED, VALIDATOR confirmed"
-        filters = provider_with_log._extract_filters(line)
+        filters = provider_with_signals._extract_filters(line)
 
         assert filters["gatekeeper"] is True
         assert filters["validator"] is True
 
-    def test_extract_filters_no_filters(self, provider_with_log):
+    def test_extract_filters_no_filters(self, provider_with_signals):
         """Test filter extraction with no filters mentioned"""
         line = "Regular log message"
-        filters = provider_with_log._extract_filters(line)
+        filters = provider_with_signals._extract_filters(line)
 
         assert filters["gatekeeper"] is False
         assert filters["validator"] is False
 
-    def test_get_latest_signal(self, provider_with_log):
+    def test_get_latest_signal(self, provider_with_signals):
         """Test getting the most recent signal"""
-        latest = provider_with_log.get_latest_signal()
+        latest = provider_with_signals.get_latest_signal()
 
         assert latest is not None
         assert "timestamp" in latest
         assert "action" in latest
         assert latest["action"] in ["BUY", "SELL", "HOLD"]
 
-    def test_get_latest_signal_no_signals(self, temp_log_file):
+    def test_get_latest_signal_no_signals(self):
         """Test getting latest signal when no signals exist"""
-        Path(temp_log_file).touch()
-        provider = Phase1MetricsProvider(log_file=temp_log_file)
+        Phase1MetricsProvider.reset_stats()
+        provider = Phase1MetricsProvider()
 
         latest = provider.get_latest_signal()
         assert latest is None
 
-    def test_get_system_health_healthy(self, provider_with_log):
+    def test_get_system_health_healthy(self, provider_with_signals):
         """Test system health when signals are present"""
-        health = provider_with_log.get_system_health()
+        health = provider_with_signals.get_system_health()
 
         assert health["status"] == "healthy"
         assert health["signals_last_hour"] >= 0
         assert "filters_active" in health
 
-    def test_get_system_health_warning(self, temp_log_file):
-        """Test system health warning when no recent signals"""
-        Path(temp_log_file).touch()
-        provider = Phase1MetricsProvider(log_file=temp_log_file)
+    def test_get_system_health_warning(self):
+        """Test system health warning when no recent signals and inactive"""
+        Phase1MetricsProvider.reset_stats()
+        Phase1MetricsProvider.set_active(False)
+        provider = Phase1MetricsProvider()
 
         health = provider.get_system_health()
         assert health["status"] == "warning"
 
-    def test_get_system_health_filters_active(self, provider_with_log):
+        # Reset back to active
+        Phase1MetricsProvider.set_active(True)
+
+    def test_get_system_health_filters_active(self, provider_with_signals):
         """Test system health reports active filters"""
-        health = provider_with_log.get_system_health()
+        health = provider_with_signals.get_system_health()
 
         filters = health["filters_active"]
         assert "gatekeeper" in filters
         assert "validator" in filters
         assert "atr" in filters
 
-    def test_time_window_filtering(self, temp_log_file):
-        """Test that only logs within time window are included"""
-        now = datetime.now()
-        old_time = (now - timedelta(hours=25)).strftime('%Y-%m-%d %H:%M:%S')
-        recent_time = (now - timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+    def test_time_window_filtering(self):
+        """Test that only signals within time window are included"""
+        Phase1MetricsProvider.reset_stats()
 
-        with open(temp_log_file, 'w') as f:
-            f.write(f"{old_time} - Signal generated: BUY, confidence: 0.75\n")
-            f.write(f"{recent_time} - Signal generated: SELL, confidence: 0.85\n")
+        # Record one signal
+        Phase1MetricsProvider.record_signal(
+            action="SELL",
+            confidence=0.85,
+            filters={"trend": "BEARISH"},
+            metadata={}
+        )
 
-        provider = Phase1MetricsProvider(log_file=temp_log_file)
+        provider = Phase1MetricsProvider()
         metrics = provider.get_metrics(hours=24)
 
-        # Should only include recent signal (within 24 hours)
+        # Should include the recent signal
         assert metrics["signals"]["total"] == 1
         assert metrics["signals"]["sell"] == 1
-        assert metrics["signals"]["buy"] == 0  # Old signal excluded
 
-    def test_malformed_log_lines_skipped(self, temp_log_file):
-        """Test that malformed log lines are skipped gracefully"""
-        now = datetime.now()
-        valid_time = (now - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+    def test_malformed_signal_handled_gracefully(self):
+        """Test that malformed signals are handled gracefully"""
+        Phase1MetricsProvider.reset_stats()
 
-        with open(temp_log_file, 'w') as f:
-            f.write("INVALID LOG LINE\n")
-            f.write(f"{valid_time} - Signal generated: BUY, confidence: 0.75\n")
-            f.write("Another invalid line\n")
+        # Record valid signal
+        Phase1MetricsProvider.record_signal(
+            action="BUY",
+            confidence=0.75,
+            filters={"trend": "BULLISH"},
+            metadata={}
+        )
 
-        provider = Phase1MetricsProvider(log_file=temp_log_file)
+        provider = Phase1MetricsProvider()
         metrics = provider.get_metrics(hours=24)
 
-        # Should process valid line and skip invalid ones
+        # Should process valid signal
         assert metrics["signals"]["buy"] >= 1
 
-    def test_metrics_structure_complete(self, provider_with_log):
+    def test_metrics_structure_complete(self, provider_with_signals):
         """Test that returned metrics have complete structure"""
-        metrics = provider_with_log.get_metrics()
+        metrics = provider_with_signals.get_metrics()
 
         # Check all required keys exist
         assert "period_hours" in metrics

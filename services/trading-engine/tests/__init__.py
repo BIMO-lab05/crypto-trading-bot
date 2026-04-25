@@ -1,4 +1,4 @@
 """
-Trading Engine Test Suite
-Comprehensive tests for database integration and trading functionality
+Test Suite for Trading Engine Service
+Tests for Phase 2.2 Statistical Arbitrage implementation
 """

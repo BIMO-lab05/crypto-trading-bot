@@ -14,11 +14,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /build
 
-# Install build dependencies
+# Install build dependencies (including scipy/numpy requirements)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
+    gfortran \
     libpq-dev \
+    libopenblas-dev \
+    liblapack-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements files
@@ -49,10 +52,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies (including scipy/numpy runtime libs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libpq5 \
+    libopenblas0 \
+    libgfortran5 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder

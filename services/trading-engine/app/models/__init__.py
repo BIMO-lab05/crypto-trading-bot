@@ -9,6 +9,7 @@ from app.models.enums import (
     OrderSide,
     OrderType,
     OrderStatus,
+    TimeInForce,  # Added 2026-01-16 for Fix #3 (stop loss limit orders)
     TradingMode
 )
 from app.models.signal import TradingSignal, IndicatorSignal
@@ -27,6 +28,28 @@ from app.models.response import (
     TradeHistoryStats,
     TradeHistoryResponse
 )
+from app.models.stat_arb_models import (
+    # Request Models
+    InitializeManagerRequest,
+    AddPairsStrategyRequest,
+    CalibratePairsStrategyRequest,
+    AddFundingStrategyRequest,
+    SetupTriangularArbitrageRequest,
+    GenerateSignalsRequest,
+    # Response Models
+    StrategyAllocationResponse,
+    InitializeManagerResponse,
+    StrategyResponse,
+    PairsTradeSignalResponse,
+    FundingRateSignalResponse,
+    TriangularArbitrageSignalResponse,
+    SignalsResponse,
+    StrategyPerformanceResponse,
+    PerformanceResponse as StatArbPerformanceResponse,
+    StatusResponse as StatArbStatusResponse,
+    ResetResponse,
+    ErrorResponse
+)
 
 __all__ = [
     # Enums
@@ -36,6 +59,7 @@ __all__ = [
     "OrderSide",
     "OrderType",
     "OrderStatus",
+    "TimeInForce",  # Added 2026-01-16 for Fix #3
     "TradingMode",
     # Signal Models
     "TradingSignal",
@@ -61,5 +85,25 @@ __all__ = [
     "StrategyListResponse",
     "TradingControlResponse",
     "TradeHistoryStats",
-    "TradeHistoryResponse"
+    "TradeHistoryResponse",
+    # Statistical Arbitrage Request Models
+    "InitializeManagerRequest",
+    "AddPairsStrategyRequest",
+    "CalibratePairsStrategyRequest",
+    "AddFundingStrategyRequest",
+    "SetupTriangularArbitrageRequest",
+    "GenerateSignalsRequest",
+    # Statistical Arbitrage Response Models
+    "StrategyAllocationResponse",
+    "InitializeManagerResponse",
+    "StrategyResponse",
+    "PairsTradeSignalResponse",
+    "FundingRateSignalResponse",
+    "TriangularArbitrageSignalResponse",
+    "SignalsResponse",
+    "StrategyPerformanceResponse",
+    "StatArbPerformanceResponse",
+    "StatArbStatusResponse",
+    "ResetResponse",
+    "ErrorResponse"
 ]

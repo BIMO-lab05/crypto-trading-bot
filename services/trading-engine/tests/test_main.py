@@ -64,8 +64,8 @@ def mock_position_manager():
 def mock_paper_engine():
     """Mock paper trading engine"""
     engine = MagicMock()
-    engine.get_balance = MagicMock(return_value=Decimal("10000.00"))
-    engine.get_total_equity = MagicMock(return_value=Decimal("10000.00"))
+    engine.get_balance = MagicMock(return_value=Decimal("100.00"))
+    engine.get_total_equity = MagicMock(return_value=Decimal("100.00"))
     engine.get_performance_summary = MagicMock(return_value={
         "total_trades": 10,
         "winning_trades": 6,
@@ -73,7 +73,7 @@ def mock_paper_engine():
         "total_pnl": 500.0,
         "win_rate": 60.0,
         "current_balance": 10500.0,
-        "initial_balance": 10000.0,
+        "initial_balance": 100.0,
         "roi": 5.0
     })
     engine.can_open_position = MagicMock(return_value=(True, "OK"))

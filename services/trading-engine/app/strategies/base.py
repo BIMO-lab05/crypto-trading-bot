@@ -1,0 +1,918 @@
+"""
+Base Strategy Class for Multi-Strategy Orchestration
+======================================================
+Purpose: Abstract base class defining the interface for all trading strategies
+
+This module provides:
+1. StrategyBase - Abstract base class all strategies must inherit
+2. Strategy metadata and configuration management
+3. Performance tracking per strategy
+4. Signal generation interface
+5. Position sizing calculation
+
+All strategies MUST implement:
+- analyze(): Analyze market conditions for the symbol
+- generate_signals(): Generate trading signals based on analysis
+- calculate_position_size(): Determine optimal position size
+
+Phase 9: Multi-Strategy Orchestration Engine
+Author: Backend Developer Agent
+Date: 2025-12-11
+"""
+
+import logging
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from decimal import Decimal
+from enum import Enum
+from typing import Dict, List, Optional, Any, Tuple
+from uuid import uuid4
+import asyncio
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# ENUMERATIONS
+# =============================================================================
+
+class StrategyRiskLevel(str, Enum):
+    """Risk level classification for strategies"""
+    CONSERVATIVE = "conservative"  # Max 1% risk per trade
+    MODERATE = "moderate"  # Max 2% risk per trade
+    AGGRESSIVE = "aggressive"  # Max 3% risk per trade
+    VERY_AGGRESSIVE = "very_aggressive"  # Max 5% risk per trade
+
+
+class StrategyCategory(str, Enum):
+    """Strategy category classification"""
+    TREND_FOLLOWING = "trend_following"
+    MEAN_REVERSION = "mean_reversion"
+    MOMENTUM = "momentum"
+    BREAKOUT = "breakout"
+    ARBITRAGE = "arbitrage"
+    GRID = "grid"
+    SCALPING = "scalping"
+    HYBRID = "hybrid"
+
+
+class SignalType(str, Enum):
+    """Type of trading signal"""
+    ENTRY_LONG = "entry_long"
+    ENTRY_SHORT = "entry_short"
+    EXIT_LONG = "exit_long"
+    EXIT_SHORT = "exit_short"
+    SCALE_IN = "scale_in"
+    SCALE_OUT = "scale_out"
+    HOLD = "hold"
+    NO_ACTION = "no_action"
+
+
+class MarketCondition(str, Enum):
+    """Current market condition assessment"""
+    STRONG_UPTREND = "strong_uptrend"
+    UPTREND = "uptrend"
+    RANGING = "ranging"
+    DOWNTREND = "downtrend"
+    STRONG_DOWNTREND = "strong_downtrend"
+    HIGH_VOLATILITY = "high_volatility"
+    LOW_VOLATILITY = "low_volatility"
+    UNKNOWN = "unknown"
+
+
+# =============================================================================
+# DATA STRUCTURES
+# =============================================================================
+
+@dataclass
+class StrategyMetadata:
+    """
+    Metadata describing a strategy's characteristics
+
+    Contains static information about the strategy that doesn't change
+    during runtime.
+    """
+    # Identification
+    strategy_id: str
+    name: str
+    version: str = "1.0.0"
+    description: str = ""
+    author: str = "Trading Engine"
+
+    # Classification
+    category: StrategyCategory = StrategyCategory.TREND_FOLLOWING
+    risk_level: StrategyRiskLevel = StrategyRiskLevel.MODERATE
+
+    # Supported instruments
+    supported_symbols: List[str] = field(default_factory=list)
+    supported_timeframes: List[str] = field(default_factory=lambda: ["60"])
+    primary_timeframe: str = "60"
+
+    # Risk parameters
+    max_position_size_pct: float = 5.0  # Max % of capital per position
+    max_drawdown_pct: float = 10.0  # Max acceptable drawdown
+    max_daily_trades: int = 10  # Max trades per day
+
+    # Expected characteristics
+    expected_win_rate: float = 0.5
+    expected_profit_factor: float = 1.5
+    expected_sharpe: float = 1.0
+    typical_hold_period_hours: float = 24.0
+
+    # Dependencies
+    required_indicators: List[str] = field(default_factory=list)
+    required_data_history_bars: int = 200  # Bars of history needed
+
+    # Priority for conflict resolution
+    priority: int = 50  # 1-100, higher = more important
+
+    # Timestamps
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            "strategy_id": self.strategy_id,
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "category": self.category.value,
+            "risk_level": self.risk_level.value,
+            "supported_symbols": self.supported_symbols,
+            "primary_timeframe": self.primary_timeframe,
+            "max_position_size_pct": self.max_position_size_pct,
+            "priority": self.priority,
+            "expected_win_rate": self.expected_win_rate,
+            "expected_sharpe": self.expected_sharpe,
+        }
+
+
+@dataclass
+class StrategySignal:
+    """
+    Trading signal generated by a strategy
+
+    Contains all information needed to execute a trade.
+    """
+    # Identification
+    signal_id: str = field(default_factory=lambda: str(uuid4()))
+    strategy_id: str = ""
+    symbol: str = ""
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # Signal type
+    signal_type: SignalType = SignalType.NO_ACTION
+
+    # Strength and confidence
+    strength: float = 0.0  # -1.0 to +1.0 scale
+    confidence: float = 0.5  # 0.0 to 1.0 scale
+
+    # Entry parameters
+    entry_price: Optional[Decimal] = None
+    suggested_quantity: Optional[Decimal] = None
+    position_size_pct: Optional[float] = None
+
+    # Risk management
+    stop_loss: Optional[Decimal] = None
+    take_profit: Optional[Decimal] = None
+    stop_loss_pct: Optional[float] = None
+    take_profit_pct: Optional[float] = None
+    risk_reward_ratio: Optional[float] = None
+
+    # Urgency and validity
+    urgency: str = "MEDIUM"  # LOW, MEDIUM, HIGH, CRITICAL
+    expiry_seconds: int = 300  # Signal validity period
+
+    # Context
+    timeframe: str = "60"
+    market_condition: MarketCondition = MarketCondition.UNKNOWN
+    indicators_used: List[str] = field(default_factory=list)
+    reasoning: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            "signal_id": self.signal_id,
+            "strategy_id": self.strategy_id,
+            "symbol": self.symbol,
+            "timestamp": self.timestamp.isoformat(),
+            "signal_type": self.signal_type.value,
+            "strength": self.strength,
+            "confidence": self.confidence,
+            "entry_price": str(self.entry_price) if self.entry_price else None,
+            "stop_loss": str(self.stop_loss) if self.stop_loss else None,
+            "take_profit": str(self.take_profit) if self.take_profit else None,
+            "stop_loss_pct": self.stop_loss_pct,
+            "take_profit_pct": self.take_profit_pct,
+            "risk_reward_ratio": self.risk_reward_ratio,
+            "urgency": self.urgency,
+            "market_condition": self.market_condition.value,
+            "reasoning": self.reasoning,
+        }
+
+    @property
+    def is_entry_signal(self) -> bool:
+        """Check if this is an entry signal"""
+        return self.signal_type in [SignalType.ENTRY_LONG, SignalType.ENTRY_SHORT]
+
+    @property
+    def is_exit_signal(self) -> bool:
+        """Check if this is an exit signal"""
+        return self.signal_type in [SignalType.EXIT_LONG, SignalType.EXIT_SHORT]
+
+    @property
+    def is_long(self) -> bool:
+        """Check if signal is for long position"""
+        return self.signal_type in [SignalType.ENTRY_LONG, SignalType.EXIT_SHORT]
+
+    @property
+    def is_short(self) -> bool:
+        """Check if signal is for short position"""
+        return self.signal_type in [SignalType.ENTRY_SHORT, SignalType.EXIT_LONG]
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if signal has expired"""
+        age = (datetime.now(timezone.utc) - self.timestamp).total_seconds()
+        return age > self.expiry_seconds
+
+
+@dataclass
+class AnalysisResult:
+    """
+    Result of market analysis by a strategy
+
+    Contains market condition assessment and analysis details.
+    """
+    symbol: str
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    # Market condition
+    condition: MarketCondition = MarketCondition.UNKNOWN
+    trend_direction: str = "neutral"  # bullish, bearish, neutral
+    trend_strength: float = 0.0  # 0 to 100
+
+    # Volatility
+    volatility: float = 0.0
+    volatility_percentile: float = 50.0  # Current vol vs historical
+    atr_value: Optional[float] = None
+
+    # Key levels
+    support_levels: List[float] = field(default_factory=list)
+    resistance_levels: List[float] = field(default_factory=list)
+
+    # Indicators used
+    indicators: Dict[str, Any] = field(default_factory=dict)
+
+    # Confidence in analysis
+    confidence: float = 0.5
+
+    # Recommended action
+    recommendation: str = "no_action"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            "symbol": self.symbol,
+            "timestamp": self.timestamp.isoformat(),
+            "condition": self.condition.value,
+            "trend_direction": self.trend_direction,
+            "trend_strength": self.trend_strength,
+            "volatility": self.volatility,
+            "support_levels": self.support_levels,
+            "resistance_levels": self.resistance_levels,
+            "confidence": self.confidence,
+            "recommendation": self.recommendation,
+        }
+
+
+@dataclass
+class StrategyPerformance:
+    """
+    Performance tracking for a strategy instance
+
+    Tracks rolling performance metrics.
+    """
+    strategy_id: str
+
+    # Trade statistics
+    total_trades: int = 0
+    winning_trades: int = 0
+    losing_trades: int = 0
+    consecutive_wins: int = 0
+    consecutive_losses: int = 0
+
+    # PnL tracking
+    total_pnl: float = 0.0
+    today_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
+
+    # Drawdown tracking
+    peak_equity: float = 0.0
+    current_drawdown_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+
+    # Position tracking
+    open_positions: int = 0
+    total_position_value: float = 0.0
+
+    # Timestamps
+    last_signal_at: Optional[datetime] = None
+    last_trade_at: Optional[datetime] = None
+
+    @property
+    def win_rate(self) -> float:
+        """Calculate win rate"""
+        if self.total_trades == 0:
+            return 0.0
+        return self.winning_trades / self.total_trades
+
+    @property
+    def profit_factor(self) -> float:
+        """Calculate profit factor (gross profits / gross losses)"""
+        if self.losing_trades == 0:
+            return float('inf') if self.winning_trades > 0 else 0.0
+        # Simplified - would need trade history for accurate calculation
+        return 1.0
+
+    def record_win(self, pnl: float) -> None:
+        """Record a winning trade"""
+        self.total_trades += 1
+        self.winning_trades += 1
+        self.consecutive_wins += 1
+        self.consecutive_losses = 0
+        self.total_pnl += pnl
+        self.today_pnl += pnl
+        self.last_trade_at = datetime.now(timezone.utc)
+        self._update_drawdown()
+
+    def record_loss(self, pnl: float) -> None:
+        """Record a losing trade"""
+        self.total_trades += 1
+        self.losing_trades += 1
+        self.consecutive_losses += 1
+        self.consecutive_wins = 0
+        self.total_pnl += pnl  # pnl is negative
+        self.today_pnl += pnl
+        self.last_trade_at = datetime.now(timezone.utc)
+        self._update_drawdown()
+
+    def _update_drawdown(self) -> None:
+        """Update drawdown metrics"""
+        if self.total_pnl > self.peak_equity:
+            self.peak_equity = self.total_pnl
+
+        if self.peak_equity > 0:
+            self.current_drawdown_pct = (
+                (self.peak_equity - self.total_pnl) / self.peak_equity * 100
+            )
+            if self.current_drawdown_pct > self.max_drawdown_pct:
+                self.max_drawdown_pct = self.current_drawdown_pct
+
+    def reset_daily(self) -> None:
+        """Reset daily metrics"""
+        self.today_pnl = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            "strategy_id": self.strategy_id,
+            "total_trades": self.total_trades,
+            "winning_trades": self.winning_trades,
+            "losing_trades": self.losing_trades,
+            "win_rate": self.win_rate,
+            "total_pnl": self.total_pnl,
+            "today_pnl": self.today_pnl,
+            "current_drawdown_pct": self.current_drawdown_pct,
+            "max_drawdown_pct": self.max_drawdown_pct,
+            "consecutive_wins": self.consecutive_wins,
+            "consecutive_losses": self.consecutive_losses,
+            "open_positions": self.open_positions,
+        }
+
+
+# =============================================================================
+# STRATEGY BASE CLASS
+# =============================================================================
+
+class StrategyBase(ABC):
+    """
+    Abstract Base Class for all Trading Strategies
+
+    All trading strategies MUST inherit from this class and implement
+    the required abstract methods. This ensures consistent interface
+    across all strategies for the orchestration engine.
+
+    Required Implementations:
+    1. analyze() - Analyze market conditions
+    2. generate_signals() - Generate trading signals
+    3. calculate_position_size() - Calculate position sizing
+
+    Optional Overrides:
+    1. on_initialize() - Called when strategy is initialized
+    2. on_start() - Called when strategy starts trading
+    3. on_stop() - Called when strategy stops trading
+    4. on_trade_opened() - Called when trade is opened
+    5. on_trade_closed() - Called when trade is closed
+    6. validate_signal() - Custom signal validation
+
+    Usage:
+        class MyStrategy(StrategyBase):
+            def __init__(self):
+                super().__init__(
+                    strategy_id="my_strategy_v1",
+                    name="My Custom Strategy",
+                    category=StrategyCategory.TREND_FOLLOWING
+                )
+
+            async def analyze(self, symbol, data):
+                # Implement analysis logic
+                pass
+
+            async def generate_signals(self, symbol, analysis):
+                # Implement signal generation
+                pass
+
+            def calculate_position_size(self, signal, capital, risk_pct):
+                # Implement position sizing
+                pass
+    """
+
+    def __init__(
+        self,
+        strategy_id: str,
+        name: str,
+        version: str = "1.0.0",
+        category: StrategyCategory = StrategyCategory.TREND_FOLLOWING,
+        risk_level: StrategyRiskLevel = StrategyRiskLevel.MODERATE,
+        supported_symbols: Optional[List[str]] = None,
+        primary_timeframe: str = "60",
+        description: str = "",
+        config: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Initialize base strategy
+
+        Args:
+            strategy_id: Unique identifier for the strategy
+            name: Human-readable strategy name
+            version: Strategy version string
+            category: Strategy category classification
+            risk_level: Risk level classification
+            supported_symbols: List of symbols this strategy can trade
+            primary_timeframe: Primary trading timeframe (minutes)
+            description: Strategy description
+            config: Optional configuration dictionary
+        """
+        # Create metadata
+        self.metadata = StrategyMetadata(
+            strategy_id=strategy_id,
+            name=name,
+            version=version,
+            description=description,
+            category=category,
+            risk_level=risk_level,
+            supported_symbols=supported_symbols or [],
+            primary_timeframe=primary_timeframe
+        )
+
+        # Store configuration
+        self.config = config or {}
+
+        # Initialize performance tracker
+        self.performance = StrategyPerformance(strategy_id=strategy_id)
+
+        # State tracking
+        self._is_initialized: bool = False
+        self._is_running: bool = False
+        self._last_analysis: Dict[str, AnalysisResult] = {}
+        self._pending_signals: Dict[str, StrategySignal] = {}
+
+        # Risk limits based on risk level
+        self._risk_limits = self._get_risk_limits(risk_level)
+
+        logger.info(
+            f"Strategy initialized: {name} ({strategy_id}), "
+            f"category={category.value}, risk={risk_level.value}"
+        )
+
+    def _get_risk_limits(self, risk_level: StrategyRiskLevel) -> Dict[str, float]:
+        """Get risk limits based on risk level"""
+        limits = {
+            StrategyRiskLevel.CONSERVATIVE: {
+                "max_position_pct": 3.0,
+                "max_risk_per_trade_pct": 1.0,
+                "max_daily_loss_pct": 2.0,
+                "max_drawdown_pct": 5.0,
+            },
+            StrategyRiskLevel.MODERATE: {
+                "max_position_pct": 5.0,
+                "max_risk_per_trade_pct": 2.0,
+                "max_daily_loss_pct": 4.0,
+                "max_drawdown_pct": 10.0,
+            },
+            StrategyRiskLevel.AGGRESSIVE: {
+                "max_position_pct": 8.0,
+                "max_risk_per_trade_pct": 3.0,
+                "max_daily_loss_pct": 6.0,
+                "max_drawdown_pct": 15.0,
+            },
+            StrategyRiskLevel.VERY_AGGRESSIVE: {
+                "max_position_pct": 12.0,
+                "max_risk_per_trade_pct": 5.0,
+                "max_daily_loss_pct": 10.0,
+                "max_drawdown_pct": 25.0,
+            },
+        }
+        return limits.get(risk_level, limits[StrategyRiskLevel.MODERATE])
+
+    # =========================================================================
+    # ABSTRACT METHODS - Must be implemented by subclasses
+    # =========================================================================
+
+    @abstractmethod
+    async def analyze(
+        self,
+        symbol: str,
+        data: Dict[str, Any]
+    ) -> AnalysisResult:
+        """
+        Analyze market conditions for a symbol
+
+        This method should:
+        1. Process market data (OHLCV, indicators)
+        2. Assess current market condition
+        3. Identify key support/resistance levels
+        4. Calculate volatility and trend metrics
+
+        Args:
+            symbol: Trading symbol (e.g., "BTCUSDT")
+            data: Market data dictionary containing:
+                - candles: List of OHLCV candles
+                - indicators: Pre-calculated indicators
+                - current_price: Current market price
+                - volume: Volume data
+
+        Returns:
+            AnalysisResult with market assessment
+
+        Example:
+            async def analyze(self, symbol, data):
+                candles = data.get('candles', [])
+                indicators = data.get('indicators', {})
+
+                # Analyze trend
+                ema_20 = indicators.get('ema_20')
+                ema_50 = indicators.get('ema_50')
+                trend = 'bullish' if ema_20 > ema_50 else 'bearish'
+
+                return AnalysisResult(
+                    symbol=symbol,
+                    condition=MarketCondition.UPTREND if trend == 'bullish' else MarketCondition.DOWNTREND,
+                    trend_direction=trend,
+                    confidence=0.7
+                )
+        """
+        pass
+
+    @abstractmethod
+    async def generate_signals(
+        self,
+        symbol: str,
+        analysis: AnalysisResult,
+        current_price: Decimal
+    ) -> List[StrategySignal]:
+        """
+        Generate trading signals based on analysis
+
+        This method should:
+        1. Evaluate analysis results
+        2. Check entry/exit conditions
+        3. Generate appropriate signals with risk parameters
+
+        Args:
+            symbol: Trading symbol
+            analysis: Analysis result from analyze()
+            current_price: Current market price
+
+        Returns:
+            List of StrategySignal objects (may be empty)
+
+        Example:
+            async def generate_signals(self, symbol, analysis, current_price):
+                signals = []
+
+                # Check for entry conditions
+                if analysis.condition == MarketCondition.UPTREND and analysis.confidence > 0.6:
+                    signal = StrategySignal(
+                        strategy_id=self.metadata.strategy_id,
+                        symbol=symbol,
+                        signal_type=SignalType.ENTRY_LONG,
+                        strength=0.7,
+                        confidence=analysis.confidence,
+                        entry_price=current_price,
+                        stop_loss_pct=2.0,
+                        take_profit_pct=4.0,
+                        reasoning="Strong uptrend detected"
+                    )
+                    signals.append(signal)
+
+                return signals
+        """
+        pass
+
+    @abstractmethod
+    def calculate_position_size(
+        self,
+        signal: StrategySignal,
+        available_capital: float,
+        risk_per_trade_pct: Optional[float] = None
+    ) -> Tuple[Decimal, float]:
+        """
+        Calculate optimal position size for a signal
+
+        This method should:
+        1. Consider account risk limits
+        2. Factor in stop loss distance
+        3. Apply Kelly criterion or fixed fraction
+        4. Respect maximum position limits
+
+        Args:
+            signal: The trading signal
+            available_capital: Available capital for trading
+            risk_per_trade_pct: Risk per trade as % (overrides default)
+
+        Returns:
+            Tuple of (position_size, risk_amount)
+
+        Example:
+            def calculate_position_size(self, signal, capital, risk_pct=None):
+                risk_pct = risk_pct or self._risk_limits['max_risk_per_trade_pct']
+                risk_amount = capital * (risk_pct / 100)
+
+                if signal.stop_loss_pct:
+                    # Position size based on stop loss distance
+                    position_value = risk_amount / (signal.stop_loss_pct / 100)
+                else:
+                    # Fixed percentage of capital
+                    position_value = capital * (self._risk_limits['max_position_pct'] / 100)
+
+                if signal.entry_price:
+                    quantity = Decimal(str(position_value)) / signal.entry_price
+                else:
+                    quantity = Decimal('0')
+
+                return quantity, risk_amount
+        """
+        pass
+
+    # =========================================================================
+    # LIFECYCLE METHODS - Optional overrides
+    # =========================================================================
+
+    async def on_initialize(self) -> None:
+        """
+        Called when strategy is first initialized
+
+        Override to perform one-time setup like loading historical data,
+        initializing indicators, etc.
+        """
+        self._is_initialized = True
+        logger.info(f"Strategy {self.metadata.name} initialized")
+
+    async def on_start(self) -> None:
+        """
+        Called when strategy starts trading
+
+        Override to perform startup actions like resetting counters,
+        loading saved state, etc.
+        """
+        self._is_running = True
+        logger.info(f"Strategy {self.metadata.name} started")
+
+    async def on_stop(self) -> None:
+        """
+        Called when strategy stops trading
+
+        Override to perform cleanup like saving state, closing connections, etc.
+        """
+        self._is_running = False
+        logger.info(f"Strategy {self.metadata.name} stopped")
+
+    def on_trade_opened(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: Decimal,
+        quantity: Decimal
+    ) -> None:
+        """
+        Called when a trade is opened
+
+        Override to track positions, update internal state, etc.
+
+        Args:
+            symbol: Trading symbol
+            side: LONG or SHORT
+            entry_price: Entry price
+            quantity: Position quantity
+        """
+        self.performance.open_positions += 1
+        self.performance.total_position_value += float(entry_price * quantity)
+        logger.debug(f"Trade opened: {symbol} {side} @ {entry_price}")
+
+    def on_trade_closed(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: Decimal,
+        exit_price: Decimal,
+        quantity: Decimal,
+        pnl: float
+    ) -> None:
+        """
+        Called when a trade is closed
+
+        Override to update performance metrics, adjust strategy parameters, etc.
+
+        Args:
+            symbol: Trading symbol
+            side: LONG or SHORT
+            entry_price: Entry price
+            exit_price: Exit price
+            quantity: Position quantity
+            pnl: Profit/loss amount
+        """
+        self.performance.open_positions -= 1
+        self.performance.total_position_value -= float(entry_price * quantity)
+
+        if pnl >= 0:
+            self.performance.record_win(pnl)
+        else:
+            self.performance.record_loss(pnl)
+
+        logger.debug(f"Trade closed: {symbol} {side}, PnL: {pnl:+.2f}")
+
+    # =========================================================================
+    # SIGNAL VALIDATION
+    # =========================================================================
+
+    def validate_signal(self, signal: StrategySignal) -> Tuple[bool, str]:
+        """
+        Validate a signal before submission
+
+        Override to add custom validation rules.
+
+        Args:
+            signal: Signal to validate
+
+        Returns:
+            Tuple of (is_valid, reason)
+        """
+        # Check confidence threshold
+        min_confidence = self.config.get('min_signal_confidence', 0.5)
+        if signal.confidence < min_confidence:
+            return False, f"Confidence {signal.confidence:.2f} below minimum {min_confidence}"
+
+        # Check if expired
+        if signal.is_expired:
+            return False, "Signal has expired"
+
+        # Check risk limits
+        if signal.stop_loss_pct:
+            max_risk = self._risk_limits.get('max_risk_per_trade_pct', 2.0)
+            if signal.stop_loss_pct > max_risk * 2:  # Allow some flexibility
+                return False, f"Stop loss {signal.stop_loss_pct}% too wide"
+
+        # Check drawdown limit
+        if self.performance.current_drawdown_pct >= self._risk_limits.get('max_drawdown_pct', 10.0):
+            return False, f"Max drawdown reached ({self.performance.current_drawdown_pct:.1f}%)"
+
+        # Check daily loss limit
+        daily_loss_pct = abs(self.performance.today_pnl) / max(self.performance.peak_equity, 1) * 100
+        if daily_loss_pct >= self._risk_limits.get('max_daily_loss_pct', 4.0):
+            return False, f"Max daily loss reached ({daily_loss_pct:.1f}%)"
+
+        return True, "Valid"
+
+    # =========================================================================
+    # HELPER METHODS
+    # =========================================================================
+
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get strategy metadata as dictionary"""
+        return self.metadata.to_dict()
+
+    def get_performance(self) -> Dict[str, Any]:
+        """Get performance metrics as dictionary"""
+        return self.performance.to_dict()
+
+    def get_last_analysis(self, symbol: str) -> Optional[AnalysisResult]:
+        """Get the last analysis result for a symbol"""
+        return self._last_analysis.get(symbol)
+
+    def get_pending_signal(self, symbol: str) -> Optional[StrategySignal]:
+        """Get pending signal for a symbol"""
+        return self._pending_signals.get(symbol)
+
+    def clear_pending_signal(self, symbol: str) -> None:
+        """Clear pending signal for a symbol"""
+        self._pending_signals.pop(symbol, None)
+
+    def is_symbol_supported(self, symbol: str) -> bool:
+        """Check if symbol is supported by this strategy"""
+        if not self.metadata.supported_symbols:
+            return True  # Empty list = all symbols supported
+        return symbol in self.metadata.supported_symbols
+
+    @property
+    def strategy_id(self) -> str:
+        """Get strategy ID"""
+        return self.metadata.strategy_id
+
+    @property
+    def is_running(self) -> bool:
+        """Check if strategy is running"""
+        return self._is_running
+
+    @property
+    def risk_limits(self) -> Dict[str, float]:
+        """Get risk limits"""
+        return self._risk_limits.copy()
+
+    def __repr__(self) -> str:
+        return (
+            f"<{self.__class__.__name__}("
+            f"id={self.metadata.strategy_id}, "
+            f"name={self.metadata.name}, "
+            f"running={self._is_running})>"
+        )
+
+
+# =============================================================================
+# FACTORY FUNCTIONS
+# =============================================================================
+
+def create_signal(
+    strategy_id: str,
+    symbol: str,
+    signal_type: SignalType,
+    entry_price: Decimal,
+    stop_loss_pct: float,
+    take_profit_pct: float,
+    confidence: float = 0.5,
+    reasoning: str = ""
+) -> StrategySignal:
+    """
+    Factory function to create a standardized signal
+
+    Args:
+        strategy_id: Strategy generating the signal
+        symbol: Trading symbol
+        signal_type: Type of signal
+        entry_price: Entry price
+        stop_loss_pct: Stop loss percentage
+        take_profit_pct: Take profit percentage
+        confidence: Signal confidence (0-1)
+        reasoning: Reason for signal
+
+    Returns:
+        StrategySignal instance
+    """
+    # Calculate stop loss and take profit prices
+    if signal_type in [SignalType.ENTRY_LONG, SignalType.SCALE_IN]:
+        stop_loss = entry_price * Decimal(str(1 - stop_loss_pct / 100))
+        take_profit = entry_price * Decimal(str(1 + take_profit_pct / 100))
+        strength = min(1.0, confidence)
+    elif signal_type == SignalType.ENTRY_SHORT:
+        stop_loss = entry_price * Decimal(str(1 + stop_loss_pct / 100))
+        take_profit = entry_price * Decimal(str(1 - take_profit_pct / 100))
+        strength = -min(1.0, confidence)
+    else:
+        stop_loss = None
+        take_profit = None
+        strength = 0.0
+
+    # Calculate risk/reward ratio
+    if take_profit_pct > 0 and stop_loss_pct > 0:
+        risk_reward = take_profit_pct / stop_loss_pct
+    else:
+        risk_reward = None
+
+    return StrategySignal(
+        strategy_id=strategy_id,
+        symbol=symbol,
+        signal_type=signal_type,
+        strength=strength,
+        confidence=confidence,
+        entry_price=entry_price,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        stop_loss_pct=stop_loss_pct,
+        take_profit_pct=take_profit_pct,
+        risk_reward_ratio=risk_reward,
+        reasoning=reasoning
+    )

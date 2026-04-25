@@ -363,7 +363,7 @@ class TestRiskManagementIntegration:
         - Risk manager should reject
         """
         # Setup
-        initial_balance = Decimal("10000.00")
+        initial_balance = Decimal("100.00")
         max_position_pct = Decimal("2.0")
 
         # Calculate valid and invalid position sizes
@@ -400,11 +400,11 @@ class TestRiskManagementIntegration:
         - Risk manager should halt trading
         """
         # Setup
-        initial_equity = Decimal("10000.00")
+        initial_equity = Decimal("100.00")
         daily_loss_limit_pct = Decimal("5.0")  # 5%
 
         # Simulate 6% loss
-        current_equity = Decimal("9400.00")  # -6% loss
+        current_equity = Decimal("94.00")  # -6% loss
         loss_pct = ((initial_equity - current_equity) / initial_equity) * Decimal("100")
 
         # Update risk manager with loss
@@ -909,12 +909,12 @@ class TestPerformanceMetrics:
         Test: ROI calculated correctly
 
         Scenario:
-        - Start with $10,000
-        - Make $500 profit
+        - Start with $100
+        - Make $5 profit
         - ROI should be 5%
         """
         engine = trading_system["engine"]
-        initial_balance = Decimal("10000.00")
+        initial_balance = Decimal("100.00")
 
         # Execute profitable trade
         buy_price = Decimal("50000.00")

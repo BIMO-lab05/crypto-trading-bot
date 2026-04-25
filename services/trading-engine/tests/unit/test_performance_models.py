@@ -22,8 +22,8 @@ class TestPerformanceMetrics:
             total_trades=10,
             winning_trades=6,
             losing_trades=4,
-            current_balance=Decimal("12000.00"),
-            initial_balance=Decimal("10000.00")
+            current_balance=Decimal("120.00"),
+            initial_balance=Decimal("100.00")
         )
 
         metrics.calculate_metrics()
@@ -31,7 +31,7 @@ class TestPerformanceMetrics:
         # Win rate = (6 / 10) * 100 = 60%
         assert metrics.win_rate == 60.0
 
-        # ROI = ((12000 - 10000) / 10000) * 100 = 20%
+        # ROI = ((120 - 100) / 100) * 100 = 20%
         assert metrics.roi == pytest.approx(20.0, rel=1e-2)
 
     def test_calculate_metrics_no_trades(self):
@@ -40,8 +40,8 @@ class TestPerformanceMetrics:
             total_trades=0,
             winning_trades=0,
             losing_trades=0,
-            current_balance=Decimal("10000.00"),
-            initial_balance=Decimal("10000.00")
+            current_balance=Decimal("100.00"),
+            initial_balance=Decimal("100.00")
         )
 
         metrics.calculate_metrics()

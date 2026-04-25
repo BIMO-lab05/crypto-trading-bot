@@ -39,25 +39,34 @@ class TestCoreAggregator:
         }
 
     def test_initialization_default_settings(self, aggregator):
-        """Test aggregator initialization with RESEARCH-BASED settings (2025-11-26)"""
+        """Test aggregator initialization with RESEARCH-OPTIMIZED settings
+
+        UPDATED 2025-12-03: Parameters optimized based on Freqtrade/Hummingbot/Jesse analysis.
+        - min_consensus=3 for higher quality signals
+        - min_confidence=0.45 minimum after penalty cascade
+        - aggregation_threshold=0.15 for balanced filtering
+        """
         assert aggregator.gatekeeper is not None
         assert aggregator.validator is not None
         assert aggregator.voter is not None
         assert aggregator.cache is not None
-        # RESEARCH-BASED: min_consensus=2 is industry standard from Freqtrade/Hummingbot
-        assert aggregator.min_consensus == 2
-        # RESEARCH-BASED: min_confidence=0.15 accounts for penalty cascade
-        assert aggregator.min_confidence == 0.15
-        # RESEARCH-BASED: aggregation_threshold=0.12 is balanced setting
-        assert aggregator.voter.aggregation_threshold == 0.12
+        # RESEARCH-OPTIMIZED: min_consensus=3 for higher quality signals
+        assert aggregator.min_consensus == 3
+        # RESEARCH-OPTIMIZED: min_confidence=0.45 minimum after penalties
+        assert aggregator.min_confidence == 0.45
+        # RESEARCH-OPTIMIZED: aggregation_threshold=0.15 balanced setting
+        assert aggregator.voter.aggregation_threshold == 0.15
 
     def test_initialization_custom_settings(self, mock_settings):
-        """Test aggregator initialization with custom settings"""
+        """Test aggregator initialization with custom settings
+
+        UPDATED 2025-12-03: min_confidence is now hardcoded to RESEARCH-OPTIMIZED value.
+        """
         aggregator = CoreAggregator(settings=mock_settings)
 
         assert aggregator.settings == mock_settings
-        # Note: min_confidence is now hardcoded to 0.15 for research-based optimization
-        assert aggregator.min_confidence == 0.15
+        # Note: min_confidence is now hardcoded to 0.45 for research-optimized quality
+        assert aggregator.min_confidence == 0.45
 
     def test_aggregate_signals_no_indicators(self, aggregator):
         """Test aggregation with no indicators"""

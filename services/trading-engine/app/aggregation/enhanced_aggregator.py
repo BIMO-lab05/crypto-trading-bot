@@ -62,15 +62,15 @@ class EnhancedAggregator(CoreAggregator):
         self.use_multi_timeframe = self.settings.enable_multi_timeframe
 
         # Signal weights
-        self.technical_weight = 0.40
-        self.ml_weight = 0.30
+        self.technical_weight = 0.35  # OPTIMIZED 2026-01-25: Balance with ML
+        self.ml_weight = 0.35  # OPTIMIZED 2026-01-25: Match TA weight
         self.sentiment_weight = 0.15
         self.multi_timeframe_weight = 0.15
 
-        # Minimum thresholds
-        self.min_ml_confidence = 0.60  # ML predictions below this are ignored
-        self.min_sentiment_confidence = 0.50  # Sentiment below this is ignored
-        self.min_alignment_score = 70.0  # Multi-timeframe alignment threshold
+        # Minimum thresholds (lowered to accept more predictions - 2025-12-03)
+        self.min_ml_confidence = 0.20  # ML predictions below this are ignored (was 0.60)
+        self.min_sentiment_confidence = 0.10  # Sentiment below this is ignored (was 0.50)
+        self.min_alignment_score = 50.0  # Multi-timeframe alignment threshold (was 70.0)
 
         logger.info(
             f"EnhancedAggregator initialized "

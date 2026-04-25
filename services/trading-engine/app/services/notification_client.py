@@ -38,15 +38,23 @@ class NotificationClient:
 
     async def _post(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Make POST request to notification service"""
+        # DEBUGGER: Entry log
+        logger.info(f"[DEBUGGER:NotificationClient:_post:41] CALLED - endpoint={endpoint}, enabled={self.enabled}, base_url={self.base_url}")
         if not self.enabled:
             logger.debug("Notifications disabled, skipping")
+            # DEBUGGER: Disabled check
+            logger.warning(f"[DEBUGGER:NotificationClient:_post:45] SKIPPED - notifications disabled")
             return {"success": False, "reason": "disabled"}
 
         try:
             session = await self._get_session()
             url = f"{self.base_url}{endpoint}"
+            # DEBUGGER: Before HTTP call
+            logger.info(f"[DEBUGGER:NotificationClient:_post:52] Sending POST to url={url}")
             async with session.post(url, json=data) as response:
                 result = await response.json()
+                # DEBUGGER: Response status
+                logger.info(f"[DEBUGGER:NotificationClient:_post:56] Response status={response.status}, result_keys={list(result.keys()) if isinstance(result, dict) else 'not_dict'}")
                 if response.status == 200:
                     logger.info(f"Notification sent: {endpoint}")
                     return result
@@ -55,9 +63,13 @@ class NotificationClient:
                     return {"success": False, "error": result}
         except aiohttp.ClientError as e:
             logger.error(f"Notification service connection error: {e}")
+            # DEBUGGER: Connection error
+            logger.error(f"[DEBUGGER:NotificationClient:_post:66] CONNECTION ERROR - type={type(e).__name__}, msg={str(e)}")
             return {"success": False, "error": str(e)}
         except Exception as e:
             logger.error(f"Notification error: {e}")
+            # DEBUGGER: General error
+            logger.error(f"[DEBUGGER:NotificationClient:_post:71] GENERAL ERROR - type={type(e).__name__}, msg={str(e)}")
             return {"success": False, "error": str(e)}
 
     async def notify_trade_open(
@@ -71,7 +83,11 @@ class NotificationClient:
         take_profit: Optional[float] = None
     ) -> Dict[str, Any]:
         """Send notification when a trade is opened"""
+        # DEBUGGER: Entry log
+        logger.info(f"[DEBUGGER:NotificationClient:notify_trade_open:88] CALLED - symbol={symbol}, action={action}, notify_on_trade_open={self.notify_on_trade_open}")
         if not self.notify_on_trade_open:
+            # DEBUGGER: Trade open disabled
+            logger.warning(f"[DEBUGGER:NotificationClient:notify_trade_open:91] SKIPPED - notify_on_trade_open=False")
             return {"success": False, "reason": "trade_open_notifications_disabled"}
 
         data = {
@@ -84,7 +100,12 @@ class NotificationClient:
         }
 
         logger.info(f"[NOTIFY] Trade opened: {action} {quantity} {symbol} @ ${price:.2f}")
-        return await self._post("/api/v1/notify/trade", data)
+        # DEBUGGER: Before POST call
+        logger.info(f"[DEBUGGER:NotificationClient:notify_trade_open:105] Calling _post for trade notification")
+        result = await self._post("/api/v1/notify/trade", data)
+        # DEBUGGER: After POST call
+        logger.info(f"[DEBUGGER:NotificationClient:notify_trade_open:108] Result={result}")
+        return result
 
     async def notify_trade_close(
         self,

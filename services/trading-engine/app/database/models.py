@@ -394,3 +394,171 @@ class NotificationHistory(Base):
             'position_id': str(self.position_id) if self.position_id else None,
             'metadata': self.notification_metadata,
         }
+
+
+# ==========================================
+# TRADE ANALYSIS MODEL (Phase 4.3)
+# ==========================================
+class TradeAnalysis(Base):
+    """
+    Trade analysis model - stores post-trade analysis results
+
+    Phase 4.3: Post-Trade Analysis System
+
+    Stores comprehensive analysis of each trade including:
+    - Slippage breakdown (market impact, spread, timing)
+    - Execution quality metrics (implementation shortfall, quality score)
+    - Trade classification (execution style, market conditions, liquidity)
+    - Recommendations for improvement
+    """
+
+    __tablename__ = 'trade_analysis'
+
+    # Primary key
+    analysis_id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+
+    # Reference to original trade
+    trade_id = Column(String(100), nullable=False, unique=True)
+
+    # Trade details
+    symbol = Column(String(20), nullable=False)
+    side = Column(String(10), nullable=False)
+    size = Column(DECIMAL(20, 8), nullable=False)
+
+    # Pricing
+    expected_price = Column(DECIMAL(20, 8), nullable=False)
+    execution_price = Column(DECIMAL(20, 8), nullable=False)
+
+    # Slippage breakdown
+    slippage_market_impact = Column(DECIMAL(20, 8), default=0)
+    slippage_spread_cost = Column(DECIMAL(20, 8), default=0)
+    slippage_timing_cost = Column(DECIMAL(20, 8), default=0)
+    slippage_total = Column(DECIMAL(20, 8), default=0)
+    slippage_bps = Column(DECIMAL(10, 4), default=0)
+
+    # Costs
+    fees = Column(DECIMAL(20, 8), default=0)
+    total_cost = Column(DECIMAL(20, 8), default=0)
+    cost_bps = Column(DECIMAL(10, 4), default=0)
+
+    # Execution quality metrics
+    implementation_shortfall = Column(DECIMAL(20, 8), default=0)
+    implementation_shortfall_bps = Column(DECIMAL(10, 4), default=0)
+    price_improvement = Column(DECIMAL(20, 8), default=0)
+    price_improvement_bps = Column(DECIMAL(10, 4), default=0)
+    fill_rate = Column(DECIMAL(5, 2), default=100)
+    time_to_completion = Column(DECIMAL(10, 3), default=0)
+    spread_capture_rate = Column(DECIMAL(5, 2), default=0)
+    quality_score = Column(Integer, nullable=False)
+    quality_grade = Column(String(20), nullable=False)
+
+    # Benchmark comparisons (JSON)
+    benchmark_comparisons = Column(JSONB)
+
+    # Trade classification
+    execution_style = Column(String(20), nullable=False)
+    market_condition = Column(String(20), nullable=False)
+    liquidity_level = Column(String(20), nullable=False)
+    trading_session = Column(String(20), nullable=False)
+    order_urgency = Column(String(20), default='normal')
+
+    # Strategy
+    strategy = Column(String(50))
+
+    # Recommendations (JSON array)
+    recommendations = Column(JSONB)
+
+    # Timestamps
+    decision_timestamp = Column(DateTime(timezone=True))
+    execution_timestamp = Column(DateTime(timezone=True))
+    analyzed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    # Additional market data (JSON)
+    market_data = Column(JSONB)
+
+    # Constraints and Indices
+    __table_args__ = (
+        CheckConstraint('size > 0', name='check_positive_size'),
+        CheckConstraint('expected_price > 0', name='check_positive_expected_price'),
+        CheckConstraint('execution_price > 0', name='check_positive_execution_price'),
+        CheckConstraint('quality_score >= 0 AND quality_score <= 100', name='check_valid_quality_score'),
+        CheckConstraint("side IN ('BUY', 'SELL')", name='check_valid_trade_side'),
+        CheckConstraint(
+            "quality_grade IN ('excellent', 'good', 'fair', 'poor', 'very_poor')",
+            name='check_valid_quality_grade'
+        ),
+        CheckConstraint(
+            "execution_style IN ('aggressive', 'passive', 'hybrid')",
+            name='check_valid_execution_style'
+        ),
+        CheckConstraint(
+            "market_condition IN ('volatile', 'stable', 'trending_up', 'trending_down', 'ranging')",
+            name='check_valid_market_condition'
+        ),
+        CheckConstraint(
+            "liquidity_level IN ('deep', 'normal', 'thin')",
+            name='check_valid_liquidity_level'
+        ),
+        CheckConstraint(
+            "trading_session IN ('asia', 'europe', 'us')",
+            name='check_valid_trading_session'
+        ),
+        # Indices for common queries
+        Index('idx_trade_analysis_trade_id', 'trade_id'),
+        Index('idx_trade_analysis_symbol', 'symbol'),
+        Index('idx_trade_analysis_strategy', 'strategy'),
+        Index('idx_trade_analysis_analyzed_at', 'analyzed_at'),
+        Index('idx_trade_analysis_quality_score', 'quality_score'),
+        Index('idx_trade_analysis_symbol_date', 'symbol', 'analyzed_at'),
+        Index('idx_trade_analysis_strategy_date', 'strategy', 'analyzed_at'),
+    )
+
+    def __repr__(self):
+        return f"<TradeAnalysis(trade_id={self.trade_id}, symbol={self.symbol}, quality={self.quality_score})>"
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary"""
+        return {
+            'analysis_id': str(self.analysis_id),
+            'trade_id': self.trade_id,
+            'symbol': self.symbol,
+            'side': self.side,
+            'size': float(self.size),
+            'expected_price': float(self.expected_price),
+            'execution_price': float(self.execution_price),
+            'slippage': {
+                'market_impact': float(self.slippage_market_impact),
+                'spread_cost': float(self.slippage_spread_cost),
+                'timing_cost': float(self.slippage_timing_cost),
+                'total_slippage': float(self.slippage_total),
+                'slippage_bps': float(self.slippage_bps),
+            },
+            'fees': float(self.fees),
+            'total_cost': float(self.total_cost),
+            'cost_bps': float(self.cost_bps),
+            'execution_quality': {
+                'implementation_shortfall': float(self.implementation_shortfall),
+                'implementation_shortfall_bps': float(self.implementation_shortfall_bps),
+                'price_improvement': float(self.price_improvement),
+                'price_improvement_bps': float(self.price_improvement_bps),
+                'fill_rate': float(self.fill_rate),
+                'time_to_completion': float(self.time_to_completion),
+                'spread_capture_rate': float(self.spread_capture_rate),
+                'benchmark_comparisons': self.benchmark_comparisons or {},
+                'quality_score': self.quality_score,
+                'quality_grade': self.quality_grade,
+            },
+            'classification': {
+                'execution_style': self.execution_style,
+                'market_condition': self.market_condition,
+                'liquidity_level': self.liquidity_level,
+                'trading_session': self.trading_session,
+                'order_urgency': self.order_urgency,
+            },
+            'strategy': self.strategy,
+            'recommendations': self.recommendations or [],
+            'decision_timestamp': self.decision_timestamp.isoformat() if self.decision_timestamp else None,
+            'execution_timestamp': self.execution_timestamp.isoformat() if self.execution_timestamp else None,
+            'analyzed_at': self.analyzed_at.isoformat() if self.analyzed_at else None,
+            'market_data': self.market_data,
+        }

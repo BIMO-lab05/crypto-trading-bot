@@ -3,6 +3,7 @@ Monitoring and Alerting Module
 Provides Prometheus metrics, health checks, and alerting utilities
 
 REFACTORED: Phase 3 Complete - Modular monitoring system
+UPDATED: 2025-12-11 - Added Statistical Arbitrage metrics
 """
 
 from .metrics import (
@@ -31,6 +32,37 @@ from .health import (
     DependencyHealth,
     SystemHealth
 )
+from .stat_arb_metrics import (
+    StatArbMetricsCollector,
+    get_metrics_collector,
+    update_metrics_from_manager,
+    # Manager metrics
+    stat_arb_total_capital,
+    stat_arb_allocated_capital,
+    stat_arb_available_capital,
+    stat_arb_total_profit,
+    stat_arb_roi_percent,
+    stat_arb_total_trades,
+    stat_arb_win_rate,
+    # Signal metrics
+    stat_arb_signals_generated,
+    stat_arb_signals_executed,
+    stat_arb_signals_rejected,
+    # Strategy metrics
+    stat_arb_strategy_count,
+    stat_arb_strategy_profit,
+    # Pairs metrics
+    stat_arb_pairs_zscore,
+    stat_arb_pairs_spread,
+    stat_arb_pairs_cointegration,
+    # Funding metrics
+    stat_arb_funding_rate,
+    stat_arb_funding_annualized_yield,
+    # Triangular metrics
+    stat_arb_triangular_paths,
+    stat_arb_triangular_opportunity,
+    stat_arb_triangular_latency_ms
+)
 
 __all__ = [
     # Metrics
@@ -55,5 +87,29 @@ __all__ = [
     'get_health_monitor',
     'HealthStatus',
     'DependencyHealth',
-    'SystemHealth'
+    'SystemHealth',
+    # Statistical Arbitrage Metrics
+    'StatArbMetricsCollector',
+    'get_metrics_collector',
+    'update_metrics_from_manager',
+    'stat_arb_total_capital',
+    'stat_arb_allocated_capital',
+    'stat_arb_available_capital',
+    'stat_arb_total_profit',
+    'stat_arb_roi_percent',
+    'stat_arb_total_trades',
+    'stat_arb_win_rate',
+    'stat_arb_signals_generated',
+    'stat_arb_signals_executed',
+    'stat_arb_signals_rejected',
+    'stat_arb_strategy_count',
+    'stat_arb_strategy_profit',
+    'stat_arb_pairs_zscore',
+    'stat_arb_pairs_spread',
+    'stat_arb_pairs_cointegration',
+    'stat_arb_funding_rate',
+    'stat_arb_funding_annualized_yield',
+    'stat_arb_triangular_paths',
+    'stat_arb_triangular_opportunity',
+    'stat_arb_triangular_latency_ms'
 ]

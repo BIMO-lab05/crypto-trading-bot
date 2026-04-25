@@ -42,6 +42,7 @@ INDICATOR_CATEGORIES = {
 
 # Research-backed indicator weights (2025-11-29)
 # Based on backtested win rates and reliability
+# ADJUSTED 2026-02-25: Reduced Ichimoku weight (1.2→0.9) to reduce SELL bias in ranging markets
 RESEARCH_WEIGHTS = {
     # Highest reliability (research shows 40-73% win rates)
     "RSI": 1.0,
@@ -50,7 +51,7 @@ RESEARCH_WEIGHTS = {
     "BOLLINGER_BANDS": 1.0,
     # Advanced with proven track record
     "RSI_DIVERGENCE": 1.3,      # Strong reversal detection
-    "ICHIMOKU": 1.2,            # Multi-factor confirmation
+    "ICHIMOKU": 0.9,            # REDUCED: 1.2→0.9 (less weight in ranging/choppy markets)
     "SQZMOM_ENHANCED": 1.5,     # Highest win rate for breakouts (research: 92%)
     # Supporting indicators
     "SMA": 0.8,                 # Lagging, less reliable alone
@@ -87,7 +88,7 @@ class SignalVoter:
     - Weighted by confidence AND indicator weight
     """
 
-    def __init__(self, aggregation_threshold: float = 0.05):
+    def __init__(self, aggregation_threshold: float = 0.15):
         """
         Initialize signal voter
 
@@ -97,10 +98,10 @@ class SignalVoter:
                                   Scores <= -threshold -> SELL
                                   Scores in between -> HOLD
 
-                                  AGGRESSIVE SETTINGS (2025-11-28):
-                                  - 0.05 threshold allows trading on weak consensus
-                                  - Enables more trades in ranging markets
-                                  - Risk managed by position sizing, not signal filtering
+                                  OPTIMIZED SETTINGS (2025-12-03):
+                                  - 0.15 threshold requires stronger consensus (3x more selective)
+                                  - Reduces false signals and improves win rate
+                                  - Target: 55-60% win rate vs previous 41%
         """
         self.aggregation_threshold = aggregation_threshold
         logger.info(f"SignalVoter initialized with threshold={aggregation_threshold}")

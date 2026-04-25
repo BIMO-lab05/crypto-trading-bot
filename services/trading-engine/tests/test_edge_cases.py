@@ -519,7 +519,7 @@ class TestCriticalPathIntegration:
             ))
 
         # Should handle max positions gracefully
-        is_allowed, reason = risk_manager.check_position_limits(positions, Decimal("10000.00"))
+        is_allowed, reason = risk_manager.check_position_limits(positions, Decimal("100.00"))
 
         assert is_allowed is True or is_allowed is False  # Either is valid
 

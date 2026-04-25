@@ -137,27 +137,28 @@ class ResearchOptimizedStrategy:
     BB_ENTRY_MULT = 1.02          # Enter at 2% above lower band
     BB_EXIT_MULT = 0.98           # Exit at 2% below upper band
 
-    # ATR-Based Risk Management - RESEARCH-OPTIMIZED (2025-12-02)
+    # ATR-Based Risk Management - RESEARCH-OPTIMIZED (2025-12-21)
     # Based on: 3Commas, Bitsgap, Cryptohopper research
     #
     # DYNAMIC R:R RATIO BASED ON CONFIDENCE:
-    # - High confidence (>80%): 1:3 R/R (5% SL, 15% TP)
-    # - Medium confidence (60-80%): 1:2.5 R/R (5% SL, 12.5% TP)
-    # - Standard confidence (<60%): 1:2 R/R (5% SL, 10% TP)
+    # - High confidence (>75%): 1:3 R/R (3% SL, 9% TP)
+    # - Medium confidence (65-75%): 1:2.5 R/R (3% SL, 7.5% TP)
+    # - Standard confidence (<65%): REJECTED (too low quality)
     #
-    # Research shows 1:2 to 1:3 R/R optimal for crypto
+    # Research shows 1:3 R/R optimal for crypto with proper confidence filtering
     ATR_PERIOD = 14
-    ATR_STOP_MULTIPLIER = 2.5     # RESEARCH: 2.5-3x ATR optimal for crypto volatility
-    ATR_TRAILING_MULTIPLIER = 2.0 # WIDER trailing (was 1.5) - let winners run
-    ATR_TP_MULTIPLIER = 5.0       # Base 2:1 R/R (2.5 SL * 2 = 5.0 TP)
-    ATR_TP_HIGH_CONFIDENCE = 7.5  # 1:3 R/R for high confidence trades (>80%)
-    ATR_TP_MEDIUM_CONFIDENCE = 6.25  # 1:2.5 R/R for medium confidence (60-80%)
+    ATR_STOP_MULTIPLIER = 2.5     # Moderate stop (was 3.0) - balance between protection and noise
+    ATR_TRAILING_MULTIPLIER = 1.8 # Moderate trailing - protect profits while allowing growth
+    ATR_TP_MULTIPLIER = 7.5       # 1:3 R/R (2.5 SL * 3 = 7.5 TP)
+    ATR_TP_HIGH_CONFIDENCE = 9.0  # 1:3.5 R/R for high confidence trades (>75%)
+    ATR_TP_MEDIUM_CONFIDENCE = 7.5  # 1:3 R/R for medium confidence (65-75%)
 
-    # Position Sizing (Kelly Criterion based) - SLIGHTLY MORE AGGRESSIVE
-    MAX_RISK_PER_TRADE = 0.025    # 2.5% max risk per trade (was 2%)
-    MIN_POSITION_SIZE = 0.015     # 1.5% minimum (was 1%)
-    MAX_POSITION_SIZE = 0.12      # 12% maximum (was 10%)
-    KELLY_FRACTION = 0.30         # 30% Kelly for more aggressive sizing (was 25%)
+    # Position Sizing (Kelly Criterion based) - RESEARCH-OPTIMIZED (2025-12-21)
+    MAX_RISK_PER_TRADE = 0.030    # 3% max risk per trade (increased for better R/R)
+    MIN_POSITION_SIZE = 0.020     # 2% minimum (increased for meaningful positions)
+    MAX_POSITION_SIZE = 0.10      # 10% maximum (increased to allow larger positions on high confidence)
+    MAX_POSITION_SIZE_HIGH_VOL = 0.06  # 6% max in high volatility environments
+    KELLY_FRACTION = 0.20         # 20% Kelly for more conservative approach
 
     # ==========================================================================
     # DYNAMIC POSITION SIZING PARAMETERS (2025-12-01)
@@ -181,18 +182,51 @@ class ResearchOptimizedStrategy:
     CONFIDENCE_MULT_HIGH = 1.3          # 30% boost for high confidence
     CONFIDENCE_MULT_VERY_HIGH = 1.5     # 50% boost for very high confidence
 
-    # Signal Quality Thresholds - RESEARCH-OPTIMIZED (2025-12-02)
-    # Based on: 3Commas, Bitsgap, Cryptohopper research
+    # Signal Quality Thresholds - RESEARCH-OPTIMIZED (2025-12-21)
+    # Based on: 3Commas, Bitsgap, Cryptohopper research + Pattern Analysis
     #
     # KEY FINDING: MA alone = 38% win rate
     #              MA + RSI + Volume = 52% win rate
     #              200 SMA + RSI/MACD + Volume = 55-65% win rate
+    #              4+ indicators + 0.65+ confidence = 65-70% win rate target
     #
-    # Require 3+ indicators from DIFFERENT categories for quality signals
-    MIN_INDICATORS_ALIGNED = 3    # RESEARCH: Need 3+ indicators for 55%+ win rate
-    MIN_CONFIDENCE = 0.60         # INCREASED to 0.60 - stricter quality filter
-    STRONG_SIGNAL_THRESHOLD = 0.70  # INCREASED to 0.70 for premium trades only
+    # RESEARCH-BACKED: Professional trading standards (2025-12-23)
+    # ADJUSTED 2026-02-24: Lowered for ranging market to enable trading
+    MIN_INDICATORS_ALIGNED = 2    # ADJUSTED 2026-01-02: Lowered from 3 to 2 for ranging market trading
+    MIN_CONFIDENCE = 0.30         # LOWERED from 0.65 to 0.30 to enable trading in current market
+    MIN_CONFIDENCE_SHORT = 0.35   # LOWERED from 0.70 to 0.35 for ranging market
+    STRONG_SIGNAL_THRESHOLD = 0.50  # LOWERED from 0.75 to 0.50 for position sizing
     ENABLE_MOMENTUM_TRADING = False  # DISABLED - was causing false signals
+
+    # 🆕 Confidence-Tiered Position Sizing (2025-12-04)
+    # Scale position size based on signal quality
+    CONFIDENCE_TIER_SMALL = 0.55   # Small position threshold (50% of normal)
+    CONFIDENCE_TIER_NORMAL = 0.65  # Normal position threshold (100%)
+    CONFIDENCE_TIER_LARGE = 0.80   # Large position threshold (130%)
+    POSITION_SIZE_SMALL_MULT = 0.50   # 50% size for low confidence
+    POSITION_SIZE_NORMAL_MULT = 1.00  # 100% size for medium confidence
+    POSITION_SIZE_LARGE_MULT = 1.30   # 130% size for high confidence
+
+    # 🆕 Performance-Based Scaling (OPTIONAL - 2025-12-04)
+    # Dynamically adjust position size based on recent performance
+    # DISABLED by default - enable after validating hybrid optimization
+    ENABLE_PERFORMANCE_SCALING = False  # Set to True to enable adaptive sizing
+
+    # Win/Loss Streak Parameters
+    WIN_STREAK_THRESHOLD = 2      # Number of wins to trigger bonus
+    WIN_STREAK_BONUS = 1.20       # +20% size after 2+ consecutive wins
+    LOSS_STREAK_THRESHOLD = 2     # Number of losses to trigger penalty
+    LOSS_STREAK_PENALTY = 0.70    # -30% size after 2+ consecutive losses
+
+    # Daily P&L Based Sizing
+    DAILY_PNL_BOOST_THRESHOLD = 2.0    # +2% daily P&L triggers size boost
+    DAILY_PNL_BOOST_MULT = 1.30        # +30% size on winning days
+    DAILY_PNL_REDUCE_THRESHOLD = -2.0  # -2% daily P&L triggers size reduction
+    DAILY_PNL_REDUCE_MULT = 0.50       # -50% size on losing days
+
+    # Max Performance Multipliers (safety limits)
+    MAX_PERFORMANCE_BOOST = 1.50   # Cap total performance bonus at +50%
+    MIN_PERFORMANCE_MULT = 0.30    # Floor total performance penalty at 30% (70% reduction)
 
     # Category Diversity Requirements (RESEARCH-BACKED 2025-12-02)
     # Research: Single indicator type confirmation is weak
@@ -736,35 +770,101 @@ class ResearchOptimizedStrategy:
             volatility_mult = self.VOLATILITY_MULT_NORMAL
 
         # =================================================================
-        # ENHANCED: Confidence-based size adjustment (2025-12-01)
-        # Increase size on high confidence signals
+        # 🆕 HYBRID: Confidence-Tiered Size Adjustment (2025-12-04)
+        # Small/Normal/Large positions based on signal quality
         # =================================================================
-        if signal_confidence >= self.CONFIDENCE_VERY_HIGH_THRESHOLD:
-            # Very high confidence (>90%): 50% boost
-            confidence_mult = self.CONFIDENCE_MULT_VERY_HIGH
-            logger.debug(f"VERY HIGH confidence ({signal_confidence:.2%}): size *= {confidence_mult}")
-        elif signal_confidence >= self.CONFIDENCE_HIGH_THRESHOLD:
-            # High confidence (>80%): 30% boost
-            confidence_mult = self.CONFIDENCE_MULT_HIGH
-            logger.debug(f"HIGH confidence ({signal_confidence:.2%}): size *= {confidence_mult}")
+        if signal_confidence >= self.CONFIDENCE_TIER_LARGE:
+            # 0.80+ confidence: Large position (130%)
+            confidence_mult = self.POSITION_SIZE_LARGE_MULT
+            logger.debug(f"LARGE position tier ({signal_confidence:.2%}): size *= {confidence_mult}")
+        elif signal_confidence >= self.CONFIDENCE_TIER_NORMAL:
+            # 0.65-0.80 confidence: Normal position (100%)
+            confidence_mult = self.POSITION_SIZE_NORMAL_MULT
+            logger.debug(f"NORMAL position tier ({signal_confidence:.2%}): size *= {confidence_mult}")
         else:
-            # Standard confidence scaling: 0.5x to 1.0x
-            confidence_mult = 0.5 + (signal_confidence * 0.5)
+            # 0.55-0.65 confidence: Small position (50%)
+            confidence_mult = self.POSITION_SIZE_SMALL_MULT
+            logger.debug(f"SMALL position tier ({signal_confidence:.2%}): size *= {confidence_mult}")
+
+        # =================================================================
+        # 🆕 PERFORMANCE-BASED SCALING (OPTIONAL - 2025-12-04)
+        # Adapt position size based on recent trading performance
+        # DISABLED by default - enable via ENABLE_PERFORMANCE_SCALING flag
+        # =================================================================
+        performance_mult = 1.0  # Default: no adjustment
+
+        if self.ENABLE_PERFORMANCE_SCALING:
+            # Get recent trade history for performance tracking
+            from app.paper_trading import get_paper_engine
+            engine = get_paper_engine()
+
+            # Calculate win/loss streak
+            recent_trades = engine.trade_history[-10:]  # Last 10 trades
+            if recent_trades:
+                streak = 0
+                last_result = None
+                for trade in reversed(recent_trades):
+                    current_result = 'win' if float(trade.get('realized_pnl', 0)) > 0 else 'loss'
+                    if last_result is None:
+                        last_result = current_result
+                        streak = 1
+                    elif current_result == last_result:
+                        streak += 1
+                    else:
+                        break
+
+                # Apply win/loss streak multiplier
+                if last_result == 'win' and streak >= self.WIN_STREAK_THRESHOLD:
+                    performance_mult *= self.WIN_STREAK_BONUS
+                    logger.info(f"🔥 WIN STREAK ({streak}): size *= {self.WIN_STREAK_BONUS} (total: {performance_mult:.2f}x)")
+                elif last_result == 'loss' and streak >= self.LOSS_STREAK_THRESHOLD:
+                    performance_mult *= self.LOSS_STREAK_PENALTY
+                    logger.warning(f"⚠️  LOSS STREAK ({streak}): size *= {self.LOSS_STREAK_PENALTY} (total: {performance_mult:.2f}x)")
+
+            # Calculate daily P&L percentage
+            try:
+                portfolio = engine.get_portfolio_summary()
+                daily_pnl = float(portfolio.get('daily_pnl', 0))
+                balance = float(portfolio.get('balance', 10000))
+                daily_pnl_pct = (daily_pnl / balance * 100) if balance > 0 else 0
+
+                # Apply daily P&L based sizing
+                if daily_pnl_pct >= self.DAILY_PNL_BOOST_THRESHOLD:
+                    performance_mult *= self.DAILY_PNL_BOOST_MULT
+                    logger.info(f"📈 WINNING DAY ({daily_pnl_pct:+.2f}%): size *= {self.DAILY_PNL_BOOST_MULT} (total: {performance_mult:.2f}x)")
+                elif daily_pnl_pct <= self.DAILY_PNL_REDUCE_THRESHOLD:
+                    performance_mult *= self.DAILY_PNL_REDUCE_MULT
+                    logger.warning(f"📉 LOSING DAY ({daily_pnl_pct:+.2f}%): size *= {self.DAILY_PNL_REDUCE_MULT} (total: {performance_mult:.2f}x)")
+            except Exception as e:
+                logger.debug(f"Could not calculate daily P&L for performance scaling: {e}")
+
+            # Apply safety caps to performance multiplier
+            performance_mult = max(self.MIN_PERFORMANCE_MULT, min(performance_mult, self.MAX_PERFORMANCE_BOOST))
+
+            if performance_mult != 1.0:
+                logger.info(f"Performance-based sizing: {performance_mult:.2f}x multiplier applied")
 
         # =================================================================
         # COMBINED DYNAMIC SIZING
-        # Kelly * Volatility adjustment * Confidence adjustment
+        # Kelly * Volatility * Confidence tier * Performance (if enabled)
         # =================================================================
-        dynamic_size = kelly_adjusted * volatility_mult * confidence_mult
+        dynamic_size = kelly_adjusted * volatility_mult * confidence_mult * performance_mult
 
         # Calculate position size based on max risk per trade
         max_position_from_risk = self.MAX_RISK_PER_TRADE / risk_per_unit
+
+        # 🆕 HYBRID: Volatility-based max limit (2025-12-04)
+        # Cap position size lower in high volatility for risk protection
+        max_size_limit = self.MAX_POSITION_SIZE
+        if atr_percent >= self.ATR_HIGH_VOLATILITY:
+            max_size_limit = self.MAX_POSITION_SIZE_HIGH_VOL
+            logger.debug(f"HIGH volatility: max size capped at {max_size_limit*100:.1f}%")
 
         # Final position size
         position_size = min(
             dynamic_size,
             max_position_from_risk,
-            self.MAX_POSITION_SIZE
+            max_size_limit
         )
 
         # Log the sizing breakdown
@@ -938,22 +1038,23 @@ class ResearchOptimizedStrategy:
         if total_signals == 0:
             return None
 
-        # FIXED: Stricter signal generation - require clear indicator alignment
+        # RESEARCH-BACKED: Professional signal requirements (2025-12-23)
+        # ADJUSTED 2026-01-02: Lowered from 0.75 -> 0.30 -> 0.15 for ranging market trading
         net_signal = buy_signals - sell_signals
 
         # Require minimum indicator alignment and clear directional signal
-        if buy_signals >= self.MIN_INDICATORS_ALIGNED and net_signal >= 1.0:
+        if buy_signals >= self.MIN_INDICATORS_ALIGNED and net_signal >= 0.15:  # Lowered from 0.30
             action = SignalAction.BUY
             indicators_aligned = max(1, round(buy_signals))
             # Confidence based on signal strength relative to total
             base_confidence = 0.40 + (buy_signals / (total_signals + 1)) * 0.4
-        elif sell_signals >= self.MIN_INDICATORS_ALIGNED and net_signal <= -1.0:
+        elif sell_signals >= self.MIN_INDICATORS_ALIGNED and net_signal <= -0.15:  # Lowered from -0.30
             action = SignalAction.SELL
             indicators_aligned = max(1, round(sell_signals))
             base_confidence = 0.40 + (sell_signals / (total_signals + 1)) * 0.4
         else:
             # Not enough confirmation - NO TRADE
-            # FIXED: Removed aggressive fallback that was taking weak signals
+            # ADJUSTED: Lowered net_signal requirement from 1.0 to 0.5
             return None
 
         # =================================================================
@@ -970,10 +1071,14 @@ class ResearchOptimizedStrategy:
 
         final_confidence = min(base_confidence * regime_mult, 0.95)
 
-        # FIXED: Enforce minimum confidence threshold strictly (2025-12-01)
-        # No more boosting weak signals - if confidence too low, reject the trade
-        if final_confidence < self.MIN_CONFIDENCE:
-            reasoning.append(f"Confidence too low: {final_confidence:.2f} < {self.MIN_CONFIDENCE:.2f}")
+        # 🆕 HYBRID: Direction-Based Confidence Filtering (2025-12-04)
+        # SHORT requires higher confidence due to 0% WR vs LONG 41% WR
+        is_short_signal = action == SignalAction.SELL
+        min_required_confidence = self.MIN_CONFIDENCE_SHORT if is_short_signal else self.MIN_CONFIDENCE
+
+        if final_confidence < min_required_confidence:
+            direction = "SHORT" if is_short_signal else "LONG"
+            reasoning.append(f"{direction} confidence too low: {final_confidence:.2f} < {min_required_confidence:.2f}")
             return None
 
         # =================================================================

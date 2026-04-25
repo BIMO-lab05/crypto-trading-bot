@@ -208,6 +208,9 @@ class BacktestEngine:
         self._signals_executed = 0
         self._trade_counter = 0
 
+        # Strategy reference for position sync
+        self._strategy: Optional[StrategyBase] = None
+
         logger.info(f"BacktestEngine initialized with equity: ${self.config.initial_equity:,.2f}")
 
     def reset(self) -> None:
@@ -221,6 +224,7 @@ class BacktestEngine:
         self._signals_generated = 0
         self._signals_executed = 0
         self._trade_counter = 0
+        self._strategy = None
 
     def run(
         self,
@@ -240,6 +244,7 @@ class BacktestEngine:
             BacktestResult with all metrics and trades
         """
         self.reset()
+        self._strategy = strategy  # Store reference for position sync
 
         if not data:
             raise ValueError("No data provided for backtest")
@@ -448,8 +453,13 @@ class BacktestEngine:
             f"P&L: ${net_pnl:.2f} ({pnl_pct:.2f}%), Reason: {exit_reason}"
         )
 
-        # Clear position
+        # Clear position in engine
         self._position = None
+
+        # CRITICAL FIX: Update strategy position tracking to sync state
+        # Without this, strategy.has_position() returns True even after close
+        if self._strategy:
+            self._strategy.update_position(None, None)
 
     def _check_exit_conditions(self, bar: OHLCV) -> None:
         """Check stop loss and take profit"""

@@ -129,7 +129,7 @@ Status: ✅ CONFIGURED
 Setting: PAPER_INITIAL_BALANCE
 Current Value: $10,000.00
 Config File: config.py lines 117-121
-Environment: PAPER_INITIAL_BALANCE=10000.0 (.env line 45)
+Environment: PAPER_INITIAL_BALANCE=100.0 (.env line 45)
 Status: ✅ CONFIGURED
 ```
 - **Range**: $100.00 to unlimited

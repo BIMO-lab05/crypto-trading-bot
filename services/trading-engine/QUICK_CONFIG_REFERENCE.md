@@ -35,7 +35,7 @@ MIN_CONSENSUS_INDICATORS=3            ✅ Requires 3+ indicators agree
 
 ### Paper Trading Settings
 ```
-PAPER_INITIAL_BALANCE=10000.0         ✅ $10,000 virtual capital
+PAPER_INITIAL_BALANCE=100.0         ✅ $100 virtual capital
 PAPER_COMMISSION_PCT=0.1              ✅ 0.1% commission simulation
 ```
 

@@ -193,7 +193,7 @@ def test_status_endpoint_returns_trading_info(mock_monitor, mock_engine, mock_pm
     mock_pm.return_value = mock_pm_instance
     
     mock_engine_instance = MagicMock()
-    mock_engine_instance.get_balance.return_value = Decimal("10000.00")
+    mock_engine_instance.get_balance.return_value = Decimal("100.00")
     mock_engine.return_value = mock_engine_instance
     
     mock_monitor_instance = MagicMock()
@@ -335,7 +335,7 @@ def test_get_performance_endpoint(mock_engine, client):
         "total_pnl": 500.0,
         "win_rate": 60.0,
         "current_balance": 10500.0,
-        "initial_balance": 10000.0,
+        "initial_balance": 100.0,
         "roi": 5.0
     }
     mock_engine.return_value = mock_instance

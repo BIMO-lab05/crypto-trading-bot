@@ -106,6 +106,16 @@ class PortfolioHeatConfig:
         "BTCUSDT": 1.0,    # Perfect correlation with itself
     })
 
+    # 🆕 Pyramiding / Multiple Positions Settings (OPTIONAL - 2025-12-04)
+    # Allow adding to winning positions (conservative pyramiding)
+    # DISABLED by default - enable after validating hybrid optimization
+    allow_pyramiding: bool = False  # Set to True to enable multiple positions per symbol
+    max_positions_per_symbol: int = 2  # Maximum concurrent positions in same symbol
+    pyramiding_same_direction_only: bool = True  # Only allow same direction (no hedging)
+    pyramiding_require_profit: bool = True  # Second position only if first is profitable
+    pyramiding_min_profit_pct: float = 1.0  # First position must be +1% to pyramid
+    max_symbol_exposure_pct: float = 15.0  # Maximum total exposure to single symbol
+
 
 @dataclass
 class PositionRisk:
@@ -450,7 +460,8 @@ class PortfolioHeatManager:
         symbol: str,
         proposed_risk_pct: float,
         equity: float,
-        btc_correlation: Optional[float] = None
+        btc_correlation: Optional[float] = None,
+        side: Optional[str] = None  # 🆕 "LONG" or "SHORT" for pyramiding logic
     ) -> Tuple[bool, Optional[str], float]:
         """
         Check if a new trade can be opened
@@ -460,6 +471,7 @@ class PortfolioHeatManager:
             proposed_risk_pct: Proposed risk as % of equity
             equity: Total account equity
             btc_correlation: BTC correlation (uses default if not provided)
+            side: Trade direction ("LONG" or "SHORT") - required for pyramiding
 
         Returns:
             Tuple of (can_trade, blocking_reason, size_multiplier)
@@ -469,9 +481,42 @@ class PortfolioHeatManager:
         heat_level = self.get_heat_level(total_heat)
         multiplier = self.get_position_multiplier(heat_level)
 
-        # Check if already have position in this symbol
+        # 🆕 PYRAMIDING LOGIC (OPTIONAL - 2025-12-04)
+        # Check existing positions in this symbol
         if symbol in self.positions:
-            return False, f"Already have open position in {symbol}", 0.0
+            # If pyramiding disabled, block all duplicate positions
+            if not self.config.allow_pyramiding:
+                return False, f"Already have open position in {symbol}", 0.0
+
+            # Pyramiding enabled - check constraints
+            symbol_positions = self.positions[symbol] if isinstance(self.positions[symbol], list) else [self.positions[symbol]]
+
+            # Check max positions per symbol limit
+            if len(symbol_positions) >= self.config.max_positions_per_symbol:
+                return False, f"Max {self.config.max_positions_per_symbol} positions per symbol reached for {symbol}", 0.0
+
+            # Check same direction only (no hedging)
+            if self.config.pyramiding_same_direction_only and side:
+                existing_sides = {pos.side for pos in symbol_positions}
+                if side not in existing_sides and len(existing_sides) > 0:
+                    return False, f"Cannot open {side} position - already have {existing_sides.pop()} position in {symbol} (no hedging allowed)", 0.0
+
+            # Check profitability requirement for additional positions
+            if self.config.pyramiding_require_profit and len(symbol_positions) > 0:
+                # Get first position profitability
+                first_pos = symbol_positions[0]
+                profit_pct = ((first_pos.current_price - first_pos.entry_price) / first_pos.entry_price * 100) if first_pos.side == "LONG" else ((first_pos.entry_price - first_pos.current_price) / first_pos.entry_price * 100)
+
+                if profit_pct < self.config.pyramiding_min_profit_pct:
+                    return False, f"First position must be +{self.config.pyramiding_min_profit_pct}% to pyramid (current: {profit_pct:+.2f}%)", 0.0
+
+            # Check total symbol exposure limit
+            total_symbol_risk = sum(pos.risk_pct for pos in symbol_positions) + proposed_risk_pct
+            if total_symbol_risk > self.config.max_symbol_exposure_pct:
+                available = self.config.max_symbol_exposure_pct - sum(pos.risk_pct for pos in symbol_positions)
+                return False, f"Would exceed {symbol} exposure limit ({total_symbol_risk:.2f}% > {self.config.max_symbol_exposure_pct}%). Available: {available:.2f}%", 0.0
+
+            logger.info(f"✅ PYRAMIDING: Adding {side} position #{len(symbol_positions)+1} to {symbol}")
 
         # Check per-trade limit
         if proposed_risk_pct > self.config.max_per_trade_pct:
