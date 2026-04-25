@@ -116,7 +116,11 @@ class TestMultiTimeframeAnalyzer:
 
     @pytest.mark.asyncio
     async def test_get_timeframe_signal_success(self, analyzer):
-        """Test successful timeframe signal retrieval"""
+        """Test successful timeframe signal retrieval
+
+        UPDATED 2025-12-03: Changed timeframe from "1h" to "60m" to match
+        TIMEFRAMES dict format expected by MultiTimeframeAnalyzer.
+        """
         mock_response = {
             "signal": "BUY",
             "confidence": 0.75,
@@ -132,31 +136,37 @@ class TestMultiTimeframeAnalyzer:
                 json=Mock(return_value=mock_response)
             )
 
-            signal = await analyzer._get_timeframe_signal("BTCUSDT", "1h")
+            signal = await analyzer._get_timeframe_signal("BTCUSDT", "60m")
 
             assert signal is not None
-            assert signal.interval == "1h"
+            assert signal.interval == "60m"
             assert signal.signal == "BUY"
             assert signal.confidence == 0.75
             assert signal.rsi == 65.0
 
     @pytest.mark.asyncio
     async def test_get_timeframe_signal_http_error(self, analyzer):
-        """Test timeframe signal retrieval with HTTP error"""
+        """Test timeframe signal retrieval with HTTP error
+
+        UPDATED 2025-12-03: Changed timeframe from "1h" to "60m".
+        """
         with patch.object(analyzer.http_client, 'get') as mock_get:
             mock_get.return_value = AsyncMock(status_code=404)
 
-            signal = await analyzer._get_timeframe_signal("BTCUSDT", "1h")
+            signal = await analyzer._get_timeframe_signal("BTCUSDT", "60m")
 
             assert signal is None
 
     @pytest.mark.asyncio
     async def test_get_timeframe_signal_exception(self, analyzer):
-        """Test timeframe signal retrieval with exception"""
+        """Test timeframe signal retrieval with exception
+
+        UPDATED 2025-12-03: Changed timeframe from "1h" to "60m".
+        """
         with patch.object(analyzer.http_client, 'get') as mock_get:
             mock_get.side_effect = Exception("Network error")
 
-            signal = await analyzer._get_timeframe_signal("BTCUSDT", "1h")
+            signal = await analyzer._get_timeframe_signal("BTCUSDT", "60m")
 
             assert signal is None
 

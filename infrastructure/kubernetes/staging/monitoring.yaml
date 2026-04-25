@@ -1,0 +1,229 @@
+# Monitoring Stack for Staging
+# Prometheus and Grafana deployment
+# Version: 1.0
+# Created: 2025-12-12
+
+---
+# Prometheus Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    service: prometheus
+    environment: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: prometheus
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: monitoring
+        service: prometheus
+        environment: staging
+    spec:
+      serviceAccountName: prometheus-sa
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.48.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9090
+              name: http
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--storage.tsdb.retention.time=15d'
+            - '--web.enable-lifecycle'
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-data
+              mountPath: /prometheus
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: monitoring-config
+        - name: prometheus-data
+          persistentVolumeClaim:
+            claimName: prometheus-pvc
+
+---
+# Prometheus Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: prometheus
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+      name: http
+
+---
+# Prometheus ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-sa
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: prometheus
+
+---
+# Prometheus ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-staging
+  labels:
+    app: crypto-trading-bot
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+
+---
+# Prometheus ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-staging
+  labels:
+    app: crypto-trading-bot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-staging
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-sa
+    namespace: trading-bot-staging
+
+---
+# Grafana Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    service: grafana
+    environment: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: grafana
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: monitoring
+        service: grafana
+        environment: staging
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.2.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: prometheus-secrets
+                  key: GRAFANA_ADMIN_PASSWORD
+            - name: GF_INSTALL_PLUGINS
+              value: "grafana-clock-panel,grafana-simple-json-datasource"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: grafana-data
+          persistentVolumeClaim:
+            claimName: grafana-pvc
+
+---
+# Grafana Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http

@@ -2,9 +2,10 @@
 Stochastic Oscillator Indicator
 Momentum indicator comparing closing price to price range over time
 
-Updated: Widened thresholds to generate more BUY/SELL signals
-- Overbought threshold: 80 -> 75 (more SELL signals)
-- Oversold threshold: 20 -> 25 (more BUY signals)
+OPTIMIZED 2026-01-25: Aligned with RSI thresholds for consistency
+- Overbought threshold: 80 (matches RSI)
+- Oversold threshold: 20 (matches RSI)
+- Prevents conflicting signals between RSI and Stochastic
 """
 
 from typing import Dict, List
@@ -22,9 +23,9 @@ class Stochastic:
     %K = 100 x (Close - Lowest Low) / (Highest High - Lowest Low)
     %D = SMA(%K, smooth_period)
 
-    Signals (Updated for more signal generation):
-    - Overbought: %K > 75 (potential reversal down) - widened from 80
-    - Oversold: %K < 25 (potential reversal up) - widened from 20
+    Signals (OPTIMIZED 2026-01-25):
+    - Overbought: %K > 80 (matches RSI threshold)
+    - Oversold: %K < 20 (matches RSI threshold)
     - Bullish: %K crosses above %D
     - Bearish: %K crosses below %D
     """
@@ -34,8 +35,8 @@ class Stochastic:
         period: int = 14,
         smooth_k: int = 3,
         smooth_d: int = 3,
-        overbought: int = 75,  # Updated: Changed from 80 to 75 for more signals
-        oversold: int = 25     # Updated: Changed from 20 to 25 for more signals
+        overbought: int = 80,  # OPTIMIZED: Match RSI threshold for consistency
+        oversold: int = 20     # OPTIMIZED: Match RSI threshold for consistency
     ):
         self.period = period
         self.smooth_k = smooth_k

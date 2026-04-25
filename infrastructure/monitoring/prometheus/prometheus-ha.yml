@@ -1,0 +1,455 @@
+# =============================================================================
+# Enhanced Prometheus Configuration for High Availability
+# Crypto Trading Bot - Phase 7: HA & Advanced Monitoring
+# Version: 2.0.0
+# =============================================================================
+#
+# Features:
+# - Dynamic service discovery via Consul
+# - File-based service discovery for Docker Compose
+# - Comprehensive relabeling for metrics enrichment
+# - Recording rules for pre-computed metrics
+# - Alert rules integration with AlertManager
+# - Remote write for long-term storage (optional)
+
+global:
+  # Scrape interval: How often to collect metrics from targets
+  # 15s is production-grade for trading systems
+  scrape_interval: 15s
+
+  # Evaluation interval: How often to evaluate alerting/recording rules
+  evaluation_interval: 15s
+
+  # Scrape timeout: How long to wait for a target to respond
+  scrape_timeout: 10s
+
+  # External labels added to all metrics and alerts
+  # Used for federation and remote storage identification
+  external_labels:
+    cluster: "crypto-trading-bot"
+    environment: "${ENVIRONMENT:-production}"
+    region: "${REGION:-primary}"
+
+# =============================================================================
+# ALERTMANAGER CONFIGURATION
+# =============================================================================
+alerting:
+  alert_relabel_configs:
+    # Add environment label to all alerts
+    - source_labels: [environment]
+      target_label: environment
+      replacement: "${ENVIRONMENT:-production}"
+
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "alertmanager:9093"
+      scheme: http
+      timeout: 10s
+      api_version: v2
+
+# =============================================================================
+# RULE FILES
+# =============================================================================
+# Recording rules: Pre-compute expensive queries
+# Alert rules: Define alerting conditions
+rule_files:
+  - "/etc/prometheus/rules/*.yml"
+  - "/etc/prometheus/alerts/*.yml"
+
+# =============================================================================
+# REMOTE WRITE (Optional - for long-term storage)
+# =============================================================================
+# Uncomment to enable remote storage (Thanos, Cortex, VictoriaMetrics)
+# remote_write:
+#   - url: "http://thanos-receive:19291/api/v1/receive"
+#     remote_timeout: 30s
+#     queue_config:
+#       capacity: 10000
+#       max_shards: 50
+#       max_samples_per_send: 5000
+
+# =============================================================================
+# SCRAPE CONFIGURATIONS
+# =============================================================================
+scrape_configs:
+
+  # ===========================================================================
+  # PROMETHEUS SELF-MONITORING
+  # ===========================================================================
+  - job_name: "prometheus"
+    honor_labels: true
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          component: "monitoring"
+          tier: "infrastructure"
+
+  # ===========================================================================
+  # CONSUL SERVICE DISCOVERY
+  # ===========================================================================
+  # Automatically discover services registered with Consul
+  - job_name: "consul-services"
+    consul_sd_configs:
+      - server: "${CONSUL_HOST:-consul}:8500"
+        services: []
+        tags:
+          - "prometheus-scrape"
+
+    relabel_configs:
+      # Keep only services tagged for Prometheus scraping
+      - source_labels: [__meta_consul_tags]
+        regex: ".*,prometheus-scrape,.*"
+        action: keep
+
+      # Use Consul service name as job label
+      - source_labels: [__meta_consul_service]
+        target_label: job
+
+      # Use service ID as instance
+      - source_labels: [__meta_consul_service_id]
+        target_label: instance
+
+      # Add service address
+      - source_labels: [__meta_consul_service_address]
+        target_label: __address__
+        replacement: "${1}:${__meta_consul_service_port}"
+
+      # Add metadata labels
+      - source_labels: [__meta_consul_service_metadata_version]
+        target_label: version
+
+      - source_labels: [__meta_consul_service_metadata_phase]
+        target_label: phase
+
+  # ===========================================================================
+  # FILE-BASED SERVICE DISCOVERY (Docker Compose / Static)
+  # ===========================================================================
+  - job_name: "file-sd-services"
+    file_sd_configs:
+      - files:
+          - "/etc/prometheus/targets/*.json"
+          - "/etc/prometheus/targets/*.yml"
+        refresh_interval: 30s
+
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ===========================================================================
+  # CORE TRADING SERVICES
+  # ===========================================================================
+
+  # API Gateway - Main entry point
+  - job_name: "api-gateway"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["api-gateway:8000"]
+        labels:
+          service: "api-gateway"
+          phase: "1"
+          tier: "gateway"
+          critical: "true"
+    scrape_interval: 10s
+
+  # Trading Engine - Core trading logic
+  - job_name: "trading-engine"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["trading-engine:8001"]
+        labels:
+          service: "trading-engine"
+          phase: "2"
+          tier: "core"
+          critical: "true"
+    scrape_interval: 10s
+    # Higher timeout for trading engine as it may be under load
+    scrape_timeout: 15s
+
+  # Market Data Service - Real-time market data
+  - job_name: "market-data-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["market-data-service:8002"]
+        labels:
+          service: "market-data-service"
+          phase: "1"
+          tier: "data"
+          critical: "true"
+    scrape_interval: 10s
+
+  # Technical Analysis Service
+  - job_name: "technical-analysis"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["technical-analysis:8003"]
+        labels:
+          service: "technical-analysis"
+          phase: "2"
+          tier: "analytics"
+          critical: "false"
+    scrape_interval: 15s
+
+  # Portfolio Manager
+  - job_name: "portfolio-manager"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["portfolio-manager:8004"]
+        labels:
+          service: "portfolio-manager"
+          phase: "1"
+          tier: "core"
+          critical: "true"
+    scrape_interval: 15s
+
+  # Bybit Connector - Exchange integration
+  - job_name: "bybit-connector"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["bybit-connector:8005"]
+        labels:
+          service: "bybit-connector"
+          phase: "1"
+          tier: "connector"
+          critical: "true"
+    scrape_interval: 10s
+
+  # Notification Service
+  - job_name: "notification-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["notification-service:8006"]
+        labels:
+          service: "notification-service"
+          phase: "1"
+          tier: "support"
+          critical: "false"
+    scrape_interval: 30s
+
+  # ===========================================================================
+  # AI/ML SERVICES (Phase 3)
+  # ===========================================================================
+
+  # ML Prediction Service
+  - job_name: "ml-prediction-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["ml-prediction:8007"]
+        labels:
+          service: "ml-prediction"
+          phase: "3"
+          tier: "ai"
+          critical: "false"
+    scrape_interval: 30s
+    scrape_timeout: 20s
+
+  # Sentiment Analysis Service
+  - job_name: "sentiment-analysis-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["sentiment-analysis:8008"]
+        labels:
+          service: "sentiment-analysis"
+          phase: "3"
+          tier: "ai"
+          critical: "false"
+    scrape_interval: 30s
+
+  # Risk Metrics Service
+  - job_name: "risk-metrics-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["risk-metrics-service:8009"]
+        labels:
+          service: "risk-metrics"
+          phase: "3"
+          tier: "analytics"
+          critical: "true"
+    scrape_interval: 15s
+
+  # Signal Aggregator Service
+  - job_name: "signal-aggregator-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["signal-aggregator:8010"]
+        labels:
+          service: "signal-aggregator"
+          phase: "3"
+          tier: "analytics"
+          critical: "true"
+    scrape_interval: 15s
+
+  # ===========================================================================
+  # INFRASTRUCTURE MONITORING
+  # ===========================================================================
+
+  # Node Exporter - System metrics (CPU, memory, disk, network)
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          component: "infrastructure"
+          type: "system-metrics"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: "(.+):9100"
+        replacement: "${1}"
+
+  # cAdvisor - Container metrics
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels:
+          component: "infrastructure"
+          type: "container-metrics"
+    metric_relabel_configs:
+      # Drop high-cardinality labels to reduce storage
+      - source_labels: [id]
+        regex: "/system\\.slice/.*"
+        action: drop
+      - source_labels: [container]
+        regex: ""
+        action: drop
+
+  # ===========================================================================
+  # DATABASE MONITORING
+  # ===========================================================================
+
+  # PostgreSQL Exporter
+  - job_name: "postgres-exporter"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          component: "database"
+          type: "postgres"
+          critical: "true"
+    scrape_interval: 15s
+
+  # TimescaleDB specific metrics (if separate exporter)
+  - job_name: "timescaledb-exporter"
+    static_configs:
+      - targets: ["timescaledb-exporter:9188"]
+        labels:
+          component: "database"
+          type: "timescaledb"
+    scrape_interval: 30s
+
+  # Redis Exporter
+  - job_name: "redis-exporter"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          component: "cache"
+          type: "redis"
+          critical: "true"
+    scrape_interval: 15s
+
+  # ===========================================================================
+  # MESSAGE QUEUE MONITORING
+  # ===========================================================================
+
+  # RabbitMQ Exporter
+  - job_name: "rabbitmq-exporter"
+    static_configs:
+      - targets: ["rabbitmq-exporter:9419"]
+        labels:
+          component: "messaging"
+          type: "rabbitmq"
+    scrape_interval: 15s
+
+  # ===========================================================================
+  # MONITORING INFRASTRUCTURE
+  # ===========================================================================
+
+  # Alertmanager
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: ["alertmanager:9093"]
+        labels:
+          component: "monitoring"
+          type: "alerting"
+
+  # Grafana
+  - job_name: "grafana"
+    static_configs:
+      - targets: ["grafana:3000"]
+        labels:
+          component: "monitoring"
+          type: "visualization"
+
+  # Loki (Log aggregation)
+  - job_name: "loki"
+    static_configs:
+      - targets: ["loki:3100"]
+        labels:
+          component: "monitoring"
+          type: "logging"
+
+  # ===========================================================================
+  # SERVICE DISCOVERY MONITORING
+  # ===========================================================================
+
+  # Consul metrics
+  - job_name: "consul"
+    static_configs:
+      - targets: ["consul:8500"]
+        labels:
+          component: "infrastructure"
+          type: "service-discovery"
+    metrics_path: "/v1/agent/metrics"
+    params:
+      format: ["prometheus"]
+
+  # ===========================================================================
+  # LOAD BALANCER MONITORING
+  # ===========================================================================
+
+  # NGINX Plus/OSS metrics (if using nginx-prometheus-exporter)
+  - job_name: "nginx"
+    static_configs:
+      - targets: ["nginx-exporter:9113"]
+        labels:
+          component: "infrastructure"
+          type: "load-balancer"
+
+  # ===========================================================================
+  # BLACKBOX PROBING (External endpoint monitoring)
+  # ===========================================================================
+  - job_name: "blackbox-http"
+    metrics_path: "/probe"
+    params:
+      module: ["http_2xx"]
+    static_configs:
+      - targets:
+          - "http://api-gateway:8000/health"
+          - "http://trading-engine:8001/health"
+          - "http://market-data-service:8002/health"
+        labels:
+          probe_type: "http"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: "blackbox-exporter:9115"
+
+  - job_name: "blackbox-tcp"
+    metrics_path: "/probe"
+    params:
+      module: ["tcp_connect"]
+    static_configs:
+      - targets:
+          - "postgres:5432"
+          - "redis:6379"
+          - "rabbitmq:5672"
+        labels:
+          probe_type: "tcp"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: "blackbox-exporter:9115"

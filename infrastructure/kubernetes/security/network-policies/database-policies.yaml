@@ -1,0 +1,399 @@
+# Network Policies for Database Services
+# Databases should only accept connections from authorized services
+# Version: 1.0
+# Created: 2025-12-12
+#
+# Security principle: Databases should never have external access
+# Only specific microservices can connect to each database
+
+---
+# PostgreSQL Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: postgres
+spec:
+  podSelector:
+    matchLabels:
+      service: postgres
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Trading Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              service: trading-engine
+      ports:
+        - protocol: TCP
+          port: 5432
+    # From Portfolio Manager
+    - from:
+        - podSelector:
+            matchLabels:
+              service: portfolio-manager
+      ports:
+        - protocol: TCP
+          port: 5432
+    # From Risk Metrics Service
+    - from:
+        - podSelector:
+            matchLabels:
+              service: risk-metrics-service
+      ports:
+        - protocol: TCP
+          port: 5432
+    # From API Gateway (for direct queries if needed)
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    # Postgres typically doesn't need egress
+    # Allow only for replication if using HA setup
+    - to:
+        - podSelector:
+            matchLabels:
+              service: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# TimescaleDB Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: timescale-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: timescale
+spec:
+  podSelector:
+    matchLabels:
+      service: timescale
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Market Data Service (primary user)
+    - from:
+        - podSelector:
+            matchLabels:
+              service: market-data-service
+      ports:
+        - protocol: TCP
+          port: 5432
+    # From Technical Analysis (historical data)
+    - from:
+        - podSelector:
+            matchLabels:
+              service: technical-analysis
+      ports:
+        - protocol: TCP
+          port: 5432
+    # From ML Prediction (training data)
+    - from:
+        - podSelector:
+            matchLabels:
+              service: ml-prediction-service
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    # Allow replication between TimescaleDB instances
+    - to:
+        - podSelector:
+            matchLabels:
+              service: timescale
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# Redis Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: redis
+spec:
+  podSelector:
+    matchLabels:
+      service: redis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from all crypto-bot services (caching layer)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: crypto-trading-bot
+      ports:
+        - protocol: TCP
+          port: 6379
+  egress:
+    # Redis Sentinel/Cluster communication
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 26379  # Sentinel port
+
+---
+# RabbitMQ Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rabbitmq-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: rabbitmq
+spec:
+  podSelector:
+    matchLabels:
+      service: rabbitmq
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # AMQP port - from all crypto-bot services
+    - from:
+        - podSelector:
+            matchLabels:
+              app: crypto-trading-bot
+      ports:
+        - protocol: TCP
+          port: 5672  # AMQP
+    # Management port - only from monitoring and admin
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 15672  # Management UI
+    # Prometheus metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 15692  # Prometheus metrics
+  egress:
+    # RabbitMQ cluster communication
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 4369   # epmd
+        - protocol: TCP
+          port: 5672   # AMQP
+        - protocol: TCP
+          port: 25672  # Erlang distribution
+
+---
+# Production PostgreSQL Network Policy (stricter)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-policy
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    service: postgres
+    environment: production
+spec:
+  podSelector:
+    matchLabels:
+      service: postgres
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only from specific services with database need
+    - from:
+        - podSelector:
+            matchLabels:
+              service: trading-engine
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - podSelector:
+            matchLabels:
+              service: portfolio-manager
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - podSelector:
+            matchLabels:
+              service: risk-metrics-service
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    # Only replication
+    - to:
+        - podSelector:
+            matchLabels:
+              service: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# Production TimescaleDB Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: timescale-policy
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    service: timescale
+    environment: production
+spec:
+  podSelector:
+    matchLabels:
+      service: timescale
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              service: market-data-service
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - podSelector:
+            matchLabels:
+              service: technical-analysis
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
+        - podSelector:
+            matchLabels:
+              service: ml-prediction-service
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              service: timescale
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# Production Redis Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-policy
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    service: redis
+    environment: production
+spec:
+  podSelector:
+    matchLabels:
+      service: redis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: crypto-trading-bot
+      ports:
+        - protocol: TCP
+          port: 6379
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 26379
+
+---
+# Production RabbitMQ Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rabbitmq-policy
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    service: rabbitmq
+    environment: production
+spec:
+  podSelector:
+    matchLabels:
+      service: rabbitmq
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: crypto-trading-bot
+      ports:
+        - protocol: TCP
+          port: 5672
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 15672
+        - protocol: TCP
+          port: 15692
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 4369
+        - protocol: TCP
+          port: 5672
+        - protocol: TCP
+          port: 25672

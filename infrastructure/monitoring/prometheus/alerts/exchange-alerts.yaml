@@ -1,0 +1,396 @@
+# =============================================================================
+# Exchange Connectivity Alert Rules
+# Crypto Trading Bot - Staging Environment
+# Version: 1.0.0
+# =============================================================================
+# Alert Categories:
+#   - Exchange connectivity (WebSocket, REST API)
+#   - API rate limits
+#   - Data quality and staleness
+#   - Multi-exchange health
+#   - Failover events
+# =============================================================================
+
+groups:
+  # ===========================================================================
+  # EXCHANGE CONNECTIVITY ALERTS
+  # ===========================================================================
+  - name: exchange_connectivity
+    interval: 10s
+    rules:
+      # WebSocket disconnected - Bybit
+      - alert: BybitWebSocketDisconnected
+        expr: |
+          bybit_websocket_connected == 0
+        for: 15s
+        labels:
+          severity: critical
+          component: exchange
+          exchange: bybit
+          category: connectivity
+          runbook_url: "https://wiki.internal/runbooks/websocket-disconnect"
+        annotations:
+          summary: "CRITICAL: Bybit WebSocket disconnected"
+          description: |
+            WebSocket connection to Bybit has been down for 15+ seconds.
+            Real-time market data feed is interrupted.
+          impact: "No real-time price updates, trading decisions may be based on stale data"
+          action: |
+            1. Check bybit-connector logs
+            2. Verify Bybit API status: https://api.bybit.com/v5/market/time
+            3. Check network connectivity
+            4. Restart bybit-connector if necessary
+
+      # WebSocket reconnection rate high
+      - alert: WebSocketReconnectRateHigh
+        expr: |
+          increase(websocket_reconnections_total[5m]) > 3
+        for: 1m
+        labels:
+          severity: warning
+          component: exchange
+          category: connectivity
+        annotations:
+          summary: "High WebSocket reconnection rate"
+          description: "{{ $value }} reconnections in the last 5 minutes for {{ $labels.exchange }}"
+          action: "Investigate network stability and exchange API health"
+
+      # REST API connection failure
+      - alert: ExchangeAPIConnectionFailure
+        expr: |
+          increase(exchange_api_errors_total{error_type="connection"}[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: exchange
+          category: connectivity
+        annotations:
+          summary: "Exchange API connection failures detected"
+          description: "{{ $value }} connection errors in last 5 minutes for {{ $labels.exchange }}"
+
+      # All exchange connections down
+      - alert: AllExchangeConnectionsDown
+        expr: |
+          sum(bybit_websocket_connected) == 0
+          and sum(binance_websocket_connected) == 0
+          and sum(okx_websocket_connected) == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: exchange
+          category: connectivity
+        annotations:
+          summary: "CRITICAL: All exchange connections are DOWN"
+          description: "No active connections to any exchange. Trading is completely halted."
+          action: "Check network connectivity and exchange status pages"
+
+  # ===========================================================================
+  # API RATE LIMIT ALERTS
+  # ===========================================================================
+  - name: api_rate_limits
+    interval: 15s
+    rules:
+      # API rate limit approaching
+      - alert: APIRateLimitApproaching
+        expr: |
+          bybit_api_rate_limit_remaining < 100
+        for: 1m
+        labels:
+          severity: warning
+          component: exchange
+          exchange: bybit
+          category: rate_limit
+        annotations:
+          summary: "Bybit API rate limit approaching"
+          description: "Only {{ $value }} API calls remaining in current window"
+          action: "Consider reducing API call frequency"
+
+      # API rate limit critical
+      - alert: APIRateLimitCritical
+        expr: |
+          bybit_api_rate_limit_remaining < 20
+        for: 0s
+        labels:
+          severity: critical
+          component: exchange
+          exchange: bybit
+          category: rate_limit
+        annotations:
+          summary: "CRITICAL: Bybit API rate limit nearly exhausted"
+          description: "Only {{ $value }} API calls remaining"
+          impact: "Trading operations may be blocked"
+          action: "Immediately reduce API calls or wait for limit reset"
+
+      # Rate limit exceeded (429 errors)
+      - alert: APIRateLimitExceeded
+        expr: |
+          increase(exchange_api_errors_total{status_code="429"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: exchange
+          category: rate_limit
+        annotations:
+          summary: "API rate limit exceeded for {{ $labels.exchange }}"
+          description: "Received 429 (Too Many Requests) response"
+
+      # Order rate limit approaching
+      - alert: OrderRateLimitApproaching
+        expr: |
+          bybit_order_rate_limit_remaining < 5
+        for: 0s
+        labels:
+          severity: warning
+          component: exchange
+          exchange: bybit
+          category: rate_limit
+        annotations:
+          summary: "Order rate limit approaching for Bybit"
+          description: "Only {{ $value }} orders remaining in current window"
+
+  # ===========================================================================
+  # MARKET DATA QUALITY ALERTS
+  # ===========================================================================
+  - name: market_data_quality
+    interval: 15s
+    rules:
+      # Market data stale
+      - alert: MarketDataStale
+        expr: |
+          (time() - market_data_last_update_timestamp) > 30
+        for: 30s
+        labels:
+          severity: warning
+          component: exchange
+          category: data_quality
+        annotations:
+          summary: "Market data stale for {{ $labels.symbol }}"
+          description: "Last update was {{ $value | humanizeDuration }} ago"
+          impact: "Trading decisions may be based on outdated prices"
+
+      # Market data critically stale
+      - alert: MarketDataCriticallyStale
+        expr: |
+          (time() - market_data_last_update_timestamp) > 60
+        for: 15s
+        labels:
+          severity: critical
+          component: exchange
+          category: data_quality
+        annotations:
+          summary: "CRITICAL: Market data critically stale for {{ $labels.symbol }}"
+          description: "No updates for {{ $value | humanizeDuration }}"
+          action: "Check exchange connectivity and data feed"
+
+      # Price feed gap detected
+      - alert: PriceFeedGap
+        expr: |
+          increase(market_data_gaps_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: exchange
+          category: data_quality
+        annotations:
+          summary: "Price feed gap detected for {{ $labels.symbol }}"
+          description: "{{ $value }} gaps in the last 5 minutes"
+
+      # Order book depth insufficient
+      - alert: OrderBookDepthLow
+        expr: |
+          orderbook_depth_usd{side="bid"} < 10000 or orderbook_depth_usd{side="ask"} < 10000
+        for: 5m
+        labels:
+          severity: warning
+          component: exchange
+          category: data_quality
+        annotations:
+          summary: "Low order book depth for {{ $labels.symbol }}"
+          description: "Depth on {{ $labels.side }} side: ${{ $value | humanize }}"
+          impact: "May experience higher slippage on orders"
+
+      # Price anomaly detected
+      - alert: PriceAnomalyDetected
+        expr: |
+          abs(market_data_price_change_1m_percent) > 5
+        for: 0s
+        labels:
+          severity: warning
+          component: exchange
+          category: data_quality
+        annotations:
+          summary: "Price anomaly detected for {{ $labels.symbol }}"
+          description: "Price changed {{ $value | printf \"%.2f\" }}% in 1 minute"
+          action: "Verify this is not a data feed error"
+
+  # ===========================================================================
+  # MULTI-EXCHANGE HEALTH ALERTS
+  # ===========================================================================
+  - name: multi_exchange_health
+    interval: 30s
+    rules:
+      # Exchange health check failed
+      - alert: ExchangeHealthCheckFailed
+        expr: |
+          exchange_health_status == 0
+        for: 1m
+        labels:
+          severity: warning
+          component: exchange
+          category: health
+        annotations:
+          summary: "Health check failed for {{ $labels.exchange }}"
+          description: "Exchange {{ $labels.exchange }} is reporting unhealthy status"
+
+      # Exchange response time degraded
+      - alert: ExchangeResponseTimeDegraded
+        expr: |
+          histogram_quantile(0.95, rate(exchange_api_latency_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: exchange
+          category: performance
+        annotations:
+          summary: "High API latency for {{ $labels.exchange }}"
+          description: "P95 latency: {{ $value | humanizeDuration }}"
+
+      # Price divergence between exchanges
+      - alert: PriceDivergenceBetweenExchanges
+        expr: |
+          abs(
+            (bybit_price{symbol="BTCUSDT"} - binance_price{symbol="BTCUSDT"})
+            / binance_price{symbol="BTCUSDT"}
+          ) > 0.01
+        for: 1m
+        labels:
+          severity: warning
+          component: exchange
+          category: arbitrage
+        annotations:
+          summary: "Significant price divergence between exchanges"
+          description: "Price difference exceeds 1% for {{ $labels.symbol }}"
+
+      # Exchange in maintenance
+      - alert: ExchangeInMaintenance
+        expr: |
+          exchange_maintenance_mode == 1
+        for: 0s
+        labels:
+          severity: info
+          component: exchange
+          category: maintenance
+        annotations:
+          summary: "Exchange {{ $labels.exchange }} is in maintenance mode"
+          description: "Trading on this exchange is temporarily unavailable"
+
+  # ===========================================================================
+  # FAILOVER ALERTS
+  # ===========================================================================
+  - name: exchange_failover
+    interval: 15s
+    rules:
+      # Primary exchange failover triggered
+      - alert: PrimaryExchangeFailover
+        expr: |
+          exchange_failover_active == 1
+        for: 0s
+        labels:
+          severity: warning
+          component: exchange
+          category: failover
+        annotations:
+          summary: "Failover to backup exchange activated"
+          description: "Primary exchange {{ $labels.primary }} failed, using {{ $labels.backup }}"
+          action: "Monitor backup exchange performance"
+
+      # Failover recovery
+      - alert: ExchangeFailoverRecovered
+        expr: |
+          increase(exchange_failover_recovery_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: info
+          component: exchange
+          category: failover
+        annotations:
+          summary: "Exchange failover recovered"
+          description: "Primary exchange connectivity restored"
+
+      # Multiple failovers (instability)
+      - alert: ExchangeInstability
+        expr: |
+          increase(exchange_failover_total[1h]) > 3
+        for: 0s
+        labels:
+          severity: warning
+          component: exchange
+          category: failover
+        annotations:
+          summary: "Multiple exchange failovers detected"
+          description: "{{ $value }} failover events in the last hour"
+          action: "Investigate exchange connectivity issues"
+
+  # ===========================================================================
+  # EXCHANGE-SPECIFIC ALERTS
+  # ===========================================================================
+  - name: exchange_specific
+    interval: 30s
+    rules:
+      # Bybit testnet vs mainnet mismatch
+      - alert: BybitEnvironmentMismatch
+        expr: |
+          bybit_environment != on() trading_environment
+        for: 1m
+        labels:
+          severity: critical
+          component: exchange
+          exchange: bybit
+          category: configuration
+        annotations:
+          summary: "Bybit environment mismatch detected"
+          description: "Trading environment does not match Bybit API environment"
+          action: "Verify API configuration immediately"
+
+      # Authentication failure
+      - alert: ExchangeAuthenticationFailure
+        expr: |
+          increase(exchange_auth_failures_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          component: exchange
+          category: authentication
+        annotations:
+          summary: "Exchange authentication failure for {{ $labels.exchange }}"
+          description: "Failed to authenticate with exchange API"
+          action: "Check API keys and permissions"
+
+      # Insufficient balance for trading
+      - alert: InsufficientExchangeBalance
+        expr: |
+          exchange_available_balance_usd < 100
+        for: 5m
+        labels:
+          severity: warning
+          component: exchange
+          category: balance
+        annotations:
+          summary: "Low available balance on {{ $labels.exchange }}"
+          description: "Available balance: ${{ $value | humanize }}"
+          action: "Consider depositing funds or reducing position sizes"
+
+      # Funding rate extreme
+      - alert: ExtremeFundingRate
+        expr: |
+          abs(bybit_funding_rate) > 0.001
+        for: 5m
+        labels:
+          severity: info
+          component: exchange
+          exchange: bybit
+          category: funding
+        annotations:
+          summary: "Extreme funding rate for {{ $labels.symbol }}"
+          description: "Current funding rate: {{ $value | printf \"%.4f\" }}%"
+          action: "Consider this in position holding decisions"

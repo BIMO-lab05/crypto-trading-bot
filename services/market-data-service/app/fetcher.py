@@ -1,9 +1,14 @@
 """
 Market Data Service - Data Fetcher
 Purpose: Fetch market data from Bybit Connector service
+         Supports proper pagination for historical data retrieval
+
+Fixed: 2025-12-11 - Added start/end time parameters and proper pagination
+       for fetching data ranges > 1000 candles (Bybit API limit)
 """
 
 import httpx
+import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -13,17 +18,50 @@ from app.circuit_breaker import bybit_connector_retry
 
 logger = logging.getLogger(__name__)
 
+# Bybit API constants
+MAX_CANDLES_PER_REQUEST = 1000  # Bybit V5 API limit per request
+RATE_LIMIT_DELAY = 0.2  # Delay between API calls to avoid rate limiting (seconds)
+
+
+def get_interval_minutes(interval: str) -> int:
+    """
+    Convert Bybit interval string to minutes
+
+    Args:
+        interval: Bybit interval string (1, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M)
+
+    Returns:
+        Number of minutes for the interval
+    """
+    # Numeric intervals are already in minutes
+    if interval.isdigit():
+        return int(interval)
+
+    # Special interval mappings
+    interval_map = {
+        'D': 1440,      # Daily = 24 * 60 minutes
+        'W': 10080,     # Weekly = 7 * 24 * 60 minutes
+        'M': 43200,     # Monthly = 30 * 24 * 60 minutes (approximate)
+    }
+
+    return interval_map.get(interval.upper(), 60)  # Default to hourly
+
 
 class BybitDataFetcher:
     """
     Fetches market data from Bybit Connector service
     Acts as a client to the Bybit Connector microservice
+
+    Supports:
+    - Single kline requests with time range
+    - Paginated historical data fetching for ranges > 1000 candles
+    - Automatic deduplication and sorting
     """
-    
+
     def __init__(self, base_url: Optional[str] = None):
         """
         Initialize data fetcher
-        
+
         Args:
             base_url: Bybit Connector service URL (defaults to config)
         """
@@ -44,16 +82,16 @@ class BybitDataFetcher:
             # Note: http2=True requires httpx[http2] extra package
         )
         logger.info(f"Initialized BybitDataFetcher with connection pooling: {self.base_url}")
-    
+
     async def close(self):
         """Close HTTP client"""
         await self.client.aclose()
         logger.info("BybitDataFetcher closed")
-    
+
     async def health_check(self) -> bool:
         """
         Check if Bybit Connector service is healthy
-        
+
         Returns:
             True if healthy, False otherwise
         """
@@ -63,7 +101,7 @@ class BybitDataFetcher:
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return False
-    
+
     @bybit_connector_retry
     async def get_kline(
         self,
@@ -74,18 +112,18 @@ class BybitDataFetcher:
         end_time: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        Fetch kline/candlestick data
-        
+        Fetch kline/candlestick data with optional time range
+
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
             interval: Candlestick interval (1, 5, 15, 30, 60, etc.)
             limit: Number of candles to fetch (max 1000)
-            start_time: Start timestamp in milliseconds
-            end_time: End timestamp in milliseconds
-        
+            start_time: Start timestamp in milliseconds (inclusive)
+            end_time: End timestamp in milliseconds (inclusive)
+
         Returns:
-            List of kline data dictionaries
-        
+            List of kline data dictionaries sorted by timestamp (oldest first)
+
         Example response:
             [
                 {
@@ -99,18 +137,29 @@ class BybitDataFetcher:
                 },
                 ...
             ]
+
+        Note:
+            Bybit API returns data in descending order (newest first).
+            This method converts to ascending order (oldest first) for consistency.
         """
+        # Build request parameters
         params = {
             "category": "linear",
             "symbol": symbol,
             "interval": interval,
-            "limit": min(limit, 1000)
+            "limit": min(limit, MAX_CANDLES_PER_REQUEST)
         }
-        
+
+        # Add time range parameters if provided (FIX: was missing before)
+        if start_time is not None:
+            params["start"] = start_time
+        if end_time is not None:
+            params["end"] = end_time
+
         try:
             response = await self.client.get("/api/v1/market/kline", params=params)
             response.raise_for_status()
-            
+
             data = response.json()
             if data.get("success"):
                 # Bybit returns: [timestamp, open, high, low, close, volume, turnover]
@@ -131,27 +180,34 @@ class BybitDataFetcher:
                         "low": k[3],
                         "close": k[4],
                         "volume": k[5],
-                        "turnover": k[6]
+                        "turnover": k[6] if len(k) > 6 else "0"
                     })
 
-                logger.info(f"Fetched {len(klines)} klines for {symbol} ({interval})")
+                # Sort by timestamp ascending (oldest first) for consistency
+                # Bybit returns newest first, so we reverse the order
+                klines.sort(key=lambda x: x["timestamp"])
+
+                logger.info(
+                    f"Fetched {len(klines)} klines for {symbol} ({interval}) "
+                    f"[start={start_time}, end={end_time}]"
+                )
                 return klines
             else:
                 logger.error(f"Failed to fetch klines: {data}")
                 return []
-                
+
         except Exception as e:
             logger.error(f"Error fetching klines for {symbol}: {e}")
             return []
-    
+
     @bybit_connector_retry
     async def get_ticker(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Fetch latest ticker data
-        
+
         Args:
             symbol: Trading pair
-        
+
         Returns:
             Ticker data dictionary or None
         """
@@ -159,11 +215,11 @@ class BybitDataFetcher:
             "category": "linear",
             "symbol": symbol
         }
-        
+
         try:
             response = await self.client.get("/api/v1/market/ticker", params=params)
             response.raise_for_status()
-            
+
             data = response.json()
             if data.get("success"):
                 ticker_list = data.get("data", {}).get("list", [])
@@ -181,70 +237,158 @@ class BybitDataFetcher:
                         "turnover_24h": ticker.get("turnover24h"),
                         "price_change_24h": ticker.get("price24hPcnt")
                     }
-            
+
             logger.warning(f"No ticker data for {symbol}")
             return None
-            
+
         except Exception as e:
             logger.error(f"Error fetching ticker for {symbol}: {e}")
             return None
-    
+
     async def get_historical_klines(
         self,
         symbol: str,
         interval: str,
-        days: int = 30
+        days: int = 30,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        rate_limit_delay: float = RATE_LIMIT_DELAY
     ) -> List[Dict[str, Any]]:
         """
-        Fetch historical klines for specified number of days
-        
+        Fetch historical klines for specified time range with proper pagination
+
+        This method handles the Bybit API limitation of 1000 candles per request
+        by making multiple paginated requests and merging the results.
+
         Args:
-            symbol: Trading pair
-            interval: Candlestick interval
-            days: Number of days of history
-        
+            symbol: Trading pair (e.g., BTCUSDT)
+            interval: Candlestick interval (1, 5, 15, 30, 60, etc.)
+            days: Number of days of history (used if start_time not provided)
+            start_time: Start datetime (defaults to now - days)
+            end_time: End datetime (defaults to now)
+            rate_limit_delay: Delay between API calls in seconds
+
         Returns:
-            List of all klines
+            List of all klines sorted by timestamp (oldest first), deduplicated
+
+        Example:
+            # Fetch 180 days of hourly data for BTCUSDT
+            klines = await fetcher.get_historical_klines(
+                symbol="BTCUSDT",
+                interval="60",
+                days=180
+            )
+            # Returns ~4320 candles (180 * 24)
         """
         all_klines = []
-        
+
         # Calculate time range
-        end_time = datetime.now()
-        start_time = end_time - timedelta(days=days)
-        
-        logger.info(f"Fetching {days} days of {symbol} klines ({interval})")
-        
-        # Fetch in batches (max 1000 per request)
-        current_time = start_time
+        if end_time is None:
+            end_time = datetime.utcnow()
+        if start_time is None:
+            start_time = end_time - timedelta(days=days)
+
+        # Convert to milliseconds (Bybit API uses milliseconds)
+        end_ms = int(end_time.timestamp() * 1000)
+        target_start_ms = int(start_time.timestamp() * 1000)
+
+        # Calculate expected number of candles for progress tracking
+        interval_minutes = get_interval_minutes(interval)
+        total_minutes = (end_time - start_time).total_seconds() / 60
+        expected_candles = int(total_minutes / interval_minutes)
+
+        logger.info(
+            f"Fetching {days} days of {symbol} klines ({interval}m interval). "
+            f"Expected ~{expected_candles} candles."
+        )
+
+        # Pagination: Bybit returns newest first, so we work backwards from end_time
+        # Each batch returns up to 1000 candles
+        current_end_ms = end_ms
         batch_count = 0
-        
-        while current_time < end_time:
-            # Fetch batch
+        max_batches = (expected_candles // MAX_CANDLES_PER_REQUEST) + 10  # Safety margin
+
+        while current_end_ms > target_start_ms and batch_count < max_batches:
+            batch_count += 1
+
+            # Fetch batch with proper time range
+            # Use target_start_ms as start to ensure we get data from that point
             klines = await self.get_kline(
                 symbol=symbol,
                 interval=interval,
-                limit=1000
+                limit=MAX_CANDLES_PER_REQUEST,
+                start_time=target_start_ms,
+                end_time=current_end_ms
             )
-            
+
             if not klines:
+                logger.info(f"No more data available for {symbol}")
                 break
-            
+
+            # Add to results
             all_klines.extend(klines)
-            batch_count += 1
-            
-            # Update time for next batch
-            # Get oldest timestamp from this batch
-            if klines:
-                oldest_ts = min(k["timestamp"] for k in klines)
-                current_time = datetime.fromtimestamp(oldest_ts / 1000)
-            
-            # Safety limit
-            if batch_count >= 100:
-                logger.warning(f"Reached batch limit for {symbol}")
+
+            # Get oldest timestamp from this batch for next iteration
+            oldest_ts = min(k["timestamp"] for k in klines)
+            newest_ts = max(k["timestamp"] for k in klines)
+
+            logger.debug(
+                f"Batch {batch_count}: {len(klines)} candles "
+                f"({datetime.fromtimestamp(oldest_ts / 1000).strftime('%Y-%m-%d %H:%M')} to "
+                f"{datetime.fromtimestamp(newest_ts / 1000).strftime('%Y-%m-%d %H:%M')}), "
+                f"total: {len(all_klines)}"
+            )
+
+            # Check if we've reached our target start time
+            if oldest_ts <= target_start_ms:
+                logger.info(f"Reached target start date for {symbol}")
                 break
-        
-        logger.info(f"Fetched total {len(all_klines)} klines for {symbol}")
-        return all_klines
+
+            # Check if we got fewer candles than requested (no more data available)
+            if len(klines) < MAX_CANDLES_PER_REQUEST:
+                logger.info(f"Received partial batch ({len(klines)} candles), no more data")
+                break
+
+            # Update end time for next batch (1 ms before oldest to avoid duplicates)
+            current_end_ms = oldest_ts - 1
+
+            # Rate limiting to avoid Bybit API throttling
+            await asyncio.sleep(rate_limit_delay)
+
+        # Deduplicate by timestamp (in case of overlapping batches)
+        unique_klines = {}
+        for k in all_klines:
+            ts = k["timestamp"]
+            if ts not in unique_klines:
+                unique_klines[ts] = k
+
+        # Sort by timestamp ascending (oldest first)
+        sorted_klines = sorted(unique_klines.values(), key=lambda x: x["timestamp"])
+
+        # Filter to target time range (remove any data outside requested range)
+        filtered_klines = [
+            k for k in sorted_klines
+            if target_start_ms <= k["timestamp"] <= end_ms
+        ]
+
+        # Log completion statistics
+        if filtered_klines:
+            first_ts = filtered_klines[0]["timestamp"]
+            last_ts = filtered_klines[-1]["timestamp"]
+            first_date = datetime.fromtimestamp(first_ts / 1000)
+            last_date = datetime.fromtimestamp(last_ts / 1000)
+            coverage = (len(filtered_klines) / expected_candles) * 100 if expected_candles > 0 else 0
+
+            logger.info(
+                f"Fetched total {len(filtered_klines)} klines for {symbol} "
+                f"({coverage:.1f}% coverage). "
+                f"Date range: {first_date.strftime('%Y-%m-%d %H:%M')} to "
+                f"{last_date.strftime('%Y-%m-%d %H:%M')}"
+            )
+        else:
+            logger.warning(f"No klines fetched for {symbol}")
+
+        return filtered_klines
 
 
 # Convenience function

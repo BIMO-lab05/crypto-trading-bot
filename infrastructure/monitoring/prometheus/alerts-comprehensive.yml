@@ -1,0 +1,851 @@
+# =============================================================================
+# Comprehensive Alert Rules for Crypto Trading Bot
+# Phase 7: High Availability & Advanced Monitoring
+# Version: 2.0.0
+# =============================================================================
+#
+# Alert Severity Levels:
+#   - critical: Immediate action required, page on-call
+#   - warning: Investigation needed, notify during business hours
+#   - info: Informational, aggregate in daily digest
+#
+# Alert Categories:
+#   1. Service Health - Service availability and responsiveness
+#   2. Trading Operations - Trading engine and execution
+#   3. Risk Management - Portfolio risk and limits
+#   4. Database - PostgreSQL, TimescaleDB health
+#   5. Cache - Redis health and performance
+#   6. Message Queue - RabbitMQ health
+#   7. Infrastructure - System resources and containers
+#   8. Business Metrics - PnL, position limits, trading volume
+
+groups:
+  # ===========================================================================
+  # SERVICE HEALTH ALERTS
+  # ===========================================================================
+  - name: service_health
+    interval: 15s
+    rules:
+      # Critical service down
+      - alert: CriticalServiceDown
+        expr: |
+          up{critical="true"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: service
+          runbook_url: "https://wiki.internal/runbooks/service-down"
+        annotations:
+          summary: "Critical service {{ $labels.job }} is DOWN"
+          description: "{{ $labels.job }} has been unreachable for more than 30 seconds. Immediate action required."
+          impact: "Trading operations may be affected"
+          action: "Check container logs and restart if necessary"
+
+      # Non-critical service down
+      - alert: ServiceDown
+        expr: |
+          up{critical!="true"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: service
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been unreachable for more than 2 minutes."
+
+      # Service high error rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (job)
+            /
+            sum(rate(http_requests_total[5m])) by (job)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: service
+        annotations:
+          summary: "High error rate on {{ $labels.job }}"
+          description: "{{ $labels.job }} has a 5xx error rate of {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      # Service high latency (P99)
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: service
+        annotations:
+          summary: "High P99 latency on {{ $labels.job }}"
+          description: "P99 latency is {{ $value | humanizeDuration }} (threshold: 2s)"
+
+      # Service high latency (P50)
+      - alert: HighLatencyP50
+        expr: |
+          histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: service
+        annotations:
+          summary: "High median latency on {{ $labels.job }}"
+          description: "P50 latency is {{ $value | humanizeDuration }} (threshold: 500ms)"
+
+      # Service restarting frequently
+      - alert: ServiceRestarting
+        expr: |
+          changes(process_start_time_seconds[30m]) > 3
+        labels:
+          severity: warning
+          component: service
+        annotations:
+          summary: "Service {{ $labels.job }} is restarting frequently"
+          description: "{{ $labels.job }} has restarted {{ $value }} times in the last 30 minutes"
+
+      # Health check failing
+      - alert: HealthCheckFailing
+        expr: |
+          service_health_status < 1
+        for: 1m
+        labels:
+          severity: warning
+          component: service
+        annotations:
+          summary: "Health check failing for {{ $labels.service }}"
+          description: "Service {{ $labels.service }} health status is {{ $value }} (1=healthy, 0.5=degraded, 0=unhealthy)"
+
+      # Dependency unhealthy
+      - alert: DependencyUnhealthy
+        expr: |
+          dependency_health_status == 0
+        for: 1m
+        labels:
+          severity: warning
+          component: dependency
+        annotations:
+          summary: "Dependency {{ $labels.dependency }} unhealthy for {{ $labels.service }}"
+          description: "{{ $labels.service }}'s dependency {{ $labels.dependency }} is unhealthy"
+
+  # ===========================================================================
+  # TRADING ENGINE ALERTS
+  # ===========================================================================
+  - name: trading_engine
+    interval: 10s
+    rules:
+      # Trading engine down
+      - alert: TradingEngineDown
+        expr: |
+          up{job="trading-engine"} == 0
+        for: 15s
+        labels:
+          severity: critical
+          component: trading
+          runbook_url: "https://wiki.internal/runbooks/trading-engine-down"
+        annotations:
+          summary: "CRITICAL: Trading Engine is DOWN"
+          description: "Trading Engine has been unreachable for 15 seconds. All trading operations are halted."
+          impact: "No trades can be executed"
+          action: "Immediately check logs and restart trading engine"
+
+      # High trade execution latency
+      - alert: HighTradeExecutionLatency
+        expr: |
+          histogram_quantile(0.99, rate(trade_execution_duration_seconds_bucket[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+          component: trading
+        annotations:
+          summary: "High trade execution latency"
+          description: "P99 trade execution latency is {{ $value | humanizeDuration }} (threshold: 1s)"
+
+      # Trade execution errors
+      - alert: TradeExecutionErrors
+        expr: |
+          rate(trade_execution_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: trading
+        annotations:
+          summary: "Trade execution errors detected"
+          description: "{{ $value }} trade execution errors per second in the last 5 minutes"
+
+      # No trades executed (during trading hours)
+      - alert: NoTradesExecuted
+        expr: |
+          increase(trades_executed_total[1h]) == 0
+        for: 2h
+        labels:
+          severity: info
+          component: trading
+        annotations:
+          summary: "No trades executed in 2 hours"
+          description: "Trading engine has not executed any trades in the last 2 hours. This may be normal during low volatility."
+
+      # Order fill rate low
+      - alert: LowOrderFillRate
+        expr: |
+          (
+            sum(rate(orders_filled_total[1h]))
+            /
+            sum(rate(orders_placed_total[1h]))
+          ) < 0.8
+        for: 30m
+        labels:
+          severity: warning
+          component: trading
+        annotations:
+          summary: "Low order fill rate"
+          description: "Order fill rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+
+      # High order rejection rate
+      - alert: HighOrderRejectionRate
+        expr: |
+          (
+            sum(rate(orders_rejected_total[5m]))
+            /
+            sum(rate(orders_placed_total[5m]))
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: trading
+        annotations:
+          summary: "High order rejection rate"
+          description: "{{ $value | humanizePercentage }} of orders are being rejected"
+
+      # WebSocket disconnected
+      - alert: WebSocketDisconnected
+        expr: |
+          bybit_websocket_connected == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: trading
+        annotations:
+          summary: "Bybit WebSocket disconnected"
+          description: "WebSocket connection to Bybit is down. Real-time data feed interrupted."
+
+      # Market data stale
+      - alert: MarketDataStale
+        expr: |
+          (time() - market_data_last_update_timestamp) > 30
+        for: 1m
+        labels:
+          severity: warning
+          component: trading
+        annotations:
+          summary: "Market data is stale for {{ $labels.symbol }}"
+          description: "Last market data update for {{ $labels.symbol }} was {{ $value | humanizeDuration }} ago"
+
+  # ===========================================================================
+  # RISK MANAGEMENT ALERTS
+  # ===========================================================================
+  - name: risk_management
+    interval: 15s
+    rules:
+      # Daily loss limit exceeded
+      - alert: DailyLossExceeded
+        expr: |
+          portfolio_daily_pnl_percentage < -5
+        for: 0s
+        labels:
+          severity: critical
+          component: risk
+          runbook_url: "https://wiki.internal/runbooks/daily-loss-exceeded"
+        annotations:
+          summary: "CRITICAL: Daily loss limit EXCEEDED"
+          description: "Daily loss is {{ $value | printf \"%.2f\" }}% (limit: -5%). Trading should be halted."
+          impact: "Risk of significant capital loss"
+          action: "Immediately halt trading and review positions"
+
+      # Approaching daily loss limit
+      - alert: ApproachingDailyLossLimit
+        expr: |
+          portfolio_daily_pnl_percentage < -3 and portfolio_daily_pnl_percentage >= -5
+        for: 5m
+        labels:
+          severity: warning
+          component: risk
+        annotations:
+          summary: "Approaching daily loss limit"
+          description: "Daily loss is {{ $value | printf \"%.2f\" }}% (limit: -5%)"
+
+      # High portfolio risk exposure
+      - alert: HighRiskExposure
+        expr: |
+          portfolio_risk_exposure > 0.15
+        for: 5m
+        labels:
+          severity: warning
+          component: risk
+        annotations:
+          summary: "High portfolio risk exposure"
+          description: "Portfolio risk exposure is {{ $value | humanizePercentage }} (threshold: 15%)"
+
+      # Position size exceeds limit
+      - alert: PositionSizeExceedsLimit
+        expr: |
+          position_size_percentage > 5
+        for: 0s
+        labels:
+          severity: warning
+          component: risk
+        annotations:
+          summary: "Position size exceeds limit for {{ $labels.symbol }}"
+          description: "Position in {{ $labels.symbol }} is {{ $value | printf \"%.2f\" }}% of portfolio (limit: 5%)"
+
+      # Max concurrent positions exceeded
+      - alert: MaxPositionsExceeded
+        expr: |
+          active_positions_count > 10
+        for: 0s
+        labels:
+          severity: warning
+          component: risk
+        annotations:
+          summary: "Maximum concurrent positions exceeded"
+          description: "Active positions: {{ $value }} (limit: 10)"
+
+      # Drawdown alert
+      - alert: SignificantDrawdown
+        expr: |
+          portfolio_drawdown_percentage > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: risk
+        annotations:
+          summary: "Significant portfolio drawdown"
+          description: "Current drawdown is {{ $value | printf \"%.2f\" }}% from peak"
+
+      # VaR exceeded
+      - alert: VaRExceeded
+        expr: |
+          portfolio_var_95 > portfolio_var_limit
+        for: 5m
+        labels:
+          severity: warning
+          component: risk
+        annotations:
+          summary: "Value at Risk (95%) exceeded limit"
+          description: "VaR(95%) is ${{ $value | humanize }} (limit: ${{ printf \"%.0f\" $labels.limit }})"
+
+      # Correlation breach
+      - alert: HighPortfolioCorrelation
+        expr: |
+          portfolio_average_correlation > 0.7
+        for: 10m
+        labels:
+          severity: warning
+          component: risk
+        annotations:
+          summary: "High portfolio correlation detected"
+          description: "Average pairwise correlation is {{ $value | printf \"%.2f\" }} (threshold: 0.7)"
+
+  # ===========================================================================
+  # DATABASE ALERTS
+  # ===========================================================================
+  - name: database
+    interval: 30s
+    rules:
+      # PostgreSQL down
+      - alert: PostgresDown
+        expr: |
+          up{job="postgres-exporter"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "CRITICAL: PostgreSQL is DOWN"
+          description: "PostgreSQL database is unreachable. All database operations will fail."
+
+      # High connection count
+      - alert: PostgresHighConnections
+        expr: |
+          sum(pg_stat_activity_count) > 180
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "PostgreSQL connection count high"
+          description: "Active connections: {{ $value }} (limit: 200)"
+
+      # Connection pool exhaustion
+      - alert: PostgresConnectionPoolExhausted
+        expr: |
+          (pg_stat_activity_count / pg_settings_max_connections) > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "PostgreSQL connection pool near exhaustion"
+          description: "{{ $value | humanizePercentage }} of max connections used"
+
+      # Slow queries
+      - alert: PostgresSlowQueries
+        expr: |
+          rate(pg_stat_statements_seconds_total[5m]) / rate(pg_stat_statements_calls_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "PostgreSQL slow queries detected"
+          description: "Average query execution time: {{ $value | humanizeDuration }}"
+
+      # Replication lag
+      - alert: PostgresReplicationLag
+        expr: |
+          pg_replication_lag_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "PostgreSQL replication lag"
+          description: "Replication lag is {{ $value | humanizeDuration }}"
+
+      # Disk space low
+      - alert: PostgresDiskSpaceLow
+        expr: |
+          pg_database_size_bytes / (1024*1024*1024) > 50
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "PostgreSQL database size growing"
+          description: "Database size is {{ $value | humanize1024 }}B"
+
+      # Long-running transactions
+      - alert: PostgresLongRunningTransaction
+        expr: |
+          max(pg_stat_activity_max_tx_duration) > 300
+        for: 1m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Long-running PostgreSQL transaction"
+          description: "Transaction running for {{ $value | humanizeDuration }}"
+
+      # Dead tuples high (needs vacuum)
+      - alert: PostgresDeadTuplesHigh
+        expr: |
+          pg_stat_user_tables_n_dead_tup > 100000
+        for: 30m
+        labels:
+          severity: info
+          component: database
+        annotations:
+          summary: "High dead tuple count on {{ $labels.relname }}"
+          description: "Table {{ $labels.relname }} has {{ $value }} dead tuples"
+
+  # ===========================================================================
+  # REDIS ALERTS
+  # ===========================================================================
+  - name: redis
+    interval: 30s
+    rules:
+      # Redis down
+      - alert: RedisDown
+        expr: |
+          up{job="redis-exporter"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: cache
+        annotations:
+          summary: "CRITICAL: Redis is DOWN"
+          description: "Redis cache is unreachable. Caching and rate limiting will fail."
+
+      # High memory usage
+      - alert: RedisHighMemory
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis is using {{ $value | humanizePercentage }} of max memory"
+
+      # Memory fragmentation
+      - alert: RedisHighMemoryFragmentation
+        expr: |
+          redis_memory_fragmentation_ratio > 1.5
+        for: 30m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Redis memory fragmentation high"
+          description: "Memory fragmentation ratio: {{ $value | printf \"%.2f\" }}"
+
+      # Rejected connections
+      - alert: RedisRejectedConnections
+        expr: |
+          increase(redis_rejected_connections_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Redis rejecting connections"
+          description: "Redis rejected {{ $value }} connections in last 5 minutes"
+
+      # High eviction rate
+      - alert: RedisHighEvictionRate
+        expr: |
+          rate(redis_evicted_keys_total[5m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Redis high eviction rate"
+          description: "Redis evicting {{ $value }} keys/second"
+
+      # Replication broken
+      - alert: RedisReplicationBroken
+        expr: |
+          redis_connected_slaves < 1
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Redis replication broken"
+          description: "Redis master has no connected slaves"
+
+  # ===========================================================================
+  # MESSAGE QUEUE ALERTS (RabbitMQ)
+  # ===========================================================================
+  - name: rabbitmq
+    interval: 30s
+    rules:
+      # RabbitMQ down
+      - alert: RabbitMQDown
+        expr: |
+          up{job="rabbitmq-exporter"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: messaging
+        annotations:
+          summary: "CRITICAL: RabbitMQ is DOWN"
+          description: "RabbitMQ message broker is unreachable."
+
+      # Queue buildup
+      - alert: RabbitMQQueueBuildup
+        expr: |
+          rabbitmq_queue_messages > 10000
+        for: 10m
+        labels:
+          severity: warning
+          component: messaging
+        annotations:
+          summary: "RabbitMQ queue buildup on {{ $labels.queue }}"
+          description: "Queue {{ $labels.queue }} has {{ $value }} messages"
+
+      # Queue messages unacked
+      - alert: RabbitMQHighUnackedMessages
+        expr: |
+          rabbitmq_queue_messages_unacked > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: messaging
+        annotations:
+          summary: "High unacknowledged messages on {{ $labels.queue }}"
+          description: "{{ $value }} unacknowledged messages"
+
+      # No consumers
+      - alert: RabbitMQNoConsumers
+        expr: |
+          rabbitmq_queue_consumers == 0 and rabbitmq_queue_messages > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: messaging
+        annotations:
+          summary: "Queue {{ $labels.queue }} has no consumers"
+          description: "{{ $value }} messages waiting with no consumers"
+
+      # Memory alarm
+      - alert: RabbitMQMemoryAlarm
+        expr: |
+          rabbitmq_node_mem_alarm == 1
+        for: 0s
+        labels:
+          severity: critical
+          component: messaging
+        annotations:
+          summary: "RabbitMQ memory alarm triggered"
+          description: "RabbitMQ has triggered memory alarm. Producers may be blocked."
+
+  # ===========================================================================
+  # INFRASTRUCTURE ALERTS
+  # ===========================================================================
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}%"
+
+      # Critical CPU usage
+      - alert: CriticalCPUUsage
+        expr: |
+          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "CRITICAL: CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}%"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}%"
+
+      # Critical memory usage
+      - alert: CriticalMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "CRITICAL: Memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}%"
+
+      # Disk space low
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 15
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Only {{ $value | printf \"%.1f\" }}% disk space remaining on {{ $labels.mountpoint }}"
+
+      # Disk space critical
+      - alert: DiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 5
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "CRITICAL: Disk space on {{ $labels.instance }}"
+          description: "Only {{ $value | printf \"%.1f\" }}% disk space remaining"
+
+      # Network errors
+      - alert: NetworkErrors
+        expr: |
+          rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Network errors on {{ $labels.instance }}"
+          description: "{{ $value | printf \"%.0f\" }} network errors per second"
+
+      # Container OOM killed
+      - alert: ContainerOOMKilled
+        expr: |
+          increase(container_oom_events_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Container {{ $labels.name }} OOM killed"
+          description: "Container was killed due to out of memory"
+
+      # Container high memory
+      - alert: ContainerHighMemory
+        expr: |
+          (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Container {{ $labels.name }} high memory usage"
+          description: "Container using {{ $value | printf \"%.1f\" }}% of memory limit"
+
+      # Container restarting
+      - alert: ContainerRestarting
+        expr: |
+          increase(kube_pod_container_status_restarts_total[1h]) > 3
+        for: 0s
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Container {{ $labels.container }} restarting frequently"
+          description: "{{ $value }} restarts in the last hour"
+
+  # ===========================================================================
+  # BUSINESS METRICS ALERTS
+  # ===========================================================================
+  - name: business_metrics
+    interval: 60s
+    rules:
+      # Significant profit alert (informational)
+      - alert: SignificantProfit
+        expr: |
+          portfolio_daily_pnl_percentage > 3
+        for: 5m
+        labels:
+          severity: info
+          component: business
+        annotations:
+          summary: "Significant daily profit"
+          description: "Daily profit is {{ $value | printf \"%.2f\" }}%"
+
+      # Low trading volume
+      - alert: LowTradingVolume
+        expr: |
+          sum(increase(trade_volume_usd[24h])) < 1000
+        for: 6h
+        labels:
+          severity: info
+          component: business
+        annotations:
+          summary: "Low 24h trading volume"
+          description: "24h trading volume is ${{ $value | humanize }}"
+
+      # Strategy performance degradation
+      - alert: StrategyPerformanceDegraded
+        expr: |
+          strategy_sharpe_ratio_30d < 0.5
+        for: 1h
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "Strategy {{ $labels.strategy }} performance degraded"
+          description: "30-day Sharpe ratio is {{ $value | printf \"%.2f\" }}"
+
+      # Win rate dropping
+      - alert: WinRateDropping
+        expr: |
+          (sum(increase(trades_winning_total[24h])) / sum(increase(trades_executed_total[24h]))) < 0.4
+        for: 6h
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "Win rate dropping below threshold"
+          description: "24h win rate is {{ $value | humanizePercentage }}"
+
+      # API rate limits approaching
+      - alert: APIRateLimitApproaching
+        expr: |
+          bybit_api_rate_limit_remaining < 100
+        for: 5m
+        labels:
+          severity: warning
+          component: external
+        annotations:
+          summary: "Bybit API rate limit approaching"
+          description: "Only {{ $value }} API calls remaining in current window"
+
+  # ===========================================================================
+  # PROMETHEUS SELF-MONITORING
+  # ===========================================================================
+  - name: prometheus
+    interval: 30s
+    rules:
+      # Prometheus config reload failed
+      - alert: PrometheusConfigReloadFailed
+        expr: |
+          prometheus_config_last_reload_successful != 1
+        for: 10m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Prometheus config reload failed"
+          description: "Prometheus failed to reload its configuration"
+
+      # Prometheus rule evaluation slow
+      - alert: PrometheusRuleEvaluationSlow
+        expr: |
+          prometheus_rule_group_last_duration_seconds > 30
+        for: 10m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Prometheus rule evaluation slow"
+          description: "Rule group {{ $labels.rule_group }} took {{ $value | humanizeDuration }} to evaluate"
+
+      # TSDB compaction failed
+      - alert: PrometheusTSDBCompactionFailed
+        expr: |
+          increase(prometheus_tsdb_compactions_failed_total[1h]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Prometheus TSDB compaction failed"
+          description: "{{ $value }} compaction failures in the last hour"
+
+      # Target scrape slow
+      - alert: PrometheusTargetScrapeSlow
+        expr: |
+          prometheus_target_scrape_pool_sync_total > 0.1
+        for: 10m
+        labels:
+          severity: info
+          component: monitoring
+        annotations:
+          summary: "Prometheus scrapes taking too long"
+          description: "Scrape pool sync taking {{ $value | humanizeDuration }}"
+
+      # AlertManager not connected
+      - alert: AlertManagerNotConnected
+        expr: |
+          prometheus_notifications_alertmanagers_discovered < 1
+        for: 5m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "AlertManager not connected to Prometheus"
+          description: "No AlertManager instances discovered"

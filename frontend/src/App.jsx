@@ -15,10 +15,12 @@
  * - / - Main Dashboard
  * - /phase1 - Phase 1 Monitoring
  * - /phase3 - Phase 3 AI Enhanced Dashboard
+ * - /performance - Performance Analytics Dashboard (Phase 5.3)
  * - /settings - Application Settings
  *
  * Author: Frontend Developer Agent
  * Date: 2025-11-28
+ * Updated: 2025-12-11 - Added Performance Analytics route
  */
 
 import React from 'react'
@@ -28,6 +30,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import Dashboard from './components/Dashboard'
 import Phase1Dashboard from './pages/Phase1Dashboard'
 import Phase3Dashboard from './pages/Phase3Dashboard'
+import PerformanceDashboard from './pages/PerformanceDashboard'
 import Settings from './pages/Settings'
 
 // Import theme toggle component
@@ -87,6 +90,7 @@ const MobileMenu = ({ isOpen, onClose }) => {
     { to: '/', label: 'Main Dashboard' },
     { to: '/phase1', label: 'Phase 1 Monitoring' },
     { to: '/phase3', label: 'Phase 3: AI Enhanced' },
+    { to: '/performance', label: 'Performance' },
     { to: '/settings', label: 'Settings' },
   ]
 
@@ -158,6 +162,9 @@ const Header = () => {
               </NavLink>
               <NavLink to="/phase3">
                 Phase 3: AI Enhanced
+              </NavLink>
+              <NavLink to="/performance">
+                Performance
               </NavLink>
               <NavLink to="/settings">
                 Settings
@@ -247,6 +254,9 @@ function App() {
 
             {/* Phase 3 AI Enhanced Dashboard */}
             <Route path="/phase3" element={<Phase3Dashboard />} />
+
+            {/* Phase 5.3: Performance Analytics Dashboard */}
+            <Route path="/performance" element={<PerformanceDashboard />} />
 
             {/* Settings Page */}
             <Route path="/settings" element={<Settings />} />

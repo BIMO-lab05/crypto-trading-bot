@@ -3,22 +3,21 @@ import { marketAPI } from '../services/api'
 
 /**
  * Custom hook for fetching real-time ticker data for a single symbol
- * Auto-refetches every 15 seconds for real-time price updates
+ * Auto-refetches every 5 seconds for real-time price updates
  *
- * UPDATED 2025-11-29: Fixed response parsing to match API format
- * UPDATED 2025-11-30: Increased interval from 5s to 15s to prevent request overload
+ * FIXED 2026-02-17: Reduced refresh interval for real-time prices
  */
 export function useTicker(symbol) {
   return useQuery({
     queryKey: ['ticker', symbol],
     queryFn: async () => {
       const response = await marketAPI.getTicker(symbol)
-      // FIXED 2025-12-04: API already returns { ticker: {...} } format
-      // Don't double-wrap, just return the response as-is
+      // API returns { success: true, data: {...}, source: "..." } format
+      // Return the response as-is (axios interceptor already extracts .data)
       return response
     },
-    refetchInterval: 15000, // Refetch every 15 seconds (was 5s, increased to reduce load)
-    staleTime: 12000, // Consider data fresh for 12 seconds
+    refetchInterval: 5000, // Refetch every 5 seconds (REDUCED from 15s for real-time)
+    staleTime: 3000, // Consider data fresh for 3 seconds
     retry: 2,
     retryDelay: 1000,
     enabled: !!symbol, // Only run if symbol is provided
@@ -28,9 +27,7 @@ export function useTicker(symbol) {
 /**
  * Custom hook for fetching ticker data for multiple symbols
  *
- * UPDATED 2025-11-29: Fixed response parsing to match API format
- * UPDATED 2025-11-30: Increased interval from 5s to 20s to prevent request overload
- *                     Multiple tickers = more requests, so use longer interval
+ * FIXED 2026-02-17: Reduced refresh interval for real-time prices
  */
 export function useMultipleTickers(symbols = []) {
   return useQuery({
@@ -48,18 +45,17 @@ export function useMultipleTickers(symbols = []) {
         }
       }
       // Convert array to object with symbol as key
-      // FIXED 2025-12-04: API already returns { ticker: {...} } format
-      // Don't double-wrap, just use the response as-is
+      // API returns { success: true, data: {...}, source: "..." } format
+      // Extract the data field from each response
       return results.reduce((acc, response, index) => {
         if (response) {
-          // Response is already { ticker: {...} }, use it directly
           acc[symbols[index]] = response
         }
         return acc
       }, {})
     },
-    refetchInterval: 20000, // Refetch every 20 seconds (was 5s, increased for multiple symbols)
-    staleTime: 15000, // Consider data fresh for 15 seconds
+    refetchInterval: 5000, // Refetch every 5 seconds (REDUCED from 20s for real-time)
+    staleTime: 3000, // Consider data fresh for 3 seconds
     retry: 1, // Fewer retries for batch operations
     retryDelay: 2000,
     enabled: symbols.length > 0,

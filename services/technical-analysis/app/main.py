@@ -4,15 +4,26 @@ Purpose: REST API for technical indicators and trading signals
 
 REFACTORED: Phase 3 Complete - Using modular handlers
 Architecture: main.py -> handlers -> services -> domain
+
+PROMETHEUS METRICS: 2025-12-12
+- Added /metrics endpoint for Prometheus scraping
+- HTTP request counters and histograms
+- Indicator calculation metrics
 """
 
 import logging
+import time
+import re
 from contextlib import asynccontextmanager
 from typing import Optional
 from pathlib import Path
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import Response
 
 from fastapi.middleware.cors import CORSMiddleware
+
+# Prometheus metrics imports
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from app.config import get_settings
 from app.fetcher import get_fetcher, close_fetcher
@@ -64,6 +75,57 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+# ============================================================================
+# PROMETHEUS METRICS
+# ============================================================================
+
+# HTTP request counter
+http_requests_total = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status_code']
+)
+
+# HTTP request duration histogram
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration in seconds',
+    ['method', 'endpoint'],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0]
+)
+
+# Active requests gauge
+http_requests_active = Gauge(
+    'http_requests_active',
+    'Number of active HTTP requests'
+)
+
+# Technical analysis specific metrics
+indicator_calculations_total = Counter(
+    'indicator_calculations_total',
+    'Total indicator calculations',
+    ['indicator', 'symbol']
+)
+
+indicator_calculation_duration_seconds = Histogram(
+    'indicator_calculation_duration_seconds',
+    'Indicator calculation duration in seconds',
+    ['indicator'],
+    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5]
+)
+
+market_data_service_health = Gauge(
+    'market_data_service_health',
+    'Market data service health status (1=healthy, 0=unhealthy)'
+)
+
+signals_generated_total = Counter(
+    'signals_generated_total',
+    'Total trading signals generated',
+    ['symbol', 'signal_type']
+)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -75,6 +137,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.service_name} on port {settings.service_port}")
     logger.info(f"Market Data URL: {settings.market_data_url}")
     logger.info("Using modular architecture (Phase 3 refactoring complete)")
+    logger.info("Prometheus metrics: enabled at /metrics")
 
     try:
         # Check Market Data Service connection
@@ -82,8 +145,10 @@ async def lifespan(app: FastAPI):
         is_healthy = await fetcher.health_check()
         if is_healthy:
             logger.info("Market Data Service connection verified")
+            market_data_service_health.set(1)
         else:
             logger.warning("Market Data Service not available")
+            market_data_service_health.set(0)
 
         yield
 
@@ -101,6 +166,52 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+# ============================================================================
+# PROMETHEUS METRICS MIDDLEWARE
+# ============================================================================
+
+@app.middleware("http")
+async def prometheus_metrics_middleware(request: Request, call_next):
+    """Middleware to collect Prometheus metrics for all HTTP requests"""
+    # Skip metrics endpoint itself
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    method = request.method
+    path = request.url.path
+
+    # Normalize path to prevent high cardinality
+    normalized_path = re.sub(r'/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '/{uuid}', path, flags=re.IGNORECASE)
+    normalized_path = re.sub(r'/[A-Z]+USDT', '/{symbol}', normalized_path)
+
+    http_requests_active.inc()
+    start_time = time.time()
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    except Exception as e:
+        status_code = 500
+        raise
+    finally:
+        duration = time.time() - start_time
+        http_requests_active.dec()
+
+        http_requests_total.labels(
+            method=method,
+            endpoint=normalized_path,
+            status_code=status_code
+        ).inc()
+
+        http_request_duration_seconds.labels(
+            method=method,
+            endpoint=normalized_path
+        ).observe(duration)
+
+    return response
+
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -109,6 +220,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================================
+# PROMETHEUS METRICS ENDPOINT
+# ============================================================================
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    """Prometheus metrics endpoint"""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ============================================================================
@@ -124,6 +245,11 @@ async def health():
 @app.get("/ready", response_model=ReadyResponse, tags=["Health"])
 async def ready():
     """Readiness check endpoint"""
+    # Update market data service health metric
+    fetcher = get_fetcher()
+    is_healthy = await fetcher.health_check()
+    market_data_service_health.set(1 if is_healthy else 0)
+
     return await readiness_check()
 
 
@@ -147,6 +273,7 @@ async def rsi_endpoint(
     - RSI > 80: Overbought (potential sell)
     - RSI < 20: Oversold (potential buy)
     """
+    indicator_calculations_total.labels(indicator='rsi', symbol=symbol).inc()
     return await get_rsi(symbol, interval, period, limit)
 
 
@@ -168,6 +295,7 @@ async def macd_endpoint(
     - MACD crosses above Signal: Bullish (buy)
     - MACD crosses below Signal: Bearish (sell)
     """
+    indicator_calculations_total.labels(indicator='macd', symbol=symbol).inc()
     return await get_macd(symbol, interval, fast, slow, signal, limit)
 
 
@@ -186,6 +314,7 @@ async def bollinger_endpoint(
     - Price at lower band: Oversold (potential buy)
     - Price at upper band: Overbought (potential sell)
     """
+    indicator_calculations_total.labels(indicator='bollinger', symbol=symbol).inc()
     return await get_bollinger_bands(symbol, interval, period, std_dev, limit)
 
 
@@ -203,6 +332,7 @@ async def sma_endpoint(
     - Price > SMA: Bullish trend
     - Price < SMA: Bearish trend
     """
+    indicator_calculations_total.labels(indicator='sma', symbol=symbol).inc()
     return await get_sma(symbol, interval, period, limit)
 
 
@@ -220,6 +350,7 @@ async def ema_endpoint(
     - Price > EMA: Bullish trend
     - Price < EMA: Bearish trend
     """
+    indicator_calculations_total.labels(indicator='ema', symbol=symbol).inc()
     return await get_ema(symbol, interval, period, limit)
 
 
@@ -250,6 +381,7 @@ async def trend_filter_endpoint(
     - SELL signals allowed only in BEARISH trend
     - HOLD recommended in NEUTRAL trend
     """
+    indicator_calculations_total.labels(indicator='trend_filter', symbol=symbol).inc()
     return await get_trend_filter(symbol, interval, fast_period, slow_period, limit)
 
 
@@ -259,7 +391,7 @@ async def volume_confirmation_endpoint(
     interval: str = Query(default="60"),
     period: int = Query(default=20, ge=5, le=50, description="Volume averaging period"),
     signal_type: str = Query(default="breakout", description="breakout or continuation"),
-    limit: int = Query(default=50, ge=30, le=200)
+    limit: int = Query(default=100, ge=30, le=200)  # INCREASED 2026-02-25: 50→100 for better volume analysis
 ):
     """
     Calculate Volume Confirmation
@@ -276,6 +408,7 @@ async def volume_confirmation_endpoint(
     - breakout: Requires 1.2x volume (new support/resistance break)
     - continuation: Accepts 1.0x volume (existing trend continuation)
     """
+    indicator_calculations_total.labels(indicator='volume', symbol=symbol).inc()
     return await get_volume_confirmation(symbol, interval, period, signal_type, limit)
 
 
@@ -304,6 +437,7 @@ async def atr_endpoint(
     - Volatile market (ATR 2-4%): Wide stops
     - Extreme volatility (ATR > 4%): Very wide stops
     """
+    indicator_calculations_total.labels(indicator='atr', symbol=symbol).inc()
     return await get_atr(symbol, interval, period, current_price, limit)
 
 
@@ -343,6 +477,7 @@ async def adx_endpoint(
     - Mean-reversion works best when ADX < 20
     - Adjust position sizing based on ADX (higher ADX = more confidence)
     """
+    indicator_calculations_total.labels(indicator='adx', symbol=symbol).inc()
     return await get_adx(
         symbol, interval, period, trending_threshold,
         weak_trend_threshold, strong_trend_threshold, limit
@@ -378,6 +513,7 @@ async def stochastic_endpoint(
     - Trend filter (confirm trend direction)
     - Volume confirmation (validate breakouts)
     """
+    indicator_calculations_total.labels(indicator='stochastic', symbol=symbol).inc()
     return await get_stochastic(symbol, interval, period, smooth_k, smooth_d, limit)
 
 
@@ -402,6 +538,7 @@ async def rsi_divergence_endpoint(
 
     **Signal Confidence** based on divergence strength and RSI zone
     """
+    indicator_calculations_total.labels(indicator='rsi_divergence', symbol=symbol).inc()
     return await get_rsi_divergence(symbol, interval, period, lookback, limit)
 
 
@@ -409,9 +546,9 @@ async def rsi_divergence_endpoint(
 async def ichimoku_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    tenkan_period: int = Query(default=9, ge=5, le=20, description="Tenkan-sen (conversion) period"),
-    kijun_period: int = Query(default=26, ge=20, le=50, description="Kijun-sen (base) period"),
-    senkou_b_period: int = Query(default=52, ge=40, le=100, description="Senkou Span B period"),
+    tenkan_period: int = Query(default=9, ge=5, le=30, description="Tenkan-sen (conversion) period - crypto optimized: 20"),
+    kijun_period: int = Query(default=26, ge=20, le=120, description="Kijun-sen (base) period - crypto optimized: 60"),
+    senkou_b_period: int = Query(default=52, ge=40, le=200, description="Senkou Span B period - crypto optimized: 120"),
     limit: int = Query(default=200, ge=100, le=500)
 ):
     """
@@ -431,6 +568,7 @@ async def ichimoku_endpoint(
     - SELL: Price below cloud + TK cross bearish + Chikou below price
     - HOLD: Inside cloud or conflicting signals
     """
+    indicator_calculations_total.labels(indicator='ichimoku', symbol=symbol).inc()
     return await get_ichimoku(symbol, interval, tenkan_period, kijun_period, senkou_b_period, limit)
 
 
@@ -461,6 +599,7 @@ async def enhanced_sqzmom_endpoint(
     - SELL: Squeeze fires + negative momentum + decreasing
     - HOLD: Squeeze still on or momentum unclear
     """
+    indicator_calculations_total.labels(indicator='sqzmom_enhanced', symbol=symbol).inc()
     return await get_enhanced_sqzmom(symbol, interval, bb_period, bb_mult, kc_period, kc_mult, mom_period, limit)
 
 
@@ -513,6 +652,7 @@ async def sqzmom_endpoint(
 
     **Best For**: Breakout trading, range breakouts, volatility expansion trades
     """
+    indicator_calculations_total.labels(indicator='sqzmom', symbol=symbol).inc()
     return await get_sqzmom(
         symbol=symbol,
         interval=interval,
@@ -570,6 +710,7 @@ async def sqzmom_strategy_endpoint(
     - Confidence score (0-1)
     - Detailed reasoning for signal
     """
+    signals_generated_total.labels(symbol=symbol, signal_type='sqzmom').inc()
     return await get_sqzmom_strategy_signal(
         symbol=symbol,
         interval=interval,
@@ -646,6 +787,7 @@ async def aggregated_signal_endpoint(
 
     Returns weighted signal with confidence score (0-1)
     """
+    signals_generated_total.labels(symbol=symbol, signal_type='aggregated').inc()
     return await get_aggregated_signal(symbol, interval)
 
 
@@ -668,6 +810,7 @@ async def multi_timeframe_endpoint(
 
     **Note**: Duplicate endpoint at line 651-694 removed (DRY principle)
     """
+    signals_generated_total.labels(symbol=symbol, signal_type='multi_timeframe').inc()
     return await get_multi_timeframe_analysis(symbol, timeframes)
 
 
@@ -686,6 +829,7 @@ async def root():
         "endpoints": {
             "health": "/health",
             "ready": "/ready",
+            "metrics": "/metrics",
             "docs": "/docs",
             "indicators": {
                 "rsi": "/api/v1/indicators/rsi/{symbol}",
@@ -710,6 +854,12 @@ async def root():
             "backtesting": {
                 "sqzmom_history": "/api/v1/indicators/sqzmom/{symbol}/backtest"
             }
+        },
+        "features": {
+            "prometheus_metrics": True,
+            "indicators": 12,
+            "strategies": 1,
+            "multi_timeframe": True
         },
         "refactoring": {
             "status": "Phase 3 Complete",

@@ -53,11 +53,15 @@ def sample_sideways_data():
 # ============================================================================
 
 def test_macd_initialization(macd_calculator):
-    """Test MACD calculator initialization with default parameters"""
-    assert macd_calculator.fast_period == 12
-    assert macd_calculator.slow_period == 26
-    assert macd_calculator.signal_period == 9
-    assert macd_calculator.min_periods == 35  # 26 + 9
+    """Test MACD calculator initialization with default parameters
+
+    UPDATED 2025-12-03: MACD parameters optimized for crypto markets.
+    Changed from traditional 12/26/9 to 5/35/5 for faster response.
+    """
+    assert macd_calculator.fast_period == 5    # Changed from 12
+    assert macd_calculator.slow_period == 35   # Changed from 26
+    assert macd_calculator.signal_period == 5  # Changed from 9
+    assert macd_calculator.min_periods == 40   # 35 + 5
 
 
 def test_macd_custom_periods():
@@ -117,18 +121,24 @@ def test_macd_calculation_downtrend(macd_calculator, sample_downtrend_data):
 
 
 def test_macd_insufficient_data(macd_calculator):
-    """Test MACD returns None with insufficient data"""
-    # Only 30 data points, need at least 35
-    short_data = pd.DataFrame({'close': [100] * 30})
+    """Test MACD returns None with insufficient data
+
+    UPDATED 2025-12-03: Minimum periods changed from 35 to 40.
+    """
+    # Only 35 data points, need at least 40
+    short_data = pd.DataFrame({'close': [100] * 35})
     result = macd_calculator.calculate(short_data)
 
     assert result is None
 
 
 def test_macd_exact_minimum_data(macd_calculator):
-    """Test MACD with exactly minimum required data"""
-    # Exactly min_periods = 35
-    min_data = pd.DataFrame({'close': [100 + i * 0.1 for i in range(35)]})
+    """Test MACD with exactly minimum required data
+
+    UPDATED 2025-12-03: Minimum periods changed from 35 to 40.
+    """
+    # Exactly min_periods = 40
+    min_data = pd.DataFrame({'close': [100 + i * 0.1 for i in range(40)]})
     result = macd_calculator.calculate(min_data)
 
     assert result is not None

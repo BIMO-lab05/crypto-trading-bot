@@ -1,0 +1,1081 @@
+# =============================================================================
+# Production Microservices Deployment
+# =============================================================================
+# Version: 1.0
+# Created: 2025-12-12
+# Environment: Production
+#
+# All microservices configured with:
+# - Security hardening (non-root, dropped capabilities)
+# - Resource limits and requests
+# - Health checks (liveness, readiness, startup)
+# - Prometheus metrics
+# - Anti-affinity for high availability
+# =============================================================================
+
+---
+# API Gateway Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: api-gateway
+    environment: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: api-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: api-gateway
+        environment: production
+        security-hardened: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: api-gateway-sa
+      priorityClassName: crypto-bot-critical
+      containers:
+      - name: api-gateway
+        image: crypto-trading-bot/api-gateway:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8000
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: api-secrets
+        - secretRef:
+            name: db-secrets
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  service: api-gateway
+              topologyKey: kubernetes.io/hostname
+
+---
+# API Gateway Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: api-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: api-gateway
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+
+---
+# Trading Engine Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-engine
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: trading-engine
+    environment: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: trading-engine
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: trading-engine
+        environment: production
+        security-hardened: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: trading-engine-sa
+      priorityClassName: crypto-bot-critical
+      containers:
+      - name: trading-engine
+        image: crypto-trading-bot/trading-engine:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8001
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: api-secrets
+        - secretRef:
+            name: db-secrets
+        - secretRef:
+            name: bybit-secrets
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+          limits:
+            cpu: "4"
+            memory: "4Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                service: trading-engine
+            topologyKey: kubernetes.io/hostname
+
+---
+# Trading Engine Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-engine-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: trading-engine
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: trading-engine
+  ports:
+  - port: 8001
+    targetPort: 8001
+    name: http
+
+---
+# Portfolio Manager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-manager
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: portfolio-manager
+    environment: production
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: portfolio-manager
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: portfolio-manager
+        environment: production
+        security-hardened: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: portfolio-manager-sa
+      priorityClassName: crypto-bot-high
+      containers:
+      - name: portfolio-manager
+        image: crypto-trading-bot/portfolio-manager:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8002
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: db-secrets
+        - secretRef:
+            name: bybit-secrets
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8002
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+---
+# Portfolio Manager Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio-manager-service
+  namespace: crypto-bot-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: portfolio-manager
+  ports:
+  - port: 8002
+    targetPort: 8002
+    name: http
+
+---
+# Technical Analysis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: technical-analysis
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: technical-analysis
+    environment: production
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: technical-analysis
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: technical-analysis
+        environment: production
+        security-hardened: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: default-sa
+      containers:
+      - name: technical-analysis
+        image: crypto-trading-bot/technical-analysis:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8003
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: db-secrets
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8003
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+---
+# Technical Analysis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: technical-analysis-service
+  namespace: crypto-bot-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: technical-analysis
+  ports:
+  - port: 8003
+    targetPort: 8003
+    name: http
+
+---
+# Market Data Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-data-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: market-data-service
+    environment: production
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: market-data-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: market-data-service
+        environment: production
+        security-hardened: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8005"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: default-sa
+      containers:
+      - name: market-data-service
+        image: crypto-trading-bot/market-data-service:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8005
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: db-secrets
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8005
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8005
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+---
+# Market Data Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-data-service
+  namespace: crypto-bot-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: market-data-service
+  ports:
+  - port: 8005
+    targetPort: 8005
+    name: http
+
+---
+# Bybit Connector Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bybit-connector
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: bybit-connector
+    environment: production
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: bybit-connector
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: bybit-connector
+        environment: production
+        security-hardened: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8004"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: bybit-connector-sa
+      priorityClassName: crypto-bot-critical
+      containers:
+      - name: bybit-connector
+        image: crypto-trading-bot/bybit-connector:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8004
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: bybit-secrets
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8004
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+---
+# Bybit Connector Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: bybit-connector-service
+  namespace: crypto-bot-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: bybit-connector
+  ports:
+  - port: 8004
+    targetPort: 8004
+    name: http
+
+---
+# ML Prediction Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-prediction-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: ml-prediction-service
+    environment: production
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: ml-prediction-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: ml-prediction-service
+        environment: production
+        security-hardened: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8007"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: default-sa
+      containers:
+      - name: ml-prediction-service
+        image: crypto-trading-bot/ml-prediction-service:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8007
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: db-secrets
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: models
+          mountPath: /app/models
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8007
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8007
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: models
+        persistentVolumeClaim:
+          claimName: ml-models-pvc
+
+---
+# ML Prediction Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-prediction-service
+  namespace: crypto-bot-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: ml-prediction-service
+  ports:
+  - port: 8007
+    targetPort: 8007
+    name: http
+
+---
+# Notification Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: notification-service
+    environment: production
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: notification-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: notification-service
+        environment: production
+        security-hardened: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: default-sa
+      containers:
+      - name: notification-service
+        image: crypto-trading-bot/notification-service:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8008
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: notification-secrets
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8008
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8008
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+---
+# Notification Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: crypto-bot-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: notification-service
+  ports:
+  - port: 8008
+    targetPort: 8008
+    name: http
+
+---
+# Risk Metrics Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-metrics-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: risk-metrics-service
+    environment: production
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: risk-metrics-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: risk-metrics-service
+        environment: production
+        security-hardened: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8009"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: default-sa
+      priorityClassName: crypto-bot-high
+      containers:
+      - name: risk-metrics-service
+        image: crypto-trading-bot/risk-metrics-service:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8009
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: db-secrets
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8009
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8009
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+---
+# Risk Metrics Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-metrics-service
+  namespace: crypto-bot-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: risk-metrics-service
+  ports:
+  - port: 8009
+    targetPort: 8009
+    name: http
+
+---
+# Sentiment Analysis Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-analysis-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: sentiment-analysis-service
+    environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: sentiment-analysis-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: sentiment-analysis-service
+        environment: production
+        security-hardened: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: default-sa
+      containers:
+      - name: sentiment-analysis-service
+        image: crypto-trading-bot/sentiment-analysis-service:latest
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 8010
+          name: http
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: db-secrets
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8010
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8010
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+---
+# Sentiment Analysis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentiment-analysis-service
+  namespace: crypto-bot-prod
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: sentiment-analysis-service
+  ports:
+  - port: 8010
+    targetPort: 8010
+    name: http
+
+---
+# Service Accounts for microservices
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-gateway-sa
+  namespace: crypto-bot-prod
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trading-engine-sa
+  namespace: crypto-bot-prod
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: portfolio-manager-sa
+  namespace: crypto-bot-prod
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bybit-connector-sa
+  namespace: crypto-bot-prod
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default-sa
+  namespace: crypto-bot-prod
+automountServiceAccountToken: false

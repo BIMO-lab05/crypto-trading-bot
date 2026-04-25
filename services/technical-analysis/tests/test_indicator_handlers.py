@@ -23,7 +23,11 @@ class TestGetRSI:
 
     @pytest.mark.asyncio
     async def test_successful_rsi_default_params(self):
-        """Test RSI calculation with default parameters"""
+        """Test RSI calculation with default parameters
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        Note: RSI period default changed from 14 to 9 (crypto-optimized).
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "rsi": 65.5,
@@ -34,8 +38,8 @@ class TestGetRSI:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_rsi = AsyncMock(return_value=mock_data)
 
-            # Execute
-            result = await get_rsi(symbol="BTCUSDT")
+            # Execute with explicit parameters
+            result = await get_rsi(symbol="BTCUSDT", interval="60", period=9, limit=200)
 
             # Assertions
             assert result.symbol == "BTCUSDT"
@@ -43,11 +47,14 @@ class TestGetRSI:
             assert result.rsi == 65.5
             assert result.signal == "HOLD"
             assert result.confidence == 0.6
-            assert result.parameters["period"] == 14
+            assert result.parameters["period"] == 9  # Changed from 14
 
     @pytest.mark.asyncio
     async def test_rsi_oversold_signal(self):
-        """Test RSI with oversold signal"""
+        """Test RSI with oversold signal
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "rsi": 25.0,
@@ -58,7 +65,7 @@ class TestGetRSI:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_rsi = AsyncMock(return_value=mock_data)
 
-            result = await get_rsi(symbol="BTCUSDT", period=14)
+            result = await get_rsi(symbol="BTCUSDT", interval="60", period=14, limit=200)
 
             assert result.rsi == 25.0
             assert result.signal == "BUY"
@@ -66,7 +73,10 @@ class TestGetRSI:
 
     @pytest.mark.asyncio
     async def test_rsi_overbought_signal(self):
-        """Test RSI with overbought signal"""
+        """Test RSI with overbought signal
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "rsi": 78.5,
@@ -77,7 +87,7 @@ class TestGetRSI:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_rsi = AsyncMock(return_value=mock_data)
 
-            result = await get_rsi(symbol="ETHUSDT", period=14)
+            result = await get_rsi(symbol="ETHUSDT", interval="60", period=14, limit=200)
 
             assert result.rsi == 78.5
             assert result.signal == "SELL"
@@ -140,7 +150,11 @@ class TestGetMACD:
 
     @pytest.mark.asyncio
     async def test_successful_macd_default_params(self):
-        """Test MACD calculation with default parameters"""
+        """Test MACD calculation with default parameters
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        MACD defaults changed from 12/26/9 to 5/35/5 (Kang 2021 study).
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "macd_line": 150.5,
@@ -153,8 +167,8 @@ class TestGetMACD:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_macd = AsyncMock(return_value=mock_data)
 
-            # Execute
-            result = await get_macd(symbol="BTCUSDT")
+            # Execute with explicit parameters
+            result = await get_macd(symbol="BTCUSDT", interval="60", fast=5, slow=35, signal=5, limit=200)
 
             # Assertions
             assert result.symbol == "BTCUSDT"
@@ -162,13 +176,16 @@ class TestGetMACD:
             assert result.signal_line == 145.2
             assert result.histogram == 5.3
             assert result.signal == "BUY"
-            assert result.parameters["fast"] == 12
-            assert result.parameters["slow"] == 26
-            assert result.parameters["signal"] == 9
+            assert result.parameters["fast"] == 5   # Changed from 12
+            assert result.parameters["slow"] == 35  # Changed from 26
+            assert result.parameters["signal"] == 5 # Changed from 9
 
     @pytest.mark.asyncio
     async def test_macd_bullish_crossover(self):
-        """Test MACD with bullish crossover"""
+        """Test MACD with bullish crossover
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "macd_line": 100.0,
@@ -181,14 +198,17 @@ class TestGetMACD:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_macd = AsyncMock(return_value=mock_data)
 
-            result = await get_macd(symbol="BTCUSDT")
+            result = await get_macd(symbol="BTCUSDT", interval="60", fast=5, slow=35, signal=5, limit=200)
 
             assert result.histogram > 0
             assert result.signal == "BUY"
 
     @pytest.mark.asyncio
     async def test_macd_bearish_crossover(self):
-        """Test MACD with bearish crossover"""
+        """Test MACD with bearish crossover
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "macd_line": 95.0,
@@ -201,7 +221,7 @@ class TestGetMACD:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_macd = AsyncMock(return_value=mock_data)
 
-            result = await get_macd(symbol="ETHUSDT")
+            result = await get_macd(symbol="ETHUSDT", interval="60", fast=5, slow=35, signal=5, limit=200)
 
             assert result.histogram < 0
             assert result.signal == "SELL"
@@ -253,7 +273,11 @@ class TestGetBollingerBands:
 
     @pytest.mark.asyncio
     async def test_successful_bollinger_bands_default(self):
-        """Test Bollinger Bands with default parameters"""
+        """Test Bollinger Bands with default parameters
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        Std dev default changed from 2.0 to 2.5 for crypto volatility.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "upper_band": 52000.0,
@@ -267,8 +291,8 @@ class TestGetBollingerBands:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_bollinger_bands = AsyncMock(return_value=mock_data)
 
-            # Execute
-            result = await get_bollinger_bands(symbol="BTCUSDT")
+            # Execute with explicit parameters
+            result = await get_bollinger_bands(symbol="BTCUSDT", interval="60", period=20, std_dev=2.5, limit=200)
 
             # Assertions
             assert result.symbol == "BTCUSDT"
@@ -277,11 +301,14 @@ class TestGetBollingerBands:
             assert result.lower_band == 48000.0
             assert result.current_price == 49500.0
             assert result.parameters["period"] == 20
-            assert result.parameters["std_dev"] == 2.0
+            assert result.parameters["std_dev"] == 2.5  # Changed from 2.0 for crypto
 
     @pytest.mark.asyncio
     async def test_bollinger_bands_oversold(self):
-        """Test Bollinger Bands when price is near lower band"""
+        """Test Bollinger Bands when price is near lower band
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "upper_band": 52000.0,
@@ -295,14 +322,17 @@ class TestGetBollingerBands:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_bollinger_bands = AsyncMock(return_value=mock_data)
 
-            result = await get_bollinger_bands(symbol="BTCUSDT")
+            result = await get_bollinger_bands(symbol="BTCUSDT", interval="60", period=20, std_dev=2.5, limit=200)
 
             assert result.current_price < result.middle_band
             assert result.signal == "BUY"
 
     @pytest.mark.asyncio
     async def test_bollinger_bands_overbought(self):
-        """Test Bollinger Bands when price is near upper band"""
+        """Test Bollinger Bands when price is near upper band
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "upper_band": 52000.0,
@@ -316,14 +346,17 @@ class TestGetBollingerBands:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_bollinger_bands = AsyncMock(return_value=mock_data)
 
-            result = await get_bollinger_bands(symbol="ETHUSDT")
+            result = await get_bollinger_bands(symbol="ETHUSDT", interval="60", period=20, std_dev=2.5, limit=200)
 
             assert result.current_price > result.middle_band
             assert result.signal == "SELL"
 
     @pytest.mark.asyncio
     async def test_bollinger_bands_custom_params(self):
-        """Test Bollinger Bands with custom parameters"""
+        """Test Bollinger Bands with custom parameters
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "upper_band": 3200.0,
@@ -339,8 +372,10 @@ class TestGetBollingerBands:
 
             result = await get_bollinger_bands(
                 symbol="ETHUSDT",
+                interval="60",
                 period=50,
-                std_dev=2.5
+                std_dev=2.5,
+                limit=200
             )
 
             assert result.parameters["period"] == 50
@@ -365,7 +400,10 @@ class TestGetSMA:
 
     @pytest.mark.asyncio
     async def test_successful_sma_default(self):
-        """Test SMA calculation with default parameters"""
+        """Test SMA calculation with default parameters
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "value": 50000.0,
@@ -377,8 +415,8 @@ class TestGetSMA:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_sma = AsyncMock(return_value=mock_data)
 
-            # Execute
-            result = await get_sma(symbol="BTCUSDT")
+            # Execute with explicit parameters
+            result = await get_sma(symbol="BTCUSDT", interval="60", period=20, limit=200)
 
             # Assertions
             assert result.symbol == "BTCUSDT"
@@ -390,7 +428,10 @@ class TestGetSMA:
 
     @pytest.mark.asyncio
     async def test_sma_bullish_signal(self):
-        """Test SMA with bullish signal (price > SMA)"""
+        """Test SMA with bullish signal (price > SMA)
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "value": 49000.0,
@@ -402,14 +443,17 @@ class TestGetSMA:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_sma = AsyncMock(return_value=mock_data)
 
-            result = await get_sma(symbol="BTCUSDT")
+            result = await get_sma(symbol="BTCUSDT", interval="60", period=20, limit=200)
 
             assert result.current_price > result.value
             assert result.signal == "BUY"
 
     @pytest.mark.asyncio
     async def test_sma_bearish_signal(self):
-        """Test SMA with bearish signal (price < SMA)"""
+        """Test SMA with bearish signal (price < SMA)
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "value": 51000.0,
@@ -421,14 +465,17 @@ class TestGetSMA:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_sma = AsyncMock(return_value=mock_data)
 
-            result = await get_sma(symbol="ETHUSDT")
+            result = await get_sma(symbol="ETHUSDT", interval="60", period=20, limit=200)
 
             assert result.current_price < result.value
             assert result.signal == "SELL"
 
     @pytest.mark.asyncio
     async def test_sma_custom_period(self):
-        """Test SMA with custom period"""
+        """Test SMA with custom period
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "value": 3000.0,
@@ -442,6 +489,7 @@ class TestGetSMA:
 
             result = await get_sma(
                 symbol="ETHUSDT",
+                interval="60",
                 period=50,
                 limit=300
             )
@@ -470,7 +518,10 @@ class TestGetEMA:
 
     @pytest.mark.asyncio
     async def test_successful_ema_default(self):
-        """Test EMA calculation with default parameters"""
+        """Test EMA calculation with default parameters
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "value": 50200.0,
@@ -482,8 +533,8 @@ class TestGetEMA:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_ema = AsyncMock(return_value=mock_data)
 
-            # Execute
-            result = await get_ema(symbol="BTCUSDT")
+            # Execute with explicit parameters
+            result = await get_ema(symbol="BTCUSDT", interval="60", period=20, limit=200)
 
             # Assertions
             assert result.symbol == "BTCUSDT"
@@ -495,7 +546,10 @@ class TestGetEMA:
 
     @pytest.mark.asyncio
     async def test_ema_bullish_signal(self):
-        """Test EMA with bullish signal"""
+        """Test EMA with bullish signal
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "value": 49500.0,
@@ -507,13 +561,16 @@ class TestGetEMA:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_ema = AsyncMock(return_value=mock_data)
 
-            result = await get_ema(symbol="BTCUSDT")
+            result = await get_ema(symbol="BTCUSDT", interval="60", period=20, limit=200)
 
             assert result.current_price > result.value
 
     @pytest.mark.asyncio
     async def test_ema_bearish_signal(self):
-        """Test EMA with bearish signal"""
+        """Test EMA with bearish signal
+
+        UPDATED 2025-12-03: Pass explicit params to avoid FastAPI Query object issues.
+        """
         mock_data = {
             "timestamp": 1234567890000,
             "value": 50500.0,
@@ -525,7 +582,7 @@ class TestGetEMA:
         with patch('app.handlers.indicators.IndicatorService') as mock_service:
             mock_service.calculate_ema = AsyncMock(return_value=mock_data)
 
-            result = await get_ema(symbol="ETHUSDT")
+            result = await get_ema(symbol="ETHUSDT", interval="60", period=20, limit=200)
 
             assert result.current_price < result.value
 

@@ -1,0 +1,80 @@
+# Kustomization for Staging Environment
+# Version: 1.0
+# Created: 2025-12-12
+#
+# Deploy with: kubectl apply -k staging/
+# Preview with: kubectl kustomize staging/
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Namespace for all resources
+namespace: trading-bot-staging
+
+# Common labels for all resources
+commonLabels:
+  app: crypto-trading-bot
+  environment: staging
+  managed-by: kustomize
+  version: "2.0"
+
+# Common annotations
+commonAnnotations:
+  deployment.kubernetes.io/revision: "1"
+  description: "Crypto Trading Bot Staging Deployment"
+
+# Resources to deploy
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - storage.yaml
+  - databases.yaml
+  - trading-engine.yaml
+  - microservices.yaml
+  - monitoring.yaml
+
+# Image overrides (update these for your registry)
+images:
+  - name: crypto-bot/trading-engine
+    newTag: latest
+  - name: crypto-bot/api-gateway
+    newTag: latest
+  - name: crypto-bot/portfolio-manager
+    newTag: latest
+  - name: crypto-bot/technical-analysis
+    newTag: latest
+  - name: crypto-bot/bybit-connector
+    newTag: latest
+  - name: crypto-bot/market-data-service
+    newTag: latest
+  - name: crypto-bot/notification-service
+    newTag: latest
+  - name: crypto-bot/ml-prediction-service
+    newTag: latest
+  - name: crypto-bot/risk-metrics-service
+    newTag: latest
+  - name: crypto-bot/sentiment-analysis-service
+    newTag: latest
+
+# ConfigMap generator (optional - for environment-specific configs)
+configMapGenerator:
+  - name: staging-info
+    literals:
+      - DEPLOYMENT_TIME=2025-12-12
+      - DEPLOYMENT_VERSION=2.0
+      - ENVIRONMENT=staging
+
+# Patches for staging-specific modifications
+patches:
+  # Reduce resource requests for staging
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "128Mi"
+    target:
+      kind: Deployment
+      labelSelector: "app=crypto-trading-bot"

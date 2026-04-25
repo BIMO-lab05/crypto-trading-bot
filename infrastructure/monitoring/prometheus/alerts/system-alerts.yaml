@@ -1,0 +1,527 @@
+# =============================================================================
+# System Infrastructure Alert Rules
+# Crypto Trading Bot - Staging Environment
+# Version: 1.0.0
+# =============================================================================
+# Alert Categories:
+#   - Pod/Container resources (CPU, Memory)
+#   - HPA scaling events
+#   - Database health
+#   - Cache performance
+#   - Message queue health
+#   - Network and connectivity
+# =============================================================================
+
+groups:
+  # ===========================================================================
+  # KUBERNETES POD RESOURCE ALERTS
+  # ===========================================================================
+  - name: pod_resources
+    interval: 30s
+    rules:
+      # Pod high CPU usage
+      - alert: PodHighCPUUsage
+        expr: |
+          (
+            sum(rate(container_cpu_usage_seconds_total{namespace="crypto-bot-staging", container!=""}[5m])) by (pod, container)
+            /
+            sum(kube_pod_container_resource_limits{namespace="crypto-bot-staging", resource="cpu"}) by (pod, container)
+          ) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+          category: resources
+        annotations:
+          summary: "Pod {{ $labels.pod }}/{{ $labels.container }} CPU usage above 80%"
+          description: "CPU usage: {{ $value | printf \"%.1f\" }}%"
+          action: "Consider scaling up or optimizing the application"
+
+      # Pod critical CPU usage
+      - alert: PodCriticalCPUUsage
+        expr: |
+          (
+            sum(rate(container_cpu_usage_seconds_total{namespace="crypto-bot-staging", container!=""}[5m])) by (pod, container)
+            /
+            sum(kube_pod_container_resource_limits{namespace="crypto-bot-staging", resource="cpu"}) by (pod, container)
+          ) * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+          category: resources
+        annotations:
+          summary: "CRITICAL: Pod {{ $labels.pod }}/{{ $labels.container }} CPU at {{ $value | printf \"%.1f\" }}%"
+          description: "Pod is experiencing CPU saturation"
+          action: "Immediate scaling or investigation required"
+
+      # Pod high memory usage
+      - alert: PodHighMemoryUsage
+        expr: |
+          (
+            container_memory_usage_bytes{namespace="crypto-bot-staging", container!=""}
+            /
+            container_spec_memory_limit_bytes{namespace="crypto-bot-staging", container!=""}
+          ) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+          category: resources
+        annotations:
+          summary: "Pod {{ $labels.pod }}/{{ $labels.container }} memory usage above 85%"
+          description: "Memory usage: {{ $value | printf \"%.1f\" }}%"
+          action: "Monitor for OOM kill risk"
+
+      # Pod critical memory usage
+      - alert: PodCriticalMemoryUsage
+        expr: |
+          (
+            container_memory_usage_bytes{namespace="crypto-bot-staging", container!=""}
+            /
+            container_spec_memory_limit_bytes{namespace="crypto-bot-staging", container!=""}
+          ) * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+          category: resources
+        annotations:
+          summary: "CRITICAL: Pod {{ $labels.pod }}/{{ $labels.container }} memory at {{ $value | printf \"%.1f\" }}%"
+          description: "Pod is at risk of OOM kill"
+          action: "Immediate action required to prevent OOM"
+
+      # Container OOM killed
+      - alert: ContainerOOMKilled
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="crypto-bot-staging"}[5m]) > 0
+          and kube_pod_container_status_last_terminated_reason{namespace="crypto-bot-staging"} == "OOMKilled"
+        for: 0s
+        labels:
+          severity: critical
+          component: infrastructure
+          category: resources
+        annotations:
+          summary: "Container {{ $labels.container }} in pod {{ $labels.pod }} was OOM killed"
+          description: "Container ran out of memory and was terminated"
+          action: "Increase memory limits or optimize memory usage"
+
+      # Pod pending too long
+      - alert: PodPendingTooLong
+        expr: |
+          kube_pod_status_phase{namespace="crypto-bot-staging", phase="Pending"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+          category: scheduling
+        annotations:
+          summary: "Pod {{ $labels.pod }} has been pending for more than 10 minutes"
+          description: "Pod cannot be scheduled"
+          action: "Check node resources and pod scheduling constraints"
+
+      # Pod restart loop
+      - alert: PodRestartLoop
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="crypto-bot-staging"}[1h]) > 3
+        for: 0s
+        labels:
+          severity: warning
+          component: infrastructure
+          category: stability
+        annotations:
+          summary: "Pod {{ $labels.pod }}/{{ $labels.container }} is in restart loop"
+          description: "{{ $value }} restarts in the last hour"
+          action: "Check container logs for crash reason"
+
+  # ===========================================================================
+  # HPA SCALING ALERTS
+  # ===========================================================================
+  - name: hpa_scaling
+    interval: 30s
+    rules:
+      # HPA at maximum replicas
+      - alert: HPAAtMaxReplicas
+        expr: |
+          kube_horizontalpodautoscaler_status_current_replicas{namespace="crypto-bot-staging"}
+          ==
+          kube_horizontalpodautoscaler_spec_max_replicas{namespace="crypto-bot-staging"}
+        for: 15m
+        labels:
+          severity: warning
+          component: infrastructure
+          category: scaling
+        annotations:
+          summary: "HPA {{ $labels.horizontalpodautoscaler }} is at maximum replicas"
+          description: "Cannot scale further, may need to increase max replicas"
+          action: "Review if max replicas limit should be increased"
+
+      # HPA unable to scale
+      - alert: HPAUnableToScale
+        expr: |
+          kube_horizontalpodautoscaler_status_condition{condition="ScalingActive", status="false", namespace="crypto-bot-staging"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+          category: scaling
+        annotations:
+          summary: "HPA {{ $labels.horizontalpodautoscaler }} unable to scale"
+          description: "HPA is not able to perform scaling operations"
+          action: "Check HPA configuration and resource metrics availability"
+
+      # Rapid scaling events
+      - alert: RapidScalingEvents
+        expr: |
+          changes(kube_horizontalpodautoscaler_status_current_replicas{namespace="crypto-bot-staging"}[30m]) > 5
+        for: 0s
+        labels:
+          severity: warning
+          component: infrastructure
+          category: scaling
+        annotations:
+          summary: "Rapid scaling events for {{ $labels.horizontalpodautoscaler }}"
+          description: "{{ $value }} scaling events in 30 minutes"
+          action: "Consider adjusting HPA thresholds or stabilization window"
+
+      # HPA scaling down during trading hours
+      - alert: HPAScalingDownDuringTrading
+        expr: |
+          delta(kube_horizontalpodautoscaler_status_current_replicas{namespace="crypto-bot-staging"}[5m]) < -1
+          and hour() >= 8 and hour() <= 22
+        for: 0s
+        labels:
+          severity: info
+          component: infrastructure
+          category: scaling
+        annotations:
+          summary: "HPA {{ $labels.horizontalpodautoscaler }} scaled down during trading hours"
+          description: "Replicas decreased by {{ $value }}"
+
+  # ===========================================================================
+  # DATABASE ALERTS
+  # ===========================================================================
+  - name: database_health
+    interval: 30s
+    rules:
+      # PostgreSQL down
+      - alert: PostgreSQLDown
+        expr: |
+          pg_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: database
+          category: availability
+        annotations:
+          summary: "CRITICAL: PostgreSQL is DOWN"
+          description: "PostgreSQL database is unreachable"
+          impact: "All database-dependent operations will fail"
+          action: "Check PostgreSQL pod status and logs immediately"
+
+      # PostgreSQL connection pool exhausted
+      - alert: PostgreSQLConnectionPoolExhausted
+        expr: |
+          (sum(pg_stat_activity_count) / sum(pg_settings_max_connections)) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          category: connections
+        annotations:
+          summary: "PostgreSQL connection pool above 85%"
+          description: "Connection utilization: {{ $value | humanizePercentage }}"
+          action: "Consider increasing max_connections or optimizing connection usage"
+
+      # PostgreSQL slow queries
+      - alert: PostgreSQLSlowQueries
+        expr: |
+          rate(pg_stat_statements_seconds_total[5m]) / rate(pg_stat_statements_calls_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+          category: performance
+        annotations:
+          summary: "PostgreSQL slow queries detected"
+          description: "Average query time: {{ $value | humanizeDuration }}"
+          action: "Review slow query log and consider query optimization"
+
+      # PostgreSQL replication lag
+      - alert: PostgreSQLReplicationLag
+        expr: |
+          pg_replication_lag_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          category: replication
+        annotations:
+          summary: "PostgreSQL replication lag above 30 seconds"
+          description: "Replication lag: {{ $value | humanizeDuration }}"
+
+      # PostgreSQL disk space
+      - alert: PostgreSQLDiskSpaceLow
+        expr: |
+          (pg_database_size_bytes / (50 * 1024 * 1024 * 1024)) * 100 > 80
+        for: 30m
+        labels:
+          severity: warning
+          component: database
+          category: storage
+        annotations:
+          summary: "PostgreSQL database approaching disk space limit"
+          description: "Database size: {{ $value | humanize1024 }}B"
+
+  # ===========================================================================
+  # REDIS CACHE ALERTS
+  # ===========================================================================
+  - name: redis_health
+    interval: 30s
+    rules:
+      # Redis down
+      - alert: RedisDown
+        expr: |
+          redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: cache
+          category: availability
+        annotations:
+          summary: "CRITICAL: Redis is DOWN"
+          description: "Redis cache is unreachable"
+          impact: "Caching and rate limiting will fail"
+
+      # Redis high memory usage
+      - alert: RedisHighMemoryUsage
+        expr: |
+          (redis_memory_used_bytes / redis_memory_max_bytes) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+          category: resources
+        annotations:
+          summary: "Redis memory usage above 85%"
+          description: "Memory usage: {{ $value | humanizePercentage }}"
+          action: "Consider increasing maxmemory or implementing eviction"
+
+      # Redis low hit rate
+      - alert: RedisLowHitRate
+        expr: |
+          redis:hit_rate:ratio5m < 0.7
+        for: 15m
+        labels:
+          severity: warning
+          component: cache
+          category: performance
+        annotations:
+          summary: "Redis cache hit rate below 70%"
+          description: "Hit rate: {{ $value | humanizePercentage }}"
+          action: "Review caching strategy and TTLs"
+
+      # Redis high eviction rate
+      - alert: RedisHighEvictionRate
+        expr: |
+          rate(redis_evicted_keys_total[5m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: cache
+          category: performance
+        annotations:
+          summary: "Redis high eviction rate"
+          description: "Evicting {{ $value | printf \"%.0f\" }} keys per second"
+
+  # ===========================================================================
+  # MESSAGE QUEUE ALERTS (RabbitMQ)
+  # ===========================================================================
+  - name: rabbitmq_health
+    interval: 30s
+    rules:
+      # RabbitMQ down
+      - alert: RabbitMQDown
+        expr: |
+          rabbitmq_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: messaging
+          category: availability
+        annotations:
+          summary: "CRITICAL: RabbitMQ is DOWN"
+          description: "Message broker is unreachable"
+          impact: "Inter-service messaging will fail"
+
+      # Queue depth high
+      - alert: RabbitMQQueueDepthHigh
+        expr: |
+          rabbitmq_queue_messages > 10000
+        for: 10m
+        labels:
+          severity: warning
+          component: messaging
+          category: performance
+        annotations:
+          summary: "RabbitMQ queue {{ $labels.queue }} depth high"
+          description: "{{ $value }} messages in queue"
+          action: "Check consumers and consider scaling"
+
+      # Critical queue depth for trading
+      - alert: TradingQueueDepthCritical
+        expr: |
+          rabbitmq_queue_messages{queue=~"trade.*|order.*"} > 1000
+        for: 2m
+        labels:
+          severity: critical
+          component: messaging
+          category: trading
+        annotations:
+          summary: "CRITICAL: Trading queue {{ $labels.queue }} backlog"
+          description: "{{ $value }} messages in trading queue"
+          impact: "Orders may be delayed or missed"
+
+      # No consumers
+      - alert: RabbitMQNoConsumers
+        expr: |
+          rabbitmq_queue_consumers == 0 and rabbitmq_queue_messages > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: messaging
+          category: consumers
+        annotations:
+          summary: "Queue {{ $labels.queue }} has no consumers"
+          description: "{{ $value }} messages waiting"
+
+      # RabbitMQ memory alarm
+      - alert: RabbitMQMemoryAlarm
+        expr: |
+          rabbitmq_node_mem_alarm == 1
+        for: 0s
+        labels:
+          severity: critical
+          component: messaging
+          category: resources
+        annotations:
+          summary: "RabbitMQ memory alarm triggered"
+          description: "Publishers may be blocked"
+
+  # ===========================================================================
+  # NETWORK AND SERVICE MESH
+  # ===========================================================================
+  - name: network_health
+    interval: 30s
+    rules:
+      # Service latency high
+      - alert: ServiceLatencyHigh
+        expr: |
+          service:http_latency_p99:seconds{namespace="crypto-bot-staging"} > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: network
+          category: latency
+        annotations:
+          summary: "Service {{ $labels.service }} P99 latency above 2s"
+          description: "P99 latency: {{ $value | humanizeDuration }}"
+
+      # Service error rate high
+      - alert: ServiceErrorRateHigh
+        expr: |
+          service:http_error_percentage:ratio5m{namespace="crypto-bot-staging"} > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: network
+          category: errors
+        annotations:
+          summary: "Service {{ $labels.service }} error rate above 5%"
+          description: "Error rate: {{ $value | printf \"%.2f\" }}%"
+
+      # Inter-service communication failure
+      - alert: InterServiceCommunicationFailure
+        expr: |
+          increase(service_call_failures_total{namespace="crypto-bot-staging"}[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: network
+          category: communication
+        annotations:
+          summary: "Inter-service communication failures detected"
+          description: "{{ $value }} failures between {{ $labels.source }} and {{ $labels.target }}"
+
+      # DNS resolution failure
+      - alert: DNSResolutionFailure
+        expr: |
+          increase(dns_resolution_failures_total{namespace="crypto-bot-staging"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+          component: network
+          category: dns
+        annotations:
+          summary: "DNS resolution failures for {{ $labels.service }}"
+          description: "{{ $value }} failures in the last 5 minutes"
+
+  # ===========================================================================
+  # GENERAL INFRASTRUCTURE
+  # ===========================================================================
+  - name: infrastructure_general
+    interval: 60s
+    rules:
+      # Node disk space low
+      - alert: NodeDiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 15
+        for: 15m
+        labels:
+          severity: warning
+          component: infrastructure
+          category: storage
+        annotations:
+          summary: "Low disk space on node {{ $labels.instance }}"
+          description: "{{ $value | printf \"%.1f\" }}% disk space remaining on {{ $labels.mountpoint }}"
+
+      # Node disk space critical
+      - alert: NodeDiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 5
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+          category: storage
+        annotations:
+          summary: "CRITICAL: Disk space on node {{ $labels.instance }}"
+          description: "Only {{ $value | printf \"%.1f\" }}% remaining"
+
+      # Certificate expiring soon
+      - alert: CertificateExpiringSoon
+        expr: |
+          (probe_ssl_earliest_cert_expiry - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+          component: infrastructure
+          category: security
+        annotations:
+          summary: "SSL certificate expiring in {{ $value | printf \"%.0f\" }} days"
+          description: "Certificate for {{ $labels.instance }} will expire soon"
+          action: "Renew the certificate before expiration"
+
+      # PVC usage high
+      - alert: PersistentVolumeClaimUsageHigh
+        expr: |
+          (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 85
+        for: 15m
+        labels:
+          severity: warning
+          component: infrastructure
+          category: storage
+        annotations:
+          summary: "PVC {{ $labels.persistentvolumeclaim }} usage above 85%"
+          description: "Usage: {{ $value | printf \"%.1f\" }}%"
+          action: "Consider expanding the PVC or cleaning up data"

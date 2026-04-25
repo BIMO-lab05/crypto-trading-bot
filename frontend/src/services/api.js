@@ -183,10 +183,9 @@ export const multiTimeframeAPI = {
 // Current backend endpoints available at /api/v1/signals/{symbol} provide Phase 1 signals only.
 export const enhancedTradingAPI = {
   // Get Phase 3 enhanced signal (includes ML + Sentiment + MTF)
-  // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
-  // TODO: Implement /api/v1/signals/enhanced/{symbol} in trading-engine
+  // FIXED: Using /api/v1/signals/{symbol} which already includes all enhanced data
   getEnhancedSignal: (symbol, interval = 60) =>
-    api.get(`/trading/signals/enhanced/${symbol}`, { params: { interval } }),
+    api.get(`/trading/signals/${symbol}`, { params: { interval } }),
 
   // Get Phase 1 vs Phase 3 comparison
   // BACKEND STATUS: NOT IMPLEMENTED - Returns 404

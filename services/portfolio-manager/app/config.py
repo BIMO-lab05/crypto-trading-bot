@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Portfolio Settings
     initial_capital: float = Field(
-        default=10000.0,
+        default=100.0,
         gt=0,
         description="Initial capital for portfolio tracking"
     )

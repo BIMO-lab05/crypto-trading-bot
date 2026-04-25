@@ -1,0 +1,218 @@
+# Security Context Templates for Crypto Trading Bot
+# Apply these security contexts to all deployments for hardened security
+# Version: 1.0
+# Created: 2025-12-12
+#
+# USAGE:
+# Copy these security contexts to your deployment specs
+# Ensure all containers comply with restricted Pod Security Standards
+
+---
+# ConfigMap containing security context templates for reference
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-context-templates
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    component: security
+data:
+  # Template for standard microservices (API Gateway, Portfolio Manager, etc.)
+  standard-service-template.yaml: |
+    # Standard Service Security Context Template
+    # For: api-gateway, portfolio-manager, notification-service, etc.
+    spec:
+      # Pod-level security context
+      securityContext:
+        # Run as non-root user
+        runAsNonRoot: true
+        # Use a specific non-privileged user ID
+        runAsUser: 10000
+        # Use a specific group ID
+        runAsGroup: 10000
+        # Filesystem group for volume mounts
+        fsGroup: 10000
+        # Ensure fsGroup is applied to volume mounts
+        fsGroupChangePolicy: OnRootMismatch
+        # Seccomp profile for syscall filtering
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: service-name
+          # Container-level security context
+          securityContext:
+            # Prevent privilege escalation
+            allowPrivilegeEscalation: false
+            # Run as non-root
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            # Read-only root filesystem
+            readOnlyRootFilesystem: true
+            # Drop all capabilities
+            capabilities:
+              drop:
+                - ALL
+            # Seccomp profile
+            seccompProfile:
+              type: RuntimeDefault
+
+          # Volume mounts for writable directories
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: cache-volume
+              mountPath: /app/.cache
+
+      # Ephemeral volumes for writable directories
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache-volume
+          emptyDir:
+            sizeLimit: 200Mi
+
+  # Template for database services (PostgreSQL, TimescaleDB)
+  database-service-template.yaml: |
+    # Database Service Security Context Template
+    # For: postgres, timescale
+    # Note: Databases need specific user IDs to match container image
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # PostgreSQL image runs as UID 999 (postgres)
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: postgres
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            # Databases need writable filesystem
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+  # Template for Redis
+  redis-service-template.yaml: |
+    # Redis Service Security Context Template
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # Redis image runs as UID 999 (redis)
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: redis
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /data
+
+  # Template for RabbitMQ
+  rabbitmq-service-template.yaml: |
+    # RabbitMQ Service Security Context Template
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # RabbitMQ image runs as UID 999 (rabbitmq)
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: rabbitmq
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+
+  # Template for ML/AI services (need more resources)
+  ml-service-template.yaml: |
+    # ML Service Security Context Template
+    # For: ml-prediction-service, sentiment-analysis-service
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: ml-service
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            # ML services may need writable model cache
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: model-cache
+              mountPath: /app/models
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 500Mi
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 2Gi
+
+  # Template for init containers
+  init-container-template.yaml: |
+    # Init Container Security Context Template
+    initContainers:
+      - name: wait-for-dependency
+        image: busybox:1.36
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 10000
+          runAsGroup: 10000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        command: ['sh', '-c', 'until nc -z service-name port; do sleep 2; done']

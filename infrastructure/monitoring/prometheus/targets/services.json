@@ -1,0 +1,123 @@
+[
+  {
+    "targets": ["api-gateway:8000"],
+    "labels": {
+      "job": "api-gateway",
+      "service": "api-gateway",
+      "phase": "1",
+      "tier": "gateway",
+      "critical": "true",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["trading-engine:8001"],
+    "labels": {
+      "job": "trading-engine",
+      "service": "trading-engine",
+      "phase": "2",
+      "tier": "core",
+      "critical": "true",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["market-data-service:8002"],
+    "labels": {
+      "job": "market-data-service",
+      "service": "market-data-service",
+      "phase": "1",
+      "tier": "data",
+      "critical": "true",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["technical-analysis:8003"],
+    "labels": {
+      "job": "technical-analysis",
+      "service": "technical-analysis",
+      "phase": "2",
+      "tier": "analytics",
+      "critical": "false",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["portfolio-manager:8004"],
+    "labels": {
+      "job": "portfolio-manager",
+      "service": "portfolio-manager",
+      "phase": "1",
+      "tier": "core",
+      "critical": "true",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["bybit-connector:8005"],
+    "labels": {
+      "job": "bybit-connector",
+      "service": "bybit-connector",
+      "phase": "1",
+      "tier": "connector",
+      "critical": "true",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["notification-service:8006"],
+    "labels": {
+      "job": "notification-service",
+      "service": "notification-service",
+      "phase": "1",
+      "tier": "support",
+      "critical": "false",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["ml-prediction:8007"],
+    "labels": {
+      "job": "ml-prediction-service",
+      "service": "ml-prediction",
+      "phase": "3",
+      "tier": "ai",
+      "critical": "false",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["sentiment-analysis:8008"],
+    "labels": {
+      "job": "sentiment-analysis-service",
+      "service": "sentiment-analysis",
+      "phase": "3",
+      "tier": "ai",
+      "critical": "false",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["risk-metrics-service:8009"],
+    "labels": {
+      "job": "risk-metrics-service",
+      "service": "risk-metrics",
+      "phase": "3",
+      "tier": "analytics",
+      "critical": "true",
+      "env": "production"
+    }
+  },
+  {
+    "targets": ["signal-aggregator:8010"],
+    "labels": {
+      "job": "signal-aggregator-service",
+      "service": "signal-aggregator",
+      "phase": "3",
+      "tier": "analytics",
+      "critical": "true",
+      "env": "production"
+    }
+  }
+]

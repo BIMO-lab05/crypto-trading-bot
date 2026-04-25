@@ -1,0 +1,449 @@
+# =============================================================================
+# Trading-Specific Alert Rules
+# Crypto Trading Bot - Staging Environment
+# Version: 2.0.0
+# =============================================================================
+# Alert Categories:
+#   - Drawdown alerts (10%, 20% thresholds)
+#   - Position size violations
+#   - Trading engine health
+#   - Circuit breaker triggers
+#   - P&L alerts
+#   - Strategy performance
+# =============================================================================
+
+groups:
+  # ===========================================================================
+  # DRAWDOWN ALERTS
+  # ===========================================================================
+  - name: drawdown_alerts
+    interval: 15s
+    rules:
+      # Warning: 10% drawdown
+      - alert: DrawdownWarning10Percent
+        expr: |
+          portfolio_drawdown_percentage >= 10
+        for: 1m
+        labels:
+          severity: warning
+          component: risk
+          category: drawdown
+          runbook_url: "https://wiki.internal/runbooks/drawdown-warning"
+        annotations:
+          summary: "Portfolio drawdown exceeds 10%"
+          description: |
+            Current drawdown: {{ $value | printf "%.2f" }}%
+            This is a warning threshold. Review open positions and consider reducing exposure.
+          impact: "Moderate risk of further losses if market continues against positions"
+          action: |
+            1. Review all open positions
+            2. Consider reducing position sizes
+            3. Check if stop-losses are properly set
+            4. Evaluate market conditions
+
+      # Critical: 15% drawdown
+      - alert: DrawdownWarning15Percent
+        expr: |
+          portfolio_drawdown_percentage >= 15
+        for: 30s
+        labels:
+          severity: warning
+          component: risk
+          category: drawdown
+          runbook_url: "https://wiki.internal/runbooks/drawdown-warning"
+        annotations:
+          summary: "Portfolio drawdown exceeds 15%"
+          description: |
+            ELEVATED RISK: Current drawdown is {{ $value | printf "%.2f" }}%
+            Consider immediate position reduction.
+          impact: "High risk - approaching critical loss threshold"
+          action: |
+            1. Immediately review all positions
+            2. Consider closing highest-risk positions
+            3. Halt new position entries
+            4. Alert trading team lead
+
+      # Critical: 20% drawdown - halt trading
+      - alert: DrawdownCritical20Percent
+        expr: |
+          portfolio_drawdown_percentage >= 20
+        for: 0s
+        labels:
+          severity: critical
+          component: risk
+          category: drawdown
+          runbook_url: "https://wiki.internal/runbooks/drawdown-critical"
+        annotations:
+          summary: "CRITICAL: Portfolio drawdown exceeds 20% - HALT TRADING"
+          description: |
+            CRITICAL LOSS: Current drawdown is {{ $value | printf "%.2f" }}%
+            Trading should be immediately halted pending review.
+          impact: "Severe capital loss - risk of account damage"
+          action: |
+            1. IMMEDIATELY halt all trading
+            2. Close all positions or set tight stops
+            3. Conduct full strategy review
+            4. Do not resume trading without management approval
+
+      # Max drawdown in 24h
+      - alert: MaxDrawdown24hExceeded
+        expr: |
+          max_over_time(portfolio_drawdown_percentage[24h]) > 25
+        for: 0s
+        labels:
+          severity: critical
+          component: risk
+          category: drawdown
+        annotations:
+          summary: "Maximum 24h drawdown exceeded 25%"
+          description: "Max drawdown in last 24 hours: {{ $value | printf \"%.2f\" }}%"
+
+  # ===========================================================================
+  # POSITION SIZE ALERTS
+  # ===========================================================================
+  - name: position_size_alerts
+    interval: 15s
+    rules:
+      # Single position too large
+      - alert: PositionSizeExceedsLimit
+        expr: |
+          position_size_percentage > 5
+        for: 0s
+        labels:
+          severity: warning
+          component: risk
+          category: position
+        annotations:
+          summary: "Position size exceeds 5% limit for {{ $labels.symbol }}"
+          description: |
+            Position {{ $labels.symbol }} is {{ $value | printf "%.2f" }}% of portfolio
+            Maximum allowed: 5%
+          action: "Reduce position size to comply with risk limits"
+
+      # Single position critically large
+      - alert: PositionSizeCritical
+        expr: |
+          position_size_percentage > 10
+        for: 0s
+        labels:
+          severity: critical
+          component: risk
+          category: position
+        annotations:
+          summary: "CRITICAL: Position {{ $labels.symbol }} exceeds 10% of portfolio"
+          description: |
+            Position size: {{ $value | printf "%.2f" }}%
+            This is a critical risk violation.
+          action: "Immediately reduce position to comply with risk limits"
+
+      # Total exposure too high
+      - alert: TotalExposureExceedsLimit
+        expr: |
+          portfolio_total_exposure_percentage > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: risk
+          category: exposure
+        annotations:
+          summary: "Total portfolio exposure exceeds 80%"
+          description: |
+            Current exposure: {{ $value | printf "%.2f" }}%
+            Consider reducing overall position sizes.
+
+      # Leverage too high
+      - alert: LeverageExceedsLimit
+        expr: |
+          portfolio_leverage_ratio > 3
+        for: 0s
+        labels:
+          severity: warning
+          component: risk
+          category: leverage
+        annotations:
+          summary: "Portfolio leverage exceeds 3x"
+          description: "Current leverage: {{ $value | printf \"%.2f\" }}x"
+
+      # Maximum positions exceeded
+      - alert: MaxPositionsExceeded
+        expr: |
+          active_positions_count > 15
+        for: 1m
+        labels:
+          severity: warning
+          component: risk
+          category: position
+        annotations:
+          summary: "Maximum concurrent positions exceeded"
+          description: "Active positions: {{ $value }} (limit: 15)"
+
+  # ===========================================================================
+  # CIRCUIT BREAKER ALERTS
+  # ===========================================================================
+  - name: circuit_breaker_alerts
+    interval: 10s
+    rules:
+      # Circuit breaker triggered
+      - alert: CircuitBreakerTriggered
+        expr: |
+          trading_circuit_breaker_state == 1
+        for: 0s
+        labels:
+          severity: critical
+          component: trading
+          category: circuit_breaker
+          runbook_url: "https://wiki.internal/runbooks/circuit-breaker"
+        annotations:
+          summary: "Trading circuit breaker has been TRIGGERED"
+          description: |
+            Circuit breaker activated for {{ $labels.reason }}
+            All trading operations are halted.
+          impact: "No trades can be executed until circuit breaker is reset"
+          action: |
+            1. Investigate the trigger reason
+            2. Check system health
+            3. Review recent trades for anomalies
+            4. Reset circuit breaker only after root cause is identified
+
+      # Circuit breaker approaching trigger
+      - alert: CircuitBreakerApproaching
+        expr: |
+          trading_circuit_breaker_trigger_count > 3
+        for: 5m
+        labels:
+          severity: warning
+          component: trading
+          category: circuit_breaker
+        annotations:
+          summary: "Circuit breaker trigger count elevated"
+          description: |
+            {{ $value }} trigger events in the last 5 minutes
+            System may be experiencing instability.
+
+      # Daily loss limit approaching (circuit breaker prevention)
+      - alert: DailyLossApproachingCircuitBreaker
+        expr: |
+          portfolio_daily_pnl_percentage < -4 and portfolio_daily_pnl_percentage >= -5
+        for: 1m
+        labels:
+          severity: warning
+          component: risk
+          category: circuit_breaker
+        annotations:
+          summary: "Daily loss approaching circuit breaker threshold"
+          description: |
+            Daily loss: {{ $value | printf "%.2f" }}%
+            Circuit breaker triggers at -5%
+
+      # Daily loss exceeded (should trigger circuit breaker)
+      - alert: DailyLossLimitExceeded
+        expr: |
+          portfolio_daily_pnl_percentage < -5
+        for: 0s
+        labels:
+          severity: critical
+          component: risk
+          category: circuit_breaker
+        annotations:
+          summary: "CRITICAL: Daily loss limit EXCEEDED"
+          description: |
+            Daily loss: {{ $value | printf "%.2f" }}%
+            Trading should be automatically halted.
+          action: "Verify circuit breaker is active. If not, manually halt trading."
+
+  # ===========================================================================
+  # TRADING ENGINE HEALTH ALERTS
+  # ===========================================================================
+  - name: trading_engine_health
+    interval: 10s
+    rules:
+      # Trading engine down
+      - alert: TradingEngineDown
+        expr: |
+          up{job="trading-engine"} == 0
+        for: 15s
+        labels:
+          severity: critical
+          component: trading
+          category: availability
+          runbook_url: "https://wiki.internal/runbooks/trading-engine-down"
+        annotations:
+          summary: "CRITICAL: Trading Engine is DOWN"
+          description: |
+            Trading Engine has been unreachable for 15 seconds.
+            All trading operations are halted.
+          impact: "No trades can be executed"
+          action: |
+            1. Check pod status: kubectl get pods -l app=trading-engine
+            2. Check logs: kubectl logs -l app=trading-engine --tail=100
+            3. Restart if necessary: kubectl rollout restart deployment/trading-engine
+
+      # Trading engine high latency
+      - alert: TradingEngineHighLatency
+        expr: |
+          histogram_quantile(0.99, rate(trade_execution_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: trading
+          category: performance
+        annotations:
+          summary: "Trading engine P99 latency exceeds 2 seconds"
+          description: "P99 execution latency: {{ $value | humanizeDuration }}"
+
+      # Trading engine memory pressure
+      - alert: TradingEngineMemoryPressure
+        expr: |
+          (container_memory_usage_bytes{container="trading-engine"} / container_spec_memory_limit_bytes{container="trading-engine"}) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: trading
+          category: resources
+        annotations:
+          summary: "Trading engine memory usage above 85%"
+          description: "Memory usage: {{ $value | humanizePercentage }}"
+
+      # Trading engine CPU throttling
+      - alert: TradingEngineCPUThrottling
+        expr: |
+          rate(container_cpu_cfs_throttled_seconds_total{container="trading-engine"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: trading
+          category: resources
+        annotations:
+          summary: "Trading engine experiencing CPU throttling"
+          description: "CPU throttle rate: {{ $value | printf \"%.2f\" }} seconds/sec"
+
+      # No trades executed (during active hours)
+      - alert: NoTradesInActiveHours
+        expr: |
+          increase(trades_executed_total[2h]) == 0
+          and hour() >= 8 and hour() <= 22
+        for: 2h
+        labels:
+          severity: info
+          component: trading
+          category: activity
+        annotations:
+          summary: "No trades executed in the last 2 hours"
+          description: "This may be normal during low volatility periods"
+
+  # ===========================================================================
+  # STRATEGY PERFORMANCE ALERTS
+  # ===========================================================================
+  - name: strategy_performance_alerts
+    interval: 60s
+    rules:
+      # Win rate dropping
+      - alert: WinRateBelow40Percent
+        expr: |
+          trading:win_rate:ratio24h < 0.4
+        for: 6h
+        labels:
+          severity: warning
+          component: trading
+          category: performance
+        annotations:
+          summary: "24h win rate below 40%"
+          description: "Current win rate: {{ $value | humanizePercentage }}"
+          action: "Review strategy parameters and market conditions"
+
+      # Sharpe ratio degraded
+      - alert: SharpeRatioDegraded
+        expr: |
+          strategy_sharpe_ratio_30d < 0.5
+        for: 1h
+        labels:
+          severity: warning
+          component: trading
+          category: performance
+        annotations:
+          summary: "30-day Sharpe ratio below 0.5"
+          description: "Current Sharpe: {{ $value | printf \"%.2f\" }}"
+
+      # Profit factor low
+      - alert: ProfitFactorLow
+        expr: |
+          strategy_profit_factor < 1.2
+        for: 6h
+        labels:
+          severity: warning
+          component: trading
+          category: performance
+        annotations:
+          summary: "Profit factor below 1.2"
+          description: "Current profit factor: {{ $value | printf \"%.2f\" }}"
+
+      # Consecutive losses
+      - alert: ConsecutiveLosses
+        expr: |
+          trading_consecutive_losses > 5
+        for: 0s
+        labels:
+          severity: warning
+          component: trading
+          category: performance
+        annotations:
+          summary: "{{ $value }} consecutive losing trades"
+          description: "Consider pausing trading for strategy review"
+
+      # High order rejection rate
+      - alert: HighOrderRejectionRate
+        expr: |
+          trading:order_rejection_rate:ratio1h > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          component: trading
+          category: execution
+        annotations:
+          summary: "Order rejection rate above 10%"
+          description: "Rejection rate: {{ $value | humanizePercentage }}"
+
+  # ===========================================================================
+  # P&L ALERTS
+  # ===========================================================================
+  - name: pnl_alerts
+    interval: 30s
+    rules:
+      # Significant daily profit (informational)
+      - alert: SignificantDailyProfit
+        expr: |
+          portfolio_daily_pnl_percentage > 5
+        for: 5m
+        labels:
+          severity: info
+          component: trading
+          category: pnl
+        annotations:
+          summary: "Significant daily profit: {{ $value | printf \"%.2f\" }}%"
+          description: "Consider taking profits or adjusting position sizes"
+
+      # Unrealized loss warning
+      - alert: UnrealizedLossWarning
+        expr: |
+          (portfolio:unrealized_pnl:usd / portfolio_equity_usd) * 100 < -3
+        for: 10m
+        labels:
+          severity: warning
+          component: trading
+          category: pnl
+        annotations:
+          summary: "Unrealized loss exceeds 3% of equity"
+          description: "Unrealized P&L ratio: {{ $value | printf \"%.2f\" }}%"
+
+      # Single position large loss
+      - alert: SinglePositionLargeLoss
+        expr: |
+          (position_unrealized_pnl_usd / portfolio_equity_usd) * 100 < -2
+        for: 5m
+        labels:
+          severity: warning
+          component: trading
+          category: pnl
+        annotations:
+          summary: "Position {{ $labels.symbol }} has unrealized loss > 2% of equity"
+          description: "Position P&L: {{ $value | printf \"%.2f\" }}% of equity"

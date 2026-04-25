@@ -1,0 +1,297 @@
+# =============================================================================
+# PrometheusRule CRD for Trading Bot Alerts
+# Kubernetes Staging Environment
+# Version: 1.0.0
+# =============================================================================
+# This PrometheusRule CRD is automatically detected by Prometheus Operator
+# and loads the alert rules into Prometheus
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: crypto-trading-bot-alerts
+  namespace: crypto-bot-staging
+  labels:
+    app: crypto-trading-bot
+    prometheus: staging
+    role: alert-rules
+spec:
+  groups:
+    # =========================================================================
+    # TRADING ENGINE ALERTS
+    # =========================================================================
+    - name: trading.engine
+      interval: 10s
+      rules:
+        - alert: TradingEngineDown
+          expr: up{job="trading-engine"} == 0
+          for: 15s
+          labels:
+            severity: critical
+            component: trading
+            service: trading-engine
+          annotations:
+            summary: "CRITICAL: Trading Engine is DOWN"
+            description: "Trading Engine has been unreachable for 15+ seconds. All trading operations are halted."
+            runbook_url: "https://wiki.internal/runbooks/trading-engine-down"
+
+        - alert: TradingEngineHighLatency
+          expr: histogram_quantile(0.99, rate(trade_execution_duration_seconds_bucket[5m])) > 2
+          for: 5m
+          labels:
+            severity: warning
+            component: trading
+          annotations:
+            summary: "Trading engine P99 latency exceeds 2 seconds"
+            description: "P99 execution latency is {{ $value | humanizeDuration }}"
+
+    # =========================================================================
+    # DRAWDOWN ALERTS
+    # =========================================================================
+    - name: risk.drawdown
+      interval: 15s
+      rules:
+        - alert: DrawdownWarning10Percent
+          expr: portfolio_drawdown_percentage >= 10
+          for: 1m
+          labels:
+            severity: warning
+            component: risk
+            category: drawdown
+          annotations:
+            summary: "Portfolio drawdown exceeds 10%"
+            description: "Current drawdown: {{ $value | printf \"%.2f\" }}%. Review open positions."
+
+        - alert: DrawdownWarning15Percent
+          expr: portfolio_drawdown_percentage >= 15
+          for: 30s
+          labels:
+            severity: warning
+            component: risk
+            category: drawdown
+          annotations:
+            summary: "Portfolio drawdown exceeds 15%"
+            description: "ELEVATED RISK: Current drawdown is {{ $value | printf \"%.2f\" }}%"
+
+        - alert: DrawdownCritical20Percent
+          expr: portfolio_drawdown_percentage >= 20
+          for: 0s
+          labels:
+            severity: critical
+            component: risk
+            category: drawdown
+          annotations:
+            summary: "CRITICAL: Portfolio drawdown exceeds 20% - HALT TRADING"
+            description: "Current drawdown: {{ $value | printf \"%.2f\" }}%. Trading should be immediately halted."
+
+    # =========================================================================
+    # POSITION SIZE ALERTS
+    # =========================================================================
+    - name: risk.positions
+      interval: 15s
+      rules:
+        - alert: PositionSizeExceedsLimit
+          expr: position_size_percentage > 5
+          for: 0s
+          labels:
+            severity: warning
+            component: risk
+            category: position
+          annotations:
+            summary: "Position size exceeds 5% limit for {{ $labels.symbol }}"
+            description: "Position {{ $labels.symbol }} is {{ $value | printf \"%.2f\" }}% of portfolio"
+
+        - alert: PositionSizeCritical
+          expr: position_size_percentage > 10
+          for: 0s
+          labels:
+            severity: critical
+            component: risk
+            category: position
+          annotations:
+            summary: "CRITICAL: Position {{ $labels.symbol }} exceeds 10% of portfolio"
+            description: "Position size: {{ $value | printf \"%.2f\" }}%"
+
+        - alert: MaxPositionsExceeded
+          expr: active_positions_count > 15
+          for: 1m
+          labels:
+            severity: warning
+            component: risk
+            category: position
+          annotations:
+            summary: "Maximum concurrent positions exceeded"
+            description: "Active positions: {{ $value }} (limit: 15)"
+
+    # =========================================================================
+    # CIRCUIT BREAKER ALERTS
+    # =========================================================================
+    - name: risk.circuit_breaker
+      interval: 10s
+      rules:
+        - alert: CircuitBreakerTriggered
+          expr: trading_circuit_breaker_state == 1
+          for: 0s
+          labels:
+            severity: critical
+            component: trading
+            category: circuit_breaker
+          annotations:
+            summary: "Trading circuit breaker has been TRIGGERED"
+            description: "Circuit breaker activated. All trading operations are halted."
+
+        - alert: DailyLossLimitExceeded
+          expr: portfolio_daily_pnl_percentage < -5
+          for: 0s
+          labels:
+            severity: critical
+            component: risk
+            category: circuit_breaker
+          annotations:
+            summary: "CRITICAL: Daily loss limit EXCEEDED"
+            description: "Daily loss: {{ $value | printf \"%.2f\" }}%"
+
+    # =========================================================================
+    # EXCHANGE CONNECTIVITY ALERTS
+    # =========================================================================
+    - name: exchange.connectivity
+      interval: 10s
+      rules:
+        - alert: BybitWebSocketDisconnected
+          expr: bybit_websocket_connected == 0
+          for: 15s
+          labels:
+            severity: critical
+            component: exchange
+            exchange: bybit
+          annotations:
+            summary: "CRITICAL: Bybit WebSocket disconnected"
+            description: "WebSocket connection to Bybit has been down for 15+ seconds."
+
+        - alert: APIRateLimitApproaching
+          expr: bybit_api_rate_limit_remaining < 100
+          for: 1m
+          labels:
+            severity: warning
+            component: exchange
+            exchange: bybit
+          annotations:
+            summary: "Bybit API rate limit approaching"
+            description: "Only {{ $value }} API calls remaining"
+
+        - alert: MarketDataStale
+          expr: (time() - market_data_last_update_timestamp) > 30
+          for: 30s
+          labels:
+            severity: warning
+            component: exchange
+          annotations:
+            summary: "Market data stale for {{ $labels.symbol }}"
+            description: "Last update was {{ $value | humanizeDuration }} ago"
+
+    # =========================================================================
+    # SERVICE HEALTH ALERTS
+    # =========================================================================
+    - name: service.health
+      interval: 15s
+      rules:
+        - alert: CriticalServiceDown
+          expr: up{critical="true"} == 0
+          for: 30s
+          labels:
+            severity: critical
+            component: service
+          annotations:
+            summary: "Critical service {{ $labels.job }} is DOWN"
+            description: "Service has been unreachable for more than 30 seconds."
+
+        - alert: HighErrorRate
+          expr: (sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (job) / sum(rate(http_requests_total[5m])) by (job)) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            component: service
+          annotations:
+            summary: "High error rate on {{ $labels.job }}"
+            description: "Error rate: {{ $value | humanizePercentage }}"
+
+        - alert: HighLatencyP99
+          expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)) > 2
+          for: 5m
+          labels:
+            severity: warning
+            component: service
+          annotations:
+            summary: "High P99 latency on {{ $labels.job }}"
+            description: "P99 latency is {{ $value | humanizeDuration }}"
+
+    # =========================================================================
+    # INFRASTRUCTURE ALERTS
+    # =========================================================================
+    - name: infrastructure
+      interval: 30s
+      rules:
+        - alert: PodHighCPUUsage
+          expr: |
+            (sum(rate(container_cpu_usage_seconds_total{namespace="crypto-bot-staging", container!=""}[5m])) by (pod, container)
+            / sum(kube_pod_container_resource_limits{namespace="crypto-bot-staging", resource="cpu"}) by (pod, container)) * 100 > 80
+          for: 10m
+          labels:
+            severity: warning
+            component: infrastructure
+          annotations:
+            summary: "Pod {{ $labels.pod }} CPU usage above 80%"
+            description: "CPU usage: {{ $value | printf \"%.1f\" }}%"
+
+        - alert: PodHighMemoryUsage
+          expr: |
+            (container_memory_usage_bytes{namespace="crypto-bot-staging", container!=""}
+            / container_spec_memory_limit_bytes{namespace="crypto-bot-staging", container!=""}) * 100 > 85
+          for: 10m
+          labels:
+            severity: warning
+            component: infrastructure
+          annotations:
+            summary: "Pod {{ $labels.pod }} memory usage above 85%"
+            description: "Memory usage: {{ $value | printf \"%.1f\" }}%"
+
+        - alert: PostgreSQLDown
+          expr: pg_up == 0
+          for: 30s
+          labels:
+            severity: critical
+            component: database
+          annotations:
+            summary: "CRITICAL: PostgreSQL is DOWN"
+            description: "PostgreSQL database is unreachable"
+
+        - alert: RedisDown
+          expr: redis_up == 0
+          for: 30s
+          labels:
+            severity: critical
+            component: cache
+          annotations:
+            summary: "CRITICAL: Redis is DOWN"
+            description: "Redis cache is unreachable"
+
+        - alert: RabbitMQDown
+          expr: rabbitmq_up == 0
+          for: 30s
+          labels:
+            severity: critical
+            component: messaging
+          annotations:
+            summary: "CRITICAL: RabbitMQ is DOWN"
+            description: "Message broker is unreachable"
+
+        - alert: RabbitMQQueueDepthHigh
+          expr: rabbitmq_queue_messages > 10000
+          for: 10m
+          labels:
+            severity: warning
+            component: messaging
+          annotations:
+            summary: "RabbitMQ queue {{ $labels.queue }} depth high"
+            description: "{{ $value }} messages in queue"

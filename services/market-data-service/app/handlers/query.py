@@ -112,7 +112,7 @@ async def get_ticker(
         if not re.match(r'^[A-Z]{6,20}$', symbol):
             raise HTTPException(status_code=400, detail="Invalid symbol format")
 
-        # Try cache first
+        # Try cache first (REDUCED TTL to 2 seconds for real-time prices)
         cache_key = f"ticker:{symbol}"
         cached_data = await cache_get(cache_key)
         if cached_data:
@@ -131,8 +131,8 @@ async def get_ticker(
             ticker_data = await fetcher.get_ticker(symbol)
             if ticker_data:
                 await TickerRepository.save_ticker(ticker_data)
-                # Cache for 5 seconds
-                await cache_set(cache_key, ticker_data, ttl=5)
+                # Cache for 2 seconds (REDUCED from 5s for real-time prices)
+                await cache_set(cache_key, ticker_data, ttl=2)
                 return {
                     "success": True,
                     "data": ticker_data,
@@ -141,9 +141,9 @@ async def get_ticker(
             else:
                 raise HTTPException(status_code=404, detail="Ticker not found")
 
-        # Cache the database result for 5 seconds
+        # Cache the database result for 2 seconds (REDUCED from 5s)
         ticker_dict = ticker.to_dict()
-        await cache_set(cache_key, ticker_dict, ttl=5)
+        await cache_set(cache_key, ticker_dict, ttl=2)
 
         return {
             "success": True,

@@ -526,7 +526,7 @@ GROUP BY pf.portfolio_id, pf.name, pf.cash_balance, pf.realized_pnl, pf.unrealiz
 
 -- Create default paper trading portfolio
 INSERT INTO portfolios (portfolio_id, name, initial_balance, cash_balance, trading_mode)
-VALUES ('default', 'Default Paper Trading Portfolio', 10000.00, 10000.00, 'PAPER')
+VALUES ('default', 'Default Paper Trading Portfolio', 100.00, 100.00, 'PAPER')
 ON CONFLICT (portfolio_id) DO NOTHING;
 
 -- ==========================================

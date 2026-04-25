@@ -1,0 +1,320 @@
+# =============================================================================
+# ServiceMonitor Configurations for Crypto Trading Bot
+# Kubernetes Staging Environment
+# Version: 1.0.0
+# =============================================================================
+# ServiceMonitors tell Prometheus Operator which services to scrape
+# These are designed for the Kubernetes staging deployment
+# =============================================================================
+
+---
+# =============================================================================
+# TRADING ENGINE SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trading-engine
+  namespace: crypto-bot-staging
+  labels:
+    app: trading-engine
+    environment: staging
+    tier: core
+    critical: "true"
+spec:
+  selector:
+    matchLabels:
+      app: trading-engine
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 10s
+      scrapeTimeout: 8s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: "go_.*|process_.*"
+          action: drop
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging
+
+---
+# =============================================================================
+# MARKET DATA SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: market-data-service
+  namespace: crypto-bot-staging
+  labels:
+    app: market-data-service
+    environment: staging
+    tier: data
+    critical: "true"
+spec:
+  selector:
+    matchLabels:
+      app: market-data-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 10s
+      scrapeTimeout: 8s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging
+
+---
+# =============================================================================
+# PORTFOLIO MANAGER SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: portfolio-manager
+  namespace: crypto-bot-staging
+  labels:
+    app: portfolio-manager
+    environment: staging
+    tier: core
+    critical: "true"
+spec:
+  selector:
+    matchLabels:
+      app: portfolio-manager
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging
+
+---
+# =============================================================================
+# TECHNICAL ANALYSIS SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: technical-analysis
+  namespace: crypto-bot-staging
+  labels:
+    app: technical-analysis
+    environment: staging
+    tier: analytics
+    critical: "false"
+spec:
+  selector:
+    matchLabels:
+      app: technical-analysis
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging
+
+---
+# =============================================================================
+# BYBIT CONNECTOR SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bybit-connector
+  namespace: crypto-bot-staging
+  labels:
+    app: bybit-connector
+    environment: staging
+    tier: connector
+    critical: "true"
+spec:
+  selector:
+    matchLabels:
+      app: bybit-connector
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 10s
+      scrapeTimeout: 8s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging
+
+---
+# =============================================================================
+# SIGNAL AGGREGATOR SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: signal-aggregator
+  namespace: crypto-bot-staging
+  labels:
+    app: signal-aggregator
+    environment: staging
+    tier: analytics
+    critical: "true"
+spec:
+  selector:
+    matchLabels:
+      app: signal-aggregator
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging
+
+---
+# =============================================================================
+# RISK METRICS SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: risk-metrics-service
+  namespace: crypto-bot-staging
+  labels:
+    app: risk-metrics-service
+    environment: staging
+    tier: analytics
+    critical: "true"
+spec:
+  selector:
+    matchLabels:
+      app: risk-metrics-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging
+
+---
+# =============================================================================
+# API GATEWAY SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api-gateway
+  namespace: crypto-bot-staging
+  labels:
+    app: api-gateway
+    environment: staging
+    tier: gateway
+    critical: "true"
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 10s
+      scrapeTimeout: 8s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging
+
+---
+# =============================================================================
+# NOTIFICATION SERVICE MONITOR
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: notification-service
+  namespace: crypto-bot-staging
+  labels:
+    app: notification-service
+    environment: staging
+    tier: support
+    critical: "false"
+spec:
+  selector:
+    matchLabels:
+      app: notification-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 15s
+      scheme: http
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - crypto-bot-staging

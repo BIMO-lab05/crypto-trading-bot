@@ -18,7 +18,7 @@ import { useMultipleTickers } from '../hooks/useTicker'
  * - onSymbolClick: Callback when user clicks a ticker
  */
 export default function PriceTickerGrid({
-  symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT'],
+  symbols = ['SOLUSDT', 'BNBUSDT', 'ADAUSDT', 'AVAXUSDT', 'LINKUSDT'],
   onSymbolClick
 }) {
   const { data: tickers, isLoading, error } = useMultipleTickers(symbols)
@@ -73,14 +73,18 @@ export default function PriceTickerGrid({
       {/* Horizontal scrollable ticker grid */}
       <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
         {symbols.map((symbol) => {
-          const ticker = tickers?.[symbol]?.ticker || {}
+          // API Gateway returns { ticker: {...} } format
+          // Gateway transforms market-data response and adds ticker wrapper
+          const tickerResponse = tickers?.[symbol] || {}
+          const ticker = tickerResponse.ticker || tickerResponse.data || {}
+          const source = tickerResponse.source || 'live'
 
-          // Parse values - API returns: last_price, high_24h, low_24h, volume_24h, price_change_24h
+          // Parse values - Gateway returns: last_price, price_24h_pcnt, volume_24h, high_price_24h, low_price_24h
           const price = parseFloat(ticker.last_price) || 0
-          const change24h = parseFloat(ticker.price_change_24h) * 100 || 0  // Convert to percentage
+          const change24h = parseFloat(ticker.price_24h_pcnt) || 0  // Already in percentage
           const volume24h = parseFloat(ticker.volume_24h) || 0
-          const high24h = parseFloat(ticker.high_24h) || 0
-          const low24h = parseFloat(ticker.low_24h) || 0
+          const high24h = parseFloat(ticker.high_price_24h) || 0
+          const low24h = parseFloat(ticker.low_price_24h) || 0
 
           const isPositive = change24h >= 0
           const displaySymbol = symbol.replace('USDT', '')
@@ -90,6 +94,14 @@ export default function PriceTickerGrid({
             if (p >= 1000) return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
             if (p >= 1) return p.toFixed(4)
             return p.toFixed(6)
+          }
+
+          // Source indicator colors
+          const sourceColors = {
+            live: 'text-emerald-400 bg-emerald-500/10',
+            database: 'text-amber-400 bg-amber-500/10',
+            cache: 'text-slate-400 bg-slate-500/10',
+            unknown: 'text-slate-500 bg-slate-500/5'
           }
 
           return (
@@ -106,9 +118,14 @@ export default function PriceTickerGrid({
                 }
               `}
             >
-              {/* Symbol Header */}
+              {/* Symbol Header with Source Indicator */}
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-sm font-bold text-slate-100">{displaySymbol}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-bold text-slate-100">{displaySymbol}</span>
+                  <span className={`text-[9px] px-1 rounded ${sourceColors[source] || sourceColors.unknown}`}>
+                    {source}
+                  </span>
+                </div>
                 <span className="text-[10px] text-slate-500">/USDT</span>
               </div>
 

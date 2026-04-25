@@ -1,0 +1,496 @@
+# =============================================================================
+# Production Monitoring Stack - Prometheus, Grafana, AlertManager
+# =============================================================================
+# Version: 1.0
+# Created: 2025-12-12
+# Environment: Production
+#
+# Complete observability stack including:
+# - Prometheus for metrics collection
+# - Grafana for visualization
+# - AlertManager for alerting
+# - ServiceMonitors for auto-discovery
+# =============================================================================
+
+---
+# Prometheus Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    service: prometheus
+    environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: prometheus
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: monitoring
+        service: prometheus
+        environment: production
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534  # nobody
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: prometheus-sa
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.48.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        args:
+        - "--config.file=/etc/prometheus/prometheus.yml"
+        - "--storage.tsdb.path=/prometheus"
+        - "--storage.tsdb.retention.time=90d"
+        - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+        - "--web.console.templates=/usr/share/prometheus/consoles"
+        - "--web.enable-lifecycle"
+        - "--web.enable-admin-api"
+        ports:
+        - containerPort: 9090
+          name: http
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-data
+          mountPath: /prometheus
+        - name: prometheus-rules
+          mountPath: /etc/prometheus/rules
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: monitoring-config
+      - name: prometheus-rules
+        configMap:
+          name: alerting-rules
+      - name: prometheus-data
+        persistentVolumeClaim:
+          claimName: prometheus-pvc
+
+---
+# Prometheus Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: prometheus
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+    name: http
+
+---
+# Prometheus ServiceAccount with RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-sa
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-crypto-bot-prod
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions", "networking.k8s.io"]
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-crypto-bot-prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-crypto-bot-prod
+subjects:
+- kind: ServiceAccount
+  name: prometheus-sa
+  namespace: crypto-bot-prod
+
+---
+# Grafana Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    service: grafana
+    environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: grafana
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: monitoring
+        service: grafana
+        environment: production
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: grafana-sa
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.2.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # Grafana needs write access
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          valueFrom:
+            secretKeyRef:
+              name: monitoring-secrets
+              key: GRAFANA_ADMIN_USER
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: monitoring-secrets
+              key: GRAFANA_ADMIN_PASSWORD
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-clock-panel,grafana-piechart-panel"
+        - name: GF_SERVER_ROOT_URL
+          value: "https://grafana.yourdomain.com"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+        - name: GF_SECURITY_DISABLE_GRAVATAR
+          value: "true"
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        volumeMounts:
+        - name: grafana-data
+          mountPath: /var/lib/grafana
+        - name: grafana-provisioning
+          mountPath: /etc/grafana/provisioning
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: grafana-data
+        persistentVolumeClaim:
+          claimName: grafana-pvc
+      - name: grafana-provisioning
+        configMap:
+          name: grafana-provisioning
+
+---
+# Grafana Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: http
+
+---
+# Grafana ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-sa
+  namespace: crypto-bot-prod
+automountServiceAccountToken: false
+
+---
+# Grafana Provisioning ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-provisioning
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-service:9090
+        isDefault: true
+        jsonData:
+          timeInterval: "15s"
+
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'Crypto Trading Bot'
+        orgId: 1
+        folder: 'Trading'
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+
+---
+# AlertManager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    service: alertmanager
+    environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: alertmanager
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: monitoring
+        service: alertmanager
+        environment: production
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: alertmanager-sa
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:v0.26.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        args:
+        - "--config.file=/etc/alertmanager/alertmanager.yml"
+        - "--storage.path=/alertmanager"
+        ports:
+        - containerPort: 9093
+          name: http
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - name: alertmanager-config
+          mountPath: /etc/alertmanager
+        - name: alertmanager-data
+          mountPath: /alertmanager
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9093
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9093
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: alertmanager-config
+        configMap:
+          name: alertmanager-config
+      - name: alertmanager-data
+        emptyDir: {}
+
+---
+# AlertManager Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    service: alertmanager
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: alertmanager
+  ports:
+  - port: 9093
+    targetPort: 9093
+    name: http
+
+---
+# AlertManager ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alertmanager-sa
+  namespace: crypto-bot-prod
+automountServiceAccountToken: false
+
+---
+# AlertManager Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      smtp_smarthost: 'smtp.yourdomain.com:587'
+      smtp_from: 'alerts@cryptobot.com'
+      smtp_auth_username: 'alerts@cryptobot.com'
+      resolve_timeout: 5m
+
+    route:
+      group_by: ['alertname', 'severity']
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'critical-alerts'
+
+      routes:
+        # Critical alerts - immediate notification
+        - match:
+            severity: critical
+          receiver: 'critical-alerts'
+          group_wait: 0s
+          repeat_interval: 1h
+
+        # Warning alerts - standard notification
+        - match:
+            severity: warning
+          receiver: 'warning-alerts'
+          group_wait: 30s
+          repeat_interval: 4h
+
+    receivers:
+      - name: 'critical-alerts'
+        webhook_configs:
+          - url: 'http://notification-service:8008/alerts/critical'
+            send_resolved: true
+        # Telegram notification for critical
+        # Add telegram_configs if using Telegram
+
+      - name: 'warning-alerts'
+        webhook_configs:
+          - url: 'http://notification-service:8008/alerts/warning'
+            send_resolved: true
+
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname']

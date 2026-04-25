@@ -652,12 +652,33 @@ async def get_kline(
     symbol: str = "BTCUSDT",
     interval: str = "60",
     limit: int = 200,
+    start: Optional[int] = None,
+    end: Optional[int] = None,
     client: BybitRestClient = Depends(get_rest_client)
 ):
     """
-    Get kline/candlestick data
-    Returns historical price candles
+    Get kline/candlestick data with optional time range
+
+    Returns historical price candles for the specified symbol and interval.
     Rate limited to 200 requests/minute (increased for multi-symbol trading)
+
+    Args:
+        category: Product category (linear, inverse, spot)
+        symbol: Trading pair (e.g., BTCUSDT)
+        interval: Kline interval (1, 3, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M)
+        limit: Number of klines to fetch (max 1000, default 200)
+        start: Start timestamp in milliseconds (optional)
+        end: End timestamp in milliseconds (optional)
+
+    Returns:
+        List of kline data arrays [timestamp, open, high, low, close, volume, turnover]
+
+    Note:
+        - If neither start nor end is provided, returns the latest `limit` candles
+        - Bybit API returns data in descending order (newest first)
+        - Maximum 1000 candles per request (Bybit API limit)
+
+    Fixed: 2025-12-11 - Added start/end parameters for historical data fetching
     """
     try:
         logger.debug(
@@ -666,14 +687,18 @@ async def get_kline(
                 "category": category,
                 "symbol": symbol,
                 "interval": interval,
-                "limit": limit
+                "limit": limit,
+                "start": start,
+                "end": end
             }
         )
         result = await client.get_kline(
             category=category,
             symbol=symbol,
             interval=interval,
-            limit=limit
+            limit=limit,
+            start_time=start,
+            end_time=end
         )
         return {"success": True, "data": result}
     except BybitConnectorException as e:

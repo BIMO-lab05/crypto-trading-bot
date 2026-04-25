@@ -31,7 +31,6 @@ services:
     restart: unless-stopped
     networks:
       - crypto-bot-network
-      - infrastructure-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -128,10 +127,12 @@ services:
       - TIMESCALE_HOST=crypto-bot-timescaledb
       - POSTGRES_HOST=crypto-bot-postgres
       - REDIS_HOST=crypto-bot-redis
+      - REDIS_PASSWORD=redis_dev_password
       - RABBITMQ_HOST=crypto-bot-rabbitmq
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
-      # 20 symbols for auto-trading (2025-11-29)
-      - DEFAULT_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,ADAUSDT,DOGEUSDT,AVAXUSDT,DOTUSDT,LINKUSDT,MATICUSDT,LTCUSDT,ATOMUSDT,NEARUSDT,APTUSDT,ARBUSDT,OPUSDT,SUIUSDT,INJUSDT,SEIUSDT
+      # 14 verified symbols (2025-12-03) - Only pairs with complete historical data
+      # Removed 21 symbols: XRPUSDT,MATICUSDT,UNIUSDT,ATOMUSDT,NEARUSDT,ICPUSDT,FILUSDT,AAVEUSDT,MKRUSDT,INJUSDT,SEIUSDT,TIAUSDT,IMXUSDT,STXUSDT,RNDRUSDT,PENDLEUSDT,WLDUSDT,FTMUSDT,ALGOUSDT,SHIBUSDT,PEPEUSDT
+      - DEFAULT_SYMBOLS=BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,ADAUSDT,DOGEUSDT,AVAXUSDT,DOTUSDT,LINKUSDT,LTCUSDT,ARBUSDT,OPUSDT,APTUSDT,SUIUSDT
     volumes:
       - ./services/market-data-service/logs:/app/logs
     restart: unless-stopped
@@ -250,7 +251,7 @@ services:
           cpus: '0.25'
           memory: 256M
 
-  # Trading Engine - Core trading logic
+  # Trading Engine - Core trading logic with SQZMOM Paper Trading
   trading-engine:
     build:
       context: ./services/trading-engine
@@ -267,18 +268,98 @@ services:
       - POSTGRES_HOST=crypto-bot-postgres
       - REDIS_HOST=crypto-bot-redis
       - RABBITMQ_HOST=crypto-bot-rabbitmq
-      - MAX_RISK_PER_TRADE=0.02
+      # Strategy Mode - HYBRID for dual confirmation (2026-02-17)
+      - STRATEGY_MODE=hybrid
+      # Risk Management
+      - MAX_RISK_PER_TRADE=0.05  # 5% of $100 = $5 max risk per trade (2026-01-17)
       - EMERGENCY_STOP_LOSS=0.05
+      # Paper Trading Mode - ENFORCED
       - PAPER_TRADING_MODE=true
       - TRADING_MODE=PAPER
+      - PAPER_INITIAL_BALANCE=100.0
+      - PAPER_COMMISSION_PCT=0.1
+      # SQZMOM Strategy Configuration - Top 3 Performers (UPDATED 2025-12-13)
+      - DEFAULT_STRATEGY=sqzmom
+      - SQZMOM_ENABLED=true
+      - STAT_ARB_ENABLED=false
+      - GRID_TRADING_ENABLED=false
+      - TREND_FOLLOWING_ENABLED=false
+      - MOMENTUM_ENABLED=false
+      - CONSENSUS_STRATEGY_ENABLED=false
+      # Trading Symbols - OPTIMIZED TO 5 TIER 1 SYMBOLS (2026-01-19)
+      # Focus on symbols with excellent historical data (250+ days, 60k+ candles)
+      # Removed: DOT, ARB, OP (41 days), AVAX, LINK (64-70 days), MATIC (quality issues)
+      - TRADING_SYMBOLS=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","ADAUSDT"]
+      - DEFAULT_SYMBOL=SOLUSDT
+      - DEFAULT_INTERVAL=60  # Optimal 60m interval for quality signals
+      # BACKTEST-OPTIMIZED ALLOCATIONS (2026-01-19) - Based on 30d/90d performance
+      # SOL 30% (best), BTC 25% (leader), BNB 20%, ADA 15% (2nd best), ETH 10% (worst)
+      - SYMBOL_ALLOCATIONS={"SOLUSDT":0.30,"BTCUSDT":0.25,"BNBUSDT":0.20,"ADAUSDT":0.15,"ETHUSDT":0.10}
+      # Trading Hours - EXTENDED TO 01:00-21:00 UTC (2026-01-19)
+      # Captures 01:00 Asia/Europe overlap (100% WR) and 17:00 London/NY overlap
+      - TRADING_START_HOUR_UTC=1
+      - TRADING_END_HOUR_UTC=21
+      # SHORT TRADING - OPTION C: HYBRID CIRCUIT BREAKER (2026-01-19)
+      # Re-enabled after backtest analysis showing +2-4% monthly profit potential
+      - SHORT_TRADING_ENABLED=true
+      - ALLOWED_TRADE_SIDES=["LONG","SHORT"]
+      # SHORT Risk Controls - TIGHTER THAN LONG (2026-01-19)
+      - SHORT_STOP_LOSS_PCT=1.5     # vs 2.0 for LONG (25% tighter)
+      - SHORT_MIN_CONFIDENCE=0.70   # vs 0.65 for LONG (higher bar)
+      - SHORT_MAX_POSITION_PCT=3.0  # vs 5.0 for LONG (40% smaller)
+      # Circuit Breaker - Automatic SHORT Safety Shutdown (2026-01-19)
+      - CIRCUIT_BREAKER_ENABLED=true
+      - CIRCUIT_BREAKER_MAX_CONSECUTIVE_LOSSES=3
+      - CIRCUIT_BREAKER_MAX_DRAWDOWN_PCT=10.0
+      - CIRCUIT_BREAKER_MIN_WIN_RATE_PCT=45.0
+      - CIRCUIT_BREAKER_EVALUATION_TRADES=30
+      - CIRCUIT_BREAKER_CHECK_INTERVAL_MINUTES=60
+      # Leverage Configuration - 10x ENABLED (2025-12-17)
+      - LEVERAGE_ENABLED=true
+      - DEFAULT_LEVERAGE=10.0
+      - MAX_LEVERAGE=10.0
+      - MIN_LEVERAGE=1.0
+      # Risk Parameters - RESEARCH-OPTIMIZED (2025-12-21)
+      - MAX_POSITION_SIZE_PCT=8.0
+      - MAX_DAILY_LOSS_PCT=5.0
+      - MAX_TOTAL_EXPOSURE_PCT=70.0
+      - DEFAULT_STOP_LOSS_PCT=3.0
+      - DEFAULT_TAKE_PROFIT_PCT=9.0
+      # Dynamic Risk Budgeting
+      - ENABLE_DYNAMIC_RISK_BUDGETING=true
+      - RISK_BUDGET_INITIAL=100.0
+      - RISK_BUDGET_DAILY_RESET=true
+      - RISK_SCALING_FACTOR=0.5
+      - MAX_RISK_MULTIPLIER=2.0
+      - MIN_RISK_MULTIPLIER=0.25
+      # Signal Thresholds - RESEARCH-BACKED (3 indicators, 65%+ confidence professional standard)
+      - MIN_SIGNAL_CONFIDENCE=0.55  # LOWERED: From 0.65 to 0.55 for more trading opportunities (2026-01-17)
+      - MIN_CONSENSUS_INDICATORS=3
+      # Service URLs
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
       - MARKET_DATA_URL=http://market-data:8002
       - PORTFOLIO_MANAGER_URL=http://portfolio-manager:8003
       - TECHNICAL_ANALYSIS_URL=http://technical-analysis:8004
       - ML_PREDICTION_URL=http://ml-prediction:8007
       - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
-      - ENABLE_ML_PREDICTIONS=true
-      - ENABLE_SENTIMENT_ANALYSIS=true
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8006
+      # ML/Sentiment disabled for SQZMOM isolation
+      - ENABLE_ML_PREDICTIONS=false
+      - ENABLE_SENTIMENT_ANALYSIS=false
+      - ENABLE_MULTI_TIMEFRAME=false
+      # Trade frequency
+      - MAX_DAILY_TRADES=50
+      - CHECK_FREQUENCY_SECONDS=30
+      - ALLOW_SAME_SYMBOL_REENTRY=true
+      - MIN_TIME_BETWEEN_TRADES_SAME_SYMBOL=60
+      # Notifications
+      - ENABLE_NOTIFICATIONS=true
+      - NOTIFY_ON_TRADE_OPEN=true
+      - NOTIFY_ON_TRADE_CLOSE=true
+      - NOTIFY_ON_DAILY_SUMMARY=true
+      # Time filters
+      - ENABLE_TIME_FILTERS=true
+      - AVOID_WEEKENDS=true
     # Dev: Override command to use --reload for hot-reloading code changes
     command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--reload"]
     volumes:
@@ -287,7 +368,6 @@ services:
     restart: unless-stopped
     networks:
       - crypto-bot-network
-      - infrastructure-network
     depends_on:
       bybit-connector:
         condition: service_healthy
@@ -540,9 +620,9 @@ networks:
     ipam:
       config:
         - subnet: 172.28.0.0/16
-  infrastructure-network:
-    external: true
-    name: infrastructure_crypto-bot-network
+  # infrastructure-network:
+  #   external: true
+  #   name: infrastructure_crypto-bot-network
 
 # ===========================================================================
 # VOLUMES
@@ -554,4 +634,3 @@ volumes:
     name: crypto-bot-prometheus-data
   grafana_data:
     name: crypto-bot-grafana-data
-

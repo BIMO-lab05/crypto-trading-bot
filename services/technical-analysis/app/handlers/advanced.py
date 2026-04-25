@@ -54,7 +54,7 @@ async def get_volume_confirmation(
     interval: str = Query(default="60"),
     period: int = Query(default=20, ge=5, le=50, description="Volume averaging period"),
     signal_type: str = Query(default="breakout", description="breakout or continuation"),
-    limit: int = Query(default=50, ge=30, le=200)
+    limit: int = Query(default=100, ge=30, le=200)  # INCREASED 2026-02-25: 50→100 for better volume analysis
 ):
     """
     Calculate Volume Confirmation

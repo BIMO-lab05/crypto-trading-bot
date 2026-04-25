@@ -36,8 +36,15 @@ class TestGetTrendFilter:
         with patch('app.handlers.advanced.IndicatorService') as mock_service:
             mock_service.calculate_trend_filter = AsyncMock(return_value=mock_data)
 
-            # Execute
-            result = await get_trend_filter(symbol="BTCUSDT")
+            # Execute with explicit parameters to avoid Query object issues
+            # UPDATED 2025-12-03: Pass explicit values to avoid FastAPI Query object comparison
+            result = await get_trend_filter(
+                symbol="BTCUSDT",
+                interval="60",
+                fast_period=50,
+                slow_period=200,
+                limit=300
+            )
 
             # Assertions
             assert result is not None
@@ -137,8 +144,15 @@ class TestGetVolumeConfirmation:
         with patch('app.handlers.advanced.IndicatorService') as mock_service:
             mock_service.calculate_volume_confirmation = AsyncMock(return_value=mock_data)
 
-            # Execute
-            result = await get_volume_confirmation(symbol="BTCUSDT")
+            # Execute with explicit parameters
+            # UPDATED 2025-12-03: Pass explicit values to avoid FastAPI Query object comparison
+            result = await get_volume_confirmation(
+                symbol="BTCUSDT",
+                interval="60",
+                period=20,
+                signal_type="breakout",
+                limit=50
+            )
 
             # Assertions
             assert result is not None
@@ -322,8 +336,16 @@ class TestGetStochastic:
         with patch('app.handlers.advanced.IndicatorService') as mock_service:
             mock_service.calculate_stochastic = AsyncMock(return_value=mock_data)
 
-            # Execute
-            result = await get_stochastic(symbol="BTCUSDT")
+            # Execute with explicit parameters
+            # UPDATED 2025-12-03: Pass explicit values to avoid FastAPI Query object comparison
+            result = await get_stochastic(
+                symbol="BTCUSDT",
+                interval="60",
+                period=14,
+                smooth_k=3,
+                smooth_d=3,
+                limit=50
+            )
 
             # Assertions
             assert result is not None

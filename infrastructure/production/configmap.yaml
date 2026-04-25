@@ -1,0 +1,284 @@
+# =============================================================================
+# Production ConfigMaps for Crypto Trading Bot
+# =============================================================================
+# Version: 1.0
+# Created: 2025-12-12
+# Environment: Production
+#
+# Contains non-sensitive configuration for all services
+# Secrets are managed separately via External Secrets or Vault
+# =============================================================================
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: config
+    environment: production
+data:
+  # Environment
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  DEBUG: "false"
+
+  # API Gateway Configuration
+  API_GATEWAY_HOST: "0.0.0.0"
+  API_GATEWAY_PORT: "8000"
+  API_GATEWAY_WORKERS: "4"
+  API_RATE_LIMIT_REQUESTS: "100"
+  API_RATE_LIMIT_WINDOW: "60"
+
+  # Trading Engine Configuration
+  TRADING_ENGINE_HOST: "0.0.0.0"
+  TRADING_ENGINE_PORT: "8001"
+  TRADING_MODE: "live"
+  PAPER_TRADING_ENABLED: "false"
+
+  # Risk Management
+  MAX_POSITION_SIZE: "0.02"
+  MAX_DAILY_LOSS: "0.05"
+  STOP_LOSS_PERCENTAGE: "0.03"
+  TAKE_PROFIT_PERCENTAGE: "0.06"
+  MAX_CONCURRENT_TRADES: "5"
+  EMERGENCY_STOP_ENABLED: "true"
+
+  # Portfolio Manager
+  PORTFOLIO_MANAGER_HOST: "0.0.0.0"
+  PORTFOLIO_MANAGER_PORT: "8002"
+
+  # Technical Analysis
+  TECHNICAL_ANALYSIS_HOST: "0.0.0.0"
+  TECHNICAL_ANALYSIS_PORT: "8003"
+  TA_CACHE_TTL: "60"
+
+  # Market Data Service
+  MARKET_DATA_HOST: "0.0.0.0"
+  MARKET_DATA_PORT: "8005"
+  WEBSOCKET_ENABLED: "true"
+  WEBSOCKET_RECONNECT_DELAY: "5"
+
+  # ML Prediction Service
+  ML_PREDICTION_HOST: "0.0.0.0"
+  ML_PREDICTION_PORT: "8007"
+  MODEL_CACHE_ENABLED: "true"
+
+  # Bybit Configuration
+  BYBIT_TESTNET: "false"
+  BYBIT_WEBSOCKET_URL: "wss://stream.bybit.com/v5/public/linear"
+  BYBIT_REST_URL: "https://api.bybit.com"
+
+  # Database Hosts (service discovery)
+  POSTGRES_HOST: "postgres-service.crypto-bot-prod.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  TIMESCALE_HOST: "timescale-service.crypto-bot-prod.svc.cluster.local"
+  TIMESCALE_PORT: "5432"
+  REDIS_HOST: "redis-service.crypto-bot-prod.svc.cluster.local"
+  REDIS_PORT: "6379"
+  RABBITMQ_HOST: "rabbitmq-service.crypto-bot-prod.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+
+  # Monitoring
+  PROMETHEUS_ENABLED: "true"
+  METRICS_PORT: "9090"
+  TRACING_ENABLED: "true"
+  JAEGER_AGENT_HOST: "jaeger-agent.monitoring.svc.cluster.local"
+
+  # Feature Flags
+  FEATURE_ML_PREDICTIONS: "true"
+  FEATURE_SENTIMENT_ANALYSIS: "true"
+  FEATURE_AUTO_REBALANCING: "false"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trading-symbols-config
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: config
+    environment: production
+data:
+  # Trading pairs configuration
+  TRADING_PAIRS: |
+    - symbol: BTCUSDT
+      enabled: true
+      max_position: 0.5
+      min_order: 0.001
+    - symbol: ETHUSDT
+      enabled: true
+      max_position: 5.0
+      min_order: 0.01
+    - symbol: SOLUSDT
+      enabled: true
+      max_position: 50.0
+      min_order: 0.1
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-config
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    environment: production
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        environment: production
+        cluster: crypto-bot
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              - alertmanager:9093
+
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    scrape_configs:
+      # Trading Engine
+      - job_name: 'trading-engine'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['crypto-bot-prod']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_service]
+            regex: trading-engine
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+)
+            replacement: $1
+
+      # API Gateway
+      - job_name: 'api-gateway'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['crypto-bot-prod']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_service]
+            regex: api-gateway
+            action: keep
+
+      # Databases
+      - job_name: 'postgres'
+        static_configs:
+          - targets: ['postgres-service:9187']
+
+      - job_name: 'redis'
+        static_configs:
+          - targets: ['redis-service:9121']
+
+      - job_name: 'rabbitmq'
+        static_configs:
+          - targets: ['rabbitmq-service:15692']
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alerting-rules
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    environment: production
+data:
+  trading-alerts.yml: |
+    groups:
+      - name: trading-alerts
+        interval: 30s
+        rules:
+          # Trading Engine Down
+          - alert: TradingEngineDown
+            expr: up{job="trading-engine"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              team: trading
+            annotations:
+              summary: "Trading Engine is down"
+              description: "Trading Engine instance {{ $labels.instance }} has been down for more than 1 minute."
+
+          # High Error Rate
+          - alert: HighErrorRate
+            expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+              team: trading
+            annotations:
+              summary: "High error rate detected"
+              description: "Error rate is above 5% for the last 5 minutes."
+
+          # Emergency Stop Triggered
+          - alert: EmergencyStopTriggered
+            expr: trading_emergency_stop_active == 1
+            for: 0s
+            labels:
+              severity: critical
+              team: trading
+            annotations:
+              summary: "EMERGENCY STOP ACTIVATED"
+              description: "Emergency stop has been triggered. All trading halted."
+
+          # Daily Loss Limit Approaching
+          - alert: DailyLossLimitApproaching
+            expr: trading_daily_pnl_percent < -3
+            for: 1m
+            labels:
+              severity: warning
+              team: trading
+            annotations:
+              summary: "Daily loss approaching limit"
+              description: "Daily PnL is {{ $value }}%, approaching 5% loss limit."
+
+          # High Memory Usage
+          - alert: HighMemoryUsage
+            expr: container_memory_usage_bytes / container_spec_memory_limit_bytes > 0.9
+            for: 5m
+            labels:
+              severity: warning
+              team: devops
+            annotations:
+              summary: "High memory usage"
+              description: "Container {{ $labels.container }} using > 90% of memory limit."
+
+          # Database Connection Pool Exhausted
+          - alert: DatabaseConnectionPoolLow
+            expr: pg_pool_available_connections < 5
+            for: 2m
+            labels:
+              severity: warning
+              team: devops
+            annotations:
+              summary: "Database connection pool running low"
+              description: "Only {{ $value }} database connections available."
+
+          # Order Execution Latency High
+          - alert: HighOrderExecutionLatency
+            expr: histogram_quantile(0.99, rate(order_execution_duration_seconds_bucket[5m])) > 0.5
+            for: 5m
+            labels:
+              severity: warning
+              team: trading
+            annotations:
+              summary: "Order execution latency is high"
+              description: "99th percentile order execution latency is {{ $value }}s"

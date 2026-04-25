@@ -1,0 +1,491 @@
+# Hardened Deployments for Production Environment
+# Maximum security configuration for production workloads
+# Version: 1.0
+# Created: 2025-12-12
+#
+# Production-specific security enhancements:
+# - Stricter resource limits
+# - Required pod anti-affinity for HA
+# - Additional security annotations
+# - Production-specific environment variables
+
+---
+# API Gateway - Production Hardened Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    service: api-gateway
+    environment: production
+    security-hardened: "true"
+spec:
+  replicas: 3  # Higher replica count for production
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: api-gateway
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: api-gateway
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        # Security annotations
+        container.apparmor.security.beta.kubernetes.io/api-gateway: runtime/default
+    spec:
+      serviceAccountName: api-gateway-sa
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command: ['sh', '-c', 'until nc -z redis-service 6379; do sleep 2; done']
+
+      containers:
+        - name: api-gateway
+          image: crypto-bot/api-gateway:latest
+          imagePullPolicy: Always  # Always pull in production
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: api-secrets
+
+          env:
+            - name: SERVICE_NAME
+              value: "api-gateway"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: LOG_LEVEL
+              value: "INFO"
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: cache-volume
+              mountPath: /app/.cache
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache-volume
+          emptyDir:
+            sizeLimit: 200Mi
+
+      # Required anti-affinity for production HA
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  service: api-gateway
+              topologyKey: kubernetes.io/hostname
+
+      # Spread across zones
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              service: api-gateway
+
+      terminationGracePeriodSeconds: 30
+
+---
+# Trading Engine - Production Hardened Deployment (CRITICAL)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-engine
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    service: trading-engine
+    environment: production
+    security-hardened: "true"
+    criticality: critical
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: trading-engine
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: trading-engine
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8005"
+        container.apparmor.security.beta.kubernetes.io/trading-engine: runtime/default
+    spec:
+      serviceAccountName: trading-engine-sa
+      automountServiceAccountToken: true  # Needs to create audit events
+
+      # Priority class for critical service
+      priorityClassName: high-priority
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres-service 5432; do echo waiting for postgres; sleep 2; done
+              until nc -z redis-service 6379; do echo waiting for redis; sleep 2; done
+              until nc -z rabbitmq-service 5672; do echo waiting for rabbitmq; sleep 2; done
+              echo "All dependencies ready"
+
+      containers:
+        - name: trading-engine
+          image: crypto-bot/trading-engine:latest
+          imagePullPolicy: Always
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - containerPort: 8005
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+            - secretRef:
+                name: trading-engine-secrets
+
+          env:
+            - name: SERVICE_NAME
+              value: "trading-engine"
+            - name: ENVIRONMENT
+              value: "production"
+            # LIVE trading mode for production
+            - name: TRADING_MODE
+              value: "live"
+            - name: LOG_LEVEL
+              value: "INFO"
+            # Risk management settings
+            - name: MAX_POSITION_SIZE_PERCENT
+              value: "2"
+            - name: MAX_DAILY_LOSS_PERCENT
+              value: "5"
+
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "1Gi"
+            limits:
+              cpu: "4000m"
+              memory: "4Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8005
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8005
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: cache-volume
+              mountPath: /app/.cache
+            - name: logs-volume
+              mountPath: /app/logs
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache-volume
+          emptyDir:
+            sizeLimit: 200Mi
+        - name: logs-volume
+          emptyDir:
+            sizeLimit: 1Gi
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  service: trading-engine
+              topologyKey: kubernetes.io/hostname
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              service: trading-engine
+
+      terminationGracePeriodSeconds: 90
+
+---
+# Bybit Connector - Production Hardened Deployment (CRITICAL - Exchange Access)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bybit-connector
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    service: bybit-connector
+    environment: production
+    security-hardened: "true"
+    security-level: critical
+    criticality: critical
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: bybit-connector
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: bybit-connector
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        crypto-bot/critical: "true"
+        crypto-bot/handles-real-money: "true"
+        container.apparmor.security.beta.kubernetes.io/bybit-connector: runtime/default
+    spec:
+      serviceAccountName: bybit-connector-sa
+      automountServiceAccountToken: true  # For audit events
+
+      priorityClassName: high-priority
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: bybit-connector
+          image: crypto-bot/bybit-connector:latest
+          imagePullPolicy: Always
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - containerPort: 8001
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: bybit-secrets
+
+          env:
+            - name: SERVICE_NAME
+              value: "bybit-connector"
+            - name: ENVIRONMENT
+              value: "production"
+            # MAINNET for production
+            - name: BYBIT_TESTNET
+              value: "false"
+            - name: LOG_LEVEL
+              value: "INFO"
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: cache-volume
+              mountPath: /app/.cache
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache-volume
+          emptyDir:
+            sizeLimit: 200Mi
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  service: bybit-connector
+              topologyKey: kubernetes.io/hostname
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              service: bybit-connector
+
+      terminationGracePeriodSeconds: 60
+
+---
+# Priority Class for Critical Services
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: high-priority
+value: 1000000
+globalDefault: false
+description: "Priority class for critical trading services"

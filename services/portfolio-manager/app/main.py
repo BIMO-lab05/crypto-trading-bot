@@ -3,17 +3,27 @@ Portfolio Manager Service - Main Application
 FastAPI application with portfolio management endpoints
 
 REFACTORED: Phase 3 Complete - Using modular handlers
-Architecture: main.py → handlers → services → domain
+Architecture: main.py -> handlers -> services -> domain
 Enhanced: Phase 4 - Historical Performance Tracking
+
+PROMETHEUS METRICS: 2025-12-12
+- Added /metrics endpoint for Prometheus scraping
+- HTTP request counters and histograms
+- Portfolio-specific business metrics
 """
 
 from fastapi import FastAPI, Request, Query
+from fastapi.responses import Response
 from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+import time
 from typing import Optional
 import asyncpg
+
+# Prometheus metrics imports
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from app.config import settings
 from app.models import (
@@ -72,6 +82,63 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# ============================================================================
+# PROMETHEUS METRICS
+# ============================================================================
+
+# HTTP request counter
+http_requests_total = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status_code']
+)
+
+# HTTP request duration histogram
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration in seconds',
+    ['method', 'endpoint'],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0]
+)
+
+# Active requests gauge
+http_requests_active = Gauge(
+    'http_requests_active',
+    'Number of active HTTP requests'
+)
+
+# Portfolio-specific metrics
+portfolio_value_gauge = Gauge(
+    'portfolio_value_usd',
+    'Current portfolio value in USD',
+    ['portfolio_id']
+)
+
+portfolio_pnl_gauge = Gauge(
+    'portfolio_pnl_total',
+    'Total portfolio P&L',
+    ['portfolio_id']
+)
+
+transactions_total = Counter(
+    'portfolio_transactions_total',
+    'Total portfolio transactions',
+    ['portfolio_id', 'type', 'symbol']
+)
+
+holdings_count_gauge = Gauge(
+    'portfolio_holdings_count',
+    'Number of holdings in portfolio',
+    ['portfolio_id']
+)
+
+database_health = Gauge(
+    'database_connection_health',
+    'Database connection health (1=healthy, 0=unhealthy)'
+)
+
+
 # Global instances
 portfolio_manager: Optional[PortfolioManager] = None
 performance_calculator: Optional[PerformanceCalculator] = None
@@ -88,7 +155,8 @@ async def lifespan(app: FastAPI):
     global performance_history, snapshot_scheduler, db_pool
 
     # Startup
-    logger.info(f"🚀 Starting {settings.service_name} on port {settings.service_port}")
+    logger.info(f"Starting {settings.service_name} on port {settings.service_port}")
+    logger.info(f"Prometheus metrics: enabled at /metrics")
 
     # Initialize database connection pool if enabled
     if settings.use_database:
@@ -100,11 +168,13 @@ async def lifespan(app: FastAPI):
                 max_size=10,
                 command_timeout=60
             )
-            logger.info("✅ Database connection pool created")
+            logger.info("Database connection pool created")
+            database_health.set(1)
         except Exception as e:
-            logger.error(f"❌ Failed to connect to database: {e}")
+            logger.error(f"Failed to connect to database: {e}")
             logger.warning("Continuing without database (historical tracking disabled)")
             db_pool = None
+            database_health.set(0)
 
     # Initialize core services
     portfolio_manager = PortfolioManager()
@@ -124,29 +194,29 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing Performance History service")
         performance_history = PerformanceHistory()
         await performance_history.initialize(db_pool)
-        logger.info("✅ Performance History service initialized")
-
-        # Initialize and start snapshot scheduler
-        logger.info("Initializing Performance Snapshot Scheduler")
-        snapshot_scheduler = PerformanceSnapshotScheduler(
-            portfolio_manager=portfolio_manager,
-            performance_history=performance_history,
-            snapshot_hour=0,  # Midnight UTC
-            snapshot_minute=0
-        )
-        await snapshot_scheduler.start()
-        logger.info("✅ Performance Snapshot Scheduler started")
+        logger.info("Performance History service initialized")
     else:
-        logger.warning("⚠️  Performance History disabled (database not available)")
+        logger.warning("Performance History disabled (database not available)")
         performance_history = None
-        snapshot_scheduler = None
 
-    logger.info("✅ Portfolio Manager Service ready")
+    # Initialize and start snapshot scheduler (ALWAYS start, even without database)
+    # The scheduler handles price updates independently from database snapshots
+    logger.info("Initializing Performance Snapshot Scheduler")
+    snapshot_scheduler = PerformanceSnapshotScheduler(
+        portfolio_manager=portfolio_manager,
+        performance_history=performance_history,  # Can be None
+        snapshot_hour=0,  # Midnight UTC
+        snapshot_minute=0
+    )
+    await snapshot_scheduler.start()
+    logger.info("Performance Snapshot Scheduler started (includes periodic price updates)")
+
+    logger.info("Portfolio Manager Service ready")
 
     yield
 
     # Graceful shutdown
-    logger.info("Initiating graceful shutdown", service=settings.service_name)
+    logger.info("Initiating graceful shutdown")
 
     # Stop scheduler
     if snapshot_scheduler:
@@ -164,9 +234,9 @@ async def lifespan(app: FastAPI):
     if db_pool:
         logger.info("Closing database connection pool")
         await db_pool.close()
-        logger.info("✅ Database connection pool closed")
+        logger.info("Database connection pool closed")
 
-    logger.info("✅ Shutdown complete")
+    logger.info("Shutdown complete")
 
 
 # Create FastAPI app
@@ -177,6 +247,53 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+# ============================================================================
+# PROMETHEUS METRICS MIDDLEWARE
+# ============================================================================
+
+@app.middleware("http")
+async def prometheus_metrics_middleware(request: Request, call_next):
+    """Middleware to collect Prometheus metrics for all HTTP requests"""
+    # Skip metrics endpoint itself
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    method = request.method
+    path = request.url.path
+
+    # Normalize path to prevent high cardinality
+    import re
+    normalized_path = re.sub(r'/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '/{uuid}', path, flags=re.IGNORECASE)
+    normalized_path = re.sub(r'/[A-Z]+USDT', '/{symbol}', normalized_path)
+
+    http_requests_active.inc()
+    start_time = time.time()
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    except Exception as e:
+        status_code = 500
+        raise
+    finally:
+        duration = time.time() - start_time
+        http_requests_active.dec()
+
+        http_requests_total.labels(
+            method=method,
+            endpoint=normalized_path,
+            status_code=status_code
+        ).inc()
+
+        http_request_duration_seconds.labels(
+            method=method,
+            endpoint=normalized_path
+        ).observe(duration)
+
+    return response
+
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -185,6 +302,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================================
+# PROMETHEUS METRICS ENDPOINT
+# ============================================================================
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    """Prometheus metrics endpoint"""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ============================================================================
@@ -209,12 +336,14 @@ async def root():
             "historical_tracking": performance_history is not None,
             "automated_snapshots": snapshot_scheduler is not None,
             "portfolio_optimization": True,
-            "transaction_history": True
+            "transaction_history": True,
+            "prometheus_metrics": True
         },
         "scheduler": scheduler_status,
         "endpoints": {
             "health": "/health",
             "status": "/status",
+            "metrics": "/metrics",
             "docs": "/docs",
             "portfolio": "/api/v1/portfolio",
             "performance": "/api/v1/performance",
@@ -222,17 +351,18 @@ async def root():
             "optimization": "/api/v1/portfolio/optimize"
         },
         "refactoring": {
-            "status": "Phase 4 Complete ✅",
+            "status": "Phase 4 Complete",
             "original_lines": 1046,
             "current_lines": "~350",
             "reduction": "67%",
             "modules": 13,
-            "architecture": "main.py → handlers → services → domain",
+            "architecture": "main.py -> handlers -> services -> domain",
             "new_features": [
                 "Historical performance tracking",
                 "Daily automated snapshots",
                 "Period-based analysis (week/month/year/all)",
-                "PostgreSQL persistence"
+                "PostgreSQL persistence",
+                "Prometheus metrics"
             ]
         }
     }
@@ -335,13 +465,21 @@ async def rebalance_endpoint(portfolio_id: str = "default"):
 @app.post("/api/v1/transaction/buy", response_model=TransactionResponse)
 async def buy_endpoint(request: Request, portfolio_id: str = Query("default"), symbol: str = Query(None), quantity: str = Query(None), price: str = Query(None)):
     """Execute buy transaction"""
-    return await buy_asset(request, portfolio_id, symbol, quantity, price)
+    result = await buy_asset(request, portfolio_id, symbol, quantity, price)
+    # Record transaction metric
+    if symbol:
+        transactions_total.labels(portfolio_id=portfolio_id, type='buy', symbol=symbol).inc()
+    return result
 
 
 @app.post("/api/v1/transaction/sell", response_model=TransactionResponse)
 async def sell_endpoint(request: Request, portfolio_id: str = Query("default"), symbol: str = Query(None), quantity: str = Query(None), price: str = Query(None)):
     """Execute sell transaction"""
-    return await sell_asset(request, portfolio_id, symbol, quantity, price)
+    result = await sell_asset(request, portfolio_id, symbol, quantity, price)
+    # Record transaction metric
+    if symbol:
+        transactions_total.labels(portfolio_id=portfolio_id, type='sell', symbol=symbol).inc()
+    return result
 
 
 @app.get("/api/v1/transactions", response_model=TransactionHistoryResponse)

@@ -1,0 +1,278 @@
+# HashiCorp Vault Setup for Kubernetes
+# Configuration for Vault as secret backend
+# Version: 1.0
+# Created: 2025-12-12
+#
+# INSTALLATION:
+# 1. Install Vault via Helm:
+#    helm repo add hashicorp https://helm.releases.hashicorp.com
+#    helm install vault hashicorp/vault \
+#      --namespace vault-system --create-namespace \
+#      --set server.dev.enabled=false \
+#      --set server.ha.enabled=true
+#
+# 2. Initialize and unseal Vault
+# 3. Configure Kubernetes authentication
+# 4. Create secrets paths and policies
+
+---
+# Namespace for Vault
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault-system
+  labels:
+    name: vault-system
+    app.kubernetes.io/managed-by: vault
+
+---
+# ConfigMap with Vault policies for crypto-bot
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-policies
+  namespace: vault-system
+  labels:
+    app: vault
+    component: config
+data:
+  # Policy for staging environment - read-only access to staging secrets
+  crypto-bot-staging-policy.hcl: |
+    # Staging policy for crypto-bot
+    # Read-only access to staging secrets path
+
+    # Database secrets - staging
+    path "secret/data/crypto-bot/staging/database" {
+      capabilities = ["read"]
+    }
+
+    # API secrets - staging
+    path "secret/data/crypto-bot/staging/api" {
+      capabilities = ["read"]
+    }
+
+    # Bybit exchange secrets - staging (testnet only)
+    path "secret/data/crypto-bot/staging/bybit" {
+      capabilities = ["read"]
+    }
+
+    # Trading engine secrets - staging
+    path "secret/data/crypto-bot/staging/trading-engine" {
+      capabilities = ["read"]
+    }
+
+    # Monitoring secrets - staging
+    path "secret/data/crypto-bot/staging/monitoring" {
+      capabilities = ["read"]
+    }
+
+    # Deny access to production secrets from staging
+    path "secret/data/crypto-bot/production/*" {
+      capabilities = ["deny"]
+    }
+
+  # Policy for production environment - read-only access to production secrets
+  crypto-bot-production-policy.hcl: |
+    # Production policy for crypto-bot
+    # Read-only access to production secrets path
+    # IMPORTANT: Production has stricter controls
+
+    # Database secrets - production
+    path "secret/data/crypto-bot/production/database" {
+      capabilities = ["read"]
+    }
+
+    # API secrets - production
+    path "secret/data/crypto-bot/production/api" {
+      capabilities = ["read"]
+    }
+
+    # Bybit exchange secrets - production (mainnet)
+    # WARNING: These are real trading credentials
+    path "secret/data/crypto-bot/production/bybit" {
+      capabilities = ["read"]
+    }
+
+    # Trading engine secrets - production
+    path "secret/data/crypto-bot/production/trading-engine" {
+      capabilities = ["read"]
+    }
+
+    # Monitoring secrets - production
+    path "secret/data/crypto-bot/production/monitoring" {
+      capabilities = ["read"]
+    }
+
+    # Deny access to staging secrets from production
+    path "secret/data/crypto-bot/staging/*" {
+      capabilities = ["deny"]
+    }
+
+  # Admin policy for secret management
+  crypto-bot-admin-policy.hcl: |
+    # Admin policy for crypto-bot secret management
+    # Full access to all crypto-bot secrets
+    # Only for authorized operators
+
+    path "secret/data/crypto-bot/*" {
+      capabilities = ["create", "read", "update", "delete", "list"]
+    }
+
+    path "secret/metadata/crypto-bot/*" {
+      capabilities = ["read", "list", "delete"]
+    }
+
+    # Access to auth methods for configuration
+    path "auth/kubernetes/role/crypto-bot-*" {
+      capabilities = ["create", "read", "update", "delete"]
+    }
+
+---
+# ConfigMap with Vault setup scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-setup-scripts
+  namespace: vault-system
+  labels:
+    app: vault
+    component: setup
+data:
+  # Script to initialize Vault for crypto-bot
+  setup-crypto-bot.sh: |
+    #!/bin/bash
+    # Vault setup script for crypto-bot
+    # Run this after Vault is initialized and unsealed
+
+    set -e
+
+    echo "=== Setting up Vault for Crypto Trading Bot ==="
+
+    # Enable KV secrets engine v2
+    vault secrets enable -path=secret kv-v2 2>/dev/null || echo "KV engine already enabled"
+
+    # Create staging secrets paths with placeholder values
+    echo "Creating staging secrets..."
+
+    vault kv put secret/crypto-bot/staging/database \
+      postgres_user="cryptobot_staging" \
+      postgres_password="GENERATE_RANDOM_PASSWORD" \
+      postgres_db="trading_db_staging" \
+      timescale_user="timescale_staging" \
+      timescale_password="GENERATE_RANDOM_PASSWORD" \
+      timescale_db="market_data_staging" \
+      redis_password="GENERATE_RANDOM_PASSWORD" \
+      rabbitmq_user="rabbit_staging" \
+      rabbitmq_password="GENERATE_RANDOM_PASSWORD"
+
+    vault kv put secret/crypto-bot/staging/api \
+      jwt_secret_key="GENERATE_64_BYTE_SECRET" \
+      api_token="GENERATE_API_TOKEN" \
+      encryption_key="GENERATE_32_BYTE_KEY"
+
+    vault kv put secret/crypto-bot/staging/bybit \
+      api_key="YOUR_TESTNET_API_KEY" \
+      api_secret="YOUR_TESTNET_API_SECRET" \
+      network="testnet"
+
+    vault kv put secret/crypto-bot/staging/trading-engine \
+      encryption_key="GENERATE_32_BYTE_KEY" \
+      signing_key="GENERATE_64_BYTE_KEY"
+
+    vault kv put secret/crypto-bot/staging/monitoring \
+      grafana_admin_password="GENERATE_ADMIN_PASSWORD"
+
+    # Create production secrets paths with placeholder values
+    echo "Creating production secrets (UPDATE THESE!)..."
+
+    vault kv put secret/crypto-bot/production/database \
+      postgres_user="cryptobot_prod" \
+      postgres_password="GENERATE_STRONG_PASSWORD" \
+      postgres_db="trading_db_prod" \
+      timescale_user="timescale_prod" \
+      timescale_password="GENERATE_STRONG_PASSWORD" \
+      timescale_db="market_data_prod" \
+      redis_password="GENERATE_STRONG_PASSWORD" \
+      rabbitmq_user="rabbit_prod" \
+      rabbitmq_password="GENERATE_STRONG_PASSWORD"
+
+    vault kv put secret/crypto-bot/production/api \
+      jwt_secret_key="GENERATE_PRODUCTION_SECRET" \
+      api_token="GENERATE_PRODUCTION_TOKEN" \
+      encryption_key="GENERATE_PRODUCTION_KEY"
+
+    vault kv put secret/crypto-bot/production/bybit \
+      api_key="YOUR_MAINNET_API_KEY" \
+      api_secret="YOUR_MAINNET_API_SECRET" \
+      network="mainnet"
+
+    vault kv put secret/crypto-bot/production/trading-engine \
+      encryption_key="GENERATE_PRODUCTION_KEY" \
+      signing_key="GENERATE_PRODUCTION_KEY"
+
+    vault kv put secret/crypto-bot/production/monitoring \
+      grafana_admin_password="GENERATE_STRONG_PASSWORD"
+
+    # Enable Kubernetes authentication
+    echo "Configuring Kubernetes authentication..."
+    vault auth enable kubernetes 2>/dev/null || echo "Kubernetes auth already enabled"
+
+    vault write auth/kubernetes/config \
+      kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"
+
+    # Create policies
+    echo "Creating Vault policies..."
+
+    vault policy write crypto-bot-staging /vault/policies/crypto-bot-staging-policy.hcl
+    vault policy write crypto-bot-production /vault/policies/crypto-bot-production-policy.hcl
+    vault policy write crypto-bot-admin /vault/policies/crypto-bot-admin-policy.hcl
+
+    # Create Kubernetes auth roles
+    echo "Creating Kubernetes auth roles..."
+
+    vault write auth/kubernetes/role/crypto-bot-staging \
+      bound_service_account_names=external-secrets-sa \
+      bound_service_account_namespaces=trading-bot-staging \
+      policies=crypto-bot-staging \
+      ttl=1h
+
+    vault write auth/kubernetes/role/crypto-bot-production \
+      bound_service_account_names=external-secrets-sa \
+      bound_service_account_namespaces=crypto-bot \
+      policies=crypto-bot-production \
+      ttl=1h
+
+    echo "=== Vault setup complete ==="
+    echo "IMPORTANT: Update all placeholder values with real secrets!"
+    echo "Use: vault kv put secret/crypto-bot/<env>/<component> key=value"
+
+  # Script to generate random secrets
+  generate-secrets.sh: |
+    #!/bin/bash
+    # Generate random secrets for crypto-bot
+    # Run this to generate secure random values
+
+    echo "=== Generating Secure Random Secrets ==="
+
+    echo "Database passwords (32 chars):"
+    echo "POSTGRES_PASSWORD: $(openssl rand -base64 32 | tr -d '\n=')"
+    echo "TIMESCALE_PASSWORD: $(openssl rand -base64 32 | tr -d '\n=')"
+    echo "REDIS_PASSWORD: $(openssl rand -base64 32 | tr -d '\n=')"
+    echo "RABBITMQ_PASSWORD: $(openssl rand -base64 32 | tr -d '\n=')"
+
+    echo ""
+    echo "API secrets:"
+    echo "JWT_SECRET_KEY (64 bytes): $(openssl rand -base64 64 | tr -d '\n=')"
+    echo "API_TOKEN: $(openssl rand -hex 32)"
+    echo "ENCRYPTION_KEY (32 bytes): $(openssl rand -base64 32 | tr -d '\n=')"
+
+    echo ""
+    echo "Trading engine secrets:"
+    echo "SIGNING_KEY: $(openssl rand -base64 64 | tr -d '\n=')"
+
+    echo ""
+    echo "Monitoring:"
+    echo "GRAFANA_ADMIN_PASSWORD: $(openssl rand -base64 24 | tr -d '\n=')"
+
+    echo ""
+    echo "=== Copy these values to Vault ==="

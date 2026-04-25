@@ -1,0 +1,359 @@
+# RBAC Roles and RoleBindings for Crypto Trading Bot
+# Least-privilege access control for all services
+# Version: 1.0
+# Created: 2025-12-12
+#
+# PRINCIPLE: Services should only have access to resources they need
+# Most services need NO Kubernetes API access (automountServiceAccountToken: false)
+# Only specific services that need to interact with K8s resources get roles
+
+---
+# ============================================
+# ROLES FOR STAGING ENVIRONMENT
+# ============================================
+
+# Role for services that need to read ConfigMaps
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: configmap-reader
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    environment: staging
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: ["app-config", "monitoring-config"]
+
+---
+# Role for services that need to read their own Secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secret-reader
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    environment: staging
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    # Restrict to specific secrets only
+    resourceNames:
+      - "db-secrets"
+      - "api-secrets"
+      - "bybit-secrets"
+      - "trading-engine-secrets"
+      - "prometheus-secrets"
+
+---
+# Role for monitoring/health check access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-reader
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    environment: staging
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+---
+# Role for services that create Events (for audit logging)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: event-creator
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    environment: staging
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+---
+# ============================================
+# ROLE BINDINGS FOR STAGING
+# ============================================
+
+# API Gateway can read configs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-gateway-configmap-reader
+  namespace: trading-bot-staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: configmap-reader
+subjects:
+  - kind: ServiceAccount
+    name: api-gateway-sa
+    namespace: trading-bot-staging
+
+---
+# Trading Engine can read configs and create events (audit)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trading-engine-configmap-reader
+  namespace: trading-bot-staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: configmap-reader
+subjects:
+  - kind: ServiceAccount
+    name: trading-engine-sa
+    namespace: trading-bot-staging
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trading-engine-event-creator
+  namespace: trading-bot-staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: event-creator
+subjects:
+  - kind: ServiceAccount
+    name: trading-engine-sa
+    namespace: trading-bot-staging
+
+---
+# Bybit Connector can create events (critical for audit trail)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bybit-connector-event-creator
+  namespace: trading-bot-staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: event-creator
+subjects:
+  - kind: ServiceAccount
+    name: bybit-connector-sa
+    namespace: trading-bot-staging
+
+---
+# ============================================
+# ROLES FOR PRODUCTION ENVIRONMENT
+# ============================================
+
+# Role for services that need to read ConfigMaps
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: configmap-reader
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    environment: production
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: ["app-config", "monitoring-config"]
+
+---
+# Role for services that need to read their own Secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secret-reader
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    environment: production
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames:
+      - "db-secrets"
+      - "api-secrets"
+      - "bybit-secrets"
+      - "trading-engine-secrets"
+
+---
+# Role for monitoring/health check access - Production
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-reader
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    environment: production
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+---
+# Role for services that create Events (for audit logging) - Production
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: event-creator
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    environment: production
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+---
+# ============================================
+# ROLE BINDINGS FOR PRODUCTION
+# ============================================
+
+# API Gateway can read configs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-gateway-configmap-reader
+  namespace: crypto-bot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: configmap-reader
+subjects:
+  - kind: ServiceAccount
+    name: api-gateway-sa
+    namespace: crypto-bot
+
+---
+# Trading Engine can read configs and create events
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trading-engine-configmap-reader
+  namespace: crypto-bot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: configmap-reader
+subjects:
+  - kind: ServiceAccount
+    name: trading-engine-sa
+    namespace: crypto-bot
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trading-engine-event-creator
+  namespace: crypto-bot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: event-creator
+subjects:
+  - kind: ServiceAccount
+    name: trading-engine-sa
+    namespace: crypto-bot
+
+---
+# Bybit Connector can create events (critical for audit trail)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bybit-connector-event-creator
+  namespace: crypto-bot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: event-creator
+subjects:
+  - kind: ServiceAccount
+    name: bybit-connector-sa
+    namespace: crypto-bot
+
+---
+# ============================================
+# CLUSTER-WIDE ROLES FOR OPERATORS
+# ============================================
+
+# ClusterRole for operators who need to manage crypto-bot resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crypto-bot-operator
+  labels:
+    app: crypto-trading-bot
+rules:
+  # Can manage deployments, services, configmaps in crypto-bot namespaces
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Can view secrets but not modify
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  # Can manage HPA
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Can view events
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+---
+# ClusterRole for read-only access (monitoring, alerting)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crypto-bot-viewer
+  labels:
+    app: crypto-trading-bot
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+
+---
+# ClusterRole for secret management (limited to security team)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crypto-bot-secret-admin
+  labels:
+    app: crypto-trading-bot
+    security-level: high
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

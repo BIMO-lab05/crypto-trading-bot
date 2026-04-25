@@ -1,0 +1,775 @@
+# Hardened Deployments for Staging Environment
+# Security-enhanced deployment configurations
+# Version: 1.0
+# Created: 2025-12-12
+#
+# These deployments include:
+# - SecurityContext (runAsNonRoot, readOnlyRootFilesystem, capabilities drop)
+# - Dedicated ServiceAccounts
+# - Resource limits
+# - Health probes
+# - Proper annotations
+
+---
+# API Gateway - Hardened Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: api-gateway
+    environment: staging
+    security-hardened: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: api-gateway
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: api-gateway
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        seccomp.security.alpha.kubernetes.io/pod: runtime/default
+    spec:
+      # Use dedicated ServiceAccount
+      serviceAccountName: api-gateway-sa
+      automountServiceAccountToken: false
+
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Init container for dependency checks
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command: ['sh', '-c', 'until nc -z redis-service 6379; do sleep 2; done']
+
+      containers:
+        - name: api-gateway
+          image: crypto-bot/api-gateway:latest
+          imagePullPolicy: IfNotPresent
+
+          # Container-level security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: api-secrets
+
+          env:
+            - name: SERVICE_NAME
+              value: "api-gateway"
+            - name: ENVIRONMENT
+              value: "staging"
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Volume mounts for writable directories
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: cache-volume
+              mountPath: /app/.cache
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache-volume
+          emptyDir:
+            sizeLimit: 200Mi
+
+      # Anti-affinity for HA
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    service: api-gateway
+                topologyKey: kubernetes.io/hostname
+
+      terminationGracePeriodSeconds: 30
+
+---
+# Trading Engine - Hardened Deployment (Critical Service)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-engine
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: trading-engine
+    environment: staging
+    security-hardened: "true"
+    criticality: high
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: trading-engine
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: trading-engine
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8005"
+    spec:
+      serviceAccountName: trading-engine-sa
+      automountServiceAccountToken: true  # Needs to create events for audit
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres-service 5432; do echo waiting for postgres; sleep 2; done
+              until nc -z redis-service 6379; do echo waiting for redis; sleep 2; done
+              until nc -z rabbitmq-service 5672; do echo waiting for rabbitmq; sleep 2; done
+              echo "Dependencies ready"
+
+      containers:
+        - name: trading-engine
+          image: crypto-bot/trading-engine:latest
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - containerPort: 8005
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+            - secretRef:
+                name: trading-engine-secrets
+
+          env:
+            - name: SERVICE_NAME
+              value: "trading-engine"
+            - name: ENVIRONMENT
+              value: "staging"
+            # Paper trading mode for staging
+            - name: TRADING_MODE
+              value: "paper"
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8005
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8005
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: cache-volume
+              mountPath: /app/.cache
+            - name: logs-volume
+              mountPath: /app/logs
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache-volume
+          emptyDir:
+            sizeLimit: 200Mi
+        - name: logs-volume
+          emptyDir:
+            sizeLimit: 500Mi
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  service: trading-engine
+              topologyKey: kubernetes.io/hostname
+
+      terminationGracePeriodSeconds: 60
+
+---
+# Bybit Connector - Hardened Deployment (Critical - Exchange Access)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bybit-connector
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: bybit-connector
+    environment: staging
+    security-hardened: "true"
+    security-level: critical
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: bybit-connector
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: bybit-connector
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        # Mark as critical for monitoring
+        crypto-bot/critical: "true"
+    spec:
+      serviceAccountName: bybit-connector-sa
+      automountServiceAccountToken: true  # For audit events
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: bybit-connector
+          image: crypto-bot/bybit-connector:latest
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - containerPort: 8001
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: bybit-secrets
+
+          env:
+            - name: SERVICE_NAME
+              value: "bybit-connector"
+            - name: ENVIRONMENT
+              value: "staging"
+            # Use testnet for staging
+            - name: BYBIT_TESTNET
+              value: "true"
+
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: cache-volume
+              mountPath: /app/.cache
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache-volume
+          emptyDir:
+            sizeLimit: 200Mi
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    service: bybit-connector
+                topologyKey: kubernetes.io/hostname
+
+      terminationGracePeriodSeconds: 30
+
+---
+# Portfolio Manager - Hardened Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-manager
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: portfolio-manager
+    environment: staging
+    security-hardened: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: portfolio-manager
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: portfolio-manager
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+    spec:
+      serviceAccountName: portfolio-manager-sa
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command: ['sh', '-c', 'until nc -z postgres-service 5432; do sleep 2; done']
+
+      containers:
+        - name: portfolio-manager
+          image: crypto-bot/portfolio-manager:latest
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - containerPort: 8003
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8003
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+
+---
+# Technical Analysis - Hardened Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: technical-analysis
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: technical-analysis
+    environment: staging
+    security-hardened: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: technical-analysis
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: technical-analysis
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8004"
+    spec:
+      serviceAccountName: technical-analysis-sa
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command: ['sh', '-c', 'until nc -z redis-service 6379; do sleep 2; done']
+
+      containers:
+        - name: technical-analysis
+          image: crypto-bot/technical-analysis:latest
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - containerPort: 8004
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8004
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: cache-volume
+              mountPath: /app/.cache
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: cache-volume
+          emptyDir:
+            sizeLimit: 500Mi
+
+---
+# Market Data Service - Hardened Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-data-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: market-data-service
+    environment: staging
+    security-hardened: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: market-data-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: market-data-service
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+    spec:
+      serviceAccountName: market-data-sa
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-timescale
+          image: busybox:1.36
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command: ['sh', '-c', 'until nc -z timescale-service 5432; do sleep 2; done']
+
+      containers:
+        - name: market-data-service
+          image: crypto-bot/market-data-service:latest
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10000
+            runAsGroup: 10000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - containerPort: 8002
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 100Mi

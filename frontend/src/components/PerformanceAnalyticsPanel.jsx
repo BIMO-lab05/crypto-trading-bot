@@ -1,5 +1,74 @@
 import React from 'react'
-import { useAutoTraderStatus, extractPerformanceSummary } from '../hooks/useAutoTrader'
+import { usePerformanceAnalytics } from '../hooks/useAutoTrader'
+import { useQuery } from '@tanstack/react-query'
+import axios from 'axios'
+
+/**
+ * Calculate advanced performance metrics from trade history
+ */
+function calculateAdvancedMetrics(trades, performanceMetrics) {
+  if (!trades || trades.length === 0) return null
+
+  // Extract realized P&L from closed trades
+  const tradePnLs = trades
+    .filter(t => t.status === 'CLOSED' && t.realized_pnl)
+    .map(t => parseFloat(t.realized_pnl))
+
+  if (tradePnLs.length === 0) return null
+
+  const totalTrades = tradePnLs.length
+  const avgPnL = tradePnLs.reduce((sum, pnl) => sum + pnl, 0) / totalTrades
+
+  // Calculate standard deviation
+  const variance = tradePnLs.reduce((sum, pnl) => sum + Math.pow(pnl - avgPnL, 2), 0) / totalTrades
+  const stdDev = Math.sqrt(variance)
+
+  // Calculate downside deviation (for Sortino)
+  const downsidePnLs = tradePnLs.filter(pnl => pnl < 0)
+  const downsideVariance = downsidePnLs.length > 0
+    ? downsidePnLs.reduce((sum, pnl) => sum + Math.pow(pnl, 2), 0) / downsidePnLs.length
+    : 0
+  const downsideDev = Math.sqrt(downsideVariance)
+
+  // Sharpe Ratio (assuming risk-free rate = 0 for crypto)
+  const sharpeRatio = stdDev !== 0 ? avgPnL / stdDev : 0
+
+  // Sortino Ratio (only penalizes downside volatility)
+  const sortinoRatio = downsideDev !== 0 ? avgPnL / downsideDev : 0
+
+  // Max Drawdown - calculate from cumulative P&L
+  let cumulativePnL = 0
+  let peak = 0
+  let maxDrawdown = 0
+  tradePnLs.forEach(pnl => {
+    cumulativePnL += pnl
+    if (cumulativePnL > peak) peak = cumulativePnL
+    const drawdown = peak - cumulativePnL
+    if (drawdown > maxDrawdown) maxDrawdown = drawdown
+  })
+
+  // VaR 95% - sort P&Ls and find 5th percentile
+  const sortedPnLs = [...tradePnLs].sort((a, b) => a - b)
+  const var95Index = Math.floor(totalTrades * 0.05)
+  const var95 = sortedPnLs[var95Index] || 0
+
+  // CVaR 95% - average of losses beyond VaR
+  const lossesBeforeVar = sortedPnLs.slice(0, var95Index + 1)
+  const cvar95 = lossesBeforeVar.length > 0
+    ? lossesBeforeVar.reduce((sum, pnl) => sum + pnl, 0) / lossesBeforeVar.length
+    : 0
+
+  return {
+    sharpeRatio,
+    sortinoRatio,
+    maxDrawdown,
+    var95: Math.abs(var95),
+    cvar95: Math.abs(cvar95),
+    totalTrades: performanceMetrics?.total_trades || totalTrades,
+    winningTrades: performanceMetrics?.winning_trades || tradePnLs.filter(p => p > 0).length,
+    winRate: performanceMetrics?.win_rate || (tradePnLs.filter(p => p > 0).length / totalTrades * 100),
+  }
+}
 
 /**
  * PerformanceAnalyticsPanel - Display Advanced Performance Metrics
@@ -151,9 +220,26 @@ const TradeStatsCard = ({ totalTrades, winningTrades, losingTrades, winRate }) =
 )
 
 export default function PerformanceAnalyticsPanel() {
-  const { data: statusData, isLoading, isError } = useAutoTraderStatus()
+  const { data: performanceData, isLoading: perfLoading, isError: perfError } = usePerformanceAnalytics()
 
-  const performanceSummary = extractPerformanceSummary(statusData)
+  // Fetch trade history for advanced metric calculation
+  const { data: tradesData, isLoading: tradesLoading } = useQuery({
+    queryKey: ['trades', 'history'],
+    queryFn: async () => {
+      const response = await axios.get('/api/trading/trades/history', { params: { limit: 1000 } })
+      return response.data
+    },
+    refetchInterval: 30000,
+    staleTime: 25000,
+  })
+
+  const isLoading = perfLoading || tradesLoading
+  const isError = perfError
+
+  // Calculate advanced metrics from trade history
+  const trades = tradesData?.trades || []
+  const metrics = performanceData?.metrics
+  const performanceSummary = calculateAdvancedMetrics(trades, metrics)
 
   const TrendIcon = (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

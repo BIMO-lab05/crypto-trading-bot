@@ -1,0 +1,137 @@
+# Staging Namespace for Crypto Trading Bot
+# Provides isolated staging environment for pre-production testing
+# Version: 1.0
+# Created: 2025-12-12
+#
+# Namespace: trading-bot-staging
+# Purpose: Validate deployments before production rollout
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trading-bot-staging
+  labels:
+    name: trading-bot-staging
+    app: crypto-trading-bot
+    environment: staging
+    managed-by: kubernetes
+    version: "2.0"
+    tier: staging
+  annotations:
+    description: "Staging environment for crypto trading bot - pre-production validation"
+    team: "crypto-bot-team"
+    contact: "devops@cryptobot.local"
+    deployment-phase: "staging"
+
+---
+# Resource quota for staging namespace - Limited compared to production
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: staging-quota
+  namespace: trading-bot-staging
+spec:
+  hard:
+    # Maximum number of pods - Limited for staging
+    pods: "50"
+    # Total CPU resources
+    requests.cpu: "20"
+    limits.cpu: "40"
+    # Total memory resources
+    requests.memory: 32Gi
+    limits.memory: 64Gi
+    # Persistent volume claims
+    persistentvolumeclaims: "10"
+    # Services
+    services: "20"
+    # Secrets
+    secrets: "30"
+    # ConfigMaps
+    configmaps: "30"
+
+---
+# Limit range for default resource limits in staging
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: staging-limit-range
+  namespace: trading-bot-staging
+spec:
+  limits:
+  # Default limits for containers
+  - type: Container
+    default:
+      cpu: "500m"
+      memory: 512Mi
+    defaultRequest:
+      cpu: "100m"
+      memory: 128Mi
+    max:
+      cpu: "4"
+      memory: 8Gi
+    min:
+      cpu: "10m"
+      memory: 16Mi
+  # Default limits for pods
+  - type: Pod
+    max:
+      cpu: "8"
+      memory: 16Gi
+  # Persistent volume claim limits
+  - type: PersistentVolumeClaim
+    max:
+      storage: 50Gi
+    min:
+      storage: 1Gi
+
+---
+# NetworkPolicy - Allow internal communication in staging
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: staging-allow-internal
+  namespace: trading-bot-staging
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    # Allow traffic from same namespace
+    - namespaceSelector:
+        matchLabels:
+          name: trading-bot-staging
+    # Allow traffic from monitoring namespace
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+  egress:
+  - to:
+    # Allow traffic to same namespace
+    - namespaceSelector:
+        matchLabels:
+          name: trading-bot-staging
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  # Allow external API calls (Bybit, etc.)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - port: 443
+      protocol: TCP

@@ -39,16 +39,57 @@ venv.bak/
 *~
 .DS_Store
 
-# Environment Variables (SECURITY: Never commit API keys)
+# ============================================================================
+# SECURITY: Environment and Secrets (CRITICAL - Never commit credentials)
+# ============================================================================
 .env
 .env.local
 .env.*.local
+.env.development
+.env.staging
+.env.production
 *.secret
+*.secrets
 secrets/
 credentials.json
 bybit_api_keys.txt
 
+# Kubernetes secrets (SECURITY: Only template files should be committed)
+# Pattern: Ignore all secrets files, except templates
+**/secrets.yaml
+**/secrets-*.yaml
+*-secrets.yaml
+*-secrets-*.yaml
+!**/*-template.yaml
+!**/secrets-template.yaml
+
+# Explicit paths for staging/production secrets
+infrastructure/kubernetes/staging/secrets.yaml
+infrastructure/kubernetes/production/secrets.yaml
+infrastructure/kubernetes/*/secrets.yaml
+!infrastructure/kubernetes/*/secrets-template.yaml
+
+# Sealed secrets (encrypted - safe to commit, but explicit ignore for safety)
+# Uncomment the following line if using sealed-secrets and want to track them:
+# !**/sealed-secrets.yaml
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+!*.crt.example
+
+# API keys and tokens
+*.apikey
+*.token
+api_keys.json
+tokens.json
+
+# ============================================================================
 # Testing
+# ============================================================================
 .pytest_cache/
 .coverage
 htmlcov/
@@ -58,28 +99,40 @@ coverage.xml
 *.cover
 .hypothesis/
 
+# ============================================================================
 # Logs
+# ============================================================================
 logs/
 *.log
 *.log.*
 
+# ============================================================================
 # Database
+# ============================================================================
 *.db
 *.sqlite
 *.sqlite3
 data/
 postgres-data/
 timescaledb-data/
+redis-data/
+rabbitmq-data/
 
+# ============================================================================
 # Docker
+# ============================================================================
 .docker/
 docker-compose.override.yml
 
+# ============================================================================
 # Jupyter Notebooks
+# ============================================================================
 .ipynb_checkpoints
 *.ipynb
 
+# ============================================================================
 # Distribution / packaging
+# ============================================================================
 .Python
 build/
 develop-eggs/
@@ -88,30 +141,38 @@ downloads/
 eggs/
 .eggs/
 
+# ============================================================================
 # PyInstaller
+# ============================================================================
 *.manifest
 *.spec
 
-# mypy
+# ============================================================================
+# Type checkers
+# ============================================================================
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Pyre type checker
 .pyre/
 
+# ============================================================================
 # Backup files
+# ============================================================================
 *.bak
 *.backup
 *.old
 backups/
 
+# ============================================================================
 # Trading Data (can be large)
+# ============================================================================
 backtest-results/
 trading-logs/
 market-data-cache/
 
+# ============================================================================
 # Node.js / Frontend
+# ============================================================================
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -120,8 +181,34 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
+# ============================================================================
 # OS specific
+# ============================================================================
 Thumbs.db
 .DS_Store
 .Spotlight-V100
 .Trashes
+
+# ============================================================================
+# ML Models (large binary files - use Git LFS if needed)
+# ============================================================================
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+!models/README.md
+
+# ============================================================================
+# Security scan reports (may contain sensitive info)
+# ============================================================================
+security-reports/
+trivy-results*.json
+bandit-report.json
+*-audit-report.json
+
+# ============================================================================
+# Generated credentials (from scripts)
+# ============================================================================
+generated-credentials*.txt
+credentials-backup*.txt
+.credentials/

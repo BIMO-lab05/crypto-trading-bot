@@ -1,0 +1,642 @@
+# =============================================================================
+# Production Databases - PostgreSQL, TimescaleDB, Redis, RabbitMQ
+# =============================================================================
+# Version: 1.0
+# Created: 2025-12-12
+# Environment: Production
+#
+# High-availability database configuration for production:
+# - PostgreSQL: Primary database for trading data
+# - TimescaleDB: Time-series database for market data
+# - Redis: Caching and session management
+# - RabbitMQ: Message queue for event-driven architecture
+#
+# All databases run with:
+# - Restricted security context
+# - Resource limits
+# - Health checks
+# - Persistent storage
+# =============================================================================
+
+---
+# PostgreSQL StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: postgres
+    environment: production
+spec:
+  serviceName: postgres-headless
+  replicas: 1  # Increase for HA with read replicas
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      database: postgres
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: database
+        database: postgres
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999  # postgres user
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: database-sa
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # PostgreSQL needs write access
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 5432
+          name: postgres
+        envFrom:
+        - secretRef:
+            name: db-secrets
+        env:
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        - name: POSTGRES_INITDB_ARGS
+          value: "--encoding=UTF8 --locale=C"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        - name: postgres-config
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - cryptobot_prod
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - cryptobot_prod
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      # PostgreSQL Exporter Sidecar for metrics
+      - name: postgres-exporter
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 9187
+          name: metrics
+        env:
+        - name: DATA_SOURCE_NAME
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: DATABASE_URL
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: postgres-config
+        configMap:
+          name: postgres-config
+          optional: true
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  database: postgres
+              topologyKey: kubernetes.io/hostname
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    database: postgres
+    environment: production
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    database: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+  - port: 9187
+    targetPort: 9187
+    name: metrics
+
+---
+# PostgreSQL Headless Service (for StatefulSet)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-headless
+  namespace: crypto-bot-prod
+spec:
+  clusterIP: None
+  selector:
+    app: crypto-trading-bot
+    database: postgres
+  ports:
+  - port: 5432
+    name: postgres
+
+---
+# TimescaleDB StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timescale
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: timescaledb
+    environment: production
+spec:
+  serviceName: timescale-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      database: timescaledb
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: database
+        database: timescaledb
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: database-sa
+      containers:
+      - name: timescaledb
+        image: timescale/timescaledb:latest-pg15
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 5432
+          name: timescale
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: TIMESCALE_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: TIMESCALE_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: TIMESCALE_DB
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        - name: TIMESCALEDB_TELEMETRY
+          value: "off"
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+        volumeMounts:
+        - name: timescale-data
+          mountPath: /var/lib/postgresql/data
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - timescale_prod
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - timescale_prod
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+      volumes:
+      - name: timescale-data
+        persistentVolumeClaim:
+          claimName: timescale-pvc
+
+---
+# TimescaleDB Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescale-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    database: timescaledb
+    environment: production
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    database: timescaledb
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: timescale
+
+---
+# TimescaleDB Headless Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescale-headless
+  namespace: crypto-bot-prod
+spec:
+  clusterIP: None
+  selector:
+    app: crypto-trading-bot
+    database: timescaledb
+  ports:
+  - port: 5432
+    name: timescale
+
+---
+# Redis Deployment (Production with high availability settings)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: cache
+    database: redis
+    environment: production
+spec:
+  replicas: 1  # Consider Redis Sentinel or Redis Cluster for HA
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      database: redis
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: cache
+        database: redis
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: database-sa
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 6379
+          name: redis
+        command:
+        - redis-server
+        args:
+        - --appendonly
+        - "yes"
+        - --requirepass
+        - $(REDIS_PASSWORD)
+        - --maxmemory
+        - "2gb"
+        - --maxmemory-policy
+        - "allkeys-lru"
+        - --tcp-backlog
+        - "511"
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+      # Redis Exporter Sidecar
+      - name: redis-exporter
+        image: oliver006/redis_exporter:v1.55.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 9121
+          name: metrics
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-pvc
+
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    database: redis
+    environment: production
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    database: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+  - port: 9121
+    targetPort: 9121
+    name: metrics
+
+---
+# RabbitMQ StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: messaging
+    environment: production
+spec:
+  serviceName: rabbitmq-headless
+  replicas: 1  # Consider cluster mode for HA
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      component: messaging
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        component: messaging
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "15692"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: database-sa
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:3.12-management-alpine
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        ports:
+        - containerPort: 5672
+          name: amqp
+        - containerPort: 15672
+          name: management
+        - containerPort: 15692
+          name: metrics
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: RABBITMQ_USER
+        - name: RABBITMQ_DEFAULT_PASS
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: RABBITMQ_PASSWORD
+        - name: RABBITMQ_DEFAULT_VHOST
+          value: production
+        - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+          value: "-rabbit disk_free_limit 2147483648"  # 2GB disk free limit
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+        volumeMounts:
+        - name: rabbitmq-data
+          mountPath: /var/lib/rabbitmq
+        - name: rabbitmq-config
+          mountPath: /etc/rabbitmq/conf.d/
+        livenessProbe:
+          exec:
+            command:
+            - rabbitmqctl
+            - status
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - rabbitmqctl
+            - status
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: rabbitmq-data
+        persistentVolumeClaim:
+          claimName: rabbitmq-pvc
+      - name: rabbitmq-config
+        configMap:
+          name: rabbitmq-config
+          optional: true
+
+---
+# RabbitMQ Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-service
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: messaging
+    environment: production
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    component: messaging
+  ports:
+  - port: 5672
+    targetPort: 5672
+    name: amqp
+  - port: 15672
+    targetPort: 15672
+    name: management
+  - port: 15692
+    targetPort: 15692
+    name: metrics
+
+---
+# RabbitMQ Headless Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-headless
+  namespace: crypto-bot-prod
+spec:
+  clusterIP: None
+  selector:
+    app: crypto-trading-bot
+    component: messaging
+  ports:
+  - port: 5672
+    name: amqp
+
+---
+# Database ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: database-sa
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: security
+automountServiceAccountToken: false

@@ -1,11 +1,22 @@
 """
 API Gateway - Main Application
 Unified entry point for all microservices
+
+SECURITY HARDENING: 2025-12-12
+- Rate limiting with Redis backend
+- Input validation for trading parameters
+- Security headers (OWASP compliant)
+- Strict CORS configuration
+
+PROMETHEUS METRICS: 2025-12-12
+- Added /metrics endpoint for Prometheus scraping
+- HTTP request counters and histograms
+- Active request gauge
 """
 
 from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from contextlib import asynccontextmanager
 import logging
 import time
@@ -13,6 +24,12 @@ import json
 import asyncio
 from typing import Optional, List, Set
 from datetime import datetime
+
+# Prometheus metrics imports
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import multiprocess, CollectorRegistry
+import os
+import tempfile
 
 from app.config import settings
 from app.services.service_proxy import ServiceProxy
@@ -31,6 +48,31 @@ from app.auth_middleware import (
     get_current_admin_user
 )
 
+# Import security modules
+from app.security.rate_limiter import (
+    RateLimiter,
+    RateLimitConfig,
+    get_rate_limiter,
+    rate_limit_exceeded_handler,
+)
+from app.security.input_validation import (
+    InputValidator,
+    ValidationError,
+    validate_symbol,
+    validate_quantity,
+    validate_price,
+    validate_interval,
+    validate_limit,
+    ALLOWED_SYMBOLS,
+)
+from app.security.security_headers import (
+    SecurityHeadersMiddleware,
+    SecurityHeadersConfig,
+    CORSConfig,
+    get_cors_config,
+)
+from slowapi.errors import RateLimitExceeded
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
@@ -41,6 +83,76 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# PROMETHEUS METRICS
+# ============================================================================
+
+# HTTP request counter - tracks total requests by method, endpoint, and status
+http_requests_total = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status_code']
+)
+
+# HTTP request duration histogram - tracks request latency distribution
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration in seconds',
+    ['method', 'endpoint'],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0]
+)
+
+# Active requests gauge - tracks concurrent requests
+http_requests_active = Gauge(
+    'http_requests_active',
+    'Number of active HTTP requests'
+)
+
+# WebSocket connections gauge
+websocket_connections_active = Gauge(
+    'websocket_connections_active',
+    'Number of active WebSocket connections'
+)
+
+# Backend service health gauge
+backend_service_health = Gauge(
+    'backend_service_health',
+    'Backend service health status (1=healthy, 0=unhealthy)',
+    ['service']
+)
+
+
+# ============================================================================
+# SECURITY CONFIGURATION
+# ============================================================================
+
+# Rate limiting configuration
+rate_limit_config = RateLimitConfig(
+    trading_limit=10,      # Trading endpoints: 10 req/min
+    auth_limit=5,          # Auth endpoints: 5 req/min
+    health_limit=60,       # Health checks: 60 req/min
+    general_limit=30,      # General API: 30 req/min
+    enabled=settings.rate_limit_enabled,
+    redis_url=settings.redis_url if settings.rate_limit_enabled else None,
+)
+
+# Initialize rate limiter
+rate_limiter = get_rate_limiter(rate_limit_config)
+
+# Security headers configuration
+security_headers_config = SecurityHeadersConfig(
+    csp_enabled=True,
+    frame_options="DENY",
+    hsts_enabled=True,
+    hsts_max_age=31536000,  # 1 year
+)
+
+# CORS configuration (strict - no wildcards in production)
+cors_config = get_cors_config(
+    additional_origins=settings.cors_origins
+)
 
 
 # ============================================================================
@@ -58,11 +170,13 @@ class WebSocketManager:
         """Accept and store new WebSocket connection"""
         await websocket.accept()
         self.active_connections.add(websocket)
+        websocket_connections_active.set(len(self.active_connections))
         logger.info(f"WebSocket client connected. Total connections: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
         """Remove WebSocket connection"""
         self.active_connections.discard(websocket)
+        websocket_connections_active.set(len(self.active_connections))
         logger.info(f"WebSocket client disconnected. Total connections: {len(self.active_connections)}")
 
     async def send_personal_message(self, message: dict, websocket: WebSocket):
@@ -158,8 +272,16 @@ async def lifespan(app: FastAPI):
     """Lifecycle management"""
     global service_proxy
 
+    # Setup multiprocess metrics directory
+    temp_dir = tempfile.mkdtemp(prefix="prometheus_multiproc_")
+    os.environ['PROMETHEUS_MULTIPROC_DIR'] = temp_dir
+    logger.info(f"Prometheus multiprocess directory: {temp_dir}")
+
     # Startup
-    logger.info(f"🚀 Starting {settings.service_name} on port {settings.service_port}")
+    logger.info(f"Starting {settings.service_name} on port {settings.service_port}")
+    logger.info(f"Rate limiting: {'enabled' if rate_limit_config.enabled else 'disabled'}")
+    logger.info(f"Security headers: enabled")
+    logger.info(f"Prometheus metrics: enabled at /metrics")
 
     service_proxy = ServiceProxy()
     await service_proxy.initialize()
@@ -169,12 +291,21 @@ async def lifespan(app: FastAPI):
         websocket_manager.start_broadcasting(service_proxy)
     )
 
-    logger.info("✅ API Gateway ready (WebSocket enabled)")
+    logger.info("API Gateway ready (Security hardening enabled)")
 
     yield
 
     # Shutdown
-    logger.info("🛑 Shutting down API Gateway")
+    logger.info("Shutting down API Gateway")
+
+    # Cleanup multiprocess metrics
+    try:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        if 'PROMETHEUS_MULTIPROC_DIR' in os.environ:
+            del os.environ['PROMETHEUS_MULTIPROC_DIR']
+    except Exception as e:
+        logger.error(f"Error cleaning up multiprocess metrics directory: {e}")
 
     # Stop WebSocket broadcast task
     if websocket_manager.broadcast_task:
@@ -196,14 +327,104 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+
+# ============================================================================
+# PROMETHEUS METRICS MIDDLEWARE
+# ============================================================================
+
+@app.middleware("http")
+async def prometheus_metrics_middleware(request: Request, call_next):
+    """Middleware to collect Prometheus metrics for all HTTP requests"""
+    # Skip metrics endpoint itself to avoid recursion
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    # Extract method and path
+    method = request.method
+    path = request.url.path
+
+    # Normalize path to prevent high cardinality
+    # Replace dynamic segments like UUIDs, symbols, etc.
+    import re
+    normalized_path = re.sub(r'/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '/{uuid}', path, flags=re.IGNORECASE)
+    normalized_path = re.sub(r'/[A-Z]+USDT', '/{symbol}', normalized_path)
+    normalized_path = re.sub(r'/\d+', '/{id}', normalized_path)
+
+    # Increment active requests
+    http_requests_active.inc()
+
+    # Start timer
+    start_time = time.time()
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    except Exception as e:
+        status_code = 500
+        raise
+    finally:
+        # Calculate duration
+        duration = time.time() - start_time
+
+        # Decrement active requests
+        http_requests_active.dec()
+
+        # Record metrics
+        http_requests_total.labels(
+            method=method,
+            endpoint=normalized_path,
+            status_code=status_code
+        ).inc()
+
+        http_request_duration_seconds.labels(
+            method=method,
+            endpoint=normalized_path
+        ).observe(duration)
+
+    return response
+
+
+# ============================================================================
+# MIDDLEWARE CONFIGURATION (Order matters: last added = first executed)
+# ============================================================================
+
+# 1. Security Headers Middleware (applied to all responses)
+app.add_middleware(SecurityHeadersMiddleware, config=security_headers_config)
+
+# 2. CORS Middleware (strict configuration)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_config.allow_origins,
+    allow_credentials=cors_config.allow_credentials,
+    allow_methods=cors_config.allow_methods,
+    allow_headers=cors_config.allow_headers,
+    expose_headers=cors_config.expose_headers,
+    max_age=cors_config.max_age,
 )
+
+# 3. Rate Limiting - Add middleware and exception handler
+from app.security.rate_limiter import RateLimitMiddleware
+if rate_limiter.enabled:
+    app.state.limiter = rate_limiter.limiter
+    app.add_middleware(RateLimitMiddleware, rate_limiter=rate_limiter)
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+
+# ============================================================================
+# EXCEPTION HANDLERS
+# ============================================================================
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request: Request, exc: ValidationError):
+    """Handle validation errors with consistent JSON response."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            **exc.detail,
+            "timestamp": int(time.time() * 1000)
+        }
+    )
 
 
 def get_proxy() -> ServiceProxy:
@@ -213,7 +434,34 @@ def get_proxy() -> ServiceProxy:
     return service_proxy
 
 
-# Root endpoint
+# ============================================================================
+# PROMETHEUS METRICS ENDPOINT
+# ============================================================================
+
+def get_metrics_registry():
+    """Get appropriate registry based on multiprocess environment"""
+    if 'PROMETHEUS_MULTIPROC_DIR' in os.environ:
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        return registry
+    else:
+        return None
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    """Prometheus metrics endpoint"""
+    registry = get_metrics_registry()
+    if registry:
+        data = generate_latest(registry)
+    else:
+        data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+
+
+# ============================================================================
+# ROOT & HEALTH ENDPOINTS
+# ============================================================================
+
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
@@ -221,6 +469,12 @@ async def root():
         "service": settings.service_name,
         "version": settings.api_version,
         "description": settings.api_description,
+        "security": {
+            "rate_limiting": rate_limit_config.enabled,
+            "security_headers": True,
+            "input_validation": True,
+            "cors_strict": True,
+        },
         "services": {
             "bybit_connector": settings.bybit_connector_url,
             "market_data": settings.market_data_url,
@@ -233,6 +487,7 @@ async def root():
         },
         "endpoints": {
             "health": "/health",
+            "metrics": "/metrics",
             "docs": "/docs",
             "market_data": "/api/market/*",
             "technical_analysis": "/api/analysis/*",
@@ -242,13 +497,17 @@ async def root():
             "performance": "/api/performance/*",
             "ml_predictions": "/api/ml/*",
             "sentiment": "/api/sentiment/*"
+        },
+        "allowed_symbols": sorted(list(ALLOWED_SYMBOLS))[:20],
+        "rate_limits": {
+            "trading": f"{rate_limit_config.trading_limit}/minute",
+            "auth": f"{rate_limit_config.auth_limit}/minute",
+            "health": f"{rate_limit_config.health_limit}/minute",
+            "general": f"{rate_limit_config.general_limit}/minute",
         }
     }
 
 
-
-
-# Health endpoint
 @app.get("/health")
 async def health_check():
     """Gateway health check with backend service status"""
@@ -259,11 +518,19 @@ async def health_check():
 
     all_healthy = all(health_checks.values())
 
+    # Update backend service health metrics
+    for service_name, is_healthy in health_checks.items():
+        backend_service_health.labels(service=service_name).set(1 if is_healthy else 0)
+
     return {
         "status": "healthy" if all_healthy else "degraded",
         "service": settings.service_name,
         "version": settings.api_version,
         "timestamp": int(time.time() * 1000),
+        "security": {
+            "rate_limiting": rate_limit_config.enabled,
+            "security_headers": True,
+        },
         "backend_services": {
             "bybit_connector": health_checks.get("bybit", False),
             "market_data": health_checks.get("market-data", False),
@@ -279,13 +546,16 @@ async def health_check():
 
 
 # ============================================================================
-# AUTHENTICATION ENDPOINTS
+# AUTHENTICATION ENDPOINTS (Rate Limited: 5/min)
 # ============================================================================
 
 @app.post("/auth/register", response_model=User, status_code=status.HTTP_201_CREATED)
+# @rate_limiter.auth_limit  # Rate limited via middleware
 async def register(user_create: UserCreate):
     """
     Register a new user
+
+    Rate Limit: 5 requests/minute
 
     - **username**: Unique username (3-50 characters, alphanumeric)
     - **email**: Valid email address
@@ -304,9 +574,12 @@ async def register(user_create: UserCreate):
 
 
 @app.post("/auth/login", response_model=Token)
+# @rate_limiter.auth_limit  # Rate limited via middleware
 async def login(user_login: UserLogin):
     """
     Login with username and password to receive JWT access token
+
+    Rate Limit: 5 requests/minute (brute force protection)
 
     - **username**: Your username
     - **password**: Your password
@@ -316,6 +589,8 @@ async def login(user_login: UserLogin):
     user = authenticate_user(user_login.username, user_login.password)
 
     if not user:
+        # Log failed login attempt
+        logger.warning(f"Failed login attempt for username: {user_login.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -360,38 +635,44 @@ async def logout(current_user: User = Depends(get_current_active_user)):
 
 
 # ============================================================================
-# MARKET DATA ROUTES
+# MARKET DATA ROUTES (Rate Limited: 30/min)
 # ============================================================================
 
 @app.get("/api/market/ticker/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_ticker(symbol: str, request: Request):
-    """Get ticker data for a symbol"""
+    """
+    Get ticker data for a symbol
+
+    Rate Limit: 30 requests/minute
+
+    Symbol must be in whitelist (BTCUSDT, ETHUSDT, etc.)
+    """
+    # Validate symbol
+    validated_symbol = validate_symbol(symbol)
+
     proxy = get_proxy()
     response_obj = await proxy.proxy_request(
         service_name="market-data",
-        path=f"/api/v1/ticker/{symbol}",
+        path=f"/api/v1/ticker/{validated_symbol}",
         method="GET"
     )
 
     # Extract the actual data from JSONResponse
-    import json
     response_body = response_obj.body.decode() if hasattr(response_obj, 'body') else response_obj
     response = json.loads(response_body) if isinstance(response_body, str) else response_body
 
     # Transform response format for frontend compatibility
-    # API returns: {success: true, data: {...}}
-    # Frontend expects: {ticker: {...}}
     if isinstance(response, dict) and response.get("success") and response.get("data"):
         ticker_data = response["data"]
-        # Map field names to frontend expectations
         return {
             "ticker": {
                 "symbol": ticker_data.get("symbol"),
-                "last_price": str(ticker_data.get("last_price", 0)),
-                "price_24h_pcnt": str(ticker_data.get("price_change_24h", 0)),
-                "volume_24h": str(ticker_data.get("volume_24h", 0)),
-                "high_price_24h": str(ticker_data.get("high_24h", 0)),
-                "low_price_24h": str(ticker_data.get("low_24h", 0))
+                "last_price": float(ticker_data.get("last_price", 0)),
+                "price_24h_pcnt": float(ticker_data.get("price_change_24h", 0)),
+                "volume_24h": float(ticker_data.get("volume_24h", 0)),
+                "high_price_24h": float(ticker_data.get("high_24h", 0)),
+                "low_price_24h": float(ticker_data.get("low_24h", 0))
             }
         }
 
@@ -399,76 +680,130 @@ async def get_ticker(symbol: str, request: Request):
 
 
 @app.get("/api/market/kline/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_kline(symbol: str, interval: str = "60", limit: int = 100):
-    """Get kline/candlestick data"""
+    """
+    Get kline/candlestick data
+
+    Rate Limit: 30 requests/minute
+
+    Args:
+        symbol: Trading symbol (must be in whitelist)
+        interval: Candlestick interval (1, 5, 15, 60, 240, D)
+        limit: Number of candles (max 1000)
+    """
+    # Validate inputs
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+    validated_limit = validate_limit(limit, max_limit=1000)
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="market-data",
-        path=f"/api/v1/klines/{symbol}",
+        path=f"/api/v1/klines/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval, "limit": limit}
+        query_params={"interval": validated_interval, "limit": validated_limit}
+    )
+
+
+@app.get("/api/market/klines/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_klines_plural(symbol: str, interval: str = "60", limit: int = 100):
+    """Get kline/candlestick data (plural alias for compatibility)"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+    validated_limit = validate_limit(limit, max_limit=1000)
+
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="market-data",
+        path=f"/api/v1/klines/{validated_symbol}",
+        method="GET",
+        query_params={"interval": validated_interval, "limit": validated_limit}
     )
 
 
 # ============================================================================
-# TECHNICAL ANALYSIS ROUTES
+# TECHNICAL ANALYSIS ROUTES (Rate Limited: 30/min)
 # ============================================================================
 
 @app.get("/api/analysis/rsi/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_rsi(symbol: str, interval: str = "60", period: int = 14):
     """Get RSI indicator"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+
+    if period < 2 or period > 100:
+        raise ValidationError(
+            field="period",
+            message="Period must be between 2 and 100",
+            value=period
+        )
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="technical-analysis",
-        path=f"/api/v1/indicators/rsi/{symbol}",
+        path=f"/api/v1/indicators/rsi/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval, "period": period}
+        query_params={"interval": validated_interval, "period": period}
     )
 
 
 @app.get("/api/analysis/macd/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_macd(symbol: str, interval: str = "60"):
     """Get MACD indicator"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="technical-analysis",
-        path=f"/api/v1/indicators/macd/{symbol}",
+        path=f"/api/v1/indicators/macd/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval}
+        query_params={"interval": validated_interval}
     )
 
 
 @app.get("/api/analysis/all/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_all_indicators(symbol: str, interval: str = "60"):
     """Get all technical indicators"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="technical-analysis",
-        path=f"/api/v1/analysis/{symbol}",
+        path=f"/api/v1/analysis/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval}
+        query_params={"interval": validated_interval}
     )
 
 
 # ============================================================================
-# TRADING ENGINE ROUTES
+# TRADING ENGINE ROUTES (Rate Limited: 10/min for trading operations)
 # ============================================================================
 
 @app.get("/api/trading/signals/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_trading_signal(symbol: str, interval: str = "60"):
     """Get aggregated trading signal"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
-        path=f"/api/v1/signals/{symbol}",
+        path=f"/api/v1/signals/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval}
+        query_params={"interval": validated_interval}
     )
 
 
-
-
 @app.get("/api/trading/signals/enhanced/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
     """
     Get enhanced trading signal combining multiple data sources
@@ -479,76 +814,52 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
     - Sentiment Analysis (news, social media)
     - Multi-timeframe confirmation
     - Risk metrics
-
-    Returns comprehensive trading recommendation with confidence score
-
-    Response format:
-    {
-        "symbol": "BTCUSDT",
-        "interval": "60",
-        "signal": "BUY",
-        "confidence": 0.85,
-        "risk_level": "MEDIUM",
-        "technical_analysis": {...},
-        "ml_predictions": {...},
-        "sentiment": {...},
-        "multi_timeframe": {...},
-        "recommendation": "Strong buy signal with high confidence",
-        "timestamp": 1700000000000
-    }
     """
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+
     proxy = get_proxy()
 
     try:
         # Fetch data from multiple services in parallel
-        import asyncio
-        import json
-
-        # Get technical analysis
         ta_task = proxy.proxy_request(
             "technical-analysis",
-            f"/api/v1/indicators/signal/{symbol}",
+            f"/api/v1/indicators/signal/{validated_symbol}",
             "GET",
-            {"interval": interval}
+            {"interval": validated_interval}
         )
 
-        # Get ML prediction
         ml_task = proxy.proxy_request(
             "ml-prediction",
-            f"/api/v1/predict/trend/{symbol}",
+            f"/api/v1/predict/trend/{validated_symbol}",
             "GET",
-            {"interval": interval}
+            {"interval": validated_interval}
         )
 
-        # Get sentiment
         sentiment_task = proxy.proxy_request(
             "sentiment-analysis",
-            f"/api/v1/sentiment/combined/{symbol}",
+            f"/api/v1/sentiment/combined/{validated_symbol}",
             "GET"
         )
 
-        # Get multi-timeframe analysis
         mtf_task = proxy.proxy_request(
             "technical-analysis",
-            f"/api/v1/analysis/multi-timeframe/{symbol}",
+            f"/api/v1/analysis/multi-timeframe/{validated_symbol}",
             "GET"
         )
 
-        # Get base trading signal
         signal_task = proxy.proxy_request(
             "trading-engine",
-            f"/api/v1/signals/{symbol}",
+            f"/api/v1/signals/{validated_symbol}",
             "GET",
-            {"interval": interval}
+            {"interval": validated_interval}
         )
 
-        # Wait for all responses
         ta_resp, ml_resp, sent_resp, mtf_resp, signal_resp = await asyncio.gather(
             ta_task, ml_task, sentiment_task, mtf_task, signal_task,
             return_exceptions=True
         )
 
-        # Parse responses
         def parse_response(resp):
             if isinstance(resp, Exception):
                 return None
@@ -595,14 +906,12 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
             enhanced_signal = "HOLD"
             confidence = neutral_count / total_signals if neutral_count > 0 else 0.5
 
-        # Determine risk level
         risk_level = "LOW"
         if confidence < 0.5:
             risk_level = "HIGH"
         elif confidence < 0.7:
             risk_level = "MEDIUM"
 
-        # Generate recommendation
         if enhanced_signal == "BUY" and confidence >= 0.7:
             recommendation = f"Strong buy signal with {confidence:.0%} confidence across multiple indicators"
         elif enhanced_signal == "SELL" and confidence >= 0.7:
@@ -613,8 +922,8 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
             recommendation = f"Weak {enhanced_signal.lower()} signal - conflicting indicators suggest caution"
 
         return JSONResponse(content={
-            "symbol": symbol,
-            "interval": interval,
+            "symbol": validated_symbol,
+            "interval": validated_interval,
             "signal": enhanced_signal,
             "confidence": round(confidence, 2),
             "risk_level": risk_level,
@@ -642,20 +951,37 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
 
 
 @app.post("/api/trading/signals/{symbol}/analyze")
+# @rate_limiter.trading_limit  # Rate limited via middleware
 async def analyze_and_trade(symbol: str, interval: str = "60", execute: bool = False):
-    """Analyze signal and optionally execute trade"""
+    """
+    Analyze signal and optionally execute trade
+
+    Rate Limit: 10 requests/minute (trading operation)
+    """
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
-        path=f"/api/v1/signals/{symbol}/analyze",
+        path=f"/api/v1/signals/{validated_symbol}/analyze",
         method="POST",
-        query_params={"interval": interval, "execute": execute}
+        query_params={"interval": validated_interval, "execute": execute}
     )
 
 
 @app.get("/api/trading/positions")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_positions(status: str = "open"):
     """Get trading positions"""
+    if status not in {"open", "closed", "all"}:
+        raise ValidationError(
+            field="status",
+            message="Status must be 'open', 'closed', or 'all'",
+            value=status,
+            allowed_values=["open", "closed", "all"]
+        )
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
@@ -666,6 +992,7 @@ async def get_positions(status: str = "open"):
 
 
 @app.get("/api/trading/status")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_trading_status():
     """Get trading bot status"""
     proxy = get_proxy()
@@ -677,6 +1004,7 @@ async def get_trading_status():
 
 
 @app.get("/api/trading/performance")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_trading_performance():
     """Get trading performance metrics from trading-engine"""
     proxy = get_proxy()
@@ -688,26 +1016,22 @@ async def get_trading_performance():
 
 
 @app.get("/api/trading/trades/history")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_trading_trades_history(limit: int = 50):
     """
     Get closed trades history from trading-engine database
 
-    ADDED 2025-11-30: Route to get closed positions with realized P&L
-    from PostgreSQL database for accurate trade history that persists
-    across service restarts.
-
     Args:
-        limit: Maximum number of trades to return (default 50)
-
-    Returns:
-        List of closed trades with P&L and statistics
+        limit: Maximum number of trades to return (default 50, max 1000)
     """
+    validated_limit = validate_limit(limit, max_limit=1000)
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
         path="/api/v1/trades/history",
         method="GET",
-        query_params={"limit": limit}
+        query_params={"limit": validated_limit}
     )
 
 
@@ -716,16 +1040,16 @@ async def get_trading_trades_history(limit: int = 50):
 # ============================================================================
 
 @app.get("/api/trading/phase1/metrics")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_phase1_metrics(hours: int = 24):
-    """
-    Get Phase 1 performance metrics
+    """Get Phase 1 performance metrics"""
+    if hours < 1 or hours > 8760:  # Max 1 year
+        raise ValidationError(
+            field="hours",
+            message="Hours must be between 1 and 8760",
+            value=hours
+        )
 
-    Analyzes signal processing over specified timeframe:
-    - Filtering rates (GATEKEEPER rejection rate)
-    - Validator acceptance rate
-    - Signal quality metrics
-    - Volume confirmation stats
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
@@ -736,16 +1060,9 @@ async def get_phase1_metrics(hours: int = 24):
 
 
 @app.get("/api/trading/phase1/health")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_phase1_health():
-    """
-    Get Phase 1 system health status
-
-    Checks:
-    - GATEKEEPER operational status
-    - VALIDATOR operational status
-    - Trend filter availability
-    - Volume confirmation availability
-    """
+    """Get Phase 1 system health status"""
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
@@ -755,13 +1072,9 @@ async def get_phase1_health():
 
 
 @app.get("/api/trading/phase1/latest")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_phase1_latest():
-    """
-    Get the most recent Phase 1 signal
-
-    Returns the last signal processed through Phase 1 enhancements
-    including all filtering and validation results.
-    """
+    """Get the most recent Phase 1 signal"""
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
@@ -771,10 +1084,11 @@ async def get_phase1_latest():
 
 
 # ============================================================================
-# PORTFOLIO MANAGER ROUTES
+# PORTFOLIO MANAGER ROUTES (Rate Limited: 10/min for buy/sell)
 # ============================================================================
 
 @app.get("/api/portfolio")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_portfolio(portfolio_id: str = "default"):
     """Get portfolio details"""
     proxy = get_proxy()
@@ -787,6 +1101,7 @@ async def get_portfolio(portfolio_id: str = "default"):
 
 
 @app.get("/api/portfolio/balance")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_balance(portfolio_id: str = "default"):
     """Get portfolio balance"""
     proxy = get_proxy()
@@ -799,6 +1114,7 @@ async def get_balance(portfolio_id: str = "default"):
 
 
 @app.get("/api/portfolio/holdings")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_holdings(portfolio_id: str = "default"):
     """Get portfolio holdings"""
     proxy = get_proxy()
@@ -811,6 +1127,7 @@ async def get_holdings(portfolio_id: str = "default"):
 
 
 @app.get("/api/portfolio/performance")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_performance(portfolio_id: str = "default"):
     """Get performance metrics"""
     proxy = get_proxy()
@@ -823,15 +1140,18 @@ async def get_performance(portfolio_id: str = "default"):
 
 
 @app.get("/api/portfolio/trades")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_trades(portfolio_id: str = "default", limit: int = None, symbol: str = None):
     """Get transaction history (trades)"""
-    proxy = get_proxy()
     query_params = {"portfolio_id": portfolio_id}
-    if limit:
-        query_params["limit"] = limit
-    if symbol:
-        query_params["symbol"] = symbol
 
+    if limit:
+        query_params["limit"] = validate_limit(limit)
+
+    if symbol:
+        query_params["symbol"] = validate_symbol(symbol)
+
+    proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="portfolio-manager",
         path="/api/v1/transactions",
@@ -841,13 +1161,28 @@ async def get_trades(portfolio_id: str = "default", limit: int = None, symbol: s
 
 
 @app.post("/api/portfolio/buy")
+# @rate_limiter.trading_limit  # Rate limited via middleware
 async def buy_asset(
     portfolio_id: str = "default",
     symbol: str = None,
     quantity: str = None,
     price: str = None
 ):
-    """Execute buy transaction"""
+    """
+    Execute buy transaction
+
+    Rate Limit: 10 requests/minute (trading operation)
+
+    Args:
+        symbol: Trading symbol (must be in whitelist)
+        quantity: Amount to buy (0.0001 - 1,000,000)
+        price: Price per unit ($0.00000001 - $1,000,000)
+    """
+    # Validate inputs
+    validated_symbol = validate_symbol(symbol) if symbol else None
+    validated_quantity = str(validate_quantity(quantity)) if quantity else None
+    validated_price = str(validate_price(price)) if price else None
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="portfolio-manager",
@@ -855,21 +1190,31 @@ async def buy_asset(
         method="POST",
         query_params={
             "portfolio_id": portfolio_id,
-            "symbol": symbol,
-            "quantity": quantity,
-            "price": price
+            "symbol": validated_symbol,
+            "quantity": validated_quantity,
+            "price": validated_price
         }
     )
 
 
 @app.post("/api/portfolio/sell")
+# @rate_limiter.trading_limit  # Rate limited via middleware
 async def sell_asset(
     portfolio_id: str = "default",
     symbol: str = None,
     quantity: str = None,
     price: str = None
 ):
-    """Execute sell transaction"""
+    """
+    Execute sell transaction
+
+    Rate Limit: 10 requests/minute (trading operation)
+    """
+    # Validate inputs
+    validated_symbol = validate_symbol(symbol) if symbol else None
+    validated_quantity = str(validate_quantity(quantity)) if quantity else None
+    validated_price = str(validate_price(price)) if price else None
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="portfolio-manager",
@@ -877,27 +1222,28 @@ async def sell_asset(
         method="POST",
         query_params={
             "portfolio_id": portfolio_id,
-            "symbol": symbol,
-            "quantity": quantity,
-            "price": price
+            "symbol": validated_symbol,
+            "quantity": validated_quantity,
+            "price": validated_price
         }
     )
 
 
 @app.post("/api/portfolio/emergency-stop")
+# @rate_limiter.trading_limit  # Rate limited via middleware
 async def emergency_stop():
     """
     Emergency stop - Halt all trading operations immediately
-    This is a critical safety feature that stops the trading bot
+
+    Rate Limit: 10 requests/minute (trading operation)
     """
     try:
-        # Create emergency stop file flag
         import os
         stop_file = "/mnt/d/Bimo_max/crypto-trading-bot/EMERGENCY_STOP"
         with open(stop_file, 'w') as f:
             f.write(f"Emergency stop activated at {int(time.time() * 1000)}\n")
 
-        logger.warning("🚨 EMERGENCY STOP ACTIVATED")
+        logger.warning("EMERGENCY STOP ACTIVATED")
 
         return JSONResponse(content={
             "success": True,
@@ -914,6 +1260,7 @@ async def emergency_stop():
 # ============================================================================
 
 @app.get("/api/risk/scorecard")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_risk_scorecard():
     """Get complete risk assessment scorecard"""
     proxy = get_proxy()
@@ -925,6 +1272,7 @@ async def get_risk_scorecard():
 
 
 @app.get("/api/risk/capital")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_capital_metrics():
     """Get capital allocation metrics"""
     proxy = get_proxy()
@@ -936,6 +1284,7 @@ async def get_capital_metrics():
 
 
 @app.get("/api/risk/exposure")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_exposure_metrics():
     """Get portfolio exposure analysis"""
     proxy = get_proxy()
@@ -947,6 +1296,7 @@ async def get_exposure_metrics():
 
 
 @app.get("/api/risk/drawdown")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_drawdown_metrics():
     """Get drawdown tracking metrics"""
     proxy = get_proxy()
@@ -958,8 +1308,23 @@ async def get_drawdown_metrics():
 
 
 @app.get("/api/risk/var")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_value_at_risk(confidence_level: float = 0.95, time_horizon_days: int = 1):
     """Get Value at Risk calculation"""
+    if confidence_level < 0.9 or confidence_level > 0.99:
+        raise ValidationError(
+            field="confidence_level",
+            message="Confidence level must be between 0.9 and 0.99",
+            value=confidence_level
+        )
+
+    if time_horizon_days < 1 or time_horizon_days > 365:
+        raise ValidationError(
+            field="time_horizon_days",
+            message="Time horizon must be between 1 and 365 days",
+            value=time_horizon_days
+        )
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="risk-metrics",
@@ -973,6 +1338,7 @@ async def get_value_at_risk(confidence_level: float = 0.95, time_horizon_days: i
 
 
 @app.get("/api/performance/metrics")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_performance_metrics():
     """Get comprehensive performance metrics"""
     proxy = get_proxy()
@@ -984,6 +1350,7 @@ async def get_performance_metrics():
 
 
 @app.get("/api/performance/sharpe")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_sharpe_ratio():
     """Get Sharpe ratio calculation"""
     proxy = get_proxy()
@@ -995,6 +1362,7 @@ async def get_sharpe_ratio():
 
 
 @app.get("/api/risk/alerts")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_active_alerts():
     """Get active risk alerts"""
     proxy = get_proxy()
@@ -1006,6 +1374,7 @@ async def get_active_alerts():
 
 
 @app.get("/api/risk/circuit-breaker")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_circuit_breaker_status():
     """Get circuit breaker status"""
     proxy = get_proxy()
@@ -1017,6 +1386,7 @@ async def get_circuit_breaker_status():
 
 
 @app.post("/api/risk/circuit-breaker/reset")
+# @rate_limiter.trading_limit  # Rate limited via middleware
 async def reset_circuit_breaker():
     """Reset circuit breaker (admin only)"""
     proxy = get_proxy()
@@ -1028,102 +1398,96 @@ async def reset_circuit_breaker():
 
 
 # ============================================================================
-# ML PREDICTION ENDPOINTS - Phase 3 AI Integration
+# ML PREDICTION ENDPOINTS
 # ============================================================================
 
 @app.get("/api/ml/predict/price/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def ml_predict_price(
     symbol: str,
     interval: str = "60",
     model_type: str = "LSTM"
 ):
-    """
-    Get ML-based price predictions for a symbol
+    """Get ML-based price predictions for a symbol"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
 
-    Returns predicted prices with confidence intervals
-    Supports LSTM and GRU models
-    """
+    if model_type not in {"LSTM", "GRU"}:
+        raise ValidationError(
+            field="model_type",
+            message="Model type must be 'LSTM' or 'GRU'",
+            value=model_type,
+            allowed_values=["LSTM", "GRU"]
+        )
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="ml-prediction",
-        path=f"/api/v1/predict/price/{symbol}",
+        path=f"/api/v1/predict/price/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval, "model_type": model_type}
+        query_params={"interval": validated_interval, "model_type": model_type}
     )
 
 
 @app.get("/api/ml/predict/trend/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def ml_predict_trend(
     symbol: str,
     interval: str = "60",
     model_type: str = "LSTM"
 ):
-    """
-    Get ML-based trend prediction (BULLISH/BEARISH/NEUTRAL)
+    """Get ML-based trend prediction (BULLISH/BEARISH/NEUTRAL)"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
 
-    Combines ML model predictions with technical analysis
-    Returns trend classification with confidence score
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="ml-prediction",
-        path=f"/api/v1/predict/trend/{symbol}",
+        path=f"/api/v1/predict/trend/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval, "model_type": model_type}
+        query_params={"interval": validated_interval, "model_type": model_type}
     )
 
 
 @app.get("/api/ml/predict/volatility/{symbol}")
-async def ml_predict_volatility(
-    symbol: str,
-    interval: str = "60"
-):
-    """
-    Get volatility forecast for risk management
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def ml_predict_volatility(symbol: str, interval: str = "60"):
+    """Get volatility forecast for risk management"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
 
-    Predicts future volatility (1h, 4h, 24h)
-    Provides risk level and position size recommendations
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="ml-prediction",
-        path=f"/api/v1/predict/volatility/{symbol}",
+        path=f"/api/v1/predict/volatility/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval}
+        query_params={"interval": validated_interval}
     )
 
 
 @app.get("/api/ml/predict/signal/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def ml_predict_signal(
     symbol: str,
     interval: str = "60",
     model_type: str = "LSTM"
 ):
-    """
-    Get ML-based trading signal
+    """Get ML-based trading signal"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
 
-    This endpoint derives a trading signal from ML price predictions
-    Returns BUY/SELL/HOLD recommendation
-    """
     proxy = get_proxy()
 
-    # Get price prediction from ML service
     try:
         prediction_response = await proxy.proxy_request(
             service_name="ml-prediction",
-            path=f"/api/v1/predict/price/{symbol}",
+            path=f"/api/v1/predict/price/{validated_symbol}",
             method="GET",
-            query_params={"interval": interval, "model_type": model_type}
+            query_params={"interval": validated_interval, "model_type": model_type}
         )
 
-        # Extract prediction data
-        import json
         prediction_data = json.loads(prediction_response.body.decode())
 
-        # Derive signal from prediction
-        # If predicted direction is UP with high confidence -> BUY
-        # If predicted direction is DOWN with high confidence -> SELL
-        # Otherwise -> HOLD
         predicted_direction = prediction_data.get("predicted_direction", "SIDEWAYS")
         directional_strength = prediction_data.get("directional_strength", 0.0)
 
@@ -1135,8 +1499,8 @@ async def ml_predict_signal(
             signal = "HOLD"
 
         return JSONResponse(content={
-            "symbol": symbol,
-            "interval": interval,
+            "symbol": validated_symbol,
+            "interval": validated_interval,
             "signal": signal,
             "confidence": directional_strength,
             "model_type": model_type,
@@ -1153,13 +1517,9 @@ async def ml_predict_signal(
 
 
 @app.get("/api/ml/models")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def list_ml_models():
-    """
-    List all available trained ML models
-
-    Returns information about LSTM and GRU models
-    Shows training status and performance metrics
-    """
+    """List all available trained ML models"""
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="ml-prediction",
@@ -1169,47 +1529,48 @@ async def list_ml_models():
 
 
 @app.get("/api/ml/models/{symbol}")
-async def get_ml_model_info(
-    symbol: str,
-    interval: str = "60",
-    model_type: str = "LSTM"
-):
-    """
-    Get detailed information about a specific ML model
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_ml_model_info(symbol: str, interval: str = "60", model_type: str = "LSTM"):
+    """Get detailed information about a specific ML model"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
 
-    Returns training metrics, accuracy, and model status
-    Includes information about when retraining is needed
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="ml-prediction",
-        path=f"/api/v1/models/{symbol}",
+        path=f"/api/v1/models/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval, "model_type": model_type}
+        query_params={"interval": validated_interval, "model_type": model_type}
     )
 
 
 @app.post("/api/ml/models/train")
+# @rate_limiter.trading_limit  # Rate limited via middleware
 async def train_ml_model(
     symbol: str,
     interval: str = "60",
     lookback_days: int = 90,
     force_retrain: bool = False
 ):
-    """
-    Train or retrain an ML model
+    """Train or retrain an ML model (long-running operation)"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
 
-    This is a long-running operation that trains an LSTM model
-    Requires historical market data
-    """
+    if lookback_days < 30 or lookback_days > 365:
+        raise ValidationError(
+            field="lookback_days",
+            message="Lookback days must be between 30 and 365",
+            value=lookback_days
+        )
+
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="ml-prediction",
         path="/api/v1/models/train",
         method="POST",
         body={
-            "symbol": symbol,
-            "interval": interval,
+            "symbol": validated_symbol,
+            "interval": validated_interval,
             "lookback_days": lookback_days,
             "force_retrain": force_retrain
         }
@@ -1217,275 +1578,141 @@ async def train_ml_model(
 
 
 @app.get("/api/ml/models/compare/{symbol}")
-async def compare_ml_models(
-    symbol: str,
-    interval: str = "60"
-):
-    """
-    Compare LSTM vs GRU model performance
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def compare_ml_models(symbol: str, interval: str = "60"):
+    """Compare LSTM vs GRU model performance"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
 
-    Returns comprehensive comparison with metrics
-    Recommends which model to use based on performance
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="ml-prediction",
-        path=f"/api/v1/models/compare/{symbol}",
+        path=f"/api/v1/models/compare/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval}
+        query_params={"interval": validated_interval}
     )
 
 
 # ============================================================================
-# SENTIMENT ANALYSIS ENDPOINTS - Phase 3 AI Integration
+# SENTIMENT ANALYSIS ENDPOINTS
 # ============================================================================
 
 @app.get("/api/sentiment/news/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_news_sentiment(symbol: str):
-    """
-    Get news sentiment analysis for a symbol
+    """Get news sentiment analysis for a symbol"""
+    validated_symbol = validate_symbol(symbol)
 
-    Analyzes recent news articles and headlines
-    Returns sentiment score, label, and confidence
-
-    Response format:
-    {
-        "symbol": "BTCUSDT",
-        "sentiment_label": "BULLISH",
-        "sentiment_score": 0.72,
-        "confidence": 0.85,
-        "news_count": 15,
-        "analyzed_at": 1700000000000
-    }
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="sentiment-analysis",
-        path=f"/api/v1/sentiment/news/{symbol}",
+        path=f"/api/v1/sentiment/news/{validated_symbol}",
         method="GET"
     )
 
 
 @app.get("/api/sentiment/social/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_social_sentiment(symbol: str):
-    """
-    Get social media sentiment analysis for a symbol
+    """Get social media sentiment analysis for a symbol"""
+    validated_symbol = validate_symbol(symbol)
 
-    Analyzes Twitter, Reddit, and other social media sources
-    Returns sentiment score, label, and confidence
-
-    Response format:
-    {
-        "symbol": "BTCUSDT",
-        "sentiment_label": "NEUTRAL",
-        "sentiment_score": 0.52,
-        "confidence": 0.78,
-        "post_count": 1250,
-        "analyzed_at": 1700000000000
-    }
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="sentiment-analysis",
-        path=f"/api/v1/sentiment/social/{symbol}",
+        path=f"/api/v1/sentiment/social/{validated_symbol}",
         method="GET"
     )
 
 
 @app.get("/api/sentiment/combined/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_combined_sentiment(symbol: str):
-    """
-    Get combined sentiment analysis from all sources
+    """Get combined sentiment analysis from all sources"""
+    validated_symbol = validate_symbol(symbol)
 
-    Aggregates news, social media, and market sentiment
-    Returns weighted combined score with detailed breakdown
-
-    Response format:
-    {
-        "symbol": "BTCUSDT",
-        "combined_label": "BULLISH",
-        "combined_score": 0.65,
-        "confidence": 0.85,
-        "news_sentiment": {
-            "label": "BULLISH",
-            "score": 0.72,
-            "weight": 0.4
-        },
-        "social_sentiment": {
-            "label": "NEUTRAL",
-            "score": 0.52,
-            "weight": 0.3
-        },
-        "market_sentiment": {
-            "label": "BULLISH",
-            "score": 0.68,
-            "weight": 0.3
-        },
-        "analyzed_at": 1700000000000
-    }
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="sentiment-analysis",
-        path=f"/api/v1/sentiment/combined/{symbol}",
+        path=f"/api/v1/sentiment/combined/{validated_symbol}",
         method="GET"
     )
 
 
 @app.get("/api/sentiment/trend/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_sentiment_trend(symbol: str, hours: int = 24):
-    """
-    Get sentiment trend over time for a symbol
+    """Get sentiment trend over time for a symbol"""
+    validated_symbol = validate_symbol(symbol)
 
-    Shows how sentiment has evolved over the specified time period
-    Returns historical sentiment data points
+    if hours < 1 or hours > 720:  # Max 30 days
+        raise ValidationError(
+            field="hours",
+            message="Hours must be between 1 and 720",
+            value=hours
+        )
 
-    Response format:
-    {
-        "symbol": "BTCUSDT",
-        "timeframe_hours": 24,
-        "current_sentiment": "BULLISH",
-        "trend_direction": "IMPROVING",
-        "data_points": [
-            {
-                "timestamp": 1700000000000,
-                "sentiment_score": 0.65,
-                "sentiment_label": "BULLISH"
-            },
-            ...
-        ],
-        "average_score": 0.62,
-        "analyzed_at": 1700000000000
-    }
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="sentiment-analysis",
-        path=f"/api/v1/sentiment/trend/{symbol}",
+        path=f"/api/v1/sentiment/trend/{validated_symbol}",
         method="GET",
         query_params={"hours": hours}
     )
 
 
 # ============================================================================
-# MULTI-TIMEFRAME ANALYSIS ENDPOINTS - Phase 3 Advanced TA
+# MULTI-TIMEFRAME ANALYSIS ENDPOINTS
 # ============================================================================
 
 @app.get("/api/analysis/multi-timeframe/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_multi_timeframe_analysis(symbol: str):
-    """
-    Get multi-timeframe technical analysis for a symbol
+    """Get multi-timeframe technical analysis for a symbol"""
+    validated_symbol = validate_symbol(symbol)
 
-    Analyzes multiple timeframes (1m, 5m, 15m, 1h, 4h, 1d) simultaneously
-    Returns alignment score and consensus signal
-
-    Response format:
-    {
-        "symbol": "BTCUSDT",
-        "alignment_score": 83,
-        "consensus_signal": "BUY",
-        "signal_strength": 0.75,
-        "timeframe_signals": [
-            {
-                "timeframe": "1h",
-                "signal": "BUY",
-                "strength": 0.80,
-                "rsi": 62,
-                "macd_signal": "BUY"
-            },
-            {
-                "timeframe": "4h",
-                "signal": "BUY",
-                "strength": 0.85,
-                "rsi": 58,
-                "macd_signal": "BUY"
-            },
-            ...
-        ],
-        "recommendation": "Strong buy signal across multiple timeframes",
-        "analyzed_at": 1700000000000
-    }
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="technical-analysis",
-        path=f"/api/v1/analysis/multi-timeframe/{symbol}",
+        path=f"/api/v1/analysis/multi-timeframe/{validated_symbol}",
         method="GET"
     )
 
 
 @app.get("/api/analysis/indicators/signal/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_indicator_signal(symbol: str, interval: str = "60"):
-    """
-    Get aggregated signal from all technical indicators
+    """Get aggregated signal from all technical indicators"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
 
-    Combines RSI, MACD, Bollinger Bands, EMA crossovers
-    Returns unified signal with confidence score
-
-    Response format:
-    {
-        "symbol": "BTCUSDT",
-        "interval": "60",
-        "aggregated_signal": "BUY",
-        "confidence": 0.78,
-        "indicator_signals": {
-            "rsi": {
-                "value": 62,
-                "signal": "BUY",
-                "strength": 0.70
-            },
-            "macd": {
-                "signal": "BUY",
-                "strength": 0.85
-            },
-            "bollinger": {
-                "position": "middle",
-                "signal": "NEUTRAL",
-                "strength": 0.50
-            },
-            "ema_cross": {
-                "signal": "BUY",
-                "strength": 0.90
-            }
-        },
-        "buy_indicators": 3,
-        "sell_indicators": 0,
-        "neutral_indicators": 1,
-        "analyzed_at": 1700000000000
-    }
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="technical-analysis",
-        path=f"/api/v1/indicators/signal/{symbol}",
+        path=f"/api/v1/indicators/signal/{validated_symbol}",
         method="GET",
-        query_params={"interval": interval}
+        query_params={"interval": validated_interval}
     )
 
 
 @app.get("/api/sentiment/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_sentiment(symbol: str):
-    """
-    Get sentiment analysis for a symbol (backwards compatibility)
+    """Get sentiment analysis for a symbol (backwards compatibility)"""
+    validated_symbol = validate_symbol(symbol)
 
-    Analyzes social media, news, and market sentiment
-    Returns sentiment score and classification
-    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="sentiment-analysis",
-        path=f"/api/v1/sentiment/{symbol}",
+        path=f"/api/v1/sentiment/{validated_symbol}",
         method="GET"
     )
 
 
 @app.get("/api/sentiment/aggregate")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_aggregate_sentiment():
-    """
-    Get aggregated market sentiment across all tracked symbols
-
-    Returns overall market mood and sentiment distribution
-    """
+    """Get aggregated market sentiment across all tracked symbols"""
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="sentiment-analysis",
@@ -1495,23 +1722,21 @@ async def get_aggregate_sentiment():
 
 
 # ============================================================================
-# AGGREGATION ENDPOINTS (Combine Multiple Services)
+# AGGREGATION ENDPOINTS
 # ============================================================================
 
 @app.get("/api/dashboard/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
 async def get_dashboard_data(symbol: str, interval: str = "60"):
-    """
-    Aggregated dashboard endpoint
-    Combines data from multiple services for a complete view
-    """
+    """Aggregated dashboard endpoint combining data from multiple services"""
+    validated_symbol = validate_symbol(symbol)
+    validated_interval = validate_interval(interval)
+
     proxy = get_proxy()
 
     try:
-        # Fetch data from multiple services in parallel
-        import asyncio
-
-        ticker_task = proxy.proxy_request("market-data", f"/api/v1/ticker/{symbol}", "GET")
-        signal_task = proxy.proxy_request("trading-engine", f"/api/v1/signals/{symbol}", "GET", {"interval": interval})
+        ticker_task = proxy.proxy_request("market-data", f"/api/v1/ticker/{validated_symbol}", "GET")
+        signal_task = proxy.proxy_request("trading-engine", f"/api/v1/signals/{validated_symbol}", "GET", {"interval": validated_interval})
         portfolio_task = proxy.proxy_request("portfolio-manager", "/api/v1/portfolio", "GET")
 
         ticker, signal, portfolio = await asyncio.gather(
@@ -1521,8 +1746,8 @@ async def get_dashboard_data(symbol: str, interval: str = "60"):
 
         return JSONResponse(content={
             "success": True,
-            "symbol": symbol,
-            "interval": interval,
+            "symbol": validated_symbol,
+            "interval": validated_interval,
             "data": {
                 "market": ticker.body.decode() if not isinstance(ticker, Exception) else None,
                 "signal": signal.body.decode() if not isinstance(signal, Exception) else None,
@@ -1537,31 +1762,98 @@ async def get_dashboard_data(symbol: str, interval: str = "60"):
 
 
 # ============================================================================
-# WEBSOCKET ENDPOINT - Real-time Updates
+# API V1 ROUTES - Compatibility layer
+# ============================================================================
+
+@app.get("/api/v1/market/ticker/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_ticker_v1(symbol: str):
+    """Get ticker data (v1 compatibility)"""
+    return await get_ticker(symbol, None)
+
+
+@app.get("/api/v1/market/klines/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_klines_v1(symbol: str, interval: str = "60", limit: int = 100):
+    """Get klines (v1 compatibility)"""
+    return await get_klines_plural(symbol, interval, limit)
+
+
+@app.get("/api/v1/analysis/rsi/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_rsi_v1(symbol: str, interval: str = "60", period: int = 14):
+    """Get RSI (v1 compatibility)"""
+    return await get_rsi(symbol, interval, period)
+
+
+@app.get("/api/v1/analysis/macd/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_macd_v1(symbol: str, interval: str = "60"):
+    """Get MACD (v1 compatibility)"""
+    return await get_macd(symbol, interval)
+
+
+@app.get("/api/v1/analysis/all/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_all_indicators_v1(symbol: str, interval: str = "60"):
+    """Get all indicators (v1 compatibility)"""
+    return await get_all_indicators(symbol, interval)
+
+
+@app.get("/api/v1/ml/predict/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def ml_predict_v1(symbol: str, interval: str = "60", model_type: str = "GRU"):
+    """Get ML prediction (v1 compatibility)"""
+    return await ml_predict_price(symbol, interval, model_type)
+
+
+@app.get("/api/v1/ml/predict/price/{symbol}")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def ml_predict_price_v1(symbol: str, interval: str = "60", model_type: str = "GRU"):
+    """Get ML price prediction (v1 compatibility)"""
+    return await ml_predict_price(symbol, interval, model_type)
+
+
+@app.get("/api/v1/portfolio/balance")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_balance_v1(portfolio_id: str = "default"):
+    """Get portfolio balance (v1 compatibility)"""
+    return await get_balance(portfolio_id)
+
+
+@app.get("/api/v1/portfolio/holdings")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_holdings_v1(portfolio_id: str = "default"):
+    """Get portfolio holdings (v1 compatibility)"""
+    return await get_holdings(portfolio_id)
+
+
+@app.get("/api/v1/portfolio/positions")
+# @rate_limiter.general_limit  # Rate limited via middleware
+async def get_positions_v1(status: str = "open"):
+    """Get trading positions (v1 compatibility)"""
+    return await get_positions(status)
+
+
+# ============================================================================
+# WEBSOCKET ENDPOINT
 # ============================================================================
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time dashboard updates
-    Clients connect here to receive live updates every 2 seconds
-    """
+    """WebSocket endpoint for real-time dashboard updates"""
     await websocket_manager.connect(websocket)
 
     try:
-        # Send initial connection message
         await websocket_manager.send_personal_message({
             "type": "connection",
             "message": "Connected to API Gateway WebSocket",
             "timestamp": datetime.now().isoformat()
         }, websocket)
 
-        # Keep connection alive and handle client messages
         while True:
-            # Wait for messages from client (ping/pong, requests, etc.)
             data = await websocket.receive_text()
 
-            # Echo back or handle specific commands
             if data == "ping":
                 await websocket_manager.send_personal_message({
                     "type": "pong",

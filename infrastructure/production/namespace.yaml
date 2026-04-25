@@ -1,0 +1,132 @@
+# =============================================================================
+# Production Namespace for Crypto Trading Bot
+# =============================================================================
+# Version: 1.0
+# Created: 2025-12-12
+# Environment: Production
+# Namespace: crypto-bot-prod
+#
+# Production environment with:
+# - Strict resource quotas
+# - Pod Security Standards (restricted)
+# - Network isolation
+# - High availability requirements
+# =============================================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: crypto-bot-prod
+  labels:
+    name: crypto-bot-prod
+    app: crypto-trading-bot
+    environment: production
+    managed-by: kubernetes
+    version: "2.0"
+    tier: production
+    # Pod Security Standards - Restricted mode for production
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    description: "Production environment for crypto trading bot - LIVE trading"
+    team: "crypto-bot-team"
+    contact: "devops@cryptobot.production"
+    deployment-phase: "production"
+    sla: "99.9%"
+    criticality: "high"
+    backup-policy: "continuous"
+    monitoring: "enabled"
+
+---
+# Resource quota for production namespace - Higher limits for production workloads
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-quota
+  namespace: crypto-bot-prod
+spec:
+  hard:
+    # Maximum number of pods
+    pods: "100"
+    # Total CPU resources
+    requests.cpu: "40"
+    limits.cpu: "80"
+    # Total memory resources
+    requests.memory: 64Gi
+    limits.memory: 128Gi
+    # Persistent volume claims
+    persistentvolumeclaims: "20"
+    # Services
+    services: "30"
+    # LoadBalancer services
+    services.loadbalancers: "5"
+    # NodePort services
+    services.nodeports: "10"
+    # Secrets
+    secrets: "50"
+    # ConfigMaps
+    configmaps: "50"
+    # ReplicationControllers
+    replicationcontrollers: "20"
+
+---
+# Limit range for default resource limits in production
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: production-limit-range
+  namespace: crypto-bot-prod
+spec:
+  limits:
+  # Default limits for containers - Higher than staging
+  - type: Container
+    default:
+      cpu: "1"
+      memory: 1Gi
+    defaultRequest:
+      cpu: "250m"
+      memory: 256Mi
+    max:
+      cpu: "8"
+      memory: 16Gi
+    min:
+      cpu: "50m"
+      memory: 64Mi
+  # Default limits for pods
+  - type: Pod
+    max:
+      cpu: "16"
+      memory: 32Gi
+  # Persistent volume claim limits
+  - type: PersistentVolumeClaim
+    max:
+      storage: 500Gi
+    min:
+      storage: 1Gi
+
+---
+# Priority Class for critical production workloads
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: crypto-bot-critical
+globalDefault: false
+value: 1000000
+preemptionPolicy: PreemptLowerPriority
+description: "Critical priority for crypto trading bot production workloads"
+
+---
+# Priority Class for high priority workloads
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: crypto-bot-high
+globalDefault: false
+value: 500000
+preemptionPolicy: PreemptLowerPriority
+description: "High priority for crypto trading bot auxiliary services"

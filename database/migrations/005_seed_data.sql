@@ -21,8 +21,8 @@ INSERT INTO portfolios (
 VALUES (
     'default',
     'Default Paper Trading Portfolio',
-    10000.00,
-    10000.00,
+    100.00,
+    100.00,
     'PAPER'
 )
 ON CONFLICT (portfolio_id) DO NOTHING;

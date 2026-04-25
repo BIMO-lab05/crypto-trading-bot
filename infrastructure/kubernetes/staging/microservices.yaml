@@ -1,0 +1,707 @@
+# Microservices Deployments for Staging
+# All core services with health probes and HA configuration
+# Version: 1.0
+# Created: 2025-12-12
+
+---
+# API Gateway Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: api-gateway
+    environment: staging
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: api-gateway
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: api-gateway
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: api-gateway
+          image: crypto-bot/api-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: api-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: api-gateway
+spec:
+  type: LoadBalancer
+  selector:
+    app: crypto-trading-bot
+    service: api-gateway
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+
+---
+# Portfolio Manager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-manager
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: portfolio-manager
+    environment: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: portfolio-manager
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: portfolio-manager
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z postgres-service 5432; do sleep 2; done']
+      containers:
+        - name: portfolio-manager
+          image: crypto-bot/portfolio-manager:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8003
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8003
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio-manager-service
+  namespace: trading-bot-staging
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: portfolio-manager
+  ports:
+    - port: 8003
+      targetPort: 8003
+      name: http
+
+---
+# Technical Analysis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: technical-analysis
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: technical-analysis
+    environment: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: technical-analysis
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: technical-analysis
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8004"
+    spec:
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z redis-service 6379; do sleep 2; done']
+      containers:
+        - name: technical-analysis
+          image: crypto-bot/technical-analysis:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8004
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8004
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: technical-analysis-service
+  namespace: trading-bot-staging
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: technical-analysis
+  ports:
+    - port: 8004
+      targetPort: 8004
+      name: http
+
+---
+# Bybit Connector Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bybit-connector
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: bybit-connector
+    environment: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: bybit-connector
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: bybit-connector
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+    spec:
+      containers:
+        - name: bybit-connector
+          image: crypto-bot/bybit-connector:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: bybit-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bybit-connector-service
+  namespace: trading-bot-staging
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: bybit-connector
+  ports:
+    - port: 8001
+      targetPort: 8001
+      name: http
+
+---
+# Market Data Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-data-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: market-data-service
+    environment: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: market-data-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: market-data-service
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+    spec:
+      initContainers:
+        - name: wait-for-timescale
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z timescale-service 5432; do sleep 2; done']
+      containers:
+        - name: market-data-service
+          image: crypto-bot/market-data-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8002
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-data-service
+  namespace: trading-bot-staging
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: market-data-service
+  ports:
+    - port: 8002
+      targetPort: 8002
+      name: http
+
+---
+# Notification Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: notification-service
+    environment: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: notification-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: notification-service
+        environment: staging
+    spec:
+      containers:
+        - name: notification-service
+          image: crypto-bot/notification-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8006
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: api-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8006
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: trading-bot-staging
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: notification-service
+  ports:
+    - port: 8006
+      targetPort: 8006
+      name: http
+
+---
+# ML Prediction Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-prediction-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: ml-prediction-service
+    environment: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: ml-prediction-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: ml-prediction-service
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8007"
+    spec:
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z redis-service 6379; do sleep 2; done']
+      containers:
+        - name: ml-prediction-service
+          image: crypto-bot/ml-prediction-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8007
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "1Gi"
+            limits:
+              cpu: "4000m"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8007
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8007
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-prediction-service
+  namespace: trading-bot-staging
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: ml-prediction-service
+  ports:
+    - port: 8007
+      targetPort: 8007
+      name: http
+
+---
+# Risk Metrics Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-metrics-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: risk-metrics-service
+    environment: staging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: risk-metrics-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: risk-metrics-service
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8008"
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z postgres-service 5432; do sleep 2; done']
+      containers:
+        - name: risk-metrics-service
+          image: crypto-bot/risk-metrics-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8008
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8008
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8008
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-metrics-service
+  namespace: trading-bot-staging
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: risk-metrics-service
+  ports:
+    - port: 8008
+      targetPort: 8008
+      name: http
+
+---
+# Sentiment Analysis Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-analysis-service
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: sentiment-analysis-service
+    environment: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crypto-trading-bot
+      service: sentiment-analysis-service
+  template:
+    metadata:
+      labels:
+        app: crypto-trading-bot
+        service: sentiment-analysis-service
+        environment: staging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8009"
+    spec:
+      containers:
+        - name: sentiment-analysis-service
+          image: crypto-bot/sentiment-analysis-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8009
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: api-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8009
+            initialDelaySeconds: 45
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8009
+            initialDelaySeconds: 20
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentiment-analysis-service
+  namespace: trading-bot-staging
+spec:
+  type: ClusterIP
+  selector:
+    app: crypto-trading-bot
+    service: sentiment-analysis-service
+  ports:
+    - port: 8009
+      targetPort: 8009
+      name: http

@@ -1,0 +1,158 @@
+# Blackbox Exporter Configuration
+# Crypto Trading Bot - Phase 7: HA Monitoring
+# Used for probing endpoints (HTTP, TCP, ICMP, DNS)
+
+modules:
+  # HTTP probe - Basic HTTP GET check
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 201, 204]
+      method: GET
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: true
+
+  # HTTP probe - For health check endpoints
+  http_health:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      fail_if_body_not_matches_regexp:
+        - "healthy|ok|ready"
+      preferred_ip_protocol: ip4
+
+  # HTTP probe - POST request check
+  http_post_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 201, 202, 204]
+      method: POST
+      headers:
+        Content-Type: application/json
+      preferred_ip_protocol: ip4
+
+  # HTTP probe - With authentication
+  http_auth:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      bearer_token_file: /etc/blackbox/token
+      preferred_ip_protocol: ip4
+
+  # HTTP probe - SSL/TLS check
+  http_ssl:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      fail_if_ssl: false
+      fail_if_not_ssl: true
+      tls_config:
+        insecure_skip_verify: false
+      preferred_ip_protocol: ip4
+
+  # TCP probe - Basic TCP connection check
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+
+  # TCP probe - PostgreSQL port
+  tcp_postgres:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      query_response:
+        - expect: ""
+
+  # TCP probe - Redis port
+  tcp_redis:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      query_response:
+        - send: "PING\r\n"
+        - expect: "PONG"
+
+  # TCP probe - RabbitMQ AMQP port
+  tcp_rabbitmq:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+
+  # ICMP probe - Ping check
+  icmp:
+    prober: icmp
+    timeout: 5s
+    icmp:
+      preferred_ip_protocol: ip4
+
+  # DNS probe - DNS resolution check
+  dns_udp:
+    prober: dns
+    timeout: 5s
+    dns:
+      query_name: "trading-engine"
+      query_type: "A"
+      transport_protocol: "udp"
+      preferred_ip_protocol: ip4
+
+  # HTTP probe - WebSocket upgrade check
+  http_websocket:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1"]
+      valid_status_codes: [101]
+      method: GET
+      headers:
+        Upgrade: websocket
+        Connection: Upgrade
+        Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+        Sec-WebSocket-Version: "13"
+      preferred_ip_protocol: ip4
+
+  # HTTP probe - API endpoint with timeout monitoring
+  http_api:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200, 201, 202, 204]
+      method: GET
+      headers:
+        Accept: application/json
+      fail_if_body_not_matches_regexp:
+        - '"status":\s*"(ok|success|healthy)"'
+      preferred_ip_protocol: ip4
+
+  # HTTP probe - Bybit API check
+  http_bybit_api:
+    prober: http
+    timeout: 15s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      fail_if_body_not_matches_regexp:
+        - '"retCode":\s*0'
+      preferred_ip_protocol: ip4
+      tls_config:
+        insecure_skip_verify: false

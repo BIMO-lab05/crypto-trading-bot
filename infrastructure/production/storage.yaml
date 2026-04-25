@@ -1,0 +1,228 @@
+# =============================================================================
+# Production Storage - Persistent Volume Claims
+# =============================================================================
+# Version: 1.0
+# Created: 2025-12-12
+# Environment: Production
+#
+# Storage requirements for production environment:
+# - PostgreSQL: High IOPS SSD storage for transaction data
+# - TimescaleDB: High capacity for time-series market data
+# - Redis: Fast SSD for caching
+# - RabbitMQ: Reliable storage for message persistence
+# - Model Storage: ML model artifacts
+# - Backup Storage: Database backups
+#
+# Note: StorageClass should be configured based on your cloud provider:
+# - AWS: gp3, io1, io2
+# - GCP: pd-ssd, pd-balanced
+# - Azure: managed-premium, ultra-disk
+# =============================================================================
+
+---
+# Storage Class for high-performance SSD (create if not exists)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: crypto-bot-fast-ssd
+  labels:
+    app: crypto-trading-bot
+    environment: production
+provisioner: kubernetes.io/no-provisioner  # Replace with your cloud provisioner
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+
+---
+# PostgreSQL PVC - Transactional database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: storage
+    database: postgres
+    environment: production
+  annotations:
+    backup-policy: "daily"
+    retention-days: "30"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  # storageClassName: crypto-bot-fast-ssd  # Uncomment and adjust for your environment
+
+---
+# TimescaleDB PVC - Time-series market data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timescale-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: storage
+    database: timescaledb
+    environment: production
+  annotations:
+    backup-policy: "daily"
+    retention-days: "90"
+    compression: "enabled"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Gi  # Large capacity for historical market data
+  # storageClassName: crypto-bot-fast-ssd
+
+---
+# Redis PVC - Cache and session storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: storage
+    database: redis
+    environment: production
+  annotations:
+    backup-policy: "hourly"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  # storageClassName: crypto-bot-fast-ssd
+
+---
+# RabbitMQ PVC - Message queue persistence
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: storage
+    database: rabbitmq
+    environment: production
+  annotations:
+    backup-policy: "daily"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  # storageClassName: crypto-bot-fast-ssd
+
+---
+# ML Models PVC - Machine learning model storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-models-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: storage
+    purpose: ml-models
+    environment: production
+  annotations:
+    backup-policy: "weekly"
+spec:
+  accessModes:
+    - ReadWriteMany  # Shared access for ML services
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# Backup Storage PVC - Database backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: storage
+    purpose: backups
+    environment: production
+  annotations:
+    retention-policy: "30-days"
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 200Gi
+
+---
+# Logs Storage PVC - Centralized log storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: logs-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: storage
+    purpose: logs
+    environment: production
+  annotations:
+    retention-policy: "14-days"
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+# Prometheus PVC - Metrics storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    purpose: metrics
+    environment: production
+  annotations:
+    retention-policy: "90-days"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+# Grafana PVC - Dashboard storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: crypto-bot-prod
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    purpose: dashboards
+    environment: production
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

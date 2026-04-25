@@ -1,17 +1,45 @@
 # Grafana Dashboards Configuration
+# Crypto Trading Bot - Staging Environment
 # Auto-provisions dashboard files from directory
 
 apiVersion: 1
 
 providers:
-  # Default provider - load dashboards from directory
-  - name: 'default'
+  # Main Crypto Trading Bot dashboards
+  - name: "crypto-trading-bot"
     orgId: 1
-    folder: 'Crypto Trading Bot'
+    folder: "Crypto Trading Bot"
+    folderUid: "crypto-bot"
     type: file
     disableDeletion: false
     updateIntervalSeconds: 30
     allowUiUpdates: true
     options:
       path: /var/lib/grafana/dashboards
-      foldersFromFilesStructure: true
+      foldersFromFilesStructure: false
+
+  # Staging Environment dashboards
+  - name: "staging-dashboards"
+    orgId: 1
+    folder: "Staging Environment"
+    folderUid: "staging"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/staging
+      foldersFromFilesStructure: false
+
+  # HA Monitoring dashboards
+  - name: "ha-monitoring"
+    orgId: 1
+    folder: "HA Monitoring"
+    folderUid: "ha-monitoring"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 60
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/ha
+      foldersFromFilesStructure: false

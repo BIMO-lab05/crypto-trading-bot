@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # Authentication - Admin API key for protected endpoints
     admin_api_key: str = "dev-admin-key-change-in-production"
 
+    # CORS Configuration
+    allowed_origins: str = "http://localhost:3000,http://localhost:5173"
+
     # Connection settings
     connection_timeout: float = 10.0  # Default timeout for external connections
 

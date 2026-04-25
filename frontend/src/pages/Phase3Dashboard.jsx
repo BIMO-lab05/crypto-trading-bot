@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { mlAPI, sentimentAPI, multiTimeframeAPI, enhancedTradingAPI } from '../services/api'
 
@@ -192,11 +192,12 @@ export default function Phase3Dashboard() {
     staleTime: 15000,
   })
 
-  // Extract data from API responses - handle nested .data wrapper
+  // Extract data from API responses - handle nested .data wrapper and .signal wrapper
   const mlPrediction = mlData?.data || mlData
   const sentiment = sentimentData?.data || sentimentData
   const mtf = mtfData?.data || mtfData
-  const rawEnhancedSignal = enhancedSignalData?.data || enhancedSignalData
+  // Enhanced signal API returns {success, signal: {...}}, extract the signal object
+  const rawEnhancedSignal = enhancedSignalData?.signal || enhancedSignalData?.data || enhancedSignalData
 
   // Normalize enhanced signal data to expected format
   // API returns: technical_analysis, ml_predictions, sentiment at top level

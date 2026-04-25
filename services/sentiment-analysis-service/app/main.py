@@ -1,16 +1,29 @@
 # SENTIMENT ANALYSIS SERVICE - Main Application
 # Analyzes news sentiment, social media sentiment, and market sentiment for cryptocurrencies
 # Provides combined sentiment scores for trading decisions
+#
+# PROMETHEUS METRICS: 2025-12-12
+# - Added /metrics endpoint for Prometheus scraping
+# - HTTP request counters and histograms
+# - Sentiment analysis specific metrics
 
-from fastapi import FastAPI, HTTPException, Path as FastAPIPath, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Path as FastAPIPath, Query, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from contextlib import asynccontextmanager
 import logging
+import time
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import json
 import sys
 import os
+
+# Prometheus metrics imports
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import multiprocess, CollectorRegistry
+import os
+import tempfile
 
 # Add app directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
@@ -49,20 +62,64 @@ from app.analyzers.sentiment_analyzer import SentimentAnalyzer
 from app.analyzers.news_fetcher import NewsFetcher
 from app.analyzers.twitter_fetcher import TwitterFetcher
 
-# Import metrics - module not implemented yet
-# TODO: Implement metrics module
-# from app.metrics import (
-#     sentiment_analyses_total,
-#     news_articles_fetched,
-#     api_calls_total,
-#     sentiment_analysis_duration
-# )
 
-# Placeholder metrics for now
-sentiment_analyses_total = None
-news_articles_fetched = None
-api_calls_total = None
-sentiment_analysis_duration = None
+# ============================================================================
+# PROMETHEUS METRICS
+# ============================================================================
+
+# HTTP request counter
+http_requests_total = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status_code']
+)
+
+# HTTP request duration histogram
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration in seconds',
+    ['method', 'endpoint'],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0]
+)
+
+# Active requests gauge
+http_requests_active = Gauge(
+    'http_requests_active',
+    'Number of active HTTP requests'
+)
+
+# Sentiment-specific metrics
+sentiment_analyses_total = Counter(
+    'sentiment_analyses_total',
+    'Total sentiment analyses performed',
+    ['symbol', 'source']
+)
+
+news_articles_fetched = Counter(
+    'news_articles_fetched',
+    'Total news articles fetched',
+    ['symbol', 'status']
+)
+
+api_calls_total = Counter(
+    'api_calls_total',
+    'Total external API calls',
+    ['provider', 'status']
+)
+
+sentiment_analysis_duration = Histogram(
+    'sentiment_analysis_duration_seconds',
+    'Sentiment analysis duration in seconds',
+    ['source'],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+)
+
+cache_size_gauge = Gauge(
+    'sentiment_cache_size',
+    'Size of sentiment data cache',
+    ['cache_type']
+)
+
 
 # Global service instances
 sentiment_analyzer: Optional[SentimentAnalyzer] = None
@@ -78,7 +135,13 @@ async def lifespan(app: FastAPI):
     """
     global sentiment_analyzer, news_fetcher, twitter_fetcher
 
+    # Setup multiprocess metrics directory
+    temp_dir = tempfile.mkdtemp(prefix="prometheus_multiproc_")
+    os.environ['PROMETHEUS_MULTIPROC_DIR'] = temp_dir
+    logger.info(f"Prometheus multiprocess directory: {temp_dir}")
+
     logger.info("Starting sentiment analysis service...")
+    logger.info("Prometheus metrics: enabled at /metrics")
 
     try:
         # Initialize sentiment analyzer
@@ -107,6 +170,15 @@ async def lifespan(app: FastAPI):
 
     logger.info("Shutting down sentiment analysis service...")
 
+    # Cleanup multiprocess metrics
+    try:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        if 'PROMETHEUS_MULTIPROC_DIR' in os.environ:
+            del os.environ['PROMETHEUS_MULTIPROC_DIR']
+    except Exception as e:
+        logger.error(f"Error cleaning up multiprocess metrics directory: {e}")
+
 
 # Create FastAPI application
 app = FastAPI(
@@ -116,6 +188,53 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+# ============================================================================
+# PROMETHEUS METRICS MIDDLEWARE
+# ============================================================================
+
+@app.middleware("http")
+async def prometheus_metrics_middleware(request: Request, call_next):
+    """Middleware to collect Prometheus metrics for all HTTP requests"""
+    # Skip metrics endpoint itself
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    method = request.method
+    path = request.url.path
+
+    # Normalize path to prevent high cardinality
+    import re
+    normalized_path = re.sub(r'/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '/{uuid}', path, flags=re.IGNORECASE)
+    normalized_path = re.sub(r'/[A-Z]+USDT', '/{symbol}', normalized_path)
+
+    http_requests_active.inc()
+    start_time = time.time()
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    except Exception as e:
+        status_code = 500
+        raise
+    finally:
+        duration = time.time() - start_time
+        http_requests_active.dec()
+
+        http_requests_total.labels(
+            method=method,
+            endpoint=normalized_path,
+            status_code=status_code
+        ).inc()
+
+        http_request_duration_seconds.labels(
+            method=method,
+            endpoint=normalized_path
+        ).observe(duration)
+
+    return response
+
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -124,6 +243,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================================
+# PROMETHEUS METRICS ENDPOINT
+# ============================================================================
+
+def get_metrics_registry():
+    """Get appropriate registry based on multiprocess environment"""
+    if 'PROMETHEUS_MULTIPROC_DIR' in os.environ:
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        return registry
+    else:
+        return None
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    """Prometheus metrics endpoint"""
+    registry = get_metrics_registry()
+    if registry:
+        data = generate_latest(registry)
+    else:
+        data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
 # ============================================================================
@@ -177,6 +320,12 @@ async def get_api_stats():
 
     Returns statistics about API calls and cache usage
     """
+    # Update cache size metrics
+    if news_fetcher:
+        cache_size_gauge.labels(cache_type='news').set(len(news_fetcher.news_cache))
+    if twitter_fetcher:
+        cache_size_gauge.labels(cache_type='twitter').set(len(twitter_fetcher.tweets_cache))
+
     stats = {
         "service": settings.service_name,
         "uptime_start": datetime.utcnow().isoformat(),
@@ -220,18 +369,17 @@ async def get_news_sentiment(
                 lookback_hours=lookback_hours,
                 max_articles=20
             )
-            # Metrics disabled for now - module not implemented
-            # news_articles_fetched.labels(symbol=symbol, status='success').inc()
-            # api_calls_total.labels(provider='newsapi', status='success').inc()
+            news_articles_fetched.labels(symbol=symbol, status='success').inc()
+            api_calls_total.labels(provider='newsapi', status='success').inc()
         except Exception as e:
             logger.error(f"Error fetching news: {e}")
-            # news_articles_fetched.labels(symbol=symbol, status='failed').inc()
-            # api_calls_total.labels(provider='newsapi', status='failed').inc()
+            news_articles_fetched.labels(symbol=symbol, status='failed').inc()
+            api_calls_total.labels(provider='newsapi', status='failed').inc()
             articles_data = []
 
         if not articles_data:
             # Return neutral sentiment if no news found
-            # sentiment_analyses_total.labels(symbol=symbol, source='news').inc()
+            sentiment_analyses_total.labels(symbol=symbol, source='news').inc()
             return NewsSentiment(
                 symbol=symbol,
                 total_articles=0,
@@ -282,10 +430,9 @@ async def get_news_sentiment(
         confidence = max_count / len(sentiment_scores) if sentiment_scores else 0.0
 
         # Record metrics
-        # sentiment_analyses_total.labels(symbol=symbol, source='news').inc()
+        sentiment_analyses_total.labels(symbol=symbol, source='news').inc()
         duration = (datetime.utcnow() - start_time).total_seconds()
-        if sentiment_analysis_duration:
-            sentiment_analysis_duration.labels(source='news').observe(duration)
+        sentiment_analysis_duration.labels(source='news').observe(duration)
 
         return NewsSentiment(
             symbol=symbol,
@@ -329,16 +476,14 @@ async def get_social_sentiment(
                 lookback_hours=lookback_hours,
                 max_tweets=100
             )
-            if api_calls_total:
-                api_calls_total.labels(provider='twitter', status='success').inc()
+            api_calls_total.labels(provider='twitter', status='success').inc()
         except Exception as e:
             logger.error(f"Error fetching Twitter data: {e}")
-            if api_calls_total:
-                api_calls_total.labels(provider='twitter', status='failed').inc()
+            api_calls_total.labels(provider='twitter', status='failed').inc()
             twitter_data = []
 
         if not twitter_data:
-            # sentiment_analyses_total.labels(symbol=symbol, source='social').inc()
+            sentiment_analyses_total.labels(symbol=symbol, source='social').inc()
             return SocialSentiment(
                 symbol=symbol,
                 platform="twitter",
@@ -379,10 +524,9 @@ async def get_social_sentiment(
         confidence = max_count / len(sentiment_scores) if sentiment_scores else 0.0
 
         # Record metrics
-        # sentiment_analyses_total.labels(symbol=symbol, source='social').inc()
+        sentiment_analyses_total.labels(symbol=symbol, source='social').inc()
         duration = (datetime.utcnow() - start_time).total_seconds()
-        if sentiment_analysis_duration:
-            sentiment_analysis_duration.labels(source='social').observe(duration)
+        sentiment_analysis_duration.labels(source='social').observe(duration)
 
         # Transform twitter data to SocialPost format
         social_posts = []
@@ -510,10 +654,9 @@ async def get_combined_sentiment(
             combined_label = "NEUTRAL"
 
         # Record metrics
-        # sentiment_analyses_total.labels(symbol=symbol, source='combined').inc()
+        sentiment_analyses_total.labels(symbol=symbol, source='combined').inc()
         duration = (datetime.utcnow() - start_time).total_seconds()
-        if sentiment_analysis_duration:
-            sentiment_analysis_duration.labels(source='combined').observe(duration)
+        sentiment_analysis_duration.labels(source='combined').observe(duration)
 
         # Determine trading signal based on sentiment
         if combined_sentiment_value > 0.3:
@@ -640,7 +783,7 @@ async def get_sentiment_trend(
         else:
             momentum = "STEADY"
 
-        # sentiment_analyses_total.labels(symbol=symbol, source='trend').inc()
+        sentiment_analyses_total.labels(symbol=symbol, source='trend').inc()
 
         return SentimentTrend(
             symbol=symbol,
@@ -692,6 +835,38 @@ async def get_aggregate_sentiment():
     except Exception as e:
         logger.error(f"Failed to get aggregate sentiment: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get aggregate sentiment: {str(e)}")
+
+
+# ============================================================================
+# ROOT ENDPOINT
+# ============================================================================
+
+@app.get("/", tags=["Info"])
+async def root():
+    """Root endpoint with service information"""
+    return {
+        "service": settings.service_name,
+        "version": settings.api_version,
+        "status": "running",
+        "endpoints": {
+            "health": "/health",
+            "ready": "/ready",
+            "metrics": "/metrics",
+            "docs": "/docs",
+            "sentiment": {
+                "news": "/api/v1/sentiment/news/{symbol}",
+                "social": "/api/v1/sentiment/social/{symbol}",
+                "combined": "/api/v1/sentiment/combined/{symbol}",
+                "trend": "/api/v1/sentiment/trend/{symbol}",
+                "aggregate": "/api/v1/sentiment/aggregate"
+            }
+        },
+        "features": {
+            "prometheus_metrics": True,
+            "news_api": bool(settings.news_api_key),
+            "twitter_api": bool(settings.twitter_bearer_token)
+        }
+    }
 
 
 if __name__ == "__main__":

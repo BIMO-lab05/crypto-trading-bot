@@ -1,0 +1,226 @@
+# Statistical Arbitrage Alerting Rules for Prometheus
+# Purpose: Alert on critical conditions during paper trading
+# Author: DevOps Automation Agent
+# Date: 2025-12-11
+
+groups:
+  # ============================================================================
+  # CRITICAL ALERTS - Immediate attention required
+  # ============================================================================
+  - name: stat_arb_critical
+    rules:
+      # Alert if max drawdown exceeds threshold
+      - alert: StatArbMaxDrawdownCritical
+        expr: stat_arb_max_drawdown > 10
+        for: 1m
+        labels:
+          severity: critical
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "CRITICAL: Max drawdown exceeded 10%"
+          description: "Statistical Arbitrage max drawdown is {{ $value }}%. Consider pausing trading."
+
+      # Alert if ROI drops below -5%
+      - alert: StatArbNegativeROI
+        expr: stat_arb_roi_percent < -5
+        for: 5m
+        labels:
+          severity: critical
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "CRITICAL: Significant loss detected"
+          description: "Statistical Arbitrage ROI is {{ $value }}%. Review strategies immediately."
+
+      # Alert if trading engine is unavailable
+      - alert: StatArbServiceDown
+        expr: up{job="trading-engine"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "CRITICAL: Trading engine is down"
+          description: "Trading engine has been unavailable for more than 1 minute."
+
+  # ============================================================================
+  # WARNING ALERTS - Requires monitoring
+  # ============================================================================
+  - name: stat_arb_warning
+    rules:
+      # Alert if win rate drops below 40%
+      - alert: StatArbLowWinRate
+        expr: stat_arb_win_rate < 40 and stat_arb_total_trades > 10
+        for: 15m
+        labels:
+          severity: warning
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "Low win rate detected"
+          description: "Statistical Arbitrage win rate is {{ $value }}% after {{ printf \"%.0f\" (query \"stat_arb_total_trades\") }} trades."
+
+      # Alert if no signals generated for extended period
+      - alert: StatArbNoSignals
+        expr: increase(stat_arb_signals_generated[1h]) == 0
+        for: 30m
+        labels:
+          severity: warning
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "No signals generated"
+          description: "No statistical arbitrage signals have been generated in the last hour."
+
+      # Alert if pairs cointegration is lost
+      - alert: StatArbPairsNotCointegrated
+        expr: stat_arb_pairs_cointegration == 0
+        for: 10m
+        labels:
+          severity: warning
+          strategy: pairs_trading
+        annotations:
+          summary: "Pairs cointegration lost"
+          description: "Pairs trading strategy {{ $labels.strategy_id }} is no longer cointegrated."
+
+      # Alert if Z-score is extreme (potential stop-loss)
+      - alert: StatArbExtremeZScore
+        expr: abs(stat_arb_pairs_zscore) > 3
+        for: 5m
+        labels:
+          severity: warning
+          strategy: pairs_trading
+        annotations:
+          summary: "Extreme Z-score detected"
+          description: "Pairs strategy {{ $labels.strategy_id }} has Z-score of {{ $value }}."
+
+      # Alert if funding rate drops significantly
+      - alert: StatArbLowFundingRate
+        expr: stat_arb_funding_rate < 0.0001 and stat_arb_funding_rate > 0
+        for: 8h
+        labels:
+          severity: warning
+          strategy: funding_rate
+        annotations:
+          summary: "Low funding rate"
+          description: "Funding rate for {{ $labels.symbol }} is only {{ $value }}. Consider pausing funding strategy."
+
+      # Alert if negative funding rate persists
+      - alert: StatArbNegativeFunding
+        expr: stat_arb_funding_rate < 0
+        for: 24h
+        labels:
+          severity: warning
+          strategy: funding_rate
+        annotations:
+          summary: "Negative funding rate"
+          description: "Funding rate for {{ $labels.symbol }} has been negative for 24h."
+
+      # Alert if triangular latency is too high
+      - alert: StatArbHighTriangularLatency
+        expr: histogram_quantile(0.95, stat_arb_triangular_latency_ms_bucket) > 150
+        for: 5m
+        labels:
+          severity: warning
+          strategy: triangular
+        annotations:
+          summary: "High triangular arbitrage latency"
+          description: "95th percentile latency is {{ $value }}ms. Triangular opportunities may be missed."
+
+  # ============================================================================
+  # INFO ALERTS - For tracking and analytics
+  # ============================================================================
+  - name: stat_arb_info
+    rules:
+      # Alert on new profitable trade
+      - alert: StatArbProfitableTrade
+        expr: increase(stat_arb_strategy_profit[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "Profitable trade completed"
+          description: "Strategy {{ $labels.strategy_id }} made profit of ${{ $value }}."
+
+      # Alert when capital allocation changes significantly
+      - alert: StatArbAllocationChange
+        expr: abs(delta(stat_arb_allocated_capital[5m])) > 1000
+        for: 0m
+        labels:
+          severity: info
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "Capital allocation changed"
+          description: "Allocated capital changed by ${{ $value }}."
+
+      # Alert when ROI milestone reached
+      - alert: StatArbROIMilestone
+        expr: stat_arb_roi_percent > 5
+        for: 5m
+        labels:
+          severity: info
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "ROI milestone reached"
+          description: "Statistical Arbitrage ROI reached {{ $value }}%."
+
+      # Alert on triangular opportunity found
+      - alert: StatArbTriangularOpportunity
+        expr: stat_arb_triangular_opportunity > 0.5
+        for: 0m
+        labels:
+          severity: info
+          strategy: triangular
+        annotations:
+          summary: "Triangular opportunity detected"
+          description: "Path {{ $labels.path }} has {{ $value }}% profit opportunity."
+
+  # ============================================================================
+  # OPERATIONAL ALERTS - System health
+  # ============================================================================
+  - name: stat_arb_operational
+    rules:
+      # Alert if error rate is high
+      - alert: StatArbHighErrorRate
+        expr: |
+          rate(stat_arb_signals_rejected[5m]) / rate(stat_arb_signals_generated[5m]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "High signal rejection rate"
+          description: "More than 50% of signals are being rejected."
+
+      # Alert if strategy count drops unexpectedly
+      - alert: StatArbStrategiesReduced
+        expr: delta(stat_arb_strategy_count[10m]) < -1
+        for: 0m
+        labels:
+          severity: warning
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "Strategy count reduced"
+          description: "{{ $labels.strategy_type }} strategies reduced by {{ $value }}."
+
+      # Alert if capital utilization is very low
+      - alert: StatArbLowCapitalUtilization
+        expr: |
+          (stat_arb_allocated_capital / stat_arb_total_capital) < 0.1
+          and stat_arb_total_capital > 0
+        for: 1h
+        labels:
+          severity: info
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "Low capital utilization"
+          description: "Only {{ $value | humanizePercentage }} of capital is allocated. Consider adding strategies."
+
+      # Alert if Sharpe ratio is poor
+      - alert: StatArbPoorSharpeRatio
+        expr: stat_arb_sharpe_ratio < 0.5 and stat_arb_total_trades > 20
+        for: 1h
+        labels:
+          severity: warning
+          strategy: statistical_arbitrage
+        annotations:
+          summary: "Poor risk-adjusted returns"
+          description: "Sharpe ratio is {{ $value }}. Risk-adjusted performance is below acceptable level."

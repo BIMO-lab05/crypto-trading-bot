@@ -532,6 +532,7 @@ services:
       - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.02}
       - EMERGENCY_STOP_LOSS=${EMERGENCY_STOP_LOSS:-0.05}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
+      - PAPER_INITIAL_BALANCE=100.0
       # Service URLs
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
       - MARKET_DATA_URL=http://market-data:8002

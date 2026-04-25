@@ -1,0 +1,317 @@
+{
+  "datacenter": "crypto-bot-dc1",
+  "data_dir": "/consul/data",
+  "log_level": "INFO",
+  "node_name": "consul-server-1",
+  "server": true,
+  "bootstrap_expect": 1,
+  "ui_config": {
+    "enabled": true
+  },
+  "bind_addr": "0.0.0.0",
+  "client_addr": "0.0.0.0",
+  "advertise_addr": "{{ GetInterfaceIP \"eth0\" }}",
+  "ports": {
+    "http": 8500,
+    "dns": 8600,
+    "grpc": 8502
+  },
+  "dns_config": {
+    "allow_stale": true,
+    "max_stale": "10s",
+    "node_ttl": "5s",
+    "service_ttl": {
+      "*": "5s"
+    }
+  },
+  "telemetry": {
+    "prometheus_retention_time": "60s",
+    "disable_hostname": true
+  },
+  "connect": {
+    "enabled": true
+  },
+  "acl": {
+    "enabled": false,
+    "default_policy": "allow",
+    "enable_token_persistence": true
+  },
+  "auto_encrypt": {
+    "allow_tls": false
+  },
+  "performance": {
+    "raft_multiplier": 1
+  },
+  "services": [
+    {
+      "id": "api-gateway-1",
+      "name": "api-gateway",
+      "port": 8000,
+      "tags": [
+        "prometheus-scrape",
+        "traefik.enable=true",
+        "phase-1",
+        "critical"
+      ],
+      "meta": {
+        "version": "3.5.0",
+        "phase": "1",
+        "tier": "gateway"
+      },
+      "checks": [
+        {
+          "http": "http://api-gateway:8000/health",
+          "interval": "10s",
+          "timeout": "5s",
+          "deregister_critical_service_after": "1m"
+        },
+        {
+          "http": "http://api-gateway:8000/ready",
+          "interval": "15s",
+          "timeout": "5s"
+        }
+      ]
+    },
+    {
+      "id": "trading-engine-1",
+      "name": "trading-engine",
+      "port": 8001,
+      "tags": [
+        "prometheus-scrape",
+        "phase-2",
+        "critical",
+        "trading"
+      ],
+      "meta": {
+        "version": "3.5.0",
+        "phase": "2",
+        "tier": "core"
+      },
+      "checks": [
+        {
+          "http": "http://trading-engine:8001/health",
+          "interval": "5s",
+          "timeout": "3s",
+          "deregister_critical_service_after": "30s"
+        },
+        {
+          "http": "http://trading-engine:8001/ready",
+          "interval": "10s",
+          "timeout": "5s"
+        }
+      ]
+    },
+    {
+      "id": "market-data-service-1",
+      "name": "market-data-service",
+      "port": 8002,
+      "tags": [
+        "prometheus-scrape",
+        "phase-1",
+        "critical",
+        "data"
+      ],
+      "meta": {
+        "version": "2.0.0",
+        "phase": "1",
+        "tier": "data"
+      },
+      "checks": [
+        {
+          "http": "http://market-data-service:8002/health",
+          "interval": "10s",
+          "timeout": "5s",
+          "deregister_critical_service_after": "1m"
+        }
+      ]
+    },
+    {
+      "id": "technical-analysis-1",
+      "name": "technical-analysis",
+      "port": 8003,
+      "tags": [
+        "prometheus-scrape",
+        "phase-2",
+        "analytics"
+      ],
+      "meta": {
+        "version": "2.0.0",
+        "phase": "2",
+        "tier": "analytics"
+      },
+      "checks": [
+        {
+          "http": "http://technical-analysis:8003/health",
+          "interval": "15s",
+          "timeout": "5s",
+          "deregister_critical_service_after": "2m"
+        }
+      ]
+    },
+    {
+      "id": "portfolio-manager-1",
+      "name": "portfolio-manager",
+      "port": 8004,
+      "tags": [
+        "prometheus-scrape",
+        "phase-1",
+        "critical",
+        "core"
+      ],
+      "meta": {
+        "version": "2.0.0",
+        "phase": "1",
+        "tier": "core"
+      },
+      "checks": [
+        {
+          "http": "http://portfolio-manager:8004/health",
+          "interval": "10s",
+          "timeout": "5s",
+          "deregister_critical_service_after": "1m"
+        }
+      ]
+    },
+    {
+      "id": "bybit-connector-1",
+      "name": "bybit-connector",
+      "port": 8005,
+      "tags": [
+        "prometheus-scrape",
+        "phase-1",
+        "critical",
+        "connector"
+      ],
+      "meta": {
+        "version": "2.0.0",
+        "phase": "1",
+        "tier": "connector"
+      },
+      "checks": [
+        {
+          "http": "http://bybit-connector:8005/health",
+          "interval": "10s",
+          "timeout": "5s",
+          "deregister_critical_service_after": "1m"
+        }
+      ]
+    },
+    {
+      "id": "notification-service-1",
+      "name": "notification-service",
+      "port": 8006,
+      "tags": [
+        "prometheus-scrape",
+        "phase-1",
+        "support"
+      ],
+      "meta": {
+        "version": "1.0.0",
+        "phase": "1",
+        "tier": "support"
+      },
+      "checks": [
+        {
+          "http": "http://notification-service:8006/health",
+          "interval": "30s",
+          "timeout": "10s",
+          "deregister_critical_service_after": "5m"
+        }
+      ]
+    },
+    {
+      "id": "ml-prediction-1",
+      "name": "ml-prediction",
+      "port": 8007,
+      "tags": [
+        "prometheus-scrape",
+        "phase-3",
+        "ai"
+      ],
+      "meta": {
+        "version": "1.0.0",
+        "phase": "3",
+        "tier": "ai"
+      },
+      "checks": [
+        {
+          "http": "http://ml-prediction:8007/health",
+          "interval": "30s",
+          "timeout": "15s",
+          "deregister_critical_service_after": "5m"
+        }
+      ]
+    },
+    {
+      "id": "sentiment-analysis-1",
+      "name": "sentiment-analysis",
+      "port": 8008,
+      "tags": [
+        "prometheus-scrape",
+        "phase-3",
+        "ai"
+      ],
+      "meta": {
+        "version": "1.0.0",
+        "phase": "3",
+        "tier": "ai"
+      },
+      "checks": [
+        {
+          "http": "http://sentiment-analysis:8008/health",
+          "interval": "30s",
+          "timeout": "10s",
+          "deregister_critical_service_after": "5m"
+        }
+      ]
+    },
+    {
+      "id": "risk-metrics-1",
+      "name": "risk-metrics",
+      "port": 8009,
+      "tags": [
+        "prometheus-scrape",
+        "phase-3",
+        "critical",
+        "analytics"
+      ],
+      "meta": {
+        "version": "1.0.0",
+        "phase": "3",
+        "tier": "analytics"
+      },
+      "checks": [
+        {
+          "http": "http://risk-metrics-service:8009/health",
+          "interval": "15s",
+          "timeout": "5s",
+          "deregister_critical_service_after": "1m"
+        }
+      ]
+    },
+    {
+      "id": "signal-aggregator-1",
+      "name": "signal-aggregator",
+      "port": 8010,
+      "tags": [
+        "prometheus-scrape",
+        "phase-3",
+        "critical",
+        "analytics"
+      ],
+      "meta": {
+        "version": "1.0.0",
+        "phase": "3",
+        "tier": "analytics"
+      },
+      "checks": [
+        {
+          "http": "http://signal-aggregator:8010/health",
+          "interval": "15s",
+          "timeout": "5s",
+          "deregister_critical_service_after": "1m"
+        }
+      ]
+    }
+  ]
+}

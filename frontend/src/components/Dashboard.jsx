@@ -9,10 +9,13 @@ import ActiveTrades from './ActiveTrades'
 import TradeHistory from './TradeHistory'
 import TradingEnhancementsPanel from './TradingEnhancementsPanel'
 import PerformanceAnalyticsPanel from './PerformanceAnalyticsPanel'
+import HybridStrategyPanel from './HybridStrategyPanel'
+import RegimeIndicator from './RegimeIndicator'
 
 /**
  * Dashboard component - Research-Backed Professional Trading Interface
  *
+ * Updated: 2026-01-06 - Added Hybrid Strategy Panel and Regime Indicator
  * Updated: 2025-11-30 - Added Trading Enhancements and Performance Analytics panels
  * Updated: 2025-11-29 - Applied research-backed UI improvements
  *
@@ -23,24 +26,39 @@ import PerformanceAnalyticsPanel from './PerformanceAnalyticsPanel'
  * - Real-time updates (5-second refresh)
  * - Symbol selector for focused analysis
  * - Professional layout hierarchy
+ * - Strategy transparency (hybrid routing visibility)
  *
  * Components included:
  * - KeyMetricsStrip: Essential trading metrics (NEW - Research-backed)
+ * - RegimeIndicator: Live market regime and active strategy (NEW 2026-01-06)
  * - PriceTickerGrid: Real-time price tickers for multiple symbols
  * - TradingSignals: Technical analysis signals with confidence
  * - PriceChart: Interactive price chart with volume visualization
  * - PortfolioCard: Current holdings and balance
  * - EmergencyStop: Safety mechanism to stop all trading
+ * - HybridStrategyPanel: Trend/Mean Reversion routing stats (NEW 2026-01-06)
  * - TradingEnhancementsPanel: Circuit Breaker, Kill Switch, Position Sizer, Smart Executor (NEW 2025-11-30)
  * - PerformanceAnalyticsPanel: Sharpe, Sortino, VaR, CVaR metrics (NEW 2025-11-30)
  */
 
-// Trading pairs supported by the system
-const TRADING_PAIRS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT']
+// Trading pairs supported by the system - EXPANDED TO 11 (2026-01-07)
+const TRADING_PAIRS = [
+  'BTCUSDT',   // Bitcoin - Most liquid
+  'ETHUSDT',   // Ethereum - 2nd most liquid
+  'SOLUSDT',   // Solana - Top performer
+  'BNBUSDT',   // Binance Coin - Top performer
+  'ADAUSDT',   // Cardano - Top performer
+  'AVAXUSDT',  // Avalanche
+  'LINKUSDT',  // Chainlink
+  'DOTUSDT',   // Polkadot
+  'MATICUSDT', // Polygon
+  'ARBUSDT',   // Arbitrum - L2
+  'OPUSDT'     // Optimism - L2
+]
 
 export default function Dashboard() {
   // State for selected chart symbol
-  const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT')
+  const [selectedSymbol, setSelectedSymbol] = useState('SOLUSDT')
 
   return (
     <div className="min-h-screen bg-slate-900 transition-colors duration-200">
@@ -76,8 +94,13 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Symbol Quick Select */}
+            {/* Symbol Quick Select & Regime Indicator */}
             <div className="flex items-center space-x-3">
+              {/* Regime Indicator - NEW 2026-01-06 */}
+              <div className="hidden lg:block">
+                <RegimeIndicator />
+              </div>
+
               <div className="hidden md:flex items-center space-x-2 bg-slate-900/50 rounded-lg px-3 py-1.5 border border-slate-700/50">
                 <span className="text-xs text-slate-400">Chart:</span>
                 <select
@@ -137,6 +160,11 @@ export default function Dashboard() {
           {/* Active Trades - Full width section showing executed trades */}
           <section>
             <ActiveTrades />
+          </section>
+
+          {/* Hybrid Strategy Panel - NEW 2026-01-06: Shows strategy routing and market regime */}
+          <section>
+            <HybridStrategyPanel />
           </section>
 
           {/* Trade History - Closed trades with win/loss statistics */}

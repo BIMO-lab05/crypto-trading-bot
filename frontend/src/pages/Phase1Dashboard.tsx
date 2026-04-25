@@ -127,9 +127,9 @@ const Phase1Dashboard: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch metrics
+      // Fetch metrics (via proxy)
       const metricsResponse = await fetch(
-        `http://localhost:8005/api/v1/phase1/metrics?hours=${timeRange}`
+        `/api/trading/phase1/metrics?hours=${timeRange}`
       );
       const metricsData = await metricsResponse.json();
 
@@ -139,8 +139,8 @@ const Phase1Dashboard: React.FC = () => {
         setError('Failed to fetch metrics');
       }
 
-      // Fetch health
-      const healthResponse = await fetch('http://localhost:8005/api/v1/phase1/health');
+      // Fetch health (via proxy)
+      const healthResponse = await fetch('/api/trading/phase1/health');
       const healthData = await healthResponse.json();
 
       if (healthData.success) {

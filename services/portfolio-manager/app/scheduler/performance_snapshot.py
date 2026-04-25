@@ -88,46 +88,67 @@ class PerformanceSnapshotScheduler:
         """
         Start the scheduler
 
-        Adds the daily snapshot job and starts the scheduler.
+        Adds jobs and starts the scheduler.
+        - Periodic price updates: Always enabled (every 60 seconds)
+        - Daily snapshots: Only if performance_history is available
+
         Safe to call multiple times (won't start if already running).
         """
         if self.is_running:
             logger.warning("Scheduler already running")
             return
 
-        if not self.portfolio_manager or not self.performance_history:
+        if not self.portfolio_manager:
             logger.error(
-                "Cannot start scheduler: services not initialized. "
+                "Cannot start scheduler: portfolio_manager not initialized. "
                 "Call set_services() first."
             )
             return
 
-        # Add daily snapshot job
+        # Add daily snapshot job (only if performance_history is available)
+        if self.performance_history:
+            self.scheduler.add_job(
+                func=self._take_daily_snapshot,
+                trigger=CronTrigger(
+                    hour=self.snapshot_hour,
+                    minute=self.snapshot_minute,
+                    timezone="UTC"
+                ),
+                id='daily_performance_snapshot',
+                name='Daily Performance Snapshot',
+                replace_existing=True,
+                misfire_grace_time=3600  # Allow 1 hour grace for missed jobs
+            )
+            logger.info("Daily snapshot job added")
+        else:
+            logger.warning("Daily snapshot job skipped (performance_history not available)")
+
+        # Add periodic price update job (ALWAYS enabled - every 60 seconds)
+        from apscheduler.triggers.interval import IntervalTrigger
         self.scheduler.add_job(
-            func=self._take_daily_snapshot,
-            trigger=CronTrigger(
-                hour=self.snapshot_hour,
-                minute=self.snapshot_minute,
-                timezone="UTC"
-            ),
-            id='daily_performance_snapshot',
-            name='Daily Performance Snapshot',
+            func=self._update_portfolio_prices,
+            trigger=IntervalTrigger(seconds=60),
+            id='periodic_price_update',
+            name='Periodic Price Update',
             replace_existing=True,
-            misfire_grace_time=3600  # Allow 1 hour grace for missed jobs
+            misfire_grace_time=300  # Allow 5 min grace
         )
+        logger.info("Periodic price update job added (every 60 seconds)")
 
         # Start scheduler
         self.scheduler.start()
         self.is_running = True
 
-        logger.info(
-            f"Performance snapshot scheduler started. "
-            f"Next snapshot at {self.snapshot_hour:02d}:{self.snapshot_minute:02d} UTC"
-        )
+        logger.info("Scheduler started successfully")
 
-        # Log next run time
-        next_run = self.scheduler.get_job('daily_performance_snapshot').next_run_time
-        logger.info(f"Next snapshot scheduled for: {next_run}")
+        # Log next run times
+        if self.performance_history:
+            next_run = self.scheduler.get_job('daily_performance_snapshot').next_run_time
+            logger.info(f"Next snapshot scheduled for: {next_run}")
+
+        price_job = self.scheduler.get_job('periodic_price_update')
+        if price_job:
+            logger.info(f"Next price update at: {price_job.next_run_time}")
 
     async def stop(self) -> None:
         """
@@ -229,7 +250,13 @@ class PerformanceSnapshotScheduler:
         Raises:
             Exception: If snapshot fails
         """
-        # Update portfolio prices first
+        # Sync with Trading Engine to get latest positions
+        logger.info(f"Syncing portfolio {portfolio_id} with Trading Engine")
+        sync_success = await self.portfolio_manager.sync_with_trading_engine(portfolio_id)
+        if not sync_success:
+            logger.warning(f"Failed to sync portfolio {portfolio_id} with Trading Engine")
+
+        # Update portfolio prices
         await self.portfolio_manager.update_prices(portfolio_id)
 
         # Get current portfolio state
@@ -260,6 +287,37 @@ class PerformanceSnapshotScheduler:
             positions_value=positions_value,
             snapshot_type=snapshot_type
         )
+
+    async def _update_portfolio_prices(self) -> None:
+        """
+        Periodic task to update portfolio prices and sync positions
+
+        Runs every 60 seconds to:
+        1. Sync positions with Trading Engine
+        2. Update current prices from Market Data service
+        3. Recalculate unrealized P&L
+        """
+        try:
+            # Get all active portfolios
+            portfolio_ids = await self._get_active_portfolios()
+
+            for portfolio_id in portfolio_ids:
+                try:
+                    # Sync with Trading Engine to get latest positions
+                    sync_success = await self.portfolio_manager.sync_with_trading_engine(portfolio_id)
+                    if sync_success:
+                        logger.debug(f"Synced portfolio {portfolio_id} with Trading Engine")
+
+                    # Update prices for all assets
+                    update_success = await self.portfolio_manager.update_prices(portfolio_id)
+                    if update_success:
+                        logger.debug(f"Updated prices for portfolio {portfolio_id}")
+
+                except Exception as e:
+                    logger.error(f"Error updating portfolio {portfolio_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in periodic price update job: {e}", exc_info=True)
 
     async def _get_active_portfolios(self) -> list[str]:
         """

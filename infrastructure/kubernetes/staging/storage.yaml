@@ -1,0 +1,137 @@
+# Staging Storage - Persistent Volume Claims
+# Version: 1.0
+# Created: 2025-12-12
+#
+# Storage configuration for staging environment
+# Uses smaller sizes compared to production
+
+---
+# PostgreSQL PVC - Main database storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: postgres
+    environment: staging
+  annotations:
+    description: "PostgreSQL data storage for staging"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # Use default storage class or specify explicitly
+  # storageClassName: standard
+
+---
+# TimescaleDB PVC - Time-series market data storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timescale-pvc
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    component: database
+    database: timescaledb
+    environment: staging
+  annotations:
+    description: "TimescaleDB storage for market data in staging"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  # storageClassName: standard
+
+---
+# Redis PVC - Cache and session storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    component: cache
+    database: redis
+    environment: staging
+  annotations:
+    description: "Redis persistent storage for staging"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  # storageClassName: standard
+
+---
+# RabbitMQ PVC - Message queue persistence
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    component: messaging
+    database: rabbitmq
+    environment: staging
+  annotations:
+    description: "RabbitMQ message queue storage for staging"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  # storageClassName: standard
+
+---
+# Prometheus PVC - Metrics storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    environment: staging
+  annotations:
+    description: "Prometheus metrics storage for staging"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: standard
+
+---
+# Grafana PVC - Dashboard and config storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    component: monitoring
+    environment: staging
+  annotations:
+    description: "Grafana storage for staging"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: standard

@@ -23,8 +23,9 @@ from app.indicators.squeeze_momentum import SqueezeMomentumIndicator
 from app.strategies.squeeze_momentum_strategy import SqueezeMomentumStrategy
 
 
-# Test client
-client = TestClient(app)
+# Test client - raise_server_exceptions=False to properly test 500 errors
+# UPDATED 2025-12-03: Required to get proper 500 responses instead of raised exceptions
+client = TestClient(app, raise_server_exceptions=False)
 
 
 @pytest.fixture

@@ -1,0 +1,47 @@
+# Production Kustomization
+# Use: kubectl apply -k infrastructure/production/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: crypto-bot-prod
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets-template.yaml
+  - storage.yaml
+  - databases.yaml
+  - microservices.yaml
+  - monitoring.yaml
+  - autoscaling.yaml
+
+commonLabels:
+  app: crypto-trading-bot
+  environment: production
+  managed-by: kustomize
+
+commonAnnotations:
+  deployment-tool: kustomize
+  source: infrastructure/production
+
+images:
+  - name: crypto-trading-bot/api-gateway
+    newTag: latest
+  - name: crypto-trading-bot/trading-engine
+    newTag: latest
+  - name: crypto-trading-bot/portfolio-manager
+    newTag: latest
+  - name: crypto-trading-bot/technical-analysis
+    newTag: latest
+  - name: crypto-trading-bot/market-data-service
+    newTag: latest
+  - name: crypto-trading-bot/bybit-connector
+    newTag: latest
+  - name: crypto-trading-bot/ml-prediction-service
+    newTag: latest
+  - name: crypto-trading-bot/notification-service
+    newTag: latest
+  - name: crypto-trading-bot/risk-metrics-service
+    newTag: latest
+  - name: crypto-trading-bot/sentiment-analysis-service
+    newTag: latest

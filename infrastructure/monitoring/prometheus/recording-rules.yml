@@ -1,0 +1,451 @@
+# =============================================================================
+# Recording Rules for Crypto Trading Bot
+# Phase 7: High Availability & Advanced Monitoring
+# Version: 1.0.0
+# =============================================================================
+#
+# Recording rules pre-compute expensive queries for faster dashboard loading
+# and more efficient alerting.
+#
+# Naming convention:
+#   - job:metric:aggregation (for job-level aggregations)
+#   - service:metric:aggregation (for service-level aggregations)
+#   - instance:metric:aggregation (for instance-level aggregations)
+
+groups:
+  # ===========================================================================
+  # SERVICE HEALTH RECORDING RULES
+  # ===========================================================================
+  - name: service_health_recording
+    interval: 15s
+    rules:
+      # Request rate by service (5m window)
+      - record: service:http_requests:rate5m
+        expr: |
+          sum(rate(http_requests_total[5m])) by (job, service)
+
+      # Error rate by service (5m window)
+      - record: service:http_errors:rate5m
+        expr: |
+          sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (job, service)
+
+      # Error percentage by service
+      - record: service:http_error_percentage:ratio5m
+        expr: |
+          (service:http_errors:rate5m / service:http_requests:rate5m) * 100
+
+      # P50 latency by service
+      - record: service:http_latency_p50:seconds
+        expr: |
+          histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job, service))
+
+      # P95 latency by service
+      - record: service:http_latency_p95:seconds
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job, service))
+
+      # P99 latency by service
+      - record: service:http_latency_p99:seconds
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job, service))
+
+      # Average latency by service
+      - record: service:http_latency_avg:seconds
+        expr: |
+          sum(rate(http_request_duration_seconds_sum[5m])) by (job, service)
+          /
+          sum(rate(http_request_duration_seconds_count[5m])) by (job, service)
+
+      # Service availability (up/down ratio over 5m)
+      - record: service:availability:ratio5m
+        expr: |
+          avg_over_time(up[5m])
+
+      # Healthy services count
+      - record: cluster:healthy_services:count
+        expr: |
+          sum(up == 1)
+
+      # Total services count
+      - record: cluster:total_services:count
+        expr: |
+          count(up)
+
+      # Cluster health percentage
+      - record: cluster:health_percentage:ratio
+        expr: |
+          (cluster:healthy_services:count / cluster:total_services:count) * 100
+
+  # ===========================================================================
+  # TRADING METRICS RECORDING RULES
+  # ===========================================================================
+  - name: trading_metrics_recording
+    interval: 15s
+    rules:
+      # Trades per minute
+      - record: trading:trades:rate1m
+        expr: |
+          sum(rate(trades_executed_total[1m]))
+
+      # Trades per hour
+      - record: trading:trades:rate1h
+        expr: |
+          sum(increase(trades_executed_total[1h]))
+
+      # Trades per day
+      - record: trading:trades:rate24h
+        expr: |
+          sum(increase(trades_executed_total[24h]))
+
+      # Trade volume per hour (USD)
+      - record: trading:volume_usd:sum1h
+        expr: |
+          sum(increase(trade_volume_usd[1h]))
+
+      # Trade volume per day (USD)
+      - record: trading:volume_usd:sum24h
+        expr: |
+          sum(increase(trade_volume_usd[24h]))
+
+      # Win rate (1h window)
+      - record: trading:win_rate:ratio1h
+        expr: |
+          sum(increase(trades_winning_total[1h]))
+          /
+          sum(increase(trades_executed_total[1h]))
+
+      # Win rate (24h window)
+      - record: trading:win_rate:ratio24h
+        expr: |
+          sum(increase(trades_winning_total[24h]))
+          /
+          sum(increase(trades_executed_total[24h]))
+
+      # Average profit per winning trade (1h)
+      - record: trading:avg_profit_per_win:usd1h
+        expr: |
+          sum(increase(trades_profit_usd{result="win"}[1h]))
+          /
+          sum(increase(trades_winning_total[1h]))
+
+      # Average loss per losing trade (1h)
+      - record: trading:avg_loss_per_loss:usd1h
+        expr: |
+          sum(increase(trades_loss_usd{result="loss"}[1h]))
+          /
+          (sum(increase(trades_executed_total[1h])) - sum(increase(trades_winning_total[1h])))
+
+      # Trade execution latency P99
+      - record: trading:execution_latency_p99:seconds
+        expr: |
+          histogram_quantile(0.99, sum(rate(trade_execution_duration_seconds_bucket[5m])) by (le))
+
+      # Trade execution latency P50
+      - record: trading:execution_latency_p50:seconds
+        expr: |
+          histogram_quantile(0.50, sum(rate(trade_execution_duration_seconds_bucket[5m])) by (le))
+
+      # Order fill rate
+      - record: trading:order_fill_rate:ratio1h
+        expr: |
+          sum(increase(orders_filled_total[1h]))
+          /
+          sum(increase(orders_placed_total[1h]))
+
+      # Order rejection rate
+      - record: trading:order_rejection_rate:ratio1h
+        expr: |
+          sum(increase(orders_rejected_total[1h]))
+          /
+          sum(increase(orders_placed_total[1h]))
+
+      # Trades by symbol (1h)
+      - record: trading:trades_by_symbol:count1h
+        expr: |
+          sum(increase(trades_executed_total[1h])) by (symbol)
+
+      # Volume by symbol (1h)
+      - record: trading:volume_by_symbol:usd1h
+        expr: |
+          sum(increase(trade_volume_usd[1h])) by (symbol)
+
+  # ===========================================================================
+  # PORTFOLIO METRICS RECORDING RULES
+  # ===========================================================================
+  - name: portfolio_metrics_recording
+    interval: 30s
+    rules:
+      # Portfolio value change (1h)
+      - record: portfolio:value_change:usd1h
+        expr: |
+          portfolio_value_usd - portfolio_value_usd offset 1h
+
+      # Portfolio value change percentage (1h)
+      - record: portfolio:value_change_pct:ratio1h
+        expr: |
+          (portfolio_value_usd - portfolio_value_usd offset 1h)
+          /
+          (portfolio_value_usd offset 1h) * 100
+
+      # Portfolio value change (24h)
+      - record: portfolio:value_change:usd24h
+        expr: |
+          portfolio_value_usd - portfolio_value_usd offset 24h
+
+      # Portfolio value change percentage (24h)
+      - record: portfolio:value_change_pct:ratio24h
+        expr: |
+          (portfolio_value_usd - portfolio_value_usd offset 24h)
+          /
+          (portfolio_value_usd offset 24h) * 100
+
+      # Maximum drawdown (rolling 24h)
+      - record: portfolio:max_drawdown:pct24h
+        expr: |
+          (max_over_time(portfolio_value_usd[24h]) - portfolio_value_usd)
+          /
+          max_over_time(portfolio_value_usd[24h]) * 100
+
+      # Position count by side
+      - record: portfolio:positions_by_side:count
+        expr: |
+          sum(active_positions_count) by (side)
+
+      # Total position value
+      - record: portfolio:total_position_value:usd
+        expr: |
+          sum(position_value_usd)
+
+      # Average position size
+      - record: portfolio:avg_position_size:usd
+        expr: |
+          avg(position_value_usd)
+
+      # Largest position
+      - record: portfolio:largest_position:usd
+        expr: |
+          max(position_value_usd)
+
+      # Portfolio leverage
+      - record: portfolio:leverage:ratio
+        expr: |
+          sum(position_value_usd) / portfolio_equity_usd
+
+      # Unrealized PnL
+      - record: portfolio:unrealized_pnl:usd
+        expr: |
+          sum(position_unrealized_pnl_usd)
+
+      # Realized PnL (24h)
+      - record: portfolio:realized_pnl:usd24h
+        expr: |
+          sum(increase(realized_pnl_usd_total[24h]))
+
+  # ===========================================================================
+  # RISK METRICS RECORDING RULES
+  # ===========================================================================
+  - name: risk_metrics_recording
+    interval: 30s
+    rules:
+      # Portfolio beta (rolling calculation)
+      - record: risk:portfolio_beta:ratio
+        expr: |
+          portfolio_beta_coefficient
+
+      # Portfolio correlation average
+      - record: risk:avg_correlation:ratio
+        expr: |
+          avg(portfolio_pairwise_correlation)
+
+      # Concentration risk (Herfindahl index)
+      - record: risk:concentration_hhi:ratio
+        expr: |
+          sum(
+            (position_value_usd / sum(position_value_usd)) ^ 2
+          )
+
+      # Risk-adjusted return (Sharpe approximation)
+      - record: risk:sharpe_approx:ratio24h
+        expr: |
+          (portfolio:value_change_pct:ratio24h / 100)
+          /
+          stddev_over_time(portfolio_value_usd[24h]) * sqrt(365)
+
+      # Value at Risk approximation (95%)
+      - record: risk:var_95:usd
+        expr: |
+          portfolio_value_usd * 0.0165 * 1.65  # Assuming ~1.65% daily vol
+
+      # Maximum loss potential
+      - record: risk:max_loss_potential:usd
+        expr: |
+          sum(position_value_usd * position_stop_loss_pct / 100)
+
+      # Exposure by asset class
+      - record: risk:exposure_by_class:usd
+        expr: |
+          sum(position_value_usd) by (asset_class)
+
+      # Long/Short ratio
+      - record: risk:long_short_ratio:ratio
+        expr: |
+          sum(position_value_usd{side="long"})
+          /
+          sum(position_value_usd{side="short"})
+
+  # ===========================================================================
+  # INFRASTRUCTURE METRICS RECORDING RULES
+  # ===========================================================================
+  - name: infrastructure_metrics_recording
+    interval: 30s
+    rules:
+      # CPU usage average by instance
+      - record: instance:cpu_usage:avg5m
+        expr: |
+          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+      # Memory usage percentage by instance
+      - record: instance:memory_usage:pct
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+      # Disk usage percentage by instance
+      - record: instance:disk_usage:pct
+        expr: |
+          (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100
+
+      # Network bytes in/out rate
+      - record: instance:network_bytes_in:rate5m
+        expr: |
+          rate(node_network_receive_bytes_total[5m])
+
+      - record: instance:network_bytes_out:rate5m
+        expr: |
+          rate(node_network_transmit_bytes_total[5m])
+
+      # Container CPU usage
+      - record: container:cpu_usage:pct
+        expr: |
+          rate(container_cpu_usage_seconds_total[5m]) * 100
+
+      # Container memory usage percentage
+      - record: container:memory_usage:pct
+        expr: |
+          (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100
+
+      # Container restart count (1h)
+      - record: container:restarts:count1h
+        expr: |
+          increase(container_restart_count[1h])
+
+  # ===========================================================================
+  # DATABASE METRICS RECORDING RULES
+  # ===========================================================================
+  - name: database_metrics_recording
+    interval: 30s
+    rules:
+      # PostgreSQL connections percentage
+      - record: postgres:connections:pct
+        expr: |
+          (sum(pg_stat_activity_count) / sum(pg_settings_max_connections)) * 100
+
+      # PostgreSQL query rate
+      - record: postgres:queries:rate5m
+        expr: |
+          sum(rate(pg_stat_statements_calls_total[5m]))
+
+      # PostgreSQL average query time
+      - record: postgres:query_time_avg:seconds
+        expr: |
+          rate(pg_stat_statements_seconds_total[5m])
+          /
+          rate(pg_stat_statements_calls_total[5m])
+
+      # PostgreSQL transaction rate
+      - record: postgres:transactions:rate5m
+        expr: |
+          sum(rate(pg_stat_database_xact_commit[5m]) + rate(pg_stat_database_xact_rollback[5m]))
+
+      # PostgreSQL rollback rate
+      - record: postgres:rollbacks:rate5m
+        expr: |
+          sum(rate(pg_stat_database_xact_rollback[5m]))
+
+      # Redis operations per second
+      - record: redis:ops:rate5m
+        expr: |
+          sum(rate(redis_commands_processed_total[5m]))
+
+      # Redis hit rate
+      - record: redis:hit_rate:ratio5m
+        expr: |
+          sum(rate(redis_keyspace_hits_total[5m]))
+          /
+          (sum(rate(redis_keyspace_hits_total[5m])) + sum(rate(redis_keyspace_misses_total[5m])))
+
+      # Redis memory usage percentage
+      - record: redis:memory_usage:pct
+        expr: |
+          (redis_memory_used_bytes / redis_memory_max_bytes) * 100
+
+      # RabbitMQ messages total across queues
+      - record: rabbitmq:messages:total
+        expr: |
+          sum(rabbitmq_queue_messages)
+
+      # RabbitMQ publish rate
+      - record: rabbitmq:publish:rate5m
+        expr: |
+          sum(rate(rabbitmq_channel_messages_published_total[5m]))
+
+      # RabbitMQ consume rate
+      - record: rabbitmq:consume:rate5m
+        expr: |
+          sum(rate(rabbitmq_channel_messages_delivered_total[5m]))
+
+  # ===========================================================================
+  # API GATEWAY METRICS RECORDING RULES
+  # ===========================================================================
+  - name: api_gateway_metrics_recording
+    interval: 15s
+    rules:
+      # Requests per second by endpoint
+      - record: api:requests_by_endpoint:rate5m
+        expr: |
+          sum(rate(http_requests_total[5m])) by (endpoint, method)
+
+      # Requests per second by status code
+      - record: api:requests_by_status:rate5m
+        expr: |
+          sum(rate(http_requests_total[5m])) by (status_code)
+
+      # 2xx success rate
+      - record: api:success_rate:ratio5m
+        expr: |
+          sum(rate(http_requests_total{status_code=~"2.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m]))
+
+      # Rate limit hits
+      - record: api:rate_limit_hits:rate5m
+        expr: |
+          sum(rate(http_requests_total{status_code="429"}[5m]))
+
+      # Authentication failures
+      - record: api:auth_failures:rate5m
+        expr: |
+          sum(rate(http_requests_total{status_code="401"}[5m]))
+
+      # Top endpoints by request count
+      - record: api:top_endpoints:count5m
+        expr: |
+          topk(10, sum(increase(http_requests_total[5m])) by (endpoint))
+
+      # Slowest endpoints (P99)
+      - record: api:slowest_endpoints_p99:seconds
+        expr: |
+          topk(10,
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, endpoint)
+            )
+          )

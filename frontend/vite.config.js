@@ -64,6 +64,14 @@ export default defineConfig({
         timeout: 10000,
         rewrite: (path) => path.replace(/^\/api\/trading\/trades/, '/api/v1/trades'),
       },
+      // Phase 1 metrics and monitoring - maps to /api/v1/phase1/* (port 8005)
+      '/api/trading/phase1': {
+        target: 'http://localhost:8005',
+        changeOrigin: true,
+        secure: false,
+        timeout: 10000,
+        rewrite: (path) => path.replace(/^\/api\/trading\/phase1/, '/api/v1/phase1'),
+      },
       // Trading status/start/stop - maps to /api/v1/trading/* (port 8005)
       '/api/trading': {
         target: 'http://localhost:8005',

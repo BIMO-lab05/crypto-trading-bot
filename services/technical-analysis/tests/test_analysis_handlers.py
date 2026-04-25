@@ -112,7 +112,12 @@ class TestGetAggregatedSignal:
 
     @pytest.mark.asyncio
     async def test_aggregated_signal_rsi_oversold(self):
-        """Test signal when RSI indicates oversold (<30)"""
+        """Test signal when RSI indicates oversold (<20)
+
+        UPDATED 2025-12-03: Fixed datetime generation (hours must be 0-23).
+        Use timedelta to generate valid timestamps spanning multiple days.
+        """
+        from datetime import timedelta
         # Create data that will produce low RSI
         mock_df = pd.DataFrame({
             'open': [100] * 50,
@@ -121,7 +126,7 @@ class TestGetAggregatedSignal:
             'close': list(range(100, 50, -1)),  # Declining prices
             'volume': [1000] * 50
         }, index=pd.DatetimeIndex([
-            datetime(2024, 1, 1, i) for i in range(50)
+            datetime(2024, 1, 1) + timedelta(hours=i) for i in range(50)
         ]))
 
         with patch('app.handlers.analysis.get_fetcher') as mock_get_fetcher:
@@ -138,7 +143,12 @@ class TestGetAggregatedSignal:
 
     @pytest.mark.asyncio
     async def test_aggregated_signal_rsi_overbought(self):
-        """Test signal when RSI indicates overbought (>70)"""
+        """Test signal when RSI indicates overbought (>80)
+
+        UPDATED 2025-12-03: Fixed datetime generation (hours must be 0-23).
+        Use timedelta to generate valid timestamps spanning multiple days.
+        """
+        from datetime import timedelta
         # Create data that will produce high RSI
         mock_df = pd.DataFrame({
             'open': [100] * 50,
@@ -147,7 +157,7 @@ class TestGetAggregatedSignal:
             'close': list(range(50, 100)),  # Rising prices
             'volume': [1000] * 50
         }, index=pd.DatetimeIndex([
-            datetime(2024, 1, 1, i) for i in range(50)
+            datetime(2024, 1, 1) + timedelta(hours=i) for i in range(50)
         ]))
 
         with patch('app.handlers.analysis.get_fetcher') as mock_get_fetcher:
@@ -232,7 +242,11 @@ class TestGetMultiTimeframeAnalysis:
 
     @pytest.mark.asyncio
     async def test_multi_timeframe_alignment_strong_buy(self):
-        """Test when all timeframes agree on BUY"""
+        """Test when all timeframes agree on BUY
+
+        UPDATED 2025-12-03: Fixed datetime generation (hours must be 0-23).
+        """
+        from datetime import timedelta
         # Mock bullish data
         mock_df = pd.DataFrame({
             'open': [100] * 50,
@@ -241,7 +255,7 @@ class TestGetMultiTimeframeAnalysis:
             'close': list(range(50, 100)),  # Strong uptrend
             'volume': [1000] * 50
         }, index=pd.DatetimeIndex([
-            datetime(2024, 1, 1, i) for i in range(50)
+            datetime(2024, 1, 1) + timedelta(hours=i) for i in range(50)
         ]))
 
         with patch('app.handlers.analysis.get_fetcher') as mock_get_fetcher:
@@ -260,7 +274,11 @@ class TestGetMultiTimeframeAnalysis:
 
     @pytest.mark.asyncio
     async def test_multi_timeframe_alignment_strong_sell(self):
-        """Test when all timeframes agree on SELL"""
+        """Test when all timeframes agree on SELL
+
+        UPDATED 2025-12-03: Fixed datetime generation (hours must be 0-23).
+        """
+        from datetime import timedelta
         # Mock bearish data
         mock_df = pd.DataFrame({
             'open': [100] * 50,
@@ -269,7 +287,7 @@ class TestGetMultiTimeframeAnalysis:
             'close': list(range(100, 50, -1)),  # Strong downtrend
             'volume': [1000] * 50
         }, index=pd.DatetimeIndex([
-            datetime(2024, 1, 1, i) for i in range(50)
+            datetime(2024, 1, 1) + timedelta(hours=i) for i in range(50)
         ]))
 
         with patch('app.handlers.analysis.get_fetcher') as mock_get_fetcher:
@@ -344,7 +362,11 @@ class TestGetMultiTimeframeAnalysis:
 
     @pytest.mark.asyncio
     async def test_multi_timeframe_recommendation_strong(self):
-        """Test recommendation text for strong alignment"""
+        """Test recommendation text for strong alignment
+
+        UPDATED 2025-12-03: Fixed datetime generation (hours must be 0-23).
+        """
+        from datetime import timedelta
         mock_df = pd.DataFrame({
             'open': [100] * 50,
             'high': [105] * 50,
@@ -352,7 +374,7 @@ class TestGetMultiTimeframeAnalysis:
             'close': list(range(50, 100)),
             'volume': [1000] * 50
         }, index=pd.DatetimeIndex([
-            datetime(2024, 1, 1, i) for i in range(50)
+            datetime(2024, 1, 1) + timedelta(hours=i) for i in range(50)
         ]))
 
         with patch('app.handlers.analysis.get_fetcher') as mock_get_fetcher:

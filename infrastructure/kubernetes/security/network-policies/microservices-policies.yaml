@@ -1,0 +1,782 @@
+# Network Policies for Microservices
+# Define allowed communication paths between services
+# Version: 1.0
+# Created: 2025-12-12
+#
+# Architecture:
+# External -> API Gateway -> Internal Services -> Databases
+# Internal services can only communicate with their required dependencies
+
+---
+# API Gateway Network Policy
+# Entry point - accepts external traffic, routes to internal services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: api-gateway
+spec:
+  podSelector:
+    matchLabels:
+      service: api-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from ingress controller (external traffic)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow from monitoring (Prometheus scraping)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # Allow to all internal services
+    - to:
+        - podSelector:
+            matchLabels:
+              app: crypto-trading-bot
+      ports:
+        - protocol: TCP
+          port: 8001  # bybit-connector
+        - protocol: TCP
+          port: 8002  # market-data-service
+        - protocol: TCP
+          port: 8003  # portfolio-manager
+        - protocol: TCP
+          port: 8004  # technical-analysis
+        - protocol: TCP
+          port: 8005  # trading-engine
+        - protocol: TCP
+          port: 8006  # notification-service
+        - protocol: TCP
+          port: 8007  # ml-prediction-service
+        - protocol: TCP
+          port: 8008  # risk-metrics-service
+        - protocol: TCP
+          port: 8009  # sentiment-analysis-service
+    # Allow to Redis for caching
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+---
+# Trading Engine Network Policy
+# Core service - needs access to most other services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trading-engine-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: trading-engine
+spec:
+  podSelector:
+    matchLabels:
+      service: trading-engine
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only from API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8005
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8005
+  egress:
+    # To Bybit connector (execute trades)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: bybit-connector
+      ports:
+        - protocol: TCP
+          port: 8001
+    # To Portfolio Manager (position management)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: portfolio-manager
+      ports:
+        - protocol: TCP
+          port: 8003
+    # To Technical Analysis (signals)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: technical-analysis
+      ports:
+        - protocol: TCP
+          port: 8004
+    # To Risk Metrics (risk checks)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: risk-metrics-service
+      ports:
+        - protocol: TCP
+          port: 8008
+    # To ML Prediction (predictions)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: ml-prediction-service
+      ports:
+        - protocol: TCP
+          port: 8007
+    # To Notification Service (alerts)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: notification-service
+      ports:
+        - protocol: TCP
+          port: 8006
+    # To PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              service: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # To Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # To RabbitMQ
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+
+---
+# Bybit Connector Network Policy
+# Needs external access to Bybit API
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bybit-connector-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: bybit-connector
+spec:
+  podSelector:
+    matchLabels:
+      service: bybit-connector
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Trading Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              service: trading-engine
+      ports:
+        - protocol: TCP
+          port: 8001
+    # From Portfolio Manager
+    - from:
+        - podSelector:
+            matchLabels:
+              service: portfolio-manager
+      ports:
+        - protocol: TCP
+          port: 8001
+    # From Market Data Service
+    - from:
+        - podSelector:
+            matchLabels:
+              service: market-data-service
+      ports:
+        - protocol: TCP
+          port: 8001
+    # From API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8001
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8001
+  egress:
+    # EXTERNAL: Allow access to Bybit API
+    # Bybit testnet: api-testnet.bybit.com
+    # Bybit mainnet: api.bybit.com
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8       # Private network
+              - 172.16.0.0/12    # Private network
+              - 192.168.0.0/16   # Private network
+      ports:
+        - protocol: TCP
+          port: 443
+    # To Redis for caching
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # To RabbitMQ for events
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+
+---
+# Market Data Service Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: market-data-service-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: market-data-service
+spec:
+  podSelector:
+    matchLabels:
+      service: market-data-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Technical Analysis
+    - from:
+        - podSelector:
+            matchLabels:
+              service: technical-analysis
+      ports:
+        - protocol: TCP
+          port: 8002
+    # From ML Prediction
+    - from:
+        - podSelector:
+            matchLabels:
+              service: ml-prediction-service
+      ports:
+        - protocol: TCP
+          port: 8002
+    # From API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8002
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8002
+  egress:
+    # To Bybit Connector (market data)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: bybit-connector
+      ports:
+        - protocol: TCP
+          port: 8001
+    # To TimescaleDB (data storage)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: timescale
+      ports:
+        - protocol: TCP
+          port: 5432
+    # To Redis (caching)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # To RabbitMQ (events)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+
+---
+# Technical Analysis Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: technical-analysis-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: technical-analysis
+spec:
+  podSelector:
+    matchLabels:
+      service: technical-analysis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Trading Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              service: trading-engine
+      ports:
+        - protocol: TCP
+          port: 8004
+    # From API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8004
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8004
+  egress:
+    # To Market Data Service
+    - to:
+        - podSelector:
+            matchLabels:
+              service: market-data-service
+      ports:
+        - protocol: TCP
+          port: 8002
+    # To Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # To RabbitMQ
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+
+---
+# Portfolio Manager Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: portfolio-manager-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: portfolio-manager
+spec:
+  podSelector:
+    matchLabels:
+      service: portfolio-manager
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Trading Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              service: trading-engine
+      ports:
+        - protocol: TCP
+          port: 8003
+    # From Risk Metrics Service
+    - from:
+        - podSelector:
+            matchLabels:
+              service: risk-metrics-service
+      ports:
+        - protocol: TCP
+          port: 8003
+    # From API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8003
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8003
+  egress:
+    # To Bybit Connector (balance, positions)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: bybit-connector
+      ports:
+        - protocol: TCP
+          port: 8001
+    # To PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              service: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # To Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # To RabbitMQ
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+
+---
+# ML Prediction Service Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ml-prediction-service-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: ml-prediction-service
+spec:
+  podSelector:
+    matchLabels:
+      service: ml-prediction-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Trading Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              service: trading-engine
+      ports:
+        - protocol: TCP
+          port: 8007
+    # From API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8007
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8007
+  egress:
+    # To Market Data Service (historical data)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: market-data-service
+      ports:
+        - protocol: TCP
+          port: 8002
+    # To Redis (caching)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # To RabbitMQ
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+
+---
+# Risk Metrics Service Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: risk-metrics-service-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: risk-metrics-service
+spec:
+  podSelector:
+    matchLabels:
+      service: risk-metrics-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Trading Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              service: trading-engine
+      ports:
+        - protocol: TCP
+          port: 8008
+    # From API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8008
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8008
+  egress:
+    # To Portfolio Manager
+    - to:
+        - podSelector:
+            matchLabels:
+              service: portfolio-manager
+      ports:
+        - protocol: TCP
+          port: 8003
+    # To PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              service: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # To Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+---
+# Notification Service Network Policy
+# Can send external notifications (email, Telegram)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: notification-service-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: notification-service
+spec:
+  podSelector:
+    matchLabels:
+      service: notification-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From Trading Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              service: trading-engine
+      ports:
+        - protocol: TCP
+          port: 8006
+    # From API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8006
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8006
+  egress:
+    # EXTERNAL: Allow access to notification APIs
+    # Telegram API, SMTP servers, etc.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443  # HTTPS
+        - protocol: TCP
+          port: 587  # SMTP TLS
+        - protocol: TCP
+          port: 465  # SMTP SSL
+    # To RabbitMQ (event subscription)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+
+---
+# Sentiment Analysis Service Network Policy
+# Needs external access for social media APIs
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentiment-analysis-service-policy
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    service: sentiment-analysis-service
+spec:
+  podSelector:
+    matchLabels:
+      service: sentiment-analysis-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From API Gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              service: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8009
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8009
+  egress:
+    # EXTERNAL: Access to social media APIs
+    # Twitter, Reddit, NewsAPI, etc.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # To Redis (caching)
+    - to:
+        - podSelector:
+            matchLabels:
+              service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # To RabbitMQ
+    - to:
+        - podSelector:
+            matchLabels:
+              service: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672

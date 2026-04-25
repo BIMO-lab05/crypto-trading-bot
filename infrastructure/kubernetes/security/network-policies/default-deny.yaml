@@ -1,0 +1,136 @@
+# Default Deny Network Policies
+# Block all traffic by default, then allow only necessary communication
+# Version: 1.0
+# Created: 2025-12-12
+#
+# IMPORTANT: Apply these policies FIRST before any allow policies
+# This implements zero-trust networking within the cluster
+
+---
+# Default Deny All Ingress - Staging
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    environment: staging
+    policy-type: default-deny
+  annotations:
+    description: "Deny all inbound traffic by default"
+spec:
+  podSelector: {}  # Applies to all pods in namespace
+  policyTypes:
+    - Ingress
+
+---
+# Default Deny All Egress - Staging
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    environment: staging
+    policy-type: default-deny
+  annotations:
+    description: "Deny all outbound traffic by default"
+spec:
+  podSelector: {}  # Applies to all pods in namespace
+  policyTypes:
+    - Egress
+
+---
+# Default Deny All Ingress - Production
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    environment: production
+    policy-type: default-deny
+  annotations:
+    description: "Deny all inbound traffic by default"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Default Deny All Egress - Production
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    environment: production
+    policy-type: default-deny
+  annotations:
+    description: "Deny all outbound traffic by default"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+
+---
+# Allow DNS resolution for all pods - Staging
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: trading-bot-staging
+  labels:
+    app: crypto-trading-bot
+    environment: staging
+    policy-type: allow-essential
+  annotations:
+    description: "Allow DNS resolution for service discovery"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS queries to kube-dns/CoreDNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# Allow DNS resolution for all pods - Production
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: crypto-bot
+  labels:
+    app: crypto-trading-bot
+    environment: production
+    policy-type: allow-essential
+  annotations:
+    description: "Allow DNS resolution for service discovery"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
