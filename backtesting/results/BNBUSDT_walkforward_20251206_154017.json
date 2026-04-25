@@ -1,0 +1,88 @@
+{
+  "config": {
+    "total_periods": 5,
+    "in_sample_ratio": 0.7,
+    "metric_to_optimize": "sharpe_ratio"
+  },
+  "aggregate_metrics": {
+    "average_wfe": -1022.257,
+    "median_wfe": -849.108,
+    "worst_wfe": -1724.464,
+    "best_wfe": -666.348
+  },
+  "out_of_sample_performance": {
+    "sharpe_ratio": -8.178,
+    "total_profit": 0.22,
+    "max_drawdown": 0.106,
+    "win_rate": 54.444
+  },
+  "consistency": {
+    "profitable_periods": 2,
+    "total_periods": 5,
+    "consistency_ratio": 0.4
+  },
+  "is_robust": "False",
+  "periods": [
+    {
+      "period": 1,
+      "is_dates": "2025-09-07 to 2025-09-18",
+      "oos_dates": "2025-09-18 to 2025-09-24",
+      "optimal_params": {
+        "rsi_period": 10,
+        "oversold": 35,
+        "overbought": 70
+      },
+      "is_sharpe": -13.563,
+      "oos_sharpe": -10.141,
+      "wfe": -1014.05
+    },
+    {
+      "period": 2,
+      "is_dates": "2025-09-23 to 2025-10-04",
+      "oos_dates": "2025-10-04 to 2025-10-10",
+      "optimal_params": {},
+      "is_sharpe": 0,
+      "oos_sharpe": 0,
+      "wfe": 0.0
+    },
+    {
+      "period": 3,
+      "is_dates": "2025-10-09 to 2025-10-20",
+      "oos_dates": "2025-10-20 to 2025-10-26",
+      "optimal_params": {
+        "rsi_period": 10,
+        "oversold": 25,
+        "overbought": 70
+      },
+      "is_sharpe": -3.903,
+      "oos_sharpe": -6.842,
+      "wfe": -684.166
+    },
+    {
+      "period": 4,
+      "is_dates": "2025-10-25 to 2025-11-05",
+      "oos_dates": "2025-11-05 to 2025-11-11",
+      "optimal_params": {
+        "rsi_period": 10,
+        "oversold": 35,
+        "overbought": 65
+      },
+      "is_sharpe": -7.719,
+      "oos_sharpe": -6.663,
+      "wfe": -666.348
+    },
+    {
+      "period": 5,
+      "is_dates": "2025-11-10 to 2025-11-21",
+      "oos_dates": "2025-11-21 to 2025-11-27",
+      "optimal_params": {
+        "rsi_period": 10,
+        "oversold": 25,
+        "overbought": 75
+      },
+      "is_sharpe": -6.454,
+      "oos_sharpe": -17.245,
+      "wfe": -1724.464
+    }
+  ]
+}

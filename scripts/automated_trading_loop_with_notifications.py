@@ -68,8 +68,8 @@ class TradingConfig:
     daily_loss_limit_pct: float = 5.0  # Stop if daily loss exceeds 5%
     max_total_exposure_pct: float = 20.0  # Max 20% total portfolio exposure
 
-    # Signal requirements
-    min_confidence: float = 0.65  # Minimum signal confidence to trade
+    # Signal requirements - ADJUSTED 2026-02-25: Lowered from 0.65 to 0.40 to enable trading
+    min_confidence: float = 0.40  # Minimum signal confidence to trade (40% - balanced for current market)
     require_consensus: bool = True  # Require multiple indicators to agree
 
     # Trading mode
@@ -261,13 +261,14 @@ class TradingBot:
                 logger.warning(f"Failed to get signal for {symbol}")
                 return
 
-            # Evaluate signal
-            action = self._evaluate_signal(signal)
-            logger.info(f"{symbol} signal: {action} (confidence: {signal.get('confidence', 0):.2%})")
+            # Evaluate signal with detailed diagnostics
+            action = self._evaluate_signal(symbol, signal)
 
             # Execute trade if appropriate
             if action in ["BUY", "SELL"]:
                 await self._execute_trade(symbol, action, current_price, signal, portfolio)
+            else:
+                logger.info(f"✋ {symbol}: No trade executed - {action}")
 
         except Exception as e:
             logger.error(f"Error processing {symbol}: {e}", exc_info=True)
@@ -309,26 +310,143 @@ class TradingBot:
             logger.error(f"Error fetching signal for {symbol}: {e}")
             return None
 
-    def _evaluate_signal(self, signal: Dict) -> str:
-        """Evaluate trading signal and decide action"""
+    def _evaluate_signal(self, symbol: str, signal: Dict) -> str:
+        """
+        Evaluate trading signal and decide action with detailed diagnostics
+
+        Args:
+            symbol: Trading symbol
+            signal: Signal data from trading engine
+
+        Returns:
+            Action to take: BUY, SELL, or HOLD
+        """
         if not signal:
+            logger.warning(f"⚠️  {symbol}: No signal data received")
             return "HOLD"
 
-        signal_type = signal.get('signal', 'HOLD')
+        # Extract signal details
+        signal_action = signal.get('action', 'HOLD')
         confidence = signal.get('confidence', 0)
-        consensus = signal.get('consensus_strength', 0)
+        aggregated_score = signal.get('aggregated_score', 0)
+        consensus_count = signal.get('consensus_count', 0)
+        indicators = signal.get('indicators', {})
+        metadata = signal.get('metadata', {})
 
-        # Check minimum confidence
-        if confidence < self.config.min_confidence:
-            logger.debug(f"Signal confidence {confidence:.2%} below minimum {self.config.min_confidence:.2%}")
+        # Get thresholds from metadata or use config
+        min_confidence = metadata.get('min_confidence_required', self.config.min_confidence)
+        min_consensus = metadata.get('min_consensus_required', 3)
+
+        # Print detailed signal diagnostics
+        logger.info("=" * 80)
+        logger.info(f"📊 SIGNAL DIAGNOSTICS FOR {symbol}")
+        logger.info("=" * 80)
+        logger.info(f"Current Price: ${signal.get('metadata', {}).get('current_price', 'N/A')}")
+        logger.info(f"Signal Action: {signal_action}")
+        logger.info(f"Aggregated Score: {aggregated_score:.3f}")
+        logger.info(f"Confidence: {confidence:.1%} (min required: {min_confidence:.1%})")
+        logger.info(f"Consensus: {consensus_count} indicators (min required: {min_consensus})")
+        logger.info("-" * 80)
+
+        # Show individual indicators
+        logger.info("📈 INDIVIDUAL INDICATORS:")
+        buy_count = 0
+        sell_count = 0
+        hold_count = 0
+
+        for name, data in indicators.items():
+            if name == 'ATR':  # Skip ATR as it's not a signal
+                continue
+
+            ind_signal = data.get('signal', 'HOLD')
+            ind_confidence = data.get('confidence', 0)
+            ind_value = data.get('value', 'N/A')
+            ind_metadata = data.get('metadata', {})
+
+            # Count votes
+            if ind_signal == 'BUY':
+                buy_count += 1
+                emoji = "🟢"
+            elif ind_signal == 'SELL':
+                sell_count += 1
+                emoji = "🔴"
+            else:
+                hold_count += 1
+                emoji = "⚪"
+
+            # Format metadata highlights
+            highlights = []
+            if 'weight' in ind_metadata:
+                highlights.append(f"weight: {ind_metadata['weight']}x")
+            if 'role' in ind_metadata:
+                highlights.append(f"role: {ind_metadata['role']}")
+            if 'trend' in ind_metadata:
+                highlights.append(f"trend: {ind_metadata['trend']}")
+            if 'confirmed' in ind_metadata:
+                highlights.append(f"confirmed: {ind_metadata['confirmed']}")
+
+            meta_str = f" [{', '.join(highlights)}]" if highlights else ""
+
+            logger.info(f"  {emoji} {name:20s}: {ind_signal:4s} (conf: {ind_confidence:5.1%}) {meta_str}")
+
+        logger.info("-" * 80)
+        logger.info(f"📊 VOTE SUMMARY: 🟢 BUY: {buy_count} | 🔴 SELL: {sell_count} | ⚪ HOLD: {hold_count}")
+        logger.info("-" * 80)
+
+        # Check requirements with detailed feedback
+        reasons_to_hold = []
+
+        # Check confidence threshold
+        confidence_pass = confidence >= min_confidence
+        if not confidence_pass:
+            reasons_to_hold.append(
+                f"Low confidence: {confidence:.1%} < {min_confidence:.1%} "
+                f"(need {(min_confidence - confidence):.1%} more)"
+            )
+
+        # Check consensus
+        consensus_pass = consensus_count >= min_consensus
+        if not consensus_pass:
+            reasons_to_hold.append(
+                f"Low consensus: {consensus_count} < {min_consensus} "
+                f"(need {min_consensus - consensus_count} more indicators to agree)"
+            )
+
+        # Check for trend blocks or volume issues
+        if metadata.get('trend_blocked'):
+            reasons_to_hold.append(f"Trend filter blocked: {metadata.get('trend_reason', 'N/A')}")
+
+        volume_penalty = metadata.get('volume_penalty', 1.0)
+        if volume_penalty < 1.0:
+            reasons_to_hold.append(
+                f"Volume penalty applied: {volume_penalty:.0%} "
+                f"({metadata.get('volume_reason', 'Low volume')})"
+            )
+
+        # Check if requirements met
+        meets_requirements = metadata.get('meets_requirements', False)
+
+        logger.info("✅ REQUIREMENT CHECKS:")
+        logger.info(f"  {'✓' if confidence_pass else '✗'} Confidence: {confidence:.1%} {'≥' if confidence_pass else '<'} {min_confidence:.1%}")
+        logger.info(f"  {'✓' if consensus_pass else '✗'} Consensus: {consensus_count} {'≥' if consensus_pass else '<'} {min_consensus}")
+        logger.info(f"  {'✓' if meets_requirements else '✗'} Overall: Requirements {'MET' if meets_requirements else 'NOT MET'}")
+
+        if reasons_to_hold:
+            logger.info("-" * 80)
+            logger.warning("⚠️  REASONS NOT TRADING:")
+            for reason in reasons_to_hold:
+                logger.warning(f"  • {reason}")
+
+        logger.info("=" * 80)
+
+        # Make final decision
+        if not meets_requirements or reasons_to_hold:
+            logger.info(f"🛑 DECISION: HOLD - Not trading {symbol} (requirements not met)")
             return "HOLD"
 
-        # Check consensus if required
-        if self.config.require_consensus and consensus < 0.6:
-            logger.debug(f"Consensus {consensus:.2%} too low")
-            return "HOLD"
-
-        return signal_type
+        # All checks passed
+        logger.info(f"✅ DECISION: {signal_action} - All requirements met!")
+        return signal_action
 
     async def _execute_trade(self, symbol: str, action: str, price: float,
                             signal: Dict, portfolio: Dict):
@@ -459,12 +577,12 @@ class TradingBot:
 
 async def main():
     """Main entry point"""
-    # Load configuration
+    # Load configuration - ADJUSTED 2026-02-25: Lowered confidence threshold
     config = TradingConfig(
         symbols=["BTCUSDT", "ETHUSDT", "BNBUSDT"],
         interval_minutes=5,
         signal_interval=60,
-        min_confidence=0.65,
+        min_confidence=0.40,  # Lowered from 0.65 to enable trading in current market
         mode=TradingMode.PAPER,
         max_trades_per_day=20,
         enable_notifications=True  # Enable notifications

@@ -1,0 +1,15 @@
+{
+  "timestamp": "2025-12-10T21:55:39.777332",
+  "total_tests": 6,
+  "passed": 1,
+  "failed": 5,
+  "success_rate": 16.666666666666664,
+  "results": {
+    "service_health": true,
+    "market_data_flow": false,
+    "technical_analysis": false,
+    "ml_prediction": false,
+    "risk_management": false,
+    "api_gateway": false
+  }
+}

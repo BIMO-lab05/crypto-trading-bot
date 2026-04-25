@@ -1,0 +1,25 @@
+{
+  "timestamp": "2025-12-10T21:57:37.008568",
+  "symbol": "BTCUSDT",
+  "total_steps": 7,
+  "passed": 4,
+  "failed": 3,
+  "success_rate": 57.14285714285714,
+  "results": {
+    "market_data": true,
+    "ta_signals": false,
+    "ml_prediction": false,
+    "risk_assessment": true,
+    "position_sizing": false,
+    "trading_decision": true,
+    "trade_execution": true
+  },
+  "trade_data": {
+    "current_price": 0,
+    "ticker": "{'success': True, 'data': {'timestamp': 1765397699447, 'symbol': 'BTCUSDT', 'last_price': 94238.9, 'bid_price': 94238.9, 'ask_price': 94239.0, 'high_24h': 94239.0, 'low_24h': 91484.6, 'volume_24h': 71725.996, 'turnover_24h': 6635293824.591, 'price_change_24h': 0.0063, 'created_at': 1765397699447}, 'source': 'database'}",
+    "total_equity": 10000,
+    "available_balance": 10000,
+    "decision": "NO_TRADE",
+    "combined_confidence": 0
+  }
+}

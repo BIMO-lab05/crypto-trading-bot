@@ -1,0 +1,92 @@
+{
+  "config": {
+    "total_periods": 5,
+    "in_sample_ratio": 0.7,
+    "metric_to_optimize": "sharpe_ratio"
+  },
+  "aggregate_metrics": {
+    "average_wfe": -853.014,
+    "median_wfe": -797.021,
+    "worst_wfe": -1204.752,
+    "best_wfe": -634.107
+  },
+  "out_of_sample_performance": {
+    "sharpe_ratio": -8.53,
+    "total_profit": -0.22,
+    "max_drawdown": 0.186,
+    "win_rate": 37.333
+  },
+  "consistency": {
+    "profitable_periods": 3,
+    "total_periods": 5,
+    "consistency_ratio": 0.6
+  },
+  "is_robust": "False",
+  "periods": [
+    {
+      "period": 1,
+      "is_dates": "2025-09-07 to 2025-09-18",
+      "oos_dates": "2025-09-18 to 2025-09-24",
+      "optimal_params": {
+        "rsi_period": 10,
+        "oversold": 35,
+        "overbought": 70
+      },
+      "is_sharpe": -10.019,
+      "oos_sharpe": -12.048,
+      "wfe": -1204.752
+    },
+    {
+      "period": 2,
+      "is_dates": "2025-09-23 to 2025-10-04",
+      "oos_dates": "2025-10-04 to 2025-10-10",
+      "optimal_params": {
+        "rsi_period": 14,
+        "oversold": 35,
+        "overbought": 65
+      },
+      "is_sharpe": -7.236,
+      "oos_sharpe": -7.163,
+      "wfe": -716.298
+    },
+    {
+      "period": 3,
+      "is_dates": "2025-10-09 to 2025-10-20",
+      "oos_dates": "2025-10-20 to 2025-10-26",
+      "optimal_params": {
+        "rsi_period": 10,
+        "oversold": 30,
+        "overbought": 65
+      },
+      "is_sharpe": -5.834,
+      "oos_sharpe": -7.97,
+      "wfe": -797.021
+    },
+    {
+      "period": 4,
+      "is_dates": "2025-10-25 to 2025-11-05",
+      "oos_dates": "2025-11-05 to 2025-11-11",
+      "optimal_params": {
+        "rsi_period": 10,
+        "oversold": 30,
+        "overbought": 65
+      },
+      "is_sharpe": -6.43,
+      "oos_sharpe": -6.341,
+      "wfe": -634.107
+    },
+    {
+      "period": 5,
+      "is_dates": "2025-11-10 to 2025-11-21",
+      "oos_dates": "2025-11-21 to 2025-11-27",
+      "optimal_params": {
+        "rsi_period": 14,
+        "oversold": 25,
+        "overbought": 65
+      },
+      "is_sharpe": -2.728,
+      "oos_sharpe": -9.129,
+      "wfe": -912.89
+    }
+  ]
+}

@@ -13,7 +13,7 @@ An enterprise-grade cryptocurrency trading system with complete operational auto
 ## 🎯 System Overview
 
 **Status:** ✅ **98% Complete - Production-Ready for Paper Trading**
-**Last Updated:** November 23, 2025
+**Last Updated:** April 25, 2026
 
 A fully autonomous trading bot with complete operational automation from startup to shutdown. Features AI-enhanced strategies (Phase 3), comprehensive risk management, real-time monitoring, enterprise-grade operational tooling, and refactored clean architecture.
 
@@ -86,7 +86,7 @@ A fully autonomous trading bot with complete operational automation from startup
 | **Technical Analysis** | 8004 | Indicators & signals | ✅ 100% |
 | **Trading Engine** | 8005 | Strategy execution | ✅ 100% |
 | **Notification** | 8006 | Telegram alerts | ✅ 100% |
-| **ML Prediction** | 8007 | LSTM price forecasting | ✅ 100% |
+| **ML Prediction** | 8007 | GRU/LSTM price forecasting | ✅ 100% |
 | **Sentiment Analysis** | 8008 | Market sentiment | ✅ 100% |
 | **Risk Metrics** | 8009 | Risk calculation | ✅ 100% |
 
@@ -267,7 +267,7 @@ python3 scripts/monitor.py [--interval 60]
 
 ### **Phase 3: AI-Enhanced (Active)**
 - **Technical:** Same as Phase 1 (reduced weights)
-- **ML Prediction:** LSTM price forecasting (20 points)
+- **ML Prediction:** GRU price forecasting (20 points)
 - **Sentiment:** Market sentiment analysis (15 points)
 - **Threshold:** 55/100 points (more aggressive)
 - **AI advantage** for better entry/exit timing
@@ -656,11 +656,11 @@ curl -s http://localhost:8005/api/v1/positions?status=open | jq
 - [x] Paper trading mode
 
 ### ✅ **Phase 2: AI Enhancement (Complete)**
-- [x] ML price prediction (LSTM)
+- [x] ML price prediction (GRU - 16 models, avg R2=0.92)
 - [x] Sentiment analysis
 - [x] Phase 3 AI-enhanced strategy
 - [x] Weighted signal aggregation
-- [x] 5 trained models
+- [x] 16 trained GRU models (replaced LSTM, +26.5% accuracy)
 
 ### ⏳ **Phase 3: Production (In Progress)**
 - [ ] Real API configuration (user action)
@@ -752,13 +752,13 @@ See [LICENSE](LICENSE) file for complete terms and conditions.
 
 ---
 
-**Last Updated:** 2025-11-23
-**Version:** 2.1.0
-**Status:** ✅ **Production-Ready (Paper Trading Mode)** • Clean Architecture • Improved Test Coverage
+**Last Updated:** 2026-04-25
+**Version:** 3.7.0
+**Status:** ✅ **Production-Ready (Paper Trading Mode)** • GRU ML Models • Clean Architecture
 
 ---
 
-**Built with:** Python • FastAPI • Docker • TimescaleDB • Redis • RabbitMQ • TensorFlow • JavaScript
+**Built with:** Python • FastAPI • Docker • TimescaleDB • Redis • RabbitMQ • TensorFlow/Keras (GRU) • React • Prometheus
 
 **Copyright:** © 2025 Mohammed Siradj. All rights reserved.
 **CEO & Founder:** Mohammed Siradj

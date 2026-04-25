@@ -124,7 +124,7 @@ default_stop_loss_pct: 3.0        # -3% hard stop
 default_take_profit_pct: 6.0      # +6% profit target
 
 # Paper Trading
-paper_initial_balance: 10000.0    # Starting capital
+paper_initial_balance: 100.0    # Starting capital
 paper_commission_pct: 0.1         # 0.1% fee per trade
 ```
 

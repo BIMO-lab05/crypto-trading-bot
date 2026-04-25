@@ -149,15 +149,26 @@ class BacktestEngine:
             BacktestResult with performance metrics
         """
         logger.info(f"Running backtest: {strategy_name}")
-        logger.info(f"Data range: {data.iloc[0]['timestamp']} to {data.iloc[-1]['timestamp']}")
+        # Handle both datetime index and timestamp column for logging
+        if isinstance(data.index[0], (pd.Timestamp, datetime)):
+            logger.info(f"Data range: {data.index[0]} to {data.index[-1]}")
+        elif 'timestamp' in data.columns:
+            logger.info(f"Data range: {data.iloc[0]['timestamp']} to {data.iloc[-1]['timestamp']}")
         logger.info(f"Total candles: {len(data)}")
 
         self.reset()
 
         # Iterate through historical data
+        row_position = 0  # Integer position counter for strategy function
         for idx, row in data.iterrows():
             current_price = row['close']
-            current_time = pd.to_datetime(row['timestamp'])
+            # Handle both datetime index and timestamp column
+            if isinstance(idx, (pd.Timestamp, datetime)):
+                current_time = idx
+            elif 'timestamp' in row:
+                current_time = pd.to_datetime(row['timestamp'])
+            else:
+                current_time = datetime.now()  # Fallback
 
             # Check stop loss and take profit for open position
             if self.current_position:
@@ -165,8 +176,9 @@ class BacktestEngine:
                 if exit_reason:
                     self._close_position(current_price, current_time, exit_reason)
 
-            # Get strategy signal
-            signal = strategy_func(row, self.current_position, idx, data)
+            # Get strategy signal - pass row_position (int) instead of idx (which may be Timestamp)
+            signal = strategy_func(row, self.current_position, row_position, data)
+            row_position += 1  # Increment position counter
 
             # Execute signal
             if signal:
@@ -179,7 +191,13 @@ class BacktestEngine:
         # Close any open position at the end
         if self.current_position:
             final_price = data.iloc[-1]['close']
-            final_time = pd.to_datetime(data.iloc[-1]['timestamp'])
+            # Handle both datetime index and timestamp column
+            if isinstance(data.index[-1], (pd.Timestamp, datetime)):
+                final_time = data.index[-1]
+            elif 'timestamp' in data.columns:
+                final_time = pd.to_datetime(data.iloc[-1]['timestamp'])
+            else:
+                final_time = datetime.now()
             self._close_position(final_price, final_time, "end_of_data")
 
         # Calculate results
@@ -358,8 +376,8 @@ class BacktestEngine:
                 trades=[],
                 equity_curve=self.equity_curve,
                 strategy_name=strategy_name,
-                start_date=pd.to_datetime(data.iloc[0]['timestamp']),
-                end_date=pd.to_datetime(data.iloc[-1]['timestamp']),
+                start_date=data.index[0] if isinstance(data.index[0], (pd.Timestamp, datetime)) else pd.to_datetime(data.iloc[0]['timestamp']),
+                end_date=data.index[-1] if isinstance(data.index[-1], (pd.Timestamp, datetime)) else pd.to_datetime(data.iloc[-1]['timestamp']),
                 initial_capital=self.initial_capital,
                 final_capital=self.capital
             )
@@ -417,8 +435,8 @@ class BacktestEngine:
             trades=self.trades,
             equity_curve=self.equity_curve,
             strategy_name=strategy_name,
-            start_date=pd.to_datetime(data.iloc[0]['timestamp']),
-            end_date=pd.to_datetime(data.iloc[-1]['timestamp']),
+            start_date=data.index[0] if isinstance(data.index[0], (pd.Timestamp, datetime)) else pd.to_datetime(data.iloc[0]['timestamp']),
+            end_date=data.index[-1] if isinstance(data.index[-1], (pd.Timestamp, datetime)) else pd.to_datetime(data.iloc[-1]['timestamp']),
             initial_capital=self.initial_capital,
             final_capital=self.capital
         )
