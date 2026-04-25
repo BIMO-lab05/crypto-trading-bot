@@ -8,7 +8,7 @@ import httpx
 import time
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
-from typing import Dict, List
+from typing import Any, Dict, List
 from pathlib import Path
 import pandas as pd
 
