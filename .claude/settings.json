@@ -90,6 +90,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/scripts/format-python.sh"
+          }
+        ]
+      }
     ]
   }
 }
