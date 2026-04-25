@@ -1,16 +1,16 @@
 {
   "symbol": "LINKUSDT",
   "interval": "60",
-  "model_version": "v20251201_222236",
-  "last_trained": "2025-12-01T22:22:36.962795",
+  "model_version": "v20260104_010815",
+  "last_trained": "2026-01-04T01:08:15.006896",
   "training_stats": {
     "train_samples": 724,
     "test_samples": 182,
-    "final_train_loss": 0.0056751444935798645,
-    "final_val_loss": 0.0030996117275208235,
-    "mae": 0.02485312188114049,
-    "rmse": 0.03261118953544117,
-    "r2_score": 0.7381674721735751
+    "final_train_loss": 0.0038292899262160063,
+    "final_val_loss": 0.003125143237411976,
+    "mae": 0.018832456482185417,
+    "rmse": 0.023969742062074504,
+    "r2_score": 0.8585454117989975
   },
   "feature_columns": [
     "open",

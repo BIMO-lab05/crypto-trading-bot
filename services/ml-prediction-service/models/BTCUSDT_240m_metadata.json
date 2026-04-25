@@ -1,16 +1,16 @@
 {
   "symbol": "BTCUSDT",
   "interval": "240",
-  "model_version": "v20251127_223326",
-  "last_trained": "2025-11-27T22:33:26.594283",
+  "model_version": "v20260203_231059",
+  "last_trained": "2026-02-03T23:10:59.409166",
   "training_stats": {
-    "train_samples": 89,
-    "test_samples": 23,
-    "final_train_loss": 0.03952886909246445,
-    "final_val_loss": 0.03334849327802658,
-    "mae": 0.10384294421978287,
-    "rmse": 0.10834298490660214,
-    "r2_score": -6.623091581430564
+    "train_samples": 356,
+    "test_samples": 90,
+    "final_train_loss": 0.005465588998049498,
+    "final_val_loss": 0.024139301851391792,
+    "mae": 0.08256237441012089,
+    "rmse": 0.09860946499351368,
+    "r2_score": 0.8497817769363346
   },
   "feature_columns": [
     "open",

@@ -168,7 +168,7 @@ class TestModelComparatorScoring:
             "is_trained": True,
             "training_loss": 0.05,
             "validation_loss": 0.06,
-            "model_accuracy": 0.85,
+            "validation_accuracy": 0.85,
             "training_samples": 1000
         }
 
@@ -237,13 +237,13 @@ class TestAdditionalUtilityMethods:
         lstm_metrics = {
             "is_trained": True,
             "training_loss": 0.05,
-            "model_accuracy": 0.85
+            "validation_accuracy": 0.85
         }
 
         gru_metrics = {
             "is_trained": True,
             "training_loss": 0.04,
-            "model_accuracy": 0.87
+            "validation_accuracy": 0.87
         }
 
         comparison = ModelComparator.compare_training_metrics(lstm_metrics, gru_metrics)
@@ -257,7 +257,7 @@ class TestAdditionalUtilityMethods:
             "is_trained": True,
             "training_loss": 0.05,
             "validation_loss": 0.06,
-            "model_accuracy": 0.85
+            "validation_accuracy": 0.85
         }
 
         comparison = ModelComparator.compare_training_metrics(metrics, metrics)

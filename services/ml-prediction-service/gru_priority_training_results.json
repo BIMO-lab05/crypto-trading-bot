@@ -1,0 +1,24 @@
+{
+  "session_start": "2025-12-10T12:55:40.457351",
+  "session_duration_minutes": 0.00187905,
+  "symbols_trained": 3,
+  "successful": 0,
+  "failed": 3,
+  "results": [
+    {
+      "symbol": "AVAXUSDT",
+      "status": "failed",
+      "error": "GRUPricePredictor.train() got an unexpected keyword argument 'epochs'"
+    },
+    {
+      "symbol": "DOTUSDT",
+      "status": "failed",
+      "error": "GRUPricePredictor.train() got an unexpected keyword argument 'epochs'"
+    },
+    {
+      "symbol": "LTCUSDT",
+      "status": "failed",
+      "error": "GRUPricePredictor.train() got an unexpected keyword argument 'epochs'"
+    }
+  ]
+}

@@ -1,16 +1,16 @@
 {
   "symbol": "SOLUSDT",
   "interval": "60",
-  "model_version": "v20251120_220444",
-  "last_trained": "2025-11-20T22:04:44.288273",
+  "model_version": "v20260104_010406",
+  "last_trained": "2026-01-04T01:04:06.214411",
   "training_stats": {
-    "train_samples": 395,
-    "test_samples": 99,
-    "final_train_loss": 0.003988933749496937,
-    "final_val_loss": 0.0004569993761833757,
-    "mae": 0.0023144100722629376,
-    "rmse": 0.002696696755901723,
-    "r2_score": -6.918548350031062
+    "train_samples": 817,
+    "test_samples": 205,
+    "final_train_loss": 0.005843885708600283,
+    "final_val_loss": 0.011884592473506927,
+    "mae": 0.041707419964840585,
+    "rmse": 0.05473142170352739,
+    "r2_score": 0.9189313381641485
   },
   "feature_columns": [
     "open",

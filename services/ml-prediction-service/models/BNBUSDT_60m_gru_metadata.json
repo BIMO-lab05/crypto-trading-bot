@@ -2,19 +2,19 @@
   "model_type": "GRU",
   "symbol": "BNBUSDT",
   "interval": "60",
-  "model_version": "v20251130_192810",
-  "last_trained": "2025-11-30T19:28:10.342140",
+  "model_version": "v20251209_221531",
+  "last_trained": "2025-12-09T22:15:31.155621",
   "training_stats": {
-    "train_samples": 160,
-    "test_samples": 40,
-    "epochs_trained": 45,
-    "final_train_loss": 0.0089519452303648,
-    "final_val_loss": 0.014899976551532745,
-    "mae": 0.0747043875121354,
-    "rmse": 0.09003286096319253,
-    "r2_score": 0.5351241401515232,
-    "mape": 0.08962027859383423,
-    "directional_accuracy": 0.85,
+    "train_samples": 335,
+    "test_samples": 84,
+    "epochs_trained": 40,
+    "final_train_loss": 0.01021803542971611,
+    "final_val_loss": 0.013826091773808002,
+    "mae": 0.06444654382669421,
+    "rmse": 0.07983749297493685,
+    "r2_score": 0.9305789584418407,
+    "mape": 10847054949815.207,
+    "directional_accuracy": 0.8690476190476191,
     "total_parameters": 98245
   },
   "feature_columns": [
@@ -44,5 +44,5 @@
   ],
   "sequence_length": 60,
   "prediction_horizon": 5,
-  "inference_time_ms": 91.01247787475586
+  "inference_time_ms": 245.67914009094238
 }

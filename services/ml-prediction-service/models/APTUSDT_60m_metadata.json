@@ -1,16 +1,16 @@
 {
   "symbol": "APTUSDT",
   "interval": "60",
-  "model_version": "v20251201_223241",
-  "last_trained": "2025-12-01T22:32:41.850133",
+  "model_version": "v20251209_220428",
+  "last_trained": "2025-12-09T22:04:28.668650",
   "training_stats": {
     "train_samples": 724,
     "test_samples": 182,
-    "final_train_loss": 0.007996909320354462,
-    "final_val_loss": 0.006273570470511913,
-    "mae": 0.029114458379754637,
-    "rmse": 0.0350913965542181,
-    "r2_score": 0.7742710226470999
+    "final_train_loss": 0.005795871373265982,
+    "final_val_loss": 0.0029175844974815845,
+    "mae": 0.02094877488141849,
+    "rmse": 0.027168309111405893,
+    "r2_score": 0.8646958152597775
   },
   "feature_columns": [
     "open",

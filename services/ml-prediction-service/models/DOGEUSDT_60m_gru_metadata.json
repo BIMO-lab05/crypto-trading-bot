@@ -2,19 +2,19 @@
   "model_type": "GRU",
   "symbol": "DOGEUSDT",
   "interval": "60",
-  "model_version": "v20251120_220814",
-  "last_trained": "2025-11-20T22:08:14.993496",
+  "model_version": "v20251205_220802",
+  "last_trained": "2025-12-05T22:08:02.385098",
   "training_stats": {
-    "train_samples": 472,
-    "test_samples": 119,
-    "epochs_trained": 50,
-    "final_train_loss": 0.003804747946560383,
-    "final_val_loss": 1.876733949757181e-05,
-    "mae": 0.004025789005216241,
-    "rmse": 0.0040392427588025245,
-    "r2_score": -149.36624653283383,
-    "mape": 1.9808302751037772,
-    "directional_accuracy": 0.4789915966386555,
+    "train_samples": 243,
+    "test_samples": 61,
+    "epochs_trained": 22,
+    "final_train_loss": 0.016932209953665733,
+    "final_val_loss": 0.032103244215250015,
+    "mae": 0.10105605191538465,
+    "rmse": 0.12965306582439542,
+    "r2_score": 0.7735799456885111,
+    "mape": 0.17959103432187293,
+    "directional_accuracy": 0.819672131147541,
     "total_parameters": 98245
   },
   "feature_columns": [
@@ -44,5 +44,5 @@
   ],
   "sequence_length": 60,
   "prediction_horizon": 5,
-  "inference_time_ms": 825.6266117095947
+  "inference_time_ms": 136.0158920288086
 }

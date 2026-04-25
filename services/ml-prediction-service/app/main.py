@@ -5,9 +5,10 @@ Provides machine learning-based price predictions
 
 import logging
 import httpx
+import time
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
-from typing import Dict
+from typing import Dict, List
 from pathlib import Path
 import pandas as pd
 
@@ -33,7 +34,13 @@ except ImportError:
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import get_settings
+from app.config import (
+    get_settings,
+    get_symbols_to_preload,
+    get_available_gru_models,
+    ALL_GRU_SYMBOLS,
+    PRIORITY_SYMBOLS
+)
 from app.models import (
     HealthResponse,
     ReadyResponse,
@@ -47,6 +54,9 @@ from app.models import (
 from app.predictor import LSTMPricePredictor, TENSORFLOW_AVAILABLE
 from app.ml_models.gru_model import GRUPricePredictor
 from app.predictor_factory import PredictorFactory, ModelComparator
+from app.utils.redis_cache import PredictionCache
+from app.inference import EnsemblePredictor, EnsembleSignal
+from app.models.ensemble_model import EnsemblePredictor as EnhancedEnsemblePredictor
 
 # Create logs directory
 LOG_DIR = Path("logs")
@@ -66,8 +76,25 @@ settings = get_settings()
 lstm_predictors: Dict[str, LSTMPricePredictor] = {}
 gru_predictors: Dict[str, GRUPricePredictor] = {}
 
+# Track preloading statistics
+preload_stats = {
+    "started_at": None,
+    "completed_at": None,
+    "duration_seconds": 0.0,
+    "total_attempted": 0,
+    "total_loaded": 0,
+    "failed": [],
+    "preload_enabled": True
+}
+
 # HTTP client for calling other services
 http_client: httpx.AsyncClient = None
+
+# Redis prediction cache
+prediction_cache: PredictionCache = None
+
+# Ensemble predictor combining TA + ML + Sentiment + MultiTimeframe
+ensemble_predictor: EnsemblePredictor = None
 
 # === PROMETHEUS METRICS ===
 
@@ -165,9 +192,9 @@ def get_gru_predictor(symbol: str, interval: str) -> GRUPricePredictor:
     return gru_predictors[key]
 
 
-def get_predictor(symbol: str, interval: str, model_type: str = "LSTM"):
+def get_predictor(symbol: str, interval: str, model_type: str = "GRU"):
     """
-    Get predictor based on model type
+    Get predictor based on model type (default: GRU for superior performance)
 
     Args:
         symbol: Trading pair
@@ -182,6 +209,92 @@ def get_predictor(symbol: str, interval: str, model_type: str = "LSTM"):
         return get_gru_predictor(symbol, interval)
     else:
         return get_lstm_predictor(symbol, interval)
+
+
+def preload_gru_models() -> Dict:
+    """
+    Preload all configured GRU models at startup
+
+    This function:
+    1. Discovers available GRU models from filesystem
+    2. Loads all 16 GRU models into memory
+    3. Tracks loading statistics for monitoring
+
+    Returns:
+        Dictionary with preloading statistics
+    """
+    global preload_stats
+
+    if not TENSORFLOW_AVAILABLE:
+        logger.warning("TensorFlow not available - skipping model preload")
+        preload_stats["preload_enabled"] = False
+        return preload_stats
+
+    start_time = time.time()
+    preload_stats["started_at"] = datetime.utcnow().isoformat()
+
+    # Get symbols to preload based on configuration
+    symbols_to_preload = get_symbols_to_preload()
+    available_models = get_available_gru_models()
+
+    logger.info(f"Model preloading configured: {len(symbols_to_preload)} symbols")
+    logger.info(f"Available GRU models on disk: {len(available_models)} ({', '.join(available_models)})")
+
+    preload_stats["total_attempted"] = len(symbols_to_preload)
+    preload_stats["failed"] = []
+
+    loaded_count = 0
+    interval = settings.default_interval
+
+    for symbol in symbols_to_preload:
+        try:
+            # Check if model file exists on disk
+            if symbol not in available_models:
+                logger.warning(f"Model file not found for {symbol} - skipping")
+                preload_stats["failed"].append({
+                    "symbol": symbol,
+                    "reason": "Model file not found on disk"
+                })
+                continue
+
+            # Load the predictor (this loads the model from disk)
+            predictor = get_gru_predictor(symbol, interval)
+
+            if predictor.model is not None:
+                loaded_count += 1
+                logger.info(
+                    f"[{loaded_count}/{len(symbols_to_preload)}] Preloaded {symbol} GRU model "
+                    f"(version: {predictor.model_version}, R2: {predictor.training_stats.get('r2_score', 'N/A'):.4f})"
+                )
+            else:
+                preload_stats["failed"].append({
+                    "symbol": symbol,
+                    "reason": "Model loaded but model object is None"
+                })
+                logger.warning(f"Failed to load model for {symbol} - model is None")
+
+        except Exception as e:
+            preload_stats["failed"].append({
+                "symbol": symbol,
+                "reason": str(e)
+            })
+            logger.error(f"Error preloading {symbol}: {e}")
+
+    # Update statistics
+    preload_stats["completed_at"] = datetime.utcnow().isoformat()
+    preload_stats["duration_seconds"] = round(time.time() - start_time, 2)
+    preload_stats["total_loaded"] = loaded_count
+
+    logger.info(
+        f"Model preloading complete: {loaded_count}/{len(symbols_to_preload)} models loaded "
+        f"in {preload_stats['duration_seconds']:.2f}s"
+    )
+
+    if preload_stats["failed"]:
+        logger.warning(f"Failed to load {len(preload_stats['failed'])} models: "
+                      f"{[f['symbol'] for f in preload_stats['failed']]}")
+
+    return preload_stats
 
 
 async def fetch_historical_data(symbol: str, interval: str, limit: int = 500) -> pd.DataFrame:
@@ -244,6 +357,8 @@ async def fetch_historical_data(symbol: str, interval: str, limit: int = 500) ->
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown"""
+    global prediction_cache, ensemble_predictor
+
     logger.info(f"Starting {settings.service_name} on port {settings.service_port}")
     logger.info(f"TensorFlow available: {TENSORFLOW_AVAILABLE}")
     logger.info(f"Market Data URL: {settings.market_data_url}")
@@ -252,16 +367,58 @@ async def lifespan(app: FastAPI):
     # Initialize HTTP client
     await get_http_client()
 
+    # Initialize Redis prediction cache
+    prediction_cache = PredictionCache(
+        host=settings.redis_host,
+        port=settings.redis_port,
+        db=settings.redis_db,
+        ttl_seconds=settings.cache_ttl_seconds,
+        key_prefix=settings.cache_prefix,
+        enabled=settings.redis_enabled
+    )
+    await prediction_cache.connect()
+
+    # Initialize Ensemble Predictor
+    # Combines TA (40%) + ML (30%) + Sentiment (15%) + MultiTimeframe (15%)
+    ensemble_predictor = EnsemblePredictor(
+        ta_weight=0.40,
+        ml_weight=0.30,
+        sentiment_weight=0.15,
+        multi_tf_weight=0.15,
+        ta_service_url=settings.technical_analysis_url,
+        ml_service_url=f"http://localhost:{settings.service_port}",  # Self-reference for ML predictions
+        market_data_url=settings.market_data_url
+    )
+    logger.info("Ensemble Predictor initialized with weights: TA=40%, ML=30%, Sentiment=15%, MultiTF=15%")
+
     # Check TensorFlow availability
     if not TENSORFLOW_AVAILABLE:
-        logger.warning("⚠️ TensorFlow not installed. ML predictions will not be available.")
+        logger.warning("TensorFlow not installed. ML predictions will not be available.")
         logger.warning("Install with: pip install tensorflow scikit-learn")
+    else:
+        # Preload GRU models at startup (load all 16 models)
+        if settings.preload_models:
+            logger.info("=" * 60)
+            logger.info("PRELOADING GRU MODELS AT STARTUP")
+            logger.info("=" * 60)
+            preload_gru_models()
+            logger.info("=" * 60)
+        else:
+            logger.info("Model preloading disabled - models will be loaded on-demand")
 
     yield
 
     # Cleanup
     logger.info("Shutting down ML Prediction Service")
     await close_http_client()
+
+    # Disconnect Redis cache
+    if prediction_cache:
+        await prediction_cache.disconnect()
+
+    # Close ensemble predictor
+    if ensemble_predictor:
+        await ensemble_predictor.close()
 
 
 # FastAPI app
@@ -364,12 +521,167 @@ async def readiness_check():
     )
 
 
+# === NEW ENDPOINT: /api/v1/models/loaded ===
+
+@app.get("/api/v1/models/loaded", tags=["Model Management"])
+async def get_loaded_models():
+    """
+    Get comprehensive information about all available and loaded models
+
+    Returns:
+        - Total available models on disk
+        - Total loaded models in memory
+        - List of available model symbols
+        - List of loaded model symbols with details
+        - Preloading statistics
+        - Configuration status
+    """
+    # Discover available models from filesystem
+    available_models = get_available_gru_models()
+
+    # Get loaded models
+    loaded_gru = []
+    for key, predictor in gru_predictors.items():
+        if predictor.model is not None:
+            loaded_gru.append({
+                "symbol": predictor.symbol,
+                "interval": f"{predictor.interval}m",
+                "version": predictor.model_version,
+                "last_trained": predictor.last_trained.isoformat() if predictor.last_trained else None,
+                "r2_score": predictor.training_stats.get("r2_score", 0.0),
+                "mae": predictor.training_stats.get("mae", 0.0),
+                "rmse": predictor.training_stats.get("rmse", 0.0),
+                "directional_accuracy": predictor.training_stats.get("directional_accuracy", 0.0),
+                "needs_retraining": predictor.needs_retraining()
+            })
+
+    loaded_lstm = []
+    for key, predictor in lstm_predictors.items():
+        if predictor.model is not None:
+            loaded_lstm.append({
+                "symbol": predictor.symbol,
+                "interval": f"{predictor.interval}m",
+                "version": predictor.model_version,
+                "last_trained": predictor.last_trained.isoformat() if predictor.last_trained else None,
+                "r2_score": predictor.training_stats.get("r2_score", 0.0),
+                "needs_retraining": predictor.needs_retraining()
+            })
+
+    # Calculate memory usage estimate (approximate)
+    # Each GRU model is about 1.2MB based on file size
+    memory_estimate_mb = len(loaded_gru) * 1.2 + len(loaded_lstm) * 1.6
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "total_available": len(available_models),
+        "total_loaded": len(loaded_gru) + len(loaded_lstm),
+        "gru_loaded": len(loaded_gru),
+        "lstm_loaded": len(loaded_lstm),
+        "available_models": available_models,
+        "loaded_gru_models": loaded_gru,
+        "loaded_lstm_models": loaded_lstm,
+        "preload_stats": preload_stats,
+        "configuration": {
+            "preload_enabled": settings.preload_models,
+            "preload_priority_only": settings.preload_priority_only,
+            "default_interval": settings.default_interval,
+            "all_configured_symbols": ALL_GRU_SYMBOLS,
+            "priority_symbols": PRIORITY_SYMBOLS,
+            "models_dir": settings.models_dir
+        },
+        "memory_estimate_mb": round(memory_estimate_mb, 2)
+    }
+
+
+@app.post("/api/v1/models/preload", tags=["Model Management"])
+async def trigger_preload(
+    symbols: List[str] = Query(None, description="Specific symbols to preload (optional, defaults to all)"),
+    force: bool = Query(False, description="Force reload even if already loaded")
+):
+    """
+    Manually trigger model preloading
+
+    Use this to:
+    - Load specific symbols on-demand
+    - Reload models after retraining
+    - Load models that failed during startup
+    """
+    if not TENSORFLOW_AVAILABLE:
+        raise HTTPException(status_code=503, detail="TensorFlow not available")
+
+    start_time = time.time()
+
+    # Determine symbols to load
+    if symbols:
+        symbols_to_load = symbols
+    else:
+        symbols_to_load = get_available_gru_models()
+
+    interval = settings.default_interval
+    loaded = []
+    failed = []
+
+    for symbol in symbols_to_load:
+        try:
+            key = f"{symbol}_{interval}"
+
+            # Skip if already loaded and not forcing
+            if not force and key in gru_predictors and gru_predictors[key].model is not None:
+                loaded.append({
+                    "symbol": symbol,
+                    "status": "already_loaded",
+                    "version": gru_predictors[key].model_version
+                })
+                continue
+
+            # Remove from cache if forcing reload
+            if force and key in gru_predictors:
+                del gru_predictors[key]
+                ml_models_loaded.labels(model_type='GRU').dec()
+
+            # Load the model
+            predictor = get_gru_predictor(symbol, interval)
+
+            if predictor.model is not None:
+                loaded.append({
+                    "symbol": symbol,
+                    "status": "loaded",
+                    "version": predictor.model_version,
+                    "r2_score": predictor.training_stats.get("r2_score", 0.0)
+                })
+            else:
+                failed.append({
+                    "symbol": symbol,
+                    "reason": "Model file not found or failed to load"
+                })
+
+        except Exception as e:
+            failed.append({
+                "symbol": symbol,
+                "reason": str(e)
+            })
+
+    duration = time.time() - start_time
+
+    return {
+        "success": len(failed) == 0,
+        "duration_seconds": round(duration, 2),
+        "total_attempted": len(symbols_to_load),
+        "total_loaded": len([l for l in loaded if l["status"] == "loaded"]),
+        "already_loaded": len([l for l in loaded if l["status"] == "already_loaded"]),
+        "failed": len(failed),
+        "loaded": loaded,
+        "failed_details": failed
+    }
+
+
 # Prediction endpoints
 @app.get("/api/v1/predict/price/{symbol}", response_model=PricePrediction, tags=["Predictions"])
 async def predict_price(
     symbol: str = FastAPIPath(..., description="Trading pair (e.g., BTCUSDT)"),
     interval: str = Query("60", description="Timeframe in minutes"),
-    model_type: str = Query("LSTM", description="Model type: LSTM or GRU")
+    model_type: str = Query("GRU", description="Model type: GRU (default) or LSTM"),
+    use_cache: bool = Query(True, description="Use cached predictions if available")
 ):
     """
     Get price prediction for a symbol using specified model type
@@ -380,6 +692,7 @@ async def predict_price(
         symbol: Trading pair (e.g., BTCUSDT)
         interval: Timeframe in minutes (default: 60)
         model_type: Either 'LSTM' or 'GRU' (default: LSTM)
+        use_cache: Whether to use cached predictions (default: True)
     """
     if not TENSORFLOW_AVAILABLE:
         raise HTTPException(status_code=503, detail="TensorFlow not available")
@@ -388,6 +701,27 @@ async def predict_price(
     start_time = datetime.utcnow()
 
     try:
+        # Check cache first (if enabled)
+        if use_cache and prediction_cache and prediction_cache.is_connected:
+            cached_prediction = await prediction_cache.get_prediction(symbol, interval, model_type)
+
+            if cached_prediction:
+                logger.info(f"Cache HIT for {symbol} {interval}m {model_type}")
+
+                # Remove cache metadata before returning
+                cached_prediction.pop('cached_at', None)
+                cached_prediction.pop('ttl_seconds', None)
+
+                # Record cache hit metric
+                duration = (datetime.utcnow() - start_time).total_seconds()
+                ml_prediction_duration_seconds.labels(symbol=symbol, model_type=model_type).observe(duration)
+                ml_predictions_total.labels(symbol=symbol, model_type=model_type).inc()
+
+                return PricePrediction(**cached_prediction)
+
+        # Cache miss or cache disabled - run prediction
+        logger.info(f"Cache MISS for {symbol} {interval}m {model_type} - running inference")
+
         # Get predictor based on model type
         predictor = get_predictor(symbol, interval, model_type)
 
@@ -408,6 +742,12 @@ async def predict_price(
         # Make prediction
         prediction = await predictor.predict(recent_data)
 
+        # Store in cache (if enabled)
+        if use_cache and prediction_cache and prediction_cache.is_connected:
+            # Convert to dict for caching
+            prediction_dict = prediction.model_dump()
+            await prediction_cache.set_prediction(symbol, interval, model_type, prediction_dict)
+
         # Record metrics
         duration = (datetime.utcnow() - start_time).total_seconds()
         ml_prediction_duration_seconds.labels(symbol=symbol, model_type=model_type).observe(duration)
@@ -427,7 +767,7 @@ async def predict_price(
 async def predict_trend(
     symbol: str = FastAPIPath(..., description="Trading pair"),
     interval: str = Query("60", description="Timeframe in minutes"),
-    model_type: str = Query("LSTM", description="Model type: LSTM or GRU")
+    model_type: str = Query("GRU", description="Model type: GRU (default) or LSTM")
 ):
     """
     Get trend prediction (BULLISH, BEARISH, NEUTRAL)
@@ -548,12 +888,417 @@ async def predict_volatility(
         raise HTTPException(status_code=500, detail=f"Volatility prediction failed: {str(e)}")
 
 
+@app.get("/api/v1/predict/ensemble/{symbol}", response_model=EnsembleSignal, tags=["Predictions"])
+async def predict_ensemble(
+    symbol: str = FastAPIPath(..., description="Trading pair (e.g., BTCUSDT)"),
+    interval: str = Query("60", description="Timeframe in minutes"),
+    ml_model: str = Query("GRU", description="ML model type: GRU (default) or LSTM")
+):
+    """
+    Get ensemble prediction combining multiple signal sources
+
+    **Combines:**
+    - **Traditional TA (40%)** - RSI, MACD, Bollinger Bands from technical-analysis service
+    - **ML Predictions (30%)** - LSTM/GRU price predictions from this service
+    - **Sentiment Analysis (15%)** - News/social media sentiment (placeholder - returns NEUTRAL)
+    - **Multi-Timeframe (15%)** - Trend alignment across 15m, 1h, 4h, 1d timeframes
+
+    **Signal Direction:**
+    - BUY: Weighted score > 0.3
+    - SELL: Weighted score < -0.3
+    - NEUTRAL: Weighted score between -0.3 and 0.3
+
+    **Returns:**
+    - Final trading signal with confidence and strength
+    - Individual component signals with their weights
+    - Buy/sell probabilities
+    - Metadata about components available and used
+
+    **Example:**
+    ```
+    GET /api/v1/predict/ensemble/BTCUSDT?interval=60&ml_model=LSTM
+    ```
+    """
+    try:
+        if not ensemble_predictor:
+            raise HTTPException(
+                status_code=503,
+                detail="Ensemble predictor not initialized. Please restart the service."
+            )
+
+        start_time = datetime.utcnow()
+
+        # Generate ensemble signal
+        signal = await ensemble_predictor.predict(
+            symbol=symbol,
+            interval=interval,
+            ml_model=ml_model
+        )
+
+        # Track metrics
+        duration = (datetime.utcnow() - start_time).total_seconds()
+        logger.info(
+            f"Ensemble prediction for {symbol} {interval}m: {signal.direction} "
+            f"(confidence: {signal.confidence:.2f}, strength: {signal.strength:.2f}) "
+            f"in {duration:.2f}s"
+        )
+
+        return signal
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ensemble prediction error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ensemble prediction failed: {str(e)}"
+        )
+
+
+@app.get("/api/v1/predict/enhanced/{symbol}", tags=["Predictions"])
+async def enhanced_ml_prediction(
+    symbol: str = FastAPIPath(..., description="Trading pair (e.g., BTCUSDT)"),
+    interval: str = Query("60", description="Candlestick interval in minutes"),
+    lookback_days: int = Query(default=90, description="Days of historical data to use"),
+    model_type: str = Query(default="ENSEMBLE", description="Model type: ENSEMBLE, LSTM, RF, GB, LR"),
+    confidence_threshold: float = Query(default=0.6, description="Minimum confidence for signal")
+):
+    """
+    Enhanced ML prediction with ensemble approach targeting 5-10% win rate improvement
+
+    Features:
+    - Ensemble of 4+ models for robust predictions
+    - Comprehensive technical features
+    - Consensus-based signal generation
+    - Confidence-weighted risk management
+    - Market regime awareness
+    - Volatility clustering detection
+    """
+
+    try:
+        # Fetch historical data
+        logger.info(f"Fetching {lookback_days} days of data for {symbol}")
+        df = await fetch_historical_data(symbol, interval, limit=int((lookback_days * 24 * 60) / int(interval)))
+
+        if len(df) < 50:
+            return {
+                "symbol": symbol,
+                "interval": interval,
+                "signal": "HOLD",
+                "confidence": 0.0,
+                "reason": "Insufficient historical data for ML prediction",
+                "timestamp": datetime.now().isoformat()
+            }
+
+        # Initialize enhanced ensemble predictor
+        enhanced_predictor = EnhancedEnsemblePredictor()
+
+        # Check if model exists and load it, otherwise train
+        model_path = f"models/enhanced_ensemble_{symbol}_{interval}.pkl"
+        if enhanced_predictor.load_model(model_path):
+            logger.info(f"Loaded existing model for {symbol} {interval}")
+        else:
+            logger.info(f"Training new model for {symbol} {interval}")
+            try:
+                training_results = enhanced_predictor.train_models(df)
+                logger.info(f"Training completed. Results: {training_results}")
+            except Exception as e:
+                logger.error(f"Training failed: {e}")
+                return {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "signal": "HOLD",
+                    "confidence": 0.0,
+                    "reason": f"Model training failed: {str(e)}",
+                    "timestamp": datetime.now().isoformat()
+                }
+
+        # Make prediction
+        prediction_result = enhanced_predictor.predict(df)
+
+        # Apply confidence threshold
+        if prediction_result['confidence'] < confidence_threshold:
+            return {
+                "symbol": symbol,
+                "interval": interval,
+                "signal": "HOLD",
+                "confidence": prediction_result['confidence'],
+                "reason": f"Confidence below threshold ({confidence_threshold})",
+                "consensus": prediction_result['consensus'],
+                "individual_predictions": prediction_result['individual_predictions'],
+                "timestamp": prediction_result['timestamp']
+            }
+
+        # Calculate enhanced metrics for win rate improvement
+        enhanced_metrics = await calculate_enhanced_metrics(
+            df,
+            prediction_result,
+            symbol,
+            interval
+        )
+
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "signal": prediction_result['signal'],
+            "confidence": prediction_result['confidence'],
+            "consensus": prediction_result['consensus'],
+            "individual_predictions": prediction_result['individual_predictions'],
+            "enhanced_metrics": enhanced_metrics,
+            "model_accuracy": prediction_result['model_accuracy'],
+            "timestamp": prediction_result['timestamp'],
+            "target_win_rate_improvement": "5-10%"
+        }
+
+    except Exception as e:
+        logger.error(f"Enhanced ML prediction failed: {e}", exc_info=True)
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "signal": "HOLD",
+            "confidence": 0.0,
+            "reason": f"Prediction error: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }
+
+
+async def calculate_enhanced_metrics(
+    df: pd.DataFrame,
+    prediction_result: Dict,
+    symbol: str,
+    interval: str
+) -> Dict[str, Any]:
+    """
+    Calculate enhanced metrics that contribute to win rate improvement
+    """
+    try:
+        # Calculate market regime indicators
+        market_regime = await classify_market_regime(df)
+
+        # Calculate volatility clustering (GARCH-like features)
+        volatility_regime = await calculate_volatility_regime(df)
+
+        # Calculate trend strength
+        trend_strength = await calculate_trend_strength(df)
+
+        # Calculate momentum divergence
+        momentum_divergence = await calculate_momentum_divergence(df)
+
+        # Calculate support/resistance quality
+        sr_quality = await calculate_support_resistance_quality(df)
+
+        # Combine all factors for enhanced confidence
+        enhanced_confidence = (
+            prediction_result['confidence'] * 0.4 +  # Original ML confidence
+            (1 - abs(volatility_regime - 0.5)) * 0.2 +  # Volatility stability
+            min(trend_strength, 0.8) * 0.2 +  # Trend strength (capped)
+            (1 - abs(momentum_divergence)) * 0.1 +  # Momentum quality
+            sr_quality * 0.1  # Support/resistance quality
+        )
+
+        # Adjust signal based on market conditions
+        adjusted_signal = adjust_signal_for_conditions(
+            prediction_result['signal'],
+            market_regime,
+            volatility_regime,
+            trend_strength
+        )
+
+        return {
+            "market_regime": market_regime,
+            "volatility_regime": volatility_regime,
+            "trend_strength": trend_strength,
+            "momentum_divergence": momentum_divergence,
+            "support_resistance_quality": sr_quality,
+            "enhanced_confidence": min(enhanced_confidence, 1.0),
+            "adjusted_signal": adjusted_signal,
+            "win_rate_potential": estimate_win_rate_potential(
+                prediction_result['confidence'],
+                market_regime,
+                volatility_regime,
+                trend_strength
+            )
+        }
+
+    except Exception as e:
+        logger.error(f"Enhanced metrics calculation failed: {e}")
+        return {
+            "market_regime": "UNKNOWN",
+            "volatility_regime": 0.5,
+            "trend_strength": 0.5,
+            "momentum_divergence": 0.0,
+            "support_resistance_quality": 0.5,
+            "enhanced_confidence": prediction_result['confidence'],
+            "adjusted_signal": prediction_result['signal'],
+            "win_rate_potential": 0.5
+        }
+
+
+async def classify_market_regime(df: pd.DataFrame) -> str:
+    """Classify current market regime for better prediction accuracy"""
+    if len(df) < 20:
+        return "INSUFFICIENT_DATA"
+
+    # Calculate ADX for trend strength
+    adx = df['adx'].iloc[-1] if 'adx' in df.columns else 25
+
+    # Calculate RSI for overbought/oversold
+    rsi = df['rsi'].iloc[-1] if 'rsi' in df.columns else 50
+
+    # Calculate volatility
+    volatility = df['volatility'].iloc[-1] if 'volatility' in df.columns else 0.02
+
+    if adx > 30:
+        if rsi > 70:
+            return "TRENDING_BULLISH"
+        elif rsi < 30:
+            return "TRENDING_BEARISH"
+        else:
+            return "TRENDING_NEUTRAL"
+    elif adx < 20:
+        if volatility > 0.03:
+            return "CHOPPY_VOLATILE"
+        else:
+            return "CHOPPY_STABLE"
+    else:
+        return "TRANSITIONAL"
+
+
+async def calculate_volatility_regime(df: pd.DataFrame) -> float:
+    """Calculate volatility regime (0.0-1.0 scale)"""
+    if len(df) < 30:
+        return 0.5
+
+    # Calculate rolling volatility and compare to historical average
+    current_vol = df['volatility'].iloc[-1]
+    avg_vol = df['volatility'].rolling(30).mean().iloc[-1]
+
+    # Normalize to 0-1 scale (0 = very low volatility, 1 = very high)
+    if avg_vol > 0:
+        return min(max(current_vol / avg_vol, 0.0), 1.0)
+    return 0.5
+
+
+async def calculate_trend_strength(df: pd.DataFrame) -> float:
+    """Calculate trend strength (0.0-1.0 scale)"""
+    if len(df) < 20:
+        return 0.5
+
+    # Use EMA convergence/divergence
+    ema_fast = df['ema_fast'].iloc[-1] if 'ema_fast' in df.columns else df['close'].iloc[-1]
+    ema_slow = df['ema_slow'].iloc[-1] if 'ema_slow' in df.columns else df['close'].iloc[-1]
+
+    # Calculate trend strength based on EMA separation
+    trend_sep = abs(ema_fast - ema_slow) / df['close'].iloc[-1]
+
+    # Also consider direction consistency
+    recent_directions = []
+    for i in range(1, min(5, len(df))):
+        if i < len(df):
+            direction = 1 if df['close'].iloc[-i] > df['close'].iloc[-i-1] else 0
+            recent_directions.append(direction)
+
+    direction_consistency = sum(recent_directions) / len(recent_directions) if recent_directions else 0.5
+
+    return min((trend_sep * 2 + direction_consistency) / 2, 1.0)
+
+
+async def calculate_momentum_divergence(df: pd.DataFrame) -> float:
+    """Calculate momentum divergence (-1.0 to 1.0 scale)"""
+    if len(df) < 20:
+        return 0.0
+
+    # Calculate price momentum vs indicator momentum
+    price_mom = df['close'].pct_change(5).iloc[-1]
+    rsi_mom = df['rsi'].pct_change(5).iloc[-1] if 'rsi' in df.columns else 0.0
+
+    # Divergence: opposite signs indicate potential reversal
+    if price_mom * rsi_mom < 0:  # Opposite directions
+        return -1.0 if price_mom > 0 else 1.0  # Negative if bullish divergence, positive if bearish
+    else:
+        return 0.0  # No significant divergence
+
+
+async def calculate_support_resistance_quality(df: pd.DataFrame) -> float:
+    """Calculate support/resistance quality (0.0-1.0 scale)"""
+    if len(df) < 50:
+        return 0.5
+
+    # Look for recent price levels where price bounced
+    recent_prices = df['close'].tail(20)
+    high_recent = recent_prices.max()
+    low_recent = recent_prices.min()
+
+    # Calculate how often price tested these levels
+    price_range = high_recent - low_recent
+    if price_range == 0:
+        return 0.5
+
+    # Quality based on how much of the range has been explored recently
+    exploration_ratio = (recent_prices.std() * 2) / price_range
+    return min(exploration_ratio, 1.0)
+
+
+def adjust_signal_for_conditions(
+    original_signal: str,
+    market_regime: str,
+    volatility_regime: float,
+    trend_strength: float
+) -> str:
+    """Adjust signal based on market conditions for better win rate"""
+
+    # In choppy/volatile markets, be more conservative
+    if "CHOPPY" in market_regime:
+        if volatility_regime > 0.7:  # High volatility
+            return "HOLD"  # Too risky
+
+    # In trending markets with strong trends, increase confidence
+    if "TRENDING" in market_regime and trend_strength > 0.7:
+        return original_signal  # Keep original signal
+
+    # In uncertain regimes, be more conservative
+    if market_regime in ["TRANSITIONAL", "INSUFFICIENT_DATA"]:
+        return "HOLD"
+
+    return original_signal
+
+
+def estimate_win_rate_potential(
+    confidence: float,
+    market_regime: str,
+    volatility_regime: float,
+    trend_strength: float
+) -> float:
+    """Estimate potential win rate improvement"""
+    base_win_rate = 0.5  # Random guessing
+
+    # Confidence contribution
+    confidence_bonus = (confidence - 0.5) * 0.3  # Up to 15% improvement from confidence
+
+    # Market regime bonus
+    regime_bonus = 0.0
+    if "TRENDING" in market_regime and trend_strength > 0.6:
+        regime_bonus = 0.1  # 10% bonus in trending markets
+    elif "CHOPPY" in market_regime:
+        regime_bonus = -0.05  # Small penalty in choppy markets
+
+    # Volatility adjustment
+    vol_bonus = 0.0
+    if 0.3 <= volatility_regime <= 0.7:  # Moderate volatility is ideal
+        vol_bonus = 0.05
+    elif volatility_regime > 0.8:  # Too volatile
+        vol_bonus = -0.05
+
+    estimated_win_rate = base_win_rate + confidence_bonus + regime_bonus + vol_bonus
+    return max(0.4, min(estimated_win_rate, 0.9))  # Clamp between 40-90%
+
+
 # Model management endpoints
 @app.get("/api/v1/models/{symbol}", response_model=ModelInfo, tags=["Model Management"])
 async def get_model_info(
     symbol: str = FastAPIPath(..., description="Trading pair"),
     interval: str = Query("60", description="Timeframe in minutes"),
-    model_type: str = Query("LSTM", description="Model type: LSTM or GRU")
+    model_type: str = Query("GRU", description="Model type: GRU (default) or LSTM")
 ):
     """Get information about a trained model"""
     try:
@@ -739,7 +1484,7 @@ async def compare_models(
     Compare LSTM vs GRU model performance
 
     Comparison metrics:
-    - Prediction accuracy (RMSE, MAE, R², MAPE)
+    - Prediction accuracy (RMSE, MAE, R^2, MAPE)
     - Directional accuracy
     - Inference speed
     - Training time
@@ -844,7 +1589,83 @@ async def get_supported_models():
                 "best_for": "Shorter sequences, faster inference, resource constraints"
             }
         ],
-        "default": "LSTM"
+        "default": "GRU",
+        "available_gru_models": get_available_gru_models(),
+        "configured_symbols": ALL_GRU_SYMBOLS
+    }
+
+
+# Cache management endpoints
+@app.get("/api/v1/cache/stats", tags=["Cache Management"])
+async def get_cache_stats():
+    """
+    Get Redis cache statistics
+
+    Returns metrics like:
+    - Connection status
+    - Total cached predictions
+    - Memory usage
+    - TTL configuration
+    """
+    if not prediction_cache:
+        return {
+            "enabled": False,
+            "message": "Redis caching not initialized"
+        }
+
+    return await prediction_cache.get_cache_stats()
+
+
+@app.delete("/api/v1/cache/clear", tags=["Cache Management"])
+async def clear_cache():
+    """
+    Clear all cached predictions
+
+    Use when:
+    - Models are retrained
+    - Cache is stale
+    - Testing fresh predictions
+    """
+    if not prediction_cache or not prediction_cache.is_connected:
+        return {
+            "success": False,
+            "message": "Redis cache not available",
+            "cleared_count": 0
+        }
+
+    cleared_count = await prediction_cache.clear_all()
+
+    return {
+        "success": True,
+        "message": f"Cleared {cleared_count} cached predictions",
+        "cleared_count": cleared_count
+    }
+
+
+@app.delete("/api/v1/cache/{symbol}", tags=["Cache Management"])
+async def invalidate_cache(
+    symbol: str = FastAPIPath(..., description="Trading pair"),
+    interval: str = Query("60", description="Timeframe in minutes"),
+    model_type: str = Query("GRU", description="Model type: GRU (default) or LSTM")
+):
+    """
+    Invalidate cache for a specific symbol/interval/model
+
+    Use when:
+    - Model is retrained for specific symbol
+    - Want fresh prediction for specific pair
+    """
+    if not prediction_cache or not prediction_cache.is_connected:
+        return {
+            "success": False,
+            "message": "Redis cache not available"
+        }
+
+    success = await prediction_cache.invalidate_prediction(symbol, interval, model_type)
+
+    return {
+        "success": success,
+        "message": f"Cache invalidated for {symbol} {interval}m {model_type}" if success else "No cache found to invalidate"
     }
 
 

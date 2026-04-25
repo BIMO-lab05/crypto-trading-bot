@@ -1,0 +1,261 @@
+====================================================================================================
+LSTM vs GRU MODEL COMPARISON REPORT
+====================================================================================================
+Generated: 2025-12-10 12:10:21
+
+Total LSTM models: 16
+Total GRU models: 8
+Symbols with both models: 8
+
+====================================================================================================
+DETAILED COMPARISON (Symbols with both LSTM and GRU)
+====================================================================================================
+
+
+==================================================
+Symbol: ADAUSDT
+==================================================
+
+LSTM Model:
+  R² Score:            0.5122
+  MAE:                 0.066713
+  RMSE:                0.084189
+  Dir. Accuracy:       0.00%
+  Training Samples:    299
+  Epochs Trained:      0
+  Parameters:          0
+  Last Trained:        2025-12-09T22:02:25.083429
+
+GRU Model:
+  R² Score:            0.7883
+  MAE:                 0.041160
+  RMSE:                0.055466
+  Dir. Accuracy:       90.67%
+  Training Samples:    299
+  Epochs Trained:      23
+  Parameters:          98,245
+  Last Trained:        2025-12-09T22:24:26.295839
+
+Winner               🏆 GRU (+27.61% R²)
+
+==================================================
+Symbol: APTUSDT
+==================================================
+
+LSTM Model:
+  R² Score:            0.8647
+  MAE:                 0.020949
+  RMSE:                0.027168
+  Dir. Accuracy:       0.00%
+  Training Samples:    724
+  Epochs Trained:      0
+  Parameters:          0
+  Last Trained:        2025-12-09T22:04:28.668650
+
+GRU Model:
+  R² Score:            0.9234
+  MAE:                 0.015863
+  RMSE:                0.020436
+  Dir. Accuracy:       80.22%
+  Training Samples:    724
+  Epochs Trained:      21
+  Parameters:          98,245
+  Last Trained:        2025-12-09T22:48:37.130463
+
+Winner               🏆 GRU (+5.88% R²)
+
+==================================================
+Symbol: BNBUSDT
+==================================================
+
+LSTM Model:
+  R² Score:            0.9018
+  MAE:                 0.073921
+  RMSE:                0.094963
+  Dir. Accuracy:       0.00%
+  Training Samples:    334
+  Epochs Trained:      0
+  Parameters:          0
+  Last Trained:        2025-12-09T21:11:19.237315
+
+GRU Model:
+  R² Score:            0.9306
+  MAE:                 0.064447
+  RMSE:                0.079837
+  Dir. Accuracy:       86.90%
+  Training Samples:    335
+  Epochs Trained:      40
+  Parameters:          98,245
+  Last Trained:        2025-12-09T22:15:31.155621
+
+Winner               🏆 GRU (+2.88% R²)
+
+==================================================
+Symbol: BTCUSDT
+==================================================
+
+LSTM Model:
+  R² Score:            0.8054
+  MAE:                 0.084752
+  RMSE:                0.107826
+  Dir. Accuracy:       0.00%
+  Training Samples:    253
+  Epochs Trained:      0
+  Parameters:          0
+  Last Trained:        2025-12-05T16:18:36.177199
+
+GRU Model:
+  R² Score:            0.9147
+  MAE:                 0.055518
+  RMSE:                0.074562
+  Dir. Accuracy:       84.62%
+  Training Samples:    257
+  Epochs Trained:      31
+  Parameters:          98,245
+  Last Trained:        2025-12-05T22:01:59.596431
+
+Winner               🏆 GRU (+10.92% R²)
+
+==================================================
+Symbol: DOGEUSDT
+==================================================
+
+LSTM Model:
+  R² Score:            0.6544
+  MAE:                 0.127076
+  RMSE:                0.160173
+  Dir. Accuracy:       0.00%
+  Training Samples:    242
+  Epochs Trained:      0
+  Parameters:          0
+  Last Trained:        2025-12-05T21:48:38.330118
+
+GRU Model:
+  R² Score:            0.7736
+  MAE:                 0.101056
+  RMSE:                0.129653
+  Dir. Accuracy:       81.97%
+  Training Samples:    243
+  Epochs Trained:      22
+  Parameters:          98,245
+  Last Trained:        2025-12-05T22:08:02.385098
+
+Winner               🏆 GRU (+11.91% R²)
+
+==================================================
+Symbol: ETHUSDT
+==================================================
+
+LSTM Model:
+  R² Score:            0.7266
+  MAE:                 0.102847
+  RMSE:                0.120866
+  Dir. Accuracy:       0.00%
+  Training Samples:    257
+  Epochs Trained:      0
+  Parameters:          0
+  Last Trained:        2025-12-05T21:46:44.388329
+
+GRU Model:
+  R² Score:            0.8411
+  MAE:                 0.075046
+  RMSE:                0.092132
+  Dir. Accuracy:       84.62%
+  Training Samples:    258
+  Epochs Trained:      17
+  Parameters:          98,245
+  Last Trained:        2025-12-05T22:02:41.933212
+
+Winner               🏆 GRU (+11.46% R²)
+
+==================================================
+Symbol: SOLUSDT
+==================================================
+
+LSTM Model:
+  R² Score:            0.7977
+  MAE:                 0.095143
+  RMSE:                0.119421
+  Dir. Accuracy:       0.00%
+  Training Samples:    335
+  Epochs Trained:      0
+  Parameters:          0
+  Last Trained:        2025-12-09T22:01:00.112343
+
+GRU Model:
+  R² Score:            0.8661
+  MAE:                 0.058472
+  RMSE:                0.082862
+  Dir. Accuracy:       86.15%
+  Training Samples:    258
+  Epochs Trained:      37
+  Parameters:          98,245
+  Last Trained:        2025-12-05T22:06:45.134868
+
+Winner               🏆 GRU (+6.83% R²)
+
+==================================================
+Symbol: XRPUSDT
+==================================================
+
+LSTM Model:
+  R² Score:            0.1759
+  MAE:                 0.025417
+  RMSE:                0.034016
+  Dir. Accuracy:       0.00%
+  Training Samples:    375
+  Epochs Trained:      0
+  Parameters:          0
+  Last Trained:        2025-11-20T22:05:30.303995
+
+GRU Model:
+  R² Score:            0.8450
+  MAE:                 0.042249
+  RMSE:                0.050782
+  Dir. Accuracy:       85.37%
+  Training Samples:    163
+  Epochs Trained:      23
+  Parameters:          98,245
+  Last Trained:        2025-11-30T23:34:15.983928
+
+Winner               🏆 GRU (+66.90% R²)
+
+
+====================================================================================================
+SUMMARY STATISTICS
+====================================================================================================
+
+GRU Wins:  8/8 (100.0%)
+LSTM Wins: 0/8 (0.0%)
+Ties:      0/8 (0.0%)
+
+Average LSTM R²:              0.6798
+Average GRU R²:               0.8603
+Average LSTM Dir. Accuracy:   0.00%
+Average GRU Dir. Accuracy:    85.06%
+
+OVERALL WINNER: 🏆 GRU
+
+
+====================================================================================================
+SYMBOLS WITH ONLY LSTM MODELS (8 symbols)
+====================================================================================================
+ARBUSDT, AVAXUSDT, DOTUSDT, LINKUSDT, LTCUSDT, OPUSDT, POLUSDT, SUIUSDT
+
+
+====================================================================================================
+RECOMMENDATIONS
+====================================================================================================
+
+✅ GRU models show better performance overall
+   Recommendation: Prioritize GRU for production deployment
+   Action: Train GRU models for the 8 LSTM-only symbols
+
+Next Steps:
+1. Complete training for all 16 symbols with both model types
+2. Retrain with 24-month CSV data (100 epochs) for production quality
+3. Deploy best-performing models to production
+4. Monitor real-world performance metrics
+
+✅ Comparison data saved to: /mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service/lstm_gru_comparison.json
+

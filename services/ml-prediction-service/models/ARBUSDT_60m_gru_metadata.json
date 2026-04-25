@@ -1,0 +1,43 @@
+{
+  "symbol": "ARBUSDT",
+  "interval": "60",
+  "model_type": "GRU",
+  "model_version": "v20251210_113249",
+  "last_trained": "2025-12-10T11:32:49.328867",
+  "training_stats": {
+    "train_samples": 13748,
+    "test_samples": 3437,
+    "final_train_loss": 0.0010792480316013098,
+    "final_val_loss": 0.00020367019169498235,
+    "mae": 0.0030463305204949773,
+    "rmse": 0.003899861680056033,
+    "r2_score": 0.9939931237674879
+  },
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "return_1",
+    "return_5",
+    "return_10",
+    "price_momentum_5",
+    "price_momentum_10",
+    "sma_7",
+    "sma_14",
+    "sma_30",
+    "ema_7",
+    "ema_14",
+    "price_vs_sma7",
+    "price_vs_sma14",
+    "high_low_range",
+    "volatility_10",
+    "volatility_20",
+    "volume_sma_7",
+    "volume_ratio",
+    "rsi_14"
+  ],
+  "sequence_length": 60,
+  "prediction_horizon": 5
+}

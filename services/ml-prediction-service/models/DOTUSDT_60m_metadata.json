@@ -1,16 +1,16 @@
 {
   "symbol": "DOTUSDT",
   "interval": "60",
-  "model_version": "v20251201_222521",
-  "last_trained": "2025-12-01T22:25:21.262552",
+  "model_version": "v20251209_220646",
+  "last_trained": "2025-12-09T22:06:46.870769",
   "training_stats": {
     "train_samples": 724,
     "test_samples": 182,
-    "final_train_loss": 0.0046576280146837234,
-    "final_val_loss": 0.0017622520681470633,
-    "mae": 0.018315881889566867,
-    "rmse": 0.023775122166717705,
-    "r2_score": 0.8707105254396632
+    "final_train_loss": 0.00391765683889389,
+    "final_val_loss": 0.0012773104244843125,
+    "mae": 0.016725115747874223,
+    "rmse": 0.02173855651355689,
+    "r2_score": 0.8919116066827149
   },
   "feature_columns": [
     "open",

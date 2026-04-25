@@ -1,16 +1,16 @@
 {
   "symbol": "AVAXUSDT",
   "interval": "60",
-  "model_version": "v20251201_222149",
-  "last_trained": "2025-12-01T22:21:49.308047",
+  "model_version": "v20260104_010653",
+  "last_trained": "2026-01-04T01:06:53.415098",
   "training_stats": {
     "train_samples": 724,
     "test_samples": 182,
-    "final_train_loss": 0.003197937970981002,
-    "final_val_loss": 0.003125348361209035,
-    "mae": 0.017424250170310136,
-    "rmse": 0.022039599091686592,
-    "r2_score": 0.8876766780414933
+    "final_train_loss": 0.0024287349078804255,
+    "final_val_loss": 0.0015678051859140396,
+    "mae": 0.01664119810884907,
+    "rmse": 0.021848462379628425,
+    "r2_score": 0.8896164606809948
   },
   "feature_columns": [
     "open",

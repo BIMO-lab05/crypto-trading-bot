@@ -47,7 +47,7 @@ class TestGRUTrainingEndpoint:
             last_trained=datetime.now(),
             model_version="v1.0",
             training_samples=100,
-            model_accuracy=0.85
+            validation_accuracy=0.85
         ))
         mock_get_predictor.return_value = mock_predictor
 
@@ -112,7 +112,7 @@ class TestGRUTrainingEndpoint:
             last_trained=datetime.now(),
             model_version="v1.1",
             training_samples=100,
-            model_accuracy=0.87
+            validation_accuracy=0.87
         ))
         mock_get_predictor.return_value = mock_predictor
 
@@ -162,7 +162,7 @@ class TestCompareModelsEndpoint:
             "model_type": "LSTM",
             "is_trained": True,
             "training_loss": 0.05,
-            "model_accuracy": 0.85
+            "validation_accuracy": 0.85
         }
         mock_get_lstm.return_value = mock_lstm
 
@@ -172,7 +172,7 @@ class TestCompareModelsEndpoint:
             "model_type": "GRU",
             "is_trained": True,
             "training_loss": 0.04,
-            "model_accuracy": 0.87
+            "validation_accuracy": 0.87
         }
         mock_get_gru.return_value = mock_gru
 

@@ -1,16 +1,16 @@
 {
   "symbol": "LTCUSDT",
   "interval": "60",
-  "model_version": "v20251201_222657",
-  "last_trained": "2025-12-01T22:26:57.399434",
+  "model_version": "v20251209_220925",
+  "last_trained": "2025-12-09T22:09:25.471641",
   "training_stats": {
     "train_samples": 724,
     "test_samples": 182,
-    "final_train_loss": 0.0048110694624483585,
-    "final_val_loss": 0.0018817275995388627,
-    "mae": 0.019191563661042667,
-    "rmse": 0.02603370146107235,
-    "r2_score": 0.9270954305172089
+    "final_train_loss": 0.0045587667264044285,
+    "final_val_loss": 0.0017741721821948886,
+    "mae": 0.02055263743268141,
+    "rmse": 0.027711084795022847,
+    "r2_score": 0.91739811396198
   },
   "feature_columns": [
     "open",

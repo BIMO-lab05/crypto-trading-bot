@@ -1,0 +1,69 @@
+{
+  "generated_at": "2025-12-10T12:10:21.641814",
+  "comparisons": [
+    {
+      "symbol": "ADAUSDT",
+      "lstm_r2": 0.5122140446059509,
+      "gru_r2": 0.7882766040657447,
+      "lstm_dir_acc": 0,
+      "gru_dir_acc": 0.9066666666666666,
+      "winner": "GRU"
+    },
+    {
+      "symbol": "APTUSDT",
+      "lstm_r2": 0.8646958152597775,
+      "gru_r2": 0.9234474879579788,
+      "lstm_dir_acc": 0,
+      "gru_dir_acc": 0.8021978021978022,
+      "winner": "GRU"
+    },
+    {
+      "symbol": "BNBUSDT",
+      "lstm_r2": 0.9017827713667862,
+      "gru_r2": 0.9305789584418407,
+      "lstm_dir_acc": 0,
+      "gru_dir_acc": 0.8690476190476191,
+      "winner": "GRU"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "lstm_r2": 0.8054288054297035,
+      "gru_r2": 0.914678347286134,
+      "lstm_dir_acc": 0,
+      "gru_dir_acc": 0.8461538461538461,
+      "winner": "GRU"
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "lstm_r2": 0.6544343173535845,
+      "gru_r2": 0.7735799456885111,
+      "lstm_dir_acc": 0,
+      "gru_dir_acc": 0.819672131147541,
+      "winner": "GRU"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "lstm_r2": 0.7265504802230439,
+      "gru_r2": 0.8411109778532432,
+      "lstm_dir_acc": 0,
+      "gru_dir_acc": 0.8461538461538461,
+      "winner": "GRU"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "lstm_r2": 0.7977228768529614,
+      "gru_r2": 0.8660578132234605,
+      "lstm_dir_acc": 0,
+      "gru_dir_acc": 0.8615384615384616,
+      "winner": "GRU"
+    },
+    {
+      "symbol": "XRPUSDT",
+      "lstm_r2": 0.17594900978495653,
+      "gru_r2": 0.844981202205753,
+      "lstm_dir_acc": 0,
+      "gru_dir_acc": 0.8536585365853658,
+      "winner": "GRU"
+    }
+  ]
+}

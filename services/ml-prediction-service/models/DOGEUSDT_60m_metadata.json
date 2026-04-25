@@ -1,16 +1,16 @@
 {
   "symbol": "DOGEUSDT",
   "interval": "60",
-  "model_version": "v20251120_220708",
-  "last_trained": "2025-11-20T22:07:08.751244",
+  "model_version": "v20251205_214838",
+  "last_trained": "2025-12-05T21:48:38.330118",
   "training_stats": {
-    "train_samples": 472,
-    "test_samples": 119,
-    "final_train_loss": 0.0020117827225476503,
-    "final_val_loss": 7.97924349171808e-06,
-    "mae": 0.0019521760097705122,
-    "rmse": 0.0019797717351104347,
-    "r2_score": -35.122740229529924
+    "train_samples": 242,
+    "test_samples": 61,
+    "final_train_loss": 0.014851470477879047,
+    "final_val_loss": 0.03380433842539787,
+    "mae": 0.12707644061633702,
+    "rmse": 0.16017349394560476,
+    "r2_score": 0.6544343173535845
   },
   "feature_columns": [
     "open",
