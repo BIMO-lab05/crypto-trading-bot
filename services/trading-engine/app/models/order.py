@@ -8,7 +8,7 @@ from typing import Optional
 from decimal import Decimal
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
-from app.models.enums import OrderSide, OrderType, OrderStatus
+from app.models.enums import OrderSide, OrderType, OrderStatus, TimeInForce
 
 
 class OrderBase(BaseModel):
@@ -19,6 +19,20 @@ class OrderBase(BaseModel):
     quantity: Decimal = Field(description="Order quantity")
     price: Optional[Decimal] = Field(default=None, description="Limit price (for LIMIT orders)")
     strategy: Optional[str] = Field(default=None, description="Strategy name")
+    # CRITICAL FIX 2025-12-07: Add confidence to track signal quality
+    entry_signal_confidence: Optional[float] = Field(
+        default=None,
+        description="Entry signal confidence (0.0-1.0) from trading strategy"
+    )
+    # CRITICAL FIX 2026-01-16 (Fix #3): Add time_in_force and reduce_only for limit orders
+    time_in_force: Optional[TimeInForce] = Field(
+        default=None,
+        description="Time in force (IOC, GTC, FOK, GTX) - for limit orders"
+    )
+    reduce_only: bool = Field(
+        default=False,
+        description="Reduce-only flag (true for closing positions, prevents opening new positions)"
+    )
 
 
 class OrderCreate(OrderBase):

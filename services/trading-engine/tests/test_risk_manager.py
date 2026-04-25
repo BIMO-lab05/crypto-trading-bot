@@ -19,7 +19,7 @@ def mock_settings():
     settings.max_daily_loss_pct = 5.0      # 5% max daily loss
     settings.default_stop_loss_pct = 2.0   # 2% stop loss
     settings.default_take_profit_pct = 4.0 # 4% take profit
-    settings.paper_initial_balance = 10000.0
+    settings.paper_initial_balance = 100.0
     settings.signal_confidence_threshold = 0.6
     return settings
 

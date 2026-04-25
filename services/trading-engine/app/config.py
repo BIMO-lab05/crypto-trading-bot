@@ -1,11 +1,13 @@
 """
 Configuration Module for Trading Engine
 Purpose: Centralized configuration management using Pydantic settings
+
+SECURITY UPDATE (2025-12-12): Added strict CORS configuration
 """
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Literal, List
+from typing import Literal, List, Dict
 
 
 class Settings(BaseSettings):
@@ -82,16 +84,24 @@ class Settings(BaseSettings):
         description="Enable multi-timeframe analysis (15% weight)"
     )
 
-    # Multi-Timeframe Alignment Requirements (2025-12-01)
-    mtf_require_alignment: bool = Field(
+    # Ensemble Predictor (2025-12-07) - Combines all signals in ML service
+    use_ensemble_predictor: bool = Field(
         default=True,
+        description="Use ensemble predictor endpoint (combines TA+ML+Sentiment+MTF with optimal weights)"
+    )
+
+    # Multi-Timeframe Alignment Requirements (2025-12-01)
+    # ADJUSTED 2026-01-02: Lowered from 60.0 to 40.0 for 2/3 timeframe agreement
+    # ADJUSTED 2026-01-02: Temporarily disabled to test single-timeframe trading
+    mtf_require_alignment: bool = Field(
+        default=False,  # Disabled to allow single-timeframe trading
         description="Require TF alignment before trading (reduces false signals)"
     )
     mtf_min_alignment_score: float = Field(
-        default=60.0,
+        default=40.0,  # Lowered from 60.0 to allow 2/3 timeframe agreement
         ge=0.0,
         le=100.0,
-        description="Minimum MTF alignment score (0-100) to execute trades"
+        description="Minimum MTF alignment score (0-100) to execute trades. 40% allows solid 2/3 agreement."
     )
 
     # Trading Configuration
@@ -113,29 +123,94 @@ class Settings(BaseSettings):
     )
     trading_symbols: List[str] = Field(
         default=[
-            # OPTIMIZED LIST (2025-12-02) - Removed underperformers, prioritized winners
-            # Tier 1: Best performers (BNBUSDT 83% WR - highest priority)
-            "BNBUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT",
-            # Tier 2: Large caps (good liquidity) - REMOVED XRPUSDT (30% WR worst performer)
-            "ADAUSDT", "DOGEUSDT", "AVAXUSDT",
-            # Tier 3: Popular alts (moderate liquidity)
-            "LINKUSDT", "POLUSDT", "DOTUSDT", "LTCUSDT",
-            # Tier 4: Trending coins
-            "ARBUSDT", "OPUSDT", "APTUSDT", "SUIUSDT"
+            # =============================================================================
+            # OPTIMIZED SYMBOL LIST (2026-01-19) - TIER 1 ONLY (5 SYMBOLS)
+            # Rationale: Focus on symbols with excellent historical data (250+ days)
+            #
+            # REMOVED: DOT, ARB, OP (insufficient data: 41 days, 1k candles)
+            # REMOVED: AVAX, LINK (limited data: 64-70 days, 4k candles)
+            # REMOVED: MATIC (data quality issues)
+            #
+            # ALLOCATION STRATEGY:
+            # - 50% Major caps (BTC, ETH) - Market leaders, highest liquidity
+            # - 50% Proven performers (SOL, BNB, ADA) - Historical winners
+            #
+            # DATA QUALITY (All Tier 1 - Excellent):
+            # - BTCUSDT: 66,293 candles (253 days) ✅
+            # - ETHUSDT: 66,295 candles (253 days) ✅
+            # - SOLUSDT: 66,294 candles (253 days) ✅
+            # - BNBUSDT: 66,786 candles (253 days) ✅
+            # - ADAUSDT: 61,840 candles (251 days) ✅
+            # =============================================================================
+
+            # === TIER 1: MAJOR CAPS (50% allocation) ===
+            "BTCUSDT",    # Bitcoin - Flagship, most liquid, market leader (66k candles)
+            "ETHUSDT",    # Ethereum - 2nd most liquid, DeFi/smart contracts (66k candles)
+
+            # === TIER 1: PROVEN PERFORMERS (50% allocation) ===
+            "SOLUSDT",    # Solana - BEST: 60% WR, +$55.90 profit in 15 trades ✅ (66k candles)
+            "BNBUSDT",    # Binance Coin - 2nd: 64.3% WR, +$44.22 profit in 14 trades ✅ (66k candles)
+            "ADAUSDT",    # Cardano - 3rd: 75% WR, +$27.43 profit in 4 trades ✅ (61k candles)
         ],
-        description="Optimized 15 trading pairs - removed XRPUSDT (worst performer)"
+        description="5 ACTIVE SYMBOLS - Tier 1 only with excellent data (250+ days) - OPTIMIZED 2026-01-19"
     )
+
+    # =============================================================================
+    # SYMBOL ALLOCATION WEIGHTS (2026-01-19) - OPTIMIZED TO 5 TIER 1 SYMBOLS
+    # Focused allocation on highest quality data symbols
+    #
+    # ALLOCATION PHILOSOPHY:
+    # - 50% Major caps (BTC/ETH) - Market leaders, highest liquidity
+    # - 50% Proven performers (SOL/BNB/ADA) - Historical winners
+    #
+    # RATIONALE:
+    # - Focus capital on symbols with 250+ days of excellent data
+    # - Higher allocation per symbol (20-25% vs 3-15% previously)
+    # - Proven historical performance (60-75% win rates)
+    # - Removes noise from low-quality data symbols
+    # =============================================================================
+    symbol_allocations: Dict[str, float] = Field(
+        default={
+            # ===========================================================================
+            # BACKTEST-OPTIMIZED ALLOCATION (2026-01-19) - Based on 30d + 90d Results
+            # ===========================================================================
+            # Rationale: Allocate more to consistent winners, less to underperformers
+            # Performance basis:
+            #   - SOLUSDT: #1 both periods (50% WR, +0.01-0.02%, Sharpe +0.24-0.52) ✅
+            #   - ADAUSDT: #2 in 90d (49.3% WR, +0.01%, profitable) ✅
+            #   - BTCUSDT: Break-even, market leader (keep core holding)
+            #   - BNBUSDT: Moderate (44-48% WR, break-even to slight loss)
+            #   - ETHUSDT: #5 both periods (25-33% WR, -0.01-0.04%, worst) ❌
+
+            "SOLUSDT": 0.30,    # ⬆️ 30% (was 20%) - BEST performer, consistent winner
+            "BTCUSDT": 0.25,    # ➡️ 25% (same) - Market leader, core holding
+            "BNBUSDT": 0.20,    # ➡️ 20% (same) - Moderate performer, stable
+            "ADAUSDT": 0.15,    # ⬆️ 15% (was 10%) - 2nd best in 90d, improving
+            "ETHUSDT": 0.10,    # ⬇️ 10% (was 25%) - WORST performer, reduced risk
+        },
+        description="BACKTEST-OPTIMIZED: Increased SOL (30%), ADA (15%), decreased ETH (10%). "
+                    "Focus capital on proven winners. Updated 2026-01-19 based on 30d/90d backtests."
+    )
+
     default_interval: str = Field(
         default="60",
         description="Default candlestick interval"
     )
 
-    # Trade Frequency Settings - EXPANDED for 16 symbols (2025-12-01)
+    # Strategy Mode - STANDARD for more trading opportunities (2026-02-24)
+    # Options: standard, research, hybrid, grid_trading
+    # CHANGED: From 'hybrid' to 'standard' to enable trading in ranging market conditions
+    strategy_mode: str = Field(
+        default="standard",
+        description="Trading strategy mode: standard (more active), research, hybrid (dual confirmation), or grid_trading"
+    )
+
+    # Trade Frequency Settings - ADJUSTED for 11 symbols (2026-01-07)
     max_daily_trades: int = Field(
-        default=40,
+        default=50,
         ge=1,
-        le=100,
-        description="Maximum trades per day (increased for 16 symbols)"
+        le=150,
+        description="Maximum trades per day (adjusted for 11 symbols - ~4-5 trades per symbol)"
     )
     check_frequency_seconds: int = Field(
         default=30,
@@ -156,10 +231,10 @@ class Settings(BaseSettings):
 
     # Risk Management
     max_position_size_pct: float = Field(
-        default=2.0,
+        default=5.0,
         ge=0.1,
-        le=10.0,
-        description="Maximum position size as % of capital"
+        le=50.0,
+        description="Maximum position size as % of capital (5% optimal for multi-symbol portfolio)"
     )
     max_daily_loss_pct: float = Field(
         default=5.0,
@@ -174,33 +249,34 @@ class Settings(BaseSettings):
         description="Maximum total exposure as % of capital (80% to allow 20+ positions)"
     )
     default_stop_loss_pct: float = Field(
-        default=2.0,
+        default=2.0,  # TIGHTENED 2026-01-14: Reduced from 3% to 2% to prevent large losses
         ge=0.5,
         le=10.0,
-        description="Default stop loss as % from entry (2% for 1:2 R/R ratio)"
+        description="Default stop loss as % from entry (2% TIGHTER protection after -$14.33 loss)"
     )
     default_take_profit_pct: float = Field(
-        default=4.0,
+        default=4.0,  # ADJUSTED 2026-01-20: Changed from 6% to 4% for better trade completion in volatile market
         ge=1.0,
         le=50.0,
-        description="Default take profit as % from entry (4% for 1:2 R/R ratio)"
+        description="Default take profit as % from entry (4% for 2:1 R/R ratio with 2% SL, better for current market)"
     )
 
-    # Signal Thresholds - RESEARCH-OPTIMIZED (2025-12-02)
-    # Based on: 3Commas, Bitsgap, Cryptohopper best practices
-    # Higher thresholds = fewer but higher quality trades
+    # Signal Thresholds - RESEARCH-BACKED (2025-12-23)
+    # Professional standard: 65-75% confidence for automated trading
+    # Research shows: 75-85% win rate at 65%+ confidence
+    # ADJUSTED 2026-02-25: Lowered to 40% to sync with aggregator and enable trading
     min_signal_confidence: float = Field(
-        default=0.60,
+        default=0.40,  # SYNCED to 40% to match aggregator (enables trading in current market)
         ge=0.0,
         le=1.0,
-        description="RESEARCH: 0.60+ confidence for 55-65% win rate"
+        description="SYNCED: 40% to match aggregator - enables trading while filtering noise"
     )
     # Need 3 indicators from different categories for consensus
     min_consensus_indicators: int = Field(
         default=3,
         ge=1,
         le=10,
-        description="RESEARCH: 3 indicators from different categories (Trend+Momentum+Volume)"
+        description="USER CONFIG: 3 indicators minimum for balanced consensus"
     )
 
     # Time-Based Trading Filters (RESEARCH-BACKED 2025-12-01)
@@ -211,10 +287,10 @@ class Settings(BaseSettings):
         description="Enable time-based trade filtering for quality"
     )
     trading_start_hour_utc: int = Field(
-        default=8,
+        default=1,
         ge=0,
         le=23,
-        description="Start trading hour UTC (8:00 = European open)"
+        description="Start trading hour UTC (1:00 = Asia/Europe overlap - OPTIMIZED 2026-01-19)"
     )
     trading_end_hour_utc: int = Field(
         default=21,
@@ -225,6 +301,103 @@ class Settings(BaseSettings):
     avoid_weekends: bool = Field(
         default=True,
         description="Avoid trading on weekends (lower volume)"
+    )
+
+    # ===========================================================================
+    # POSITION HOLD TIME LIMITS (Added 2026-01-14) - CRITICAL FIX
+    # ===========================================================================
+    # Problem: SOLUSDT SHORT held for 185 hours (7.7 days) resulting in -$14.33 loss
+    # Solution: Force close positions after 48 hours to prevent catastrophic losses
+    max_position_hold_hours: int = Field(
+        default=48,  # Force exit after 48 hours (2 days)
+        ge=1,
+        le=720,  # Max 30 days
+        description="Maximum hours to hold a position before forced exit (prevents holding losers)"
+    )
+    enable_max_hold_time: bool = Field(
+        default=True,
+        description="Enable automatic position closure after max hold time"
+    )
+
+    # ===========================================================================
+    # TRADE SIDE RESTRICTIONS (Updated 2026-01-19) - OPTION C: HYBRID CIRCUIT BREAKER
+    # ===========================================================================
+    # Analysis: Backtest shows SHORT trading has +2-4% monthly profit potential in current bearish conditions
+    # Recent analysis (Jan 19, 2026) confirms SHORT trades are profitable in current market
+    # Solution: Enable SHORT with TIGHTER risk controls + automatic circuit breaker
+    allowed_trade_sides: List[str] = Field(
+        default=["LONG", "SHORT"],  # Both sides enabled for market adaptability
+        description="Allowed trade sides: ['LONG', 'SHORT'] for market adaptability"
+    )
+    short_trading_enabled: bool = Field(
+        default=True,  # SHORT trading enabled based on recent profitable analysis
+        description="Enable SHORT trading for current market conditions"
+    )
+
+    # ===========================================================================
+    # SHORT TRADING RISK CONTROLS (Added 2026-01-19) - TIGHTER THAN LONG
+    # ===========================================================================
+    # Rationale: SHORT trading has higher risk, requires stricter controls
+    # Backtest basis: 30d LONG strategies had 41.3% WR, -0.002% return
+    #                 SHORT expected: 57-59% WR, +2-4% return (inverse conditions)
+    short_stop_loss_pct: float = Field(
+        default=1.5,  # TIGHTER: 1.5% vs 2.0% for LONG (25% tighter)
+        ge=0.5,
+        le=5.0,
+        description="SHORT stop loss: 1.5% (tighter than LONG's 2.0%)"
+    )
+    short_min_confidence: float = Field(
+        default=0.70,  # HIGHER: 70% vs 65% for LONG (higher bar)
+        ge=0.5,
+        le=1.0,
+        description="SHORT minimum confidence: 70% (higher than LONG's 65%)"
+    )
+    short_max_position_pct: float = Field(
+        default=3.0,  # SMALLER: 3% vs 5% for LONG (40% smaller)
+        ge=0.5,
+        le=10.0,
+        description="SHORT max position size: 3% (smaller than LONG's 5%)"
+    )
+
+    # ===========================================================================
+    # CIRCUIT BREAKER (Added 2026-01-19) - AUTOMATIC SHORT SAFETY SHUTDOWN
+    # ===========================================================================
+    # Purpose: Automatically disable SHORT if underperforms, protecting capital
+    # Trigger: If ANY condition breached during evaluation period → disable SHORT
+    # Recovery: Requires manual re-enable after review
+    circuit_breaker_enabled: bool = Field(
+        default=True,
+        description="Enable automatic SHORT shutdown on poor performance"
+    )
+    circuit_breaker_max_consecutive_losses: int = Field(
+        default=3,  # Disable after 3 losses in a row
+        ge=2,
+        le=10,
+        description="Auto-disable SHORT after N consecutive losses"
+    )
+    circuit_breaker_max_drawdown_pct: float = Field(
+        default=10.0,  # Disable if portfolio drops 10%
+        ge=3.0,
+        le=25.0,
+        description="Auto-disable SHORT if drawdown exceeds %"
+    )
+    circuit_breaker_min_win_rate_pct: float = Field(
+        default=45.0,  # Disable if win rate falls below 45%
+        ge=30.0,
+        le=60.0,
+        description="Auto-disable SHORT if win rate below % (after evaluation period)"
+    )
+    circuit_breaker_evaluation_trades: int = Field(
+        default=30,  # Evaluate after 30 trades
+        ge=10,
+        le=100,
+        description="Number of SHORT trades before evaluating circuit breaker"
+    )
+    circuit_breaker_check_interval_minutes: int = Field(
+        default=60,  # Check every hour
+        ge=15,
+        le=1440,
+        description="How often to check circuit breaker conditions (minutes)"
     )
 
     # Database Configuration
@@ -253,6 +426,65 @@ class Settings(BaseSettings):
         description="Commission percentage for paper trading"
     )
 
+    # =========================================================================
+    # LEVERAGE CONFIGURATION (Added 2025-12-15)
+    # =========================================================================
+    # Bybit-style leverage: Initial Margin = Position Value / Leverage
+    # Example: $100 position with 10x leverage = $10 margin required
+    leverage_enabled: bool = Field(
+        default=False,
+        description="Enable leverage trading (Bybit style)"
+    )
+    default_leverage: float = Field(
+        default=1.0,
+        ge=1.0,
+        le=100.0,
+        description="Default leverage multiplier (1x = no leverage, 10x = 10x leverage)"
+    )
+    max_leverage: float = Field(
+        default=20.0,
+        ge=1.0,
+        le=100.0,
+        description="Maximum allowed leverage"
+    )
+    min_leverage: float = Field(
+        default=1.0,
+        ge=1.0,
+        description="Minimum leverage"
+    )
+
+    # =========================================================================
+    # SECURITY CONFIGURATION (Added 2025-12-12)
+    # =========================================================================
+
+    # CORS Configuration - Strict mode for production
+    cors_origins: List[str] = Field(
+        default=[
+            "http://localhost:3000",     # React frontend development
+            "http://localhost:8000",     # API Gateway
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:8000",
+        ],
+        description="Allowed CORS origins (no wildcards in production)"
+    )
+
+    # Internal service origins (for microservice communication)
+    internal_service_origins: List[str] = Field(
+        default=[
+            "http://api-gateway:8000",
+            "http://localhost:8000",
+            "http://localhost:8001",
+            "http://localhost:8002",
+            "http://localhost:8003",
+            "http://localhost:8004",
+            "http://localhost:8005",
+            "http://localhost:8006",
+            "http://localhost:8007",
+            "http://localhost:8008",
+        ],
+        description="Internal microservice origins for inter-service communication"
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v):
@@ -269,6 +501,45 @@ class Settings(BaseSettings):
         if v.upper() not in ["PAPER", "LIVE"]:
             raise ValueError("Trading mode must be PAPER or LIVE")
         return v.upper()
+
+    def validate_allocations(self) -> None:
+        """
+        Validate symbol allocations sum to 1.0 and all trading symbols have allocations
+
+        Raises:
+            ValueError: If allocations are invalid
+        """
+        # Check allocations sum to 1.0 (with small tolerance for floating point)
+        total = sum(self.symbol_allocations.values())
+        if abs(total - 1.0) > 0.01:
+            raise ValueError(
+                f"Symbol allocations sum to {total:.4f}, must equal 1.0. "
+                f"Current allocations: {self.symbol_allocations}"
+            )
+
+        # Ensure all trading symbols have allocations
+        for symbol in self.trading_symbols:
+            if symbol not in self.symbol_allocations:
+                raise ValueError(
+                    f"Symbol '{symbol}' in trading_symbols but missing from "
+                    f"symbol_allocations. Please add allocation for '{symbol}' "
+                    f"or remove it from trading_symbols."
+                )
+
+        # Warn if there are allocations for symbols not in trading list
+        extra_symbols = set(self.symbol_allocations.keys()) - set(self.trading_symbols)
+        if extra_symbols:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Allocations defined for symbols not in trading_symbols: {extra_symbols}. "
+                f"These allocations will be ignored."
+            )
+
+    @property
+    def all_cors_origins(self) -> List[str]:
+        """Get combined list of all allowed CORS origins"""
+        return list(set(self.cors_origins + self.internal_service_origins))
 
     @property
     def database_url(self) -> str:

@@ -120,7 +120,39 @@ class PaperTradingEngine:
 
         # Handle BUY order
         if order.side == OrderSide.BUY:
-            total_cost = order_value + commission
+            # Check if we have an open SHORT position to close (2025-12-03)
+            open_short_positions = [
+                pos for pos in self.position_manager.get_open_positions()
+                if pos.symbol == order.symbol and pos.side == PositionSide.SHORT
+            ]
+
+            if open_short_positions:
+                # Close SHORT position
+                position = open_short_positions[0]
+                closed_position = self.position_manager.close_position(
+                    position.id,
+                    current_price,
+                    reason="Market buy order (SHORT close)"
+                )
+
+                # Add proceeds to balance
+                proceeds = order_value - commission
+                self.balance += proceeds
+
+                executed_order.position_id = closed_position.id
+
+                logger.info(
+                    f"✓ SHORT closed: {order.quantity} {order.symbol} @ {current_price} | "
+                    f"Proceeds: ${proceeds} | P&L: ${closed_position.realized_pnl} | Balance: ${self.balance}"
+                )
+
+                return executed_order, None
+
+            # No SHORT position - open a LONG position (2025-12-18 FIX)
+            # For leveraged LONG positions, only deduct margin (position_value / leverage) not full value
+            leverage = Decimal(str(self.settings.default_leverage))
+            margin_required = order_value / leverage
+            total_cost = margin_required + commission
 
             # Check if sufficient balance
             if total_cost > self.balance:
@@ -129,8 +161,9 @@ class PaperTradingEngine:
                 executed_order.status = OrderStatus.FAILED
                 return executed_order, error_msg
 
-            # Deduct from balance
+            # Deduct margin requirement from balance
             self.balance -= total_cost
+            logger.debug(f"LONG margin calculation: order_value=${order_value}, leverage={leverage}x, margin=${margin_required}, commission=${commission}")
 
             # Create LONG position
             position = self.position_manager.create_position(
@@ -138,14 +171,16 @@ class PaperTradingEngine:
                 side=PositionSide.LONG,
                 entry_price=current_price,
                 quantity=order.quantity,
-                strategy=order.strategy
+                strategy=order.strategy,
+                # CRITICAL FIX 2025-12-07: Save entry signal confidence
+                entry_signal_confidence=order.entry_signal_confidence
             )
 
             executed_order.position_id = position.id
 
             logger.info(
-                f"✓ BUY order filled: {order.quantity} {order.symbol} @ {current_price} | "
-                f"Cost: ${order_value} + Commission: ${commission} = ${total_cost} | "
+                f"✓ LONG opened: {order.quantity} {order.symbol} @ {current_price} | "
+                f"Position: ${order_value} | Margin: ${margin_required} ({leverage}x leverage) + Commission: ${commission} | "
                 f"Balance: ${self.balance}"
             )
 
@@ -168,20 +203,46 @@ class PaperTradingEngine:
 
         # Handle SELL order
         elif order.side == OrderSide.SELL:
-            # Check if we have an open position to close
-            open_positions = [
+            # Check if we have an open LONG position to close
+            open_long_positions = [
                 pos for pos in self.position_manager.get_open_positions()
                 if pos.symbol == order.symbol and pos.side == PositionSide.LONG
             ]
 
-            if not open_positions:
-                error_msg = f"No open LONG position for {order.symbol} to sell"
-                logger.warning(error_msg)
-                executed_order.status = OrderStatus.FAILED
-                return executed_order, error_msg
+            if not open_long_positions:
+                # No LONG position - open a SHORT position instead (2025-12-03)
+                logger.info(f"No LONG position for {order.symbol}, opening SHORT position")
 
-            # Close the position
-            position = open_positions[0]
+                # Deduct margin requirement from balance (2025-12-18 FIX)
+                # For leveraged SHORT positions, only deduct margin (position_value / leverage) not full value
+                leverage = Decimal(str(self.settings.default_leverage))
+                margin_required = order_value / leverage
+                self.balance -= margin_required + commission
+                logger.debug(f"SHORT margin calculation: order_value=${order_value}, leverage={leverage}x, margin=${margin_required}, commission=${commission}")
+
+                # Open SHORT position (same as LONG but with SHORT side)
+                position = self.position_manager.create_position(
+                    symbol=order.symbol,
+                    side=PositionSide.SHORT,
+                    entry_price=current_price,
+                    quantity=order.quantity,
+                    strategy="research_optimized",
+                    # CRITICAL FIX 2025-12-07: Save entry signal confidence
+                    entry_signal_confidence=order.entry_signal_confidence
+                )
+
+                executed_order.position_id = position.id
+
+                logger.info(
+                    f"✓ SHORT opened: {order.quantity} {order.symbol} @ {current_price} | "
+                    f"Position: ${order_value} | Margin: ${margin_required} ({leverage}x leverage) + Commission: ${commission} | "
+                    f"Balance: ${self.balance}"
+                )
+
+                return executed_order, None
+
+            # Close the LONG position
+            position = open_long_positions[0]
             closed_position = self.position_manager.close_position(
                 position.id,
                 current_price,

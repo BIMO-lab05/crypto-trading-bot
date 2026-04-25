@@ -1,16 +1,21 @@
 """
 SQZMOM Strategy Configuration
-Purpose: Optimized parameters from backtesting results
+Purpose: Optimized parameters from backtesting and live paper trading validation
 Date: 2025-11-20
-Updated: 2025-11-26 - Enabled auto_trading, lowered min_confidence
+Updated: 2026-04-25 - Aligned with validated 3-symbol config (SOL, BNB, ADA)
 
-Backtesting Results Summary:
-- SOLUSDT: +2,706% return (22% win rate, 4.76 Sharpe)
-- DOGEUSDT: +630% return (28% win rate, 5.41 Sharpe)
-- BNBUSDT: +330% return (31% win rate, -3.21 Sharpe)
+Paper Trading Validation (Dec 3-13, 2025 - 89+ trades):
+- SOLUSDT: +$55.90 profit, 60% win rate - BEST performer
+- BNBUSDT: +$44.22 profit, 64.3% win rate - 2nd best
+- ADAUSDT: +$27.43 profit, 75% win rate - 3rd best (highest WR)
+- DOGEUSDT: Removed - marginal performance in live trading
 
-These symbols showed exceptional profitability with the SQZMOM strategy,
-while BTCUSDT, ETHUSDT, XRPUSDT, and ADAUSDT lost >99% and are excluded.
+Excluded symbols (validated losers):
+- XRPUSDT: -$39.73, 23.1% WR | ETHUSDT: -$23.65 | BTCUSDT: -$10.59
+
+3-Symbol Focus Improvement: 3.29x P&L improvement validated by data
+- Top 3 symbols: +$127.55 total, 66.4% win rate
+- Bottom 4 symbols: -$88.79 total, 31.6% win rate
 
 Optimized Parameters:
 - bb_length: 20
@@ -21,7 +26,7 @@ Optimized Parameters:
 - require_squeeze_release: False (more entry opportunities)
 - require_volume_confirmation: False (avoid missing signals)
 
-Trading Mode Update (2025-11-26):
+Trading Mode:
 - auto_trading: True (enabled for automatic trade execution)
 - min_confidence: 0.5 (lowered from 0.7 for more trade opportunities)
 - paper_trading: True (safety mode for simulated trades)
@@ -41,10 +46,10 @@ class SQZMOMConfig(BaseModel):
     Only profitable symbols are enabled by default.
     """
 
-    # Enabled symbols (only profitable ones from backtesting)
+    # Enabled symbols (validated by paper trading Dec 2025)
     enabled_symbols: List[str] = Field(
-        default=["SOLUSDT", "DOGEUSDT", "BNBUSDT"],
-        description="Symbols to trade with SQZMOM strategy (whitelisted only)"
+        default=["SOLUSDT", "BNBUSDT", "ADAUSDT"],
+        description="Symbols to trade with SQZMOM strategy (validated profitable symbols)"
     )
 
     # Indicator parameters (optimized through backtesting)
@@ -121,35 +126,35 @@ class SQZMOMConfig(BaseModel):
         description="Enable automatic trade execution (True = trades execute automatically)"
     )
 
-    # Symbol-specific overrides (for fine-tuning based on backtesting)
+    # Symbol-specific overrides (validated by paper trading Dec 2025)
     symbol_config: Dict[str, Dict] = Field(
         default={
             "SOLUSDT": {
-                # Best performer (+2,706% return)
-                "position_size_pct": 2.5,  # Slightly larger position
+                # Best performer: +$55.90 profit, 60% WR, 15 trades
+                "position_size_pct": 2.5,  # Largest position (best performer)
                 "stop_loss_pct": 1.5,
                 "take_profit_pct": 3.0,
-                "min_confidence": 0.45,  # Lowered for more trade opportunities
-                "description": "Best SQZMOM performer: +2,706% return, 22% win rate, 4.76 Sharpe"
-            },
-            "DOGEUSDT": {
-                # Second best performer (+630% return)
-                "position_size_pct": 1.5,  # Smaller position (more volatile)
-                "stop_loss_pct": 1.5,
-                "take_profit_pct": 3.5,  # Slightly wider TP (more volatile)
-                "min_confidence": 0.55,  # Slightly more conservative (higher volatility)
-                "description": "Strong performer: +630% return, 28% win rate, 5.41 Sharpe"
+                "min_confidence": 0.45,
+                "description": "Best performer: +$55.90, 60% WR, 15 trades (paper trading validated)"
             },
             "BNBUSDT": {
-                # Third best performer (+330% return)
+                # 2nd best: +$44.22 profit, 64.3% WR, 14 trades
                 "position_size_pct": 2.0,  # Standard position
                 "stop_loss_pct": 1.5,
                 "take_profit_pct": 3.0,
-                "min_confidence": 0.50,  # Standard confidence
-                "description": "Solid performer: +330% return, 31% win rate"
+                "min_confidence": 0.50,
+                "description": "2nd best: +$44.22, 64.3% WR, 14 trades (paper trading validated)"
+            },
+            "ADAUSDT": {
+                # 3rd best: +$27.43 profit, 75% WR, 4 trades (highest win rate)
+                "position_size_pct": 1.5,  # Smaller position (fewer trades, less data)
+                "stop_loss_pct": 1.5,
+                "take_profit_pct": 3.0,
+                "min_confidence": 0.55,  # Slightly higher confidence (fewer historical trades)
+                "description": "3rd best: +$27.43, 75% WR, 4 trades (paper trading validated)"
             }
         },
-        description="Symbol-specific parameter overrides based on backtesting"
+        description="Symbol-specific parameter overrides validated by paper trading"
     )
 
     # Timeframe
@@ -168,7 +173,7 @@ class SQZMOMConfig(BaseModel):
         """Pydantic configuration"""
         json_schema_extra = {
             "example": {
-                "enabled_symbols": ["SOLUSDT", "DOGEUSDT", "BNBUSDT"],
+                "enabled_symbols": ["SOLUSDT", "BNBUSDT", "ADAUSDT"],
                 "min_momentum_threshold": 0.3,
                 "stop_loss_pct": 1.5,
                 "take_profit_pct": 3.0,

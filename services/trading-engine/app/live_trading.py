@@ -204,7 +204,9 @@ class LiveTradingEngine:
                 quantity=order.quantity,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
-                strategy=order.strategy or "live_trading"
+                strategy=order.strategy or "live_trading",
+                # CRITICAL FIX 2025-12-07: Save entry signal confidence
+                entry_signal_confidence=order.entry_signal_confidence
             )
 
             logger.info("=" * 60)

@@ -25,6 +25,8 @@ class PositionBase(BaseModel):
     stop_loss: Optional[Decimal] = Field(default=None, description="Stop loss price")
     take_profit: Optional[Decimal] = Field(default=None, description="Take profit price (legacy/primary)")
     strategy: Optional[str] = Field(default=None, description="Strategy name")
+    # CRITICAL FIX 2025-12-05: Save entry signal confidence for performance analysis
+    entry_signal_confidence: Optional[float] = Field(default=None, description="Entry signal confidence (0.0-1.0)")
     # RESEARCH-BACKED: Multi-level take profits for partial exits (2025-11-29)
     take_profit_1: Optional[Decimal] = Field(default=None, description="TP1 - 1:1 R:R (close 33%)")
     take_profit_2: Optional[Decimal] = Field(default=None, description="TP2 - 2:1 R:R (close 33%)")

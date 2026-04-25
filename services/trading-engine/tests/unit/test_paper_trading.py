@@ -29,7 +29,7 @@ class TestPaperTradingEngine:
     def mock_settings(self):
         """Mock settings configuration"""
         settings = Mock()
-        settings.paper_initial_balance = 10000.0
+        settings.paper_initial_balance = 100.0
         settings.paper_commission_pct = 0.1  # 0.1%
         return settings
 
@@ -76,14 +76,14 @@ class TestPaperTradingEngine:
 
     def test_initialization(self, trading_engine, mock_settings):
         """Test engine initializes with correct settings"""
-        assert trading_engine.balance == Decimal("10000.0")
-        assert trading_engine.initial_balance == Decimal("10000.0")
+        assert trading_engine.balance == Decimal("100.0")
+        assert trading_engine.initial_balance == Decimal("100.0")
         assert trading_engine.commission_pct == Decimal("0.001")  # 0.1% as decimal
 
     def test_get_balance(self, trading_engine):
         """Test getting current balance"""
         balance = trading_engine.get_balance()
-        assert balance == Decimal("10000.0")
+        assert balance == Decimal("100.0")
         assert isinstance(balance, Decimal)
 
     def test_get_total_equity_no_positions(self, trading_engine, mock_position_manager):
@@ -92,7 +92,7 @@ class TestPaperTradingEngine:
 
         equity = trading_engine.get_total_equity()
 
-        assert equity == Decimal("10000.0")
+        assert equity == Decimal("100.0")
         mock_position_manager.get_total_unrealized_pnl.assert_called_once()
 
     def test_get_total_equity_with_unrealized_pnl(self, trading_engine, mock_position_manager):
@@ -181,13 +181,13 @@ class TestPaperTradingEngine:
         assert executed_order.status == OrderStatus.FAILED
 
         # Verify balance unchanged
-        assert trading_engine.balance == Decimal("10000.00")
+        assert trading_engine.balance == Decimal("100.00")
 
     @pytest.mark.asyncio
     async def test_execute_sell_order_success(self, trading_engine, mock_position_manager):
         """Test successful SELL order execution"""
         # First execute BUY to create position
-        trading_engine.balance = Decimal("10000.00")
+        trading_engine.balance = Decimal("100.00")
         mock_buy_position = Mock()
         mock_buy_position.id = uuid4()
         mock_position_manager.create_position.return_value = mock_buy_position
@@ -306,9 +306,9 @@ class TestPaperTradingEngine:
         """Test performance summary with no trades"""
         summary = trading_engine.get_performance_summary()
 
-        assert summary["initial_balance"] == 10000.0
-        assert summary["current_balance"] == 10000.0
-        assert summary["total_equity"] == 10000.0
+        assert summary["initial_balance"] == 100.0
+        assert summary["current_balance"] == 100.0
+        assert summary["total_equity"] == 100.0
         assert summary["total_pnl"] == 0.0
         assert summary["roi"] == 0.0
         assert summary["total_trades"] == 0
@@ -332,15 +332,15 @@ class TestPaperTradingEngine:
             winning_pos, losing_pos, another_win
         ]
 
-        # Simulate balance change (started at 10000, now at 10250)
-        trading_engine.balance = Decimal("10250.00")
+        # Simulate balance change (started at 100, now at 125)
+        trading_engine.balance = Decimal("125.00")
 
         summary = trading_engine.get_performance_summary()
 
-        assert summary["initial_balance"] == 10000.0
-        assert summary["current_balance"] == 10250.0
-        assert summary["total_pnl"] == 250.0
-        assert summary["roi"] == 2.5  # 250/10000 * 100
+        assert summary["initial_balance"] == 100.0
+        assert summary["current_balance"] == 125.0
+        assert summary["total_pnl"] == 25.0
+        assert summary["roi"] == 25.0  # 25/100 * 100
         assert summary["total_trades"] == 3
         assert summary["winning_trades"] == 2
         assert summary["losing_trades"] == 1

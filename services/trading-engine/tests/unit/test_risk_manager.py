@@ -22,7 +22,7 @@ class TestRiskManager:
     def mock_settings(self):
         """Mock settings configuration"""
         settings = Mock()
-        settings.paper_initial_balance = 10000.0
+        settings.paper_initial_balance = 100.0
         settings.max_position_size_pct = 10.0  # 10% of capital
         settings.max_daily_loss_pct = 5.0  # 5% max daily loss
         settings.default_stop_loss_pct = 2.0  # 2% stop loss
@@ -127,7 +127,7 @@ class TestRiskManager:
         """Test basic position size calculation"""
         # 10% of $10,000 = $1,000 / $50,000 = 0.02 BTC
         quantity = risk_manager.calculate_position_size(
-            account_balance=Decimal("10000.00"),
+            account_balance=Decimal("100.00"),
             entry_price=Decimal("50000.00")
         )
 
@@ -142,7 +142,7 @@ class TestRiskManager:
         # Fixed quantity: $1,000 / $50,000 = 0.02
         # Should use min(0.02, 1.0) = 0.02
         quantity = risk_manager.calculate_position_size(
-            account_balance=Decimal("10000.00"),
+            account_balance=Decimal("100.00"),
             entry_price=Decimal("50000.00"),
             stop_loss_price=Decimal("49000.00")
         )
@@ -161,7 +161,7 @@ class TestRiskManager:
     def test_calculate_position_size_invalid_price(self, risk_manager):
         """Test position size with invalid price returns zero"""
         quantity = risk_manager.calculate_position_size(
-            account_balance=Decimal("10000.00"),
+            account_balance=Decimal("100.00"),
             entry_price=Decimal("0")
         )
 

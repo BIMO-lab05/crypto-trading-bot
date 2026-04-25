@@ -25,7 +25,7 @@ class TestSettings:
         assert settings.trading_mode == "PAPER"
         assert settings.default_symbol == "BTCUSDT"
         assert settings.max_position_size_pct == 2.0
-        assert settings.paper_initial_balance == 10000.0
+        assert settings.paper_initial_balance == 100.0
 
     def test_log_level_validator_valid(self):
         """Test log level validator with valid values"""
@@ -164,6 +164,106 @@ class TestFieldValidation:
 
         settings = Settings(min_signal_confidence=1.0)
         assert settings.min_signal_confidence == 1.0
+
+
+class TestSymbolAllocations:
+    """Test suite for symbol allocation configuration (2025-12-06)"""
+
+    def test_default_allocations(self):
+        """Test that default symbol allocations match SOL-heavy strategy"""
+        settings = Settings()
+
+        # Check default allocations (60/20/20 for SOL/BNB/ADA)
+        assert "SOLUSDT" in settings.symbol_allocations
+        assert "BNBUSDT" in settings.symbol_allocations
+        assert "ADAUSDT" in settings.symbol_allocations
+
+        assert settings.symbol_allocations["SOLUSDT"] == 0.60
+        assert settings.symbol_allocations["BNBUSDT"] == 0.20
+        assert settings.symbol_allocations["ADAUSDT"] == 0.20
+
+    def test_allocations_sum_to_one(self):
+        """Test that default allocations sum to 1.0"""
+        settings = Settings()
+        total = sum(settings.symbol_allocations.values())
+        assert abs(total - 1.0) < 0.01  # Within tolerance
+
+    def test_validate_allocations_success(self):
+        """Test that validate_allocations() passes with default config"""
+        settings = Settings()
+        # Should not raise any exception
+        settings.validate_allocations()
+
+    def test_validate_allocations_sum_error(self):
+        """Test that validate_allocations() catches incorrect sum"""
+        settings = Settings(
+            symbol_allocations={
+                "SOLUSDT": 0.50,
+                "BNBUSDT": 0.30,
+                "ADAUSDT": 0.10,  # Sum = 0.90, not 1.0
+            }
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            settings.validate_allocations()
+
+        assert "sum to" in str(exc_info.value)
+        assert "must equal 1.0" in str(exc_info.value)
+
+    def test_validate_allocations_missing_symbol(self):
+        """Test that validate_allocations() catches missing symbol"""
+        settings = Settings(
+            trading_symbols=["SOLUSDT", "BNBUSDT", "ADAUSDT", "ETHUSDT"],
+            symbol_allocations={
+                "SOLUSDT": 0.60,
+                "BNBUSDT": 0.20,
+                "ADAUSDT": 0.20,
+                # ETHUSDT is missing!
+            }
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            settings.validate_allocations()
+
+        assert "missing from symbol_allocations" in str(exc_info.value)
+        assert "ETHUSDT" in str(exc_info.value)
+
+    def test_custom_allocations(self):
+        """Test creating settings with custom allocations"""
+        custom_allocations = {
+            "SOLUSDT": 0.50,
+            "BNBUSDT": 0.25,
+            "ADAUSDT": 0.25,
+        }
+
+        settings = Settings(symbol_allocations=custom_allocations)
+
+        assert settings.symbol_allocations["SOLUSDT"] == 0.50
+        assert settings.symbol_allocations["BNBUSDT"] == 0.25
+        assert settings.symbol_allocations["ADAUSDT"] == 0.25
+
+        # Should pass validation
+        settings.validate_allocations()
+
+    def test_equal_allocation_alternative(self):
+        """Test equal allocation strategy (33/33/33)"""
+        equal_allocations = {
+            "SOLUSDT": 0.333,
+            "BNBUSDT": 0.333,
+            "ADAUSDT": 0.334,  # Sum = 1.0
+        }
+
+        settings = Settings(symbol_allocations=equal_allocations)
+        settings.validate_allocations()  # Should pass
+
+    def test_allocation_matches_trading_symbols(self):
+        """Test that all trading symbols have corresponding allocations"""
+        settings = Settings()
+
+        # Every trading symbol should be in allocations
+        for symbol in settings.trading_symbols:
+            assert symbol in settings.symbol_allocations, \
+                f"Symbol {symbol} missing from allocations"
 
 
 # Test configuration

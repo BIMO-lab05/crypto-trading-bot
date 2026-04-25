@@ -128,6 +128,8 @@ class PositionSizer:
         signal_confidence: float,
         performance_stats: Optional[Dict] = None,
         stop_loss_pct: Optional[float] = None,
+        daily_pnl: Optional[Decimal] = None,
+        total_capital: Optional[float] = None,
     ) -> PositionSizeResult:
         """
         Calculate position size using specified method
@@ -139,6 +141,8 @@ class PositionSizer:
             signal_confidence: Signal confidence (0.0 to 1.0)
             performance_stats: Dict with 'win_rate', 'avg_win', 'avg_loss'
             stop_loss_pct: Stop loss distance as % (for risk calculation)
+            daily_pnl: Optional daily P&L for performance-based adjustment
+            total_capital: Optional total capital for calculating daily P&L percentage
 
         Returns:
             PositionSizeResult with calculated size
@@ -175,6 +179,23 @@ class PositionSizer:
             kelly_frac = None
             conf_mod = None
             reasoning = f"Unknown method, using fixed {position_pct:.2f}%"
+
+        # Apply daily P&L adjustment if provided
+        daily_pnl_adjustment = 1.0
+        if daily_pnl is not None and total_capital is not None and total_capital > 0:
+            daily_pnl_pct = float(daily_pnl) / total_capital * 100  # Convert to percentage
+
+            # Performance-based scaling based on daily P&L
+            if daily_pnl_pct > 0.5:  # Daily gain > 0.5%
+                # Increase position size for positive performance
+                daily_pnl_adjustment = 1.20  # +20% for good daily performance
+            elif daily_pnl_pct < -0.5:  # Daily loss > 0.5%
+                # Decrease position size for negative performance
+                daily_pnl_adjustment = 0.70  # -30% for poor daily performance
+            # If daily P&L is between -0.5% and 0.5%, no adjustment (daily_pnl_adjustment = 1.0)
+
+            position_pct *= daily_pnl_adjustment
+            reasoning += f" | Daily P&L adjustment: {daily_pnl_adjustment:.2f}x"
 
         # Apply risk-per-trade limit if stop loss provided
         # RESEARCH-BASED: This ensures we never risk more than 2% per trade

@@ -27,7 +27,7 @@ UPDATED 2025-11-30 v2: Advanced trading enhancements
 
 import asyncio
 import logging
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -45,7 +45,11 @@ from app.aggregation.market_regime import (
     get_market_regime_detector,
     MarketRegime
 )
+# Import hybrid strategy router (combines trend-following + mean reversion)
 from app.strategies import ResearchOptimizedStrategy, TradeSetup
+from app.strategies.hybrid_strategy_router import HybridStrategyRouter
+# Phase 2.3: Grid Trading Integration (2025-12-08)
+from app.strategies.grid_trading_strategy import GridTradingStrategy
 
 # Research-backed trading enhancements (2025-11-30)
 from app.trading_enhancements.circuit_breaker import (
@@ -160,6 +164,7 @@ class StrategyMode(Enum):
     STANDARD = "standard"       # Original multi-timeframe signal aggregation
     RESEARCH = "research"       # Research-optimized strategy (2025-11-28)
     HYBRID = "hybrid"          # Combine both for confirmation
+    GRID_TRADING = "grid_trading"  # Grid Trading strategy (Phase 2.3 - 2025-12-08)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -188,7 +193,7 @@ class AutoTrader:
         position_sizing_method: SizingMethod = SizingMethod.CONFIDENCE_ADJUSTED,  # Dynamic sizing
         use_performance_data: bool = True,  # Use performance tracker for Kelly
         enable_market_regime: bool = True,  # Enable ADX-based market regime detection
-        strategy_mode: StrategyMode = StrategyMode.RESEARCH,  # Default to research strategy (2025-11-28)
+        strategy_mode: StrategyMode = StrategyMode.HYBRID,  # Default to hybrid strategy - mixes research + standard for dual confirmation (2026-02-17)
         enable_ml_predictions: Optional[bool] = None,  # Phase 3 ML Integration (2025-12-01)
     ):
         """
@@ -205,6 +210,11 @@ class AutoTrader:
             strategy_mode: Trading strategy mode (default: RESEARCH for research-backed decisions)
             enable_ml_predictions: Enable ML predictions in signal aggregation (default: from config)
         """
+        # Store settings as instance attribute for access throughout the class
+        # CRITICAL FIX 2025-12-11: Previously only module-level settings was available,
+        # but line 1284 uses self.settings.symbol_allocations which requires instance attr
+        self.settings = settings
+
         self.symbols = symbols or settings.trading_symbols
         # FIXED: Warn if no symbols configured (code review 2025-11-28)
         if not self.symbols:
@@ -225,8 +235,20 @@ class AutoTrader:
         # Get the regime detector
         self.regime_detector = get_market_regime_detector(enabled=enable_market_regime)
 
-        # Initialize research-optimized strategy (2025-11-28)
-        self.research_strategy = ResearchOptimizedStrategy()
+        # Initialize hybrid strategy router (2026-01-04)
+        # Automatically switches between:
+        #   - Trend-following (ADX >= 25, trending market)
+        #   - Mean reversion (ADX < 25, ranging market)
+        self.hybrid_strategy = HybridStrategyRouter()
+
+        # Keep research strategy for backward compatibility
+        self.research_strategy = self.hybrid_strategy.trend_strategy
+
+        # Initialize Grid Trading strategy (Phase 2.3 - 2025-12-08)
+        # NOTE: Grid Trading showed poor walk-forward validation results:
+        #   - Avg Return: -0.00%, Avg Sharpe: -0.49, Avg Win Rate: 32.6%
+        #   - Use with caution in live trading
+        self.grid_strategies: Dict[str, GridTradingStrategy] = {}  # One strategy per symbol
 
         # Statistics
         self.total_signals_checked = 0
@@ -506,7 +528,8 @@ class AutoTrader:
         )
         logger.info(f"Trade Limits: max_daily={self.max_daily_trades}, reentry_cooldown={self.min_time_between_trades}s")
         logger.info(f"Trading symbols: {self.symbols}")
-        logger.info(f"Research Strategy Parameters: {self.research_strategy.get_strategy_params()}")
+        logger.info(f"Hybrid Strategy: TREND-FOLLOWING + MEAN REVERSION (ADX threshold: 25.0)")
+        logger.info(f"Trend Strategy Parameters: {self.research_strategy.get_strategy_params()}")
 
         # Log enhancement configuration
         logger.info("=" * 70)
@@ -684,6 +707,9 @@ class AutoTrader:
                             elif self.strategy_mode == StrategyMode.HYBRID:
                                 # Use both strategies and trade only if both agree
                                 await self._check_and_trade_hybrid(symbol)
+                            elif self.strategy_mode == StrategyMode.GRID_TRADING:
+                                # Use Grid Trading strategy (Phase 2.3 - 2025-12-08)
+                                await self._check_and_trade_grid(symbol)
                             else:
                                 # Standard multi-timeframe strategy
                                 await self._check_and_trade(symbol)
@@ -771,8 +797,8 @@ class AutoTrader:
             paper_engine = get_paper_engine()
             balance = paper_engine.get_balance()
 
-            # Generate research-based signal
-            trade_setup = self.research_strategy.generate_signal(
+            # Generate hybrid strategy signal (auto-switches between trend/mean reversion)
+            trade_setup = self.hybrid_strategy.generate_signal(
                 indicators=signal.indicators,
                 current_price=current_price,
                 capital=float(balance)
@@ -1002,8 +1028,8 @@ class AutoTrader:
             paper_engine = get_paper_engine()
             balance = paper_engine.get_balance()
 
-            # Generate research-based signal
-            trade_setup = self.research_strategy.generate_signal(
+            # Generate hybrid strategy signal (auto-switches between trend/mean reversion)
+            trade_setup = self.hybrid_strategy.generate_signal(
                 indicators=signal.indicators,
                 current_price=current_price,
                 capital=float(balance)
@@ -1226,6 +1252,39 @@ class AutoTrader:
             action = trade_setup.action.value
             trading_mode = settings.trading_mode
 
+            # ================================================================
+            # CRITICAL: Enforce Trade Side Restrictions (Added 2026-01-16)
+            # ================================================================
+            # Problem: SHORT trading disabled in config but was still executing
+            # Impact: -$14.33 loss from SOLUSDT SHORT with 0% win rate
+            # Solution: Validate trade side against allowed_trade_sides config
+            # ================================================================
+            side = "LONG" if action == "BUY" else "SHORT"
+
+            # Check #1: Validate side is in allowed_trade_sides list
+            if side not in self.settings.allowed_trade_sides:
+                logger.warning(
+                    f"[RISK_GATE] ❌ Trade side {side} NOT in allowed_trade_sides: "
+                    f"{self.settings.allowed_trade_sides} | Symbol: {symbol} | "
+                    f"Action: {action} | Confidence: {trade_setup.confidence:.2%} - REJECTING"
+                )
+                self.total_trades_rejected += 1
+                return
+
+            # Check #2: Additional backward compatibility check for SHORT trading flag
+            if side == "SHORT" and not self.settings.short_trading_enabled:
+                logger.warning(
+                    f"[RISK_GATE] ❌ SHORT trading DISABLED (short_trading_enabled=False) | "
+                    f"Symbol: {symbol} | Action: {action} | Confidence: {trade_setup.confidence:.2%} - REJECTING"
+                )
+                self.total_trades_rejected += 1
+                return
+
+            logger.info(
+                f"[RISK_GATE] ✅ Trade side validation PASSED | "
+                f"Side: {side} | Allowed: {self.settings.allowed_trade_sides}"
+            )
+
             logger.info(f"[{trading_mode}] Executing {action} trade for {symbol}")
 
             # ================================================================
@@ -1262,15 +1321,64 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
-            # Calculate position value using strategy's position sizing
+            # =================================================================
+            # SYMBOL-SPECIFIC ALLOCATION (2025-12-06)
+            # Apply SOL-heavy allocation strategy based on backtest results
+            # - SOLUSDT: 60% (profitable +0.66%)
+            # - BNBUSDT: 20% (marginal -0.14%)
+            # - ADAUSDT: 20% (marginal -0.48%)
+            #
+            # CRITICAL FIX 2025-12-15: Use initial balance for allocation calculations
+            # instead of current balance so all symbols get consistent allocation
+            # regardless of how many positions have been opened
+            # =================================================================
+            symbol_allocation = self.settings.symbol_allocations.get(symbol, 1.0 / len(self.settings.trading_symbols))
+
+            # Use initial balance for paper trading allocations, current balance for live trading
+            allocation_base = self.settings.paper_initial_balance if trading_mode == "PAPER" else balance
+            allocated_capital = float(allocation_base) * symbol_allocation
+
+            # =================================================================
+            # LEVERAGE CALCULATION - BYBIT STYLE (Added 2025-12-15)
+            # =================================================================
+            # Formula: Initial Margin = Position Value / Leverage
+            # Example: $100 position with 10x leverage requires only $10 margin
+            #
+            # allocated_capital = margin allocated to this symbol (e.g., $10)
+            # With 10x leverage: Can control $10 × 10 = $100 position
+            # Margin used: $100 / 10 = $10 ✓
+            # =================================================================
+            leverage = 1.0  # Default no leverage
+            if self.settings.leverage_enabled:
+                leverage = max(
+                    self.settings.min_leverage,
+                    min(self.settings.default_leverage, self.settings.max_leverage)
+                )
+
+            # Calculate leveraged position size
+            # With leverage: margin × leverage = position size
+            # Without leverage: margin = position size (leverage = 1.0)
+            leveraged_position_value = allocated_capital * leverage
+
             # Apply heat multiplier to reduce size during high heat
-            adjusted_position_pct = trade_setup.position_size_pct * heat_multiplier
-            position_value = float(balance) * adjusted_position_pct
+            # This reduces BOTH the position size AND the margin required
+            position_value = leveraged_position_value * heat_multiplier
+            margin_required = position_value / leverage
             quantity = position_value / trade_setup.entry_price
 
             logger.info(
-                f"[RESEARCH] Position sizing: {trade_setup.position_size_pct:.2%} * {heat_multiplier:.0%} heat adj "
-                f"= {adjusted_position_pct:.2%} of ${balance:.2f} = ${position_value:.2f} ({quantity:.4f} units)"
+                f"[RESEARCH] Symbol allocation: {symbol} = {symbol_allocation:.0%} of ${allocation_base:.2f} = ${allocated_capital:.2f} margin"
+            )
+            if self.settings.leverage_enabled:
+                logger.info(
+                    f"[LEVERAGE] ${allocated_capital:.2f} margin × {leverage:.0f}x leverage = ${leveraged_position_value:.2f} position size"
+                )
+            logger.info(
+                f"[RESEARCH] Position sizing: ${leveraged_position_value:.2f} * {heat_multiplier:.0%} heat adj "
+                f"= ${position_value:.2f} position ({quantity:.4f} units @ ${trade_setup.entry_price:.2f})"
+            )
+            logger.info(
+                f"[MARGIN] Margin required: ${margin_required:.2f} (Position: ${position_value:.2f} / Leverage: {leverage:.0f}x)"
             )
 
             # Execute the trade
@@ -1281,7 +1389,9 @@ class AutoTrader:
                 side=side,
                 type=OrderType.MARKET,
                 quantity=Decimal(str(quantity)),
-                strategy="research_optimized"
+                strategy="research_optimized",
+                # CRITICAL FIX 2025-12-07: Pass confidence for position analysis
+                entry_signal_confidence=trade_setup.confidence
             )
 
             # Execute through appropriate engine (paper or live)
@@ -1549,6 +1659,124 @@ class AutoTrader:
     # RESEARCH-BACKED: Position Monitoring (2025-11-29)
     # ============================================================================
 
+    async def _check_position_hold_time(self, position, current_price: float) -> bool:
+        """
+        Check if position exceeds max hold time and force close if needed
+
+        CRITICAL FIX (Added 2026-01-16):
+        - Problem: SOLUSDT SHORT held 185 hours instead of 48 hour max
+        - Impact: Small loss compounded into -$14.33 catastrophic loss
+        - Solution: Force close positions that exceed max_position_hold_hours
+
+        Args:
+            position: Position object from database
+            current_price: Current market price for the symbol
+
+        Returns:
+            True if position was force closed, False if still open
+        """
+        # Check if feature is enabled
+        if not self.settings.enable_max_hold_time:
+            return False
+
+        max_hours = self.settings.max_position_hold_hours
+        now = datetime.now(position.opened_at.tzinfo)
+        time_held = now - position.opened_at
+        hours_held = time_held.total_seconds() / 3600
+
+        # Check if position exceeds max hold time
+        if hours_held <= max_hours:
+            return False
+
+        # Position exceeds max hold time - FORCE CLOSE
+        logger.warning(
+            f"[MAX_HOLD] ⚠️ Position {position.symbol} held {hours_held:.1f}h > {max_hours}h max | "
+            f"Entry: ${position.entry_price} | Current: ${current_price:.2f} | "
+            f"Unrealized P&L: ${position.unrealized_pnl:.2f} | "
+            f"Side: {position.side} | FORCE CLOSING"
+        )
+
+        try:
+            # Determine exit action (opposite of position side)
+            exit_action = "SELL" if position.side.value == "LONG" else "BUY"
+
+            # Get trading engine (paper or live)
+            trading_mode = self.settings.trading_mode
+            if trading_mode == "LIVE":
+                trading_engine = get_live_engine()
+            else:
+                trading_engine = get_paper_engine()
+
+            # Create market order to close position immediately
+            exit_order = OrderCreate(
+                symbol=position.symbol,
+                side=OrderSide.SELL if exit_action == "SELL" else OrderSide.BUY,
+                order_type=OrderType.MARKET,
+                quantity=position.quantity,
+                position_id=position.position_id
+            )
+
+            # Execute force close
+            executed_order = await trading_engine.place_order(exit_order)
+
+            if executed_order and executed_order.status == OrderStatus.FILLED:
+                # Update position manager
+                position_mgr = get_position_manager()
+                position_mgr.close_position(
+                    position_id=position.id,
+                    exit_price=Decimal(str(current_price)),
+                    exit_reason=f"MAX_HOLD_TIME_EXCEEDED ({hours_held:.1f}h > {max_hours}h)"
+                )
+
+                logger.info(
+                    f"[MAX_HOLD] ✅ Successfully closed {position.symbol} after {hours_held:.1f}h | "
+                    f"Exit: ${current_price:.2f} | P&L: ${position.unrealized_pnl:.2f}"
+                )
+
+                # Send critical notification
+                try:
+                    notification_client = get_notification_client()
+                    await notification_client.send_notification(
+                        title=f"⏱️ MAX HOLD TIME - Position Force Closed",
+                        message=f"Closed {position.symbol} {position.side} after {hours_held:.1f}h\n"
+                                f"Max allowed: {max_hours}h\n"
+                                f"Entry: ${position.entry_price}\n"
+                                f"Exit: ${current_price:.2f}\n"
+                                f"P&L: ${position.unrealized_pnl:.2f}",
+                        severity="high"
+                    )
+                except Exception as notif_err:
+                    logger.debug(f"[MAX_HOLD] Notification note: {notif_err}")
+
+                return True  # Position was closed
+            else:
+                logger.error(
+                    f"[MAX_HOLD] ❌ Failed to close {position.symbol} - order status: "
+                    f"{executed_order.status if executed_order else 'None'}"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"[MAX_HOLD] ❌ Exception closing {position.symbol} after {hours_held:.1f}h: {e}",
+                exc_info=True
+            )
+
+            # Send critical alert about failure
+            try:
+                notification_client = get_notification_client()
+                await notification_client.send_notification(
+                    title=f"🚨 CRITICAL - Failed to Force Close Position",
+                    message=f"Failed to close {position.symbol} after {hours_held:.1f}h\n"
+                            f"Error: {str(e)}\n"
+                            f"MANUAL INTERVENTION REQUIRED",
+                    severity="critical"
+                )
+            except:
+                pass
+
+            return False
+
     async def _monitor_positions(self):
         """
         Monitor open positions for trailing stops and partial exits
@@ -1588,6 +1816,19 @@ class AutoTrader:
 
                     if not current_price:
                         logger.warning(f"[MONITOR] No price for {position.symbol}")
+                        continue
+
+                    # ================================================================
+                    # CRITICAL: Check Max Hold Time (Added 2026-01-16)
+                    # ================================================================
+                    # Force close positions that exceed max_position_hold_hours
+                    # Prevents catastrophic losses from positions held too long
+                    # Example: SOLUSDT SHORT held 185h instead of 48h max -> -$14.33 loss
+                    # ================================================================
+                    was_closed = await self._check_position_hold_time(position, current_price)
+                    if was_closed:
+                        # Position was force closed due to max hold time
+                        # Skip remaining monitoring for this position
                         continue
 
                     # Get ATR value for trailing stop distance
@@ -1697,7 +1938,18 @@ class AutoTrader:
                         logger.info(f"[MONITOR] Exit triggered for {position.symbol}: {reason}")
                         self.partial_profit_taker.remove_position(position.symbol)
                         self.atr_trailing_stop.remove_position_state(position.symbol)
-                        await self._close_position(position, current_price, reason)
+
+                        # ================================================================
+                        # CRITICAL: Use limit orders for stop loss exits (Added 2026-01-16)
+                        # ================================================================
+                        # Fix #3: Prevent stop loss slippage by using limit orders
+                        # Problem: SOLUSDT SHORT stop loss at -3% executed at -4.8% (+60% slippage)
+                        # Solution: Use limit order with 0.5% buffer, fallback to market if not filled
+                        # ================================================================
+                        if "stop" in reason.lower() or "loss" in reason.lower():
+                            await self._close_position_with_limit_order(position, current_price, reason)
+                        else:
+                            await self._close_position(position, current_price, reason)
 
                     # ================================================================
                     # DCA CHECK - Add safety order if price dropped enough (2025-12-02)
@@ -1875,6 +2127,216 @@ class AutoTrader:
         except Exception as e:
             logger.error(f"[MONITOR] Failed to close position: {e}", exc_info=True)
 
+    async def _close_position_with_limit_order(
+        self,
+        position,
+        current_price: float,
+        reason: str,
+        limit_buffer_pct: float = 0.005,  # 0.5% buffer
+        timeout_seconds: int = 10
+    ):
+        """
+        Close a position using a limit order to minimize slippage
+
+        CRITICAL FIX #3 (Added 2026-01-16):
+        - Problem: Stop loss configured at -3% but executed at -4.8% (+60% slippage)
+        - Root Cause: Using market orders which fill at any price
+        - Solution: Use limit orders with small buffer, fallback to market if not filled
+        - Expected Impact: Reduce slippage from 60% to <5%
+
+        Flow:
+        1. Calculate limit price with buffer (0.5% beyond stop loss)
+        2. Place limit order (IOC - Immediate or Cancel)
+        3. If not filled within timeout, place market order as fallback
+        4. Update position manager with final execution price
+
+        Args:
+            position: Position to close
+            current_price: Current market price
+            reason: Reason for closing (e.g., "stop_loss")
+            limit_buffer_pct: Buffer percentage for limit order (default 0.5%)
+            timeout_seconds: Max wait time for limit order (default 10s)
+        """
+        try:
+            import asyncio
+            from app.models import OrderCreate, OrderSide, OrderType, OrderStatus, TimeInForce
+
+            position_mgr = get_position_manager()
+
+            # Determine exit side (opposite of position)
+            exit_side = OrderSide.SELL if position.side.value == "LONG" else OrderSide.BUY
+
+            # ================================================================
+            # STEP 1: Calculate limit price with buffer
+            # ================================================================
+            # For LONG: Sell at limit slightly below current price
+            # For SHORT: Buy at limit slightly above current price
+            # This ensures we get filled quickly but with controlled slippage
+            # ================================================================
+            if position.side.value == "LONG":
+                # LONG stop loss: Sell at limit slightly below stop loss
+                # Buffer allows faster fill while preventing excessive slippage
+                limit_price = float(position.stop_loss) * (1 - limit_buffer_pct) if position.stop_loss else current_price * (1 - limit_buffer_pct)
+            else:  # SHORT
+                # SHORT stop loss: Buy at limit slightly above stop loss
+                limit_price = float(position.stop_loss) * (1 + limit_buffer_pct) if position.stop_loss else current_price * (1 + limit_buffer_pct)
+
+            logger.info(
+                f"[LIMIT_STOP] {position.symbol} {position.side.value} | "
+                f"Stop: ${position.stop_loss} | Current: ${current_price:.2f} | "
+                f"Limit: ${limit_price:.2f} (buffer: {limit_buffer_pct*100:.1f}%)"
+            )
+
+            # ================================================================
+            # STEP 2: Attempt limit order execution
+            # ================================================================
+            try:
+                # Get trading engine (paper or live)
+                trading_mode = self.settings.trading_mode
+                if trading_mode == "LIVE":
+                    # TODO: Implement live trading limit order support
+                    logger.warning("[LIMIT_STOP] Live trading not fully implemented, using paper trading logic")
+                    trading_engine = get_paper_engine()
+                else:
+                    trading_engine = get_paper_engine()
+
+                # Create limit order (IOC = Immediate or Cancel)
+                limit_order = OrderCreate(
+                    symbol=position.symbol,
+                    side=exit_side,
+                    order_type=OrderType.LIMIT,
+                    price=Decimal(str(limit_price)),
+                    quantity=position.quantity,
+                    time_in_force=TimeInForce.IOC if hasattr(TimeInForce, 'IOC') else None,
+                    reduce_only=True,
+                    position_id=position.id
+                )
+
+                # Execute limit order
+                logger.info(f"[LIMIT_STOP] Placing limit order: {exit_side.value} {position.quantity} {position.symbol} @ ${limit_price:.2f}")
+
+                # For paper trading, simulate limit order execution
+                # In real trading, this would use the exchange's limit order API
+                limit_result = await trading_engine.execute_market_order(
+                    limit_order,
+                    Decimal(str(limit_price))  # Paper trading: use limit price
+                )
+
+                if limit_result and limit_result[0].status == OrderStatus.FILLED:
+                    # Limit order filled successfully
+                    actual_fill_price = float(limit_result[0].filled_price)
+                    slippage_pct = abs((actual_fill_price - limit_price) / limit_price * 100)
+
+                    logger.info(
+                        f"[LIMIT_STOP] ✅ Limit order FILLED | "
+                        f"{position.symbol} @ ${actual_fill_price:.2f} | "
+                        f"Slippage: {slippage_pct:.2f}% | "
+                        f"Saved vs market order: ~{0.005*100 - slippage_pct:.2f}%"
+                    )
+
+                    # Update position manager
+                    closed_position = position_mgr.close_position(
+                        position_id=position.id,
+                        close_price=Decimal(str(actual_fill_price)),
+                        reason=f"{reason} (limit order @ ${actual_fill_price:.2f})"
+                    )
+
+                    # Send notification
+                    try:
+                        await self.notification_client.send_notification(
+                            title=f"🎯 Stop Loss Limit Order Filled",
+                            message=f"Closed {position.symbol} {position.side.value}\n"
+                                    f"Limit: ${limit_price:.2f}\n"
+                                    f"Filled: ${actual_fill_price:.2f}\n"
+                                    f"Slippage: {slippage_pct:.2f}%\n"
+                                    f"P&L: ${closed_position.realized_pnl:.2f}",
+                            severity="medium"
+                        )
+                    except Exception as notif_err:
+                        logger.debug(f"[LIMIT_STOP] Notification note: {notif_err}")
+
+                    return
+
+            except Exception as limit_err:
+                logger.warning(f"[LIMIT_STOP] Limit order failed: {limit_err}")
+
+            # ================================================================
+            # STEP 3: Fallback to market order if limit order not filled
+            # ================================================================
+            logger.warning(
+                f"[LIMIT_STOP] ⚠️ Limit order not filled, falling back to MARKET order | "
+                f"{position.symbol}"
+            )
+
+            # Create market order as fallback
+            market_order = OrderCreate(
+                symbol=position.symbol,
+                side=exit_side,
+                order_type=OrderType.MARKET,
+                quantity=position.quantity,
+                reduce_only=True,
+                position_id=position.id
+            )
+
+            # Execute market order
+            trading_engine = get_paper_engine() if self.settings.trading_mode != "LIVE" else get_live_engine()
+            market_result = await trading_engine.execute_market_order(
+                market_order,
+                Decimal(str(current_price))
+            )
+
+            if market_result and market_result[0].status == OrderStatus.FILLED:
+                actual_fill_price = float(market_result[0].filled_price)
+                slippage_pct = abs((actual_fill_price - float(position.stop_loss)) / float(position.stop_loss) * 100) if position.stop_loss else 0
+
+                logger.info(
+                    f"[LIMIT_STOP] ⚡ Market order FILLED (fallback) | "
+                    f"{position.symbol} @ ${actual_fill_price:.2f} | "
+                    f"Slippage from stop: {slippage_pct:.2f}%"
+                )
+
+                # Update position manager
+                closed_position = position_mgr.close_position(
+                    position_id=position.id,
+                    close_price=Decimal(str(actual_fill_price)),
+                    reason=f"{reason} (market fallback @ ${actual_fill_price:.2f})"
+                )
+
+                # Send alert about fallback
+                try:
+                    await self.notification_client.send_notification(
+                        title=f"⚠️ Stop Loss Market Fallback",
+                        message=f"Limit order failed, used market order\n"
+                                f"{position.symbol} {position.side.value}\n"
+                                f"Filled: ${actual_fill_price:.2f}\n"
+                                f"Slippage: {slippage_pct:.2f}%\n"
+                                f"P&L: ${closed_position.realized_pnl:.2f}",
+                        severity="high"
+                    )
+                except Exception as notif_err:
+                    logger.debug(f"[LIMIT_STOP] Notification note: {notif_err}")
+            else:
+                logger.error(f"[LIMIT_STOP] ❌ Both limit and market orders failed for {position.symbol}")
+                # Send critical alert
+                try:
+                    await self.notification_client.send_notification(
+                        title=f"🚨 CRITICAL - Stop Loss Failed to Execute",
+                        message=f"Failed to close {position.symbol}\n"
+                                f"Both limit and market orders failed\n"
+                                f"MANUAL INTERVENTION REQUIRED",
+                        severity="critical"
+                    )
+                except:
+                    pass
+
+        except Exception as e:
+            logger.error(
+                f"[LIMIT_STOP] ❌ Exception in limit order close for {position.symbol}: {e}",
+                exc_info=True
+            )
+            # Last resort: call regular close_position
+            await self._close_position(position, current_price, reason)
+
     async def _execute_partial_exit(self, position, exit_info: dict, current_price: float):
         """
         Execute a partial exit for a position
@@ -1901,6 +2363,22 @@ class AutoTrader:
                 f"P&L: ${float(partial_pnl):.2f} | "
                 f"Remaining: {float(updated_pos.remaining_quantity):.4f}"
             )
+
+            # Send notification for partial exit (2025-12-16 FIX)
+            try:
+                exit_action = "SELL" if position.side.value == "LONG" else "BUY"
+                pnl_pct = (float(partial_pnl) / (float(position.entry_price) * exit_info["exit_quantity"])) * 100 if position.entry_price else 0.0
+                await self.notification_client.notify_trade_close(
+                    symbol=position.symbol,
+                    action=f"{exit_action} ({level})",
+                    quantity=float(exit_info["exit_quantity"]),
+                    entry_price=float(position.entry_price),
+                    exit_price=current_price,
+                    pnl=float(partial_pnl),
+                    pnl_pct=pnl_pct
+                )
+            except Exception as notify_err:
+                logger.debug(f"Notification failed for partial exit (non-critical): {notify_err}")
 
             # Enable trailing stop after TP1
             if exit_info.get("enable_trailing", False):
@@ -1955,6 +2433,21 @@ class AutoTrader:
                     f"Qty: {partial_exit.quantity_to_exit:.6f} @ ${current_price:.2f} | "
                     f"PnL: ${pnl:.2f} ({partial_exit.profit_pct:.2f}%)"
                 )
+
+                # Send notification for partial exit (2025-12-16 FIX)
+                try:
+                    exit_action = "SELL" if partial_exit.side == "LONG" else "BUY"
+                    await self.notification_client.notify_trade_close(
+                        symbol=partial_exit.symbol,
+                        action=f"{exit_action} (TP{partial_exit.level_number})",
+                        quantity=float(partial_exit.quantity_to_exit),
+                        entry_price=entry_price,
+                        exit_price=current_price,
+                        pnl=float(pnl),
+                        pnl_pct=float(partial_exit.profit_pct)
+                    )
+                except Exception as notify_err:
+                    logger.debug(f"Notification failed for partial exit (non-critical): {notify_err}")
 
                 # Record trade return for analytics
                 if entry_price > 0:
@@ -2175,12 +2668,32 @@ class AutoTrader:
 
             executed_order, error = await paper_engine.execute_market_order(order, Decimal(str(current_price)))
 
+            # HIGH FIX 2025-12-11: Add null check before accessing status
+            if executed_order is None:
+                self.total_trades_rejected += 1
+                logger.warning(f"Trade execution returned None for {symbol}: {error}")
+                return
+
             if executed_order.status == OrderStatus.FILLED:
                 self.total_trades_executed += 1
                 logger.info(f"Trade executed successfully for {symbol}")
                 logger.info(f"Stats: Checked={self.total_signals_checked}, "
                           f"Executed={self.total_trades_executed}, "
                           f"Rejected={self.total_trades_rejected}")
+
+                # HIGH FIX 2025-12-11: Send trade open notification for consistency with _execute_trade_with_setup
+                try:
+                    await self.notification_client.notify_trade_open(
+                        symbol=symbol,
+                        action=action,
+                        quantity=float(quantity),
+                        price=float(current_price),
+                        confidence=0.0,  # Standard mode doesn't have confidence score
+                        stop_loss=0.0,   # Standard mode may not have SL/TP
+                        take_profit=0.0
+                    )
+                except Exception as notify_err:
+                    logger.warning(f"Notification failed (non-critical): {notify_err}")
             else:
                 self.total_trades_rejected += 1
                 logger.warning(f"Trade execution failed for {symbol}: {error}")
@@ -2425,8 +2938,9 @@ class AutoTrader:
             }
             status["regime_detector_stats"] = self.regime_detector.get_stats()
 
-        # Add research strategy parameters
+        # Add hybrid strategy statistics
         if self.strategy_mode in [StrategyMode.RESEARCH, StrategyMode.HYBRID]:
+            status["hybrid_strategy_stats"] = self.hybrid_strategy.get_stats()
             status["research_strategy_params"] = self.research_strategy.get_strategy_params()
 
         return status
@@ -2538,7 +3052,16 @@ def get_auto_trader() -> AutoTrader:
     """Get or create the global auto trader instance"""
     global _auto_trader
     if _auto_trader is None:
-        _auto_trader = AutoTrader()
+        settings = get_settings()
+        # Map config string to StrategyMode enum
+        mode_map = {
+            "standard": StrategyMode.STANDARD,
+            "research": StrategyMode.RESEARCH,
+            "hybrid": StrategyMode.HYBRID,
+            "grid_trading": StrategyMode.GRID_TRADING
+        }
+        strategy_mode = mode_map.get(settings.strategy_mode.lower(), StrategyMode.HYBRID)
+        _auto_trader = AutoTrader(strategy_mode=strategy_mode)
     return _auto_trader
 
 

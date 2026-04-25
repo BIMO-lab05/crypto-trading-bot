@@ -16,7 +16,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 from app.models import Position, PositionCreate, PositionStatus, PositionSide
 from app.risk_manager import get_risk_manager
-from app.repositories import get_position_repository
+from app.repositories import get_position_repository, get_portfolio_repository
 from app.atr_stops import get_atr_calculator, ATRStopCalculator
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class PositionManager:
         self.positions: dict[UUID, Position] = {}
         self.risk_manager = get_risk_manager()
         self.position_repo = get_position_repository()
+        self.portfolio_repo = get_portfolio_repository()
         logger.info("PositionManager initialized with database persistence")
 
     def create_position(
@@ -51,7 +52,8 @@ class PositionManager:
         strategy: Optional[str] = None,
         take_profit_1: Optional[Decimal] = None,
         take_profit_2: Optional[Decimal] = None,
-        take_profit_3: Optional[Decimal] = None
+        take_profit_3: Optional[Decimal] = None,
+        entry_signal_confidence: Optional[float] = None  # CRITICAL FIX 2025-12-05
     ) -> Position:
         """
         Create a new position
@@ -67,6 +69,7 @@ class PositionManager:
             take_profit_1: Optional TP1 - first partial exit target
             take_profit_2: Optional TP2 - second partial exit target
             take_profit_3: Optional TP3 - third partial exit target
+            entry_signal_confidence: Optional entry signal confidence (0.0-1.0)
 
         Returns:
             Created position
@@ -104,7 +107,8 @@ class PositionManager:
             status=PositionStatus.OPEN,
             take_profit_1=take_profit_1,
             take_profit_2=take_profit_2,
-            take_profit_3=take_profit_3
+            take_profit_3=take_profit_3,
+            entry_signal_confidence=entry_signal_confidence  # CRITICAL FIX 2025-12-05
         )
 
         # Store position in memory
@@ -307,6 +311,18 @@ class PositionManager:
                     exit_reason=reason
                 )
             )
+
+            # Update portfolio with realized P&L (2025-12-18 FIX)
+            # Calculate total realized P&L from all closed positions
+            total_realized_pnl = self.get_total_realized_pnl()
+            asyncio.create_task(
+                self.portfolio_repo.update_balance(
+                    portfolio_id="paper_trading",
+                    cash_balance=Decimal("100.00"),  # Will be updated properly by paper trading
+                    realized_pnl=total_realized_pnl
+                )
+            )
+            logger.info(f"Portfolio updated: total realized P&L = ${total_realized_pnl}")
         except Exception as e:
             logger.warning(f"Failed to close position in database: {e}")
 
@@ -544,7 +560,8 @@ class PositionManager:
         entry_price: Decimal,
         quantity: Decimal,
         atr_value: float,
-        strategy: Optional[str] = None
+        strategy: Optional[str] = None,
+        entry_signal_confidence: Optional[float] = None  # CRITICAL FIX 2025-12-05
     ) -> Position:
         """
         Create a position with ATR-based stop levels
@@ -561,6 +578,7 @@ class PositionManager:
             quantity: Position quantity
             atr_value: Current ATR value
             strategy: Strategy name
+            entry_signal_confidence: Optional entry signal confidence (0.0-1.0)
 
         Returns:
             Created position with all stop levels set
@@ -587,6 +605,7 @@ class PositionManager:
             trailing_stop=Decimal(str(stop_levels.trailing_stop)),
             trailing_stop_enabled=False,  # Enabled after TP1
             strategy=strategy,
+            entry_signal_confidence=entry_signal_confidence,  # CRITICAL FIX 2025-12-05
             status=PositionStatus.OPEN
         )
 

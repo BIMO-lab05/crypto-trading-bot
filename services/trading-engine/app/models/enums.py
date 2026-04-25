@@ -50,6 +50,14 @@ class OrderStatus(str, Enum):
     FAILED = "FAILED"
 
 
+class TimeInForce(str, Enum):
+    """Time in force for orders (added 2026-01-16 for Fix #3)"""
+    GTC = "GTC"  # Good Till Cancel
+    IOC = "IOC"  # Immediate or Cancel
+    FOK = "FOK"  # Fill or Kill
+    GTX = "GTX"  # Good Till Crossing (Post-only)
+
+
 class TradingMode(str, Enum):
     """Trading mode"""
     PAPER = "PAPER"
