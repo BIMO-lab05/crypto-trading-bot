@@ -2,19 +2,19 @@
   "model_type": "GRU",
   "symbol": "XRPUSDT",
   "interval": "60",
-  "model_version": "v20251130_233415",
-  "last_trained": "2025-11-30T23:34:15.983928",
+  "model_version": "v20260425_230457",
+  "last_trained": "2026-04-25T23:04:57.204486",
   "training_stats": {
-    "train_samples": 163,
-    "test_samples": 41,
-    "epochs_trained": 23,
-    "final_train_loss": 0.020189082249999046,
-    "final_val_loss": 0.013768748380243778,
-    "mae": 0.042248603329808565,
-    "rmse": 0.05078184949872055,
-    "r2_score": 0.844981202205753,
-    "mape": 0.06695858685464576,
-    "directional_accuracy": 0.8536585365853658,
+    "train_samples": 5881,
+    "test_samples": 1471,
+    "epochs_trained": 11,
+    "final_train_loss": 0.0016647398006170988,
+    "final_val_loss": 0.009410914964973927,
+    "mae": 0.008838249592129989,
+    "rmse": 0.012252082932070661,
+    "r2_score": 0.9898423286142962,
+    "mape": 236781057968.70938,
+    "directional_accuracy": 0.7063222297756628,
     "total_parameters": 98245
   },
   "feature_columns": [
@@ -44,5 +44,5 @@
   ],
   "sequence_length": 60,
   "prediction_horizon": 5,
-  "inference_time_ms": 79.47850227355957
+  "inference_time_ms": 3484.5097064971924
 }

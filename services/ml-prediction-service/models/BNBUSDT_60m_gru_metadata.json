@@ -2,19 +2,19 @@
   "model_type": "GRU",
   "symbol": "BNBUSDT",
   "interval": "60",
-  "model_version": "v20251209_221531",
-  "last_trained": "2025-12-09T22:15:31.155621",
+  "model_version": "v20260426_130005",
+  "last_trained": "2026-04-26T13:00:05.437911",
   "training_stats": {
-    "train_samples": 335,
-    "test_samples": 84,
-    "epochs_trained": 40,
-    "final_train_loss": 0.01021803542971611,
-    "final_val_loss": 0.013826091773808002,
-    "mae": 0.06444654382669421,
-    "rmse": 0.07983749297493685,
-    "r2_score": 0.9305789584418407,
-    "mape": 10847054949815.207,
-    "directional_accuracy": 0.8690476190476191,
+    "train_samples": 11674,
+    "test_samples": 2919,
+    "epochs_trained": 27,
+    "final_train_loss": 0.0006752706249244511,
+    "final_val_loss": 0.00013383095210883766,
+    "mae": 0.004731542086885952,
+    "rmse": 0.00654231746309831,
+    "r2_score": 0.9968235877569381,
+    "mape": 0.006729471367173906,
+    "directional_accuracy": 0.7941075710859884,
     "total_parameters": 98245
   },
   "feature_columns": [
@@ -44,5 +44,5 @@
   ],
   "sequence_length": 60,
   "prediction_horizon": 5,
-  "inference_time_ms": 245.67914009094238
+  "inference_time_ms": 83.92477035522461
 }

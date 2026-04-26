@@ -577,3 +577,23 @@ docker-compose logs -f [service-name]
 ---
 
 *Last Updated: 2026-04-25*
+
+---
+
+## 2026-04-26 session — GRU refresh
+
+Resumed yesterday's BTC/ETH GRU work after OOM killed both runs at 2 GiB compose limit. Found WSL is hard-capped at 3.7 GiB host RAM; compose `memory: 6G` cannot apply. Workflow: temporarily stop sentiment-analysis, trading-engine, portfolio-manager, risk-metrics, technical-analysis (frees ~1.4 GiB), train sequentially via chained sh script, restart all.
+
+**Trained today (60m_gru, 24-month 1H data, 11674 samples each):**
+
+| Symbol  | Role      | R²     | MAE    | RMSE   | Dir.Acc | Wall time |
+|---------|-----------|-------:|-------:|-------:|--------:|----------:|
+| BTCUSDT | research  | 0.9929 | 0.0059 | 0.0075 | 74.55%  | 11 min    |
+| ETHUSDT | research  | 0.9985 | 0.0063 | 0.0086 | 75.85%  | 12 min    |
+| SOLUSDT | validated | 0.9926 | 0.0048 | 0.0067 | 84.31%  | 18 min    |
+| BNBUSDT | validated | 0.9968 | 0.0047 | 0.0065 | 79.41%  | 19 min    |
+| ADAUSDT | validated | 0.9950 | 0.0050 | 0.0070 | 83.32%  | 28 min    |
+
+LSTM vs GRU comparison: GRU swept 3-0 on every symbol. Mean R² lifted +9.32 pp on validated symbols, +38 pp on research symbols (BTC/ETH/XRP). Caveat: LSTMs trained on 257–1411 samples vs 11674 for GRU, so part of the gap is data not architecture.
+
+After session: ml-prediction restarted to load the fresh disk artifacts; `test_gru_integration.py` updated (AVAXUSDT → ADAUSDT, since AVAX is not an actively-ingested symbol); 4/4 integration tests pass with all symbols at ~79% confidence; Prometheus + Grafana brought up via `--profile monitoring`. All 17 containers healthy.

@@ -104,7 +104,7 @@ def test_default_model_type():
 
 def test_multiple_symbols():
     """Test GRU predictions for multiple symbols"""
-    symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "AVAXUSDT"]
+    symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"]
 
     print(f"\n📈 Testing GRU predictions for {len(symbols)} symbols...")
     results = []
