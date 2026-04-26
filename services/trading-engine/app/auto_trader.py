@@ -41,6 +41,7 @@ from app.position_manager import get_position_manager
 from app.position_sizing import get_position_sizer, SizingMethod
 from app.performance_tracker import get_performance_tracker
 from app.models import OrderSide, OrderType, OrderCreate, OrderStatus
+from app.models.enums import SignalAction
 from app.aggregation.market_regime import (
     get_market_regime_detector,
     MarketRegime
@@ -165,6 +166,7 @@ class StrategyMode(Enum):
     RESEARCH = "research"       # Research-optimized strategy (2025-11-28)
     HYBRID = "hybrid"          # Combine both for confirmation
     GRID_TRADING = "grid_trading"  # Grid Trading strategy (Phase 2.3 - 2025-12-08)
+    ENSEMBLE = "ensemble"      # SimpleRSI + multi-indicator + mean-reversion, performance-weighted (2026-04-25)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -710,6 +712,9 @@ class AutoTrader:
                             elif self.strategy_mode == StrategyMode.GRID_TRADING:
                                 # Use Grid Trading strategy (Phase 2.3 - 2025-12-08)
                                 await self._check_and_trade_grid(symbol)
+                            elif self.strategy_mode == StrategyMode.ENSEMBLE:
+                                # Combined RSI + multi-indicator + mean-reversion with performance weighting (2026-04-25)
+                                await self._check_and_trade_ensemble(symbol)
                             else:
                                 # Standard multi-timeframe strategy
                                 await self._check_and_trade(symbol)
@@ -2681,16 +2686,19 @@ class AutoTrader:
                           f"Executed={self.total_trades_executed}, "
                           f"Rejected={self.total_trades_rejected}")
 
-                # HIGH FIX 2025-12-11: Send trade open notification for consistency with _execute_trade_with_setup
+                # Pass through the signal confidence (and any SL/TP from signal metadata).
+                # 2026-04-25: was hardcoded to 0.0 with stale comment "standard mode doesn't have
+                # confidence score" — but _execute_trade receives confidence as a parameter.
+                vp = signal.metadata.get("volume_profile", {}) if hasattr(signal, "metadata") else {}
                 try:
                     await self.notification_client.notify_trade_open(
                         symbol=symbol,
                         action=action,
                         quantity=float(quantity),
                         price=float(current_price),
-                        confidence=0.0,  # Standard mode doesn't have confidence score
-                        stop_loss=0.0,   # Standard mode may not have SL/TP
-                        take_profit=0.0
+                        confidence=float(confidence),
+                        stop_loss=float(vp.get("stop_loss") or 0.0),
+                        take_profit=float(vp.get("take_profit") or 0.0)
                     )
                 except Exception as notify_err:
                     logger.warning(f"Notification failed (non-critical): {notify_err}")
@@ -2945,6 +2953,106 @@ class AutoTrader:
 
         return status
 
+    async def _check_and_trade_ensemble(self, symbol: str):
+        """ENSEMBLE mode: SimpleRSI + multi-indicator + mean-reversion with performance weighting.
+
+        Picks the largest weighted-vote winner across the three legs, sizes by ensemble
+        confidence, attaches per-leg attribution to the position so PerformanceTracker can
+        update each leg's win rate when the trade closes.
+        """
+        from app.strategies.multi_strategy_ensemble import get_ensemble
+
+        try:
+            self.total_signals_checked += 1
+            risk_mgr = get_risk_manager()
+            if risk_mgr.should_halt_trading():
+                logger.warning(f"[ENSEMBLE] Trading halted for {symbol}")
+                return
+
+            aggregator = await get_aggregator()
+            base_signal = await aggregator.get_trading_signal_multi_timeframe(
+                symbol=symbol,
+                primary_interval=self.interval,
+                timeframes=["15", self.interval, "240"],
+            )
+            if not base_signal:
+                logger.warning(f"[ENSEMBLE] No base signal for {symbol}")
+                return
+
+            current_price = None
+            for _, ind in base_signal.indicators.items():
+                if hasattr(ind, "metadata") and ind.metadata and "current_price" in ind.metadata:
+                    current_price = float(ind.metadata["current_price"])
+                    break
+            if not current_price:
+                logger.warning(f"[ENSEMBLE] No current price for {symbol}")
+                return
+
+            paper_engine = get_paper_engine()
+            balance = paper_engine.get_balance()
+
+            ensemble = get_ensemble()
+            ens_signal = ensemble.generate_signal(base_signal, current_price, capital=float(balance))
+            if not ens_signal:
+                self.total_trades_rejected += 1
+                return
+
+            logger.info(f"[ENSEMBLE] {symbol}: {ens_signal.action.value} conf={ens_signal.confidence:.2%} "
+                        f"size={ens_signal.position_size_pct*100:.2f}% legs={ens_signal.leg_actions}")
+
+            position_mgr = get_position_manager()
+            if any(p.symbol == symbol for p in position_mgr.get_open_positions()):
+                logger.info(f"[ENSEMBLE] Already have position on {symbol}, skipping")
+                self.total_trades_rejected += 1
+                return
+
+            position_value = float(balance) * ens_signal.position_size_pct
+            quantity = position_value / current_price
+
+            from decimal import Decimal
+
+            order = OrderCreate(
+                symbol=symbol,
+                side=OrderSide.BUY if ens_signal.action == SignalAction.BUY else OrderSide.SELL,
+                type=OrderType.MARKET,
+                quantity=Decimal(str(quantity)),
+                strategy="ensemble",
+            )
+            executed_order, error = await paper_engine.execute_market_order(order, Decimal(str(current_price)))
+            if executed_order is None or executed_order.status != OrderStatus.FILLED:
+                self.total_trades_rejected += 1
+                logger.warning(f"[ENSEMBLE] Execution failed for {symbol}: {error}")
+                return
+
+            self.total_trades_executed += 1
+            logger.info(f"[ENSEMBLE] Trade executed for {symbol}: ${position_value:.2f} ({quantity:.6f} units)")
+
+            # Tag latest position with leg contributions so we can attribute outcome at close.
+            try:
+                latest_positions = [p for p in position_mgr.get_open_positions() if p.symbol == symbol]
+                if latest_positions:
+                    latest_positions[-1].metadata = getattr(latest_positions[-1], "metadata", {}) or {}
+                    latest_positions[-1].metadata["ensemble_attribution"] = ens_signal.leg_contributions
+            except Exception as attr_err:
+                logger.debug(f"[ENSEMBLE] Could not tag attribution: {attr_err}")
+
+            try:
+                await self.notification_client.notify_trade_open(
+                    symbol=symbol,
+                    action=ens_signal.action.value,
+                    quantity=float(quantity),
+                    price=current_price,
+                    confidence=float(ens_signal.confidence),
+                    stop_loss=float(ens_signal.stop_loss),
+                    take_profit=float(ens_signal.take_profit),
+                )
+            except Exception as notify_err:
+                logger.warning(f"[ENSEMBLE] Notification failed (non-critical): {notify_err}")
+
+        except Exception as e:
+            logger.error(f"[ENSEMBLE] Error for {symbol}: {e}", exc_info=True)
+            self.total_trades_rejected += 1
+
     def set_strategy_mode(self, mode: StrategyMode) -> None:
         """
         Change the trading strategy mode
@@ -3058,7 +3166,8 @@ def get_auto_trader() -> AutoTrader:
             "standard": StrategyMode.STANDARD,
             "research": StrategyMode.RESEARCH,
             "hybrid": StrategyMode.HYBRID,
-            "grid_trading": StrategyMode.GRID_TRADING
+            "grid_trading": StrategyMode.GRID_TRADING,
+            "ensemble": StrategyMode.ENSEMBLE,
         }
         strategy_mode = mode_map.get(settings.strategy_mode.lower(), StrategyMode.HYBRID)
         _auto_trader = AutoTrader(strategy_mode=strategy_mode)

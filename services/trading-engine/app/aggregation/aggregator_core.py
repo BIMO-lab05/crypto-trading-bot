@@ -136,10 +136,13 @@ class CoreAggregator:
         #
         # NOTE: Re-optimize quarterly using 6-month walk-forward windows
         # ==========================================================================
-        # ADJUSTED 2026-02-25: Synced to 0.40 to match trading bot threshold
-        # Previous 0.30 was too low, allowing noisy signals; 0.40 balances quality vs quantity
+        # ADJUSTED 2026-04-25: Lowered to 0.20 — 0.40 was structurally unreachable because
+        # individual indicators (e.g. RSI in neutral zone) cap at 0.30 and validators apply
+        # ×0.75 (volume) and ×0.8 (RANGING regime) penalties. With 0.40 floor the bot rejected
+        # 100% of signals (1325/1550 in test). 0.20 still filters noise while letting clear
+        # multi-indicator agreements through.
         self.min_consensus = 3  # Research-backed: Require 3 indicators minimum
-        self.min_confidence = 0.40  # SYNCED to 0.40 to match trading bot (enables trading while filtering noise)
+        self.min_confidence = 0.20  # Aligned with realistic indicator confidence range
         self.min_category_consensus = 2  # Research-backed: Require 2 different categories for diversification
 
         # Track last regime analysis for async access
