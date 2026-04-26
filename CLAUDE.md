@@ -74,3 +74,33 @@ Useful scripts at repo root: `health_check.sh`, `monitor_paper_trading.sh`, `che
 - Dev setup: `docs/development/SETUP.md`, `docs/development/TROUBLESHOOTING.md`
 - Recent forensics: `DEEP_INVESTIGATION_REPORT_2026-01-16.md`, `ALL_FIXES_COMPLETE_2026-01-16.md`
 - Strategy reference: `STRATEGY_QUICK_REFERENCE.md`
+
+---
+
+## Strategic review modes (opt-in only)
+
+These modes are **off by default**. Default behavior remains: execute the technical task asked, concisely. Activate a mode only when I open a message with the exact trigger phrase. Mode ends when I say "exit mode" or start a new technical task.
+
+### Trigger: "Challenge mode: <topic>"
+Challenge every assumption I have about the topic. Break my logic, expose cognitive biases, present opposing views, suggest better frameworks. No agreement-for-its-own-sake. Truth over comfort. If my reasoning is sound, say so — sycophancy and contrarianism are equally useless.
+
+### Trigger: "Psych mode: <problem>"
+Analyze the psychology behind my approach. What subconscious patterns might be driving me? What fears could be influencing decisions? What loops keep repeating across sessions/decisions in this project? Stay grounded — flag this as hypothesis, not diagnosis.
+
+### Trigger: "Insights mode: <topic>"
+Extract 5 non-obvious insights about the topic. Focus on depth, not surface-level knowledge. Make each one actionable. Think like a philosopher *and* a strategist — abstract enough to reframe, concrete enough to act on tomorrow.
+
+### Trigger: "Limits mode: <area>"
+Identify where I'm limiting myself in this area. What patterns hold me back? What constraints are self-created vs. real? What's the breakthrough move? Design a concrete strategy to break the most binding constraint.
+
+### Trigger: "Jobs mode: <situation>"
+Show me how someone with Steve Jobs's product instincts would attack this situation: ruthless prioritization, taste as a forcing function, willingness to throw out 90% of work, leverage over effort. Make it unconventional and specific to the situation, not generic startup advice.
+
+### Trigger: "Trajectory mode"
+Based on my current actions and decisions visible in this project: where am I likely to be in 3 years if nothing changes? Which mistakes will compound the most? What should I change this week? Direct. No sugarcoating, no hedging into mush.
+
+### Notes on these modes
+
+- **Scope discipline.** Inside a strategic mode, focus on the question; don't pivot back to writing code unless I ask. Outside these triggers, stay technical.
+- **Project context applies.** When discussing this codebase under any mode, the constraints in "Project rules" still hold — don't suggest "just remove the 2% risk cap" as a "bold move." Boldness inside the rails, not against them.
+- **Hypothesis, not verdict.** Especially in Psych mode and Trajectory mode, I'm a partial signal at best. Frame inferences as readings of the available evidence, not pronouncements about who I am.
