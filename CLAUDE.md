@@ -69,11 +69,11 @@ Useful scripts at repo root: `health_check.sh`, `monitor_paper_trading.sh`, `che
 
 ## Deeper docs
 
-- Architecture: `docs/architecture/SYSTEM_OVERVIEW.md`, `docs/architecture/DECISIONS.md`
-- API spec: `docs/api/openapi.yaml`
-- Dev setup: `docs/development/SETUP.md`, `docs/development/TROUBLESHOOTING.md`
-- Recent forensics: `DEEP_INVESTIGATION_REPORT_2026-01-16.md`, `ALL_FIXES_COMPLETE_2026-01-16.md`
-- Strategy reference: `STRATEGY_QUICK_REFERENCE.md`
+- Architecture: `docs/architecture/SYSTEM_OVERVIEW.md`
+- Dev setup: `docs/development/SETUP.md`
+- Live API spec: `http://localhost:8000/openapi.json` (gateway exposes it directly; the
+  `docs/api/openapi.yaml` snapshot was removed during the 2026-04-26 cleanup since it
+  drifted from the live surface)
 
 ---
 
