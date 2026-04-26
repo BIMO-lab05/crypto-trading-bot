@@ -68,7 +68,7 @@ class TrendFollowingConfig:
 
     # ADX parameters
     adx_period: int = 14
-    adx_trend_threshold: float = 25.0  # Above this = trending
+    adx_trend_threshold: float = 20.0  # Above this = trending (lowered from 25.0 to admit weak-trend regimes; with EMA alignment + MACD still gating entries, this catches early trend continuation that 25 was rejecting)
     adx_strong_trend: float = 40.0  # Strong trend
 
     # MACD parameters
@@ -77,7 +77,7 @@ class TrendFollowingConfig:
     macd_signal: int = 9
 
     # Entry filters
-    min_trend_strength: float = 0.3  # Minimum trend strength (0-1)
+    min_trend_strength: float = 0.2  # Minimum trend strength (0-1) — lowered from 0.3 to pair with looser ADX gate; together expect ~2-3× signal frequency, validate with backtest_ensemble.py before activating
     require_pullback: bool = False  # Require pullback to EMA
     pullback_tolerance_pct: float = 0.5  # Price within 0.5% of EMA
 

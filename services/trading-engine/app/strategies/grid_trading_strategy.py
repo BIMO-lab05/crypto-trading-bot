@@ -68,7 +68,7 @@ GRID_SPACING_TYPE = "geometric"    # "arithmetic" or "geometric"
 
 # ATR-based dynamic spacing
 ATR_PERIOD = 14                    # Period for ATR calculation
-ATR_GRID_MULTIPLIER = 1.5          # Grid spacing = ATR * multiplier
+ATR_GRID_MULTIPLIER = 2.0          # Grid spacing = ATR * multiplier (widened from 1.5 — gives more headroom in trending regimes so the grid doesn't get fully filled by a single directional move)
 USE_ATR_SPACING = True             # Use ATR for dynamic spacing vs fixed %
 
 # Position management

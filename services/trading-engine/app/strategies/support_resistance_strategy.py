@@ -68,7 +68,7 @@ RSI_EXTREME_OVERSOLD = 25  # Extreme oversold for high-confidence entries
 RSI_EXTREME_OVERBOUGHT = 75  # Extreme overbought for high-confidence exits
 
 # Support/Resistance detection parameters
-SR_LOOKBACK_PERIODS = 100  # Number of candles to analyze for S/R levels
+SR_LOOKBACK_PERIODS = 250  # Number of candles to analyze for S/R levels (raised from 100 — at 1H candles that's ~10 days of history, surfacing weekly-level zones that 100-bar window missed)
 SR_TOLERANCE_PCT = 0.005   # 0.5% tolerance for "near" S/R level detection
 SR_MIN_STRENGTH = 0.40     # Minimum level strength to consider (0-1)
 
