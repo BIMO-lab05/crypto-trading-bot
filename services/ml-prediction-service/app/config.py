@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     market_data_url: str = os.getenv("MARKET_DATA_URL", "http://localhost:8003")
     technical_analysis_url: str = os.getenv("TECHNICAL_ANALYSIS_URL", "http://localhost:8004")
 
+    # Bybit price source — must match bybit-connector's value to avoid mixed
+    # testnet/mainnet data when training scripts pull klines directly.
+    # Default False (mainnet/production prices); set BYBIT_TESTNET=true explicitly for testnet.
+    bybit_testnet: bool = os.getenv("BYBIT_TESTNET", "false").lower() == "true"
+    bybit_api_key: str = os.getenv("BYBIT_API_KEY", "")
+    bybit_api_secret: str = os.getenv("BYBIT_API_SECRET", "")
+
     # ML Model settings
     model_type: str = "GRU"  # GRU (default, superior performance), LSTM, or Transformer
     sequence_length: int = 60  # Number of candles to look back

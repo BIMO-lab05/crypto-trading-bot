@@ -644,6 +644,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MARKET_DATA_URL=http://market-data:8002
       - MODEL_DIR=/app/models
+      - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
+      - BYBIT_API_KEY=${BYBIT_API_KEY:-}
+      - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
     volumes:
       - ./services/ml-prediction-service/logs:/app/logs
       - ./services/ml-prediction-service/models:/app/models

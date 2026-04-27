@@ -11,6 +11,7 @@ Data source: TimescaleDB (localhost:5433, database: market_data)
 
 import asyncio
 import asyncpg
+import os
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
@@ -40,13 +41,14 @@ logger = logging.getLogger(__name__)
 # Settings
 settings = get_settings()
 
-# Database configuration
+# Database configuration sourced from env vars.
+# No hardcoded password — was 'timescale_dev_password' previously, a real credential in source.
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5433,
-    'database': 'market_data',
-    'user': 'cryptobot',
-    'password': 'timescale_dev_password'
+    'host': os.getenv('TIMESCALE_HOST', 'localhost'),
+    'port': int(os.getenv('TIMESCALE_PORT', '5432')),
+    'database': os.getenv('TIMESCALE_DB', 'market_data'),
+    'user': os.getenv('TIMESCALE_USER', 'cryptobot'),
+    'password': os.getenv('TIMESCALE_PASSWORD', ''),
 }
 
 # Symbols to train

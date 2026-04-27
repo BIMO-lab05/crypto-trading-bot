@@ -20,6 +20,7 @@ Date: 2025-11-20
 
 import asyncio
 import asyncpg
+import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -55,13 +56,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Database configuration (updated for localhost)
+# Database configuration sourced from env vars.
+# No hardcoded password — was 'timescale_dev_password' previously, a real credential in source.
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5433,
-    'database': 'market_data',
-    'user': 'cryptobot',
-    'password': 'timescale_dev_password'
+    'host': os.getenv('TIMESCALE_HOST', 'localhost'),
+    'port': int(os.getenv('TIMESCALE_PORT', '5432')),
+    'database': os.getenv('TIMESCALE_DB', 'market_data'),
+    'user': os.getenv('TIMESCALE_USER', 'cryptobot'),
+    'password': os.getenv('TIMESCALE_PASSWORD', ''),
 }
 
 # Optimization targets
