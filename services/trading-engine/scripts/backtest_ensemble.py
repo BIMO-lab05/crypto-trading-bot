@@ -39,7 +39,7 @@ from app.strategies.multi_strategy_ensemble import (
 
 # ----------------------------- DB ---------------------------------------------
 
-def fetch_klines(symbol: str, limit: int = 1500) -> List[Dict]:
+def fetch_klines(symbol: str, limit: int = int(os.getenv("BACKTEST_LIMIT", "1500"))) -> List[Dict]:
     host = os.getenv("DB_HOST", "localhost")
     port = int(os.getenv("DB_PORT", "5433"))
     user = os.getenv("DB_USER", "cryptobot")
