@@ -40,6 +40,7 @@ except ImportError:
 from .config import config
 from .routers.alerts import router as alerts_router
 from .alert_manager import alert_manager
+from . import dlq
 
 # Legacy imports for backward compatibility
 from .email_notifier import email_notifier
@@ -51,6 +52,66 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# DELIVERY-STATUS HELPER
+# ============================================================================
+# Replaces the prior false-success pattern: every endpoint returned
+# `{"success": True}` regardless of whether email_sent / telegram_sent were
+# actually True, so the trading-engine logged "notification sent" while
+# Telegram/SMTP had silently failed. The helper raises 502 on partial /
+# total delivery failure so callers can react instead of trusting HTTP 200.
+
+def _build_delivery_response(
+    *,
+    email_attempted: bool,
+    email_sent: bool,
+    telegram_attempted: bool,
+    telegram_sent: bool,
+    endpoint: str = "unknown",
+    payload: Optional[Dict] = None,
+) -> Dict:
+    attempted = []
+    if email_attempted:
+        attempted.append(("email", email_sent))
+    if telegram_attempted:
+        attempted.append(("telegram", telegram_sent))
+
+    failed = [name for name, ok in attempted if not ok]
+    all_succeeded = bool(attempted) and not failed
+
+    body = {
+        "success": all_succeeded,
+        "email_sent": email_sent if email_attempted else None,
+        "telegram_sent": telegram_sent if telegram_attempted else None,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    if not attempted:
+        body["reason"] = "no notification channels enabled"
+        logger.error("Notification request had no enabled channels to deliver on")
+        dlq.enqueue(
+            endpoint=endpoint,
+            failed_channels=["__none_enabled__"],
+            payload=payload or {},
+            response=body,
+        )
+        raise HTTPException(status_code=503, detail=body)
+
+    if failed:
+        body["failed_channels"] = failed
+        body["reason"] = f"delivery failed on: {failed}"
+        logger.warning("Notification delivery FAILED on channels=%s body=%s", failed, body)
+        dlq.enqueue(
+            endpoint=endpoint,
+            failed_channels=failed,
+            payload=payload or {},
+            response=body,
+        )
+        raise HTTPException(status_code=502, detail=body)
+
+    return body
 
 
 # ============================================================================
@@ -110,6 +171,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Notification Service starting...")
     logger.info("Prometheus metrics: enabled at /metrics")
+    dlq.init_dlq()
     await alert_manager.start()
     logger.info("Alert Manager started")
 
@@ -370,12 +432,14 @@ async def notify_trade(notification: TradeNotification):
                 status='success' if telegram_sent else 'failed'
             ).inc()
 
-        return {
-            "success": True,
-            "email_sent": email_sent,
-            "telegram_sent": telegram_sent,
-            "timestamp": datetime.now().isoformat()
-        }
+        return _build_delivery_response(
+            email_attempted=config.email_enabled,
+            email_sent=email_sent,
+            telegram_attempted=config.telegram_enabled,
+            telegram_sent=telegram_sent,
+            endpoint="/api/v1/notify/trade",
+            payload=trade_dict,
+        )
 
     except Exception as e:
         logger.error(f"Failed to send trade notification: {e}")
@@ -421,12 +485,14 @@ async def notify_pnl(notification: ProfitLossNotification):
                 status='success' if telegram_sent else 'failed'
             ).inc()
 
-        return {
-            "success": True,
-            "email_sent": email_sent,
-            "telegram_sent": telegram_sent,
-            "timestamp": datetime.now().isoformat()
-        }
+        return _build_delivery_response(
+            email_attempted=config.email_enabled,
+            email_sent=email_sent,
+            telegram_attempted=config.telegram_enabled,
+            telegram_sent=telegram_sent,
+            endpoint="/api/v1/notify/pnl",
+            payload={"trade": trade_dict, "pnl": pnl},
+        )
 
     except Exception as e:
         logger.error(f"Failed to send P&L notification: {e}")
@@ -469,12 +535,14 @@ async def notify_daily_limit(total_loss: float):
                 status='success' if telegram_sent else 'failed'
             ).inc()
 
-        return {
-            "success": True,
-            "email_sent": email_sent,
-            "telegram_sent": telegram_sent,
-            "timestamp": datetime.now().isoformat()
-        }
+        return _build_delivery_response(
+            email_attempted=config.email_enabled,
+            email_sent=email_sent,
+            telegram_attempted=config.telegram_enabled,
+            telegram_sent=telegram_sent,
+            endpoint="/api/v1/notify/daily-limit",
+            payload={"total_loss": total_loss},
+        )
 
     except Exception as e:
         logger.error(f"Failed to send daily limit notification: {e}")
@@ -523,12 +591,14 @@ async def notify_error(notification: ErrorNotification):
                 status='success' if telegram_sent else 'failed'
             ).inc()
 
-        return {
-            "success": True,
-            "email_sent": email_sent,
-            "telegram_sent": telegram_sent,
-            "timestamp": datetime.now().isoformat()
-        }
+        return _build_delivery_response(
+            email_attempted=config.email_enabled,
+            email_sent=email_sent,
+            telegram_attempted=config.telegram_enabled,
+            telegram_sent=telegram_sent,
+            endpoint="/api/v1/notify/error",
+            payload=notification.model_dump(),
+        )
 
     except Exception as e:
         logger.error(f"Failed to send error notification: {e}")
@@ -573,12 +643,14 @@ async def notify_startup(notification: StartupNotification):
                 status='success' if telegram_sent else 'failed'
             ).inc()
 
-        return {
-            "success": True,
-            "email_sent": email_sent,
-            "telegram_sent": telegram_sent,
-            "timestamp": datetime.now().isoformat()
-        }
+        return _build_delivery_response(
+            email_attempted=config.email_enabled,
+            email_sent=email_sent,
+            telegram_attempted=config.telegram_enabled,
+            telegram_sent=telegram_sent,
+            endpoint="/api/v1/notify/startup",
+            payload=config_dict,
+        )
 
     except Exception as e:
         logger.error(f"Failed to send startup notification: {e}")
@@ -611,15 +683,38 @@ async def notify_daily_summary(summary: DailySummary):
                 status='success' if telegram_sent else 'failed'
             ).inc()
 
-        return {
-            "success": True,
-            "telegram_sent": telegram_sent,
-            "timestamp": datetime.now().isoformat()
-        }
+        return _build_delivery_response(
+            email_attempted=False,
+            email_sent=False,
+            telegram_attempted=config.telegram_enabled,
+            telegram_sent=telegram_sent,
+            endpoint="/api/v1/notify/daily-summary",
+            payload=summary_dict,
+        )
 
     except Exception as e:
         logger.error(f"Failed to send daily summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================================
+# Dead-letter queue (visibility for failed deliveries)
+# ========================================
+
+@app.get("/api/v1/dlq")
+async def list_dlq(limit: int = 50):
+    """
+    List the most recent failed-delivery alerts. Each entry includes the
+    original payload so it can be re-driven manually if needed. Replay
+    endpoint is a separate follow-up.
+    """
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be 1..500")
+    return {
+        "total": dlq.count(),
+        "returned": min(limit, dlq.count()) if dlq.count() >= 0 else 0,
+        "items": dlq.list_recent(limit=limit),
+    }
 
 
 @app.post("/api/v1/test")
@@ -664,10 +759,14 @@ async def test_notifications():
             status='success' if results["telegram"]["sent"] else 'failed'
         ).inc()
 
+    # Honest top-level success: at least one *enabled* channel must have delivered.
+    # Previously hardcoded True so a fully-failing test still showed success.
+    attempted = [r["sent"] for r in results.values() if r["enabled"]]
+    overall_success = bool(attempted) and all(attempted)
     return {
-        "success": True,
+        "success": overall_success,
         "results": results,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 

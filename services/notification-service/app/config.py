@@ -5,7 +5,7 @@ Enhanced with multi-channel routing and alert management
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, model_validator
 from typing import Optional, List, Dict
 from enum import Enum
 
@@ -47,15 +47,18 @@ class NotificationConfig(BaseSettings):
     port: int = 8007
 
     # Database settings for alert storage
+    # No hardcoded fallback — silent fall-through to localhost has caused
+    # outages where the service connected to a stale/empty DB without warning.
+    # If the env var is missing the service must fail at first DB use, not silently succeed.
     database_url: str = Field(
-        default="postgresql://postgres:postgres@localhost:5432/crypto_bot",
-        description="PostgreSQL connection string for alert storage"
+        default="",
+        description="PostgreSQL connection string for alert storage. REQUIRED via DATABASE_URL env var."
     )
 
     # Redis settings for rate limiting and caching
     redis_url: str = Field(
-        default="redis://localhost:6379/0",
-        description="Redis connection string"
+        default="",
+        description="Redis connection string. REQUIRED via REDIS_URL env var."
     )
 
     # ========================================
@@ -209,6 +212,39 @@ class NotificationConfig(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         extra = "ignore"  # Ignore extra environment variables not defined in model
+
+    @model_validator(mode="after")
+    def _validate_enabled_channels_have_creds(self):
+        """
+        Fail-fast at startup if a channel is enabled but its credentials are
+        empty. Audit 2026-04-27: prior incident shipped with telegram_enabled=True
+        but an empty bot token, so the service silently dropped every alert while
+        returning HTTP 200.
+        """
+        problems = []
+        if self.telegram_enabled and not (self.telegram_bot_token and self.telegram_chat_id):
+            problems.append(
+                "telegram_enabled=True but TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is empty"
+            )
+        if self.email_enabled and not (
+            self.smtp_username and self.smtp_password and self.email_to
+        ):
+            problems.append(
+                "email_enabled=True but SMTP_USERNAME / SMTP_PASSWORD / EMAIL_TO is empty"
+            )
+        if self.slack_enabled and not self.slack_webhook_url:
+            problems.append("slack_enabled=True but SLACK_WEBHOOK_URL is empty")
+        if self.sms_enabled and not (
+            self.twilio_account_sid and self.twilio_auth_token and self.twilio_phone_number
+        ):
+            problems.append("sms_enabled=True but Twilio credentials are incomplete")
+        if problems:
+            raise ValueError(
+                "Notification config validation failed:\n  - "
+                + "\n  - ".join(problems)
+                + "\nFix the env vars or disable the channel."
+            )
+        return self
 
     def get_channels_for_severity(self, severity: AlertSeverity) -> List[str]:
         """Get list of channels for a given severity level"""

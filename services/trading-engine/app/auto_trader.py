@@ -1617,18 +1617,29 @@ class AutoTrader:
                 )
 
                 # Send trade open notification (2025-12-01)
+                # Audit 2026-04-27: failures here used to be logged at debug
+                # and the result dict ignored, so silent delivery failures
+                # looked identical to successes. Now we inspect the dict.
                 try:
-                    await self.notification_client.notify_trade_open(
+                    notify_result = await self.notification_client.notify_trade_open(
                         symbol=symbol,
                         action=action,
                         quantity=float(quantity),
                         price=float(trade_setup.entry_price),
                         confidence=trade_setup.confidence,
                         stop_loss=adjusted_sl,
-                        take_profit=adjusted_tp
+                        take_profit=adjusted_tp,
                     )
+                    if not (isinstance(notify_result, dict) and notify_result.get("success")):
+                        logger.warning(
+                            "Trade-open notification NOT DELIVERED for %s: %s",
+                            symbol, notify_result,
+                        )
                 except Exception as notify_err:
-                    logger.debug(f"Notification failed (non-critical): {notify_err}")
+                    logger.warning(
+                        "Trade-open notification raised for %s: %s",
+                        symbol, notify_err,
+                    )
             else:
                 self.total_trades_rejected += 1
                 logger.warning(f"[{trading_mode}] Trade execution failed for {symbol}: {error}")

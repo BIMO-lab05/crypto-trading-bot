@@ -608,6 +608,7 @@ services:
       - RABBITMQ_HOST=rabbitmq
     volumes:
       - ./services/notification-service/logs:/app/logs
+      - ./services/notification-service/data:/app/data
     networks:
       - crypto-bot-network
     depends_on:
