@@ -392,7 +392,14 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
+      # Without these 4, market-data falls back to its config defaults
+      # (port 5672 ok, but user='cryptobot'/password='change_this_secure_password'
+      # don't match the live RabbitMQ — silent connection failures.)
       - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=${RABBITMQ_USER:-cryptobot}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-rabbitmq_dev_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-cryptobot}
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
     volumes:
       - ./services/market-data-service/logs:/app/logs
@@ -443,6 +450,10 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      # Without these two, portfolio-manager falls back to localhost:8005/8002
+      # defaults from app/config.py and chronically fails its 60s sync poll.
+      - TRADING_ENGINE_URL=http://trading-engine:8005
+      - MARKET_DATA_URL=http://market-data:8002
     volumes:
       - ./services/portfolio-manager/logs:/app/logs
     networks:
@@ -535,13 +546,8 @@ services:
       - PAPER_INITIAL_BALANCE=100.0
       # Strategy mode: ensemble = SimpleRSI + multi-indicator + mean-reversion (performance-weighted)
       - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
-      # Database — trading-engine code reads DB_* (services/trading-engine/app/database/connection.py)
-      # while pydantic settings reads POSTGRES_*. Set both to avoid drift.
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${POSTGRES_DB:-cryptobot}
-      - DB_USER=${POSTGRES_USER:-cryptobot}
-      - DB_PASSWORD=${POSTGRES_PASSWORD:-cryptobot_dev_password}
+      # Database — POSTGRES_* is the single source of truth now that
+      # connection.py reads it instead of DB_* (audit 2026-04-27).
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-cryptobot}
