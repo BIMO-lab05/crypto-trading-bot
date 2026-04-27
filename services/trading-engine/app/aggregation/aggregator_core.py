@@ -259,6 +259,12 @@ class CoreAggregator:
                 voting_indicators, action, self.min_category_consensus
             )
 
+        # Final defence: re-validate confidence right before the gate so any
+        # gatekeeper/validator/regime-detector that returned a bad value (NaN,
+        # negative, > 1) cannot silently bypass the threshold check below.
+        from app.aggregation.confidence_guard import validate_confidence
+        confidence = validate_confidence(confidence, source="aggregator_core.gate")
+
         meets_requirements = (
             consensus_count >= self.min_consensus and
             confidence >= self.min_confidence and

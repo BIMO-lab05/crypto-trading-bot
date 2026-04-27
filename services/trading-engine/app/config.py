@@ -401,8 +401,11 @@ class Settings(BaseSettings):
     )
 
     # Database Configuration
+    # Port 5432 is the in-container TimescaleDB port. The host-mapped port
+    # (5433 in docker-compose.unified.yml) is for tooling on the host only —
+    # never the right value when this service runs inside the docker network.
     postgres_host: str = Field(default="localhost")
-    postgres_port: int = Field(default=5433)
+    postgres_port: int = Field(default=5432)
     postgres_db: str = Field(default="trading_engine")
     postgres_user: str = Field(default="cryptobot")
     postgres_password: str = Field(default="")

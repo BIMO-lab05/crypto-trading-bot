@@ -207,7 +207,13 @@ class EnhancedAggregator(CoreAggregator):
 
             if response.status_code == 200:
                 data = response.json()
-                logger.debug(f"ML Prediction fetched: {data.get('trend')} (confidence={data.get('trend_confidence', 0):.2f})")
+                # Coerce trend_confidence at the boundary so downstream `>= threshold`
+                # comparisons can't crash on None or silently pass on NaN.
+                from app.aggregation.confidence_guard import validate_confidence
+                data["trend_confidence"] = validate_confidence(
+                    data.get("trend_confidence"), source=f"ml.predict.{symbol}"
+                )
+                logger.debug(f"ML Prediction fetched: {data.get('trend')} (confidence={data['trend_confidence']:.2f})")
                 return data
             else:
                 logger.warning(f"ML Prediction service returned {response.status_code}")
