@@ -56,6 +56,25 @@ Useful scripts at repo root: `health_check.sh`, `monitor_paper_trading.sh`, `che
 - **REST**: gateway routes are `/api/<domain>/<resource>` (no `v1` prefix despite older docs). Domains: `portfolio`, `trading`, `risk`, `market`, `analysis`, `ml`, `sentiment`, `dashboard`, `performance`. See `http://localhost:8000/openapi.json` for the live surface. Async handlers throughout.
 - **Commits**: conventional (`feat(service): ...`, `fix(service): ...`); branches `feature/<service>-<desc>`, `fix/<desc>`.
 
+## Verification standards
+
+- **Don't declare features "working end-to-end" on curl/HTTP 200 alone.** Real proof needs: live exchange URL visible in service logs (not testnet), at least one notification actually received downstream (Telegram/email arriving, not just `sent: True`), the relevant DB row persisted (paste the `SELECT` result), and any service whose config just changed restarted.
+- **Stale in-memory state is the most common false-pass.** When config changes, restart the service before re-running integration tests — otherwise tests pass against the old in-memory copy.
+- The `/verify-stack` skill encodes this checklist; use it before any "shipped" claim.
+
+## Workflow
+
+- **Parallel agents for broad exploration.** When asked to "analyze the project" or audit across services, dispatch real `Task` subagents in parallel. Do NOT use `TaskUpdate` as a stand-in — it tracks tasks, it doesn't dispatch work.
+- **Confirm the git root before writing path-sensitive files.** Run `git rev-parse --show-toplevel` if there's any ambiguity. Workflow files (`.github/workflows/`), Claude config (`.claude/`), CI config, etc. land in the active git repo, not the workspace parent.
+- **Commit in logical chunks.** One concern per commit; don't accumulate past ~10 unstaged files; propose groupings before each commit and wait for approval.
+
+## Environment
+
+- **WSL2 + Docker Desktop**: Docker context must be `default` (Unix socket), not `desktop-linux` (Windows named pipe). Verify with `docker context show`.
+- **BuildKit hangs on WSL2** are common — `DOCKER_BUILDKIT=0 docker compose up -d --build <svc>` works around stalls.
+- **WSL bind-mount race**: `docker inspect` can show a `bind` mount while the path inside the container is empty + root-owned (the mount silently failed at create time). Symptom: `PermissionError` writing to `/app/logs`. Fix: `docker compose up -d --force-recreate <service>`.
+- **ML training memory**: BTC training has been OOM-killed at default container limits. Bump memory in the relevant compose `deploy.resources.limits` block before retraining BTC.
+
 ## Gotchas
 
 - **Two compose files**: `docker-compose.unified.yml` is canonical (16 services incl. DBs). `docker-compose.yml` is missing postgres/timescaledb/redis/rabbitmq.
