@@ -290,6 +290,11 @@ async def lifespan(app: FastAPI):
             "environment": "development" if settings.debug else "production"
         }
     )
+    # Loud, grep-able startup line so log audits can confirm the actual price source.
+    logger.warning(
+        "BYBIT_PRICE_SOURCE: testnet=%s rest_url=%s ws_url=%s",
+        settings.bybit_testnet, settings.rest_api_url, settings.websocket_url,
+    )
 
     try:
         # Initialize REST client and store in app state

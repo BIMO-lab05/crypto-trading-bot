@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # ========================================================================
     bybit_api_key: str = Field(..., description="Bybit API key")
     bybit_api_secret: str = Field(..., description="Bybit API secret")
-    bybit_testnet: bool = Field(default=True, description="Use testnet (true) or production (false)")
+    bybit_testnet: bool = Field(default=False, description="Use testnet (true) or production (false). Default False — production prices. Set BYBIT_TESTNET=true explicitly for testnet.")
     bybit_recv_window: int = Field(default=5000, description="API request receive window in milliseconds")
 
     # ========================================================================
