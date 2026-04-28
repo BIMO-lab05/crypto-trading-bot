@@ -1412,6 +1412,31 @@ class AutoTrader:
                 f"[MARGIN] Margin required: ${margin_required:.2f} (Position: ${position_value:.2f} / Leverage: {leverage:.0f}x)"
             )
 
+            # ================================================================
+            # PER-TRADE CAP (MAX_RISK_PER_TRADE, default 0.02)
+            # ================================================================
+            # CLAUDE.md historically claimed "max 2% capital per trade", but
+            # the sizing path above (symbol_allocation × leverage × heat) had
+            # no runtime check — a 30% allocation × 1x leverage produced a
+            # 30% trade. This gate validates the final notional against the
+            # cap and rejects-and-skips (matching the kill-switch / heat /
+            # daily-limit idiom) so the breach is observable rather than
+            # silently smoothed over by a resize.
+            cap_fraction = self.settings.max_risk_per_trade
+            cap_value = float(balance) * cap_fraction
+            if position_value > cap_value:
+                from app.core.metrics import risk_limit_breaches_total
+                risk_limit_breaches_total.labels(breach_type="position_size").inc()
+                logger.critical(
+                    f"[RISK_GATE] PER_TRADE_CAP BREACH | symbol={symbol} "
+                    f"attempted=${position_value:.2f} cap=${cap_value:.2f} "
+                    f"({cap_fraction:.1%} of ${float(balance):.2f}) "
+                    f"leverage={leverage:.1f}x allocation={symbol_allocation:.0%} "
+                    f"- REJECTING. Reduce symbol_allocations[{symbol}] or leverage."
+                )
+                self.total_trades_rejected += 1
+                return
+
             # Execute the trade
             side = OrderSide.BUY if action == "BUY" else OrderSide.SELL
 

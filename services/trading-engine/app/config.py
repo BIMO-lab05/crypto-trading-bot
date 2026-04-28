@@ -240,6 +240,16 @@ class Settings(BaseSettings):
         le=50.0,
         description="Maximum position size as % of capital (5% optimal for multi-symbol portfolio)"
     )
+    max_risk_per_trade: float = Field(
+        default=0.02,
+        ge=0.001,
+        le=0.5,
+        description=(
+            "Maximum per-trade notional cap as a fraction of balance "
+            "(0.02 = 2%). Stored as fraction, not percent — distinct from "
+            "the neighboring *_pct fields. Reads MAX_RISK_PER_TRADE env."
+        )
+    )
     max_daily_loss_pct: float = Field(
         default=5.0,
         ge=1.0,
