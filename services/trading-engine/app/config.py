@@ -113,6 +113,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable automatic trading"
     )
+    emergency_stop_file: str = Field(
+        default="/app/EMERGENCY_STOP",
+        description="Path to file-based kill switch. If file exists, auto-trader refuses to start and halts the loop."
+    )
     default_strategy: str = Field(
         default="consensus",
         description="Default trading strategy"

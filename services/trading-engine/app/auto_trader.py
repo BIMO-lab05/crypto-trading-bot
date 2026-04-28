@@ -27,6 +27,7 @@ UPDATED 2025-11-30 v2: Advanced trading enhancements
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
 from decimal import Decimal
@@ -233,6 +234,12 @@ class AutoTrader:
         self.enable_ml = enable_ml_predictions if enable_ml_predictions is not None else settings.enable_ml_predictions
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
+
+        # File-based emergency stop (operator kill switch).
+        # Halts auto-trader at the top of every loop cycle when the file is present.
+        self.emergency_stop_file = Path(self.settings.emergency_stop_file)
+        self.emergency_stop_active = False
+        self.emergency_stop_last_checked: Optional[datetime] = None
 
         # Get the regime detector
         self.regime_detector = get_market_regime_detector(enabled=enable_market_regime)
@@ -663,6 +670,25 @@ class AutoTrader:
 
         while self.is_running:
             try:
+                # ================================================================
+                # STEP 0a: FILE-BASED EMERGENCY STOP (operator kill switch)
+                # ================================================================
+                # Cheap stat check; out-ranks balance kill switch, signal fetch,
+                # and order submit. Uses is_file() (not exists()) to handle the
+                # WSL bind-mount edge case where Docker may create a directory at
+                # the mount point if the host file is absent.
+                self.emergency_stop_last_checked = datetime.now()
+                if self.emergency_stop_file.is_file():
+                    if not self.emergency_stop_active:
+                        logger.critical(
+                            f"EMERGENCY_STOP file detected at {self.emergency_stop_file} - "
+                            f"halting auto-trader. Open positions left for operator review. "
+                            f"Delete the file and restart the service to resume."
+                        )
+                        self.emergency_stop_active = True
+                    self.is_running = False
+                    break
+
                 # ================================================================
                 # STEP 0: CHECK KILL SWITCH (2025-11-30)
                 # ================================================================
@@ -2784,6 +2810,14 @@ class AutoTrader:
 
         status = {
             "is_running": self.is_running,
+            "emergency_stop": {
+                "file_path": str(self.emergency_stop_file),
+                "active": self.emergency_stop_active,
+                "last_checked": (
+                    self.emergency_stop_last_checked.isoformat()
+                    if self.emergency_stop_last_checked else None
+                ),
+            },
             "symbols": self.symbols,
             "symbols_count": len(self.symbols),
             "interval": self.interval,

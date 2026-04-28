@@ -359,23 +359,33 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Max positions: {sqzmom_config.max_positions}")
     logger.info("=" * 60)
 
-    # AUTO-START: Start the auto trader automatically on service startup
-    # This runs regardless of database status
-    try:
-        from app.auto_trader import get_auto_trader
-        auto_trader = get_auto_trader()
-        await auto_trader.start()
-        auto_trader_status.set(1)
-        logger.info("=" * 60)
-        logger.info("AUTO TRADER STARTED AUTOMATICALLY")
-        logger.info(f"   Trading symbols: {auto_trader.symbols}")
-        logger.info(f"   Check frequency: {auto_trader.check_frequency}s")
-        logger.info(f"   Strategy mode: {auto_trader.strategy_mode.value}")
-        logger.info("   Bot is now ACTIVE and monitoring markets!")
-        logger.info("=" * 60)
-    except Exception as e:
-        logger.error(f"Failed to auto-start trading: {e}")
+    # AUTO-START: Start the auto trader automatically on service startup.
+    # Refuses to start if EMERGENCY_STOP file is present (file-based kill switch).
+    # Uses is_file() (not exists()) to handle WSL bind-mount edge case where Docker
+    # may create a directory at the mount point if the host file is absent.
+    stop_file = Path(settings.emergency_stop_file)
+    if stop_file.is_file():
+        logger.critical("=" * 60)
+        logger.critical(f"EMERGENCY_STOP file present at {stop_file}")
+        logger.critical("REFUSING to start auto-trader. Delete the file to re-enable.")
+        logger.critical("=" * 60)
         auto_trader_status.set(0)
+    else:
+        try:
+            from app.auto_trader import get_auto_trader
+            auto_trader = get_auto_trader()
+            await auto_trader.start()
+            auto_trader_status.set(1)
+            logger.info("=" * 60)
+            logger.info("AUTO TRADER STARTED AUTOMATICALLY")
+            logger.info(f"   Trading symbols: {auto_trader.symbols}")
+            logger.info(f"   Check frequency: {auto_trader.check_frequency}s")
+            logger.info(f"   Strategy mode: {auto_trader.strategy_mode.value}")
+            logger.info("   Bot is now ACTIVE and monitoring markets!")
+            logger.info("=" * 60)
+        except Exception as e:
+            logger.error(f"Failed to auto-start trading: {e}")
+            auto_trader_status.set(0)
 
     yield
 

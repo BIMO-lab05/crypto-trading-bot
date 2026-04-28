@@ -542,6 +542,7 @@ services:
       # Risk management
       - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.02}
       - EMERGENCY_STOP_LOSS=${EMERGENCY_STOP_LOSS:-0.05}
+      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
       - PAPER_INITIAL_BALANCE=100.0
       # Strategy mode: ensemble = SimpleRSI + multi-indicator + mean-reversion (performance-weighted)
@@ -566,6 +567,12 @@ services:
       - ENABLE_SENTIMENT_ANALYSIS=${ENABLE_SENTIMENT_ANALYSIS:-true}
     volumes:
       - ./services/trading-engine/logs:/app/logs
+      # File-based emergency stop kill switch (read-only).
+      # NOTE: host file must exist before `docker compose up` — bind-mounting a
+      # missing file causes Docker to create a directory at the mount point, which
+      # the in-container check (Path.is_file()) correctly rejects but is wasteful.
+      # The repo root has the file pre-created. Operator: touch/rm to halt/resume.
+      - ./EMERGENCY_STOP:/app/EMERGENCY_STOP:ro
     networks:
       - crypto-bot-network
     depends_on:
