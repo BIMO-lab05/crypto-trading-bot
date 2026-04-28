@@ -33,9 +33,9 @@ class TestSettingsDefaults:
         assert settings.service_name == "market-data-service"
 
     def test_default_service_port(self):
-        """Test default service port is 8003"""
+        """Test default service port is 8002 (matches compose / project port table)."""
         settings = Settings()
-        assert settings.service_port == 8003
+        assert settings.service_port == 8002
 
     def test_default_service_host(self):
         """Test default service host is 0.0.0.0"""
