@@ -296,18 +296,17 @@ class AutoTrader:
             )
         )
 
-        # Kill Switch: Multi-threshold emergency stop
-        # Research: Industry standard risk controls
-        # RELAXED FOR SAMPLE COLLECTION (2025-11-30)
+        # Kill Switch: Multi-threshold emergency stop.
+        # Daily-loss threshold is operator-tunable via MAX_DAILY_LOSS_PCT
+        # (settings.max_daily_loss_pct, default 5%). Drawdown, consecutive-loss,
+        # auto-reset and trigger-mode use the research-backed defaults from
+        # KillSwitchConfig (drawdown 20%, consec 5, reset 24h, single-threshold
+        # trigger). Earlier code hard-coded 50%/50%/20 with the comment
+        # "RELAXED FOR SAMPLE COLLECTION" — that left CLAUDE.md's documented
+        # 5%/10% safety claims as fiction. Restored 2026-04-28.
         self.kill_switch = get_kill_switch(
             KillSwitchConfig(
-                max_daily_loss_pct=50.0,       # Relaxed: 50% for sample collection
-                max_drawdown_pct=50.0,         # Relaxed: 50% for sample collection
-                max_position_value=100000.0,   # Stop if position > $100k
-                max_consecutive_losses=20,     # Relaxed: 20 consecutive losses
-                confirmation_delay_seconds=5,  # 5s delay for manual activation
-                auto_reset_hours=1,            # Faster reset: 1 hour
-                require_multi_threshold=True   # Require 2+ thresholds for auto-activate
+                max_daily_loss_pct=self.settings.max_daily_loss_pct,
             )
         )
 
@@ -545,7 +544,12 @@ class AutoTrader:
         logger.info("RESEARCH-BACKED TRADING ENHANCEMENTS ENABLED (2025-11-30)")
         logger.info("=" * 70)
         logger.info(f"  Circuit Breaker: failure_threshold=5, timeout=60s")
-        logger.info(f"  Kill Switch: daily_loss=5%, drawdown=10%, consecutive_losses=5")
+        ks_cfg = self.kill_switch.config
+        logger.info(
+            f"  Kill Switch: daily_loss={ks_cfg.max_daily_loss_pct}%, "
+            f"drawdown={ks_cfg.max_drawdown_pct}%, "
+            f"consecutive_losses={ks_cfg.max_consecutive_losses}"
+        )
         logger.info(f"  Slippage Manager: base=0.15%, volatile=0.30%, reject=0.50%")
         logger.info(f"  Execution Timer: position=15s, price=10s, trailing=15s")
         logger.info(f"  Order State Machine: FIX protocol style tracking")

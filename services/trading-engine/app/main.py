@@ -359,12 +359,22 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Max positions: {sqzmom_config.max_positions}")
     logger.info("=" * 60)
 
-    # AUTO-START: Start the auto trader automatically on service startup.
-    # Refuses to start if EMERGENCY_STOP file is present (file-based kill switch).
-    # Uses is_file() (not exists()) to handle WSL bind-mount edge case where Docker
-    # may create a directory at the mount point if the host file is absent.
+    # AUTO-START gate. Two off-switches block lifespan auto-start, in order:
+    #   1. settings.auto_trading_enabled=False — operator says "don't auto-start
+    #      at boot" (default). The /start API endpoint still works for manual
+    #      operator control; this only governs the on-boot auto-start.
+    #   2. EMERGENCY_STOP file present — strong "halt now" signal from the
+    #      operator-side kill switch. Uses is_file() (not exists()) to handle
+    #      the WSL bind-mount edge case where Docker may create a directory at
+    #      the mount point if the host file is absent.
     stop_file = Path(settings.emergency_stop_file)
-    if stop_file.is_file():
+    if not settings.auto_trading_enabled:
+        logger.warning("=" * 60)
+        logger.warning("AUTO_TRADING_ENABLED=false — auto-trader will NOT auto-start")
+        logger.warning("Use the /start API endpoint to start manually.")
+        logger.warning("=" * 60)
+        auto_trader_status.set(0)
+    elif stop_file.is_file():
         logger.critical("=" * 60)
         logger.critical(f"EMERGENCY_STOP file present at {stop_file}")
         logger.critical("REFUSING to start auto-trader. Delete the file to re-enable.")
