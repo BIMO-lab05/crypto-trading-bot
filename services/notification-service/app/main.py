@@ -28,13 +28,13 @@ import tempfile
 
 # Import local modules
 try:
-    from .utils.structured_logging import setup_logging, RequestContextLogger
+    from .utils.structured_logging import setup_logging, RequestContextLogger, install_token_redaction
     from .utils.graceful_shutdown import GracefulShutdownHandler
 except ImportError:
     from pathlib import Path
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
-    from utils.structured_logging import setup_logging, RequestContextLogger
+    from utils.structured_logging import setup_logging, RequestContextLogger, install_token_redaction
     from utils.graceful_shutdown import GracefulShutdownHandler
 
 from .config import config
@@ -51,6 +51,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+install_token_redaction()
 logger = logging.getLogger(__name__)
 
 
