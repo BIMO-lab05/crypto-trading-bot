@@ -31,8 +31,12 @@ email:
   # SMTP server settings
   server: smtp.gmail.com
   port: 587
-  username: your-email@gmail.com
-  password: your-app-specific-password  # Use app-specific password for Gmail
+  # Empty placeholders. Set on the operator's host; do NOT commit real creds.
+  # TODO: extend scripts/weekly_performance_report.py to override SMTP creds
+  # via SMTP_USERNAME / SMTP_PASSWORD env vars (mirror the POSTGRES_* pattern
+  # at scripts/weekly_performance_report.py:1235-1239).
+  username: ""
+  password: ""  # Use app-specific password for Gmail
   from_email: crypto-bot@trading.com
 
   # Email recipients
