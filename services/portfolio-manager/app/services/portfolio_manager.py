@@ -3,6 +3,7 @@ Portfolio Manager Service
 Manages portfolio operations, tracking, and integration with Trading Engine
 """
 
+import asyncio
 import httpx
 from decimal import Decimal
 from typing import Dict, List, Optional
@@ -29,8 +30,26 @@ class PortfolioManager:
         # Transaction history tracking
         self.transaction_history: Dict[str, List[Transaction]] = {}  # portfolio_id -> transactions
 
+        # Per-portfolio asyncio locks. Handlers that await something between
+        # the cash-balance read and the transaction execute (e.g. price
+        # fetch from market-data) must serialize on this lock; otherwise
+        # concurrent BUY/SELL on the same portfolio can interleave around
+        # the await and overdraw cash. Different portfolios don't block
+        # each other. Lazily populated by get_transaction_lock().
+        self._transaction_locks: Dict[str, asyncio.Lock] = {}
+
         # Create default portfolio
         self._create_default_portfolio()
+
+    def get_transaction_lock(self, portfolio_id: str) -> asyncio.Lock:
+        """Return the asyncio.Lock for a given portfolio_id, creating it on
+        first access. Use as `async with manager.get_transaction_lock(pid):`
+        around any read-await-write sequence on portfolio cash balance."""
+        lock = self._transaction_locks.get(portfolio_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._transaction_locks[portfolio_id] = lock
+        return lock
 
     def _create_default_portfolio(self):
         """Create the default portfolio"""
