@@ -370,9 +370,21 @@ class StrategyRegistry:
             priority=request.priority
         )
 
+        # Derive sensible min/max allocation bounds from the requested target so
+        # the request-driven path doesn't fail validation against the dataclass
+        # defaults (min=5%, max=20%). The risk-critical caps (2%/trade,
+        # 5%/day circuit-breaker) live in trading-engine risk module — these
+        # are soft sanity bounds for orchestrator allocation only.
+        target = request.target_allocation_pct
+        min_alloc = min(5.0, target)
+        max_alloc = max(20.0, target)
+
         config = StrategyConfig(
             metadata=metadata,
-            target_allocation_pct=request.target_allocation_pct,
+            target_allocation_pct=target,
+            min_allocation_pct=min_alloc,
+            max_allocation_pct=max_alloc,
+            current_allocation_pct=target,
             enabled_symbols=set(request.supported_symbols)
         )
 
