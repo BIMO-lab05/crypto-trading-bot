@@ -29,6 +29,7 @@ from datetime import datetime
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from prometheus_client import multiprocess, CollectorRegistry
 import os
+from pathlib import Path
 import tempfile
 
 from app.config import settings
@@ -1231,28 +1232,64 @@ async def sell_asset(
 
 @app.post("/api/portfolio/emergency-stop")
 # @rate_limiter.trading_limit  # Rate limited via middleware
-async def emergency_stop():
+async def emergency_stop(
+    current_user: User = Depends(get_current_admin_user)
+):
     """
-    Emergency stop - Halt all trading operations immediately
+    Emergency stop — write the EMERGENCY_STOP file the trading-engine watches.
+
+    Admin-only. Writes to EMERGENCY_STOP_FILE (default `/app/EMERGENCY_STOP`,
+    matching the trading-engine setting). Bind-mount in compose puts the
+    same host file in front of both containers; trading-engine sees it
+    read-only at the same path and refuses to start / halts the loop on
+    next iteration.
 
     Rate Limit: 10 requests/minute (trading operation)
     """
+    stop_file = Path(os.getenv("EMERGENCY_STOP_FILE", "/app/EMERGENCY_STOP"))
+    activated_at_ms = int(time.time() * 1000)
+
+    if stop_file.is_dir():
+        # WSL bind-mount edge case: if `./EMERGENCY_STOP` doesn't exist on
+        # the host, Docker creates a directory at the mount point. We
+        # cannot write the file in this state. Operator must touch the
+        # host file (or remove the bogus directory) once.
+        logger.error(
+            f"Cannot activate emergency stop: {stop_file} is a directory "
+            f"(missing host file before docker compose up)."
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"EMERGENCY_STOP path is a directory inside the container — "
+                f"likely the host file did not exist when the bind-mount was "
+                f"created. Touch the host file and restart api-gateway."
+            ),
+        )
+
     try:
-        import os
-        stop_file = "/mnt/d/Bimo_max/crypto-trading-bot/EMERGENCY_STOP"
-        with open(stop_file, 'w') as f:
-            f.write(f"Emergency stop activated at {int(time.time() * 1000)}\n")
+        stop_file.parent.mkdir(parents=True, exist_ok=True)
+        stop_file.write_text(
+            f"Emergency stop activated at {activated_at_ms} "
+            f"by {current_user.username}\n"
+        )
+    except OSError as e:
+        logger.error(f"Failed to write {stop_file}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to activate emergency stop: {e}",
+        )
 
-        logger.warning("EMERGENCY STOP ACTIVATED")
-
-        return JSONResponse(content={
-            "success": True,
-            "message": "Emergency stop activated. Trading bot will halt operations.",
-            "timestamp": int(time.time() * 1000)
-        })
-    except Exception as e:
-        logger.error(f"Failed to activate emergency stop: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to activate emergency stop: {str(e)}")
+    logger.warning(
+        f"EMERGENCY STOP ACTIVATED by {current_user.username} → {stop_file}"
+    )
+    return JSONResponse(content={
+        "success": True,
+        "message": "Emergency stop activated. Trading bot will halt operations.",
+        "timestamp": activated_at_ms,
+        "stop_file": str(stop_file),
+        "activated_by": current_user.username,
+    })
 
 
 # ============================================================================

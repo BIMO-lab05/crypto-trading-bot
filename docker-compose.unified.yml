@@ -279,8 +279,14 @@ services:
       - ML_PREDICTION_URL=http://ml-prediction:8007
       - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
       - RISK_METRICS_URL=http://risk-metrics:8009
+      # Emergency stop file - admin endpoint writes here, trading-engine reads
+      # the same host file via its own bind-mount (see trading-engine block).
+      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
     volumes:
       - ./services/api-gateway/logs:/app/logs
+      # RW for the gateway: it creates/overwrites the EMERGENCY_STOP file.
+      # trading-engine mounts the same host file read-only.
+      - ./EMERGENCY_STOP:/app/EMERGENCY_STOP
     networks:
       - crypto-bot-network
     depends_on:
