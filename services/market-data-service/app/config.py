@@ -18,7 +18,11 @@ class Settings(BaseSettings):
 
     # Service
     service_name: str = Field(default="market-data-service")
-    service_port: int = Field(default=8003)
+    # 8002 matches the production / compose port. Was 8003 in the in-code
+    # default, which collided with portfolio-manager (also 8003) on
+    # standalone runs. The compose stack overrode this via SERVICE_PORT,
+    # so the live system was fine — this is the standalone-run fix.
+    service_port: int = Field(default=8002)
     service_host: str = Field(default="0.0.0.0")
 
     # TimescaleDB (market data storage)
