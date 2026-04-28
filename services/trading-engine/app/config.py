@@ -432,9 +432,9 @@ class Settings(BaseSettings):
 
     # Paper Trading
     paper_initial_balance: float = Field(
-        default=10000.0,
+        default=100.0,
         ge=100.0,
-        description="Initial balance for paper trading"
+        description="Initial balance for paper trading (matches portfolio-manager initial_capital and risk-budget base_equity)"
     )
     paper_commission_pct: float = Field(
         default=0.1,
