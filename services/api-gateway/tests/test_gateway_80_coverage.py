@@ -428,9 +428,12 @@ class TestSentimentAnalysisEndpoints:
         assert response.status_code in [200, 500, 503]
 
     def test_sentiment_trend_endpoint_exists(self, test_client):
-        """Test sentiment trend endpoint exists"""
+        """Test sentiment trend endpoint is routed (currently proxies a 501)."""
         response = test_client.get("/api/sentiment/trend/BTCUSDT")
-        assert response.status_code in [200, 500, 503]
+        # Upstream returns 501 (not yet implemented); 503 if sentiment
+        # service is down; 5xx if proxy errors. 200 only resurfaces if a
+        # real implementation is added.
+        assert response.status_code in [200, 500, 501, 503]
 
     def test_sentiment_backward_compat_endpoint(self, test_client):
         """Test backward compatibility sentiment endpoint"""
@@ -438,9 +441,9 @@ class TestSentimentAnalysisEndpoints:
         assert response.status_code in [200, 500, 503]
 
     def test_sentiment_aggregate_endpoint(self, test_client):
-        """Test aggregated sentiment endpoint"""
+        """Test aggregated sentiment endpoint is routed (currently proxies a 501)."""
         response = test_client.get("/api/sentiment/aggregate")
-        assert response.status_code in [200, 500, 503]
+        assert response.status_code in [200, 500, 501, 503]
 
 
 # ============================================================================
