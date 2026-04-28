@@ -48,8 +48,7 @@ class ModelDeployer:
         symbol: str,
         model_path: str,
         metadata_path: str,
-        scaler_x_path: str,
-        scaler_y_path: str,
+        scalers_path: str,
         version: str,
         backup_current: bool = True,
         verify_deployment: bool = True
@@ -61,8 +60,9 @@ class ModelDeployer:
             symbol: Trading symbol
             model_path: Path to trained model file
             metadata_path: Path to model metadata JSON
-            scaler_x_path: Path to X scaler pickle
-            scaler_y_path: Path to Y scaler pickle
+            scalers_path: Path to combined scalers pickle
+                (matches prediction-service contract: dict with keys
+                'price_scaler' and 'feature_scaler' as full sklearn objects)
             version: Model version identifier
             backup_current: Whether to backup current production model
             verify_deployment: Whether to verify after deployment
@@ -98,8 +98,7 @@ class ModelDeployer:
                 symbol=symbol,
                 model_path=model_path,
                 metadata_path=metadata_path,
-                scaler_x_path=scaler_x_path,
-                scaler_y_path=scaler_y_path
+                scalers_path=scalers_path
             )
             deployment_result["files_deployed"] = files_deployed
 
@@ -193,8 +192,7 @@ class ModelDeployer:
         symbol: str,
         model_path: str,
         metadata_path: str,
-        scaler_x_path: str,
-        scaler_y_path: str
+        scalers_path: str
     ) -> list:
         """
         Copy model files from staging to production
@@ -203,8 +201,7 @@ class ModelDeployer:
             symbol: Trading symbol
             model_path: Source model file path
             metadata_path: Source metadata file path
-            scaler_x_path: Source X scaler path
-            scaler_y_path: Source Y scaler path
+            scalers_path: Source combined-scalers pickle path
 
         Returns:
             List of deployed file names
@@ -214,21 +211,18 @@ class ModelDeployer:
         interval = "60"  # Default interval
         deployed_files = []
 
-        # File mappings: source -> destination
+        # File mappings: source -> destination.
+        # Scalers come from a single pickle file containing
+        # {'price_scaler', 'feature_scaler'} matching the prediction-service contract.
         file_mappings = {
             model_path: self.production_dir / f"{symbol}_{interval}m_gru.keras",
-            metadata_path: self.production_dir / f"{symbol}_{interval}m_gru_metadata.json"
+            metadata_path: self.production_dir / f"{symbol}_{interval}m_gru_metadata.json",
+            scalers_path: self.production_dir / f"{symbol}_{interval}m_gru_scalers.pkl",
         }
 
-        # Combine scalers into single pickle file for ML prediction service
-        # Note: ML prediction service expects a single scalers.pkl file
-        # We'll need to merge scaler_x and scaler_y
-        if Path(scaler_x_path).exists() and Path(scaler_y_path).exists():
-            # For now, copy scaler_x as the scalers file
-            # TODO: Merge both scalers into a single file
-            file_mappings[scaler_x_path] = self.production_dir / f"{symbol}_{interval}m_gru_scalers.pkl"
-
-        # Copy files
+        # Copy files atomically: stage to .tmp then atomic-rename. Closes the
+        # race where the prediction-service mtime check fires mid-copy and reads
+        # a partial file. Path.replace is atomic on POSIX same-filesystem renames.
         for source, dest in file_mappings.items():
             source_path = Path(source)
 
@@ -237,7 +231,9 @@ class ModelDeployer:
                 continue
 
             try:
-                shutil.copy2(str(source_path), str(dest))
+                tmp_dest = dest.with_suffix(dest.suffix + ".tmp")
+                shutil.copy2(str(source_path), str(tmp_dest))
+                tmp_dest.replace(dest)
                 deployed_files.append(dest.name)
                 logger.info(f"Copied: {source_path.name} -> {dest.name}")
             except Exception as e:

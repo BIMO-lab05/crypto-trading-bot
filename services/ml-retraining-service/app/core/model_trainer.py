@@ -8,6 +8,7 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
 import json
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -473,8 +474,10 @@ class ModelTrainer:
         model_path = os.path.join(output_dir, "model.h5")
         metadata_path = os.path.join(output_dir, "metadata.json")
         metrics_path = os.path.join(output_dir, "metrics.json")
-        scaler_x_path = os.path.join(output_dir, "scaler_x.npy")
-        scaler_y_path = os.path.join(output_dir, "scaler_y.npy")
+        # Single combined scalers.pkl matching the prediction-service contract:
+        # {'price_scaler': MinMaxScaler, 'feature_scaler': MinMaxScaler} as full
+        # sklearn objects (gru_model.py:_load_model in ml-prediction-service).
+        scalers_path = os.path.join(output_dir, "scalers.pkl")
 
         # Save model
         model.save(model_path)
@@ -495,25 +498,21 @@ class ModelTrainer:
             json.dump(all_metrics, f, indent=2)
         logger.info(f"Metrics saved: {metrics_path}")
 
-        # Save scalers (using numpy for MinMaxScaler attributes)
-        np.save(scaler_x_path, {
-            'min_': scaler_x.min_,
-            'scale_': scaler_x.scale_,
-            'data_min_': scaler_x.data_min_,
-            'data_max_': scaler_x.data_max_,
-        })
-        np.save(scaler_y_path, {
-            'min_': scaler_y.min_,
-            'scale_': scaler_y.scale_,
-            'data_min_': scaler_y.data_min_,
-            'data_max_': scaler_y.data_max_,
-        })
-        logger.info("Scalers saved")
+        # Save scalers as a single pickle file matching the prediction-service
+        # contract. Mapping: scaler_y is fit on the target/close-price column
+        # (price_scaler); scaler_x is fit on the feature columns (feature_scaler).
+        # Storing the full sklearn objects (not just attribute arrays) so the
+        # prediction service can use them directly via pickle.load.
+        with open(scalers_path, 'wb') as f:
+            pickle.dump({
+                'price_scaler': scaler_y,
+                'feature_scaler': scaler_x,
+            }, f)
+        logger.info(f"Scalers saved: {scalers_path}")
 
         return {
             "model_path": model_path,
             "metadata_path": metadata_path,
             "metrics_path": metrics_path,
-            "scaler_x_path": scaler_x_path,
-            "scaler_y_path": scaler_y_path,
+            "scalers_path": scalers_path,
         }
