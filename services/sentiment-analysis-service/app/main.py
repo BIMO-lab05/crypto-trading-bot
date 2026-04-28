@@ -616,31 +616,41 @@ async def get_combined_sentiment(
             news_sentiment = None
             social_sentiment = None
 
-        # Calculate weighted average
+        # Weighted average over real sources only. Earlier code added a
+        # third "market sentiment" pseudo-source that was hardcoded to a
+        # 0.5 (neutral) score with 30% weight — pulling every result
+        # toward neutral by 30% even when both news and social agreed
+        # strongly. Removed 2026-04-29; restore only with a real market-
+        # sentiment input (e.g. funding-rate / open-interest skew).
+        # Weights here are nominal (60/40 news/social) — they're
+        # normalised by `sum(weights)` so absolute values don't matter,
+        # only the ratio.
         scores = []
         weights = []
 
         if news_sentiment and not isinstance(news_sentiment, Exception):
-            # Normalize sentiment score from [-1, 1] to [0, 1]
             normalized_score = (news_sentiment.average_sentiment + 1) / 2
             scores.append(normalized_score)
-            weights.append(0.4)  # 40% weight for news
+            weights.append(0.6)
 
         if social_sentiment and not isinstance(social_sentiment, Exception):
-            # Normalize sentiment score
             normalized_score = (social_sentiment.average_sentiment + 1) / 2
             scores.append(normalized_score)
-            weights.append(0.3)  # 30% weight for social
+            weights.append(0.4)
 
-        # Add market sentiment (default neutral for now)
-        scores.append(0.5)  # Neutral market sentiment
-        weights.append(0.3)  # 30% weight for market
+        if not scores:
+            # Both upstream fetches failed — refuse to fabricate. Earlier
+            # behaviour was to fall back to combined_score=0.5 (neutral)
+            # and label the source as "market_data", which was a lie.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"No sentiment sources available for {symbol} — both "
+                    "news and social fetches failed. Try again later."
+                ),
+            )
 
-        # Calculate weighted average
-        if scores:
-            combined_score = sum(s * w for s, w in zip(scores, weights)) / sum(weights)
-        else:
-            combined_score = 0.5
+        combined_score = sum(s * w for s, w in zip(scores, weights)) / sum(weights)
 
         # Normalize back to [-1, 1] for consistency
         combined_sentiment_value = (combined_score * 2) - 1
@@ -669,7 +679,9 @@ async def get_combined_sentiment(
             trading_signal = "HOLD"
             signal_strength = 0.3
 
-        # Determine data quality
+        # Determine data quality. The "no sources" branch is now
+        # unreachable — we 503 above when scores is empty — but kept
+        # defensively in case future code adds an optional source.
         sources_used = []
         if news_sentiment and not isinstance(news_sentiment, Exception):
             sources_used.append("news")
@@ -681,8 +693,7 @@ async def get_combined_sentiment(
         elif len(sources_used) == 1:
             data_quality = "GOOD"
         else:
-            data_quality = "FAIR"
-            sources_used = ["market_data"]  # Fallback source
+            data_quality = "POOR"
 
         return CombinedSentiment(
             symbol=symbol,
@@ -711,96 +722,29 @@ async def get_sentiment_trend(
     hours: int = Query(24, ge=1, le=168, description="Time period in hours")
 ):
     """
-    Get sentiment trend over time
+    Get sentiment trend over time. **Not implemented.**
 
-    Shows how sentiment has evolved
-    Useful for identifying trend changes
+    Implementation requires persisted historical sentiment data (per-symbol,
+    per-bucket). The service does not yet store sentiment snapshots — it
+    only computes on-demand from live news/Twitter fetches. Returning 501
+    is honest; an earlier version of this endpoint synthesised a fake
+    score series (`0.3 + i*0.02` with periodic `-= 0.1`) and dressed it
+    up with "trend_direction", "momentum", "volatility" fields. Removed
+    2026-04-29 because callers (incl. the dashboard) had no way to know
+    those numbers were fiction.
+
+    To re-enable: persist sentiment snapshots (e.g. TimescaleDB hypertable
+    keyed by `(symbol, timestamp)`), then bucket and aggregate over the
+    requested window.
     """
-    try:
-        # Convert hours to int
-        hours = int(hours)
-
-        # Generate sample trend data
-        data_points = []
-        now = datetime.utcnow()
-        interval = timedelta(hours=hours / 24)  # Divide into 24 points
-
-        for i in range(24):
-            timestamp = now - interval * (24 - i)
-            # Simulate trend data
-            score = 0.3 + (i * 0.02)  # Gradually increasing trend
-            if i % 3 == 0:
-                score -= 0.1  # Add some volatility
-
-            if score > 0.3:
-                label = "BULLISH"
-            elif score < -0.3:
-                label = "BEARISH"
-            else:
-                label = "NEUTRAL"
-
-            data_points.append({
-                "timestamp": timestamp.isoformat(),
-                "sentiment_score": round(score, 3),
-                "sentiment_label": label
-            })
-
-        # Determine trend direction
-        if len(data_points) >= 2:
-            trend_direction = "IMPROVING" if data_points[-1]["sentiment_score"] > data_points[0]["sentiment_score"] else "DECLINING"
-        else:
-            trend_direction = "STABLE"
-
-        # Calculate statistics
-        scores = [p["sentiment_score"] for p in data_points]
-        timestamps = [datetime.fromisoformat(p["timestamp"]) if isinstance(p["timestamp"], str) else p["timestamp"] for p in data_points]
-        avg_score = sum(scores) / len(scores) if scores else 0.0
-
-        # Calculate volatility (standard deviation)
-        if len(scores) > 1:
-            variance = sum((s - avg_score) ** 2 for s in scores) / len(scores)
-            volatility = variance ** 0.5
-        else:
-            volatility = 0.0
-
-        # Calculate trend strength (0-1 based on consistency)
-        if len(scores) >= 2:
-            consistent_direction = sum(1 for i in range(1, len(scores)) if (scores[i] - scores[i-1]) * (scores[-1] - scores[0]) > 0)
-            trend_strength = consistent_direction / (len(scores) - 1) if len(scores) > 1 else 0.5
-        else:
-            trend_strength = 0.5
-
-        # Determine momentum
-        if len(scores) >= 3:
-            recent_change = abs(scores[-1] - scores[-2])
-            earlier_change = abs(scores[-2] - scores[-3])
-            if recent_change > earlier_change * 1.2:
-                momentum = "ACCELERATING"
-            elif recent_change < earlier_change * 0.8:
-                momentum = "DECELERATING"
-            else:
-                momentum = "STEADY"
-        else:
-            momentum = "STEADY"
-
-        sentiment_analyses_total.labels(symbol=symbol, source='trend').inc()
-
-        return SentimentTrend(
-            symbol=symbol,
-            timeframe=f"{hours}h",
-            timestamps=timestamps,
-            sentiment_scores=scores,
-            trend_direction=trend_direction,
-            trend_strength=round(min(trend_strength, 1.0), 2),
-            current_sentiment=round(scores[-1], 3) if scores else 0.0,
-            average_sentiment=round(avg_score, 3),
-            sentiment_volatility=round(volatility, 3),
-            momentum=momentum
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to get sentiment trend: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get sentiment trend: {str(e)}")
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Sentiment trend not implemented — no historical sentiment "
+            "data is persisted yet. Use /api/v1/sentiment/combined/{symbol} "
+            "for current-window sentiment."
+        ),
+    )
 
 
 @app.get("/api/v1/sentiment/{symbol}", tags=["Sentiment"])
@@ -818,23 +762,30 @@ async def get_sentiment(
 @app.get("/api/v1/sentiment/aggregate", tags=["Sentiment"])
 async def get_aggregate_sentiment():
     """
-    Get aggregated market sentiment
+    Get aggregated market sentiment across all tracked symbols. **Not implemented.**
 
-    Returns overall market sentiment across all tracked symbols
+    A real implementation would iterate over the configured symbol list,
+    call `get_combined_sentiment` for each (each call hits news + Twitter
+    APIs), and tally bullish/bearish/neutral counts. That fan-out is
+    expensive (~N × external API latency) and rate-limited per-source,
+    so it needs a scheduler that pre-computes and caches aggregate state
+    rather than computing on every request. None of that exists yet.
+
+    The earlier version returned hardcoded counts
+    (`bullish_count: 12, bearish_count: 10, neutral_count: 18,
+    symbols_tracked: 40`) on every call. Removed 2026-04-29.
+
+    To re-enable: add a periodic aggregate-snapshot job (Redis-cached or
+    TimescaleDB-backed) and have this endpoint return the latest snapshot.
     """
-    try:
-        # Sample aggregate data
-        return {
-            "market_sentiment": "NEUTRAL",
-            "bullish_count": 12,
-            "bearish_count": 10,
-            "neutral_count": 18,
-            "symbols_tracked": 40,
-            "last_updated": datetime.utcnow().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Failed to get aggregate sentiment: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get aggregate sentiment: {str(e)}")
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Aggregate market sentiment not implemented — needs a "
+            "scheduled fan-out + caching job. Use "
+            "/api/v1/sentiment/combined/{symbol} per-symbol meanwhile."
+        ),
+    )
 
 
 # ============================================================================

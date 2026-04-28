@@ -172,37 +172,16 @@ class TestCombinedSentimentEndpoint:
 
 
 class TestSentimentTrendEndpoint:
-    """Tests for sentiment trend analysis endpoint"""
+    """Tests for sentiment trend analysis endpoint.
 
-    def test_get_sentiment_trend_success(self, client):
-        """
-        Test GET /api/v1/sentiment/trend/{symbol}
-        Should return sentiment trend over time
-        """
+    Endpoint currently returns 501 — see main.py docstring.
+    """
+
+    def test_get_sentiment_trend_returns_501(self, client):
+        """Trend endpoint should return 501 Not Implemented."""
         response = client.get("/api/v1/sentiment/trend/BTCUSDT?hours=24")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data['symbol'] == 'BTCUSDT'
-        assert 'timestamps' in data
-        assert 'sentiment_scores' in data
-        assert 'current_sentiment' in data
-        assert 'trend_direction' in data
-        assert data['trend_direction'] in ['IMPROVING', 'DECLINING', 'STABLE']
-
-    def test_sentiment_trend_direction_improving(self, client):
-        """
-        Test trend direction when sentiment is improving
-        Uses simulated trend data
-        """
-        response = client.get("/api/v1/sentiment/trend/BTCUSDT")
-
-        assert response.status_code == 200
-        data = response.json()
-        # Trend should have valid direction
-        assert data['trend_direction'] in ['IMPROVING', 'DECLINING', 'STABLE']
-        assert 'momentum' in data
-        assert data['momentum'] in ['ACCELERATING', 'DECELERATING', 'STEADY']
+        assert response.status_code == 501
+        assert "not implemented" in response.json()["detail"].lower()
 
 
 class TestSentimentCaching:
