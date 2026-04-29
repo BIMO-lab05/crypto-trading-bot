@@ -401,6 +401,7 @@ class HyperparameterOptimizer:
         """
         # Select feature columns
         feature_cols = [col for col in df.columns if col not in ['timestamp', 'symbol']]
+        self.feature_columns = feature_cols
 
         # Extract values
         data = df[feature_cols].values
@@ -840,9 +841,12 @@ class HyperparameterOptimizer:
             rmse = np.sqrt(mean_squared_error(y_test[:, 0], y_pred[:, 0]))
             mape = mean_absolute_percentage_error(y_test[:, 0], y_pred[:, 0])
 
-            # Calculate directional accuracy
-            y_test_direction = np.sign(y_test[:, 0] - y_test[:, -1])
-            y_pred_direction = np.sign(y_pred[:, 0] - y_test[:, -1])
+            # Reference is last bar of input sequence (prior bug used y_test[:, -1] —
+            # a future bar — making the metric look-ahead leaked and degenerate).
+            close_idx = self.feature_columns.index('close')
+            last_input_close = X_test[:, -1, close_idx]
+            y_test_direction = np.sign(y_test[:, 0] - last_input_close)
+            y_pred_direction = np.sign(y_pred[:, 0] - last_input_close)
             directional_accuracy = np.mean(y_test_direction == y_pred_direction)
 
             logger.info(f"\n{'='*80}")

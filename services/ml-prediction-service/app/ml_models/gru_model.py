@@ -438,9 +438,12 @@ class GRUPricePredictor:
             # Calculate MAPE (Mean Absolute Percentage Error)
             mape = mean_absolute_percentage_error(y_test[:, 0], y_pred[:, 0])
 
-            # Calculate directional accuracy (how often we predict correct direction)
-            y_test_direction = np.sign(y_test[:, 0] - y_test[:, -1])
-            y_pred_direction = np.sign(y_pred[:, 0] - y_test[:, -1])
+            # Reference is last bar of input sequence (prior bug used y_test[:, -1] —
+            # a future bar — making the metric look-ahead leaked and degenerate).
+            close_idx = self.feature_columns.index('close')
+            last_input_close = X_test[:, -1, close_idx]
+            y_test_direction = np.sign(y_test[:, 0] - last_input_close)
+            y_pred_direction = np.sign(y_pred[:, 0] - last_input_close)
             directional_accuracy = np.mean(y_test_direction == y_pred_direction)
 
             # Measure inference time
