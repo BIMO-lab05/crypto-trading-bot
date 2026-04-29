@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies. Make pip resilient on slow networks (audit 2026-04-29).
+ENV PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=10
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code

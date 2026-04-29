@@ -28,6 +28,8 @@ COPY requirements.txt .
 RUN echo "# No shared requirements" > shared-requirements.txt
 
 # Install dependencies
+# Make pip resilient on slow networks (audit 2026-04-29).
+ENV PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=10
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # ============================================================================
