@@ -12,8 +12,37 @@ Features:
 - Compares performance across different market regimes
 - Validates against research claims (65-70% win rate target)
 
+============================================================================
+!!! KNOWN LIMITATIONS — READ BEFORE TRUSTING ANY PnL OUTPUT !!!
+============================================================================
+
+Two audit-flagged issues (2026-04-28) make the historical PnL claims
+from this script SUSPECT until both are resolved:
+
+1. **Mixed testnet/mainnet candle history.** The market-data-service
+   `klines` table contains rows from BOTH the Bybit testnet (pre
+   2026-04-25 mid-day flip) and mainnet (after). There is no
+   `is_mainnet` column today, so this script's queries return mixed
+   data and the resulting PnL conflates two price regimes.
+   Workaround until schema is fixed: either wipe `klines` and re-fetch
+   mainnet-only history, or restrict backtests to timestamps strictly
+   after the flip (~2026-04-26 00:00 UTC).
+
+2. **Signal logic does not match live trading.** The live auto-trader
+   uses a 9-indicator voting aggregator (CoreAggregator + SignalVoter
+   in app/orchestration/, with TREND_FILTER + VOLUME_CONFIRMATION
+   gates and weighted votes). This script uses
+   HybridStrategyRouter (trend-follow + mean-reversion fallback),
+   which is a different decision surface. So a backtest "win rate"
+   here does not predict live win rate.
+   Fixing requires importing the live aggregator into the backtest
+   path (high effort, separate change).
+
+Until both issues are addressed, treat this script's output as
+"strategy regime characterisation" rather than "expected live PnL".
+
 Author: Trading System
-Date: 2026-01-04
+Date: 2026-01-04 (limitations block added 2026-04-29)
 """
 
 import asyncio
@@ -569,6 +598,13 @@ async def main():
 
     logger.info("=" * 70)
     logger.info("EXTENDED BACKTEST - HYBRID STRATEGY VALIDATION")
+    logger.info("=" * 70)
+    logger.warning(
+        "PnL output is SUSPECT: (1) klines table mixes testnet/mainnet "
+        "history (pre-2026-04-25 contamination); (2) backtest uses "
+        "HybridStrategyRouter, not the live 9-indicator voting "
+        "aggregator. See module docstring for details and workaround."
+    )
     logger.info("=" * 70)
     logger.info("")
 
