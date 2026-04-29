@@ -185,7 +185,6 @@ export default function PerformanceDashboard() {
     isLoading,
     isError,
     error,
-    wsConnected,
     dataSource,
     metrics,
     equityCurve,
@@ -210,8 +209,11 @@ export default function PerformanceDashboard() {
                 Performance Analytics
               </h1>
               <div className="flex items-center gap-4 mt-1">
+                {/* WebSocket support stripped 2026-04-29 (no server-side
+                    /ws/metrics ever existed). Hook is REST-polling-only;
+                    the indicator just shows "Polling" unconditionally. */}
                 <ConnectionStatus
-                  isConnected={wsConnected}
+                  isConnected={false}
                   dataSource={dataSource}
                   lastUpdated={metrics?.lastUpdated}
                 />

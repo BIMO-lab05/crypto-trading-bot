@@ -65,7 +65,6 @@ const DashboardHeader = ({
   dateRange,
   onPeriodChange,
   presetOptions,
-  wsConnected,
   dataSource,
   lastUpdated,
   isLoading,
@@ -81,15 +80,15 @@ const DashboardHeader = ({
             Performance Dashboard
           </h1>
           <div className="flex items-center gap-4 mt-1">
-            {/* Connection Status */}
+            {/* Connection / data-source indicator. WebSocket support
+                was removed when the server-side `/ws/metrics` route
+                turned out to never have existed; the dashboard now
+                runs on REST polling exclusively. The amber dot is
+                kept as a "polling" affordance. */}
             <div className="flex items-center gap-2">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-                }`}
-              ></span>
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
               <span className="text-xs text-slate-400">
-                {wsConnected ? `Live (${dataSource})` : 'Polling'}
+                Polling ({dataSource})
               </span>
             </div>
 
@@ -260,7 +259,6 @@ export default function PerformanceDashboardEnhanced() {
     isLoading,
     isError,
     error,
-    wsConnected,
     dataSource,
     metrics,
     equityCurve,
@@ -272,12 +270,6 @@ export default function PerformanceDashboardEnhanced() {
   } = usePerformanceMetrics({
     period,
     pollingInterval: AUTO_REFRESH_INTERVAL,
-    // WebSocket disabled until the api-gateway implements `/ws/metrics`.
-    // The hook's WS code path tries to connect to that URL, fails silently,
-    // and falls back to REST polling — opening a noisy doomed connection
-    // every mount serves nothing. Flip back to `true` once the server
-    // route exists. See audit memory project_audit_2026-04-28.md.
-    enableWebSocket: false,
   })
 
   // Transform data for charts
@@ -494,7 +486,6 @@ export default function PerformanceDashboardEnhanced() {
         dateRange={{ preset: period }}
         onPeriodChange={setPreset}
         presetOptions={presetOptions}
-        wsConnected={wsConnected}
         dataSource={dataSource}
         lastUpdated={metrics?.lastUpdated}
         isLoading={isLoading}

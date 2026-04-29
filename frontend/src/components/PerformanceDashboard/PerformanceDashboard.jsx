@@ -186,12 +186,10 @@ const MetricsOverview = ({ metrics, loading }) => (
  *
  * @param {Object} props - Component props
  * @param {string} props.className - Additional CSS classes
- * @param {boolean} props.enableWebSocket - Enable WebSocket for real-time updates
  * @param {number} props.pollingInterval - Polling interval in ms
  */
 function PerformanceDashboard({
   className = '',
-  enableWebSocket = false,
   pollingInterval = 30000,
 }) {
   // State for period selection
@@ -216,7 +214,6 @@ function PerformanceDashboard({
     isLoading,
     isError,
     error,
-    wsConnected,
     dataSource,
     metrics,
     equityCurve,
@@ -227,7 +224,6 @@ function PerformanceDashboard({
     refresh,
   } = usePerformanceMetrics({
     period,
-    enableWebSocket,
     pollingInterval,
   })
 
@@ -362,7 +358,9 @@ function PerformanceDashboard({
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
-            <ConnectionStatus isConnected={wsConnected} dataSource={dataSource} />
+            {/* Hook is REST-polling-only after the WebSocket strip;
+                show "Polling" indicator unconditionally. */}
+            <ConnectionStatus isConnected={false} dataSource={dataSource} />
             <PeriodSelector value={period} onChange={handlePeriodChange} />
             <RefreshButton onClick={refresh} isLoading={isLoading} />
             <button
@@ -523,7 +521,6 @@ function PerformanceDashboard({
 // PropTypes
 PerformanceDashboard.propTypes = {
   className: PropTypes.string,
-  enableWebSocket: PropTypes.bool,
   pollingInterval: PropTypes.number,
 }
 
