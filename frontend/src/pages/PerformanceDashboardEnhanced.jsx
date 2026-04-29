@@ -272,7 +272,12 @@ export default function PerformanceDashboardEnhanced() {
   } = usePerformanceMetrics({
     period,
     pollingInterval: AUTO_REFRESH_INTERVAL,
-    enableWebSocket: true,
+    // WebSocket disabled until the api-gateway implements `/ws/metrics`.
+    // The hook's WS code path tries to connect to that URL, fails silently,
+    // and falls back to REST polling — opening a noisy doomed connection
+    // every mount serves nothing. Flip back to `true` once the server
+    // route exists. See audit memory project_audit_2026-04-28.md.
+    enableWebSocket: false,
   })
 
   // Transform data for charts

@@ -189,7 +189,15 @@ export const analyticsAPI = {
  */
 export class WebSocketManager {
   constructor(options = {}) {
-    // WebSocket connection URL (default to trading engine WebSocket)
+    // WebSocket connection URL. The default `/ws/metrics` does NOT exist
+    // server-side today — the only mounted route is `/ws` on the
+    // api-gateway (services/api-gateway/app/main.py:1879). All current
+    // call sites pass an explicit `url` option, or are gated behind
+    // `enableWebSocket=false` flags (see usePerformanceMetrics.js).
+    // Leaving the default in place so a future server-side route at
+    // `/ws/metrics` can light up consumers without a frontend code
+    // change. Flip the corresponding `enableWebSocket` flags to `true`
+    // when that endpoint exists.
     this.url = options.url || `ws://${window.location.host}/ws/metrics`
 
     // Connection state
