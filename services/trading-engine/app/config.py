@@ -70,10 +70,16 @@ class Settings(BaseSettings):
         description="Send daily PnL summary notification"
     )
 
-    # Phase 3 Feature Flags - ENABLED 2025-12-02
+    # Phase 3 Feature Flags
+    # ML predictions DISABLED by default 2026-04-29 — V0 persistence shootout
+    # showed production GRUs have negative R² on log-returns and coin-flip
+    # directional accuracy on the corrected metric. See
+    # docs/strategy/research-2026-04-29/V0-RESULTS-no-edge.md.
+    # Re-enable only after retraining with returns target + CPCV evaluation +
+    # gates: r2_returns > 0, dir_acc_corrected > 0.55, isolated paper Sharpe > 0.5.
     enable_ml_predictions: bool = Field(
-        default=True,
-        description="Enable ML predictions in signal aggregation (30% weight)"
+        default=False,
+        description="Enable ML predictions in signal aggregation (30% weight). Off until GRU is rebuilt — see Tier 0 of RESEARCH_PLAN_2026-04-29."
     )
     enable_sentiment_analysis: bool = Field(
         default=True,
