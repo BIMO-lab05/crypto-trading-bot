@@ -496,7 +496,9 @@ class TestMarketDataEndpoints:
             category="linear",
             symbol="ETHUSDT",
             interval="240",
-            limit=100
+            limit=100,
+            start_time=None,
+            end_time=None,
         )
 
     def test_get_orderbook_endpoint(self, client, mock_rest_client):
