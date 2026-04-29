@@ -110,6 +110,35 @@ class Settings(BaseSettings):
         description="Minimum MTF alignment score (0-100) to execute trades. 40% allows solid 2/3 agreement."
     )
 
+    # Per-Position Vol Parity Sizing (T1.2 chunk 3, 2026-04-30)
+    # Outer overlay above the per-trade cap. When enabled and the estimator
+    # is warm, sizes new entries inversely to the symbol's realised volatility
+    # so each position contributes roughly equal expected vol. Default OFF
+    # — opt in via env, then forward-paper-test ≥7 days before judging.
+    # See docs/strategy/research-2026-04-29/T1.2-design.md.
+    enable_vol_targeting: bool = Field(
+        default=False,
+        description="Apply per-position vol-parity sizing on entries. Off until forward-paper-tested."
+    )
+    vol_target_annualised: float = Field(
+        default=0.30,
+        ge=0.05,
+        le=2.0,
+        description="Target annualised vol per position (e.g. 0.30 = 30%)."
+    )
+    vol_estimator_window_bars: int = Field(
+        default=168,
+        ge=24,
+        le=2160,
+        description="Rolling window in hourly bars for the realised-vol estimator (168 = 7 days)."
+    )
+    vol_target_cap_multiplier: float = Field(
+        default=1.0,
+        ge=1.0,
+        le=5.0,
+        description="Max scale factor over baseline. 1.0 = downside-only (safest); 3.0 = full Carver-style symmetric."
+    )
+
     # Order Execution Configuration
     # T1.3 prep 2026-04-29 — flags only, not yet wired into live_trading.py.
     # Default off so this commit is plumbing only. When wiring lands and a

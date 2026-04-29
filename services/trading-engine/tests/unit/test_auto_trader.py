@@ -649,3 +649,54 @@ class TestAutoTraderExecuteTrade:
 
             # Should increment rejected counter due to exception
             assert trader.total_trades_rejected == initial_rejected + 1
+
+
+# =============================================================================
+# T1.2 chunk 3 — vol-parity wiring (estimator wiring, not the parity math —
+# math is covered by tests/risk/test_vol_targeting.py).
+# =============================================================================
+
+
+class TestVolTargetingWiring:
+    """Verify ENABLE_VOL_TARGETING flips the estimator on/off and the helper
+    deduplicates by hour boundary."""
+
+    def test_disabled_by_default(self):
+        trader = AutoTrader()
+        assert trader.vol_estimator is None
+        assert trader._vol_last_hour == {}
+
+    def test_update_is_noop_when_disabled(self):
+        trader = AutoTrader()
+        trader._update_vol_estimator("SOLUSDT", 100.0)
+        assert trader.vol_estimator is None
+        assert "SOLUSDT" not in trader._vol_last_hour
+
+    def test_enabled_when_settings_flagged(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.auto_trader.settings.enable_vol_targeting", True
+        )
+        trader = AutoTrader()
+        assert trader.vol_estimator is not None
+        assert (
+            trader.vol_estimator.config.window_bars
+            == trader.settings.vol_estimator_window_bars
+        )
+
+    def test_update_with_invalid_price_is_noop(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.auto_trader.settings.enable_vol_targeting", True
+        )
+        trader = AutoTrader()
+        trader._update_vol_estimator("SOLUSDT", 0.0)
+        trader._update_vol_estimator("SOLUSDT", -5.0)
+        trader._update_vol_estimator("SOLUSDT", None)
+        assert trader._vol_last_hour == {}
+
+    def test_update_with_valid_price_records_hour(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.auto_trader.settings.enable_vol_targeting", True
+        )
+        trader = AutoTrader()
+        trader._update_vol_estimator("SOLUSDT", 100.0)
+        assert "SOLUSDT" in trader._vol_last_hour

@@ -34,6 +34,12 @@ from decimal import Decimal
 from enum import Enum
 
 from app.config import get_settings
+from app.risk.vol_targeting import (
+    RealizedVolEstimator,
+    VolEstimatorConfig,
+    VolParitySizingConfig,
+    vol_parity_size,
+)
 from app.signal_aggregator import get_aggregator
 from app.paper_trading import get_paper_engine
 from app.live_trading import get_live_engine
@@ -309,6 +315,30 @@ class AutoTrader:
                 max_daily_loss_pct=self.settings.max_daily_loss_pct,
             )
         )
+
+        # Vol Parity Sizing (T1.2 chunk 3, 2026-04-30, default off)
+        # Outer overlay above the per-trade cap. When enabled and the
+        # estimator is warm (>= min_samples hourly bars per symbol), sizes
+        # new entries inversely to realised vol so each contributes equal
+        # expected risk. With default cap_multiplier=1.0 this is downside-
+        # only — vol parity may shrink positions but never grows them past
+        # the existing baseline, so the per-trade-cap REJECT idiom is
+        # untouched. See docs/strategy/research-2026-04-29/T1.2-design.md.
+        self._vol_last_hour: Dict[str, datetime] = {}
+        if self.settings.enable_vol_targeting:
+            self.vol_estimator: Optional[RealizedVolEstimator] = RealizedVolEstimator(
+                VolEstimatorConfig(
+                    window_bars=self.settings.vol_estimator_window_bars,
+                )
+            )
+            logger.info(
+                f"[VOL_PARITY] enabled: target={self.settings.vol_target_annualised:.0%} ann, "
+                f"window={self.settings.vol_estimator_window_bars}h, "
+                f"cap_multiplier={self.settings.vol_target_cap_multiplier}"
+            )
+        else:
+            self.vol_estimator = None
+            logger.info("[VOL_PARITY] disabled (set ENABLE_VOL_TARGETING=true to opt in)")
 
         # Slippage Manager: Execution quality control
         # Research: LuxAlgo Trading Slippage Analysis
@@ -660,6 +690,24 @@ class AutoTrader:
 
         return True
 
+    def _update_vol_estimator(self, symbol: str, current_price: float) -> None:
+        """
+        Feed the vol-parity estimator one (symbol, ts, close) sample.
+
+        No-op when ENABLE_VOL_TARGETING is False. Deduped by hour boundary
+        so the trading loop's sub-bar polling collapses to one bar per hour
+        — keeps the estimator's annualisation factor (sqrt(8760)) honest.
+        """
+        if self.vol_estimator is None:
+            return
+        if current_price is None or current_price <= 0:
+            return
+        hour_key = datetime.now().replace(minute=0, second=0, microsecond=0)
+        if self._vol_last_hour.get(symbol) == hour_key:
+            return
+        self.vol_estimator.update(symbol, hour_key, current_price)
+        self._vol_last_hour[symbol] = hour_key
+
     async def _trading_loop(self):
         """Main trading loop - runs continuously until stopped"""
         logger.info("Automated trading loop started")
@@ -827,6 +875,8 @@ class AutoTrader:
             if not current_price:
                 logger.warning(f"[HYBRID] No current price found for {symbol}")
                 return
+
+            self._update_vol_estimator(symbol, current_price)
 
             # Get paper trading engine for balance
             paper_engine = get_paper_engine()
@@ -1058,6 +1108,8 @@ class AutoTrader:
             if not current_price:
                 logger.warning(f"[RESEARCH] No current price found for {symbol}")
                 return
+
+            self._update_vol_estimator(symbol, current_price)
 
             # Get paper trading engine for balance
             paper_engine = get_paper_engine()
@@ -1415,6 +1467,40 @@ class AutoTrader:
             logger.info(
                 f"[MARGIN] Margin required: ${margin_required:.2f} (Position: ${position_value:.2f} / Leverage: {leverage:.0f}x)"
             )
+
+            # ================================================================
+            # VOL PARITY OVERLAY (T1.2 chunk 3, default off)
+            # ================================================================
+            # Outer overlay above the per-trade cap. With cap_multiplier=1.0
+            # (default) this is downside-only: shrinks positions when realised
+            # vol exceeds target, leaves baseline alone when below — never
+            # grows past baseline so the cap REJECT below stays intact. With
+            # cap_multiplier=3.0 the user can opt into Carver-style symmetric
+            # vol targeting; in that case vol parity may exceed the per-trade
+            # cap and the existing REJECT idiom kicks in (still safe — just
+            # surfaces a tension to investigate).
+            if self.vol_estimator is not None:
+                realized_vol = self.vol_estimator.get_realized_vol_annualized(symbol)
+                pre_parity_value = position_value
+                position_value = float(
+                    vol_parity_size(
+                        Decimal(str(position_value)),
+                        realized_vol,
+                        VolParitySizingConfig(
+                            target_vol_annualised=self.settings.vol_target_annualised,
+                            cap_multiplier=self.settings.vol_target_cap_multiplier,
+                        ),
+                    )
+                )
+                if abs(position_value - pre_parity_value) > 1e-6:
+                    rv_str = f"{realized_vol:.2%}" if realized_vol is not None else "warming-up"
+                    logger.info(
+                        f"[VOL_PARITY] {symbol}: realised_vol={rv_str}, "
+                        f"baseline=${pre_parity_value:.2f} → post=${position_value:.2f} "
+                        f"(target={self.settings.vol_target_annualised:.0%})"
+                    )
+                    margin_required = position_value / leverage
+                    quantity = position_value / trade_setup.entry_price
 
             # ================================================================
             # PER-TRADE CAP (MAX_RISK_PER_TRADE, default 0.02)
@@ -2672,6 +2758,8 @@ class AutoTrader:
                 logger.warning(f"No current price found for {symbol}, skipping trade")
                 self.total_trades_rejected += 1
                 return
+
+            self._update_vol_estimator(symbol, current_price)
 
             # Get performance stats for Kelly calculation
             performance_stats = None
