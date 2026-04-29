@@ -20,6 +20,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 
 from app.config.settings import get_settings
+from app.core.returns_metrics import compute_returns_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,29 @@ class ModelTrainer:
             train_metrics = self._calculate_metrics(model, X_train, y_train, "train")
             test_metrics = self._calculate_metrics(model, X_test, y_test, "test")
 
+            # Honest skill-on-returns metrics. References are the close of the
+            # last bar of each input sequence (sample i in X uses index
+            # i + sequence_length - 1 in data_with_features).
+            close_unscaled = data_with_features['close'].values
+            last_close_train = close_unscaled[
+                self.sequence_length - 1 :
+                self.sequence_length - 1 + len(X_train)
+            ]
+            last_close_test = close_unscaled[
+                self.sequence_length - 1 + len(X_train) :
+                self.sequence_length - 1 + len(X_train) + len(X_test)
+            ]
+            train_metrics.update(
+                self._calculate_returns_metrics(
+                    model, X_train, y_train, last_close_train, "train"
+                )
+            )
+            test_metrics.update(
+                self._calculate_returns_metrics(
+                    model, X_test, y_test, last_close_test, "test"
+                )
+            )
+
             # Validation metrics (last epoch from history)
             val_metrics = {
                 "val_loss": float(history.history['val_loss'][-1]),
@@ -387,6 +411,34 @@ class ModelTrainer:
                     "training_time_seconds": (datetime.now() - start_time).total_seconds(),
                 }
             }
+
+    def _calculate_returns_metrics(
+        self,
+        model: keras.Model,
+        X: np.ndarray,
+        y: np.ndarray,
+        last_close: np.ndarray,
+        dataset_name: str,
+    ) -> Dict[str, float]:
+        """
+        Honest skill-on-returns metrics, complementing _calculate_metrics().
+
+        The existing R² in _calculate_metrics is on raw close-price levels
+        and is dominated by autocorrelation — a persistence baseline gets
+        the same number on hourly crypto. This computes:
+
+          {dataset}_r2_returns       — R² on log-returns from last input bar
+          {dataset}_dir_acc_corrected — directional accuracy with the input
+                                         sequence's last bar as reference
+
+        References docs/strategy/research-2026-04-29/V0-FINDINGS-gru-metric-bug.md.
+        """
+        y_pred = model.predict(X, verbose=0)
+        actual_prices = self.scaler_y.inverse_transform(y)[:, 0]
+        pred_prices = self.scaler_y.inverse_transform(y_pred)[:, 0]
+        return compute_returns_metrics(
+            actual_prices, pred_prices, last_close, dataset_name
+        )
 
     def _calculate_metrics(
         self,
