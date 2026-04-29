@@ -47,36 +47,32 @@ async def get_aggregated_signal(
         trend_result = trend_filter.calculate(df['close'].tolist())
         trend = trend_result.get('trend') if trend_result else None
 
-        # Simple signal aggregation
+        # Signal aggregation. Each calculator already exposes a
+        # *generate_signal* / dict with derived confidence — earlier
+        # versions of this handler discarded those and used hardcoded
+        # weights (RSI 0.7, MACD 0.6, trend 0.8). The MACD branch was
+        # also dead code: it gated on `macd.get('signal')` but the
+        # MACDCalculator.calculate() return dict has no `signal` key.
+        # Audit-flagged 2026-04-28; rewired 2026-04-29 to propagate the
+        # real confidence values from each indicator.
         signals = []
 
-        # RSI signal
-        if rsi_value:
-            if rsi_value < 30:
-                signals.append(('BUY', 0.7))
-            elif rsi_value > 70:
-                signals.append(('SELL', 0.7))
-            else:
-                signals.append(('HOLD', 0.5))
+        # RSI: confidence derived from distance to oversold/overbought
+        # thresholds inside RSICalculator.generate_signal().
+        if rsi_value is not None:
+            rsi_signal, rsi_conf = rsi_calc.generate_signal(rsi_value)
+            signals.append((rsi_signal.value, rsi_conf))
 
-        # MACD signal
-        if macd and macd.get('signal'):
-            macd_signal = macd['signal']
-            if macd_signal == 'BUY':
-                signals.append(('BUY', 0.6))
-            elif macd_signal == 'SELL':
-                signals.append(('SELL', 0.6))
-            else:
-                signals.append(('HOLD', 0.4))
+        # MACD: confidence derived from histogram magnitude inside
+        # MACDCalculator.generate_signal().
+        if macd:
+            macd_signal_type, macd_conf = macd_calc.generate_signal(macd)
+            signals.append((macd_signal_type.value, macd_conf))
 
-        # Trend signal
-        if trend:
-            if trend == 'BULLISH':
-                signals.append(('BUY', 0.8))
-            elif trend == 'BEARISH':
-                signals.append(('SELL', 0.8))
-            else:
-                signals.append(('HOLD', 0.5))
+        # Trend: TrendFilter.calculate() already returns its own
+        # `signal` and `confidence` derived from EMA-spread magnitude.
+        if trend_result:
+            signals.append((trend_result.get('signal', 'HOLD'), float(trend_result.get('confidence', 0.0))))
 
         # Calculate weighted signal
         signal_weights = {'BUY': 0.0, 'SELL': 0.0, 'HOLD': 0.0}
