@@ -562,10 +562,11 @@ class GRUPricePredictor:
                 # Inverse scale prediction (approximate)
                 predicted_price = float(pred_value * (df['close'].max() - df['close'].min()) + df['close'].min())
 
-                # Calculate confidence (decreases with time horizon)
+                # Calculate confidence (decreases with time horizon).
+                # See predictor.py:480-490 for the rationale on the 0.0 floor.
                 base_confidence = float(self.training_stats.get('r2_score', 0.5))
                 confidence_decay = 0.1 * i  # Confidence decreases with time
-                confidence = max(0.3, base_confidence - confidence_decay)
+                confidence = max(0.0, base_confidence - confidence_decay)
 
                 # Confidence intervals (±2 standard deviations)
                 std_dev = float(self.training_stats.get('rmse', predicted_price * 0.02))

@@ -477,10 +477,18 @@ class LSTMPricePredictor:
                 else:
                     predicted_price = float(current_price)
 
-                # Calculate confidence (based on model performance and prediction variance)
+                # Calculate confidence (based on model performance and prediction variance).
+                # base = R² score from last training; decay = 0.1 per step into the
+                # future. Lower-bounded at 0.0 — earlier code clamped at 0.3, which
+                # made a 5-step-ahead prediction from a R²=0.95 model (decayed to
+                # 0.45) indistinguishable from a 1-step prediction from an R²=0.30
+                # model. Audit-flagged 2026-04-28: that floor was decorative.
+                # Note: production GRUs all currently train to R² >= 0.99, so the
+                # decay dominates the base term; the change just stops lying when
+                # the model is bad or the horizon is long.
                 base_confidence = float(self.training_stats.get('r2_score', 0.5))
                 confidence_decay = 0.1 * i  # Confidence decreases with time horizon
-                confidence = max(0.3, base_confidence - confidence_decay)
+                confidence = max(0.0, base_confidence - confidence_decay)
 
                 # Confidence intervals (±2 standard deviations)
                 std_dev = float(self.training_stats.get('rmse', predicted_price * 0.02))
