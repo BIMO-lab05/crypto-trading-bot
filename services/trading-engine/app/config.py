@@ -110,6 +110,28 @@ class Settings(BaseSettings):
         description="Minimum MTF alignment score (0-100) to execute trades. 40% allows solid 2/3 agreement."
     )
 
+    # Order Execution Configuration
+    # T1.3 prep 2026-04-29 — flags only, not yet wired into live_trading.py.
+    # Default off so this commit is plumbing only. When wiring lands and a
+    # forward-paper-test of maker behaviour passes, opt in via env var.
+    # Bybit perp economics: taker 0.055% / maker 0.020% → ~7 bps round-trip
+    # saved → ~140 bps/yr at 200 round-trips/yr. Spot is flat 0.1%/0.1%
+    # — no benefit on spot. See docs/strategy/RESEARCH_PLAN_2026-04-29 T1.3.
+    prefer_maker_orders: bool = Field(
+        default=False,
+        description="Place perp entries as PostOnly limit at best bid/ask to harvest the maker fee. Off until forward-paper-tested."
+    )
+    maker_quote_timeout_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=600,
+        description="If a maker quote isn't filled within this window, cancel and decide based on maker_fallback_to_taker."
+    )
+    maker_fallback_to_taker: bool = Field(
+        default=True,
+        description="On maker timeout, fall back to a taker market order if the signal is still valid; otherwise abort."
+    )
+
     # Trading Configuration
     trading_mode: Literal["PAPER", "LIVE"] = Field(
         default="PAPER",
