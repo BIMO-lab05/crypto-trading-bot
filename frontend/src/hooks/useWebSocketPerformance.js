@@ -92,17 +92,26 @@ export function useWebSocketPerformance(options = {}) {
   const getWebSocketUrl = useCallback(() => {
     if (opts.url) return opts.url
 
-    // Auto-detect WebSocket URL based on current location
+    // Auto-detect WebSocket URL based on current location.
+    //
+    // Earlier code hardcoded `ws://localhost:8001/api/v1/trading/ws/performance`
+    // for dev — port 8001 is bybit-connector (which has no WS endpoint),
+    // and even on the trading-engine that path doesn't exist. The
+    // server-side WebSocket lives at `/ws` on the api-gateway only.
+    // Both dev and prod now point at that single real endpoint:
+    //   * dev:  ws://localhost:8000/ws (Vite has no WS proxy; talk to gateway directly)
+    //   * prod: ws[s]://<host>/ws      (nginx /ws block proxies to gateway)
+    //
+    // If a dedicated /ws/performance endpoint is ever added on the
+    // gateway (or the WebSocketManager learns to dispatch by message
+    // channel), update both branches in lockstep.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
 
-    // In development, connect directly to trading-engine
     if (import.meta.env.DEV) {
-      return `ws://localhost:8001/api/v1/trading/ws/performance`
+      return 'ws://localhost:8000/ws'
     }
-
-    // In production, use same host (reverse proxy handles routing)
-    return `${protocol}//${host}/api/v1/trading/ws/performance`
+    return `${protocol}//${host}/ws`
   }, [opts.url])
 
   // ============================================================================
