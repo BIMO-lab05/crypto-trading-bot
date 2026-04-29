@@ -11,7 +11,9 @@ IMPORTANT:
 - Monitor positions actively
 """
 
+import asyncio
 import logging
+import time
 import httpx
 from decimal import Decimal
 from typing import Optional, Tuple
@@ -23,6 +25,9 @@ from app.position_manager import get_position_manager
 from app.risk_manager import get_risk_manager
 
 logger = logging.getLogger(__name__)
+
+
+_MAKER_POLL_INTERVAL_SECONDS = 2.0
 
 
 class LiveTradingEngine:
@@ -228,6 +233,183 @@ class LiveTradingEngine:
             error = f"Failed to execute order: {str(e)}"
             logger.error(f"[LIVE] {error}", exc_info=True)
             return None, error
+
+    async def _get_best_quote(self, symbol: str) -> Optional[Tuple[Decimal, Decimal]]:
+        """Return (best_bid, best_ask) for the linear perp, or None on error."""
+        try:
+            response = await self.client.get(
+                f"{self.bybit_url}/api/v1/market/orderbook",
+                params={"category": "linear", "symbol": symbol, "limit": 1},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") or payload.get("result") or {}
+            bids = data.get("b") or data.get("bids") or []
+            asks = data.get("a") or data.get("asks") or []
+            if not bids or not asks:
+                return None
+            return Decimal(str(bids[0][0])), Decimal(str(asks[0][0]))
+        except Exception as e:
+            logger.warning(f"[LIVE] Orderbook fetch failed for {symbol}: {e}")
+            return None
+
+    async def _is_order_open(self, symbol: str, order_id: str) -> bool:
+        """Return True iff order_id is still on the book (not filled/cancelled)."""
+        try:
+            response = await self.client.get(
+                f"{self.bybit_url}/api/v1/order/open",
+                params={"category": "linear", "symbol": symbol},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") or payload.get("result") or {}
+            open_orders = data.get("list") or data
+            if isinstance(open_orders, list):
+                return any(o.get("orderId") == order_id for o in open_orders)
+            return False
+        except Exception as e:
+            logger.warning(f"[LIVE] Open-order check failed for {order_id}: {e}")
+            return True  # Conservative: assume still open so we don't double-place
+
+    async def execute_maker_order_with_fallback(
+        self,
+        order: OrderCreate,
+        current_price: Decimal,
+    ) -> Tuple[Optional[Order], Optional[str]]:
+        """
+        Place a PostOnly limit order at best bid (BUY) or best ask (SELL).
+        If unfilled within `maker_quote_timeout_seconds`, cancel and either
+        fall back to a taker market order or abort, per `maker_fallback_to_taker`.
+
+        Falls back to `execute_market_order` immediately if the orderbook is
+        unreachable — better to take liquidity than to silently skip a signal.
+        """
+        if not self.risk_manager.can_open_position(
+            order.symbol, current_price * order.quantity
+        ):
+            return None, "Risk manager rejected: exposure limit reached"
+
+        quote = await self._get_best_quote(order.symbol)
+        if quote is None:
+            logger.warning(
+                f"[LIVE][MAKER] No orderbook for {order.symbol}; falling back to taker"
+            )
+            return await self.execute_market_order(order, current_price)
+        best_bid, best_ask = quote
+
+        side = "Buy" if order.side == OrderSide.BUY else "Sell"
+        # PostOnly side: BUY → bid (don't cross); SELL → ask
+        limit_price = best_bid if order.side == OrderSide.BUY else best_ask
+
+        order_request = {
+            "category": "linear",
+            "symbol": order.symbol,
+            "side": side,
+            "order_type": "Limit",
+            "qty": str(order.quantity),
+            "price": str(limit_price),
+            "time_in_force": "PostOnly",
+            "reduce_only": False,
+        }
+
+        logger.info(
+            f"[LIVE][MAKER] PostOnly {side} {order.symbol} qty={order.quantity} "
+            f"@ {limit_price} (bid={best_bid}, ask={best_ask}, ref={current_price})"
+        )
+
+        try:
+            place_resp = await self.client.post(
+                f"{self.bybit_url}/api/v1/order/place", json=order_request
+            )
+            place_resp.raise_for_status()
+            place_result = place_resp.json()
+        except Exception as e:
+            logger.error(f"[LIVE][MAKER] Place failed: {e}")
+            if self.settings.maker_fallback_to_taker:
+                return await self.execute_market_order(order, current_price)
+            return None, f"Maker place failed: {e}"
+
+        if place_result.get("retCode") not in (0, None):
+            err = place_result.get("retMsg", "Unknown error")
+            logger.warning(f"[LIVE][MAKER] Bybit rejected PostOnly: {err}")
+            if self.settings.maker_fallback_to_taker:
+                return await self.execute_market_order(order, current_price)
+            return None, f"PostOnly rejected: {err}"
+
+        place_data = place_result.get("data") or place_result.get("result") or {}
+        order_id = place_data.get("orderId", "")
+        if not order_id:
+            logger.error(f"[LIVE][MAKER] No orderId returned: {place_result}")
+            if self.settings.maker_fallback_to_taker:
+                return await self.execute_market_order(order, current_price)
+            return None, "PostOnly: no orderId returned"
+
+        timeout_s = self.settings.maker_quote_timeout_seconds
+        deadline = time.monotonic() + timeout_s
+        filled = False
+        while time.monotonic() < deadline:
+            await asyncio.sleep(_MAKER_POLL_INTERVAL_SECONDS)
+            still_open = await self._is_order_open(order.symbol, order_id)
+            if not still_open:
+                filled = True
+                break
+
+        if not filled:
+            logger.info(
+                f"[LIVE][MAKER] Timeout after {timeout_s}s — cancelling {order_id}"
+            )
+            try:
+                await self.client.post(
+                    f"{self.bybit_url}/api/v1/order/cancel",
+                    json={
+                        "category": "linear",
+                        "symbol": order.symbol,
+                        "order_id": order_id,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"[LIVE][MAKER] Cancel failed for {order_id}: {e}")
+            if self.settings.maker_fallback_to_taker:
+                logger.info(f"[LIVE][MAKER] Falling back to taker market order")
+                return await self.execute_market_order(order, current_price)
+            return None, "Maker quote timed out; taker fallback disabled"
+
+        # Filled at limit_price → record position
+        executed_order = Order(
+            symbol=order.symbol,
+            side=order.side,
+            type=order.type,
+            quantity=order.quantity,
+            price=limit_price,
+            status=OrderStatus.FILLED,
+            strategy=order.strategy,
+            bybit_order_id=order_id,
+            filled_price=limit_price,
+            filled_quantity=order.quantity,
+        )
+
+        position_side = (
+            PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
+        )
+        stop_loss = self.risk_manager.calculate_stop_loss(limit_price, position_side)
+        take_profit = self.risk_manager.calculate_take_profit(limit_price, position_side)
+
+        self.position_manager.create_position(
+            symbol=order.symbol,
+            side=position_side,
+            entry_price=limit_price,
+            quantity=order.quantity,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            strategy=order.strategy or "live_trading",
+            entry_signal_confidence=order.entry_signal_confidence,
+        )
+
+        logger.info(
+            f"[LIVE][MAKER] FILLED {order.symbol} {side} qty={order.quantity} "
+            f"@ {limit_price} (id={order_id})"
+        )
+        return executed_order, None
 
     async def close_position(
         self,

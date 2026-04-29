@@ -1540,10 +1540,23 @@ class AutoTrader:
                 entry_signal_confidence=trade_setup.confidence
             )
 
-            # Execute through appropriate engine (paper or live)
-            executed_order, error = await trading_engine.execute_market_order(
-                order, Decimal(str(trade_setup.entry_price))
+            # Execute through appropriate engine (paper or live).
+            # T1.3: in LIVE mode, prefer_maker_orders routes the entry through
+            # a PostOnly limit at best bid/ask with timeout-based fallback.
+            # Paper engine has no maker/taker distinction — keep market path.
+            use_maker = (
+                trading_mode == "LIVE"
+                and self.settings.prefer_maker_orders
+                and hasattr(trading_engine, "execute_maker_order_with_fallback")
             )
+            if use_maker:
+                executed_order, error = await trading_engine.execute_maker_order_with_fallback(
+                    order, Decimal(str(trade_setup.entry_price))
+                )
+            else:
+                executed_order, error = await trading_engine.execute_market_order(
+                    order, Decimal(str(trade_setup.entry_price))
+                )
 
             # FIXED: Null check for executed_order (code review 2025-11-28)
             if executed_order is None:
