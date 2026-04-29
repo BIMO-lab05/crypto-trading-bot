@@ -100,13 +100,17 @@ class LiveTradingEngine:
         try:
             response = await self.client.get(f"{self.bybit_url}/api/v1/account/balance")
             response.raise_for_status()
-            data = response.json()
+            payload = response.json()
 
-            if data.get("result"):
-                result = data["result"]
-                equity = result.get("totalEquity") or \
-                        result.get("totalWalletBalance") or \
-                        "0"
+            data = payload.get("data") or {}
+            account_list = data.get("list") or []
+            if account_list:
+                account = account_list[0]
+                equity = (
+                    account.get("totalEquity")
+                    or account.get("totalWalletBalance")
+                    or "0"
+                )
                 return Decimal(str(equity))
 
             return await self.get_balance()
@@ -163,24 +167,21 @@ class LiveTradingEngine:
             logger.info(f"  Price (reference): {current_price}")
             logger.info("=" * 60)
 
-            # Send order to Bybit
+            # Send order to Bybit. The bybit-connector raises HTTP 400 on Bybit
+            # API errors and wraps the success payload as
+            # {"success": True, "data": <bybit_result>}, so we extract orderId
+            # from response["data"]["orderId"] and rely on raise_for_status
+            # plus the broad except below for error handling.
             response = await self.client.post(
                 f"{self.bybit_url}/api/v1/order/place",
                 json=order_request
             )
             response.raise_for_status()
-            result = response.json()
+            payload = response.json()
 
-            logger.info(f"[LIVE] Bybit response: {result}")
+            logger.info(f"[LIVE] Bybit response: {payload}")
 
-            # Check for errors
-            if result.get("retCode") != 0:
-                error_msg = result.get("retMsg", "Unknown error")
-                logger.error(f"[LIVE] Order rejected by Bybit: {error_msg}")
-                return None, error_msg
-
-            # Extract order details
-            order_result = result.get("result", {})
+            order_result = payload.get("data") or {}
             order_id = order_result.get("orderId", "")
 
             # Create executed order record
@@ -189,11 +190,13 @@ class LiveTradingEngine:
                 side=order.side,
                 type=order.type,
                 quantity=order.quantity,
-                price=current_price,  # Will be updated with fill price
+                price=current_price,
                 status=OrderStatus.FILLED,
-                strategy=order.strategy
+                strategy=order.strategy,
+                bybit_order_id=order_id,
+                filled_price=current_price,
+                filled_quantity=order.quantity,
             )
-            executed_order.order_id = order_id
 
             # Create position in position manager
             position_side = PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
@@ -457,18 +460,13 @@ class LiveTradingEngine:
             logger.info(f"  Reason: {reason}")
             logger.info("=" * 60)
 
-            # Send close order
+            # Send close order. The bybit-connector raises HTTP 400 on Bybit
+            # rejection, so a 2xx here means the close was accepted.
             response = await self.client.post(
                 f"{self.bybit_url}/api/v1/order/place",
                 json=close_request
             )
             response.raise_for_status()
-            result = response.json()
-
-            if result.get("retCode") != 0:
-                error_msg = result.get("retMsg", "Unknown error")
-                logger.error(f"[LIVE] Close order rejected: {error_msg}")
-                return False, error_msg
 
             # Update position manager
             self.position_manager.close_position(position_id, close_price, reason)
@@ -490,18 +488,18 @@ class LiveTradingEngine:
         try:
             response = await self.client.get(f"{self.bybit_url}/api/v1/account/positions")
             response.raise_for_status()
-            data = response.json()
+            payload = response.json()
 
-            if data.get("result"):
-                positions = data["result"].get("list", [])
-                logger.info(f"[LIVE] Found {len(positions)} positions on exchange")
+            # Connector returns {"success": True, "data": [pos, ...]}
+            positions = payload.get("data") or []
+            logger.info(f"[LIVE] Found {len(positions)} positions on exchange")
 
-                for pos in positions:
-                    if float(pos.get("size", 0)) > 0:
-                        logger.info(
-                            f"[LIVE] Exchange position: {pos['symbol']} "
-                            f"{pos['side']} {pos['size']} @ {pos['avgPrice']}"
-                        )
+            for pos in positions:
+                if float(pos.get("size", 0)) > 0:
+                    logger.info(
+                        f"[LIVE] Exchange position: {pos['symbol']} "
+                        f"{pos['side']} {pos['size']} @ {pos['avgPrice']}"
+                    )
 
         except Exception as e:
             logger.error(f"[LIVE] Failed to sync positions: {e}")

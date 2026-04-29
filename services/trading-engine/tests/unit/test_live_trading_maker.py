@@ -246,3 +246,45 @@ class TestMakerOrderDegradedPaths:
         assert error is None
         assert executed_order is fallback_order
         engine.execute_market_order.assert_awaited_once()
+
+
+class TestExecuteMarketOrderConnectorContract:
+    """
+    Regression tests for the bybit-connector response contract:
+    {"success": True, "data": <bybit_result>}. The connector raises HTTP 4xx
+    on Bybit errors, so the trading-engine never sees retCode in success
+    responses. Prior to the fix, execute_market_order looked up `result`
+    instead of `data` and gated on retCode != 0 — every successful order
+    looked like 'Unknown error'.
+    """
+
+    @pytest.mark.asyncio
+    async def test_market_order_extracts_bybit_order_id_from_data(self, engine):
+        engine._mock_http.post.return_value = _http_response(
+            {"success": True, "data": {"orderId": "BYB-XYZ-1"}}
+        )
+
+        executed_order, error = await engine.execute_market_order(
+            _make_order(), Decimal("50100")
+        )
+
+        assert error is None
+        assert executed_order is not None
+        assert executed_order.bybit_order_id == "BYB-XYZ-1"
+        # Filled fields populated at construction time (no post-init mutation)
+        assert executed_order.filled_price == Decimal("50100")
+        assert executed_order.filled_quantity == Decimal("0.01")
+        assert executed_order.status == OrderStatus.FILLED
+        engine._mock_position_manager.create_position.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_market_order_position_uses_supplied_price(self, engine):
+        engine._mock_http.post.return_value = _http_response(
+            {"success": True, "data": {"orderId": "BYB-XYZ-2"}}
+        )
+        await engine.execute_market_order(_make_order(OrderSide.SELL), Decimal("49900"))
+        kwargs = engine._mock_position_manager.create_position.call_args.kwargs
+        assert kwargs["entry_price"] == Decimal("49900")
+        # SELL → SHORT
+        from app.models import PositionSide
+        assert kwargs["side"] == PositionSide.SHORT
