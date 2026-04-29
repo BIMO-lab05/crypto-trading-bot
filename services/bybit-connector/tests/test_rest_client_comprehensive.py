@@ -640,6 +640,122 @@ class TestMarketDataEndpoints:
 
         await client.close()
 
+    @pytest.mark.asyncio
+    async def test_get_funding_rate_history_basic(self):
+        """Funding rate history returns the list payload."""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        mock_response = {
+            "category": "linear",
+            "list": [
+                {"symbol": "SOLUSDT", "fundingRate": "0.00010000",
+                 "fundingRateTimestamp": "1672041600000"},
+                {"symbol": "SOLUSDT", "fundingRate": "0.00012000",
+                 "fundingRateTimestamp": "1672012800000"},
+            ],
+        }
+
+        with patch.object(client, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            result = await client.get_funding_rate_history(
+                category="linear",
+                symbol="SOLUSDT",
+                start_time=1672000000000,
+                end_time=1672100000000,
+                limit=100,
+            )
+
+            assert len(result) == 2
+            params = mock_request.call_args[1]["params"]
+            assert params["symbol"] == "SOLUSDT"
+            assert params["startTime"] == 1672000000000
+            assert params["endTime"] == 1672100000000
+            assert params["limit"] == 100
+            # Public endpoint — no auth required
+            assert mock_request.call_args[1]["auth_required"] is False
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_funding_rate_history_limit_enforcement(self):
+        """Limit clamps to Bybit max of 200 and min of 1."""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        with patch.object(client, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = {"list": []}
+
+            await client.get_funding_rate_history(
+                category="linear", symbol="SOLUSDT", limit=10000
+            )
+            assert mock_request.call_args[1]["params"]["limit"] == 200
+
+            await client.get_funding_rate_history(
+                category="linear", symbol="SOLUSDT", limit=0
+            )
+            assert mock_request.call_args[1]["params"]["limit"] == 1
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_funding_rate_history_rejects_spot(self):
+        """Funding rates only exist for perp; spot must error before any HTTP call."""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        with patch.object(client, '_request', new_callable=AsyncMock) as mock_request:
+            with pytest.raises(ValueError, match="perp-only"):
+                await client.get_funding_rate_history(
+                    category="spot", symbol="SOLUSDT"
+                )
+            mock_request.assert_not_called()
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_instruments_info_returns_list(self):
+        """instruments-info returns the parsed list, including fundingInterval."""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        mock_response = {
+            "category": "linear",
+            "list": [
+                {"symbol": "SOLUSDT", "fundingInterval": "480",
+                 "priceFilter": {"tickSize": "0.001"},
+                 "lotSizeFilter": {"minOrderQty": "0.1"}}
+            ],
+        }
+
+        with patch.object(client, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+
+            result = await client.get_instruments_info(
+                category="linear", symbol="SOLUSDT"
+            )
+
+            assert len(result) == 1
+            assert result[0]["fundingInterval"] == "480"  # 8h in minutes
+            params = mock_request.call_args[1]["params"]
+            assert params["category"] == "linear"
+            assert params["symbol"] == "SOLUSDT"
+            assert mock_request.call_args[1]["auth_required"] is False
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_instruments_info_no_symbol_filter(self):
+        """Without symbol filter, request omits the symbol param."""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        with patch.object(client, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = {"list": []}
+
+            await client.get_instruments_info(category="linear")
+
+            params = mock_request.call_args[1]["params"]
+            assert "symbol" not in params
+
+        await client.close()
+
 
 # ============================================================================
 # UTILITY METHOD TESTS
