@@ -448,6 +448,15 @@ class MarketRegimeDetector:
 
         Returns:
             RegimeAnalysis with neutral/unknown values
+
+        IMPORTANT for consumers: the returned analysis has
+        ``confidence=0.0`` AND ``regime=MarketRegime.UNKNOWN``. The
+        regime field is the canonical failure indicator — check it
+        before trusting the other numeric fields, which are also 0.0.
+        Audit-flagged 2026-04-28: confidence=0.0 by itself was a silent
+        sentinel that downstream code couldn't tell apart from a
+        real low-confidence regime. ``regime == MarketRegime.UNKNOWN``
+        is the disambiguator.
         """
         return RegimeAnalysis(
             regime=MarketRegime.UNKNOWN,
@@ -457,7 +466,7 @@ class MarketRegimeDetector:
             minus_di=0.0,
             confidence=0.0,
             confidence_modifier=1.0,  # No adjustment when unknown
-            description="Market regime detection unavailable",
+            description="Market regime detection unavailable (failure sentinel)",
             strategy_recommendation="Use standard trading approach"
         )
 

@@ -142,6 +142,10 @@ class TestCoreAggregator:
         assert result.action == SignalAction.HOLD
         assert result.confidence == 0.0
         assert result.metadata["error"] == "Test error"
+        # Audit-driven contract: failure-sentinel signals MUST set this
+        # explicit flag. Downstream consumers should branch on it before
+        # treating confidence=0.0 + HOLD as actionable.
+        assert result.metadata["is_failure_sentinel"] is True
 
     def test_build_rejection_reasons_low_consensus(self, aggregator):
         """Test rejection reasons for low consensus (min_consensus=2)"""
