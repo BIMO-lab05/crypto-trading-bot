@@ -119,6 +119,12 @@ from app.strategies import sqzmom_strategy, sqzmom_config
 # Import Grid Trading router (Phase 2.3)
 from app.handlers.grid_trading import router as grid_trading_router
 
+# Import Multi-Strategy Orchestration router (Phase 9). Was defined in
+# handlers/orchestration.py but never actually mounted — every endpoint
+# under /api/v1/orchestrator/* (incl. emergency-stop, risk/utilization,
+# strategies/*) was dead. Wired up 2026-04-29.
+from app.handlers.orchestration import router as orchestration_router
+
 # Import Correlation Manager (Phase 3.1)
 from app.risk import get_correlation_manager
 
@@ -528,6 +534,9 @@ app.add_middleware(
 
 # Include Grid Trading router (Phase 2.3 - Grid Trading Integration)
 app.include_router(grid_trading_router)
+
+# Include Multi-Strategy Orchestration router (Phase 9)
+app.include_router(orchestration_router)
 
 # Include Kelly Position Sizing router (Phase 3.2)
 app.include_router(kelly_router)
