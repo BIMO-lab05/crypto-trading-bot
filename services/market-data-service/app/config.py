@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     # Bybit Connector Service
     bybit_connector_url: str = Field(default="http://localhost:8002")
 
+    # Mirror of the BYBIT_TESTNET env var on bybit-connector. Used to tag
+    # ingested klines with `is_mainnet=not bybit_testnet` so the table
+    # can later be filtered by source. Operators must keep this in sync
+    # with whatever bybit-connector is running against. Audit 2026-04-29.
+    bybit_testnet: bool = Field(
+        default=False,
+        description="True if connector is on testnet — newly-ingested klines get is_mainnet=False"
+    )
+
     # Data Collection Settings - 13 ACTIVE symbols (2025-12-05)
     # SYNCHRONIZED with trading-engine config.py
     # Excluded: XRP (-$39.73, 23% WR), DOGE (-$9.81, 30% WR), ETH (-$15.12, 43% WR)

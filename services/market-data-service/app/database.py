@@ -162,6 +162,17 @@ async def create_hypertables():
         "SELECT add_retention_policy('orderbook_snapshots', INTERVAL '7 days', if_not_exists => TRUE)",
     ]
 
+    # Idempotent column-add migrations. SQLAlchemy's create_all() only
+    # creates tables that don't exist; existing tables don't pick up new
+    # Column() declarations. Each ALTER TABLE here is `IF NOT EXISTS`
+    # safe and runs every startup.
+    column_migrations = [
+        # is_mainnet flag (audit 2026-04-29) — pre-flip testnet rows
+        # default to True; operators should wipe pre-flip data manually.
+        "ALTER TABLE klines ADD COLUMN IF NOT EXISTS is_mainnet BOOLEAN NOT NULL DEFAULT true",
+        "CREATE INDEX IF NOT EXISTS idx_klines_mainnet ON klines (is_mainnet)",
+    ]
+
     async with engine.begin() as conn:
         # Create hypertables
         for stmt in hypertable_statements:
@@ -180,7 +191,15 @@ async def create_hypertables():
             except Exception as e:
                 logger.warning(f"Retention policy: {e}")
 
-        logger.info("TimescaleDB hypertables and policies configured")
+        # Apply idempotent column-add migrations
+        for stmt in column_migrations:
+            try:
+                await conn.execute(text(stmt))
+                logger.info(f"Column migration applied: {stmt[:60]}...")
+            except Exception as e:
+                logger.warning(f"Column migration: {e}")
+
+        logger.info("TimescaleDB hypertables, policies, and column migrations configured")
 
 
 async def close_database():

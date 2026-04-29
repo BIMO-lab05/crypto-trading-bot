@@ -29,7 +29,8 @@ async def get_klines(
     interval: str = "60",
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
-    limit: int = Query(default=100, ge=1, le=10000)
+    limit: int = Query(default=100, ge=1, le=10000),
+    mainnet_only: bool = Query(default=True)
 ) -> dict:
     """
     Get kline data from database
@@ -43,6 +44,10 @@ async def get_klines(
         start_time: Start timestamp in milliseconds (optional)
         end_time: End timestamp in milliseconds (optional)
         limit: Maximum records to return (default: 100, max: 10000)
+        mainnet_only: If True (default), exclude rows tagged from
+            Bybit testnet. Default-True is the audit-aligned safe
+            behaviour after the 2026-04-25 testnet→mainnet flip left
+            mixed history in the table.
 
     Returns:
         dict: Query result with kline data
@@ -61,7 +66,8 @@ async def get_klines(
             interval=interval,
             start_time=start_time,
             end_time=end_time,
-            limit=limit
+            limit=limit,
+            mainnet_only=mainnet_only
         )
 
         # Convert to dict
