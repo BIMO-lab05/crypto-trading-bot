@@ -682,11 +682,25 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    # Opt-in profile so a RAM-constrained WSL host can run the core
+    # trading flow without ml-prediction. Bring up with
+    # `docker compose --profile ml up -d` when ML signals are needed.
+    # trading-engine depends_on does NOT include ml-prediction, so the
+    # core stack starts cleanly without it; runtime fan-out calls to
+    # ml-prediction return connection-refused and the aggregator
+    # downgrades to non-ML signals.
+    profiles:
+      - ml
     deploy:
       resources:
         limits:
           cpus: '2.0'
-          memory: 6G
+          # Was 6G — fictional on this stack since WSL caps RAM well
+          # below that. Inference is bounded by the loaded GRU models
+          # (~150 MB each, 5 active) plus FastAPI/TF runtime overhead.
+          # 2G covers steady state + headroom; raise if loading more
+          # models concurrently.
+          memory: 2G
 
   # ---------------------------------------------------------------------------
   # Sentiment Analysis Service - News and social sentiment
@@ -718,6 +732,12 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    # Opt-in profile (analytics) — same rationale as ml-prediction.
+    # No service depends_on sentiment-analysis; bringing it up is a
+    # superset operation. `docker compose --profile analytics up -d`
+    # to enable.
+    profiles:
+      - analytics
     deploy:
       resources:
         limits:
