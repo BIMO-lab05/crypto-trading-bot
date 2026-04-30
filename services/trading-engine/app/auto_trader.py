@@ -40,6 +40,11 @@ from app.risk.vol_targeting import (
     VolParitySizingConfig,
     vol_parity_size,
 )
+from app.risk.funding_gate import (
+    FundingGateConfig,
+    FundingRateClient,
+    funding_gate_decision,
+)
 from app.signal_aggregator import get_aggregator
 from app.paper_trading import get_paper_engine
 from app.live_trading import get_live_engine
@@ -339,6 +344,23 @@ class AutoTrader:
         else:
             self.vol_estimator = None
             logger.info("[VOL_PARITY] disabled (set ENABLE_VOL_TARGETING=true to opt in)")
+
+        # Funding-Rate Gate (T2.3, 2026-04-30) — perp-only entry filter.
+        # Lazy-built (None until first signal-check call site that needs it)
+        # so tests and PAPER mode don't open an httpx session up-front.
+        self._funding_gate_config: Optional[FundingGateConfig] = None
+        self._funding_client: Optional[FundingRateClient] = None
+        if self.settings.enable_funding_gate:
+            self._funding_gate_config = FundingGateConfig(
+                threshold_bps=self.settings.funding_gate_threshold_bps,
+                cache_ttl_seconds=self.settings.funding_cache_ttl_seconds,
+            )
+            logger.info(
+                f"[FUNDING_GATE] enabled: threshold=±{self.settings.funding_gate_threshold_bps:.1f}bps, "
+                f"ttl={self.settings.funding_cache_ttl_seconds}s"
+            )
+        else:
+            logger.info("[FUNDING_GATE] disabled (set ENABLE_FUNDING_GATE=true to opt in)")
 
         # Slippage Manager: Execution quality control
         # Research: LuxAlgo Trading Slippage Analysis
@@ -1371,6 +1393,35 @@ class AutoTrader:
                 f"[RISK_GATE] ✅ Trade side validation PASSED | "
                 f"Side: {side} | Allowed: {self.settings.allowed_trade_sides}"
             )
+
+            # ================================================================
+            # FUNDING-RATE GATE (T2.3, 2026-04-30) — perp-only entry filter.
+            # Cheap gate: runs before allocation/sizing so we don't compute
+            # quantities for trades that won't survive the gate. Fail-open
+            # on any fetch error; gate disabled in PAPER mode.
+            # ================================================================
+            if (
+                self._funding_gate_config is not None
+                and trading_mode == "LIVE"
+            ):
+                if self._funding_client is None:
+                    self._funding_client = FundingRateClient(
+                        connector_base_url=self.settings.bybit_connector_url,
+                        config=self._funding_gate_config,
+                    )
+                rate = await self._funding_client.get_latest_rate(symbol)
+                decision = funding_gate_decision(
+                    rate_per_period=rate,
+                    is_long=(side == "LONG"),
+                    config=self._funding_gate_config,
+                )
+                if not decision.allow:
+                    logger.warning(
+                        f"[FUNDING_GATE] ❌ Rejecting {side} on {symbol}: {decision.reason}"
+                    )
+                    self.total_trades_rejected += 1
+                    return
+                logger.info(f"[FUNDING_GATE] ✅ {symbol} {side}: {decision.reason}")
 
             logger.info(f"[{trading_mode}] Executing {action} trade for {symbol}")
 

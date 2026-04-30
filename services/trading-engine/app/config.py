@@ -139,6 +139,29 @@ class Settings(BaseSettings):
         description="Max scale factor over baseline. 1.0 = downside-only (safest); 3.0 = full Carver-style symmetric."
     )
 
+    # Funding-Rate Gate (T2.3, 2026-04-30)
+    # Reject perp entries that would pay funding above a threshold so we
+    # don't bleed ~5%/yr on persistent funding drag. Fail-open: if the
+    # rate fetch breaks, the gate allows the trade rather than blocking.
+    # Default off — opt in via env after a forward-paper-test confirms
+    # the gate doesn't reject the profitable side of a real edge.
+    enable_funding_gate: bool = Field(
+        default=False,
+        description="Block perp entries when current funding rate works against the intended direction by more than funding_gate_threshold_bps."
+    )
+    funding_gate_threshold_bps: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=50.0,
+        description="Per-settlement funding-rate threshold in bps. 5 bps/8h ≈ 5.5%/yr cost; longs blocked above +threshold, shorts below -threshold."
+    )
+    funding_cache_ttl_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="How long a fetched funding rate is cached in-memory. Settlements are 8h on most pairs so 5min is plenty."
+    )
+
     # Order Execution Configuration
     # T1.3 prep 2026-04-29 — flags only, not yet wired into live_trading.py.
     # Default off so this commit is plumbing only. When wiring lands and a
