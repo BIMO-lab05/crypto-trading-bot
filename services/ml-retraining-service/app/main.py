@@ -594,7 +594,8 @@ async def train_model(
                 test_metrics=training_result["test_metrics"],
                 scaler_x=training_result["scaler_x"],
                 scaler_y=training_result["scaler_y"],
-                output_dir=output_dir
+                output_dir=output_dir,
+                eval_arrays=training_result.get("eval_arrays"),
             )
 
             logger.info(f"Model saved to {output_dir}")
@@ -843,7 +844,8 @@ async def retrain_model(
             test_metrics=training_result["test_metrics"],
             scaler_x=training_result["scaler_x"],
             scaler_y=training_result["scaler_y"],
-            output_dir=output_dir
+            output_dir=output_dir,
+            eval_arrays=training_result.get("eval_arrays"),
         )
 
         # Record model version

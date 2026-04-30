@@ -20,6 +20,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 
 from app.config.settings import get_settings
+from app.core.cpcv_evaluation import evaluate_with_cpcv
 from app.core.returns_metrics import compute_returns_metrics
 
 logger = logging.getLogger(__name__)
@@ -338,6 +339,16 @@ class ModelTrainer:
                 )
             )
 
+            # Evaluation-time CPCV on the test set: derive a strategy-return
+            # series from (actual, predicted, last_close) and run combinatorial
+            # purged folds. Emits Deflated Sharpe + per-path Sharpe distribution
+            # into test_metrics. See docs/strategy/research-2026-04-29/
+            # T0.2-cpcv-design.md §4 — evaluation-time, not retraining-time.
+            cpcv_metrics, eval_arrays = self._calculate_cpcv_metrics(
+                model, X_test, y_test, last_close_test, "test"
+            )
+            test_metrics.update(cpcv_metrics)
+
             # Validation metrics (last epoch from history)
             val_metrics = {
                 "val_loss": float(history.history['val_loss'][-1]),
@@ -398,6 +409,7 @@ class ModelTrainer:
                 "test_metrics": test_metrics,
                 "history": history.history,
                 "metadata": metadata,
+                "eval_arrays": eval_arrays,
             }
 
         except Exception as e:
@@ -411,6 +423,49 @@ class ModelTrainer:
                     "training_time_seconds": (datetime.now() - start_time).total_seconds(),
                 }
             }
+
+    def _calculate_cpcv_metrics(
+        self,
+        model: keras.Model,
+        X: np.ndarray,
+        y: np.ndarray,
+        last_close: np.ndarray,
+        dataset_name: str,
+    ) -> Tuple[Dict[str, float], Dict[str, np.ndarray]]:
+        """
+        Evaluation-time CPCV on (actual, predicted, last_close) triples.
+
+        Returns:
+            (cpcv_metrics, eval_arrays) where ``cpcv_metrics`` is a flat
+            ``{dataset}_*`` dict ready to merge into test_metrics, and
+            ``eval_arrays`` is the underlying numpy triple — persisted by
+            ``save_model`` as ``eval_arrays.npz`` so risk-metrics-service
+            can re-run CPCV later with different group/horizon settings.
+
+        Conservative ``label_horizon = sequence_length + prediction_horizon - 1``
+        accounts for both the model's prediction horizon and the input
+        window's bar overlap between adjacent samples — see
+        T0.2-cpcv-design.md §2.
+        """
+        y_pred = model.predict(X, verbose=0)
+        actual_prices = self.scaler_y.inverse_transform(y)[:, 0]
+        pred_prices = self.scaler_y.inverse_transform(y_pred)[:, 0]
+
+        label_horizon = self.sequence_length + self.prediction_horizon - 1
+        cpcv_metrics = evaluate_with_cpcv(
+            actual_prices,
+            pred_prices,
+            last_close,
+            dataset_name=dataset_name,
+            label_horizon=label_horizon,
+        )
+
+        eval_arrays = {
+            "actual_prices": np.asarray(actual_prices, dtype=float),
+            "pred_prices": np.asarray(pred_prices, dtype=float),
+            "last_close": np.asarray(last_close, dtype=float),
+        }
+        return cpcv_metrics, eval_arrays
 
     def _calculate_returns_metrics(
         self,
@@ -499,7 +554,8 @@ class ModelTrainer:
         test_metrics: Dict[str, float],
         scaler_x: MinMaxScaler,
         scaler_y: MinMaxScaler,
-        output_dir: str
+        output_dir: str,
+        eval_arrays: Optional[Dict[str, np.ndarray]] = None,
     ) -> Dict[str, str]:
         """
         Save trained model and metadata to disk
@@ -513,6 +569,10 @@ class ModelTrainer:
             scaler_x: Feature scaler
             scaler_y: Target scaler
             output_dir: Directory to save files
+            eval_arrays: Optional dict of evaluation arrays (e.g. actual_prices,
+                pred_prices, last_close from the held-out test set). Persisted
+                as ``eval_arrays.npz`` so CPCV / DSR can be re-run later
+                without retraining — see ``_calculate_cpcv_metrics``.
 
         Returns:
             Dict with paths to saved files
@@ -562,9 +622,17 @@ class ModelTrainer:
             }, f)
         logger.info(f"Scalers saved: {scalers_path}")
 
-        return {
+        result = {
             "model_path": model_path,
             "metadata_path": metadata_path,
             "metrics_path": metrics_path,
             "scalers_path": scalers_path,
         }
+
+        if eval_arrays:
+            eval_arrays_path = os.path.join(output_dir, "eval_arrays.npz")
+            np.savez(eval_arrays_path, **eval_arrays)
+            logger.info(f"Eval arrays saved: {eval_arrays_path}")
+            result["eval_arrays_path"] = eval_arrays_path
+
+        return result
