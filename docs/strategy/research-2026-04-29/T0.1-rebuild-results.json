@@ -1,0 +1,74 @@
+[
+  {
+    "symbol": "SOLUSDT",
+    "test_loss": 0.001593774650245905,
+    "test_mae": 0.0059971471996182,
+    "test_mse": 7.0303231058797e-05,
+    "test_rmse": 0.008384702204538751,
+    "test_r2": -0.007886757897428653,
+    "test_r2_returns": -0.005971047458747325,
+    "test_dir_acc_corrected": 0.48037220122128527,
+    "test_dsr": 1.4991107244455293e-09,
+    "test_cpcv_sharpe_mean": -0.024703423544560035,
+    "test_cpcv_sharpe_std": 0.034193660826300695,
+    "test_cpcv_sharpe_median": -0.02301855548387088,
+    "test_cpcv_sharpe_ci_low": -0.08038626375953449,
+    "test_cpcv_sharpe_ci_high": 0.03171438958093519,
+    "test_cpcv_n_paths": 45,
+    "test_cpcv_oos_sharpe": -0.02470310956190661,
+    "test_cpcv_n_samples": 3439,
+    "target_mode": "log_returns",
+    "feature_set": "stationary",
+    "gru_units": [
+      32
+    ]
+  },
+  {
+    "symbol": "BNBUSDT",
+    "test_loss": 0.0019961665384471416,
+    "test_mae": 0.004606658292291863,
+    "test_mse": 4.570366023435404e-05,
+    "test_rmse": 0.00676044822732591,
+    "test_r2": -0.009288566055160485,
+    "test_r2_returns": -0.0071181538180598025,
+    "test_dir_acc_corrected": 0.48037220122128527,
+    "test_dsr": 3.0576234322232665e-09,
+    "test_cpcv_sharpe_mean": -0.003549432761505644,
+    "test_cpcv_sharpe_std": 0.04220818639400812,
+    "test_cpcv_sharpe_median": -0.004547705956948364,
+    "test_cpcv_sharpe_ci_low": -0.07114639052143716,
+    "test_cpcv_sharpe_ci_high": 0.06196079132250152,
+    "test_cpcv_n_paths": 45,
+    "test_cpcv_oos_sharpe": -0.004760657969119635,
+    "test_cpcv_n_samples": 3439,
+    "target_mode": "log_returns",
+    "feature_set": "stationary",
+    "gru_units": [
+      32
+    ]
+  },
+  {
+    "symbol": "ADAUSDT",
+    "test_loss": 0.00036285980604588985,
+    "test_mae": 0.006286668251419004,
+    "test_mse": 8.756360273662606e-05,
+    "test_rmse": 0.009357542558632906,
+    "test_r2": -0.009631629937392194,
+    "test_r2_returns": -0.013121958019440827,
+    "test_dir_acc_corrected": 0.5010177377144519,
+    "test_dsr": 1.4222797384277897e-09,
+    "test_cpcv_sharpe_mean": -0.018190673662929847,
+    "test_cpcv_sharpe_std": 0.03508649831563034,
+    "test_cpcv_sharpe_median": -0.018806483841811866,
+    "test_cpcv_sharpe_ci_low": -0.06628074300232097,
+    "test_cpcv_sharpe_ci_high": 0.04974911544742469,
+    "test_cpcv_n_paths": 45,
+    "test_cpcv_oos_sharpe": -0.02053980267596245,
+    "test_cpcv_n_samples": 3439,
+    "target_mode": "log_returns",
+    "feature_set": "stationary",
+    "gru_units": [
+      32
+    ]
+  }
+]
