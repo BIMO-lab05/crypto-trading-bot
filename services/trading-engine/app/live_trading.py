@@ -332,14 +332,12 @@ class LiveTradingEngine:
                 return await self.execute_market_order(order, current_price)
             return None, f"Maker place failed: {e}"
 
-        if place_result.get("retCode") not in (0, None):
-            err = place_result.get("retMsg", "Unknown error")
-            logger.warning(f"[LIVE][MAKER] Bybit rejected PostOnly: {err}")
-            if self.settings.maker_fallback_to_taker:
-                return await self.execute_market_order(order, current_price)
-            return None, f"PostOnly rejected: {err}"
-
-        place_data = place_result.get("data") or place_result.get("result") or {}
+        # The bybit-connector raises HTTP 4xx on Bybit rejection (caught
+        # above as `Exception`), so a 2xx success response carries
+        # `{"success": True, "data": <bybit_inner>}` and we just need to
+        # extract orderId. PostOnly-would-cross specifically returns 4xx
+        # from Bybit and is therefore handled by the except block above.
+        place_data = place_result.get("data") or {}
         order_id = place_data.get("orderId", "")
         if not order_id:
             logger.error(f"[LIVE][MAKER] No orderId returned: {place_result}")

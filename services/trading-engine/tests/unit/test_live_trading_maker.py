@@ -227,13 +227,16 @@ class TestMakerOrderDegradedPaths:
         engine._mock_http.post.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_post_only_rejected_falls_back_when_enabled(self, engine, monkeypatch):
-        # Orderbook OK. Place returns retCode != 0.
+    async def test_empty_order_id_in_response_falls_back(self, engine, monkeypatch):
+        # Orderbook OK. Place returns 200 with malformed body (no orderId).
+        # bybit-connector raises HTTP 4xx on real Bybit rejections, so this
+        # represents either a connector bug or schema drift; the maker path
+        # treats missing orderId as a fail-soft and routes to the taker.
         engine._mock_http.get.return_value = _http_response(
             {"data": {"b": [["50000", "1"]], "a": [["50001", "1"]]}}
         )
         engine._mock_http.post.return_value = _http_response(
-            {"retCode": 30032, "retMsg": "Order would immediately match (PostOnly)"}
+            {"success": True, "data": {}}  # no orderId
         )
 
         fallback_order = MagicMock(status=OrderStatus.FILLED)
