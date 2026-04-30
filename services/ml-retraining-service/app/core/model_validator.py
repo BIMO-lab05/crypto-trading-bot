@@ -28,50 +28,120 @@ class ModelValidator:
         """Initialize model validator"""
         self.settings = get_settings()
 
+    def _check_optional_gate(
+        self,
+        *,
+        name: str,
+        key: str,
+        setting_field: str,
+        value: Optional[float],
+        threshold: Optional[float],
+        validation_checks: Dict[str, Any],
+        reasons: List[str],
+    ) -> bool:
+        """
+        Generic optional minimum-threshold gate.
+
+        Returns True when the gate passes, the threshold is None
+        (disabled), or the value is missing/NaN (older artifacts /
+        degenerate test set). Returns False only when a threshold is
+        configured and the value fails to clear it. Always records the
+        value in ``validation_checks[key]`` for observability — passed
+        is None when the gate didn't fire (disabled / unavailable),
+        bool when it did.
+
+        Args:
+            name: Human label for the metric in log messages
+                (e.g. ``"DSR"``, ``"R²(returns)"``, ``"Dir.Acc"``).
+            key: Slot in ``validation_checks`` (e.g. ``"dsr"``,
+                ``"r2_returns"``, ``"dir_acc_corrected"``).
+            setting_field: Name of the corresponding settings field
+                referenced in the informational note (so operators know
+                which env var enables the gate).
+            value: The metric value from the new model's metrics dict.
+            threshold: The configured threshold, or None to disable.
+            validation_checks: Mutated in-place with the gate's record.
+            reasons: Mutated in-place with a one-line explanation when
+                a real (non-None) threshold actually fires.
+        """
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            validation_checks[key] = {
+                'passed': None,
+                'value': value,
+                'threshold': threshold,
+                'note': f'{name} unavailable (missing or NaN); gate not applied',
+            }
+            return True
+        if threshold is None:
+            validation_checks[key] = {
+                'passed': None,
+                'value': value,
+                'threshold': None,
+                'note': f'{name} informational only (set {setting_field} to gate)',
+            }
+            return True
+        passed = value >= threshold
+        validation_checks[key] = {
+            'passed': passed,
+            'value': value,
+            'threshold': threshold,
+        }
+        if passed:
+            reasons.append(f"{name}={value:.4f} clears gate ({threshold})")
+        else:
+            reasons.append(f"{name} ({value:.4f}) below gate ({threshold})")
+        return passed
+
     def _check_dsr_gate(
         self,
         new_dsr: Optional[float],
         validation_checks: Dict[str, Any],
         reasons: List[str],
     ) -> bool:
-        """
-        Apply the optional Deflated-Sharpe-Ratio gate.
+        """Deflated Sharpe Ratio gate. Off by default (settings.retrain_min_dsr)."""
+        return self._check_optional_gate(
+            name="DSR",
+            key="dsr",
+            setting_field="retrain_min_dsr",
+            value=new_dsr,
+            threshold=self.settings.retrain_min_dsr,
+            validation_checks=validation_checks,
+            reasons=reasons,
+        )
 
-        Returns True when the gate passes, is disabled, or there is no DSR
-        to evaluate (older artifacts). Returns False only when a threshold
-        is configured and the new model fails to clear it. Always records
-        the DSR value in ``validation_checks`` for observability.
-        """
-        threshold = self.settings.retrain_min_dsr
-        if new_dsr is None or (isinstance(new_dsr, float) and math.isnan(new_dsr)):
-            validation_checks['dsr'] = {
-                'passed': None,
-                'value': new_dsr,
-                'threshold': threshold,
-                'note': 'DSR unavailable (missing or NaN); gate not applied',
-            }
-            return True
-        if threshold is None:
-            validation_checks['dsr'] = {
-                'passed': None,
-                'value': new_dsr,
-                'threshold': None,
-                'note': 'DSR informational only (set retrain_min_dsr to gate)',
-            }
-            return True
-        passed = new_dsr >= threshold
-        validation_checks['dsr'] = {
-            'passed': passed,
-            'value': new_dsr,
-            'threshold': threshold,
-        }
-        if passed:
-            reasons.append(f"DSR={new_dsr:.4f} clears gate ({threshold})")
-        else:
-            reasons.append(
-                f"DSR ({new_dsr:.4f}) below gate ({threshold})"
-            )
-        return passed
+    def _check_r2_returns_gate(
+        self,
+        new_r2_returns: Optional[float],
+        validation_checks: Dict[str, Any],
+        reasons: List[str],
+    ) -> bool:
+        """R²-on-log-returns gate. Off by default (settings.retrain_min_r2_returns)."""
+        return self._check_optional_gate(
+            name="R²(returns)",
+            key="r2_returns",
+            setting_field="retrain_min_r2_returns",
+            value=new_r2_returns,
+            threshold=self.settings.retrain_min_r2_returns,
+            validation_checks=validation_checks,
+            reasons=reasons,
+        )
+
+    def _check_dir_acc_gate(
+        self,
+        new_dir_acc: Optional[float],
+        validation_checks: Dict[str, Any],
+        reasons: List[str],
+    ) -> bool:
+        """Corrected directional-accuracy gate. Off by default (settings.retrain_min_dir_acc)."""
+        return self._check_optional_gate(
+            name="Dir.Acc",
+            key="dir_acc_corrected",
+            setting_field="retrain_min_dir_acc",
+            value=new_dir_acc,
+            threshold=self.settings.retrain_min_dir_acc,
+            validation_checks=validation_checks,
+            reasons=reasons,
+        )
 
     def validate_model(
         self,
@@ -109,6 +179,11 @@ class ModelValidator:
         # strategy returns). Treated as informational unless
         # retrain_min_dsr is configured.
         new_dsr = new_metrics.get('test_dsr')
+        # T0.1 pre-flight gates: R² on log-returns + corrected directional
+        # accuracy. Same shape as DSR — off by default; informational unless
+        # the corresponding settings.retrain_min_* threshold is configured.
+        new_r2_returns = new_metrics.get('test_r2_returns')
+        new_dir_acc = new_metrics.get('test_dir_acc_corrected')
 
         # Check 1: Minimum performance thresholds
         min_r2_check = new_r2 >= self.settings.retrain_min_r2
@@ -142,12 +217,25 @@ class ModelValidator:
         dsr_check_passed = self._check_dsr_gate(
             new_dsr, validation_checks, reasons
         )
+        # T0.1 pre-flight gates (off by default)
+        r2_returns_check_passed = self._check_r2_returns_gate(
+            new_r2_returns, validation_checks, reasons
+        )
+        dir_acc_check_passed = self._check_dir_acc_gate(
+            new_dir_acc, validation_checks, reasons
+        )
 
         # If no current model, just check minimums
         if current_metrics is None:
             logger.info("No current model - validating against minimum thresholds only")
 
-            is_valid = min_r2_check and loss_check and dsr_check_passed
+            is_valid = (
+                min_r2_check
+                and loss_check
+                and dsr_check_passed
+                and r2_returns_check_passed
+                and dir_acc_check_passed
+            )
             should_deploy = is_valid
 
             if is_valid:
@@ -166,6 +254,8 @@ class ModelValidator:
                     "loss": new_loss,
                     "mae": new_mae,
                     "dsr": new_dsr,
+                    "r2_returns": new_r2_returns,
+                    "dir_acc_corrected": new_dir_acc,
                 },
             }
 
@@ -251,6 +341,8 @@ class ModelValidator:
             loss_check,
             mae_degradation_check,
             dsr_check_passed,
+            r2_returns_check_passed,
+            dir_acc_check_passed,
         ])
 
         # Deployment decision
@@ -283,12 +375,16 @@ class ModelValidator:
                 "loss": new_loss,
                 "mae": new_mae,
                 "dsr": new_dsr,
+                "r2_returns": new_r2_returns,
+                "dir_acc_corrected": new_dir_acc,
             },
             "current_metrics": {
                 "r2": current_r2,
                 "loss": current_loss,
                 "mae": current_mae,
                 "dsr": current_metrics.get('test_dsr'),
+                "r2_returns": current_metrics.get('test_r2_returns'),
+                "dir_acc_corrected": current_metrics.get('test_dir_acc_corrected'),
             },
             "changes": {
                 "r2_change": r2_improvement,

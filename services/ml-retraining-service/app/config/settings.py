@@ -141,6 +141,27 @@ class RetrainingSettings(BaseSettings):
             "sin/cos. See app/core/stationary_features.py."
         ),
     )
+    retrain_min_r2_returns: Optional[float] = Field(
+        default=None,
+        description=(
+            "R²-on-log-returns gate. When set, retrains failing this "
+            "threshold are not deployed. None disables (R²-returns is "
+            "still recorded informationally). Per the T0.1 design, the "
+            "rebuild's pre-flight gate is `> 0.0` — naive persistence "
+            "scores ~0 on log-returns, so any positive value means the "
+            "model carries information beyond persistence."
+        ),
+    )
+    retrain_min_dir_acc: Optional[float] = Field(
+        default=None,
+        description=(
+            "Corrected directional-accuracy gate (0..1). When set, retrains "
+            "failing this threshold are not deployed. None disables (the "
+            "metric is still recorded informationally). T0.1 design's "
+            "pre-flight gate is `> 0.55` — clearly above coin-flip after "
+            "the V0 metric fix (commit c56765c)."
+        ),
+    )
 
     # Deployment Settings
     retrain_auto_deploy: bool = Field(
