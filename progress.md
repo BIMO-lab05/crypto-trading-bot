@@ -597,3 +597,40 @@ Resumed yesterday's BTC/ETH GRU work after OOM killed both runs at 2 GiB compose
 LSTM vs GRU comparison: GRU swept 3-0 on every symbol. Mean R² lifted +9.32 pp on validated symbols, +38 pp on research symbols (BTC/ETH/XRP). Caveat: LSTMs trained on 257–1411 samples vs 11674 for GRU, so part of the gap is data not architecture.
 
 After session: ml-prediction restarted to load the fresh disk artifacts; `test_gru_integration.py` updated (AVAXUSDT → ADAUSDT, since AVAX is not an actively-ingested symbol); 4/4 integration tests pass with all symbols at ~79% confidence; Prometheus + Grafana brought up via `--profile monitoring`. All 17 containers healthy.
+
+---
+
+## 2026-04-30 session — Tier-1 implementation + V0 finding
+
+17 commits. Full handoff in `docs/strategy/research-2026-04-29/SESSION-2026-04-30-handoff.md`.
+
+**The V0 finding (most important):** the 79–84% directional-accuracy numbers
+above were a metric bug — `y_test[:, -1]` referenced a future bar (look-ahead
+leakage) and used a degenerate same-bar reference. Fixed in `c56765c`. After
+the fix, the production GRUs score chance-level (~50%) directional accuracy
+and **negative R² on log-returns** — a naive persistence baseline beats them.
+The R²=0.99 figure measured price-level autocorrelation, not skill.
+Reproducer: `docs/strategy/research-2026-04-29/persistence_shootout.py`.
+
+Consequence: `ENABLE_ML_PREDICTIONS` defaulted to `false` (`2f29ca9`).
+
+**Shipped today (default OFF for the new features — paper-mode behaviour
+unchanged):**
+
+| Initiative | Module / change | Commits |
+|---|---|---|
+| V0: GRU metric fix + research plan + decommission | `c56765c`, `bf6fc4c`, `2f29ca9` | 3 |
+| T0.2: PSR + DSR module + design + CPCV harness | `6ebebdc`, `f5ca632`, `da10409` | 3 |
+| T1.2: per-position vol parity (primitives + wiring) | `32d8805`, `c6cd5ae`, `201526e` | 3 |
+| T1.3: maker-order entry path | `fc3d9e9`, `c3c89f6` | 2 |
+| T2.3: funding-rate gate | `9b62b1b`, `2dba20d`, `1a94c69` | 3 |
+| ml-retraining: honest returns-skill metrics | `22b417f` | 1 |
+| LIVE-mode latent-bug fixes (4 sites in connector contract + Pydantic v2) | `6f723c5`, `007a740` | 2 |
+
+**Test suite delta:** ~101 new/maintained tests across the new modules:
+29 sharpe-metrics, 30 cpcv, 16 vol-targeting, 17 funding-gate, 9 maker-order.
+
+**Open threads for next session:**
+1. Wire CPCV into ml-retraining-service (evaluation-time, no retraining loop).
+2. GRU rebuild on returns target with DSR > 0.95 acceptance gate.
+3. Forward-paper-test the three new opt-in features (vol parity, maker, funding).
