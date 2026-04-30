@@ -128,6 +128,19 @@ class RetrainingSettings(BaseSettings):
             "last_close * exp(predicted_log_return) when needed."
         ),
     )
+    retrain_feature_set: str = Field(
+        default="legacy",
+        pattern="^(legacy|stationary)$",
+        description=(
+            "Feature pipeline. 'legacy' (default) is the 22-indicator "
+            "pile that mixes stationary and non-stationary inputs — what "
+            "every production retrain has used. 'stationary' is the T0.1 "
+            "rebuild's 17-feature stationary-only set: drops sma_*, "
+            "ema_*, bb_middle/upper/lower, volume_sma, high_low_ratio; "
+            "adds vol-of-vol, log-volume change, range-ratio, time-of-day "
+            "sin/cos. See app/core/stationary_features.py."
+        ),
+    )
 
     # Deployment Settings
     retrain_auto_deploy: bool = Field(

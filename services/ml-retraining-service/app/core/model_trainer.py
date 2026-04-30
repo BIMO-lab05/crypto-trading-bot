@@ -22,6 +22,10 @@ from sklearn.model_selection import train_test_split
 from app.config.settings import get_settings
 from app.core.cpcv_evaluation import evaluate_with_cpcv
 from app.core.returns_metrics import compute_returns_metrics
+from app.core.stationary_features import (
+    STATIONARY_FEATURE_COLS,
+    compute_stationary_features,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +61,21 @@ class ModelTrainer:
         self.target_mode = self.settings.retrain_target_mode
         self.target_col = "close" if self.target_mode == "price" else "log_returns"
 
+        # Feature set: 'legacy' (22-indicator pile, default) or
+        # 'stationary' (17 stationary-only features for T0.1). See
+        # app/core/stationary_features.py.
+        self.feature_set = self.settings.retrain_feature_set
+
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculate technical indicators from OHLCV data
+        Calculate technical indicators from OHLCV data.
+
+        Dispatches on ``self.feature_set``:
+        - ``"legacy"`` (default): the 22-indicator pile every production
+          retrain has used; computed inline below.
+        - ``"stationary"``: the 17-feature stationary-only set for the
+          T0.1 GRU rebuild; delegated to
+          ``app.core.stationary_features.compute_stationary_features``.
 
         Args:
             df: DataFrame with columns: timestamp, open, high, low, close, volume
@@ -67,6 +83,12 @@ class ModelTrainer:
         Returns:
             DataFrame with technical indicators as features
         """
+        if self.feature_set == "stationary":
+            logger.info(
+                f"Preparing stationary features from {len(df)} data points"
+            )
+            return compute_stationary_features(df)
+
         logger.info(f"Preparing features from {len(df)} data points")
 
         # Make a copy to avoid modifying original
@@ -132,7 +154,8 @@ class ModelTrainer:
     def create_sequences(
         self,
         data: pd.DataFrame,
-        target_col: str = 'close'
+        target_col: str = 'close',
+        feature_cols: Optional[List[str]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Create sequences for GRU training
@@ -140,6 +163,13 @@ class ModelTrainer:
         Args:
             data: DataFrame with features
             target_col: Column name for prediction target
+            feature_cols: Explicit feature column list. When None (legacy
+                callers), uses every column except ``timestamp`` and
+                ``target_col``. The trainer passes
+                ``STATIONARY_FEATURE_COLS`` here in stationary mode so the
+                model never sees ``close`` or other level columns even
+                when they remain in the DataFrame for ``last_close``
+                extraction downstream.
 
         Returns:
             Tuple of (X, y) where:
@@ -148,8 +178,13 @@ class ModelTrainer:
         """
         logger.info(f"Creating sequences: length={self.sequence_length}, horizon={self.prediction_horizon}")
 
-        # Select feature columns (exclude timestamp and target)
-        feature_cols = [col for col in data.columns if col not in ['timestamp', target_col]]
+        # Select feature columns: explicit list wins, else exclude
+        # timestamp + target_col as legacy callers expect.
+        if feature_cols is None:
+            feature_cols = [
+                col for col in data.columns
+                if col not in ['timestamp', target_col]
+            ]
 
         # Extract features and target
         features = data[feature_cols].values
@@ -266,9 +301,18 @@ class ModelTrainer:
                     f"Need at least {self.sequence_length + self.prediction_horizon + 100}"
                 )
 
-            # Step 2: Create sequences (target_col flips on target_mode)
+            # Step 2: Create sequences (target_col flips on target_mode;
+            # feature_cols flips on feature_set — stationary mode passes
+            # an explicit list so close / level features are excluded)
+            feature_cols_used: Optional[List[str]] = (
+                list(STATIONARY_FEATURE_COLS)
+                if self.feature_set == "stationary"
+                else None
+            )
             X, y = self.create_sequences(
-                data_with_features, target_col=self.target_col
+                data_with_features,
+                target_col=self.target_col,
+                feature_cols=feature_cols_used,
             )
 
             # Step 3: Split data (train/test)
@@ -387,6 +431,7 @@ class ModelTrainer:
                 "model_type": "GRU",
                 "target_mode": self.target_mode,
                 "target_col": self.target_col,
+                "feature_set": self.feature_set,
                 "architecture": {
                     "layers": self.gru_units,
                     "sequence_length": self.sequence_length,
@@ -404,8 +449,14 @@ class ModelTrainer:
                 },
                 "features": {
                     "num_features": X_train.shape[2],
-                    "feature_names": [col for col in data_with_features.columns
-                                     if col not in ['timestamp', 'close']],
+                    "feature_names": (
+                        feature_cols_used
+                        if feature_cols_used is not None
+                        else [
+                            col for col in data_with_features.columns
+                            if col not in ['timestamp', self.target_col]
+                        ]
+                    ),
                 },
             }
 
