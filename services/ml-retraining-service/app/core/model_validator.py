@@ -4,6 +4,7 @@ Purpose: Compare new models against production models and decide deployment
 """
 
 import logging
+import math
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
@@ -26,6 +27,51 @@ class ModelValidator:
     def __init__(self):
         """Initialize model validator"""
         self.settings = get_settings()
+
+    def _check_dsr_gate(
+        self,
+        new_dsr: Optional[float],
+        validation_checks: Dict[str, Any],
+        reasons: List[str],
+    ) -> bool:
+        """
+        Apply the optional Deflated-Sharpe-Ratio gate.
+
+        Returns True when the gate passes, is disabled, or there is no DSR
+        to evaluate (older artifacts). Returns False only when a threshold
+        is configured and the new model fails to clear it. Always records
+        the DSR value in ``validation_checks`` for observability.
+        """
+        threshold = self.settings.retrain_min_dsr
+        if new_dsr is None or (isinstance(new_dsr, float) and math.isnan(new_dsr)):
+            validation_checks['dsr'] = {
+                'passed': None,
+                'value': new_dsr,
+                'threshold': threshold,
+                'note': 'DSR unavailable (missing or NaN); gate not applied',
+            }
+            return True
+        if threshold is None:
+            validation_checks['dsr'] = {
+                'passed': None,
+                'value': new_dsr,
+                'threshold': None,
+                'note': 'DSR informational only (set retrain_min_dsr to gate)',
+            }
+            return True
+        passed = new_dsr >= threshold
+        validation_checks['dsr'] = {
+            'passed': passed,
+            'value': new_dsr,
+            'threshold': threshold,
+        }
+        if passed:
+            reasons.append(f"DSR={new_dsr:.4f} clears gate ({threshold})")
+        else:
+            reasons.append(
+                f"DSR ({new_dsr:.4f}) below gate ({threshold})"
+            )
+        return passed
 
     def validate_model(
         self,
@@ -58,6 +104,11 @@ class ModelValidator:
         new_r2 = new_metrics.get('val_r2', new_metrics.get('test_r2', 0))
         new_loss = new_metrics.get('val_loss', new_metrics.get('test_loss', 999))
         new_mae = new_metrics.get('val_mae', new_metrics.get('test_mae', 999))
+        # Deflated Sharpe Ratio from evaluation-time CPCV. May be missing
+        # (older artifacts) or NaN (degenerate test set / zero-variance
+        # strategy returns). Treated as informational unless
+        # retrain_min_dsr is configured.
+        new_dsr = new_metrics.get('test_dsr')
 
         # Check 1: Minimum performance thresholds
         min_r2_check = new_r2 >= self.settings.retrain_min_r2
@@ -87,11 +138,16 @@ class ModelValidator:
                 f"Loss ({new_loss:.4f}) above maximum threshold ({max_loss})"
             )
 
+        # DSR gate (off by default — see settings.retrain_min_dsr)
+        dsr_check_passed = self._check_dsr_gate(
+            new_dsr, validation_checks, reasons
+        )
+
         # If no current model, just check minimums
         if current_metrics is None:
             logger.info("No current model - validating against minimum thresholds only")
 
-            is_valid = min_r2_check and loss_check
+            is_valid = min_r2_check and loss_check and dsr_check_passed
             should_deploy = is_valid
 
             if is_valid:
@@ -109,6 +165,7 @@ class ModelValidator:
                     "r2": new_r2,
                     "loss": new_loss,
                     "mae": new_mae,
+                    "dsr": new_dsr,
                 },
             }
 
@@ -193,6 +250,7 @@ class ModelValidator:
             min_r2_check,
             loss_check,
             mae_degradation_check,
+            dsr_check_passed,
         ])
 
         # Deployment decision
@@ -224,11 +282,13 @@ class ModelValidator:
                 "r2": new_r2,
                 "loss": new_loss,
                 "mae": new_mae,
+                "dsr": new_dsr,
             },
             "current_metrics": {
                 "r2": current_r2,
                 "loss": current_loss,
                 "mae": current_mae,
+                "dsr": current_metrics.get('test_dsr'),
             },
             "changes": {
                 "r2_change": r2_improvement,

@@ -5,7 +5,7 @@ Purpose: Centralized configuration for automated model retraining
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from typing import List, Optional
 
 
 class RetrainingSettings(BaseSettings):
@@ -104,6 +104,15 @@ class RetrainingSettings(BaseSettings):
         ge=0.0,
         le=0.5,
         description="Maximum allowed metric degradation (10% = 0.10)"
+    )
+    retrain_min_dsr: Optional[float] = Field(
+        default=None,
+        description=(
+            "Deflated Sharpe Ratio gate (0..1). When set, retrains failing "
+            "this threshold are not deployed. None disables the gate "
+            "(DSR is still recorded as informational). 0.95 = 5% significance "
+            "level after correcting for non-normality and selection bias."
+        ),
     )
 
     # Deployment Settings
