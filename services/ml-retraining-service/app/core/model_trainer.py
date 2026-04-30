@@ -49,6 +49,14 @@ class ModelTrainer:
         self.gru_units = [128, 64]  # 2-layer GRU architecture
         self.dropout_rate = 0.2
 
+        # Target mode: 'price' (legacy) or 'log_returns' (T0.1 rebuild).
+        # In log_returns mode, the model predicts log(close_{t+h}/close_{t+h-1});
+        # downstream metric paths recover predicted prices via
+        # last_close * exp(pred_log_return) so the existing returns_metrics
+        # / CPCV plumbing keeps working unchanged.
+        self.target_mode = self.settings.retrain_target_mode
+        self.target_col = "close" if self.target_mode == "price" else "log_returns"
+
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculate technical indicators from OHLCV data
@@ -258,8 +266,10 @@ class ModelTrainer:
                     f"Need at least {self.sequence_length + self.prediction_horizon + 100}"
                 )
 
-            # Step 2: Create sequences
-            X, y = self.create_sequences(data_with_features)
+            # Step 2: Create sequences (target_col flips on target_mode)
+            X, y = self.create_sequences(
+                data_with_features, target_col=self.target_col
+            )
 
             # Step 3: Split data (train/test)
             X_train, X_test, y_train, y_test = train_test_split(
@@ -375,6 +385,8 @@ class ModelTrainer:
                 "symbol": symbol,
                 "interval": interval,
                 "model_type": "GRU",
+                "target_mode": self.target_mode,
+                "target_col": self.target_col,
                 "architecture": {
                     "layers": self.gru_units,
                     "sequence_length": self.sequence_length,
@@ -424,6 +436,26 @@ class ModelTrainer:
                 }
             }
 
+    def _recover_prices(
+        self,
+        y_unscaled_first_step: np.ndarray,
+        last_close: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Translate the model's first-step target to a 1-bar-ahead price.
+
+        Price-mode targets are already prices — returned unchanged. In
+        log-returns mode, the model predicts ``log(close_{t+1}/last_close)``,
+        recovered as ``last_close * exp(pred_log_return)``. Keeps the
+        downstream returns-metrics / CPCV plumbing price-shaped regardless
+        of target_mode.
+        """
+        y_unscaled_first_step = np.asarray(y_unscaled_first_step, dtype=float)
+        if self.target_mode == "log_returns":
+            last_close = np.asarray(last_close, dtype=float)
+            return last_close * np.exp(y_unscaled_first_step)
+        return y_unscaled_first_step
+
     def _calculate_cpcv_metrics(
         self,
         model: keras.Model,
@@ -448,8 +480,10 @@ class ModelTrainer:
         T0.2-cpcv-design.md §2.
         """
         y_pred = model.predict(X, verbose=0)
-        actual_prices = self.scaler_y.inverse_transform(y)[:, 0]
-        pred_prices = self.scaler_y.inverse_transform(y_pred)[:, 0]
+        actual_unscaled = self.scaler_y.inverse_transform(y)[:, 0]
+        pred_unscaled = self.scaler_y.inverse_transform(y_pred)[:, 0]
+        actual_prices = self._recover_prices(actual_unscaled, last_close)
+        pred_prices = self._recover_prices(pred_unscaled, last_close)
 
         label_horizon = self.sequence_length + self.prediction_horizon - 1
         cpcv_metrics = evaluate_with_cpcv(
@@ -489,8 +523,10 @@ class ModelTrainer:
         References docs/strategy/research-2026-04-29/V0-FINDINGS-gru-metric-bug.md.
         """
         y_pred = model.predict(X, verbose=0)
-        actual_prices = self.scaler_y.inverse_transform(y)[:, 0]
-        pred_prices = self.scaler_y.inverse_transform(y_pred)[:, 0]
+        actual_unscaled = self.scaler_y.inverse_transform(y)[:, 0]
+        pred_unscaled = self.scaler_y.inverse_transform(y_pred)[:, 0]
+        actual_prices = self._recover_prices(actual_unscaled, last_close)
+        pred_prices = self._recover_prices(pred_unscaled, last_close)
         return compute_returns_metrics(
             actual_prices, pred_prices, last_close, dataset_name
         )

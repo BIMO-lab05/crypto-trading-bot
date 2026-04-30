@@ -114,6 +114,20 @@ class RetrainingSettings(BaseSettings):
             "level after correcting for non-normality and selection bias."
         ),
     )
+    retrain_target_mode: str = Field(
+        default="price",
+        pattern="^(price|log_returns)$",
+        description=(
+            "Training target. 'price' (default) preserves the legacy "
+            "behaviour — model predicts raw close price, R² is "
+            "autocorrelation-dominated (V0 finding c56765c). "
+            "'log_returns' targets the 1-bar log-return directly; the "
+            "T0.1 GRU rebuild uses this. Either way the on-disk artifact "
+            "shape is unchanged: scaler_y maps the chosen target to "
+            "[0,1] and the inference path recovers prices via "
+            "last_close * exp(predicted_log_return) when needed."
+        ),
+    )
 
     # Deployment Settings
     retrain_auto_deploy: bool = Field(
