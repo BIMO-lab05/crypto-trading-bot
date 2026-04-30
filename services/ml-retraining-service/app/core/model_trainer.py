@@ -6,7 +6,7 @@ Purpose: Train GRU models for price prediction with technical indicators
 import logging
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 import json
 import pickle
 
