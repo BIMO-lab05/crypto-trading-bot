@@ -50,7 +50,9 @@ class ModelTrainer:
         # Model configuration (same as current production models)
         self.sequence_length = 60  # 60 time steps (hours for 60min interval)
         self.prediction_horizon = 5  # Predict 5 hours ahead
-        self.gru_units = [128, 64]  # 2-layer GRU architecture
+        # GRU widths in order. Default [128, 64] = legacy production.
+        # T0.1 rebuild script overrides via env to [32] (single-layer).
+        self.gru_units = list(self.settings.retrain_gru_units)
         self.dropout_rate = 0.2
 
         # Target mode: 'price' (legacy) or 'log_returns' (T0.1 rebuild).
@@ -213,12 +215,15 @@ class ModelTrainer:
 
     def build_gru_model(self, input_shape: Tuple[int, int]) -> keras.Model:
         """
-        Build GRU model architecture
+        Build GRU model architecture from ``self.gru_units``.
 
-        Same architecture as current production models:
-        - 2 GRU layers (128, 64 units)
-        - Dropout for regularization
-        - Dense output layer
+        Stacks ``len(self.gru_units)`` GRU layers in order. All layers
+        except the last set ``return_sequences=True``; the last sets
+        ``return_sequences=False`` so it feeds a Dense head. Dropout is
+        applied after every GRU layer. Default ``[128, 64]`` is the
+        legacy 2-layer architecture; ``[32]`` is the T0.1 rebuild's
+        single-layer pick (smaller nets generalise better on low-SNR
+        log-return targets).
 
         Args:
             input_shape: (sequence_length, num_features)
@@ -226,33 +231,37 @@ class ModelTrainer:
         Returns:
             Compiled Keras model
         """
-        logger.info(f"Building GRU model with input shape: {input_shape}")
+        logger.info(
+            f"Building GRU model with input shape: {input_shape}, "
+            f"layers={self.gru_units}"
+        )
 
-        model = keras.Sequential([
-            # First GRU layer
-            layers.GRU(
-                self.gru_units[0],
-                return_sequences=True,
-                input_shape=input_shape
-            ),
-            layers.Dropout(self.dropout_rate),
+        n_layers = len(self.gru_units)
+        model = keras.Sequential()
+        for i, units in enumerate(self.gru_units):
+            return_sequences = (i < n_layers - 1)
+            if i == 0:
+                model.add(
+                    layers.GRU(
+                        units,
+                        return_sequences=return_sequences,
+                        input_shape=input_shape,
+                    )
+                )
+            else:
+                model.add(
+                    layers.GRU(units, return_sequences=return_sequences)
+                )
+            model.add(layers.Dropout(self.dropout_rate))
 
-            # Second GRU layer
-            layers.GRU(
-                self.gru_units[1],
-                return_sequences=False
-            ),
-            layers.Dropout(self.dropout_rate),
-
-            # Dense output layer (prediction_horizon outputs)
-            layers.Dense(self.prediction_horizon)
-        ])
+        # Dense output layer (prediction_horizon outputs)
+        model.add(layers.Dense(self.prediction_horizon))
 
         # Compile model
         model.compile(
             optimizer=keras.optimizers.Adam(learning_rate=0.001),
             loss='mse',
-            metrics=['mae']
+            metrics=['mae'],
         )
 
         logger.info(f"Model built: {model.count_params():,} parameters")

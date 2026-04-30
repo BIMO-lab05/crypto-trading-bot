@@ -3,7 +3,9 @@ ML Retraining Service Configuration
 Purpose: Centralized configuration for automated model retraining
 """
 
-from pydantic import Field
+import json
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
@@ -162,6 +164,42 @@ class RetrainingSettings(BaseSettings):
             "the V0 metric fix (commit c56765c)."
         ),
     )
+    retrain_gru_units: List[int] = Field(
+        default=[128, 64],
+        description=(
+            "GRU layer widths, in order. Default [128, 64] preserves the "
+            "production architecture. T0.1 rebuild uses [32] (single-layer) "
+            "— smaller nets generalize better on low-SNR returns. Each "
+            "entry must be a positive int; len > 0 means at least one "
+            "GRU layer; the last layer always has return_sequences=False. "
+            "Pass via env as a JSON list, e.g. RETRAIN_GRU_UNITS='[32]'."
+        ),
+    )
+
+    @field_validator("retrain_gru_units", mode="before")
+    @classmethod
+    def _parse_gru_units(cls, v):
+        # Allow JSON-list env strings: RETRAIN_GRU_UNITS='[32]' or '[128, 64]'.
+        # Pydantic-settings doesn't auto-parse list[int] from a single string.
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"retrain_gru_units must be a JSON list of ints; got {v!r}"
+                ) from e
+        if not isinstance(v, (list, tuple)) or not v:
+            raise ValueError(
+                f"retrain_gru_units must be a non-empty list of positive ints; got {v!r}"
+            )
+        out = []
+        for item in v:
+            if not isinstance(item, int) or isinstance(item, bool) or item <= 0:
+                raise ValueError(
+                    f"retrain_gru_units entries must be positive ints; got {item!r}"
+                )
+            out.append(item)
+        return out
 
     # Deployment Settings
     retrain_auto_deploy: bool = Field(
