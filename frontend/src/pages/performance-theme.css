@@ -1,0 +1,234 @@
+/*
+ * performance-theme.css
+ *
+ * Scoped aesthetic for the redesigned PerformanceDashboard page.
+ * Everything here applies under `.perf-page` so the rest of the app
+ * keeps its existing slate / cyan look. CSS variables keep the
+ * palette swappable.
+ *
+ * Direction: "Editorial Trading Floor" — warm off-black, viridian-
+ * teal gain / warm rose loss (NOT generic emerald/red), Fraunces
+ * display + Manrope body + JetBrains Mono for numbers. Asymmetric
+ * grid; hero P&L number is the visual anchor.
+ */
+
+.perf-page {
+  /* ── Palette ────────────────────────────────────────────────── */
+  --perf-bg: #0a0a0b;
+  --perf-bg-elev: #121215;
+  --perf-surface: #18181c;
+  --perf-surface-2: #1f1f24;
+  --perf-border: #2a2a32;
+  --perf-border-strong: #3a3a44;
+
+  --perf-text: #f5f3ee;     /* warm white */
+  --perf-text-2: #a09e98;
+  --perf-text-3: #65645e;
+  --perf-text-4: #3d3c38;
+
+  --perf-gain: #5eead4;     /* viridian teal */
+  --perf-gain-soft: rgba(94, 234, 212, 0.12);
+  --perf-loss: #fb7185;     /* warm rose */
+  --perf-loss-soft: rgba(251, 113, 133, 0.12);
+  --perf-gold: #d4af6a;     /* highlight (sparingly) */
+
+  --perf-grid: rgba(255, 255, 255, 0.04);
+
+  /* ── Typography ─────────────────────────────────────────────── */
+  --perf-font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --perf-font-body: 'Manrope', -apple-system, system-ui, sans-serif;
+  --perf-font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+  background: var(--perf-bg);
+  color: var(--perf-text);
+  font-family: var(--perf-font-body);
+  min-height: 100vh;
+  letter-spacing: -0.01em;
+}
+
+/* Subtle film-grain so the off-black has depth.
+   Tiny, low-impact, never animated. */
+.perf-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  background-image:
+    radial-gradient(circle at 22% 18%, rgba(212, 175, 106, 0.04) 0%, transparent 38%),
+    radial-gradient(circle at 78% 82%, rgba(94, 234, 212, 0.03) 0%, transparent 42%);
+}
+
+.perf-page > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Type styles ─────────────────────────────────────────────── */
+
+.perf-display {
+  font-family: var(--perf-font-display);
+  font-variation-settings: 'opsz' 144;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+}
+
+.perf-eyebrow {
+  font-family: var(--perf-font-body);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--perf-text-3);
+}
+
+.perf-section-title {
+  font-family: var(--perf-font-display);
+  font-variation-settings: 'opsz' 36;
+  font-weight: 500;
+  font-size: 1.875rem;
+  letter-spacing: -0.025em;
+  color: var(--perf-text);
+  line-height: 1;
+}
+
+.perf-mono {
+  font-family: var(--perf-font-mono);
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+}
+
+/* ── Surfaces ────────────────────────────────────────────────── */
+
+.perf-card {
+  background: var(--perf-surface);
+  border: 1px solid var(--perf-border);
+  border-radius: 4px;
+  position: relative;
+}
+
+.perf-card-flat {
+  background: transparent;
+  border: 1px solid var(--perf-border);
+  border-radius: 4px;
+}
+
+.perf-rule {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--perf-border-strong) 20%,
+    var(--perf-border-strong) 80%,
+    transparent
+  );
+}
+
+/* Editorial corner ticks — small typographic detail on every panel.
+   Costs nothing visually but marks the design as deliberate. */
+.perf-corner-ticks {
+  position: relative;
+}
+.perf-corner-ticks::before,
+.perf-corner-ticks::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--perf-text-3);
+  pointer-events: none;
+}
+.perf-corner-ticks::before {
+  top: -1px;
+  left: -1px;
+  border-right: none;
+  border-bottom: none;
+}
+.perf-corner-ticks::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: none;
+  border-top: none;
+}
+
+/* ── Period pill switcher ───────────────────────────────────── */
+
+.perf-pill {
+  font-family: var(--perf-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 0.4375rem 0.75rem;
+  background: transparent;
+  color: var(--perf-text-2);
+  border: none;
+  cursor: pointer;
+  border-radius: 0;
+  transition: color 120ms ease;
+}
+.perf-pill:hover {
+  color: var(--perf-text);
+}
+.perf-pill[data-active='true'] {
+  color: var(--perf-bg);
+  background: var(--perf-text);
+}
+
+/* ── Recharts overrides scoped to this page ─────────────────── */
+
+.perf-page .recharts-cartesian-grid-horizontal line,
+.perf-page .recharts-cartesian-grid-vertical line {
+  stroke: var(--perf-grid);
+}
+.perf-page .recharts-cartesian-axis-tick-value {
+  fill: var(--perf-text-3);
+  font-family: var(--perf-font-mono);
+  font-size: 11px;
+}
+.perf-page .recharts-tooltip-wrapper {
+  outline: none;
+}
+
+/* ── Microinteractions ──────────────────────────────────────── */
+
+@keyframes perfReveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.perf-reveal {
+  animation: perfReveal 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.perf-reveal-1 { animation-delay: 40ms; }
+.perf-reveal-2 { animation-delay: 120ms; }
+.perf-reveal-3 { animation-delay: 200ms; }
+.perf-reveal-4 { animation-delay: 280ms; }
+.perf-reveal-5 { animation-delay: 360ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .perf-reveal { animation: none; }
+}
+
+/* Skeleton shimmer for loading states */
+@keyframes perfShimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.perf-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--perf-surface) 25%,
+    var(--perf-surface-2) 50%,
+    var(--perf-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: perfShimmer 1.6s infinite;
+  border-radius: 2px;
+}
+
+/* ── Accent text colors ─────────────────────────────────────── */
+
+.perf-text-gain { color: var(--perf-gain); }
+.perf-text-loss { color: var(--perf-loss); }
+.perf-text-dim  { color: var(--perf-text-3); }
+.perf-text-soft { color: var(--perf-text-2); }
