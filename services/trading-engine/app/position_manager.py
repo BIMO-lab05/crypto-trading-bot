@@ -312,16 +312,30 @@ class PositionManager:
                 )
             )
 
-            # Update portfolio with realized P&L (2025-12-18 FIX)
-            # Calculate total realized P&L from all closed positions
+            # Update portfolio realized P&L only (2025-12-18 FIX, refixed 2026-05-01).
+            # Audit 2026-05-01 found this branch was passing the literal
+            # cash_balance=Decimal("100.00") on every close — overwriting the
+            # portfolio's true cash balance to $100 each time a position closed,
+            # corrupting the DB row that the paper engine reconciles against on
+            # restart. The right owner of cash is PaperTradingEngine; the close
+            # path here only knows realized PnL. Read current cash from the
+            # paper engine and pass it through, so the DB stays consistent.
             total_realized_pnl = self.get_total_realized_pnl()
-            asyncio.create_task(
-                self.portfolio_repo.update_balance(
-                    portfolio_id="paper_trading",
-                    cash_balance=Decimal("100.00"),  # Will be updated properly by paper trading
-                    realized_pnl=total_realized_pnl
+            try:
+                from app.paper_trading import get_paper_engine
+                _cash_now = get_paper_engine().get_balance()
+            except Exception:
+                # Best-effort: if the engine isn't available, skip the cash
+                # write rather than overwrite with a garbage constant.
+                _cash_now = None
+            if _cash_now is not None:
+                asyncio.create_task(
+                    self.portfolio_repo.update_balance(
+                        portfolio_id="paper_trading",
+                        cash_balance=_cash_now,
+                        realized_pnl=total_realized_pnl,
+                    )
                 )
-            )
             logger.info(f"Portfolio updated: total realized P&L = ${total_realized_pnl}")
         except Exception as e:
             logger.warning(f"Failed to close position in database: {e}")

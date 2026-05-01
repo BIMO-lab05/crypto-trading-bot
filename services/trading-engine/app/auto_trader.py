@@ -1929,16 +1929,28 @@ class AutoTrader:
                 trading_engine = get_paper_engine()
 
             # Create market order to close position immediately
+            # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`
+            # — passing order_type would raise pydantic ValidationError on every
+            # max-hold-time forced close. Also: paper/live engines expose
+            # execute_market_order, not place_order — calling place_order would
+            # raise AttributeError immediately after the ValidationError. Both
+            # bugs were dead-on-first-invocation, so the max-hold force-close
+            # path has never executed since 2026-01-16.
             exit_order = OrderCreate(
                 symbol=position.symbol,
                 side=OrderSide.SELL if exit_action == "SELL" else OrderSide.BUY,
-                order_type=OrderType.MARKET,
+                type=OrderType.MARKET,
                 quantity=position.quantity,
-                position_id=position.position_id
+                position_id=position.id,
+                reduce_only=True,
             )
 
             # Execute force close
-            executed_order = await trading_engine.place_order(exit_order)
+            executed_order, exec_err = await trading_engine.execute_market_order(
+                exit_order, Decimal(str(current_price))
+            )
+            if exec_err:
+                logger.warning(f"[MAX_HOLD] execute error for {position.symbol}: {exec_err}")
 
             if executed_order and executed_order.status == OrderStatus.FILLED:
                 # Update position manager
@@ -2332,7 +2344,18 @@ class AutoTrader:
 
             # Send trade close notification (2025-12-01)
             try:
-                side = "SELL" if position.side == "BUY" else "BUY"  # Closing is opposite side
+                # FIX (audit 2026-05-01): position.side is the app.models
+                # PositionSide enum (LONG/SHORT), never the string "BUY".
+                # Previously the close side always evaluated to "BUY" — every
+                # close notification showed action=BUY even for LONG closes.
+                # Compare via .value rather than the enum because this file
+                # imports a *different* PositionSide from atr_trailing_stop
+                # (lowercase values) at the top, shadowing the right one.
+                _pos_side_str = (
+                    position.side.value if hasattr(position.side, "value")
+                    else str(position.side)
+                ).upper()
+                side = "SELL" if _pos_side_str == "LONG" else "BUY"
                 await self.notification_client.notify_trade_close(
                     symbol=position.symbol,
                     action=side,
@@ -2422,10 +2445,11 @@ class AutoTrader:
                     trading_engine = get_paper_engine()
 
                 # Create limit order (IOC = Immediate or Cancel)
+                # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`.
                 limit_order = OrderCreate(
                     symbol=position.symbol,
                     side=exit_side,
-                    order_type=OrderType.LIMIT,
+                    type=OrderType.LIMIT,
                     price=Decimal(str(limit_price)),
                     quantity=position.quantity,
                     time_in_force=TimeInForce.IOC if hasattr(TimeInForce, 'IOC') else None,
@@ -2490,10 +2514,11 @@ class AutoTrader:
             )
 
             # Create market order as fallback
+            # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`.
             market_order = OrderCreate(
                 symbol=position.symbol,
                 side=exit_side,
-                order_type=OrderType.MARKET,
+                type=OrderType.MARKET,
                 quantity=position.quantity,
                 reduce_only=True,
                 position_id=position.id
@@ -2722,8 +2747,16 @@ class AutoTrader:
             logger.info(f"  Deviation: {safety_order.deviation_pct:.2f}%")
             logger.info("=" * 70)
 
-            # Execute the safety order
-            side = OrderSide.BUY if position.side == "BUY" else OrderSide.SELL
+            # Execute the safety order.
+            # FIX (audit 2026-05-01): position.side is app.models PositionSide
+            # (LONG/SHORT). Comparing to "BUY" was always False, so the DCA
+            # safety order would always SELL — adding to a SHORT averages
+            # correctly but inverts the LONG case. Compare on LONG/SHORT.
+            _pos_side_str = (
+                position.side.value if hasattr(position.side, "value")
+                else str(position.side)
+            ).upper()
+            side = OrderSide.BUY if _pos_side_str == "LONG" else OrderSide.SELL
 
             order = OrderCreate(
                 symbol=position.symbol,

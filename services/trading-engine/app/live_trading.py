@@ -135,12 +135,19 @@ class LiveTradingEngine:
             Tuple of (executed_order, error_message)
         """
         try:
-            # Risk check first
-            if not self.risk_manager.can_open_position(
-                order.symbol,
-                current_price * order.quantity
-            ):
-                error = "Risk manager rejected: exposure limit reached"
+            # Risk check first.
+            # FIX (audit 2026-05-01): RiskManager has no can_open_position
+            # method — calling this in LIVE mode raised AttributeError before
+            # an order was ever placed, so LIVE has been silently broken at
+            # this gate. The existing API is check_position_limits(positions,
+            # balance), so wire that.
+            open_positions = self.position_manager.get_open_positions()
+            balance_for_check = await self.get_balance()
+            allowed, reason = self.risk_manager.check_position_limits(
+                open_positions, balance_for_check
+            )
+            if not allowed:
+                error = f"Risk manager rejected: {reason}"
                 logger.warning(f"[LIVE] {error}")
                 return None, error
 
@@ -287,10 +294,16 @@ class LiveTradingEngine:
         Falls back to `execute_market_order` immediately if the orderbook is
         unreachable — better to take liquidity than to silently skip a signal.
         """
-        if not self.risk_manager.can_open_position(
-            order.symbol, current_price * order.quantity
-        ):
-            return None, "Risk manager rejected: exposure limit reached"
+        # FIX (audit 2026-05-01): same broken can_open_position call as in
+        # execute_market_order — replaced with the real check_position_limits
+        # so the maker entry path doesn't raise AttributeError.
+        open_positions = self.position_manager.get_open_positions()
+        balance_for_check = await self.get_balance()
+        allowed, reason = self.risk_manager.check_position_limits(
+            open_positions, balance_for_check
+        )
+        if not allowed:
+            return None, f"Risk manager rejected: {reason}"
 
         quote = await self._get_best_quote(order.symbol)
         if quote is None:
