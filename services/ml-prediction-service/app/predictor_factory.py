@@ -86,8 +86,18 @@ class ModelComparator:
         self.symbol = symbol
         self.interval = interval
 
-        # Create both predictors
-        self.lstm_predictor = LSTMPricePredictor(symbol, interval)
+        # GRU is always created (live model). LSTM is gated on artifact presence
+        # because the LSTM class is being phased out (replaced by GRU late 2025).
+        # Without an existing .keras artifact there's no point loading LSTM.
+        import os
+        lstm_path = f"models/{symbol}_{interval}m_lstm.keras"
+        if os.path.exists(lstm_path):
+            self.lstm_predictor = LSTMPricePredictor(symbol, interval)
+        else:
+            logger.info(
+                f"No LSTM artifact at {lstm_path}; LSTM comparison disabled for {symbol}"
+            )
+            self.lstm_predictor = None
         self.gru_predictor = GRUPricePredictor(symbol, interval)
 
     async def compare_predictions(
@@ -113,8 +123,8 @@ class ModelComparator:
                 'comparison': {}
             }
 
-            # Get LSTM prediction if model exists
-            if self.lstm_predictor.model is not None:
+            # Get LSTM prediction if predictor was loaded and model exists
+            if self.lstm_predictor is not None and self.lstm_predictor.model is not None:
                 try:
                     lstm_pred = await self.lstm_predictor.predict(recent_data)
                     results['lstm'] = {
