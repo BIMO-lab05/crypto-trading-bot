@@ -1,9 +1,20 @@
 """Tests for predictor_factory gating + LSTM removal migration."""
 
+import pytest
 
-from app.predictor_factory import ModelComparator
+from app.predictor_factory import ModelComparator, PredictorFactory
 from app.predictor import LSTMPricePredictor
 from app.ml_models.gru_model import GRUPricePredictor
+
+
+class TestPredictorFactoryRejectsLSTM:
+    def test_create_predictor_rejects_lstm(self):
+        with pytest.raises(ValueError, match="LSTM model type is no longer supported"):
+            PredictorFactory.create_predictor("LSTM", "SOLUSDT", "60")
+
+    def test_get_supported_models_excludes_lstm(self):
+        assert "LSTM" not in PredictorFactory.get_supported_models()
+        assert "GRU" in PredictorFactory.get_supported_models()
 
 
 class TestModelComparatorLSTMGating:

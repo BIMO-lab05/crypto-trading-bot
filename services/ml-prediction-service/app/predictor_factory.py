@@ -48,18 +48,19 @@ class PredictorFactory:
         model_type = model_type.upper()
 
         if model_type == 'LSTM':
-            logger.info(f"Creating LSTM predictor for {symbol} {interval}m")
-            return LSTMPricePredictor(symbol, interval)
+            raise ValueError(
+                "LSTM model type is no longer supported; use GRU"
+            )
         elif model_type == 'GRU':
             logger.info(f"Creating GRU predictor for {symbol} {interval}m")
             return GRUPricePredictor(symbol, interval)
         else:
-            raise ValueError(f"Unsupported model type: {model_type}. Use 'LSTM' or 'GRU'")
+            raise ValueError(f"Unsupported model type: {model_type}. Use 'GRU'")
 
     @staticmethod
     def get_supported_models() -> List[str]:
         """Get list of supported model types"""
-        return ['LSTM', 'GRU']
+        return ['GRU']
 
 
 class ModelComparator:
