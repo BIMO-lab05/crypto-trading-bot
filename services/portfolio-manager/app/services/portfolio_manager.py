@@ -294,10 +294,29 @@ class PortfolioManager:
         if not portfolio:
             return []
 
+        # FIX: hold_duration was computed from `asset.last_updated`, but
+        # `last_updated` is rewritten on every price tick (see
+        # Asset.update_valuation), so the value collapsed to ~0 days
+        # immediately after the first price refresh. Compute it from the
+        # earliest BUY in the transaction history for this symbol instead.
+        history = self.transaction_history.get(portfolio_id, [])
+        first_buy_ts: Dict[str, int] = {}
+        for txn in history:
+            if txn.action != "BUY":
+                continue
+            existing = first_buy_ts.get(txn.symbol)
+            if existing is None or txn.timestamp < existing:
+                first_buy_ts[txn.symbol] = txn.timestamp
+
+        now_ms = int(datetime.now().timestamp() * 1000)
         performances = []
         for asset in portfolio.assets.values():
-            # Calculate hold duration
-            hold_duration = (datetime.now().timestamp() * 1000 - asset.last_updated) / (1000 * 60 * 60 * 24)
+            # Fall back to last_updated when there is no BUY history for the
+            # symbol (e.g. asset injected via sync_with_trading_engine).
+            acquired_ms = first_buy_ts.get(asset.symbol, asset.last_updated)
+            hold_duration = (now_ms - acquired_ms) / (1000 * 60 * 60 * 24)
+            if hold_duration < 0:
+                hold_duration = 0
 
             perf = AssetPerformance(
                 symbol=asset.symbol,

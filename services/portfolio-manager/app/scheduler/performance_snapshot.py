@@ -270,11 +270,16 @@ class PerformanceSnapshotScheduler:
         metrics = calculator.calculate_metrics(portfolio)
 
         # Calculate portfolio values
+        # FIX: Portfolio has `assets: Dict[str, Asset]`, not `holdings`.
+        # The previous code referenced `portfolio.holdings` which does not exist
+        # on the Portfolio model (see app/models/portfolio.py) — every call
+        # AttributeError'd inside the scheduler's try/except, so daily and
+        # manual snapshots have never written a real row.
         total_value = portfolio.cash_balance
         positions_value = Decimal("0")
 
-        for holding in portfolio.holdings:
-            position_value = holding.quantity * holding.current_price
+        for asset in portfolio.assets.values():
+            position_value = asset.quantity * asset.current_price
             positions_value += position_value
             total_value += position_value
 
