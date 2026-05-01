@@ -634,3 +634,46 @@ unchanged):**
 1. Wire CPCV into ml-retraining-service (evaluation-time, no retraining loop).
 2. GRU rebuild on returns target with DSR > 0.95 acceptance gate.
 3. Forward-paper-test the three new opt-in features (vol parity, maker, funding).
+
+---
+
+## 2026-05-01 — Slack + LSTM-removal + lifespan refactor
+
+Three independent refactors driven by graphify audit findings (god-node analysis,
+unused-config grep, fat-startup detection). Plan:
+`/home/moha/.claude/plans/virtual-watching-sparrow.md`. All TDD; tests green at
+each commit.
+
+| Section | Concern | Commits |
+|---|---|---|
+| A: Slack bot-token + per-severity routing | `notification-service` had `slack_bot_token` config field but webhook-only sender. Added `chat.postMessage` branch + AlertManager routes by `AlertSeverity` to `#bimo-{critical,alerts,performance}`. | `6b79f52`, `1f53c33`, `4196fb6` |
+| B: LSTM removal | `LSTMPricePredictor` was the #1 god-node (734 edges). GRU replaced it late 2025; B migrated 9 live importers, deleted the class file + 3 training scripts + LSTM-only tests, archived `.keras` artifacts under `_archive_lstm/` for rollback safety. | `25ca9ab`, `1d616fc`, `69e48b2`, `4f18548`, `ace3582`, `9a0f584`, `f24fd72`, `324e162` |
+| C: trading-engine lifespan refactor | 200-line `lifespan()` in `services/trading-engine/app/main.py` did 47 init steps across 4 phases. Split into composed `@asynccontextmanager`s under `app/lifespan/{data,ml,strategy,risk}.py`. cm-stack semantics give correct teardown order automatically. Auto-trader gate stays outside the four phases. | `1389dc3` |
+
+**Tests:** notification-service 7 pass (4 new in `test_slack_client.py`),
+ml-prediction-service factory 5 pass, trading-engine `test_lifespan.py` 4 pass
+(exit order, package exports, main integration, source-level guard).
+`tests/test_main.py` baseline was 17 fails; post-refactor is 16 fails (net +1
+fixed, 0 regressions). Remaining fails patch `app.main.get_risk_manager` /
+`get_phase1_metrics` — symbols never present in `main.py`, pre-existing.
+
+**Backward-compat in main.py:** kept `db_manager`, `get_aggregator`,
+`get_portfolio_repository`, `get_paper_engine` re-exports with `# noqa: F401`
+so existing tests that monkeypatch `app.main.<symbol>` keep working without
+churn. Autoflake will strip them otherwise.
+
+**Project rules honored:** 2% per-trade and 5% daily-loss caps unchanged;
+Kelly fractions and correlation thresholds unchanged; SOL/BNB/ADA whitelist
+unchanged; `BYBIT_TESTNET` and `PAPER_TRADING_MODE` flags untouched.
+
+**Deferred (require docker — explicit user constraint this session):**
+- A4: live `/api/v1/test/slack` smoke (HTTP 200 + actual `#bimo-alerts`
+  message + `notifications` row inserted) — needs `docker compose up
+  notification-service` with real `SLACK_BOT_TOKEN`.
+- End-to-end verification block (Slack live, LSTM rejection in container,
+  trading-engine restart cycle showing `init_data: enter` → `init_risk: exit`
+  in logs, symbol whitelist audit) — `docker-compose.unified.yml` rebuild +
+  curl sweep. Plan section "End-to-end verification" lists exact commands.
+
+**Local install side-effects:** `pip install --user --break-system-packages
+tensorflow-cpu==2.16.1 respx aiohttp` to run B/C tests outside docker.
