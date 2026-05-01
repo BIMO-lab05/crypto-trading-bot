@@ -50,8 +50,8 @@ class SlackClient(BaseChannel):
             logger.warning("Slack enabled but webhook URL not configured")
 
     def is_enabled(self) -> bool:
-        """Check if Slack is enabled and configured"""
-        return self.enabled and bool(self.webhook_url)
+        """Check if Slack is enabled and configured (webhook OR bot-token)."""
+        return self.enabled and (bool(self.webhook_url) or bool(self.bot_token))
 
     async def send(
         self,
@@ -89,7 +89,60 @@ class SlackClient(BaseChannel):
         color = metadata.get("color", "#3498db")
         emoji = metadata.get("emoji", ":robot_face:")
 
-        # Build payload
+        # Bot-token path: chat.postMessage (allows per-event channel routing).
+        # Webhook is locked to one channel; bot token is required for #bimo-trades
+        # vs #bimo-alerts vs #bimo-performance routing.
+        if self.bot_token:
+            text = f"*{title}*\n{message}" if title else message
+            api_payload: Dict[str, Any] = {
+                "channel": channel,
+                "text": text,
+            }
+            if blocks:
+                api_payload["blocks"] = blocks
+            if thread_key and thread_key in self._thread_ts:
+                api_payload["thread_ts"] = self._thread_ts[thread_key]
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(
+                        "https://slack.com/api/chat.postMessage",
+                        headers={"Authorization": f"Bearer {self.bot_token}"},
+                        json=api_payload,
+                    )
+                    data = response.json()
+                    if response.status_code == 200 and data.get("ok"):
+                        if thread_key and "ts" in data:
+                            self._thread_ts[thread_key] = data["ts"]
+                        logger.info(f"Slack chat.postMessage delivered to {channel}")
+                        return ChannelResult(
+                            success=True,
+                            channel=self.name,
+                            message_id=data.get("ts"),
+                            metadata={"channel": channel},
+                        )
+                    err = data.get("error") or f"HTTP {response.status_code}"
+                    logger.error(f"Slack chat.postMessage failed: {err}")
+                    return ChannelResult(
+                        success=False,
+                        channel=self.name,
+                        error_message=err,
+                    )
+            except httpx.TimeoutException:
+                logger.error("Slack chat.postMessage timed out")
+                return ChannelResult(
+                    success=False,
+                    channel=self.name,
+                    error_message="Request timed out",
+                )
+            except Exception as e:
+                logger.error(f"Slack chat.postMessage exception: {e}")
+                return ChannelResult(
+                    success=False,
+                    channel=self.name,
+                    error_message=str(e),
+                )
+
+        # Webhook fallback (single-channel)
         payload: Dict[str, Any] = {
             "channel": channel,
             "icon_emoji": emoji,
