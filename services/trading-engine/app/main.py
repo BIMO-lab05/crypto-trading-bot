@@ -111,6 +111,11 @@ from app.handlers import (
     # Advanced Performance Metrics Router (Phase 5.2)
     analytics_router,
     analytics_report_router,
+    # Performance Dashboard Router (Phase 5.3) — equity-curve, drawdown,
+    # returns-distribution, correlations, statistics endpoints used by the
+    # Performance frontend page. Was defined but never mounted; added
+    # 2026-05-01 alongside gateway proxy routes.
+    performance_dashboard_router,
 )
 
 # Import SQZMOM strategy (NEW)
@@ -556,6 +561,13 @@ app.include_router(attribution_router)
 # Include Advanced Performance Metrics router (Phase 5.2)
 app.include_router(analytics_router)
 app.include_router(analytics_report_router)
+
+# Include Performance Dashboard router (Phase 5.3). Provides
+# /api/v1/trading/{equity-curve,drawdown,returns-distribution,
+# correlations,statistics} consumed by the frontend Performance page.
+# Was defined in handlers/performance_dashboard.py but never mounted —
+# same shape as the orchestration-router fix in commit 4a158e2.
+app.include_router(performance_dashboard_router)
 
 
 # ============================================================================

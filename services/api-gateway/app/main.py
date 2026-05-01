@@ -1037,6 +1037,105 @@ async def get_trading_trades_history(limit: int = 50):
 
 
 # ============================================================================
+# PERFORMANCE DASHBOARD ENDPOINTS — proxy to trading-engine
+# /api/v1/trading/* (handlers/performance_dashboard.py, Phase 5.3)
+#
+# These routes were what the frontend's analyticsAPI expected; the
+# downstream handlers existed but the router wasn't mounted in
+# trading-engine main.py. Both fixes ship 2026-05-01.
+# ============================================================================
+
+_VALID_PERIODS = {"1d", "7d", "30d", "90d", "all"}
+
+
+def _validate_period(period: str) -> str:
+    if period not in _VALID_PERIODS:
+        raise ValidationError(
+            field="period",
+            message=f"period must be one of {sorted(_VALID_PERIODS)}",
+            value=period,
+        )
+    return period
+
+
+@app.get("/api/trading/equity-curve")
+async def get_trading_equity_curve(period: str = "30d", interval: str = "1h"):
+    """Equity curve points for the Performance dashboard chart."""
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/trading/equity-curve",
+        method="GET",
+        query_params={"period": _validate_period(period), "interval": interval},
+    )
+
+
+@app.get("/api/trading/drawdown")
+async def get_trading_drawdown(period: str = "30d"):
+    """Drawdown series (peak-to-trough) for the Performance dashboard."""
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/trading/drawdown",
+        method="GET",
+        query_params={"period": _validate_period(period)},
+    )
+
+
+@app.get("/api/trading/returns-distribution")
+async def get_trading_returns_distribution(period: str = "30d", bins: int = 20):
+    """Returns histogram + summary stats (mean/std/skew/kurt)."""
+    if not (5 <= bins <= 100):
+        raise ValidationError(
+            field="bins", message="bins must be in [5, 100]", value=bins
+        )
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/trading/returns-distribution",
+        method="GET",
+        query_params={"period": _validate_period(period), "bins": bins},
+    )
+
+
+@app.get("/api/trading/correlations")
+async def get_trading_correlations(period: str = "30d", symbols: str | None = None):
+    """Asset return correlation matrix. ``symbols`` is a comma-separated list."""
+    qp = {"period": _validate_period(period)}
+    if symbols:
+        # Light validation: comma-separated, alnum + USDT pattern enforced by
+        # the downstream service's input_validation. Defend against absurd
+        # length here so we don't proxy a megabyte query string.
+        if len(symbols) > 512:
+            raise ValidationError(
+                field="symbols", message="symbols list too long", value=len(symbols)
+            )
+        qp["symbols"] = symbols
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/trading/correlations",
+        method="GET",
+        query_params=qp,
+    )
+
+
+@app.get("/api/trading/statistics")
+async def get_trading_statistics(period: str = "30d", symbol: str | None = None):
+    """Detailed trade statistics (win rate, profit factor, expectancy, ...)."""
+    qp = {"period": _validate_period(period)}
+    if symbol:
+        qp["symbol"] = symbol
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/trading/statistics",
+        method="GET",
+        query_params=qp,
+    )
+
+
+# ============================================================================
 # PHASE 1 MONITORING ENDPOINTS
 # ============================================================================
 
