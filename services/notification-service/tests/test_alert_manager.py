@@ -747,3 +747,43 @@ class TestEdgeCases:
                                     assert "telegram" in response.channels_sent
                                     assert "slack" in response.channels_sent
                                     assert "email" in response.channels_failed
+
+
+# ========================================
+# Slack severity routing tests (Task A3)
+# ========================================
+
+class TestSlackSeverityRouting:
+    """Verify _send_to_channel routes Slack alerts to per-severity channels."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("severity,attr_name", [
+        (AlertSeverity.CRITICAL, "slack_channel_critical"),
+        (AlertSeverity.HIGH, "slack_channel_alerts"),
+        (AlertSeverity.MEDIUM, "slack_channel_alerts"),
+        (AlertSeverity.LOW, "slack_channel_performance"),
+        (AlertSeverity.INFO, "slack_channel_performance"),
+    ])
+    async def test_slack_channel_resolves_from_severity(
+        self, alert_manager, severity, attr_name
+    ):
+        expected = getattr(_config, attr_name)
+        alert_manager._channels["slack"].send_with_retry = AsyncMock(
+            return_value=ChannelResult(success=True, channel="slack")
+        )
+        alert = Alert(
+            id=str(uuid.uuid4()),
+            alert_type=AlertType.TRADE,
+            severity=severity,
+            title="t",
+            message="m",
+            source="test",
+        )
+
+        await alert_manager._send_to_channel(alert, "slack")
+
+        called_metadata = alert_manager._channels["slack"].send_with_retry.call_args.kwargs.get(
+            "metadata"
+        )
+        assert called_metadata is not None
+        assert called_metadata["channel"] == expected

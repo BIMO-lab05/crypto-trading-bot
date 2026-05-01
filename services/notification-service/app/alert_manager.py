@@ -6,19 +6,29 @@ Central orchestration for multi-channel alert routing, delivery, and tracking
 import logging
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 from collections import defaultdict
 import uuid
 
 from .config import config, AlertSeverity, AlertType, NotificationChannel
 from .models import (
-    Alert, AlertCreate, AlertBatch, AlertResponse, AlertHistory,
-    AlertStats, ChannelStatus, DeliveryStatus
+    Alert,
+    AlertCreate,
+    AlertBatch,
+    AlertResponse,
+    AlertHistory,
+    AlertStats,
+    ChannelStatus,
+    DeliveryStatus,
 )
-from .alert_rules import alert_rules_engine, SuppressionResult
+from .alert_rules import alert_rules_engine
 from .channels import (
-    TelegramClient, EmailClient, SlackClient, SMSClient,
-    BaseChannel, ChannelResult
+    TelegramClient,
+    EmailClient,
+    SlackClient,
+    SMSClient,
+    BaseChannel,
+    ChannelResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,10 +113,12 @@ class AlertManager:
             message=alert_create.message,
             source=alert_create.source,
             metadata=alert_create.metadata,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
 
-        logger.info(f"Processing alert: {alert.id} - {alert.severity.value} - {alert.title}")
+        logger.info(
+            f"Processing alert: {alert.id} - {alert.severity.value} - {alert.title}"
+        )
 
         # Check suppression rules
         suppression = alert_rules_engine.should_suppress(alert)
@@ -117,7 +129,7 @@ class AlertManager:
                 alert_id=alert.id,
                 message="Alert suppressed",
                 suppressed=True,
-                suppression_reason=suppression.reason
+                suppression_reason=suppression.reason,
             )
 
         # Determine channels
@@ -127,24 +139,18 @@ class AlertManager:
             channels = config.get_channels_for_severity(alert.severity)
 
         # Filter to enabled channels
-        enabled_channels = [
-            ch for ch in channels
-            if config.is_channel_enabled(ch)
-        ]
+        enabled_channels = [ch for ch in channels if config.is_channel_enabled(ch)]
 
         if not enabled_channels:
             logger.warning(f"No enabled channels for alert {alert.id}")
             return AlertResponse(
                 success=False,
                 alert_id=alert.id,
-                message="No enabled channels available"
+                message="No enabled channels available",
             )
 
         # Check if this should be batched (LOW priority email)
-        if (
-            alert.severity == AlertSeverity.LOW and
-            enabled_channels == ["email"]
-        ):
+        if alert.severity == AlertSeverity.LOW and enabled_channels == ["email"]:
             return await self._add_to_batch(alert)
 
         # Send to channels
@@ -182,7 +188,7 @@ class AlertManager:
             alert_id=alert.id,
             message="Alert sent" if success else "Alert delivery failed",
             channels_sent=channels_sent,
-            channels_failed=channels_failed
+            channels_failed=channels_failed,
         )
 
     async def send_batch(self, batch: AlertBatch) -> List[AlertResponse]:
@@ -201,11 +207,7 @@ class AlertManager:
             responses.append(response)
         return responses
 
-    async def _send_to_channel(
-        self,
-        alert: Alert,
-        channel_name: str
-    ) -> ChannelResult:
+    async def _send_to_channel(self, alert: Alert, channel_name: str) -> ChannelResult:
         """
         Send alert to a specific channel
 
@@ -221,7 +223,7 @@ class AlertManager:
             return ChannelResult(
                 success=False,
                 channel=channel_name,
-                error_message=f"Unknown channel: {channel_name}"
+                error_message=f"Unknown channel: {channel_name}",
             )
 
         # Prepare metadata for channel
@@ -230,20 +232,30 @@ class AlertManager:
         metadata["alert_type"] = alert.alert_type.value
         metadata["source"] = alert.source
 
+        # Per-severity Slack channel routing. Webhook is single-channel by design;
+        # this only takes effect when slack_bot_token is configured (chat.postMessage).
+        if channel_name == "slack" and "channel" not in metadata:
+            severity_to_channel = {
+                AlertSeverity.CRITICAL: config.slack_channel_critical,
+                AlertSeverity.HIGH: config.slack_channel_alerts,
+                AlertSeverity.MEDIUM: config.slack_channel_alerts,
+                AlertSeverity.LOW: config.slack_channel_performance,
+                AlertSeverity.INFO: config.slack_channel_performance,
+            }
+            metadata["channel"] = severity_to_channel.get(
+                alert.severity, config.slack_channel_alerts
+            )
+
         try:
             result = await channel.send_with_retry(
-                message=alert.message,
-                title=alert.title,
-                metadata=metadata
+                message=alert.message, title=alert.title, metadata=metadata
             )
             return result
 
         except Exception as e:
             logger.error(f"Error sending to {channel_name}: {e}")
             return ChannelResult(
-                success=False,
-                channel=channel_name,
-                error_message=str(e)
+                success=False, channel=channel_name, error_message=str(e)
             )
 
     async def _add_to_batch(self, alert: Alert) -> AlertResponse:
@@ -260,14 +272,16 @@ class AlertManager:
         alert.delivery_statuses["email"] = DeliveryStatus.BATCHED
         self._alerts[alert.id] = alert
 
-        logger.debug(f"Alert {alert.id} added to batch queue. Queue size: {len(self._batch_queue)}")
+        logger.debug(
+            f"Alert {alert.id} added to batch queue. Queue size: {len(self._batch_queue)}"
+        )
 
         return AlertResponse(
             success=True,
             alert_id=alert.id,
             message="Alert queued for batch delivery",
             channels_sent=[],
-            channels_failed=[]
+            channels_failed=[],
         )
 
     async def _process_batch_queue(self):
@@ -277,7 +291,9 @@ class AlertManager:
                 await asyncio.sleep(config.email_batch_interval)
 
                 if self._batch_queue:
-                    logger.info(f"Processing batch queue: {len(self._batch_queue)} alerts")
+                    logger.info(
+                        f"Processing batch queue: {len(self._batch_queue)} alerts"
+                    )
                     await self._send_batch_digest()
 
             except asyncio.CancelledError:
@@ -305,7 +321,7 @@ class AlertManager:
         result = await self._email.send(
             message=digest_message,
             title=f"Alert Digest ({len(alerts)} alerts)",
-            metadata={"html": False}
+            metadata={"html": False},
         )
 
         # Update alert statuses
@@ -313,23 +329,22 @@ class AlertManager:
         for alert in alerts:
             alert.delivery_statuses["email"] = status
 
-        logger.info(f"Batch digest sent: {len(alerts)} alerts, success={result.success}")
+        logger.info(
+            f"Batch digest sent: {len(alerts)} alerts, success={result.success}"
+        )
 
-    def _record_history(
-        self,
-        alert_id: str,
-        channel: str,
-        result: ChannelResult
-    ):
+    def _record_history(self, alert_id: str, channel: str, result: ChannelResult):
         """Record delivery attempt in history"""
         history = AlertHistory(
             alert_id=alert_id,
             channel=channel,
             sent_at=datetime.utcnow(),
-            status=DeliveryStatus.DELIVERED if result.success else DeliveryStatus.FAILED,
+            status=DeliveryStatus.DELIVERED
+            if result.success
+            else DeliveryStatus.FAILED,
             delivery_time_ms=result.delivery_time_ms,
             error_message=result.error_message,
-            retry_count=result.retry_count
+            retry_count=result.retry_count,
         )
         self._alert_history.append(history)
 
@@ -351,7 +366,7 @@ class AlertManager:
         offset: int = 0,
         severity: Optional[AlertSeverity] = None,
         alert_type: Optional[AlertType] = None,
-        acknowledged: Optional[bool] = None
+        acknowledged: Optional[bool] = None,
     ) -> List[Alert]:
         """
         Get alerts with filtering
@@ -380,24 +395,18 @@ class AlertManager:
         alerts.sort(key=lambda a: a.created_at, reverse=True)
 
         # Apply pagination
-        return alerts[offset:offset + limit]
+        return alerts[offset : offset + limit]
 
     def get_active_alerts(self) -> List[Alert]:
         """Get unacknowledged alerts"""
-        return [
-            a for a in self._alerts.values()
-            if not a.is_acknowledged
-        ]
+        return [a for a in self._alerts.values() if not a.is_acknowledged]
 
     # ========================================
     # Alert Acknowledgment
     # ========================================
 
     def acknowledge_alert(
-        self,
-        alert_id: str,
-        acknowledged_by: str,
-        notes: Optional[str] = None
+        self, alert_id: str, acknowledged_by: str, notes: Optional[str] = None
     ) -> bool:
         """
         Acknowledge an alert
@@ -436,7 +445,7 @@ class AlertManager:
                 channel=NotificationChannel(channel_name),
                 enabled=False,
                 healthy=False,
-                error_message="Unknown channel"
+                error_message="Unknown channel",
             )
 
         is_healthy = await channel.health_check()
@@ -450,7 +459,7 @@ class AlertManager:
             messages_sent_today=health_data.get("total_sent", 0),
             failures_today=health_data.get("total_failed", 0),
             rate_limit_remaining=health_data.get("rate_limit_remaining", 0),
-            error_message=None if is_healthy else "Health check failed"
+            error_message=None if is_healthy else "Health check failed",
         )
 
     async def get_all_channel_status(self) -> Dict[str, ChannelStatus]:
@@ -473,33 +482,26 @@ class AlertManager:
         channel = self._channels.get(channel_name)
         if not channel:
             return ChannelResult(
-                success=False,
-                channel=channel_name,
-                error_message="Unknown channel"
+                success=False, channel=channel_name, error_message="Unknown channel"
             )
 
         if not channel.is_enabled():
             return ChannelResult(
-                success=False,
-                channel=channel_name,
-                error_message="Channel not enabled"
+                success=False, channel=channel_name, error_message="Channel not enabled"
             )
 
         return await channel.send_with_retry(
             message="This is a test notification from your Trading Bot. "
-                    "If you receive this, the channel is working correctly!",
+            "If you receive this, the channel is working correctly!",
             title="Test Notification",
-            metadata={"is_test": True}
+            metadata={"is_test": True},
         )
 
     # ========================================
     # Statistics
     # ========================================
 
-    def get_stats(
-        self,
-        period_hours: int = 24
-    ) -> AlertStats:
+    def get_stats(self, period_hours: int = 24) -> AlertStats:
         """
         Get alert statistics
 
@@ -512,10 +514,7 @@ class AlertManager:
         cutoff = datetime.utcnow() - timedelta(hours=period_hours)
 
         # Filter alerts in period
-        period_alerts = [
-            a for a in self._alerts.values()
-            if a.created_at >= cutoff
-        ]
+        period_alerts = [a for a in self._alerts.values() if a.created_at >= cutoff]
 
         # Count by severity
         by_severity: Dict[str, int] = defaultdict(int)
@@ -534,14 +533,15 @@ class AlertManager:
                 by_channel[ch] += 1
 
         # Calculate delivery stats from history
-        period_history = [
-            h for h in self._alert_history
-            if h.sent_at >= cutoff
-        ]
+        period_history = [h for h in self._alert_history if h.sent_at >= cutoff]
 
-        successful = sum(1 for h in period_history if h.status == DeliveryStatus.DELIVERED)
+        successful = sum(
+            1 for h in period_history if h.status == DeliveryStatus.DELIVERED
+        )
         total_deliveries = len(period_history)
-        success_rate = (successful / total_deliveries * 100) if total_deliveries > 0 else 100.0
+        success_rate = (
+            (successful / total_deliveries * 100) if total_deliveries > 0 else 100.0
+        )
 
         avg_delivery_time = 0.0
         if period_history:
@@ -558,13 +558,11 @@ class AlertManager:
             suppressed_count=self._stats.get("suppressed", 0),
             failed_count=total_deliveries - successful,
             period_start=cutoff,
-            period_end=datetime.utcnow()
+            period_end=datetime.utcnow(),
         )
 
     def get_history(
-        self,
-        limit: int = 100,
-        channel: Optional[str] = None
+        self, limit: int = 100, channel: Optional[str] = None
     ) -> List[AlertHistory]:
         """
         Get delivery history
@@ -591,12 +589,7 @@ class AlertManager:
     # ========================================
 
     async def send_trade_alert(
-        self,
-        action: str,
-        symbol: str,
-        quantity: float,
-        price: float,
-        **kwargs
+        self, action: str, symbol: str, quantity: float, price: float, **kwargs
     ) -> AlertResponse:
         """Send a trade execution alert"""
         metadata = {
@@ -604,57 +597,72 @@ class AlertManager:
             "symbol": symbol,
             "quantity": quantity,
             "price": price,
-            **kwargs
+            **kwargs,
         }
 
-        return await self.send_alert(AlertCreate(
-            alert_type=AlertType.TRADE,
-            severity=AlertSeverity.MEDIUM,
-            title=f"Trade Executed: {action} {symbol}",
-            message=f"{action} {quantity:.6f} {symbol} @ ${price:,.2f}",
-            source="trading-engine",
-            metadata=metadata
-        ))
+        return await self.send_alert(
+            AlertCreate(
+                alert_type=AlertType.TRADE,
+                severity=AlertSeverity.MEDIUM,
+                title=f"Trade Executed: {action} {symbol}",
+                message=f"{action} {quantity:.6f} {symbol} @ ${price:,.2f}",
+                source="trading-engine",
+                metadata=metadata,
+            )
+        )
 
     async def send_risk_alert(
         self,
         alert_type: str,
         message: str,
         severity: AlertSeverity = AlertSeverity.HIGH,
-        **kwargs
+        **kwargs,
     ) -> AlertResponse:
         """Send a risk management alert"""
-        return await self.send_alert(AlertCreate(
-            alert_type=AlertType.RISK,
-            severity=severity,
-            title=f"Risk Alert: {alert_type}",
-            message=message,
-            source="risk-manager",
-            metadata=kwargs
-        ))
+        return await self.send_alert(
+            AlertCreate(
+                alert_type=AlertType.RISK,
+                severity=severity,
+                title=f"Risk Alert: {alert_type}",
+                message=message,
+                source="risk-manager",
+                metadata=kwargs,
+            )
+        )
 
     async def send_system_alert(
         self,
         service_name: str,
         status: str,
         error_message: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> AlertResponse:
         """Send a system status alert"""
-        severity = AlertSeverity.CRITICAL if status.upper() in ["DOWN", "ERROR"] else AlertSeverity.HIGH
+        severity = (
+            AlertSeverity.CRITICAL
+            if status.upper() in ["DOWN", "ERROR"]
+            else AlertSeverity.HIGH
+        )
 
         message = f"Service: {service_name}\nStatus: {status}"
         if error_message:
             message += f"\nError: {error_message}"
 
-        return await self.send_alert(AlertCreate(
-            alert_type=AlertType.SYSTEM,
-            severity=severity,
-            title=f"System Alert: {service_name}",
-            message=message,
-            source="system-monitor",
-            metadata={"service": service_name, "status": status, "error": error_message, **kwargs}
-        ))
+        return await self.send_alert(
+            AlertCreate(
+                alert_type=AlertType.SYSTEM,
+                severity=severity,
+                title=f"System Alert: {service_name}",
+                message=message,
+                source="system-monitor",
+                metadata={
+                    "service": service_name,
+                    "status": status,
+                    "error": error_message,
+                    **kwargs,
+                },
+            )
+        )
 
     async def send_daily_summary(
         self,
@@ -662,7 +670,7 @@ class AlertManager:
         total_trades: int,
         win_rate: float,
         balance: float,
-        **kwargs
+        **kwargs,
     ) -> AlertResponse:
         """Send daily performance summary"""
         emoji = "+" if total_pnl >= 0 else "-"
@@ -675,14 +683,20 @@ Performance Summary:
 - Balance: ${balance:,.2f}
 """
 
-        return await self.send_alert(AlertCreate(
-            alert_type=AlertType.PERFORMANCE,
-            severity=AlertSeverity.LOW,
-            title=f"{emoji} Daily Summary: ${total_pnl:,.2f}",
-            message=message,
-            source="post-trade-analysis",
-            metadata={"total_pnl": total_pnl, "total_trades": total_trades, **kwargs}
-        ))
+        return await self.send_alert(
+            AlertCreate(
+                alert_type=AlertType.PERFORMANCE,
+                severity=AlertSeverity.LOW,
+                title=f"{emoji} Daily Summary: ${total_pnl:,.2f}",
+                message=message,
+                source="post-trade-analysis",
+                metadata={
+                    "total_pnl": total_pnl,
+                    "total_trades": total_trades,
+                    **kwargs,
+                },
+            )
+        )
 
 
 # Create global alert manager instance
