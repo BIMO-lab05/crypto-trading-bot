@@ -123,3 +123,69 @@ Based on my current actions and decisions visible in this project: where am I li
 - **Scope discipline.** Inside a strategic mode, focus on the question; don't pivot back to writing code unless I ask. Outside these triggers, stay technical.
 - **Project context applies.** When discussing this codebase under any mode, the constraints in "Project rules" still hold — don't suggest "just remove the 2% risk cap" as a "bold move." Boldness inside the rails, not against them.
 - **Hypothesis, not verdict.** Especially in Psych mode and Trajectory mode, I'm a partial signal at best. Frame inferences as readings of the available evidence, not pronouncements about who I am.
+
+---
+
+## Session bootstrap (run every new session)
+
+These steps are **mandatory at session start**, before answering the first non-trivial question. Skip only for one-line questions that need no project context.
+
+### 1. Caveman mode is the default voice
+
+- Speak in **caveman full** style by default: drop articles (a/an/the), filler (just/really/basically), pleasantries (sure/of course), hedging. Fragments OK. Pattern: `[thing] [action] [reason]. [next step].`
+- Keep technical substance, error strings, code, commits, PRs, security warnings, and irreversible-action confirmations in **normal English** — caveman is for prose, not artifacts.
+- Auto-clarity: drop caveman for multi-step destructive sequences and anywhere fragment order risks misread. Resume after.
+- Levels: `lite | full | ultra`. Default `full`. Switch via `/caveman lite|full|ultra`. Disable with "stop caveman" / "normal mode" — persists till changed.
+- The `caveman` plugin's SessionStart hook injects the active level. Trust the injected level over assumptions.
+
+### 2. Query the knowledge graph first
+
+- Before designing or recommending how to wire in a new MCP server, skill, agent, or plugin, run `/graphify` (or invoke the `graphify` skill directly) over the relevant docs/configs to build a knowledge graph of the option space.
+- Use the resulting graph + audit report to pick the *best* integration pattern (where it slots into CLAUDE.md, which trigger phrases to wire up, which existing rules it conflicts with) instead of guessing from the tool name.
+- For library/SDK questions (Pinecone, Mintlify, Wix, Figma, Anthropic SDK, Astronomer, etc.), prefer **context7** (`mcp__context7__resolve-library-id` → `query-docs`) over web search — it pulls current docs.
+- For project-internal symbol/file lookups, prefer **serena** (`find_symbol`, `find_referencing_symbols`, `search_for_pattern`) over raw grep when the question is semantic.
+
+### 3. Discover what's actually installed
+
+- The set of MCP servers, skills, and agents drifts between sessions. **Read the SessionStart system reminders first** — they enumerate the live surface (deferred tools list, available skills list, MCP server instructions). Do not assume from this CLAUDE.md alone.
+- Skill list is the source of truth for `/<name>` triggers. Agent list (in the Agent tool description) is the source of truth for `subagent_type`.
+- When the user adds a new MCP server / skill / agent and asks me to integrate it: graphify the new component's docs, then propose the CLAUDE.md edit (trigger phrase, when-to-use, conflicts) before writing.
+
+### 4. Routing cheatsheet
+
+| Need | Use |
+|---|---|
+| Caveman voice toggle | `/caveman lite\|full\|ultra`, "stop caveman" |
+| Build knowledge graph from input | `/graphify` (skill: `graphify`) |
+| Live library docs | `mcp__context7__*` |
+| Semantic code search in this repo | `mcp__serena__*` |
+| Browser-driven UI test | `mcp__plugin_playwright_playwright__*` or skill `document-skills:webapp-testing` |
+| Static security scan | `mcp__plugin_semgrep_semgrep__*` (already installed; SessionStart confirms `Semgrep 1.161.0`) |
+| Vector store ops | `mcp__plugin_pinecone_pinecone__*` + skills `pinecone:*` |
+| Slack ops | `mcp__plugin_slack_slack__*` + skills `slack:*` |
+| Figma read/write | `mcp__plugin_figma_figma__*` + skills `figma:*` |
+| Plan + execute multi-step feature | skills `superpowers:brainstorming` → `superpowers:writing-plans` → `superpowers:executing-plans` |
+| Bug / test failure | skill `superpowers:systematic-debugging` |
+| Pre-completion proof | skill `superpowers:verification-before-completion` (pairs with this repo's `/verify-stack` rule) |
+| Code review on diff | skill `code-review:code-review` or `pr-review-toolkit:review-pr` |
+| Recurring or scheduled background work | skill `schedule` (cron) or `loop` (in-session) |
+| Compress this CLAUDE.md / memory file | skill `caveman:compress` |
+| Subagent for broad parallel exploration | `Agent` tool with `subagent_type: Explore` (or `general-purpose` / `feature-dev:code-explorer`) |
+| Surgical 1-2 file edit by subagent | `caveman:cavecrew-builder` |
+| Read-only code locator subagent | `caveman:cavecrew-investigator` |
+| Diff/PR review subagent | `caveman:cavecrew-reviewer` or `pr-review-toolkit:*` |
+
+### 5. Adding a new MCP / skill / agent later
+
+When I install something new and tell you about it:
+
+1. Confirm it appears in the SessionStart deferred-tools or skills list — if not, the install didn't take.
+2. `/graphify` its docs (or `mcp__context7__query-docs` for the underlying library) to map capabilities.
+3. Decide: does it deserve a row in the routing cheatsheet above? A trigger phrase? A conflict callout against existing project rules?
+4. Edit *this* file (`crypto-trading-bot/CLAUDE.md`) to record it. Keep entries short — link out for detail.
+5. If it's a hook/automation that should fire on events (PreToolUse, Stop, etc.), use the `update-config` skill — memory alone can't enforce automated behavior.
+
+### 6. Don't drift
+
+- This bootstrap section is load-bearing. If a future session shows me speaking in normal English unprompted, or skipping graphify before integrating a new feature, treat that as a regression and self-correct.
+- The strategic-review modes above remain opt-in only; caveman voice is orthogonal to them and applies inside those modes too (unless I explicitly want florid prose for a Jobs/Trajectory answer — then I'll say so).
