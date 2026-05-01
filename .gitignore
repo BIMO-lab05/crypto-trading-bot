@@ -222,3 +222,6 @@ credentials-backup*.txt
 .audit/
 .serena/
 scripts/screenshots/
+
+# LSTM model archive (rollback safety after late-2025 GRU migration)
+services/ml-prediction-service/**/_archive_lstm/
