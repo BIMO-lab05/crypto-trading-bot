@@ -67,12 +67,14 @@ class TestSettingsValidation:
         """Test backend service URL configuration"""
         settings = Settings()
 
-        assert settings.bybit_connector_url == "http://localhost:8002"
-        assert settings.market_data_url == "http://localhost:8003"
+        # Port defaults aligned to CLAUDE.md / docker-compose.unified.yml
+        # (corrected 2026-05-01).
+        assert settings.bybit_connector_url == "http://localhost:8001"
+        assert settings.market_data_url == "http://localhost:8002"
         assert settings.technical_analysis_url == "http://localhost:8004"
         assert settings.trading_engine_url == "http://localhost:8005"
-        assert settings.portfolio_manager_url == "http://localhost:8006"
-        assert settings.risk_metrics_url == "http://localhost:8007"
+        assert settings.portfolio_manager_url == "http://localhost:8003"
+        assert settings.risk_metrics_url == "http://localhost:8009"
 
     def test_security_settings(self):
         """Test security configuration"""
