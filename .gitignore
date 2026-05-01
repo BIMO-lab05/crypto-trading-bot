@@ -215,3 +215,10 @@ bandit-report.json
 generated-credentials*.txt
 credentials-backup*.txt
 .credentials/
+
+# ============================================================================
+# Agent / audit caches
+# ============================================================================
+.audit/
+.serena/
+scripts/screenshots/
