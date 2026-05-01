@@ -111,6 +111,10 @@ class NotificationConfig(BaseSettings):
         default="#trading-alerts",
         description="Channel for general alerts"
     )
+    slack_channel_performance: str = Field(
+        default="#bimo-performance",
+        description="Channel for daily/weekly performance digests"
+    )
     slack_bot_token: str = Field(
         default="",
         description="Slack bot token for interactive features"
