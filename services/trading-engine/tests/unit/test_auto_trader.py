@@ -700,3 +700,123 @@ class TestVolTargetingWiring:
         trader = AutoTrader()
         trader._update_vol_estimator("SOLUSDT", 100.0)
         assert "SOLUSDT" in trader._vol_last_hour
+
+
+class TestCloseWithLimitOrderLiveMode:
+    """
+    T12: Verify the LIVE branch of _close_position_with_limit_order fails
+    LOUD instead of silently routing through the paper engine.
+
+    Background: LiveTradingEngine does not yet expose a LIMIT IOC
+    reduce_only close-order method. Until it does, the LIVE branch must raise
+    a RuntimeError at function entry — before either the inner
+    except Exception as limit_err or the outer except Exception as e
+    can swallow it and silently fall through to the (also LIVE-broken)
+    market-order fallback.
+    """
+
+    @pytest.mark.asyncio
+    async def test_live_mode_raises_runtime_error(self, monkeypatch):
+        """LIVE trading_mode must raise RuntimeError, NOT silently fall back."""
+        trader = AutoTrader()
+        # Force LIVE on the AutoTrader's bound settings instance.
+        monkeypatch.setattr(trader.settings, "trading_mode", "LIVE")
+
+        position = Mock()
+        position.symbol = "SOLUSDT"
+        # side.value is read inside the function but only AFTER the entry
+        # guard. The guard fires first, so this is just defensive.
+        position.side = Mock(value="LONG")
+        position.stop_loss = 100.0
+        position.quantity = 1.0
+
+        with pytest.raises(RuntimeError, match="LIVE limit-order stop-loss path"):
+            await trader._close_position_with_limit_order(
+                position=position,
+                current_price=99.0,
+                reason="stop_loss",
+            )
+
+    @pytest.mark.asyncio
+    async def test_live_mode_does_not_call_paper_engine(self, monkeypatch):
+        """
+        The LIVE-mode RuntimeError must fire before the paper engine is
+        touched. If it didn't, a LIVE stop-loss would silently be "closed"
+        in paper while the real Bybit position stayed open.
+        """
+        trader = AutoTrader()
+        monkeypatch.setattr(trader.settings, "trading_mode", "LIVE")
+
+        paper_engine_mock = Mock()
+        paper_engine_mock.execute_market_order = AsyncMock()
+        monkeypatch.setattr(
+            "app.auto_trader.get_paper_engine",
+            lambda: paper_engine_mock,
+        )
+
+        live_engine_mock = Mock()
+        live_engine_mock.execute_market_order = AsyncMock()
+        monkeypatch.setattr(
+            "app.auto_trader.get_live_engine",
+            lambda: live_engine_mock,
+        )
+
+        position = Mock()
+        position.symbol = "SOLUSDT"
+        position.side = Mock(value="LONG")
+        position.stop_loss = 100.0
+        position.quantity = 1.0
+
+        with pytest.raises(RuntimeError):
+            await trader._close_position_with_limit_order(
+                position=position,
+                current_price=99.0,
+                reason="stop_loss",
+            )
+
+        # Neither engine should be called: the guard fires before any
+        # order placement and the outer except (which falls through to
+        # _close_position) must NOT catch the RuntimeError.
+        paper_engine_mock.execute_market_order.assert_not_called()
+        live_engine_mock.execute_market_order.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_paper_mode_does_not_raise_live_runtime_error(self, monkeypatch):
+        """
+        Sanity check: PAPER mode must NOT hit the LIVE guard. We don't run the
+        full happy path here (that would need full position-manager fixtures);
+        we only assert that whatever exception comes out is NOT the LIVE-only
+        RuntimeError we just added.
+        """
+        trader = AutoTrader()
+        monkeypatch.setattr(trader.settings, "trading_mode", "PAPER")
+
+        position = Mock()
+        position.symbol = "SOLUSDT"
+        position.side = Mock(value="LONG")
+        position.stop_loss = 100.0
+        position.quantity = 1.0
+
+        # In PAPER mode the function may still error out on the Mock position
+        # (e.g. when the inner code path tries Decimal-conversion on a Mock
+        # quantity). What matters is that it does NOT raise the LIVE-only
+        # RuntimeError. The outer except Exception will catch any other
+        # error and fall through to _close_position, so we patch that to
+        # a no-op AsyncMock so the call returns cleanly.
+        monkeypatch.setattr(
+            trader,
+            "_close_position",
+            AsyncMock(),
+        )
+
+        # Should not raise the LIVE-mode RuntimeError.
+        try:
+            await trader._close_position_with_limit_order(
+                position=position,
+                current_price=99.0,
+                reason="stop_loss",
+            )
+        except RuntimeError as exc:
+            assert "LIVE limit-order stop-loss path" not in str(exc), (
+                "PAPER mode hit the LIVE-only guard — guard is misconfigured."
+            )

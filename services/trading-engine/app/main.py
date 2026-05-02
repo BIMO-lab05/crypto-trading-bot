@@ -234,6 +234,23 @@ async def lifespan(app: FastAPI):
     logger.info(f"Auto Trading: {settings.auto_trading_enabled}")
     logger.info("Prometheus metrics: enabled at /metrics")
 
+    # Defense-in-depth: refuse to boot in LIVE mode without an explicit
+    # operator ack. CLAUDE.md mandates a deliberate three-flag flip
+    # (PAPER_TRADING_MODE=false + TRADING_MODE=LIVE + mainnet trade-permission
+    # keys). The ack env var is a fourth gate to catch silent env drift on
+    # cloud hosts where a forgotten value might otherwise reach prod.
+    import os
+
+    if settings.trading_mode == "LIVE":
+        ack = os.environ.get("LIVE_TRADING_ACK", "")
+        if ack != "I_UNDERSTAND_REAL_MONEY":
+            raise RuntimeError(
+                "Refusing to boot: TRADING_MODE=LIVE without "
+                "LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY. "
+                "Set the ack env var explicitly to authorize live trading."
+            )
+        logger.critical("LIVE trading mode acknowledged via LIVE_TRADING_ACK")
+
     # 4 phase context managers run in order on enter, reverse on exit (cm stack
     # semantics). Auto-trader start/stop stays OUTSIDE the phases — gated on
     # settings.auto_trading_enabled + EMERGENCY_STOP file (both off-switches).

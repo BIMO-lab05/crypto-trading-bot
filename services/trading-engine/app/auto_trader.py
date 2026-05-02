@@ -2401,6 +2401,24 @@ class AutoTrader:
             limit_buffer_pct: Buffer percentage for limit order (default 0.5%)
             timeout_seconds: Max wait time for limit order (default 10s)
         """
+        # FIX (T12, 2026-05-01): Loud-failure guard for LIVE mode.
+        # LiveTradingEngine does not yet expose a LIMIT IOC reduce_only
+        # close-order method (see the in-block comment in STEP 2 below).
+        # Both the inner except Exception as limit_err at the limit-order
+        # fallthrough and the outer except Exception as e would otherwise
+        # swallow our RuntimeError and silently route a LIVE stop-loss exit
+        # through the paper engine or through execute_market_order (which
+        # ignores reduce_only=True and would OPEN a new opposite position
+        # on Bybit instead of closing). Raise BEFORE entering the outer try
+        # so the failure propagates to the caller untouched.
+        if self.settings.trading_mode == "LIVE":
+            raise RuntimeError(
+                "LIVE limit-order stop-loss path requires "
+                "LiveTradingEngine.close_position_with_limit (LIMIT IOC "
+                "reduce_only) — not yet implemented; T1.3 maker-order "
+                "test cannot run in LIVE mode. See "
+                "app/auto_trader.py:_close_position_with_limit_order."
+            )
         try:
             import asyncio
             from app.models import OrderCreate, OrderSide, OrderType, OrderStatus, TimeInForce
@@ -2438,9 +2456,37 @@ class AutoTrader:
                 # Get trading engine (paper or live)
                 trading_mode = self.settings.trading_mode
                 if trading_mode == "LIVE":
-                    # TODO: Implement live trading limit order support
-                    logger.warning("[LIMIT_STOP] Live trading not fully implemented, using paper trading logic")
-                    trading_engine = get_paper_engine()
+                    # FIX (T12, 2026-05-01): Previously this branch silently fell back
+                    # to the paper engine, which would log a paper-trading fill and
+                    # leave the LIVE position OPEN on Bybit while updating local
+                    # PositionManager as if it were closed. That is the worst
+                    # possible failure mode in LIVE.
+                    #
+                    # The correct fix is a real LIMIT IOC reduce_only call, but
+                    # LiveTradingEngine (app/live_trading.py) does not expose
+                    # one yet:
+                    #   - execute_market_order hardcodes order_type="Market"
+                    #     and reduce_only=False, so it ignores both the LIMIT
+                    #     type and the reduce_only=True flag on
+                    #     OrderCreate and would OPEN a new opposite position
+                    #     instead of closing.
+                    #   - execute_maker_order_with_fallback is for ENTRY
+                    #     (PostOnly + create_position), not for stop-loss
+                    #     exits.
+                    # The bybit-connector itself supports LIMIT/IOC/reduce_only
+                    # (see services/bybit-connector/app/bybit_rest_client.py
+                    # place_order), so the fix is to add a
+                    # close_position_with_limit method on
+                    # LiveTradingEngine that wires those parameters through.
+                    # Until that exists, fail LOUD instead of silently routing
+                    # LIVE stop-loss exits through the paper engine.
+                    raise RuntimeError(
+                        "LIVE limit-order stop-loss path requires "
+                        "LiveTradingEngine.close_position_with_limit (LIMIT IOC "
+                        "reduce_only) — not yet implemented; T1.3 maker-order "
+                        "test cannot run in LIVE mode. See "
+                        "app/auto_trader.py:_close_position_with_limit_order."
+                    )
                 else:
                     trading_engine = get_paper_engine()
 
