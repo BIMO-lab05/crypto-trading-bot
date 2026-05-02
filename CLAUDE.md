@@ -49,6 +49,8 @@ Useful scripts at repo root: `health_check.sh`, `monitor_paper_trading.sh`, `che
 
 ## Project rules (load-bearing)
 
+- **Search rule (mandatory, always-on):** any time I'm about to *search* for something — code, docs, config, concept, prior decision, library, integration option — the **first** action is `/graphify` (skill: `graphify`) over the relevant input. Build graph, read audit, then pick targeted tool (serena / context7 / grep / web) informed by what graphify surfaced. Applies to every session, every search, no exceptions outside the explicit skip below. Skipping = regression, self-correct.
+  - **Skip allowed only for:** trivially exact lookups where path/symbol/string is already known (user said "open file X" or "grep for literal Y") and one-shot tool call resolves it. When in doubt, graphify.
 - **Risk caps are wired into trading-engine**: max 2% capital per trade, 5% daily-loss circuit-breaker. Don't relax without explicit approval.
 - **Two independent flags** — don't confuse them: `BYBIT_TESTNET` selects price source (testnet=fake prices, mainnet=real). `PAPER_TRADING_MODE` / `TRADING_MODE` selects whether orders are simulated. Current state: mainnet prices + simulated orders. Real-money trading requires `PAPER_TRADING_MODE=false` *and* `TRADING_MODE=LIVE` *and* mainnet API keys with trading permissions — three deliberate steps.
 - **Validated symbols**: SOL, BNB, ADA only. ETH / BTC / XRP / DOGE were excluded by paper-trading data — do not silently re-add.
@@ -140,10 +142,12 @@ These steps are **mandatory at session start**, before answering the first non-t
 
 ### 2. Query the knowledge graph first
 
-- Before designing or recommending how to wire in a new MCP server, skill, agent, or plugin, run `/graphify` (or invoke the `graphify` skill directly) over the relevant docs/configs to build a knowledge graph of the option space.
+- **Search rule (mandatory):** any time I'm about to *search* for something — code, docs, config, concept, prior decision, integration option — the **first** step is `/graphify` (or invoke the `graphify` skill) over the relevant input set. Build the graph, read the audit, then choose the targeted tool (serena / context7 / grep / web) informed by what graphify surfaced. Do not jump straight to grep/WebSearch for non-trivial queries.
+  - **Skip allowed only for:** trivially exact lookups where the path/symbol/string is already known (e.g. user said "open file X" or "grep for literal Y") and a single one-shot tool call resolves it. When in doubt, graphify.
+- Before designing or recommending how to wire in a new MCP server, skill, agent, or plugin, run `/graphify` over the relevant docs/configs to build a knowledge graph of the option space.
 - Use the resulting graph + audit report to pick the *best* integration pattern (where it slots into CLAUDE.md, which trigger phrases to wire up, which existing rules it conflicts with) instead of guessing from the tool name.
-- For library/SDK questions (Pinecone, Mintlify, Wix, Figma, Anthropic SDK, Astronomer, etc.), prefer **context7** (`mcp__context7__resolve-library-id` → `query-docs`) over web search — it pulls current docs.
-- For project-internal symbol/file lookups, prefer **serena** (`find_symbol`, `find_referencing_symbols`, `search_for_pattern`) over raw grep when the question is semantic.
+- After graphify narrows the target: for library/SDK questions (Pinecone, Mintlify, Wix, Figma, Anthropic SDK, Astronomer, etc.) prefer **context7** (`mcp__context7__resolve-library-id` → `query-docs`) over web search — it pulls current docs.
+- After graphify narrows the target: for project-internal symbol/file lookups prefer **serena** (`find_symbol`, `find_referencing_symbols`, `search_for_pattern`) over raw grep when the question is semantic.
 
 ### 3. Discover what's actually installed
 
