@@ -369,18 +369,18 @@ async def lifespan(app: FastAPI):
     await prediction_cache.connect()
 
     # Initialize Ensemble Predictor
-    # Combines TA (40%) + ML (30%) + Sentiment (15%) + MultiTimeframe (15%)
+    # Combines TA (~47%) + ML (~35%) + MultiTimeframe (~18%) — sentiment leg
+    # removed 2026-05-02 (placeholder always returned NEUTRAL with confidence 0).
     ensemble_predictor = EnsemblePredictor(
-        ta_weight=0.40,
-        ml_weight=0.30,
-        sentiment_weight=0.15,
-        multi_tf_weight=0.15,
+        ta_weight=0.47,
+        ml_weight=0.35,
+        multi_tf_weight=0.18,
         ta_service_url=settings.technical_analysis_url,
         ml_service_url=f"http://localhost:{settings.service_port}",  # Self-reference for ML predictions
         market_data_url=settings.market_data_url,
     )
     logger.info(
-        "Ensemble Predictor initialized with weights: TA=40%, ML=30%, Sentiment=15%, MultiTF=15%"
+        "Ensemble Predictor initialized with weights: TA=47%, ML=35%, MultiTF=18%"
     )
 
     # Check TensorFlow availability
