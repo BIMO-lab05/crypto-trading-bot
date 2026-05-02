@@ -13,10 +13,14 @@ numpy==1.26.3             # Numerical computing
 scipy==1.11.4             # Scientific computing (for statistical tests)
 statsmodels==0.14.1       # Statistical analysis (ADF, cointegration tests)
 
-# Machine Learning
-scikit-learn==1.4.0       # ML algorithms for ensemble models
-tensorflow==2.16.1        # Deep learning for LSTM models (Python 3.12 compatible)
-joblib==1.3.2             # Model serialization
+# Model artifact loader (lightweight)
+joblib==1.3.2
+
+# NOTE: scikit-learn and tensorflow were removed 2026-05-02. LSTM was deleted
+# (commits 324e162, 9a0f584) and there are zero `import sklearn` / `import
+# tensorflow` references in services/trading-engine/app/. ML inference lives in
+# the ml-prediction-service (opt-in profile). Re-adding either to this image
+# would re-introduce ~600 MB of dead weight for the slim trading orchestrator.
 
 # Database
 asyncpg==0.29.0           # Async PostgreSQL driver
