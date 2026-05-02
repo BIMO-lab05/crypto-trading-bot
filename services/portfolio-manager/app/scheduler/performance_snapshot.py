@@ -326,17 +326,17 @@ class PerformanceSnapshotScheduler:
 
     async def _get_active_portfolios(self) -> list[str]:
         """
-        Get list of active portfolio IDs
+        Get list of active portfolio IDs.
 
-        Returns:
-            List of portfolio IDs to snapshot
-
-        Note: Currently returns hardcoded list. Should be extended to
-        query database for all active portfolios.
+        Portfolios live in-memory on PortfolioManager (see
+        app/services/portfolio_manager.py); there is no persistent
+        portfolios table in this service. Returns every portfolio
+        currently registered with the manager, falling back to the
+        default portfolio if the manager is not wired up.
         """
-        # TODO: Query database for active portfolios
-        # For now, return known portfolio IDs
-        if hasattr(self.portfolio_manager, 'portfolios'):
+        if self.portfolio_manager is not None and hasattr(self.portfolio_manager, "list_portfolios"):
+            return [p.portfolio_id for p in self.portfolio_manager.list_portfolios()]
+        if self.portfolio_manager is not None and hasattr(self.portfolio_manager, "portfolios"):
             return list(self.portfolio_manager.portfolios.keys())
         return ["default"]
 
