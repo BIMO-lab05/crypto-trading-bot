@@ -843,7 +843,6 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
     Combines:
     - Technical Analysis (RSI, MACD, Bollinger Bands, etc.)
     - ML Predictions (price trend, volatility)
-    - Sentiment Analysis (news, social media)
     - Multi-timeframe confirmation
     - Risk metrics
     """
@@ -868,12 +867,6 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
             {"interval": validated_interval},
         )
 
-        sentiment_task = proxy.proxy_request(
-            "sentiment-analysis",
-            f"/api/v1/sentiment/combined/{validated_symbol}",
-            "GET",
-        )
-
         mtf_task = proxy.proxy_request(
             "technical-analysis",
             f"/api/v1/analysis/multi-timeframe/{validated_symbol}",
@@ -887,10 +880,9 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
             {"interval": validated_interval},
         )
 
-        ta_resp, ml_resp, sent_resp, mtf_resp, signal_resp = await asyncio.gather(
+        ta_resp, ml_resp, mtf_resp, signal_resp = await asyncio.gather(
             ta_task,
             ml_task,
-            sentiment_task,
             mtf_task,
             signal_task,
             return_exceptions=True,
@@ -906,7 +898,6 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
 
         ta_data = parse_response(ta_resp)
         ml_data = parse_response(ml_resp)
-        sent_data = parse_response(sent_resp)
         mtf_data = parse_response(mtf_resp)
         signal_data = parse_response(signal_resp)
 
@@ -916,8 +907,6 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
             signals.append(ta_data["aggregated_signal"])
         if ml_data and ml_data.get("trend"):
             signals.append(ml_data["trend"])
-        if sent_data and sent_data.get("combined_label"):
-            signals.append(sent_data["combined_label"])
         if mtf_data and mtf_data.get("consensus_signal"):
             signals.append(mtf_data["consensus_signal"])
         if signal_data and signal_data.get("signal"):
@@ -972,7 +961,6 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
                 },
                 "technical_analysis": ta_data,
                 "ml_predictions": ml_data,
-                "sentiment": sent_data,
                 "multi_timeframe": mtf_data,
                 "base_signal": signal_data,
                 "recommendation": recommendation,
