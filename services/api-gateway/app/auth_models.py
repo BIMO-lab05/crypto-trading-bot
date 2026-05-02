@@ -12,7 +12,7 @@ SECURITY FIXES (2025-12-12):
 import os
 import sys
 import logging
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
@@ -33,11 +33,7 @@ IS_DEVELOPMENT = ENVIRONMENT == "development"
 
 # Password hashing context with increased rounds for production security
 # bcrypt rounds of 14 provides good security while maintaining reasonable performance
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__rounds=14
-)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=14)
 
 # ============================================================================
 # JWT Configuration - SECURITY HARDENED
@@ -45,6 +41,7 @@ pwd_context = CryptContext(
 
 # Development-only fallback secret (NEVER used in production)
 _DEV_ONLY_SECRET = "development-only-secret-not-for-production-use"
+
 
 def _validate_jwt_secret() -> str:
     """
@@ -70,9 +67,7 @@ def _validate_jwt_secret() -> str:
                 f"SECURITY FAILURE: JWT_SECRET_KEY environment variable is required "
                 f"in {ENVIRONMENT} environment. Application cannot start."
             )
-            logger.critical(
-                "Generate a secure key with: openssl rand -hex 64"
-            )
+            logger.critical("Generate a secure key with: openssl rand -hex 64")
             sys.exit(1)
 
         # Validate minimum secret length (256 bits = 64 hex chars or 32 bytes)
@@ -81,13 +76,11 @@ def _validate_jwt_secret() -> str:
                 f"SECURITY FAILURE: JWT_SECRET_KEY must be at least 32 characters "
                 f"in {ENVIRONMENT} environment. Current length: {len(secret_key)}"
             )
-            logger.critical(
-                "Generate a secure key with: openssl rand -hex 64"
-            )
+            logger.critical("Generate a secure key with: openssl rand -hex 64")
             sys.exit(1)
 
         # Warn about potentially weak secrets
-        weak_patterns = ['test', 'dev', 'secret', 'password', 'example', 'change']
+        weak_patterns = ["test", "dev", "secret", "password", "example", "change"]
         if any(pattern in secret_key.lower() for pattern in weak_patterns):
             logger.warning(
                 "SECURITY WARNING: JWT_SECRET_KEY appears to contain weak patterns. "
@@ -112,8 +105,7 @@ def _validate_jwt_secret() -> str:
         "SECURITY WARNING: Using default development JWT secret!\n"
         "This is ONLY acceptable for local development.\n"
         "Set JWT_SECRET_KEY environment variable for any non-local deployment.\n"
-        "Generate with: openssl rand -hex 64\n" +
-        "=" * 70
+        "Generate with: openssl rand -hex 64\n" + "=" * 70
     )
     return _DEV_ONLY_SECRET
 
@@ -153,54 +145,82 @@ if IS_PRODUCTION and ACCESS_TOKEN_EXPIRE_MINUTES > 60:
 # Request/Response Models
 # ============================================================================
 
+
 class UserCreate(BaseModel):
     """User registration request with strong validation"""
+
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=100)
     full_name: Optional[str] = Field(None, max_length=100)
 
-    @validator('username')
+    @field_validator("username")
+    @classmethod
     def username_alphanumeric(cls, v):
         """Validate username is alphanumeric (with _ and -)"""
-        if not v.replace('_', '').replace('-', '').isalnum():
-            raise ValueError('Username must be alphanumeric (can include _ and -)')
+        if not v.replace("_", "").replace("-", "").isalnum():
+            raise ValueError("Username must be alphanumeric (can include _ and -)")
         # Prevent common attack patterns and reserved names
-        forbidden = ['admin', 'root', 'system', 'null', 'undefined', 'administrator',
-                     'superuser', 'api', 'www', 'mail', 'support', 'security']
+        forbidden = [
+            "admin",
+            "root",
+            "system",
+            "null",
+            "undefined",
+            "administrator",
+            "superuser",
+            "api",
+            "www",
+            "mail",
+            "support",
+            "security",
+        ]
         if v.lower() in forbidden:
             raise ValueError(f'Username "{v}" is reserved')
         return v
 
-    @validator('password')
+    @field_validator("password")
+    @classmethod
     def password_strength(cls, v):
         """Validate password meets minimum security requirements"""
         if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
+            raise ValueError("Password must be at least 8 characters")
         if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
+            raise ValueError("Password must contain at least one uppercase letter")
         if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
+            raise ValueError("Password must contain at least one lowercase letter")
         if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain at least one digit')
-        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in v):
-            raise ValueError('Password must contain at least one special character')
+            raise ValueError("Password must contain at least one digit")
+        if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in v):
+            raise ValueError("Password must contain at least one special character")
         # Check for common weak patterns
-        common_passwords = ['password', '12345678', 'qwerty', 'letmein', 'welcome',
-                           'monkey', 'dragon', 'master', 'abc123', 'password1']
+        common_passwords = [
+            "password",
+            "12345678",
+            "qwerty",
+            "letmein",
+            "welcome",
+            "monkey",
+            "dragon",
+            "master",
+            "abc123",
+            "password1",
+        ]
         if v.lower() in common_passwords:
-            raise ValueError('Password is too common')
+            raise ValueError("Password is too common")
         return v
 
 
 class UserLogin(BaseModel):
     """User login request"""
+
     username: str = Field(..., min_length=1, max_length=50)
     password: str = Field(..., min_length=1, max_length=100)
 
 
 class Token(BaseModel):
     """JWT token response"""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # seconds
@@ -208,12 +228,14 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     """JWT token payload data"""
+
     username: Optional[str] = None
     user_id: Optional[str] = None
 
 
 class User(BaseModel):
     """User model (public-facing, excludes sensitive data)"""
+
     user_id: str
     username: str
     email: str
@@ -226,12 +248,14 @@ class User(BaseModel):
 
 class UserInDB(User):
     """User model with hashed password (for database storage)"""
+
     hashed_password: str
 
 
 # ============================================================================
 # Password Utilities
 # ============================================================================
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
@@ -259,6 +283,7 @@ def get_password_hash(password: str) -> str:
 # JWT Token Utilities
 # ============================================================================
 
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Create a JWT access token
@@ -285,12 +310,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     # Add standard JWT claims
-    to_encode.update({
-        "exp": expire,
-        "iat": datetime.utcnow(),  # Issued at time
-        "type": "access",  # Token type for validation
-        "env": ENVIRONMENT  # Environment for cross-env validation
-    })
+    to_encode.update(
+        {
+            "exp": expire,
+            "iat": datetime.utcnow(),  # Issued at time
+            "type": "access",  # Token type for validation
+            "env": ENVIRONMENT,  # Environment for cross-env validation
+        }
+    )
 
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -406,6 +433,7 @@ def create_user(user_create: UserCreate) -> User:
 
     # Create user ID using secrets for uniqueness
     import secrets as sec
+
     user_id = f"user_{sec.token_hex(8)}"
 
     # Hash password
@@ -434,7 +462,7 @@ def create_user(user_create: UserCreate) -> User:
         is_active=True,
         is_admin=grant_admin,
         created_at=datetime.utcnow(),
-        last_login=None
+        last_login=None,
     )
 
     USERS_DB[user_create.username] = user_in_db
@@ -443,7 +471,7 @@ def create_user(user_create: UserCreate) -> User:
     logger.info(f"User created: {user_create.username} (admin={grant_admin})")
 
     # Return user without password hash
-    return User(**user_in_db.dict(exclude={'hashed_password'}))
+    return User(**user_in_db.dict(exclude={"hashed_password"}))
 
 
 def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
@@ -470,7 +498,9 @@ def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
         return None
 
     if not verify_password(password, user.hashed_password):
-        logger.warning(f"Authentication failed (bad password) for user: {username[:3]}***")
+        logger.warning(
+            f"Authentication failed (bad password) for user: {username[:3]}***"
+        )
         return None
 
     if not user.is_active:
