@@ -7,16 +7,17 @@
 # Web Framework
 fastapi==0.109.0          # Modern async web framework
 uvicorn[standard]==0.27.0 # ASGI server
-pydantic[email]==2.5.3    # Data validation with email support
-pydantic-settings==2.1.0  # Settings management
-email-validator==2.1.0    # Email validation for pydantic
+pydantic[email]==2.13.3   # Data validation; cp314 wheels (was 2.5.3 -> pydantic-core 2.14.6, no cp314)
+pydantic-settings==2.14.0 # Settings management (compat with pydantic 2.13)
+email-validator==2.2.0    # Email validation for pydantic (2.1.0 was yanked)
 starlette==0.35.1         # ASGI framework (security headers middleware)
 
 # Authentication & Security
 python-jose[cryptography]==3.3.0  # JWT token handling
-passlib[bcrypt]==1.7.4    # Password hashing
+cryptography>=46.0.0      # Explicit pin: cp314 wheels start at 46.0.0 (python-jose extra is unbounded)
+libpass[bcrypt]==1.9.3    # passlib successor (drop-in `passlib` namespace); fixes bcrypt 5.0 ValueError on detect_wrap_bug check
 python-multipart==0.0.6   # Form data support
-bcrypt==4.1.2             # Password hashing backend
+bcrypt==5.0.0             # Password hashing backend; cp314 wheels start at 5.0.0
 
 # Rate Limiting (SECURITY: Redis-backed for distributed limiting)
 slowapi==0.1.9            # Rate limiting for FastAPI
@@ -33,8 +34,8 @@ httpx==0.27.0             # HTTP client for routing (compatible with pytest-http
 # Removed fastapi-cors as it's deprecated - using starlette.middleware.cors
 
 # Database (for auth tokens/sessions)
-asyncpg==0.29.0           # Async PostgreSQL driver
-sqlalchemy==2.0.25        # ORM
+asyncpg==0.31.0           # Async PostgreSQL driver; cp314 wheels start at 0.31.0
+sqlalchemy==2.0.49        # ORM; <2.0.45 fails on Py3.14 (TypingOnly assertion vs PEP 749 __static_attributes__)
 aioredis==2.0.1           # Redis for sessions
 
 # Caching & Rate Limit Storage
