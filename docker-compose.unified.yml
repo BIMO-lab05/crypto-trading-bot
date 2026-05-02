@@ -569,8 +569,17 @@ services:
       - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
       # Notification client URL (was missing — code defaulted to localhost:8006 which fails inside docker)
       - NOTIFICATION_SERVICE_URL=http://notification-service:8006
-      - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-true}
-      - ENABLE_SENTIMENT_ANALYSIS=${ENABLE_SENTIMENT_ANALYSIS:-true}
+      # Disabled by default: ml-prediction is gated behind --profile ml and
+      # sentiment-analysis behind --profile analytics. Setting true while those
+      # services are down causes the aggregator to log degradation messages on
+      # every signal eval (graceful but noisy). Flip to true if those profiles
+      # are activated. (2026-05-02)
+      - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-false}
+      - ENABLE_SENTIMENT_ANALYSIS=${ENABLE_SENTIMENT_ANALYSIS:-false}
+      # Auto-trader off-by-default. Operator opts in via env or POST
+      # /api/trading/auto/start once stack is verified healthy. EMERGENCY_STOP
+      # file at repo root is a second kill switch (file present = halt).
+      - AUTO_TRADING_ENABLED=${AUTO_TRADING_ENABLED:-false}
     volumes:
       - ./services/trading-engine/logs:/app/logs
       # File-based emergency stop kill switch (read-only).
