@@ -3,6 +3,8 @@
 Train GRU model for LINKUSDT with available data
 """
 import os
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent.parent
 import sys
 import asyncio
 import pandas as pd
@@ -25,7 +27,7 @@ async def train_linkusdt():
     print(f"{'='*80}\n")
 
     # Find data file
-    data_dir = '/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training'
+    data_dir = str(_REPO_ROOT / 'data/ml_training')
     csv_file = f'{data_dir}/{symbol}_1H_24months_20251210.csv'
 
     if not os.path.exists(csv_file):

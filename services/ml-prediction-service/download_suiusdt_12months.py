@@ -4,6 +4,8 @@ Download 12-month hourly data for SUIUSDT to improve model performance
 Target: Get enough data to achieve R²>0.85
 """
 import requests
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent.parent
 import pandas as pd
 from datetime import datetime, timedelta
 import time
@@ -105,7 +107,7 @@ def download_suiusdt_extended():
     df = df.sort_values('timestamp').reset_index(drop=True)
 
     # Save
-    output_file = '/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training/SUIUSDT_1H_12months_20251210.csv'
+    output_file = str(_REPO_ROOT / 'data/ml_training/SUIUSDT_1H_12months_20251210.csv')
     df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].to_csv(output_file, index=False)
 
     print(f"\n{'='*80}")

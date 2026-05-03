@@ -60,7 +60,9 @@ email:
 report:
   # Output directory for generated reports
   # Reports are organized by date: output_directory/YYYY-MM-DD/
-  output_directory: /mnt/d/Bimo_max/crypto-trading-bot/reports
+  # Relative paths resolve from the loader's working directory; absolute
+  # path can be supplied via the REPORT_OUTPUT_DIR env var if needed.
+  output_directory: ./reports
 
   # Report formats to generate
   # Options: json, markdown, html, csv
@@ -215,8 +217,8 @@ logging:
   # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
   level: INFO
 
-  # Log file path
-  log_file: /mnt/d/Bimo_max/crypto-trading-bot/logs/performance_report.log
+  # Log file path. Relative resolves from loader's working directory.
+  log_file: ./logs/performance_report.log
 
   # Log rotation
   rotate_logs: true

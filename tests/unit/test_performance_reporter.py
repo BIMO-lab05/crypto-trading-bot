@@ -26,7 +26,9 @@ import shutil
 
 # Import the module to test
 import sys
-sys.path.insert(0, '/mnt/d/Bimo_max/crypto-trading-bot/scripts')
+# tests/unit/X.py → parent.parent.parent is repo root → +/scripts
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent.parent / "scripts"))
 from weekly_performance_report import PerformanceReporter, load_config
 
 

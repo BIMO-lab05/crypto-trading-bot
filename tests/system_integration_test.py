@@ -274,8 +274,10 @@ class SystemIntegrationTest:
         print(f"📝 RECOMMENDATION: {recommendation}")
         print("=" * 50)
 
-        # Save results
-        with open('/mnt/d/Bimo_max/crypto-trading-bot/tests/integration_test_results.json', 'w') as f:
+        # Save results to tests/ next to this file (was hardcoded WSL path).
+        from pathlib import Path as _Path
+        _results_path = _Path(__file__).resolve().parent / "integration_test_results.json"
+        with open(_results_path, 'w') as f:
             json.dump(self.results, f, indent=2, default=str)
 
         return score, recommendation

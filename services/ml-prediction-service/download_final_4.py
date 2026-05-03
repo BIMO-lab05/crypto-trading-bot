@@ -8,12 +8,13 @@ import aiohttp
 import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 import time
 
 SYMBOLS = ['LINKUSDT', 'OPUSDT', 'POLUSDT', 'SUIUSDT']
 INTERVAL = '60'
 MONTHS = 24
-OUTPUT_DIR = Path('/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training')
+OUTPUT_DIR = (_REPO_ROOT / 'data/ml_training')
 BYBIT_API = "https://api.bybit.com/v5/market/kline"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

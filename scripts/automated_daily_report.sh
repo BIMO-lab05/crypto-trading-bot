@@ -1,9 +1,10 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Automated Daily Report Generator
 # Runs daily report and saves to logs with timestamp
 
 # Set working directory
-cd /mnt/d/Bimo_max/crypto-trading-bot
+cd ${PROJECT_ROOT}
 
 # Create reports directory if it doesn't exist
 mkdir -p logs/daily_reports

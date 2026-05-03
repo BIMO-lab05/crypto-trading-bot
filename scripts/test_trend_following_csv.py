@@ -17,6 +17,8 @@ v3 Results: 26.4% win rate, 307 trades/symbol, -0.41 Sharpe
 v4 Goal: >35% win rate, 30-80 trades/symbol, >0 Sharpe
 """
 import sys
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent
 import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
@@ -306,7 +308,7 @@ class OptimizedTrendFollowingV4(StrategyBase):
 
 def load_csv_data(symbol: str) -> List[OHLCV]:
     """Load CSV data from historical data directory"""
-    csv_file = f"/mnt/d/Bimo_max/crypto-trading-bot/data/historical/{symbol}_180days_20251208.csv"
+    csv_file = fstr(_REPO_ROOT / 'data/historical/{symbol}_180days_20251208.csv')
 
     if not os.path.exists(csv_file):
         raise FileNotFoundError(f"CSV file not found: {csv_file}")

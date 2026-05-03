@@ -30,6 +30,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 from typing import List, Dict, Any, Optional
 import json
 import time
@@ -75,7 +76,7 @@ DEFAULT_SYMBOLS = [
 ]
 
 # Output directory for CSV files
-OUTPUT_DIR = Path("/mnt/d/Bimo_max/crypto-trading-bot/data/historical")
+OUTPUT_DIR = (_REPO_ROOT / 'data/historical')
 
 # API rate limit (requests per second)
 RATE_LIMIT_RPS = 5

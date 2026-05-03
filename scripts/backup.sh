@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Crypto Trading Bot - Automated Backup Script
 # Version: 1.0.0
 # Last Updated: 2025-11-14
@@ -17,7 +18,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-BACKUP_DIR="/mnt/d/Bimo_max/crypto-trading-bot/backups"
+BACKUP_DIR="${PROJECT_ROOT}/backups"
 TODAY=$(date +%Y%m%d_%H%M%S)
 FULL_BACKUP=false
 COMPRESS=true

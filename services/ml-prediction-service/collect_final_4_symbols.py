@@ -6,13 +6,14 @@ Uses the working BybitClient from market-data-service
 import sys
 import os
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 from datetime import datetime, timedelta
 import pandas as pd
 import asyncio
 import time
 
 # Add services to path
-sys.path.insert(0, '/mnt/d/Bimo_max/crypto-trading-bot/services/market-data-service')
+sys.path.insert(0, str(_REPO_ROOT / 'services/market-data-service'))
 
 from app.bybit_client import BybitClient
 from app.config import settings
@@ -21,7 +22,7 @@ from app.config import settings
 SYMBOLS = ['LINKUSDT', 'OPUSDT', 'POLUSDT', 'SUIUSDT']
 INTERVAL = '60'  # 60 minutes
 MONTHS = 24
-OUTPUT_DIR = Path('/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training')
+OUTPUT_DIR = (_REPO_ROOT / 'data/ml_training')
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

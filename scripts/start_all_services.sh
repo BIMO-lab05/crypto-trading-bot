@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Project root directory
-PROJECT_ROOT="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo -e "${BLUE}======================================${NC}"
 echo -e "${BLUE}🚀 Crypto Trading Bot - Starting All Services${NC}"

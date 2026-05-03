@@ -93,7 +93,8 @@ def main():
     print()
 
     results = []
-    base_path = Path("/mnt/d/Bimo_max/crypto-trading-bot/services")
+    # Resolve from this script's location instead of a hardcoded WSL path.
+    base_path = Path(__file__).resolve().parent / "services"
 
     for service in SERVICES:
         service_path = base_path / service

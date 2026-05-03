@@ -366,7 +366,10 @@ async def close_excluded_positions():
                 "positions": results
             }
 
-            report_file = f"/mnt/d/Bimo_max/crypto-trading-bot/closed_positions_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            # Resolve report directory from this script's location (was hardcoded WSL path).
+            from pathlib import Path as _Path
+            _project_root = _Path(__file__).resolve().parent
+            report_file = str(_project_root / f"closed_positions_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
             with open(report_file, "w") as f:
                 json.dump(report, f, indent=2)
 

@@ -5,7 +5,9 @@
 # Runs BEFORE Claude sees your message
 
 USER_PROMPT="$1"
-AGENTS_DIR="/mnt/d/Bimo_max/.claude/agents"
+# Resolve from this script's location (was hardcoded /mnt/d/Bimo_max/.claude/agents).
+# Hook lives at <repo>/.claude/hooks/X.sh → ../agents is the agents dir.
+AGENTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../agents" && pwd)"
 
 # Function to get all available agents
 get_available_agents() {

@@ -5,9 +5,10 @@ Checks that all models exist and loads their metadata
 """
 
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 import json
 
-MODELS_DIR = Path("/mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service/models")
+MODELS_DIR = (_REPO_ROOT / 'services/ml-prediction-service/models')
 
 ALL_SYMBOLS = [
     'ADAUSDT', 'APTUSDT', 'ARBUSDT', 'AVAXUSDT',

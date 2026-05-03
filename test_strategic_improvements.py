@@ -7,9 +7,12 @@ import numpy as np
 from datetime import datetime, timedelta
 import sys
 import os
+from pathlib import Path
 
-# Add the project root to the path so we can import our modules
-sys.path.insert(0, '/mnt/d/Bimo_max/crypto-trading-bot')
+# Resolve project root from this file's location so the script works on any
+# machine (was hardcoded to /mnt/d/Bimo_max/crypto-trading-bot, broken
+# everywhere except the original WSL setup).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 def create_sample_data():
     """Create sample OHLCV data for testing"""

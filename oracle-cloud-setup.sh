@@ -151,7 +151,7 @@ step5_clone_repo() {
 
     print_success "Ready to receive trading bot files"
     print_info "You'll need to transfer files from your local machine"
-    print_info "Use: scp -r /mnt/d/Bimo_max/crypto-trading-bot/* ubuntu@<VM_IP>:~/crypto-trading-bot/"
+    print_info "Use: scp -r <local-repo>/* ubuntu@<VM_IP>:~/crypto-trading-bot/"
 }
 
 ###############################################################################
@@ -305,7 +305,7 @@ main() {
     print_info ""
     print_info "Next steps:"
     print_info "1. Transfer your trading bot files from local machine:"
-    print_info "   scp -r /mnt/d/Bimo_max/crypto-trading-bot/* ubuntu@<VM_IP>:~/crypto-trading-bot/"
+    print_info "   scp -r <local-repo>/* ubuntu@<VM_IP>:~/crypto-trading-bot/"
     print_info ""
     print_info "2. After files are transferred, run:"
     print_info "   cd ~/crypto-trading-bot"

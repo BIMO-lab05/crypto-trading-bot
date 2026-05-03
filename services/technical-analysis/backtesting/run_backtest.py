@@ -8,6 +8,8 @@ Usage:
 """
 
 import asyncio
+from pathlib import Path as _Path
+_SCRIPT_DIR = str(_Path(__file__).resolve().parent)
 import json
 from datetime import datetime
 import logging
@@ -347,14 +349,14 @@ async def main():
         report += f"*Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n"
 
         # Save report
-        report_path = '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/SQZMOM_BACKTEST_REPORT.md'
+        report_path = f'{_SCRIPT_DIR}/SQZMOM_BACKTEST_REPORT.md'
         with open(report_path, 'w') as f:
             f.write(report)
 
         print(f"📄 Report saved to: {report_path}")
 
         # Save detailed results as JSON
-        json_path = '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/backtest_results.json'
+        json_path = f'{_SCRIPT_DIR}/backtest_results.json'
 
         # Prepare JSON-serializable results
         json_results = {
@@ -395,7 +397,7 @@ async def main():
         print(f"📊 Detailed results saved to: {json_path}")
 
         # Save trade logs
-        trades_path = '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/trade_logs.json'
+        trades_path = f'{_SCRIPT_DIR}/trade_logs.json'
         all_trades_data = {
             symbol: metrics['trades']
             for symbol, metrics in individual_results.items()

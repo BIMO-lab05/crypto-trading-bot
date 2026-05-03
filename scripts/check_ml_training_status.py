@@ -18,13 +18,14 @@ import requests
 import json
 import sys
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 from datetime import datetime
 from typing import Dict, List, Optional
 import time
 
 # Configuration
 ML_SERVICE_URL = "http://localhost:8007"
-MODELS_DIR = Path("/mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service/trained_models")
+MODELS_DIR = (_REPO_ROOT / 'services/ml-prediction-service/trained_models')
 TRAINING_RESULTS_FILE = MODELS_DIR / "training_results.json"
 
 # Target symbols
@@ -360,7 +361,7 @@ class MLStatusChecker:
 
     def save_report(self, filename: str = "ml_status_report.json"):
         """Save status report to file"""
-        report_file = Path("/mnt/d/Bimo_max/crypto-trading-bot/scripts") / filename
+        report_file = (_REPO_ROOT / 'scripts') / filename
 
         with open(report_file, 'w') as f:
             json.dump(self.status, f, indent=2)

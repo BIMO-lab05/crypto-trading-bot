@@ -500,9 +500,13 @@ def main():
     parser = argparse.ArgumentParser(
         description='Migrate secrets from .env files to HashiCorp Vault'
     )
+    # Default resolves from this script's location: infrastructure/scripts/X.py
+    # → repo root is two parents up. Was a hardcoded WSL path.
+    from pathlib import Path as _Path
+    _default_root = str(_Path(__file__).resolve().parent.parent.parent)
     parser.add_argument(
         '--project-root',
-        default='/mnt/d/Bimo_max/crypto-trading-bot',
+        default=_default_root,
         help='Project root directory'
     )
     parser.add_argument(

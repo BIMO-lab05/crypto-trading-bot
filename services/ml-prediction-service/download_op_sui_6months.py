@@ -3,6 +3,8 @@
 Simple synchronous download for OPUSDT and SUIUSDT - 6 months data
 """
 import requests
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent.parent
 import pandas as pd
 from datetime import datetime, timedelta
 import time
@@ -81,7 +83,7 @@ def download_symbol(symbol, months=6):
     df = df.sort_values('timestamp').reset_index(drop=True)
 
     # Save
-    output_file = f'/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training/{symbol}_1H_6months_20251210.csv'
+    output_file = fstr(_REPO_ROOT / 'data/ml_training/{symbol}_1H_6months_20251210.csv')
     df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].to_csv(output_file, index=False)
 
     print(f"\n✅ COMPLETE: {symbol}")

@@ -31,7 +31,8 @@ fi
 echo "Output Files:"
 echo "-------------"
 
-BACKTEST_DIR="/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting"
+# Resolve from script location instead of hardcoded WSL path.
+BACKTEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -f "${BACKTEST_DIR}/PARAMETER_OPTIMIZATION_REPORT.md" ]; then
     FILE_TIME=$(stat -c %y "${BACKTEST_DIR}/PARAMETER_OPTIMIZATION_REPORT.md" | cut -d'.' -f1)
