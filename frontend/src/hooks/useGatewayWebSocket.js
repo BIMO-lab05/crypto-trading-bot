@@ -40,6 +40,10 @@ const enabled = import.meta.env.VITE_ENABLE_WEBSOCKET !== 'false'
 // Module-scoped singleton state.
 const subscribers = new Set()
 let ws = null
+// `wsLifecycle` is checked synchronously in connect() to prevent two
+// near-simultaneous mounts (e.g. Dashboard + PriceTickerGrid in the same
+// tick) from both passing a `!ws` check and opening parallel sockets.
+let wsLifecycle = 'idle' // 'idle' | 'connecting' | 'open' | 'closed'
 let connectionState = enabled ? WS_STATES.DISCONNECTED : WS_STATES.DISABLED
 let lastMessage = null
 let reconnectAttempts = 0
@@ -120,20 +124,26 @@ function scheduleReconnect() {
 
 function connect() {
   if (!enabled) return
-  if (ws && ws.readyState === WebSocket.OPEN) return
+  // Synchronous guard against the connect-in-flight race. Two callers in the
+  // same JS tick will both see `idle` only once; the first flips it to
+  // 'connecting' before the second runs.
+  if (wsLifecycle === 'connecting' || wsLifecycle === 'open') return
 
   const url = resolveUrl()
   if (!url) return
 
+  wsLifecycle = 'connecting'
   setState(WS_STATES.CONNECTING)
   try {
     ws = new WebSocket(url)
   } catch {
+    wsLifecycle = 'closed'
     scheduleReconnect()
     return
   }
 
   ws.onopen = () => {
+    wsLifecycle = 'open'
     reconnectAttempts = 0
     setState(WS_STATES.CONNECTED)
     startHeartbeat()
@@ -151,6 +161,7 @@ function connect() {
   }
 
   ws.onclose = (event) => {
+    wsLifecycle = 'closed'
     stopHeartbeat()
     if (event.code !== 1000) scheduleReconnect()
     else setState(WS_STATES.DISCONNECTED)
@@ -170,8 +181,10 @@ export function useGatewayWebSocket() {
     const cb = (next) => setSnapshot({ ...next })
     subscribers.add(cb)
 
-    // First subscriber starts the connection.
-    if (enabled && !ws) connect()
+    // First subscriber starts the connection. connect() itself is idempotent
+    // via the wsLifecycle sentinel — multiple subscribers entering the hook
+    // in the same tick will not open parallel sockets.
+    if (enabled) connect()
 
     return () => {
       subscribers.delete(cb)
@@ -192,6 +205,7 @@ export function useGatewayWebSocket() {
           }
           ws = null
         }
+        wsLifecycle = 'idle'
         queryClientRef = null
       }
     }

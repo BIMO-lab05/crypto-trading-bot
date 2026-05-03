@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import (
@@ -31,6 +31,8 @@ from sqlalchemy import (
     Text,
     select,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
@@ -105,7 +107,13 @@ def _trade_from_dict(data: dict) -> "TradeRecord":
 
 
 def save_state(connection: "Connection", sizer: "KellyPositionSizer") -> None:
-    """Upsert the sizer's aggregate state plus rolling window."""
+    """Upsert the sizer's aggregate state plus rolling window.
+
+    Uses dialect-native `INSERT ... ON CONFLICT DO UPDATE` so each call is a
+    single round-trip — important on the hot path where every trade close
+    triggers a save. PostgreSQL and SQLite (3.24+) both support the syntax
+    via SQLAlchemy's dialect-specific insert constructs.
+    """
     rolling = [_trade_to_dict(t) for t in sizer._trade_history]
     payload = {
         "id": GLOBAL_STATE_ID,
@@ -117,21 +125,38 @@ def save_state(connection: "Connection", sizer: "KellyPositionSizer") -> None:
         "current_streak": sizer._current_streak,
         "current_kelly_fraction": sizer._current_kelly_fraction,
         "rolling_window_json": json.dumps(rolling),
-        "updated_at": datetime.utcnow(),
+        # Timezone-aware so a DateTime(timezone=True) column stores a real
+        # UTC instant instead of a naive datetime that PostgreSQL would
+        # reinterpret as the server's local timezone.
+        "updated_at": datetime.now(timezone.utc),
     }
 
-    existing = connection.execute(
-        select(kelly_state_table.c.id).where(kelly_state_table.c.id == GLOBAL_STATE_ID)
-    ).first()
-
-    if existing is None:
-        connection.execute(kelly_state_table.insert().values(**payload))
+    dialect_name = connection.dialect.name
+    if dialect_name == "postgresql":
+        insert_stmt = pg_insert(kelly_state_table).values(**payload)
+    elif dialect_name == "sqlite":
+        insert_stmt = sqlite_insert(kelly_state_table).values(**payload)
     else:
-        connection.execute(
-            kelly_state_table.update()
-            .where(kelly_state_table.c.id == GLOBAL_STATE_ID)
-            .values(**payload)
-        )
+        # Generic two-step fallback for dialects without ON CONFLICT support.
+        existing = connection.execute(
+            select(kelly_state_table.c.id).where(kelly_state_table.c.id == GLOBAL_STATE_ID)
+        ).first()
+        if existing is None:
+            connection.execute(kelly_state_table.insert().values(**payload))
+        else:
+            connection.execute(
+                kelly_state_table.update()
+                .where(kelly_state_table.c.id == GLOBAL_STATE_ID)
+                .values(**payload)
+            )
+        return
+
+    update_columns = {k: v for k, v in payload.items() if k != "id"}
+    upsert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=["id"],
+        set_=update_columns,
+    )
+    connection.execute(upsert_stmt)
 
 
 def load_state(connection: "Connection", sizer: "KellyPositionSizer") -> int:
