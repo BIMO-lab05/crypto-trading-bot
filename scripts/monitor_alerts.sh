@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # =============================================================================
 # Alert Monitoring Script
 # Purpose: Monitor and test the alert system for paper trading
@@ -9,7 +10,7 @@
 set -e
 
 # Configuration
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 NOTIFICATION_SERVICE="http://localhost:8006"
 
 # Parse arguments

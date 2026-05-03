@@ -5,6 +5,8 @@ Purpose: Test BTC and ETH with real Bybit data to determine profitability
 """
 
 import asyncio
+from pathlib import Path as _Path
+_SCRIPT_DIR = str(_Path(__file__).resolve().parent)
 import json
 from datetime import datetime
 import logging
@@ -146,7 +148,7 @@ async def main():
         print("=" * 80)
 
         # Save results
-        output_file = '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/btc_eth_real_data_results.json'
+        output_file = f'{_SCRIPT_DIR}/btc_eth_real_data_results.json'
 
         json_results = {
             'generated_at': datetime.now().isoformat(),

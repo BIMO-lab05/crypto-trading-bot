@@ -6,6 +6,8 @@ Purpose: Fix unrealistic test data causing -100% backtest results
 """
 
 import asyncio
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent
 import asyncpg
 import httpx
 from datetime import datetime, timedelta
@@ -498,14 +500,14 @@ async def main():
         print("NEXT STEPS:")
         print("="*80)
         print("1. Re-run backtests with real data:")
-        print("   cd /mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting")
+        print("   cd <repo>/services/technical-analysis/backtesting")
         print("   python3 run_backtest.py")
         print("\n2. Compare results with old test data")
         print("\n3. Analyze if BTC/ETH should be added to trading symbols")
         print("="*80 + "\n")
 
         # Save results to JSON
-        results_file = '/mnt/d/Bimo_max/crypto-trading-bot/scripts/data_replacement_results.json'
+        results_file = str(_REPO_ROOT / 'scripts/data_replacement_results.json')
         with open(results_file, 'w') as f:
             json.dump(results_summary, f, indent=2, default=str)
         logger.info(f"📄 Results saved to: {results_file}")

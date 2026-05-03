@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Database Setup Script for Crypto Trading Bot
 # Run with: sudo bash scripts/setup_database.sh
 
@@ -86,8 +87,8 @@ echo ""
 echo -e "${YELLOW}Step 4: Creating database schema${NC}"
 
 # Run the TimescaleDB initialization script
-if [ -f "/mnt/d/Bimo_max/crypto-trading-bot/infrastructure/scripts/init-timescale.sql" ]; then
-    sudo -u postgres psql -d market_data -f /mnt/d/Bimo_max/crypto-trading-bot/infrastructure/scripts/init-timescale.sql
+if [ -f "${PROJECT_ROOT}/infrastructure/scripts/init-timescale.sql" ]; then
+    sudo -u postgres psql -d market_data -f ${PROJECT_ROOT}/infrastructure/scripts/init-timescale.sql
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✅ Database schema created successfully${NC}"
     else

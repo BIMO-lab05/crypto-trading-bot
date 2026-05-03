@@ -202,7 +202,10 @@ repos:
       - id: validate-config
         name: Validate system configuration
         entry: bash
-        args: ['-c', 'cd /mnt/d/Bimo_max/crypto-trading-bot && ./scripts/validate_configuration.sh']
+        # pre-commit runs from the repo root; relative path works on any
+        # machine. Was hardcoded to /mnt/d/Bimo_max/... — broken for every
+        # contributor not on the original WSL setup.
+        args: ['-c', './scripts/validate_configuration.sh']
         language: system
         pass_filenames: false
         stages: [manual]

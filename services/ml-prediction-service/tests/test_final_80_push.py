@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import sys
 from pathlib import Path
 
-sys.path.insert(0, '/mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service')
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
 
 from app.main import app
 from app.models import PricePrediction, PricePoint, TrendPrediction, VolatilityPrediction

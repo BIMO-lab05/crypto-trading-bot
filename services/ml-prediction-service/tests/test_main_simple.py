@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, patch, AsyncMock
 import sys
-sys.path.insert(0, '/mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service')
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
 
 from app.main import app
 from app.models import ModelInfo, PricePrediction, PricePoint

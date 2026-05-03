@@ -17,6 +17,7 @@ import logging
 import sys
 import os
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 import json
 import time
 
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # Data directory
-DATA_DIR = Path('/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training')
+DATA_DIR = (_REPO_ROOT / 'data/ml_training')
 
 # Symbols to train (those with 24-month CSV files)
 SYMBOLS = [

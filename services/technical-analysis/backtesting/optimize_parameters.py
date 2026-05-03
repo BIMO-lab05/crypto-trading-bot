@@ -16,6 +16,8 @@ Usage:
 """
 
 import asyncio
+from pathlib import Path as _Path
+_SCRIPT_DIR = str(_Path(__file__).resolve().parent)
 import asyncpg
 from typing import Dict, List, Tuple, Optional
 import pandas as pd
@@ -402,7 +404,7 @@ async def optimize_all_symbols():
         # Save individual symbol results
         optimizer.save_results(
             result,
-            f'/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/optimization_{symbol}.json'
+            f'{_SCRIPT_DIR}/optimization_{symbol}.json'
         )
 
         # Print detailed summary
@@ -446,7 +448,7 @@ async def optimize_all_symbols():
     # Save combined results
     optimizer.save_results(
         all_optimization_results,
-        '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/all_optimizations.json'
+        f'{_SCRIPT_DIR}/all_optimizations.json'
     )
 
     # Create comprehensive summary report
@@ -610,7 +612,7 @@ def create_optimization_report(results: Dict):
     report.append("")
 
     # Save report
-    report_path = '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/PARAMETER_OPTIMIZATION_REPORT.md'
+    report_path = f'{_SCRIPT_DIR}/PARAMETER_OPTIMIZATION_REPORT.md'
     with open(report_path, 'w') as f:
         f.write('\n'.join(report))
 

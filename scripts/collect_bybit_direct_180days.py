@@ -20,6 +20,8 @@ Date: 2025-12-08
 """
 
 import os
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent
 import sys
 import time
 import requests
@@ -66,7 +68,7 @@ DB_USER = os.getenv('DB_USER', 'cryptobot')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'your_password_here')
 
 # Output directory for CSV backups
-OUTPUT_DIR = '/mnt/d/Bimo_max/crypto-trading-bot/data/historical'
+OUTPUT_DIR = str(_REPO_ROOT / 'data/historical')
 
 
 def print_header():

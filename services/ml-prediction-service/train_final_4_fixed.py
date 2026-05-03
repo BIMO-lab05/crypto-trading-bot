@@ -10,6 +10,7 @@ import pandas as pd
 import time
 import logging
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Set environment variables BEFORE imports
 os.environ['EPOCHS'] = '100'
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 SYMBOLS = ['LINKUSDT', 'OPUSDT', 'POLUSDT', 'SUIUSDT']
 INTERVAL = '60'  # 1 hour
-DATA_DIR = '/mnt/d/Bimo_max/crypto-trading-bot/data'
+DATA_DIR = str(_REPO_ROOT / 'data')
 
 
 def find_data_file(symbol: str) -> str:

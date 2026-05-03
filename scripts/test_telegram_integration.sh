@@ -15,7 +15,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-PROJECT_ROOT="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NOTIFICATION_SERVICE_URL="http://localhost:8006"
 TRADING_ENGINE_URL="http://localhost:8005"
 RABBITMQ_URL="http://localhost:15672"

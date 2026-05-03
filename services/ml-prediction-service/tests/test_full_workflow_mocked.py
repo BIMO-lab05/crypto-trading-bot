@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 import sys
 import asyncio
-sys.path.insert(0, '/mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service')
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
 
 from app.predictor import LSTMPricePredictor
 from app.ml_models.gru_predictor import GRUPricePredictor

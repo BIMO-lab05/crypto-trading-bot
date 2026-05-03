@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 import sys
-sys.path.insert(0, '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis')
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent.parent))
 
 from app.indicators.volume_confirmation import VolumeConfirmation
 

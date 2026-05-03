@@ -1,10 +1,11 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # PostgreSQL Automated Backup Script
 # Backs up portfolio and trading data
 
 set -e
 
-BACKUP_DIR="/mnt/d/Bimo_max/crypto-trading-bot/backups/postgresql"
+BACKUP_DIR="${PROJECT_ROOT}/backups/postgresql"
 CONTAINER_NAME="crypto-bot-postgres"
 DB_NAME="crypto_trading"
 DB_USER="cryptobot"

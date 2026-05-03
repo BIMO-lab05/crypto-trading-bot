@@ -1,11 +1,12 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Master Backup Script with Retention Policy
 # Runs daily and weekly backups with automatic cleanup
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKUP_BASE="/mnt/d/Bimo_max/crypto-trading-bot/backups"
+BACKUP_BASE="${PROJECT_ROOT}/backups"
 LOG_FILE="$BACKUP_BASE/backup.log"
 
 # Retention settings

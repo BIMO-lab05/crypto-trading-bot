@@ -12,10 +12,13 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
+# Project root resolves from script location (was hardcoded WSL path).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
 ML_SERVICE="http://localhost:8007"
 LOOKBACK_DAYS=90
 INTERVAL="60"
-LOG_FILE="/mnt/d/Bimo_max/crypto-trading-bot/logs/model_retraining.log"
+LOG_FILE="${PROJECT_ROOT}/logs/model_retraining.log"
 
 # Core trading symbols (update this list as needed)
 CORE_SYMBOLS=(

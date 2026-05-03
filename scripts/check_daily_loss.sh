@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # =============================================================================
 # Check Daily Loss and Alert if Threshold Exceeded
 # Purpose: Automated monitoring of daily loss limits
@@ -10,7 +11,7 @@
 set -e
 
 # Configuration
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 LOG_FILE="$PROJECT_DIR/logs/daily_loss_check.log"
 NOTIFICATION_SERVICE="http://localhost:8006"
 RISK_METRICS="http://localhost:8009"

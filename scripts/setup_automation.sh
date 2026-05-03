@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Crypto Trading Bot - Automated Scheduling Setup
 # Version: 1.0.0
 # Last Updated: 2025-11-14
@@ -18,7 +19,7 @@ NC='\033[0m'
 
 # Configuration
 ACTION="preview"
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 USER=$(whoami)
 
 # Parse arguments

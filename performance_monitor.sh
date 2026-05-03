@@ -12,11 +12,14 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
+# Project root resolves from script location (was hardcoded WSL path).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
 DB_HOST="localhost"
 DB_PORT="5432"
 DB_USER="cryptobot"
 DB_NAME="cryptobot"
-LOG_FILE="/mnt/d/Bimo_max/crypto-trading-bot/logs/performance_monitor.log"
+LOG_FILE="${PROJECT_ROOT}/logs/performance_monitor.log"
 
 # Thresholds
 MIN_WIN_RATE=40.0          # Minimum acceptable win rate (%)

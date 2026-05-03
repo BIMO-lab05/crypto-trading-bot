@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # =============================================================================
 # Day 2 Paper Trading Monitoring Dashboard
 # Purpose: Comprehensive monitoring for Day 2 of paper trading validation
@@ -9,7 +10,7 @@
 set -e
 
 # Configuration
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 LOG_FILE="$PROJECT_DIR/logs/day2_monitor.log"
 
 # Service endpoints

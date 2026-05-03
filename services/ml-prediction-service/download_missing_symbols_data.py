@@ -11,6 +11,7 @@ import asyncio
 import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 import logging
 import sys
 import time
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 SYMBOLS = ['LINKUSDT', 'OPUSDT', 'POLUSDT', 'SUIUSDT']
 INTERVAL = '60'  # 60 minutes = 1H
 MONTHS_BACK = 24  # 24 months of data
-OUTPUT_DIR = Path('/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training')
+OUTPUT_DIR = (_REPO_ROOT / 'data/ml_training')
 
 # Bybit API
 BYBIT_API_URL = "https://api.bybit.com"

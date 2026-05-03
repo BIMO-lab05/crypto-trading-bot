@@ -13,6 +13,7 @@ Date: 2025-12-10
 import sys
 import os
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 import asyncio
 import logging
 from datetime import datetime
@@ -51,7 +52,7 @@ REMAINING_SYMBOLS = [
 ]
 
 # Data directory with 24-month CSV files
-DATA_DIR = Path('/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training')
+DATA_DIR = (_REPO_ROOT / 'data/ml_training')
 
 def load_csv_data(symbol: str) -> pd.DataFrame:
     """
@@ -75,7 +76,7 @@ def load_csv_data(symbol: str) -> pd.DataFrame:
     # Try both ml_training and backtesting directories
     search_dirs = [
         DATA_DIR,
-        Path('/mnt/d/Bimo_max/crypto-trading-bot/backtesting/data')
+        (_REPO_ROOT / 'backtesting/data')
     ]
 
     for directory in search_dirs:

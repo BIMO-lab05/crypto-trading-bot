@@ -20,6 +20,7 @@ Expected Output:
 import sys
 import os
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -48,7 +49,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/mnt/d/Bimo_max/crypto-trading-bot/logs/bnb_walkforward.log'),
+        logging.FileHandler(str(_REPO_ROOT / 'logs/bnb_walkforward.log')),
         logging.StreamHandler()
     ]
 )

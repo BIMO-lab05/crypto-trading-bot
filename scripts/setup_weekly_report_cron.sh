@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # ==============================================================================
 # Setup Weekly Performance Report Cron Job
 # ==============================================================================
@@ -29,7 +30,7 @@ NC='\033[0m' # No Color
 # Default configuration
 DEFAULT_DAY="Monday"
 DEFAULT_TIME="09:00"
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 SCRIPT_PATH="$PROJECT_DIR/scripts/weekly_performance_report.py"
 LOG_DIR="$PROJECT_DIR/logs"
 CRON_LOG="$LOG_DIR/weekly_report_cron.log"
@@ -281,7 +282,7 @@ create_error_notification() {
 #!/bin/bash
 # Notify on weekly report errors
 
-ERROR_LOG="/mnt/d/Bimo_max/crypto-trading-bot/logs/weekly_report_error.log"
+ERROR_LOG="${PROJECT_ROOT}/logs/weekly_report_error.log"
 
 # Check if error log has recent errors (last 24 hours)
 if [ -f "$ERROR_LOG" ]; then
@@ -311,7 +312,7 @@ setup_report_cleanup() {
 #!/bin/bash
 # Cleanup old performance reports (older than 90 days)
 
-REPORTS_DIR="/mnt/d/Bimo_max/crypto-trading-bot/reports"
+REPORTS_DIR="${PROJECT_ROOT}/reports"
 RETENTION_DAYS=90
 
 echo "Cleaning up reports older than $RETENTION_DAYS days..."
