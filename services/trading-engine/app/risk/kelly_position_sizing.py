@@ -657,24 +657,31 @@ class KellyPositionSizer:
 
     def _persist_trade(self, trade: TradeRecord) -> None:
         """
-        Persist trade record to PostgreSQL database
+        Persist the sizer's full state (aggregates + rolling window) to the
+        kelly_state row. Called after each trade is recorded so the Kelly
+        fraction and streak survive restarts.
 
-        Args:
-            trade: TradeRecord to persist
+        We persist the full state rather than each trade row because Kelly
+        sizing only consumes aggregates plus the recent rolling window, and
+        a single upsert on a single row is cheaper than per-trade inserts.
         """
+        if self.db_session_factory is None:
+            return
+
         try:
-            # Implementation depends on database schema
-            # For now, log the intention
-            logger.debug(f"Would persist trade {trade.trade_id} to database")
+            from app.risk.kelly_persistence import save_state
 
-            # TODO: Implement actual database persistence
-            # async with self.db_session_factory() as session:
-            #     db_trade = KellyTradeHistory(...)
-            #     session.add(db_trade)
-            #     await session.commit()
-
+            # db_session_factory is the sync sessionmaker from
+            # database.connection.DatabaseManager — calling it returns a
+            # Session that exposes connection() for Core operations.
+            session = self.db_session_factory()
+            try:
+                save_state(session.connection(), self)
+                session.commit()
+            finally:
+                session.close()
         except Exception as e:
-            logger.error(f"Failed to persist trade {trade.trade_id}: {e}")
+            logger.error(f"Failed to persist Kelly state after trade {trade.trade_id}: {e}")
 
     def get_kelly_stats(self) -> Dict:
         """
@@ -721,32 +728,37 @@ class KellyPositionSizer:
 
     def load_trades_from_db(self, limit: int = 50) -> int:
         """
-        Load historical trades from database to initialize stats
-
-        Args:
-            limit: Maximum number of trades to load
+        Restore the sizer state (aggregates + rolling window) from the
+        kelly_state row. The `limit` argument is retained for API
+        compatibility but is implicitly bounded by ROLLING_WINDOW since
+        that's all we persist.
 
         Returns:
-            Number of trades loaded
+            Number of trades restored to the rolling window. 0 means either
+            no row was found (fresh deploy) or no factory was configured.
         """
         if self.db_session_factory is None:
             logger.warning("No database session factory configured")
             return 0
 
         try:
-            # TODO: Implement database loading
-            # async with self.db_session_factory() as session:
-            #     trades = await session.execute(
-            #         select(Trade).order_by(Trade.executed_at.desc()).limit(limit)
-            #     )
-            #     for trade in trades:
-            #         self.record_trade(TradeRecord(...))
+            from app.risk.kelly_persistence import load_state
 
-            logger.info(f"Would load up to {limit} trades from database")
-            return 0
+            session = self.db_session_factory()
+            try:
+                restored = load_state(session.connection(), self)
+                session.commit()
+            finally:
+                session.close()
+
+            logger.info(
+                f"Loaded Kelly state: {self._total_trades} trades total, "
+                f"{restored} in rolling window"
+            )
+            return restored
 
         except Exception as e:
-            logger.error(f"Failed to load trades from database: {e}")
+            logger.error(f"Failed to load Kelly state from database: {e}")
             return 0
 
     def reset(self) -> None:
