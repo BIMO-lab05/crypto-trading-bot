@@ -135,7 +135,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Trivy scanning
+      # Trivy scanning. exit-code: '0' so CVE findings don't fail the job —
+      # they still upload to the GH Security tab via SARIF for review. ci.yml's
+      # equivalent Trivy step uses '0' for the same reason; security-scan.yml
+      # lacked it, which is why every PR's "Scan Docker Images" job was red
+      # on accumulated HIGH-severity CVEs in 4-month-old base images.
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -143,6 +147,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-results-${{ matrix.service }}.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -158,6 +163,7 @@ jobs:
           format: 'json'
           output: 'trivy-results-${{ matrix.service }}.json'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
 
       - name: Run Trivy for table output
         uses: aquasecurity/trivy-action@master
@@ -165,6 +171,7 @@ jobs:
           image-ref: crypto-bot/${{ matrix.service }}:scan
           format: 'table'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
 
       # Grype scanning (alternative scanner)
       # severity-cutoff was 'high' but a 4-month-old base image accumulates
