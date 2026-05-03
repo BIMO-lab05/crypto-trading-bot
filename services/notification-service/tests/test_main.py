@@ -24,14 +24,20 @@ class TestHealthEndpoint:
         assert "timestamp" in data
 
     def test_health_check_includes_configuration(self, test_client):
-        """Test health check includes notification configuration"""
+        """Test health check includes notification configuration.
+
+        Channel flags moved under data['channels'] when the health response
+        was reshaped to group related fields.
+        """
         response = test_client.get("/health")
         data = response.json()
 
-        assert "email_enabled" in data
-        assert "telegram_enabled" in data
-        assert isinstance(data["email_enabled"], bool)
-        assert isinstance(data["telegram_enabled"], bool)
+        assert "channels" in data
+        channels = data["channels"]
+        assert "email_enabled" in channels
+        assert "telegram_enabled" in channels
+        assert isinstance(channels["email_enabled"], bool)
+        assert isinstance(channels["telegram_enabled"], bool)
 
 
 class TestConfigurationEndpoint:

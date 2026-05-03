@@ -491,12 +491,16 @@ class TestMarketDataEndpoints:
         )
 
         # Then client is called with correct params
+        # The endpoint passes start_time/end_time too (default None when query
+        # params are absent), so the assert needs to include them.
         assert response.status_code == status.HTTP_200_OK
         mock_rest_client.get_kline.assert_called_once_with(
             category="linear",
             symbol="ETHUSDT",
             interval="240",
-            limit=100
+            limit=100,
+            start_time=None,
+            end_time=None,
         )
 
     def test_get_orderbook_endpoint(self, client, mock_rest_client):
