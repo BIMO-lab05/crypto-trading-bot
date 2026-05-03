@@ -45,7 +45,7 @@ except ImportError:
     HAS_MEMORY_PROFILER = False
 
 import sys
-sys.path.insert(0, "/mnt/d/Bimo_max/crypto-trading-bot/services/trading-engine")
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
 
 from app.execution.twap_vwap import (
     TWAPAlgorithm,

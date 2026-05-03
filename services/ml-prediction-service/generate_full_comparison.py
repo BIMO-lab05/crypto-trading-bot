@@ -5,11 +5,12 @@ Generate comprehensive 16 GRU vs 16 LSTM comparison report
 import os
 import json
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 from datetime import datetime
 from typing import Dict, List, Tuple
 
 # Model directory
-MODELS_DIR = Path('/mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service/models')
+MODELS_DIR = (_REPO_ROOT / 'services/ml-prediction-service/models')
 
 # All 16 symbols
 SYMBOLS = [

@@ -15,7 +15,8 @@ NC='\033[0m' # No Color
 
 # Output file for detailed report
 REPORT_FILE="TEST_AUDIT_REPORT_$(date +%Y%m%d_%H%M%S).md"
-PROJECT_ROOT="/mnt/d/Bimo_max/crypto-trading-bot"
+# Project root resolves from script location (was hardcoded WSL path).
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Test counters
 TOTAL_TESTS=0

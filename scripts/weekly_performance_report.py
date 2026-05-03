@@ -23,6 +23,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 import pandas as pd
 import numpy as np
@@ -1167,14 +1168,14 @@ Examples:
     parser.add_argument(
         '--config',
         type=str,
-        default='/mnt/d/Bimo_max/crypto-trading-bot/config/performance_report_config.yaml',
+        default=str(_REPO_ROOT / 'config/performance_report_config.yaml'),
         help='Path to configuration file'
     )
 
     parser.add_argument(
         '--output',
         type=str,
-        default='/mnt/d/Bimo_max/crypto-trading-bot/reports',
+        default=str(_REPO_ROOT / 'reports'),
         help='Output directory for reports'
     )
 

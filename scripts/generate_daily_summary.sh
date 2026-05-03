@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # =============================================================================
 # Generate Daily Trading Summary
 # Purpose: Create comprehensive daily summary report for paper trading
@@ -9,7 +10,7 @@
 set -e
 
 # Configuration
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 REPORTS_DIR="$PROJECT_DIR/reports"
 
 # Default to today's date if not provided

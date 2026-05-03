@@ -283,13 +283,15 @@ def main():
     }
 
     for symbol in symbols:
-        # Load data - look for the correct path (using the actual files in the directory)
-        # Construct the file paths directly
+        # Load data — resolve paths from this script's location so the
+        # script works on any machine (was hardcoded WSL paths).
         import os
+        from pathlib import Path as _Path
+        _project_root = _Path(__file__).resolve().parent
         data_paths = [
-            f'/mnt/d/Bimo_max/crypto-trading-bot/data/historical/{symbol}_180days_20251211.csv',  # Latest data
-            f'/mnt/d/Bimo_max/crypto-trading-bot/data/historical/{symbol}_180days_20251208.csv',  # Older data
-            f'/mnt/d/Bimo_max/crypto-trading-bot/backtesting/data/{symbol}_60m_90d_bybit.csv'    # Backup
+            f'{_project_root}/data/historical/{symbol}_180days_20251211.csv',  # Latest data
+            f'{_project_root}/data/historical/{symbol}_180days_20251208.csv',  # Older data
+            f'{_project_root}/backtesting/data/{symbol}_60m_90d_bybit.csv'    # Backup
         ]
 
         data_path = None

@@ -2,7 +2,7 @@
 # Real-time Trading Bot Monitor
 # Shows live updates of trading activity and portfolio status
 
-PROJECT_ROOT="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 # Color codes

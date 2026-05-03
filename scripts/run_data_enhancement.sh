@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Data Quality Enhancement - Quick Start Script
 # Purpose: Automated execution with progress logging
 # Date: 2025-11-20
@@ -13,9 +14,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Directories
-SCRIPT_DIR="/mnt/d/Bimo_max/crypto-trading-bot/scripts"
-REPORT_DIR="/mnt/d/Bimo_max/crypto-trading-bot/reports"
-LOG_DIR="/mnt/d/Bimo_max/crypto-trading-bot/logs"
+SCRIPT_DIR="${PROJECT_ROOT}/scripts"
+REPORT_DIR="${PROJECT_ROOT}/reports"
+LOG_DIR="${PROJECT_ROOT}/logs"
 
 # Create directories if they don't exist
 mkdir -p "$REPORT_DIR"

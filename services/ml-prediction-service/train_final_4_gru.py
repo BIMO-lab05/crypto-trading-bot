@@ -8,6 +8,7 @@ import asyncio
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 import logging
 import sys
 import os
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-DATA_DIR = Path('/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training')
+DATA_DIR = (_REPO_ROOT / 'data/ml_training')
 SYMBOLS = ['LINKUSDT', 'OPUSDT', 'POLUSDT', 'SUIUSDT']
 INTERVAL = '60'
 

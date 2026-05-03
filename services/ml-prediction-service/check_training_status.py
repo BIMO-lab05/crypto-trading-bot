@@ -4,8 +4,9 @@ Quick check of GRU training status
 """
 import os
 from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-models_dir = Path("/mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service/models")
+models_dir = (_REPO_ROOT / 'services/ml-prediction-service/models')
 
 # All symbols we want to have GRU models for
 ALL_SYMBOLS = [

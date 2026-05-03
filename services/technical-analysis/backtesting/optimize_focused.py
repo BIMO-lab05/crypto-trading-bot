@@ -22,6 +22,11 @@ Usage:
 import asyncio
 import logging
 from datetime import datetime
+from pathlib import Path as _Path
+
+# Resolve script-local output paths from this file's location instead of a
+# hardcoded WSL path (was /mnt/d/Bimo_max/...).
+_SCRIPT_DIR = str(_Path(__file__).resolve().parent)
 
 from optimize_parameters import ParameterOptimizer, create_optimization_report
 
@@ -102,7 +107,7 @@ async def focused_optimization():
         # Save individual results
         optimizer.save_results(
             result,
-            f'/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/optimization_{symbol}_focused.json'
+            f'{_SCRIPT_DIR}/optimization_{symbol}_focused.json'
         )
 
         # Print summary
@@ -128,7 +133,7 @@ async def focused_optimization():
     # Save combined results
     optimizer.save_results(
         all_results,
-        '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/all_optimizations_focused.json'
+        f'{_SCRIPT_DIR}/all_optimizations_focused.json'
     )
 
     # Create summary report
@@ -192,7 +197,7 @@ async def quick_test_single_symbol():
 
     optimizer.save_results(
         result,
-        '/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/optimization_SOLUSDT_quicktest.json'
+        f'{_SCRIPT_DIR}/optimization_SOLUSDT_quicktest.json'
     )
 
     logger.info("\nQuick Test Results:")

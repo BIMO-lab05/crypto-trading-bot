@@ -1,11 +1,12 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # TimescaleDB Automated Backup Script
 # Backs up market data database with compression and timestamp
 
 set -e
 
 # Configuration
-BACKUP_DIR="/mnt/d/Bimo_max/crypto-trading-bot/backups/timescaledb"
+BACKUP_DIR="${PROJECT_ROOT}/backups/timescaledb"
 CONTAINER_NAME="crypto-bot-timescaledb"
 DB_NAME="market_data"
 DB_USER="cryptobot"

@@ -68,7 +68,7 @@ EOF
                 echo "✅ Database connection successful!"
                 echo ""
                 echo "Next step: Run database migrations"
-                echo "   cd /mnt/d/Bimo_max/crypto-trading-bot/infrastructure/migrations"
+                echo "   cd <repo-root>/infrastructure/migrations"
                 echo "   PGPASSWORD=cryptobot_secure_2024 psql -h localhost -U cryptobot -d cryptobot -f 001_initial_schema.sql"
             else
                 echo "❌ Connection test failed"

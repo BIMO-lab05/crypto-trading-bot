@@ -4,7 +4,7 @@ Test Grid Trading v1 Strategy with CSV Historical Data
 =======================================================
 Uses real historical data from Bybit API instead of generated data.
 
-Data Source: /mnt/d/Bimo_max/crypto-trading-bot/data/historical/
+Data Source: <repo>/data/historical/
 File Format: {SYMBOL}_180days_20251208.csv
 CSV Columns: timestamp,open,high,low,close,volume,turnover
 
@@ -21,6 +21,8 @@ Date: 2025-12-08
 """
 
 import sys
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent
 import os
 from datetime import datetime
 from typing import Dict, List
@@ -34,7 +36,7 @@ from app.backtesting.backtest_engine import BacktestEngine, BacktestConfig, Back
 from app.backtesting.strategy_base import OHLCV
 
 
-def load_csv_data(symbol: str, data_dir: str = "/mnt/d/Bimo_max/crypto-trading-bot/data/historical") -> List[OHLCV]:
+def load_csv_data(symbol: str, data_dir: str = str(_REPO_ROOT / 'data/historical')) -> List[OHLCV]:
     """
     Load CSV historical data and convert to OHLCV format
 

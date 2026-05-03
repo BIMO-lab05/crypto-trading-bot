@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # =============================================================================
 # SQZMOM Paper Trading Monitoring Script
 # Purpose: Monitor paper trading performance and system health
@@ -16,7 +17,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 LOG_FILE="$PROJECT_DIR/logs/paper_trading_monitor.log"
 ALERT_FILE="$PROJECT_DIR/logs/paper_trading_alerts.log"
 

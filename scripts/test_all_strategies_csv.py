@@ -12,7 +12,7 @@ Context:
 FIX: BacktestEngine doesn't notify strategy when positions close via SL/TP
      This version includes a patched engine that properly syncs position state.
 
-Data Source: /mnt/d/Bimo_max/crypto-trading-bot/data/historical/
+Data Source: <repo>/data/historical/
 File Format: {SYMBOL}_180days_20251208.csv
 
 Author: Strategy Testing Framework
@@ -20,6 +20,8 @@ Date: 2025-12-08
 """
 
 import sys
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent
 import os
 import logging
 from datetime import datetime, timedelta
@@ -29,7 +31,7 @@ import pandas as pd
 import numpy as np
 
 # Add project root to path for imports
-PROJECT_ROOT = "/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_ROOT = str(_REPO_ROOT / '')
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'services', 'trading-engine'))
 
 # Import backtesting framework

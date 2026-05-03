@@ -6,6 +6,11 @@ import os
 import sys
 import inspect
 import importlib.util
+from pathlib import Path
+
+# Resolve project root from this file's location so the script works on any
+# machine (was hardcoded to /mnt/d/Bimo_max/crypto-trading-bot).
+PROJECT_ROOT = str(Path(__file__).resolve().parent)
 
 def validate_file_exists(filepath):
     """Check if file exists"""
@@ -63,7 +68,7 @@ def main():
     
     # 1. Enhanced Mean Reversion Strategy
     print("1. Validating Enhanced Mean Reversion Strategy...")
-    mean_rev_path = "/mnt/d/Bimo_max/crypto-trading-bot/backtesting/strategies/enhanced_mean_reversion_strategy.py"
+    mean_rev_path = f"{PROJECT_ROOT}/backtesting/strategies/enhanced_mean_reversion_strategy.py"
     if validate_file_exists(mean_rev_path):
         mean_rev_module = validate_module_can_be_imported(mean_rev_path, "enhanced_mean_reversion_strategy")
         if mean_rev_module:
@@ -78,7 +83,7 @@ def main():
     
     # 2. Enhanced Breakout Strategy
     print("2. Validating Enhanced Breakout Strategy...")
-    breakout_path = "/mnt/d/Bimo_max/crypto-trading-bot/services/trading-engine/app/strategies/enhanced_breakout_strategy.py"
+    breakout_path = f"{PROJECT_ROOT}/services/trading-engine/app/strategies/enhanced_breakout_strategy.py"
     if validate_file_exists(breakout_path):
         breakout_module = validate_module_can_be_imported(breakout_path, "enhanced_breakout_strategy")
         if breakout_module:
@@ -93,7 +98,7 @@ def main():
     
     # 3. Market Regime Detection
     print("3. Validating Market Regime Detection...")
-    regime_path = "/mnt/d/Bimo_max/crypto-trading-bot/services/trading-engine/app/adaptive_strategy_controller.py"
+    regime_path = f"{PROJECT_ROOT}/services/trading-engine/app/adaptive_strategy_controller.py"
     if validate_file_exists(regime_path):
         regime_module = validate_module_can_be_imported(regime_path, "adaptive_strategy_controller")
         if regime_module:
@@ -108,7 +113,7 @@ def main():
     
     # 4. Multi-Timeframe Testing
     print("4. Validating Multi-Timeframe Testing...")
-    timeframe_path = "/mnt/d/Bimo_max/crypto-trading-bot/backtesting/multi_timeframe_tester.py"
+    timeframe_path = f"{PROJECT_ROOT}/backtesting/multi_timeframe_tester.py"
     if validate_file_exists(timeframe_path):
         timeframe_module = validate_module_can_be_imported(timeframe_path, "multi_timeframe_tester")
         if timeframe_module:
@@ -123,7 +128,7 @@ def main():
     
     # 5. ML-Based Ensemble Methods
     print("5. Validating ML-Based Ensemble Methods...")
-    ensemble_path = "/mnt/d/Bimo_max/crypto-trading-bot/services/ml-prediction-service/app/ensemble_strategy.py"
+    ensemble_path = f"{PROJECT_ROOT}/services/ml-prediction-service/app/ensemble_strategy.py"
     if validate_file_exists(ensemble_path):
         ensemble_module = validate_module_can_be_imported(ensemble_path, "ensemble_strategy")
         if ensemble_module:
@@ -138,7 +143,7 @@ def main():
     
     # 6. Configuration System
     print("6. Validating Configuration System...")
-    config_path = "/mnt/d/Bimo_max/crypto-trading-bot/services/trading-engine/app/strategy_config_system.py"
+    config_path = f"{PROJECT_ROOT}/services/trading-engine/app/strategy_config_system.py"
     if validate_file_exists(config_path):
         config_module = validate_module_can_be_imported(config_path, "strategy_config_system")
         if config_module:

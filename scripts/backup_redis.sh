@@ -1,10 +1,11 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Redis Automated Backup Script
 # Backs up Redis cache and session data
 
 set -e
 
-BACKUP_DIR="/mnt/d/Bimo_max/crypto-trading-bot/backups/redis"
+BACKUP_DIR="${PROJECT_ROOT}/backups/redis"
 CONTAINER_NAME="crypto-bot-redis"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="redis_dump_${TIMESTAMP}.rdb"

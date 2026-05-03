@@ -6,8 +6,10 @@ set -e  # Exit on any error
 echo "💰 Starting Profitable Crypto Trading System"
 echo "==========================================="
 
-# Navigate to the project root
-cd /mnt/d/Bimo_max/crypto-trading-bot
+# Navigate to the project root (resolves from script location instead of a
+# hardcoded WSL path so the script works on any machine).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "🔄 Checking configuration..."
 echo "   - SHORT trading enabled: $(python -c "from services.trading-engine.app.config import get_settings; s = get_settings(); print(s.short_trading_enabled)")"

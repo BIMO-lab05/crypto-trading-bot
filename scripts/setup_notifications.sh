@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Quick setup script for notification service
 
 set -e
@@ -18,7 +19,7 @@ echo -e "${BLUE}╚════════════════════�
 echo ""
 
 # Navigate to notification service directory
-cd /mnt/d/Bimo_max/crypto-trading-bot/services/notification-service
+cd ${PROJECT_ROOT}/services/notification-service
 
 # Step 1: Check if .env exists
 if [ -f .env ]; then

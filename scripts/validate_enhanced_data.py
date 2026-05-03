@@ -16,6 +16,8 @@ This script verifies:
 """
 
 import psycopg2
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -399,7 +401,7 @@ class DataValidator:
         report = self.generate_validation_report()
 
         # Save report
-        report_path = '/mnt/d/Bimo_max/crypto-trading-bot/reports/data_validation_report.md'
+        report_path = str(_REPO_ROOT / 'reports/data_validation_report.md')
         with open(report_path, 'w') as f:
             f.write(report)
 

@@ -13,7 +13,8 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-PROJECT_ROOT="/mnt/d/Bimo_max/crypto-trading-bot"
+# Project root resolves from script location (was hardcoded WSL path).
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║  AUTOMATED FIX SCRIPT - CRYPTO TRADING BOT                 ║${NC}"

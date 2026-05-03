@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # =============================================================================
 # Alert Channel Testing Script
 # Purpose: Test all configured notification channels
@@ -18,10 +19,10 @@ NC='\033[0m' # No Color
 # Configuration
 NOTIFICATION_SERVICE_URL="${NOTIFICATION_SERVICE_URL:-http://localhost:8006}"
 TRADING_ENGINE_URL="${TRADING_ENGINE_URL:-http://localhost:8005}"
-REPORT_FILE="/mnt/d/Bimo_max/crypto-trading-bot/reports/alert_test_report_$(date +%Y%m%d_%H%M%S).md"
+REPORT_FILE="${PROJECT_ROOT}/reports/alert_test_report_$(date +%Y%m%d_%H%M%S).md"
 
 # Create reports directory
-mkdir -p /mnt/d/Bimo_max/crypto-trading-bot/reports
+mkdir -p ${PROJECT_ROOT}/reports
 
 # Start report
 cat << 'EOF' > "$REPORT_FILE"

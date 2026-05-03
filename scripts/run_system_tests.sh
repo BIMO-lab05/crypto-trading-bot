@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Crypto Trading Bot - Comprehensive System Test Suite
 # Version: 1.0.0
 # Last Updated: 2025-11-14
@@ -19,7 +20,7 @@ NC='\033[0m'
 # Configuration
 VERBOSE=false
 GENERATE_REPORT=false
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 REPORT_FILE="/tmp/system_test_report_$(date +%Y%m%d_%H%M%S).txt"
 
 # Test counters
@@ -324,24 +325,26 @@ test_documentation() {
     echo ""
 }
 
-# Test 8: Dashboard Accessibility
+# Test 8: Frontend Accessibility
+# Updated 2026-05: legacy static dashboard/ was retired (PR #78); the React
+# frontend at services/../frontend/ on port 3000 is the canonical UI.
 test_dashboard() {
-    echo -e "${CYAN}═══ Test Category: Dashboard ═══${NC}"
+    echo -e "${CYAN}═══ Test Category: Frontend ═══${NC}"
     echo ""
 
-    # Test dashboard is accessible
-    run_test "Dashboard HTML accessible" \
-        "curl -f -s http://localhost:8080 >/dev/null 2>&1"
+    # Test frontend (Vite dev server or built dist) is accessible on port 3000
+    run_test "Frontend accessible on :3000" \
+        "curl -f -s http://localhost:3000 >/dev/null 2>&1"
 
-    # Test dashboard files exist
-    run_test "Dashboard index.html exists" \
-        "test -f $PROJECT_DIR/frontend/dashboard/index.html"
+    # Test frontend source files exist
+    run_test "Frontend index.html exists" \
+        "test -f $PROJECT_DIR/frontend/index.html"
 
-    run_test "Dashboard CSS exists" \
-        "test -f $PROJECT_DIR/frontend/dashboard/styles.css"
+    run_test "Frontend main.jsx exists" \
+        "test -f $PROJECT_DIR/frontend/src/main.jsx"
 
-    run_test "Dashboard JS exists" \
-        "test -f $PROJECT_DIR/frontend/dashboard/app.js"
+    run_test "Frontend package.json exists" \
+        "test -f $PROJECT_DIR/frontend/package.json"
 
     echo ""
 }

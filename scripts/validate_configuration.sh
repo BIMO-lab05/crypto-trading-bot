@@ -1,4 +1,5 @@
 #!/bin/bash
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Crypto Trading Bot - Configuration Validation Script
 # Version: 1.0.0
 # Last Updated: 2025-11-14
@@ -21,7 +22,7 @@ FIX_MODE=false
 VERBOSE=false
 ERRORS=0
 WARNINGS=0
-PROJECT_DIR="/mnt/d/Bimo_max/crypto-trading-bot"
+PROJECT_DIR="${PROJECT_ROOT}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do

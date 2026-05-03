@@ -4,6 +4,8 @@ Retrain SUIUSDT GRU model with 12-month extended data
 Target: Achieve R²>0.85 (previous: 0.6638 with 6-month data)
 """
 import os
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent.parent
 import sys
 import asyncio
 import pandas as pd
@@ -24,7 +26,7 @@ async def retrain_suiusdt():
     """Retrain SUIUSDT with 12-month data"""
 
     symbol = 'SUIUSDT'
-    data_file = '/mnt/d/Bimo_max/crypto-trading-bot/data/ml_training/SUIUSDT_1H_12months_20251210.csv'
+    data_file = str(_REPO_ROOT / 'data/ml_training/SUIUSDT_1H_12months_20251210.csv')
 
     print("\n" + "="*100)
     print(f"RETRAINING SUIUSDT GRU MODEL WITH EXTENDED DATA")

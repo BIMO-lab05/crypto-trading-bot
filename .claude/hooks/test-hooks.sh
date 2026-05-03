@@ -7,7 +7,8 @@ echo "  Claude Code Hooks - Interactive Demo"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 
-HOOKS_DIR="/mnt/d/Bimo_max/.claude/hooks"
+# Resolve from this script's location (was hardcoded WSL path).
+HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Test scenarios
 declare -a SCENARIOS=(

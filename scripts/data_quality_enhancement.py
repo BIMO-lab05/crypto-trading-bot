@@ -17,6 +17,8 @@ Target: 7 trading pairs (BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, D
 """
 
 import psycopg2
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -682,7 +684,7 @@ class DataQualityEnhancer:
         final_report = self.generate_final_report()
 
         # Save report to file
-        report_path = '/mnt/d/Bimo_max/crypto-trading-bot/reports/data_quality_report.md'
+        report_path = str(_REPO_ROOT / 'reports/data_quality_report.md')
         with open(report_path, 'w') as f:
             f.write(final_report)
 
