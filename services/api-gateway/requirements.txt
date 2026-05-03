@@ -13,8 +13,8 @@ email-validator==2.2.0    # Email validation for pydantic (2.1.0 was yanked)
 starlette==0.35.1         # ASGI framework (security headers middleware)
 
 # Authentication & Security
-python-jose[cryptography]==3.3.0  # JWT token handling
-cryptography>=46.0.0      # Explicit pin: cp314 wheels start at 46.0.0 (python-jose extra is unbounded)
+pyjwt[crypto]>=2.10.1     # JWT token handling (replaces unmaintained python-jose; cp314 compatible)
+cryptography>=46.0.0      # Pinned for cp314 wheels; pyjwt[crypto] extra also depends on it
 libpass[bcrypt]==1.9.3    # passlib successor (drop-in `passlib` namespace); fixes bcrypt 5.0 ValueError on detect_wrap_bug check
 python-multipart==0.0.6   # Form data support
 bcrypt==5.0.0             # Password hashing backend; cp314 wheels start at 5.0.0

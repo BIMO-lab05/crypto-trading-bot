@@ -16,7 +16,8 @@ from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -153,6 +154,7 @@ if IS_PRODUCTION and ACCESS_TOKEN_EXPIRE_MINUTES > 60:
 # Request/Response Models
 # ============================================================================
 
+
 class UserCreate(BaseModel):
     """User registration request with strong validation"""
     username: str = Field(..., min_length=3, max_length=50)
@@ -160,7 +162,7 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=8, max_length=100)
     full_name: Optional[str] = Field(None, max_length=100)
 
-    @validator('username')
+    @validator("username")
     def username_alphanumeric(cls, v):
         """Validate username is alphanumeric (with _ and -)"""
         if not v.replace('_', '').replace('-', '').isalnum():
@@ -172,15 +174,15 @@ class UserCreate(BaseModel):
             raise ValueError(f'Username "{v}" is reserved')
         return v
 
-    @validator('password')
+    @validator("password")
     def password_strength(cls, v):
         """Validate password meets minimum security requirements"""
         if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
+            raise ValueError("Password must be at least 8 characters")
         if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
+            raise ValueError("Password must contain at least one uppercase letter")
         if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
+            raise ValueError("Password must contain at least one lowercase letter")
         if not any(c.isdigit() for c in v):
             raise ValueError('Password must contain at least one digit')
         if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in v):
@@ -201,6 +203,7 @@ class UserLogin(BaseModel):
 
 class Token(BaseModel):
     """JWT token response"""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # seconds
@@ -208,6 +211,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     """JWT token payload data"""
+
     username: Optional[str] = None
     user_id: Optional[str] = None
 
@@ -226,12 +230,14 @@ class User(BaseModel):
 
 class UserInDB(User):
     """User model with hashed password (for database storage)"""
+
     hashed_password: str
 
 
 # ============================================================================
 # Password Utilities
 # ============================================================================
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
@@ -258,6 +264,7 @@ def get_password_hash(password: str) -> str:
 # ============================================================================
 # JWT Token Utilities
 # ============================================================================
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
@@ -338,7 +345,7 @@ def verify_token(token: str) -> Optional[TokenData]:
 
         return TokenData(username=username, user_id=user_id)
 
-    except JWTError as e:
+    except PyJWTError as e:
         logger.debug(f"JWT validation failed: {type(e).__name__}")
         return None
 
@@ -434,7 +441,7 @@ def create_user(user_create: UserCreate) -> User:
         is_active=True,
         is_admin=grant_admin,
         created_at=datetime.utcnow(),
-        last_login=None
+        last_login=None,
     )
 
     USERS_DB[user_create.username] = user_in_db
@@ -443,7 +450,7 @@ def create_user(user_create: UserCreate) -> User:
     logger.info(f"User created: {user_create.username} (admin={grant_admin})")
 
     # Return user without password hash
-    return User(**user_in_db.dict(exclude={'hashed_password'}))
+    return User(**user_in_db.dict(exclude={"hashed_password"}))
 
 
 def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
