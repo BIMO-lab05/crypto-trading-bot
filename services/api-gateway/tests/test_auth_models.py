@@ -23,7 +23,7 @@ from app.auth_models import (
     create_user,
     authenticate_user,
     update_user_last_login,
-    USERS_DB
+    USERS_DB,
 )
 
 
@@ -36,7 +36,7 @@ class TestUserCreateModel:
             username="testuser",
             email="test@example.com",
             password="SecureP@ss123",
-            full_name="Test User"
+            full_name="Test User",
         )
 
         assert user_data.username == "testuser"
@@ -47,9 +47,7 @@ class TestUserCreateModel:
     def test_user_create_without_full_name(self):
         """Test creating user without optional full name"""
         user_data = UserCreate(
-            username="testuser",
-            email="test@example.com",
-            password="SecureP@ss123"
+            username="testuser", email="test@example.com", password="SecureP@ss123"
         )
 
         assert user_data.full_name is None
@@ -58,9 +56,7 @@ class TestUserCreateModel:
         """Test username minimum length validation"""
         with pytest.raises(ValidationError) as exc_info:
             UserCreate(
-                username="ab",
-                email="test@example.com",
-                password="SecureP@ss123"
+                username="ab", email="test@example.com", password="SecureP@ss123"
             )
 
         assert "at least 3 characters" in str(exc_info.value)
@@ -69,9 +65,7 @@ class TestUserCreateModel:
         """Test username maximum length validation"""
         with pytest.raises(ValidationError) as exc_info:
             UserCreate(
-                username="a" * 51,
-                email="test@example.com",
-                password="SecureP@ss123"
+                username="a" * 51, email="test@example.com", password="SecureP@ss123"
             )
 
         assert "at most 50 characters" in str(exc_info.value)
@@ -79,15 +73,21 @@ class TestUserCreateModel:
     def test_username_alphanumeric_validation(self):
         """Test username alphanumeric validation"""
         # Valid with underscore and dash
-        user1 = UserCreate(username="test_user", email="test@example.com", password="SecureP@ss123")
+        user1 = UserCreate(
+            username="test_user", email="test@example.com", password="SecureP@ss123"
+        )
         assert user1.username == "test_user"
 
-        user2 = UserCreate(username="test-user", email="test@example.com", password="SecureP@ss123")
+        user2 = UserCreate(
+            username="test-user", email="test@example.com", password="SecureP@ss123"
+        )
         assert user2.username == "test-user"
 
         # Invalid with special characters
         with pytest.raises(ValidationError) as exc_info:
-            UserCreate(username="test@user", email="test@example.com", password="SecureP@ss123")
+            UserCreate(
+                username="test@user", email="test@example.com", password="SecureP@ss123"
+            )
 
         assert "must be alphanumeric" in str(exc_info.value)
 
@@ -95,19 +95,13 @@ class TestUserCreateModel:
         """Test invalid email format"""
         with pytest.raises(ValidationError):
             UserCreate(
-                username="testuser",
-                email="invalid-email",
-                password="SecureP@ss123"
+                username="testuser", email="invalid-email", password="SecureP@ss123"
             )
 
     def test_password_too_short(self):
         """Test password minimum length"""
         with pytest.raises(ValidationError) as exc_info:
-            UserCreate(
-                username="testuser",
-                email="test@example.com",
-                password="Short1"
-            )
+            UserCreate(username="testuser", email="test@example.com", password="Short1")
 
         assert "at least 8 characters" in str(exc_info.value)
 
@@ -115,9 +109,7 @@ class TestUserCreateModel:
         """Test password requires uppercase letter"""
         with pytest.raises(ValidationError) as exc_info:
             UserCreate(
-                username="testuser",
-                email="test@example.com",
-                password="nouppercase123"
+                username="testuser", email="test@example.com", password="nouppercase123"
             )
 
         assert "at least one uppercase letter" in str(exc_info.value)
@@ -126,9 +118,7 @@ class TestUserCreateModel:
         """Test password requires lowercase letter"""
         with pytest.raises(ValidationError) as exc_info:
             UserCreate(
-                username="testuser",
-                email="test@example.com",
-                password="NOLOWERCASE123"
+                username="testuser", email="test@example.com", password="NOLOWERCASE123"
             )
 
         assert "at least one lowercase letter" in str(exc_info.value)
@@ -137,9 +127,7 @@ class TestUserCreateModel:
         """Test password requires digit"""
         with pytest.raises(ValidationError) as exc_info:
             UserCreate(
-                username="testuser",
-                email="test@example.com",
-                password="NoDigitsHere"
+                username="testuser", email="test@example.com", password="NoDigitsHere"
             )
 
         assert "at least one digit" in str(exc_info.value)
@@ -155,8 +143,9 @@ class TestPasswordUtilities:
 
         # Hash should be different from original
         assert hashed != password
-        # Hash should start with bcrypt identifier
-        assert hashed.startswith("$2b$")
+        # Hash should start with bcrypt-sha256 identifier (SHA-256 prehash
+        # avoids bcrypt's 72-byte input limit)
+        assert hashed.startswith("$bcrypt-sha256$")
 
     def test_password_verification_success(self):
         """Test successful password verification"""
@@ -185,6 +174,26 @@ class TestPasswordUtilities:
         assert verify_password(password, hash1) is True
         assert verify_password(password, hash2) is True
 
+    def test_long_password_hash_and_verify(self):
+        """Passwords >72 bytes must hash and verify without raising.
+
+        Regression: bcrypt 5.0 raises ValueError on >72 bytes; bcrypt_sha256
+        SHA-256-prehashes so any length works end-to-end.
+        """
+        long_password = "A" * 100 + "b1!"
+        hashed = get_password_hash(long_password)
+        assert verify_password(long_password, hashed) is True
+        assert verify_password(long_password + "x", hashed) is False
+
+    def test_verify_password_swallows_value_error(self):
+        """verify_password must return False (not raise) on backend errors.
+
+        Defense-in-depth so /auth/login returns 401 instead of 500 if a
+        legacy bcrypt-only hash trips the 72-byte check.
+        """
+        # Malformed hash that does not match the configured scheme
+        assert verify_password("anything", "not-a-real-hash") is False
+
 
 class TestJWTTokenUtilities:
     """Test JWT token creation and verification"""
@@ -197,7 +206,7 @@ class TestJWTTokenUtilities:
         assert isinstance(token, str)
         assert len(token) > 0
         # JWT tokens have 3 parts separated by dots
-        assert token.count('.') == 2
+        assert token.count(".") == 2
 
     def test_create_token_with_custom_expiration(self):
         """Test creating token with custom expiration"""
@@ -263,7 +272,7 @@ class TestUserManagement:
             username="newuser",
             email="new@example.com",
             password="SecureP@ss123",
-            full_name="New User"
+            full_name="New User",
         )
 
         user = create_user(user_create)
@@ -278,21 +287,29 @@ class TestUserManagement:
     def test_create_second_user_not_admin(self):
         """Test second user is not admin"""
         # Create first user (will be admin)
-        user1 = UserCreate(username="user1", email="user1@example.com", password="SecureP@ss123")
+        user1 = UserCreate(
+            username="user1", email="user1@example.com", password="SecureP@ss123"
+        )
         create_user(user1)
 
         # Create second user (should not be admin)
-        user2 = UserCreate(username="user2", email="user2@example.com", password="SecureP@ss123")
+        user2 = UserCreate(
+            username="user2", email="user2@example.com", password="SecureP@ss123"
+        )
         created_user2 = create_user(user2)
 
         assert created_user2.is_admin is False
 
     def test_create_user_duplicate_username(self):
         """Test creating user with duplicate username"""
-        user1 = UserCreate(username="duplicate", email="user1@example.com", password="SecureP@ss123")
+        user1 = UserCreate(
+            username="duplicate", email="user1@example.com", password="SecureP@ss123"
+        )
         create_user(user1)
 
-        user2 = UserCreate(username="duplicate", email="user2@example.com", password="SecureP@ss123")
+        user2 = UserCreate(
+            username="duplicate", email="user2@example.com", password="SecureP@ss123"
+        )
 
         with pytest.raises(ValueError) as exc_info:
             create_user(user2)
@@ -301,10 +318,14 @@ class TestUserManagement:
 
     def test_create_user_duplicate_email(self):
         """Test creating user with duplicate email"""
-        user1 = UserCreate(username="user1", email="duplicate@example.com", password="SecureP@ss123")
+        user1 = UserCreate(
+            username="user1", email="duplicate@example.com", password="SecureP@ss123"
+        )
         create_user(user1)
 
-        user2 = UserCreate(username="user2", email="duplicate@example.com", password="SecureP@ss123")
+        user2 = UserCreate(
+            username="user2", email="duplicate@example.com", password="SecureP@ss123"
+        )
 
         with pytest.raises(ValueError) as exc_info:
             create_user(user2)
@@ -313,7 +334,9 @@ class TestUserManagement:
 
     def test_get_user_success(self):
         """Test retrieving user by username"""
-        user_create = UserCreate(username="testuser", email="test@example.com", password="SecureP@ss123")
+        user_create = UserCreate(
+            username="testuser", email="test@example.com", password="SecureP@ss123"
+        )
         create_user(user_create)
 
         retrieved_user = get_user("testuser")
@@ -330,7 +353,9 @@ class TestUserManagement:
 
     def test_get_user_by_email_success(self):
         """Test retrieving user by email"""
-        user_create = UserCreate(username="testuser", email="test@example.com", password="SecureP@ss123")
+        user_create = UserCreate(
+            username="testuser", email="test@example.com", password="SecureP@ss123"
+        )
         create_user(user_create)
 
         retrieved_user = get_user_by_email("test@example.com")
@@ -354,9 +379,7 @@ class TestUserAuthentication:
         USERS_DB.clear()
 
         user_create = UserCreate(
-            username="authuser",
-            email="auth@example.com",
-            password="SecureP@ss123"
+            username="authuser", email="auth@example.com", password="SecureP@ss123"
         )
         create_user(user_create)
 
@@ -439,7 +462,7 @@ class TestUserModels:
             full_name="Test User",
             is_active=True,
             is_admin=False,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
 
         assert user.username == "testuser"
@@ -456,7 +479,7 @@ class TestUserModels:
             hashed_password="hashed_password_here",
             is_active=True,
             is_admin=False,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
 
         assert user.hashed_password == "hashed_password_here"

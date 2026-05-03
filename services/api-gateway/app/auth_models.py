@@ -32,12 +32,14 @@ IS_PRODUCTION = ENVIRONMENT == "production"
 IS_STAGING = ENVIRONMENT == "staging"
 IS_DEVELOPMENT = ENVIRONMENT == "development"
 
-# Password hashing context with increased rounds for production security
-# bcrypt rounds of 14 provides good security while maintaining reasonable performance
+# Password hashing context with bcrypt_sha256 + 14 rounds.
+# - bcrypt_sha256 SHA-256-prehashes input so passwords longer than the bcrypt
+#   72-byte limit are not silently truncated (bcrypt 5.0 raises ValueError).
+# - 14 rounds gives strong security while staying responsive.
 pwd_context = CryptContext(
-    schemes=["bcrypt"],
+    schemes=["bcrypt_sha256"],
     deprecated="auto",
-    bcrypt__rounds=14
+    bcrypt_sha256__rounds=14,
 )
 
 # ============================================================================
@@ -198,7 +200,9 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     """User login request"""
     username: str = Field(..., min_length=1, max_length=50)
-    password: str = Field(..., min_length=1, max_length=100)
+    # bcrypt_sha256 has no input-length limit (SHA-256 prehash); 200 chars
+    # gives users room for passphrases without rejecting valid creds.
+    password: str = Field(..., min_length=1, max_length=200)
 
 
 class Token(BaseModel):
@@ -241,9 +245,12 @@ class UserInDB(User):
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify a password against its hash
+    Verify a password against its hash.
 
-    Uses bcrypt with timing-safe comparison to prevent timing attacks
+    Uses bcrypt_sha256 with timing-safe comparison to prevent timing attacks.
+    Catches all backend errors (including legacy hashes that trip bcrypt's
+    72-byte check) and returns False so /auth/login returns 401 instead of
+    500 and the constant-time auth contract is preserved.
     """
     try:
         return pwd_context.verify(plain_password, hashed_password)
@@ -254,9 +261,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     """
-    Hash a password for secure storage
+    Hash a password for secure storage.
 
-    Uses bcrypt with 14 rounds (configurable via CryptContext)
+    Uses bcrypt_sha256 with 14 rounds (configurable via CryptContext).
     """
     return pwd_context.hash(password)
 
