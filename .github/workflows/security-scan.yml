@@ -288,11 +288,12 @@ jobs:
           extra_args: --json --only-verified
 
       # Gitleaks v2 needs GITLEAKS_LICENSE for org accounts; without it the
-      # action errors. continue-on-error keeps secret-scan green for personal
-      # forks; results still upload to the GH Security tab when license is set.
+      # action errors. We gate the step on the license being present so that
+      # personal/fork CI doesn't red — but when the license IS configured a
+      # verified secret finding will still red the job (no silent suppression).
       - name: Gitleaks Secret Scan
+        if: ${{ env.GITLEAKS_LICENSE != '' }}
         uses: gitleaks/gitleaks-action@v2
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
@@ -359,26 +360,36 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install license checker
-        run: |
-          pip install pip-licenses
-
       - name: Check licenses
         run: |
           mkdir -p security-reports
 
-          # Per-service installs are wrapped in `|| true` so one yanked / broken
-          # dep (e.g. email-validator==2.1.0 was yanked) doesn't kill the whole
-          # job. We still report licenses for whatever did install.
+          # Per-service venvs prevent dep cross-pollination — without isolation
+          # all services install into one shared env and pip-licenses reports
+          # the licenses of whichever versions "won" the install ordering. With
+          # isolated venvs each report is the actual dep set for that service.
+          # `|| true` on install means yanked / broken deps don't kill the job;
+          # we still emit a ::warning:: naming the affected service.
           for service in services/*/; do
             service_name=$(basename "$service")
 
             if [ -f "${service}requirements.txt" ]; then
               echo "=== Licenses for ${service_name} ===" | tee -a security-reports/licenses.txt
-              pip install -r "${service}requirements.txt" --quiet \
-                || echo "::warning title=License scan: install failed::${service_name} requirements.txt failed to install — license check skipped." | tee -a security-reports/licenses.txt
+
+              venv_dir="/tmp/venv-${service_name}"
+              python -m venv "${venv_dir}"
+              # shellcheck disable=SC1091
+              source "${venv_dir}/bin/activate"
+
+              pip install --quiet --upgrade pip
+              pip install --quiet -r "${service}requirements.txt" \
+                || echo "::warning title=License scan: install failed::${service_name} requirements.txt failed to install — license report below may be incomplete." | tee -a security-reports/licenses.txt
+              pip install --quiet pip-licenses
               pip-licenses --format=markdown | tee -a security-reports/licenses.txt || true
               pip-licenses --format=json > "security-reports/licenses-${service_name}.json" || true
+
+              deactivate
+              rm -rf "${venv_dir}"
             fi
           done
 
