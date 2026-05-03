@@ -220,36 +220,48 @@ class WebSocketManager:
     async def fetch_dashboard_updates(self, service_proxy: ServiceProxy) -> dict:
         """Fetch latest data from all services"""
         try:
-            # Fetch health, portfolio, and market data
+            # Health + portfolio
             health_task = service_proxy.proxy_request("api-gateway", "/health", "GET")
             portfolio_task = service_proxy.proxy_request("portfolio-manager", "/api/v1/portfolio/balance", "GET")
 
-            health_resp, portfolio_resp = await asyncio.gather(
-                health_task, portfolio_task,
+            # Tickers for the configured broadcast symbols
+            ticker_symbols = list(settings.ws_broadcast_symbols)
+            ticker_tasks = [
+                service_proxy.proxy_request("market-data-service", f"/api/v1/ticker/{sym}", "GET")
+                for sym in ticker_symbols
+            ]
+
+            results = await asyncio.gather(
+                health_task, portfolio_task, *ticker_tasks,
                 return_exceptions=True
             )
+            health_resp, portfolio_resp = results[0], results[1]
+            ticker_resps = results[2:]
 
-            # Parse responses
-            health_data = None
-            if not isinstance(health_resp, Exception):
+            def _parse(resp):
+                if isinstance(resp, Exception):
+                    return None
                 try:
-                    health_data = json.loads(health_resp.body.decode())
-                except:
-                    pass
+                    return json.loads(resp.body.decode())
+                except Exception:
+                    return None
 
-            portfolio_data = None
-            if not isinstance(portfolio_resp, Exception):
-                try:
-                    portfolio_data = json.loads(portfolio_resp.body.decode())
-                except:
-                    pass
+            health_data = _parse(health_resp)
+            portfolio_data = _parse(portfolio_resp)
+
+            tickers = {}
+            for sym, resp in zip(ticker_symbols, ticker_resps):
+                parsed = _parse(resp)
+                if parsed is not None:
+                    tickers[sym] = parsed
 
             return {
                 "type": "dashboard_update",
                 "timestamp": datetime.now().isoformat(),
                 "data": {
                     "health": health_data,
-                    "portfolio": portfolio_data
+                    "portfolio": portfolio_data,
+                    "tickers": tickers,
                 }
             }
 

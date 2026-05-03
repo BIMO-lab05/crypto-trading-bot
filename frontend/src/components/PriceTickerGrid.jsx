@@ -1,5 +1,6 @@
 import React from 'react'
 import { useMultipleTickers } from '../hooks/useTicker'
+import { useGatewayWebSocket } from '../hooks/useGatewayWebSocket'
 
 /**
  * PriceTickerGrid - Research-Backed Price Display Component
@@ -22,6 +23,9 @@ export default function PriceTickerGrid({
   onSymbolClick
 }) {
   const { data: tickers, isLoading, error } = useMultipleTickers(symbols)
+  // Calling the hook here (and again in Dashboard) is safe — useEffect dedupes
+  // via the WebSocket constructor; we only consume `isLive` to drive the badge.
+  const { isLive } = useGatewayWebSocket()
 
   if (isLoading) {
     return (
@@ -65,8 +69,10 @@ export default function PriceTickerGrid({
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-slate-300">Live Prices</h2>
         <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-sm shadow-emerald-500/50"></div>
-          <span className="text-xs text-slate-500">Live</span>
+          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+            isLive ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-amber-500'
+          }`}></div>
+          <span className="text-xs text-slate-500">{isLive ? 'Live (WS)' : 'Polling'}</span>
         </div>
       </div>
 
@@ -158,7 +164,7 @@ export default function PriceTickerGrid({
 
       {/* Last Update */}
       <div className="mt-2 text-center text-[10px] text-slate-600">
-        Auto-refresh: 5s • Click ticker to view chart
+        {isLive ? 'Streaming via WebSocket' : 'Polling every 5s'} • Click ticker to view chart
       </div>
     </div>
   )
