@@ -11,6 +11,8 @@ import TradingEnhancementsPanel from './TradingEnhancementsPanel'
 import PerformanceAnalyticsPanel from './PerformanceAnalyticsPanel'
 import HybridStrategyPanel from './HybridStrategyPanel'
 import RegimeIndicator from './RegimeIndicator'
+import { useGatewayWebSocket } from '../hooks/useGatewayWebSocket'
+import { DISPLAY_SYMBOLS } from '../utils/symbols'
 
 /**
  * Dashboard component - Research-Backed Professional Trading Interface
@@ -41,24 +43,20 @@ import RegimeIndicator from './RegimeIndicator'
  * - PerformanceAnalyticsPanel: Sharpe, Sortino, VaR, CVaR metrics (NEW 2025-11-30)
  */
 
-// Trading pairs supported by the system - EXPANDED TO 11 (2026-01-07)
-const TRADING_PAIRS = [
-  'BTCUSDT',   // Bitcoin - Most liquid
-  'ETHUSDT',   // Ethereum - 2nd most liquid
-  'SOLUSDT',   // Solana - Top performer
-  'BNBUSDT',   // Binance Coin - Top performer
-  'ADAUSDT',   // Cardano - Top performer
-  'AVAXUSDT',  // Avalanche
-  'LINKUSDT',  // Chainlink
-  'DOTUSDT',   // Polkadot
-  'MATICUSDT', // Polygon
-  'ARBUSDT',   // Arbitrum - L2
-  'OPUSDT'     // Optimism - L2
-]
+// Display-only ticker catalogue. The list of symbols actually traded comes
+// from /api/trading/status — see KeyMetricsStrip's useTradingStatus.
+const TRADING_PAIRS = DISPLAY_SYMBOLS
 
 export default function Dashboard() {
   // State for selected chart symbol
   const [selectedSymbol, setSelectedSymbol] = useState('SOLUSDT')
+
+  // Open one shared WS connection at the dashboard level. The hook hydrates
+  // the React Query cache for ticker + portfolio queries; child components
+  // continue to read via their existing useQuery hooks and gain real-time
+  // freshness without further changes. When WS is disabled or disconnected
+  // the components keep polling.
+  useGatewayWebSocket()
 
   return (
     <div className="min-h-screen bg-slate-900 transition-colors duration-200">

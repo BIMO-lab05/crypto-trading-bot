@@ -195,8 +195,10 @@ export default function KeyMetricsStrip() {
     return total + parseFloat(pos.unrealized_pnl || 0)
   }, 0)
 
-  // Extract status info
+  // Extract status info — includes the symbols actually being traded by
+  // the auto-trader (auto_trader.get_status() puts them under .symbols).
   const status = statusData?.status || {}
+  const activeSymbols = Array.isArray(status.symbols) ? status.symbols : []
 
   // Combine loading states
   const portfolioLoading = positionsLoading || performanceLoading
@@ -264,6 +266,14 @@ export default function KeyMetricsStrip() {
             <span className="text-xs text-slate-500">
               Paper Trading • {strategyMode === 'research' ? 'Research-Optimized' : 'Standard'} Strategy
             </span>
+            {activeSymbols.length > 0 && (
+              <span className="text-xs text-slate-500" title="Symbols the auto-trader is actively running on (from /api/trading/status)">
+                Active:{' '}
+                <span className="text-slate-300 font-medium">
+                  {activeSymbols.map((s) => s.replace(/USDT$/, '')).join(', ')}
+                </span>
+              </span>
+            )}
           </div>
           <div className="text-xs text-slate-500">
             Last updated: {new Date().toLocaleTimeString()}
