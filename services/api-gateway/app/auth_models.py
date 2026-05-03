@@ -16,7 +16,8 @@ from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -31,12 +32,14 @@ IS_PRODUCTION = ENVIRONMENT == "production"
 IS_STAGING = ENVIRONMENT == "staging"
 IS_DEVELOPMENT = ENVIRONMENT == "development"
 
-# Password hashing context with increased rounds for production security
-# bcrypt rounds of 14 provides good security while maintaining reasonable performance
+# Password hashing context with bcrypt_sha256 + 14 rounds.
+# - bcrypt_sha256 SHA-256-prehashes input so passwords longer than the bcrypt
+#   72-byte limit are not silently truncated (bcrypt 5.0 raises ValueError).
+# - 14 rounds gives strong security while staying responsive.
 pwd_context = CryptContext(
-    schemes=["bcrypt"],
+    schemes=["bcrypt_sha256"],
     deprecated="auto",
-    bcrypt__rounds=14
+    bcrypt_sha256__rounds=14,
 )
 
 # ============================================================================
@@ -153,6 +156,7 @@ if IS_PRODUCTION and ACCESS_TOKEN_EXPIRE_MINUTES > 60:
 # Request/Response Models
 # ============================================================================
 
+
 class UserCreate(BaseModel):
     """User registration request with strong validation"""
     username: str = Field(..., min_length=3, max_length=50)
@@ -160,7 +164,7 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=8, max_length=100)
     full_name: Optional[str] = Field(None, max_length=100)
 
-    @validator('username')
+    @validator("username")
     def username_alphanumeric(cls, v):
         """Validate username is alphanumeric (with _ and -)"""
         if not v.replace('_', '').replace('-', '').isalnum():
@@ -172,15 +176,15 @@ class UserCreate(BaseModel):
             raise ValueError(f'Username "{v}" is reserved')
         return v
 
-    @validator('password')
+    @validator("password")
     def password_strength(cls, v):
         """Validate password meets minimum security requirements"""
         if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
+            raise ValueError("Password must be at least 8 characters")
         if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
+            raise ValueError("Password must contain at least one uppercase letter")
         if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
+            raise ValueError("Password must contain at least one lowercase letter")
         if not any(c.isdigit() for c in v):
             raise ValueError('Password must contain at least one digit')
         if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in v):
@@ -196,11 +200,14 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     """User login request"""
     username: str = Field(..., min_length=1, max_length=50)
-    password: str = Field(..., min_length=1, max_length=100)
+    # bcrypt_sha256 has no input-length limit (SHA-256 prehash); 200 chars
+    # gives users room for passphrases without rejecting valid creds.
+    password: str = Field(..., min_length=1, max_length=200)
 
 
 class Token(BaseModel):
     """JWT token response"""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # seconds
@@ -208,6 +215,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     """JWT token payload data"""
+
     username: Optional[str] = None
     user_id: Optional[str] = None
 
@@ -226,6 +234,7 @@ class User(BaseModel):
 
 class UserInDB(User):
     """User model with hashed password (for database storage)"""
+
     hashed_password: str
 
 
@@ -233,11 +242,15 @@ class UserInDB(User):
 # Password Utilities
 # ============================================================================
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify a password against its hash
+    Verify a password against its hash.
 
-    Uses bcrypt with timing-safe comparison to prevent timing attacks
+    Uses bcrypt_sha256 with timing-safe comparison to prevent timing attacks.
+    Catches all backend errors (including legacy hashes that trip bcrypt's
+    72-byte check) and returns False so /auth/login returns 401 instead of
+    500 and the constant-time auth contract is preserved.
     """
     try:
         return pwd_context.verify(plain_password, hashed_password)
@@ -248,9 +261,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     """
-    Hash a password for secure storage
+    Hash a password for secure storage.
 
-    Uses bcrypt with 14 rounds (configurable via CryptContext)
+    Uses bcrypt_sha256 with 14 rounds (configurable via CryptContext).
     """
     return pwd_context.hash(password)
 
@@ -258,6 +271,7 @@ def get_password_hash(password: str) -> str:
 # ============================================================================
 # JWT Token Utilities
 # ============================================================================
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
@@ -338,7 +352,7 @@ def verify_token(token: str) -> Optional[TokenData]:
 
         return TokenData(username=username, user_id=user_id)
 
-    except JWTError as e:
+    except PyJWTError as e:
         logger.debug(f"JWT validation failed: {type(e).__name__}")
         return None
 
@@ -434,7 +448,7 @@ def create_user(user_create: UserCreate) -> User:
         is_active=True,
         is_admin=grant_admin,
         created_at=datetime.utcnow(),
-        last_login=None
+        last_login=None,
     )
 
     USERS_DB[user_create.username] = user_in_db
@@ -443,7 +457,7 @@ def create_user(user_create: UserCreate) -> User:
     logger.info(f"User created: {user_create.username} (admin={grant_admin})")
 
     # Return user without password hash
-    return User(**user_in_db.dict(exclude={'hashed_password'}))
+    return User(**user_in_db.dict(exclude={"hashed_password"}))
 
 
 def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
