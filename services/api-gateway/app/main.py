@@ -1239,7 +1239,11 @@ async def emergency_stop():
     """
     try:
         import os
-        stop_file = "/mnt/d/Bimo_max/crypto-trading-bot/EMERGENCY_STOP"
+        # Path resolves relative to repo root via env var, with /app fallback for container deploys
+        stop_file = os.environ.get(
+            "EMERGENCY_STOP_FILE",
+            "/app/EMERGENCY_STOP" if os.path.isdir("/app") else "EMERGENCY_STOP",
+        )
         with open(stop_file, 'w') as f:
             f.write(f"Emergency stop activated at {int(time.time() * 1000)}\n")
 

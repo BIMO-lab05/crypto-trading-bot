@@ -225,13 +225,6 @@ stop_monitoring() {
         log INFO "Monitor not running"
     fi
 
-    # Stop dashboard
-    if pgrep -f "http.server 8080" >/dev/null; then
-        pkill -f "http.server 8080"
-        log SUCCESS "Dashboard stopped"
-    else
-        log INFO "Dashboard not running"
-    fi
 }
 
 # Save logs
@@ -247,10 +240,6 @@ archive_logs() {
         log SUCCESS "Monitor log archived"
     fi
 
-    if [ -f "${LOG_DIR}/dashboard_${TODAY}.log" ]; then
-        cp "${LOG_DIR}/dashboard_${TODAY}.log" "$archive_dir/"
-        log SUCCESS "Dashboard log archived"
-    fi
 
     if [ -f "${LOG_DIR}/startup_${TODAY}.log" ]; then
         cp "${LOG_DIR}/startup_${TODAY}.log" "$archive_dir/"
