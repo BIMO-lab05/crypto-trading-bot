@@ -50,7 +50,10 @@ class TestDatabaseSettings:
         """Test default TimescaleDB configuration"""
         settings = Settings()
         assert settings.timescale_host == "localhost"
-        assert settings.timescale_port == 5433
+        # Default is 5432 (in-container PostgreSQL port). The host-mapped 5433
+        # is only relevant when running outside the docker network and is
+        # provided via env var in those cases.
+        assert settings.timescale_port == 5432
         assert settings.timescale_user == "cryptobot"
         assert settings.timescale_db == "market_data"
 
@@ -136,11 +139,13 @@ class TestRabbitMQSettings:
 class TestCORSSettings:
     """Test CORS configuration"""
 
+    @pytest.mark.skip(reason="CORS configuration removed from Settings - handled in main.py middleware")
     def test_default_allowed_origins(self):
         """Test default allowed origins"""
         settings = Settings()
         assert settings.allowed_origins == "http://localhost:3000,http://localhost:8000"
 
+    @pytest.mark.skip(reason="CORS configuration removed from Settings - handled in main.py middleware")
     def test_custom_allowed_origins(self):
         """Test custom allowed origins"""
         custom_origins = "https://app.example.com,https://api.example.com"
@@ -152,9 +157,18 @@ class TestDataCollectionSettings:
     """Test data collection configuration"""
 
     def test_default_symbols(self):
-        """Test default trading symbols - UPDATED: Now includes 7 pairs"""
+        """Test default trading symbols.
+
+        The list was reshuffled in 2025-12-05 to drop ETH/XRP/DOGE (validated
+        losers per paper-trading) and add 9 alts. Pin to the field's literal
+        default so the test follows whichever set is canonical.
+        """
         settings = Settings()
-        assert settings.default_symbols == "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT"
+        assert settings.default_symbols == (
+            "BTCUSDT,BNBUSDT,SOLUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,"
+            "ARBUSDT,OPUSDT,SUIUSDT,"
+            "APTUSDT,DOTUSDT,LTCUSDT,POLUSDT"
+        )
 
     def test_default_interval(self):
         """Test default data collection interval"""
@@ -183,11 +197,15 @@ class TestDataCollectionSettings:
         assert symbols_list == ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
 
     def test_all_default_symbols_parsed(self):
-        """Test all 7 default symbols are parsed correctly"""
+        """Test all default symbols are parsed correctly."""
         settings = Settings()
         symbols_list = settings.symbols_list
-        assert len(symbols_list) == 7
-        expected_symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"]
+        expected_symbols = [
+            "BTCUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT",
+            "ARBUSDT", "OPUSDT", "SUIUSDT",
+            "APTUSDT", "DOTUSDT", "LTCUSDT", "POLUSDT",
+        ]
+        assert len(symbols_list) == len(expected_symbols)
         assert symbols_list == expected_symbols
 
 
