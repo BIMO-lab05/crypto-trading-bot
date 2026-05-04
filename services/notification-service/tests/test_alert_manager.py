@@ -16,8 +16,21 @@ from app.models import (
     SuppressionRule, EscalationRule
 )
 from app.alert_manager import AlertManager
-from app.alert_rules import AlertRulesEngine, SuppressionResult
+from app.alert_rules import AlertRulesEngine, SuppressionResult, alert_rules_engine
 from app.channels.base import BaseChannel, ChannelResult
+
+
+class _StubChannel(BaseChannel):
+    """Concrete BaseChannel for testing the abstract base's helpers."""
+
+    async def send(self, message, title=None, metadata=None):
+        return ChannelResult(success=True, channel=self.name)
+
+    async def health_check(self):
+        return True
+
+    def is_enabled(self):
+        return True
 
 
 # ========================================
@@ -32,6 +45,10 @@ def alert_manager():
     manager._stats.clear()
     manager._alerts.clear()
     manager._alert_history.clear()
+    # AlertManager.send_alert delegates suppression checks to the module-level
+    # alert_rules_engine, whose dedup cache and throttle history would otherwise
+    # leak across tests.
+    alert_rules_engine.clear_history()
     return manager
 
 
@@ -270,8 +287,10 @@ class TestAlertManager:
                     delivery_time_ms=100
                 )
 
-                # Send various alerts
-                for i in range(5):
+                # Send various alerts. Stay within throttle_max_per_hour=3
+                # so each alert is recorded; throttle suppression returns
+                # early and does not count toward total_alerts.
+                for i in range(3):
                     alert = AlertCreate(
                         alert_type=AlertType.TRADE,
                         severity=AlertSeverity.MEDIUM,
@@ -283,8 +302,8 @@ class TestAlertManager:
                     await alert_manager.send_alert(alert)
 
         stats = alert_manager.get_stats(period_hours=24)
-        assert stats.total_alerts == 5
-        assert stats.alerts_by_severity.get("MEDIUM", 0) == 5
+        assert stats.total_alerts == 3
+        assert stats.alerts_by_severity.get("MEDIUM", 0) == 3
         assert stats.delivery_success_rate == 100.0
 
     @pytest.mark.asyncio
@@ -347,16 +366,18 @@ class TestAlertRulesEngine:
 
     def test_throttle_rule(self, rules_engine):
         """Test throttle rule"""
-        # Send max allowed alerts
+        # Send max allowed alerts. Titles must be unique — dedup_key only
+        # incorporates type/severity/title/source plus a fixed metadata
+        # whitelist (symbol/service/error_type), so a generic "unique" key
+        # in metadata does not differentiate alerts.
         for i in range(3):
             alert = Alert(
                 id=str(uuid.uuid4()),
                 alert_type=AlertType.TRADE,
                 severity=AlertSeverity.MEDIUM,
-                title="Trade Alert",
+                title=f"Trade Alert {i}",
                 message=f"Trade {i}",
                 source="test",
-                metadata={"unique": i}  # Make unique for dedup
             )
             result = rules_engine.should_suppress(alert)
             assert result.suppressed is False
@@ -366,10 +387,9 @@ class TestAlertRulesEngine:
             id=str(uuid.uuid4()),
             alert_type=AlertType.TRADE,
             severity=AlertSeverity.MEDIUM,
-            title="Trade Alert",
+            title="Trade Alert 4",
             message="Trade 4",
             source="test",
-            metadata={"unique": 4}
         )
         result = rules_engine.should_suppress(alert)
         assert result.suppressed is True
@@ -473,8 +493,9 @@ class TestAlertRulesEngine:
 
     def test_suppression_stats(self, rules_engine):
         """Test suppression statistics"""
-        # Generate some alerts
-        for i in range(5):
+        # Stay within the default throttle ceiling (max_per_hour=3) so every
+        # alert is recorded in _alert_history and shows up in the stats.
+        for i in range(3):
             alert = Alert(
                 id=str(uuid.uuid4()),
                 alert_type=AlertType.TRADE,
@@ -487,7 +508,7 @@ class TestAlertRulesEngine:
             rules_engine.should_suppress(alert)
 
         stats = rules_engine.get_suppression_stats()
-        assert stats["total_alerts_tracked"] >= 5
+        assert stats["total_alerts_tracked"] >= 3
         assert stats["suppression_rules_count"] > 0
 
 
@@ -500,7 +521,7 @@ class TestChannelBase:
 
     def test_rate_limit_check(self, mock_channel):
         """Test rate limiting check"""
-        channel = BaseChannel("test", rate_limit=5)
+        channel = _StubChannel("test", rate_limit=5)
 
         # Should allow sends up to rate limit
         for _ in range(5):
@@ -512,7 +533,7 @@ class TestChannelBase:
 
     def test_rate_limit_remaining(self, mock_channel):
         """Test rate limit remaining calculation"""
-        channel = BaseChannel("test", rate_limit=10)
+        channel = _StubChannel("test", rate_limit=10)
 
         # Record some sends
         for _ in range(3):
@@ -523,7 +544,7 @@ class TestChannelBase:
 
     def test_health_status(self, mock_channel):
         """Test health status reporting"""
-        channel = BaseChannel("test")
+        channel = _StubChannel("test")
         channel._total_sent = 50
         channel._total_failed = 5
         channel._last_success = datetime.utcnow()
@@ -535,7 +556,7 @@ class TestChannelBase:
 
     def test_reset_stats(self, mock_channel):
         """Test stats reset"""
-        channel = BaseChannel("test")
+        channel = _StubChannel("test")
         channel._total_sent = 100
         channel._total_failed = 10
 

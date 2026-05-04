@@ -126,10 +126,13 @@ class AlertManager:
         else:
             channels = config.get_channels_for_severity(alert.severity)
 
-        # Filter to enabled channels
+        # Filter to enabled channels (use channel.is_enabled() so credential
+        # presence is verified — config flag alone can return True for
+        # misconfigured channels and silently fail at send time)
         enabled_channels = [
             ch for ch in channels
-            if config.is_channel_enabled(ch)
+            if ch == "dashboard"
+            or (self._channels.get(ch) is not None and self._channels[ch].is_enabled())
         ]
 
         if not enabled_channels:
