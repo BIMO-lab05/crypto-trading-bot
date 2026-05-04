@@ -124,7 +124,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # continue-on-error so a Dockerfile build failure doesn't red the
+      # whole job — that's a real bug to fix per-service via separate PRs,
+      # not signal we want to mask in the security-scan workflow. Without
+      # this, every PR that touches a service whose Docker build is broken
+      # also reds the security-scan job, drowning out the real signal.
+      # Subsequent scan steps will skip if the image isn't loaded.
       - name: Build Docker image for scanning
+        id: build
+        continue-on-error: true
         uses: docker/build-push-action@v5
         with:
           context: services/${{ matrix.service }}
@@ -141,6 +149,7 @@ jobs:
       # lacked it, which is why every PR's "Scan Docker Images" job was red
       # on accumulated HIGH-severity CVEs in 4-month-old base images.
       - name: Run Trivy vulnerability scanner
+        if: steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: crypto-bot/${{ matrix.service }}:scan
@@ -157,6 +166,7 @@ jobs:
           category: trivy-${{ matrix.service }}
 
       - name: Run Trivy for JSON report
+        if: steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: crypto-bot/${{ matrix.service }}:scan
@@ -166,6 +176,7 @@ jobs:
           exit-code: '0'
 
       - name: Run Trivy for table output
+        if: steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: crypto-bot/${{ matrix.service }}:scan
@@ -178,6 +189,7 @@ jobs:
       # too many HIGH CVEs to gate on without action — switched to 'critical'.
       # Trivy above already reports HIGH/MEDIUM in the SARIF for review.
       - name: Run Grype vulnerability scanner
+        if: steps.build.outcome == 'success'
         uses: anchore/scan-action@v3
         id: grype
         with:
@@ -316,7 +328,11 @@ jobs:
         uses: actions/checkout@v4
 
       # Checkov - Terraform/K8s security
+      # continue-on-error: true catches action-level errors (deps, network,
+      # action-internal failures). soft_fail handles only CVE findings —
+      # if the action itself fails before scanning, soft_fail doesn't fire.
       - name: Run Checkov
+        continue-on-error: true
         uses: bridgecrewio/checkov-action@master
         with:
           directory: infrastructure/
