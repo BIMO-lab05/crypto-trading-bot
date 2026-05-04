@@ -18,7 +18,7 @@ from app.indicators import (
     RSIDivergenceCalculator,
     IchimokuCalculator,
     EnhancedSqueezeMomentum,
-    ADXCalculator
+    ADXCalculator,
 )
 from app.indicators.trend_filter import TrendFilter
 from app.indicators.volume_confirmation import VolumeConfirmation
@@ -36,10 +36,7 @@ class IndicatorService:
 
     @staticmethod
     async def calculate_rsi(
-        symbol: str,
-        interval: str,
-        period: int,
-        limit: int
+        symbol: str, interval: str, period: int, limit: int
     ) -> Dict[str, Any]:
         """Calculate RSI indicator"""
         fetcher = get_fetcher()
@@ -52,23 +49,20 @@ class IndicatorService:
         rsi_value, signal, confidence = calculator.calculate_with_signal(df)
 
         if rsi_value is None:
-            raise HTTPException(status_code=400, detail="Insufficient data to calculate RSI")
+            raise HTTPException(
+                status_code=400, detail="Insufficient data to calculate RSI"
+            )
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
             "rsi": round(rsi_value, 2),
             "signal": signal,
-            "confidence": confidence
+            "confidence": confidence,
         }
 
     @staticmethod
     async def calculate_macd(
-        symbol: str,
-        interval: str,
-        fast: int,
-        slow: int,
-        signal: int,
-        limit: int
+        symbol: str, interval: str, fast: int, slow: int, signal: int, limit: int
     ) -> Dict[str, Any]:
         """Calculate MACD indicator"""
         fetcher = get_fetcher()
@@ -81,7 +75,9 @@ class IndicatorService:
         macd_data, macd_signal, confidence = calculator.calculate_with_signal(df)
 
         if macd_data is None:
-            raise HTTPException(status_code=400, detail="Insufficient data to calculate MACD")
+            raise HTTPException(
+                status_code=400, detail="Insufficient data to calculate MACD"
+            )
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
@@ -89,16 +85,12 @@ class IndicatorService:
             "signal_line": round(macd_data["signal_line"], 2),
             "histogram": round(macd_data["histogram"], 2),
             "signal": macd_signal,
-            "confidence": confidence
+            "confidence": confidence,
         }
 
     @staticmethod
     async def calculate_bollinger_bands(
-        symbol: str,
-        interval: str,
-        period: int,
-        std_dev: float,
-        limit: int
+        symbol: str, interval: str, period: int, std_dev: float, limit: int
     ) -> Dict[str, Any]:
         """Calculate Bollinger Bands indicator"""
         fetcher = get_fetcher()
@@ -111,7 +103,9 @@ class IndicatorService:
         bb_data, bb_signal, confidence = calculator.calculate_with_signal(df)
 
         if bb_data is None:
-            raise HTTPException(status_code=400, detail="Insufficient data to calculate Bollinger Bands")
+            raise HTTPException(
+                status_code=400, detail="Insufficient data to calculate Bollinger Bands"
+            )
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
@@ -120,15 +114,12 @@ class IndicatorService:
             "lower_band": round(bb_data["lower_band"], 2),
             "current_price": round(bb_data["current_price"], 2),
             "signal": bb_signal,
-            "confidence": confidence
+            "confidence": confidence,
         }
 
     @staticmethod
     async def calculate_sma(
-        symbol: str,
-        interval: str,
-        period: int,
-        limit: int
+        symbol: str, interval: str, period: int, limit: int
     ) -> Dict[str, Any]:
         """Calculate SMA indicator"""
         fetcher = get_fetcher()
@@ -141,9 +132,11 @@ class IndicatorService:
         sma_value = calculator.calculate(df)
 
         if sma_value is None:
-            raise HTTPException(status_code=400, detail="Insufficient data to calculate SMA")
+            raise HTTPException(
+                status_code=400, detail="Insufficient data to calculate SMA"
+            )
 
-        current_price = float(df['close'].iloc[-1])
+        current_price = float(df["close"].iloc[-1])
         signal, confidence = calculator.generate_signal(sma_value, current_price)
 
         return {
@@ -151,15 +144,12 @@ class IndicatorService:
             "value": round(sma_value, 2),
             "current_price": round(current_price, 2),
             "signal": signal,
-            "confidence": confidence
+            "confidence": confidence,
         }
 
     @staticmethod
     async def calculate_ema(
-        symbol: str,
-        interval: str,
-        period: int,
-        limit: int
+        symbol: str, interval: str, period: int, limit: int
     ) -> Dict[str, Any]:
         """Calculate EMA indicator"""
         fetcher = get_fetcher()
@@ -172,9 +162,11 @@ class IndicatorService:
         ema_value = calculator.calculate(df)
 
         if ema_value is None:
-            raise HTTPException(status_code=400, detail="Insufficient data to calculate EMA")
+            raise HTTPException(
+                status_code=400, detail="Insufficient data to calculate EMA"
+            )
 
-        current_price = float(df['close'].iloc[-1])
+        current_price = float(df["close"].iloc[-1])
         signal, confidence = calculator.generate_signal(ema_value, current_price)
 
         return {
@@ -182,16 +174,12 @@ class IndicatorService:
             "value": round(ema_value, 2),
             "current_price": round(current_price, 2),
             "signal": signal,
-            "confidence": confidence
+            "confidence": confidence,
         }
 
     @staticmethod
     async def calculate_trend_filter(
-        symbol: str,
-        interval: str,
-        fast_period: int,
-        slow_period: int,
-        limit: int
+        symbol: str, interval: str, fast_period: int, slow_period: int, limit: int
     ) -> Dict[str, Any]:
         """Calculate Trend Filter indicator"""
         fetcher = get_fetcher()
@@ -203,25 +191,18 @@ class IndicatorService:
         if len(df) < slow_period:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data: need {slow_period} candles, got {len(df)}"
+                detail=f"Insufficient data: need {slow_period} candles, got {len(df)}",
             )
 
-        close_prices = df['close'].tolist()
+        close_prices = df["close"].tolist()
         trend_filter = TrendFilter(fast_period=fast_period, slow_period=slow_period)
         result = trend_filter.calculate(close_prices)
 
-        return {
-            "timestamp": int(df.index[-1].timestamp() * 1000),
-            "data": result
-        }
+        return {"timestamp": int(df.index[-1].timestamp() * 1000), "data": result}
 
     @staticmethod
     async def calculate_volume_confirmation(
-        symbol: str,
-        interval: str,
-        period: int,
-        signal_type: str,
-        limit: int
+        symbol: str, interval: str, period: int, signal_type: str, limit: int
     ) -> Dict[str, Any]:
         """Calculate Volume Confirmation indicator"""
         fetcher = get_fetcher()
@@ -233,17 +214,14 @@ class IndicatorService:
         if len(df) < period:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data: need {period} candles, got {len(df)}"
+                detail=f"Insufficient data: need {period} candles, got {len(df)}",
             )
 
-        volumes = df['volume'].tolist()
+        volumes = df["volume"].tolist()
         volume_conf = VolumeConfirmation(period=period)
         result = volume_conf.calculate(volumes, signal_type)
 
-        return {
-            "timestamp": int(df.index[-1].timestamp() * 1000),
-            "data": result
-        }
+        return {"timestamp": int(df.index[-1].timestamp() * 1000), "data": result}
 
     @staticmethod
     async def calculate_atr(
@@ -251,7 +229,7 @@ class IndicatorService:
         interval: str,
         period: int,
         current_price: Optional[float],
-        limit: int
+        limit: int,
     ) -> Dict[str, Any]:
         """Calculate ATR indicator"""
         fetcher = get_fetcher()
@@ -263,12 +241,12 @@ class IndicatorService:
         if len(df) < period + 1:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data: need {period + 1} candles, got {len(df)}"
+                detail=f"Insufficient data: need {period + 1} candles, got {len(df)}",
             )
 
-        highs = df['high'].tolist()
-        lows = df['low'].tolist()
-        closes = df['close'].tolist()
+        highs = df["high"].tolist()
+        lows = df["low"].tolist()
+        closes = df["close"].tolist()
 
         if current_price is None:
             current_price = closes[-1]
@@ -279,7 +257,7 @@ class IndicatorService:
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
             "current_price": current_price,
-            "data": result
+            "data": result,
         }
 
     @staticmethod
@@ -289,7 +267,7 @@ class IndicatorService:
         period: int,
         smooth_k: int,
         smooth_d: int,
-        limit: int
+        limit: int,
     ) -> Dict[str, Any]:
         """Calculate Stochastic Oscillator"""
         fetcher = get_fetcher()
@@ -301,32 +279,21 @@ class IndicatorService:
         if len(df) < period + smooth_k:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data: need {period + smooth_k} candles, got {len(df)}"
+                detail=f"Insufficient data: need {period + smooth_k} candles, got {len(df)}",
             )
 
-        highs = df['high'].tolist()
-        lows = df['low'].tolist()
-        closes = df['close'].tolist()
+        highs = df["high"].tolist()
+        lows = df["low"].tolist()
+        closes = df["close"].tolist()
 
-        stoch = Stochastic(
-            period=period,
-            smooth_k=smooth_k,
-            smooth_d=smooth_d
-        )
+        stoch = Stochastic(period=period, smooth_k=smooth_k, smooth_d=smooth_d)
         result = stoch.calculate(highs, lows, closes)
 
-        return {
-            "timestamp": int(df.index[-1].timestamp() * 1000),
-            "data": result
-        }
+        return {"timestamp": int(df.index[-1].timestamp() * 1000), "data": result}
 
     @staticmethod
     async def calculate_rsi_divergence(
-        symbol: str,
-        interval: str,
-        period: int,
-        lookback: int,
-        limit: int
+        symbol: str, interval: str, period: int, lookback: int, limit: int
     ) -> Dict[str, Any]:
         """Calculate RSI Divergence indicator"""
         fetcher = get_fetcher()
@@ -338,16 +305,13 @@ class IndicatorService:
         if len(df) < period + lookback:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data: need {period + lookback} candles, got {len(df)}"
+                detail=f"Insufficient data: need {period + lookback} candles, got {len(df)}",
             )
 
         calculator = RSIDivergenceCalculator(rsi_period=period, lookback=lookback)
         result = calculator.calculate_with_signal(df)
 
-        return {
-            "timestamp": int(df.index[-1].timestamp() * 1000),
-            "data": result
-        }
+        return {"timestamp": int(df.index[-1].timestamp() * 1000), "data": result}
 
     @staticmethod
     async def calculate_ichimoku(
@@ -356,7 +320,7 @@ class IndicatorService:
         tenkan_period: int,
         kijun_period: int,
         senkou_b_period: int,
-        limit: int
+        limit: int,
     ) -> Dict[str, Any]:
         """Calculate Ichimoku Cloud indicator"""
         fetcher = get_fetcher()
@@ -369,20 +333,17 @@ class IndicatorService:
         if len(df) < min_required:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data: need {min_required} candles, got {len(df)}"
+                detail=f"Insufficient data: need {min_required} candles, got {len(df)}",
             )
 
         calculator = IchimokuCalculator(
             tenkan_period=tenkan_period,
             kijun_period=kijun_period,
-            senkou_b_period=senkou_b_period
+            senkou_b_period=senkou_b_period,
         )
         result = calculator.calculate_with_signal(df)
 
-        return {
-            "timestamp": int(df.index[-1].timestamp() * 1000),
-            "data": result
-        }
+        return {"timestamp": int(df.index[-1].timestamp() * 1000), "data": result}
 
     @staticmethod
     async def calculate_enhanced_sqzmom(
@@ -393,7 +354,7 @@ class IndicatorService:
         kc_period: int,
         kc_mult: float,
         mom_period: int,
-        limit: int
+        limit: int,
     ) -> Dict[str, Any]:
         """Calculate Enhanced Squeeze Momentum indicator"""
         fetcher = get_fetcher()
@@ -406,7 +367,7 @@ class IndicatorService:
         if len(df) < min_required:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data: need {min_required} candles, got {len(df)}"
+                detail=f"Insufficient data: need {min_required} candles, got {len(df)}",
             )
 
         calculator = EnhancedSqueezeMomentum(
@@ -414,32 +375,38 @@ class IndicatorService:
             bb_mult=bb_mult,
             kc_length=kc_period,
             kc_mult=kc_mult,
-            momentum_length=mom_period
+            momentum_length=mom_period,
         )
         result_df = calculator.calculate(df)
 
         if result_df is None or result_df.empty:
             return {
                 "timestamp": int(df.index[-1].timestamp() * 1000),
-                "data": {"error": "Calculation failed"}
+                "data": {"error": "Calculation failed"},
             }
 
-        # Get the latest values
+        # Get the latest values.
+        # FIXED 2026-05-05 (audit P0): EnhancedSqueezeMomentum.calculate() writes
+        # columns prefixed with `sqz_` (sqz_momentum, sqz_color, sqz_signal,
+        # sqz_confidence, sqz_acceleration, sqz_direction). The earlier code
+        # read non-prefixed keys (`momentum`, `momentum_color`, `signal`,
+        # `confidence`) which silently fell back to defaults — every API
+        # response and the trading-engine SQZMOM_ENHANCED voter received
+        # zero momentum / 'gray' color / HOLD / 0.5 confidence regardless
+        # of actual market state. Aligned to the indicator's output schema.
         latest = result_df.iloc[-1]
         result = {
-            "squeeze_on": bool(latest.get('squeeze_on', False)),
-            "squeeze_off": bool(latest.get('squeeze_off', False)),
-            "momentum": float(latest.get('momentum', 0)),
-            "momentum_color": str(latest.get('momentum_color', 'gray')),
-            "squeeze_firing": bool(latest.get('squeeze_firing', False)),
-            "signal": str(latest.get('signal', 'HOLD')),
-            "confidence": float(latest.get('confidence', 0.5))
+            "squeeze_on": bool(latest.get("squeeze_on", False)),
+            "squeeze_off": bool(latest.get("squeeze_off", False)),
+            "squeeze_firing": bool(latest.get("squeeze_firing", False)),
+            "momentum": float(latest.get("sqz_momentum", 0.0)),
+            "momentum_color": str(latest.get("sqz_color", "gray")),
+            "momentum_direction": str(latest.get("sqz_direction", "FLAT")),
+            "signal": str(latest.get("sqz_signal", "HOLD")),
+            "confidence": float(latest.get("sqz_confidence", 0.5)),
         }
 
-        return {
-            "timestamp": int(df.index[-1].timestamp() * 1000),
-            "data": result
-        }
+        return {"timestamp": int(df.index[-1].timestamp() * 1000), "data": result}
 
     @staticmethod
     async def calculate_adx(
@@ -449,7 +416,7 @@ class IndicatorService:
         trending_threshold: float,
         weak_trend_threshold: float,
         strong_trend_threshold: float,
-        limit: int
+        limit: int,
     ) -> Dict[str, Any]:
         """
         Calculate ADX (Average Directional Index) indicator
@@ -483,22 +450,19 @@ class IndicatorService:
         if len(df) < min_required:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient data: need {min_required} candles, got {len(df)}"
+                detail=f"Insufficient data: need {min_required} candles, got {len(df)}",
             )
 
-        highs = df['high'].tolist()
-        lows = df['low'].tolist()
-        closes = df['close'].tolist()
+        highs = df["high"].tolist()
+        lows = df["low"].tolist()
+        closes = df["close"].tolist()
 
         calculator = ADXCalculator(
             period=period,
             trending_threshold=trending_threshold,
             weak_trend_threshold=weak_trend_threshold,
-            strong_trend_threshold=strong_trend_threshold
+            strong_trend_threshold=strong_trend_threshold,
         )
         result = calculator.calculate(highs, lows, closes)
 
-        return {
-            "timestamp": int(df.index[-1].timestamp() * 1000),
-            "data": result
-        }
+        return {"timestamp": int(df.index[-1].timestamp() * 1000), "data": result}
