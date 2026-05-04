@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     service_host: str = Field(default="0.0.0.0")
 
     # Market Data Service
-    market_data_url: str = Field(default="http://localhost:8003")
+    market_data_url: str = Field(default="http://localhost:8002")
 
     # Redis (caching)
     redis_host: str = Field(default="localhost")
