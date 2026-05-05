@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 def get_portfolio_manager() -> PortfolioManager:
     """Get portfolio manager instance (from global state)"""
     from app.main import portfolio_manager
+
     if portfolio_manager is None:
         raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
     return portfolio_manager
@@ -45,6 +46,7 @@ async def health_check() -> HealthResponse:
         try:
             # Import database manager only if database is enabled
             from shared.database.connection import db_manager
+
             database_healthy = db_manager.health_check()
         except ImportError:
             # shared.database module not available - this is expected when not using database
@@ -57,8 +59,51 @@ async def health_check() -> HealthResponse:
         status="healthy",
         trading_engine_connection=trading_engine_healthy,
         market_data_connection=market_data_healthy,
-        database_connection=database_healthy
+        database_connection=database_healthy,
     )
+
+
+async def readiness_check() -> dict:
+    """
+    Readiness check - verifies the service is ready to handle traffic.
+
+    Stricter than /health: requires portfolio_manager to be initialized.
+    DB check is best-effort; absence of DB does not fail readiness when
+    use_database is False (in-memory mode is supported).
+
+    Raises HTTPException(503) when not ready.
+    """
+    from app.main import portfolio_manager
+
+    if portfolio_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Portfolio Manager not initialized",
+        )
+
+    db_status = "skipped"
+    if settings.use_database:
+        try:
+            from shared.database.connection import db_manager
+
+            if not db_manager.health_check():
+                raise HTTPException(
+                    status_code=503,
+                    detail="Database unavailable",
+                )
+            db_status = "ok"
+        except ImportError:
+            db_status = "unavailable"
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Readiness DB check error: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Database check failed: {e}",
+            )
+
+    return {"status": "ready", "portfolio_manager": "ok", "database": db_status}
 
 
 async def get_status() -> StatusResponse:
@@ -84,5 +129,5 @@ async def get_status() -> StatusResponse:
         status="running",
         portfolio_count=len(portfolios),
         total_value=str(total_value),
-        active_positions=active_positions
+        active_positions=active_positions,
     )
