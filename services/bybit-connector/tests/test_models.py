@@ -693,3 +693,64 @@ class TestBalanceResponse:
 
         # Then response is created without error
         assert response.total_equity == "10000"
+
+
+# ============================================================================
+# CONDITIONAL / BRACKET ORDER FIELD TESTS (Phase A5)
+# ============================================================================
+
+class TestConditionalOrderFields:
+    """Validation for take_profit / stop_loss / tpsl_mode / trigger_* fields"""
+
+    def _base_kwargs(self):
+        return {
+            "category": Category.LINEAR,
+            "symbol": "SOLUSDT",
+            "side": OrderSide.BUY,
+            "order_type": OrderType.MARKET,
+            "qty": "0.1",
+        }
+
+    def test_take_profit_and_stop_loss_accepted(self):
+        order = PlaceOrderRequest(
+            **self._base_kwargs(),
+            take_profit="160",
+            stop_loss="140",
+            tpsl_mode="Full",
+        )
+        assert order.take_profit == "160"
+        assert order.stop_loss == "140"
+        assert order.tpsl_mode == "Full"
+
+    def test_negative_stop_loss_rejected(self):
+        with pytest.raises(ValidationError):
+            PlaceOrderRequest(**self._base_kwargs(), stop_loss="-1")
+
+    def test_invalid_tpsl_mode_rejected(self):
+        with pytest.raises(ValidationError):
+            PlaceOrderRequest(**self._base_kwargs(), tpsl_mode="HalfBaked")
+
+    def test_trigger_price_without_direction_rejected(self):
+        with pytest.raises(ValidationError):
+            PlaceOrderRequest(**self._base_kwargs(), trigger_price="155")
+
+    def test_trigger_direction_without_price_rejected(self):
+        with pytest.raises(ValidationError):
+            PlaceOrderRequest(**self._base_kwargs(), trigger_direction=1)
+
+    def test_invalid_trigger_direction_rejected(self):
+        with pytest.raises(ValidationError):
+            PlaceOrderRequest(
+                **self._base_kwargs(),
+                trigger_price="155",
+                trigger_direction=3,
+            )
+
+    def test_complete_conditional_order_accepted(self):
+        order = PlaceOrderRequest(
+            **self._base_kwargs(),
+            trigger_price="155",
+            trigger_direction=1,
+        )
+        assert order.trigger_price == "155"
+        assert order.trigger_direction == 1

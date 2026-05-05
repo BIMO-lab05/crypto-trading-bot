@@ -234,6 +234,22 @@ class AutoTrader:
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
 
+        # ============================================================================
+        # PHASE C: SMART-MODE GATES (2026-05-05) — opt-in via AUTO_TRADER_SMART_MODE
+        # ============================================================================
+        # When smart_mode is enabled three additional gates apply per cycle:
+        #   1) early-exit when portfolio heat is CRITICAL
+        #   2) per-cycle regime-driven strategy choice (override self.strategy_mode)
+        #   3) ML-confidence floor: reject trades where ML disagrees with the signal
+        #      direction or confidence is below ml_confidence_floor.
+        # Default off — flip via env to enable for A/B comparison against the
+        # construction-time baseline.
+        self.smart_mode = bool(getattr(settings, "auto_trader_smart_mode", False))
+        self.ml_confidence_floor = float(getattr(settings, "ml_confidence_floor", 0.6))
+        self.smart_mode_heat_skips = 0
+        self.smart_mode_ml_rejections = 0
+        self.smart_mode_regime_overrides = 0
+
         # Get the regime detector
         self.regime_detector = get_market_regime_detector(enabled=enable_market_regime)
 
@@ -649,6 +665,126 @@ class AutoTrader:
 
         return True
 
+    # =========================================================================
+    # PHASE C: SMART-MODE HELPERS (gated by self.smart_mode)
+    # =========================================================================
+
+    def _smart_should_skip_for_heat(self) -> bool:
+        """
+        Phase C(2): when smart_mode is on, skip the entire scan cycle if
+        portfolio heat is critical. Cheaper than letting every per-symbol
+        check fall through and reject one-by-one.
+        """
+        if not self.smart_mode:
+            return False
+        try:
+            summary = self.portfolio_heat_manager.get_summary_dict()
+            heat_pct = summary.get("total_heat_pct", 0.0)
+            critical = summary.get("limits", {}).get("critical_heat_threshold", 10.0)
+            if heat_pct >= critical:
+                self.smart_mode_heat_skips += 1
+                logger.warning(
+                    f"[SMART] Skipping cycle — portfolio heat critical: "
+                    f"{heat_pct:.2f}% >= {critical:.2f}%"
+                )
+                return True
+        except Exception as exc:
+            # Don't let a heat-manager hiccup wedge the trader; just continue.
+            logger.debug(f"[SMART] heat-skip check failed, continuing: {exc}")
+        return False
+
+    async def _smart_resolve_strategy(self, symbol: str) -> "StrategyMode":
+        """
+        Phase C(1): when smart_mode is on, pick the per-cycle strategy mode
+        based on the live market regime for this symbol. Otherwise, fall
+        back to the construction-time `self.strategy_mode`.
+        """
+        if not self.smart_mode:
+            return self.strategy_mode
+        try:
+            analysis = await self.regime_detector.detect_regime(symbol, self.interval)
+            regime = analysis.regime
+            # Cheap, conservative mapping. STRONG_TREND/TRENDING/WEAK_TREND →
+            # use the trend-favouring RESEARCH path. RANGING → HYBRID
+            # (which routes to mean-reversion when ADX is low). VOLATILE and
+            # UNKNOWN keep the operator's chosen baseline.
+            if regime in (MarketRegime.STRONG_TREND, MarketRegime.TRENDING, MarketRegime.WEAK_TREND):
+                resolved = StrategyMode.RESEARCH
+            elif regime == MarketRegime.RANGING:
+                resolved = StrategyMode.HYBRID
+            else:
+                resolved = self.strategy_mode
+
+            if resolved != self.strategy_mode:
+                self.smart_mode_regime_overrides += 1
+                logger.info(
+                    f"[SMART] {symbol}: regime={regime.value} → strategy "
+                    f"{self.strategy_mode.value} → {resolved.value}"
+                )
+            return resolved
+        except Exception as exc:
+            logger.debug(f"[SMART] strategy-resolution failed for {symbol}, falling back: {exc}")
+            return self.strategy_mode
+
+    def _smart_check_ml_disagreement(self, signal, action) -> Optional[str]:
+        """
+        Phase C(3): when smart_mode + enable_ml are both on, require the ML
+        component of the aggregated signal to (a) point in the same
+        direction as ``action`` and (b) carry confidence ≥ ml_confidence_floor.
+
+        Returns a rejection reason string if the trade should be skipped,
+        otherwise None.
+        """
+        if not (self.smart_mode and self.enable_ml):
+            return None
+        if signal is None or not getattr(signal, "indicators", None):
+            return None  # nothing to compare against
+
+        # The ML predictor surfaces under signal.indicators with various names
+        # depending on signal-aggregator version; probe a few keys.
+        ml_signal = None
+        for key in ("ml_prediction", "ml", "gru", "gru_prediction"):
+            if key in signal.indicators:
+                ml_signal = signal.indicators[key]
+                break
+        if ml_signal is None:
+            return None  # ML wasn't part of the signal — don't gate on it
+
+        # Be defensive about the schema: ml_signal might be a SignalAction
+        # enum, a dict, or a thin object with .action / .confidence fields.
+        ml_action = getattr(ml_signal, "action", None) or (
+            ml_signal.get("action") if isinstance(ml_signal, dict) else None
+        )
+        ml_confidence = getattr(ml_signal, "confidence", None)
+        if ml_confidence is None and isinstance(ml_signal, dict):
+            ml_confidence = ml_signal.get("confidence")
+        try:
+            ml_confidence = float(ml_confidence) if ml_confidence is not None else None
+        except (TypeError, ValueError):
+            ml_confidence = None
+
+        if ml_confidence is not None and ml_confidence < self.ml_confidence_floor:
+            self.smart_mode_ml_rejections += 1
+            return (
+                f"ml_disagreement: confidence {ml_confidence:.2f} < floor "
+                f"{self.ml_confidence_floor:.2f}"
+            )
+
+        # Direction check — ml_action and trade action should both reduce to BUY/SELL
+        def _norm(x):
+            if x is None:
+                return None
+            value = getattr(x, "value", x)
+            return str(value).upper()
+
+        ml_dir = _norm(ml_action)
+        trade_dir = _norm(action)
+        if ml_dir and trade_dir and ml_dir != trade_dir and ml_dir != "HOLD":
+            self.smart_mode_ml_rejections += 1
+            return f"ml_disagreement: ML={ml_dir} vs trade={trade_dir}"
+
+        return None
+
     async def _trading_loop(self):
         """Main trading loop - runs continuously until stopped"""
         logger.info("Automated trading loop started")
@@ -693,6 +829,12 @@ class AutoTrader:
                 # ================================================================
                 # Only check signals if timer allows (prevents excessive API calls)
                 if self.execution_timer.should_check_signals():
+                    # Phase C(2): smart-mode early heat gate. Critical heat
+                    # → skip the per-symbol scan entirely this cycle.
+                    if self._smart_should_skip_for_heat():
+                        await asyncio.sleep(self.check_frequency)
+                        continue
+
                     for symbol in self.symbols:
                         # Check circuit breaker before making API calls
                         if not self.circuit_breaker.can_execute():
@@ -703,16 +845,19 @@ class AutoTrader:
                             continue
 
                         try:
-                            if self.strategy_mode == StrategyMode.RESEARCH:
+                            # Phase C(1): when smart_mode is on, choose the
+                            # strategy per cycle based on live market regime.
+                            mode = await self._smart_resolve_strategy(symbol)
+                            if mode == StrategyMode.RESEARCH:
                                 # Use research-optimized strategy (2025-11-28)
                                 await self._check_and_trade_research(symbol)
-                            elif self.strategy_mode == StrategyMode.HYBRID:
+                            elif mode == StrategyMode.HYBRID:
                                 # Use both strategies and trade only if both agree
                                 await self._check_and_trade_hybrid(symbol)
-                            elif self.strategy_mode == StrategyMode.GRID_TRADING:
+                            elif mode == StrategyMode.GRID_TRADING:
                                 # Use Grid Trading strategy (Phase 2.3 - 2025-12-08)
                                 await self._check_and_trade_grid(symbol)
-                            elif self.strategy_mode == StrategyMode.ENSEMBLE:
+                            elif mode == StrategyMode.ENSEMBLE:
                                 # Combined RSI + multi-indicator + mean-reversion with performance weighting (2026-04-25)
                                 await self._check_and_trade_ensemble(symbol)
                             else:
@@ -1042,6 +1187,15 @@ class AutoTrader:
 
             if not trade_setup:
                 logger.info(f"[RESEARCH] No valid trade setup for {symbol} (insufficient indicator alignment)")
+                return
+
+            # Phase C(3): smart-mode ML-confidence floor. If ML disagrees with
+            # the signal direction, or ML confidence is below the configured
+            # floor, reject the trade rather than rely on aggregator weighting.
+            ml_reject = self._smart_check_ml_disagreement(signal, trade_setup.action)
+            if ml_reject:
+                self.total_trades_rejected += 1
+                logger.info(f"[SMART][RESEARCH] {symbol}: rejecting — {ml_reject}")
                 return
 
             # Log research signal details

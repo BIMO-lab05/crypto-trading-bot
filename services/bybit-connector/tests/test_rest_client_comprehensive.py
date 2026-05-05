@@ -116,6 +116,7 @@ class TestCoreRequestMethods:
         client = BybitRestClient("test_key", "test_secret", testnet=True)
 
         mock_response = Mock(spec=httpx.Response)
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "retCode": 0,
             "retMsg": "OK",
@@ -133,6 +134,8 @@ class TestCoreRequestMethods:
         client = BybitRestClient("test_key", "test_secret", testnet=True)
 
         mock_response = Mock(spec=httpx.Response)
+        # Bybit returns retCode!=0 inside HTTP 200 for application-level errors
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "retCode": 10001,
             "retMsg": "Invalid parameter"
@@ -149,6 +152,7 @@ class TestCoreRequestMethods:
         client = BybitRestClient("test_key", "test_secret", testnet=True)
 
         mock_response = Mock(spec=httpx.Response)
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             "retCode": 10006,
             "retMsg": "Rate limit exceeded"
@@ -161,11 +165,40 @@ class TestCoreRequestMethods:
         await client.close()
 
     @pytest.mark.asyncio
+    async def test_handle_response_http_429_rate_limit(self):
+        """An HTTP 429 maps to RateLimitException regardless of body"""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        mock_response = Mock(spec=httpx.Response)
+        mock_response.status_code = 429
+        mock_response.json.return_value = {}
+
+        with pytest.raises(RateLimitException):
+            client._handle_response(mock_response)
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_handle_response_http_500_surfaces_error(self):
+        """A 5xx without retCode does NOT silently look like success"""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        mock_response = Mock(spec=httpx.Response)
+        mock_response.status_code = 503
+        mock_response.json.return_value = {"message": "service unavailable"}
+
+        with pytest.raises(BybitAPIException):
+            client._handle_response(mock_response)
+
+        await client.close()
+
+    @pytest.mark.asyncio
     async def test_handle_response_invalid_json(self):
         """Test response handling for invalid JSON response"""
         client = BybitRestClient("test_key", "test_secret", testnet=True)
 
         mock_response = Mock(spec=httpx.Response)
+        mock_response.status_code = 200
         mock_response.json.side_effect = ValueError("Invalid JSON")
 
         with pytest.raises(BybitAPIException) as exc_info:
@@ -728,12 +761,28 @@ class TestErrorHandling:
         await client.close()
 
     @pytest.mark.asyncio
-    async def test_request_with_http_error(self):
-        """Test request handling with HTTP errors"""
+    async def test_request_with_connect_error_retries_then_raises(self):
+        """Network ConnectError is retried and ultimately surfaces as itself"""
         client = BybitRestClient("test_key", "test_secret", testnet=True)
 
         with patch.object(client.circuit_breaker, 'call_async', new_callable=AsyncMock) as mock_call:
             mock_call.side_effect = httpx.ConnectError("Connection failed")
+
+            with pytest.raises(httpx.ConnectError):
+                await client._request("GET", "/test", params={})
+
+            # tenacity should have retried (default 3 attempts)
+            assert mock_call.call_count == 3
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_request_with_generic_http_error_wrapped(self):
+        """A non-network httpx.HTTPError is still wrapped in BybitAPIException"""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        with patch.object(client.circuit_breaker, 'call_async', new_callable=AsyncMock) as mock_call:
+            mock_call.side_effect = httpx.HTTPError("generic http error")
 
             with pytest.raises(BybitAPIException) as exc_info:
                 await client._request("GET", "/test", params={})

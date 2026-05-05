@@ -670,3 +670,57 @@ class TestEdgeCases:
         time_until = breaker._time_until_retry()
 
         assert time_until == 0
+
+
+class TestStateChangeCallback:
+    """Phase A4: subscribers receive every state transition"""
+
+    def test_callback_fires_on_open(self):
+        events = []
+        breaker = CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout=1,
+            on_state_change=events.append,
+        )
+
+        def boom():
+            raise RuntimeError("nope")
+
+        for _ in range(2):
+            try:
+                breaker.call(boom)
+            except RuntimeError:
+                pass
+
+        assert events == [CircuitState.OPEN]
+
+    def test_callback_does_not_fire_on_no_change(self):
+        events = []
+        breaker = CircuitBreaker(
+            failure_threshold=5,
+            recovery_timeout=60,
+            on_state_change=events.append,
+        )
+        breaker._set_state(CircuitState.CLOSED)  # already CLOSED — no-op
+        assert events == []
+
+    def test_callback_fires_on_reset(self):
+        events = []
+        breaker = CircuitBreaker(
+            failure_threshold=1,
+            recovery_timeout=60,
+            on_state_change=events.append,
+        )
+
+        # Trip the breaker.
+        def boom():
+            raise RuntimeError("x")
+
+        try:
+            breaker.call(boom)
+        except RuntimeError:
+            pass
+        assert events[-1] == CircuitState.OPEN
+
+        breaker.reset()
+        assert events[-1] == CircuitState.CLOSED

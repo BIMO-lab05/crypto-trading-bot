@@ -366,8 +366,9 @@ class TestTimestampGeneration:
 
     def test_get_timestamp_format(self):
         """Test timestamp is in correct format (milliseconds)"""
-        # When getting timestamp
-        timestamp = BybitAuthenticator._get_timestamp()
+        # When getting timestamp from a fresh authenticator (skew=0)
+        auth = BybitAuthenticator("test_key", "test_secret")
+        timestamp = auth._get_timestamp()
 
         # Then timestamp is in milliseconds (13 digits)
         assert isinstance(timestamp, int)
@@ -375,12 +376,21 @@ class TestTimestampGeneration:
 
     def test_get_timestamp_current(self):
         """Test timestamp is current time"""
-        # When getting timestamp
-        timestamp = BybitAuthenticator._get_timestamp()
+        # When getting timestamp from a fresh authenticator (skew=0)
+        auth = BybitAuthenticator("test_key", "test_secret")
+        timestamp = auth._get_timestamp()
         current_time = int(time.time() * 1000)
 
         # Then timestamp is within 1 second of current time
         assert abs(timestamp - current_time) < 1000
+
+    def test_get_timestamp_applies_clock_skew(self):
+        """Clock-skew offset is added to local time"""
+        auth = BybitAuthenticator("test_key", "test_secret")
+        auth.clock_skew_ms = 4_500
+        local_ms = int(time.time() * 1000)
+        # Timestamp is local + skew (within a small jitter)
+        assert auth._get_timestamp() - (local_ms + 4_500) < 100
 
 
 # ============================================================================

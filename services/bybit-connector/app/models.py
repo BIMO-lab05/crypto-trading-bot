@@ -5,7 +5,7 @@ Purpose: Pydantic models for input validation and type safety
 
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # ============================================================================
@@ -55,6 +55,12 @@ class PlaceOrderRequest(BaseModel):
     time_in_force: TimeInForce = Field(default=TimeInForce.GTC, description="Time in force")
     reduce_only: bool = Field(default=False, description="Reduce only flag")
     order_link_id: Optional[str] = Field(None, max_length=36, description="User-defined order ID")
+    # Conditional / bracket-order parameters (Bybit V5 native fields).
+    take_profit: Optional[str] = Field(None, description="Take-profit trigger price")
+    stop_loss: Optional[str] = Field(None, description="Stop-loss trigger price")
+    tpsl_mode: Optional[str] = Field(None, description="TP/SL mode: 'Full' or 'Partial'")
+    trigger_price: Optional[str] = Field(None, description="Conditional-order trigger price")
+    trigger_direction: Optional[int] = Field(None, description="Conditional trigger direction: 1=rise, 2=fall")
 
     @field_validator("symbol")
     @classmethod
@@ -77,10 +83,10 @@ class PlaceOrderRequest(BaseModel):
             raise ValueError(f"Quantity must be a valid positive number: {e}")
         return v
 
-    @field_validator("price")
+    @field_validator("price", "take_profit", "stop_loss", "trigger_price")
     @classmethod
     def validate_price(cls, v: Optional[str], info) -> Optional[str]:
-        """Validate price for limit orders"""
+        """Validate price-shaped fields are positive numbers when present"""
         if v is not None:
             try:
                 price_float = float(v)
@@ -90,12 +96,33 @@ class PlaceOrderRequest(BaseModel):
                 raise ValueError(f"Price must be a valid positive number: {e}")
         return v
 
+    @field_validator("tpsl_mode")
+    @classmethod
+    def validate_tpsl_mode(cls, v: Optional[str]) -> Optional[str]:
+        """tpsl_mode, when set, must be 'Full' or 'Partial' per Bybit V5"""
+        if v is not None and v not in ("Full", "Partial"):
+            raise ValueError("tpsl_mode must be 'Full' or 'Partial'")
+        return v
+
+    @field_validator("trigger_direction")
+    @classmethod
+    def validate_trigger_direction(cls, v: Optional[int]) -> Optional[int]:
+        """trigger_direction, when set, must be 1 (rise) or 2 (fall)"""
+        if v is not None and v not in (1, 2):
+            raise ValueError("trigger_direction must be 1 (rise) or 2 (fall)")
+        return v
+
     @model_validator(mode='after')
     def validate_order_requirements(self):
         """Validate order type requirements"""
         # Limit orders require price
         if self.order_type == OrderType.LIMIT and not self.price:
             raise ValueError("Limit orders require a price")
+        # Conditional orders need both trigger_price and trigger_direction
+        if (self.trigger_price is None) != (self.trigger_direction is None):
+            raise ValueError(
+                "trigger_price and trigger_direction must be specified together"
+            )
         return self
 
 
@@ -126,6 +153,9 @@ class CancelOrderRequest(BaseModel):
 
 class OrderResponse(BaseModel):
     """Standard order response from Bybit"""
+
+    model_config = ConfigDict(extra="allow")  # Allow additional fields from Bybit
+
     order_id: str
     order_link_id: Optional[str] = None
     symbol: str
@@ -135,15 +165,12 @@ class OrderResponse(BaseModel):
     price: Optional[str] = None
     status: str
 
-    class Config:
-        extra = "allow"  # Allow additional fields from Bybit
-
 
 class BalanceResponse(BaseModel):
     """Wallet balance response"""
+
+    model_config = ConfigDict(extra="allow")  # Allow additional fields from Bybit
+
     total_equity: Optional[str] = None
     available_balance: Optional[str] = None
     used_margin: Optional[str] = None
-
-    class Config:
-        extra = "allow"  # Allow additional fields from Bybit

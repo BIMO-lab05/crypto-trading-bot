@@ -403,8 +403,16 @@ class BybitExchangeAdapter(ExchangeInterface):
                     ret_msg = data.get("retMsg", "Unknown Bybit error")
                     raise map_bybit_error(ret_code, ret_msg, data.get("result"))
 
-                # Return result
-                return data.get("result", data)
+                # The bybit-connector wraps successful responses as
+                # {"success": True, "data": <result>}. Older callers may have
+                # received raw Bybit shapes ({"retCode":0, "result":...}); we
+                # try both for defence-in-depth.
+                if isinstance(data, dict):
+                    if "data" in data:
+                        return data["data"]
+                    if "result" in data:
+                        return data["result"]
+                return data
 
             except httpx.TimeoutException as e:
                 last_error = TimeoutError(
@@ -565,7 +573,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "GET",
-                "/api/v1/position/list",
+                "/api/v1/account/positions",
                 params=params
             )
 
@@ -662,7 +670,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "POST",
-                "/api/v1/order/create",
+                "/api/v1/order/place",
                 json_data=payload
             )
 
@@ -840,7 +848,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "GET",
-                "/api/v1/order/realtime",
+                "/api/v1/order/open",
                 params=params
             )
 
@@ -960,7 +968,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "GET",
-                "/api/v1/order/realtime",
+                "/api/v1/order/open",
                 params=params
             )
 
@@ -1000,7 +1008,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "GET",
-                "/api/v1/market/tickers",
+                "/api/v1/market/ticker",
                 params=params
             )
 
