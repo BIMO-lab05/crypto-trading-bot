@@ -231,3 +231,12 @@ services/ml-prediction-service/**/_archive_lstm/
 # ============================================================================
 .obsidian/
 graphify-out/
+
+# ============================================================================
+# Working artifacts (screenshots, snapshots, pristine backup copies)
+# ============================================================================
+/*.png
+/*.original.md
+/enh-snapshot.yml
+.playwright-mcp/
+.claudian/
