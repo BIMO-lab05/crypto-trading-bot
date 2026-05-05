@@ -157,6 +157,8 @@ function PerfHeader({ period, onPeriodChange, onRefresh, isLoading, lastUpdated 
 
         <div className="flex items-center gap-4">
           <div
+            role="group"
+            aria-label="Time period selector"
             className="flex"
             style={{
               border: '1px solid var(--perf-border)',
@@ -167,8 +169,10 @@ function PerfHeader({ period, onPeriodChange, onRefresh, isLoading, lastUpdated 
             {PERIODS.map((p) => (
               <button
                 key={p.value}
+                type="button"
                 className="perf-pill"
                 data-active={period === p.value}
+                aria-pressed={period === p.value}
                 onClick={() => onPeriodChange(p.value)}
               >
                 {p.label}

@@ -1,5 +1,6 @@
 import React from 'react'
 import { useMultipleTickers } from '../hooks/useTicker'
+import Sparkline from './Sparkline'
 
 /**
  * PriceTickerGrid - Research-Backed Price Display Component
@@ -132,6 +133,11 @@ export default function PriceTickerGrid({
               {/* Price */}
               <div className={`text-lg font-bold mb-1 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                 ${formatPrice(price)}
+              </div>
+
+              {/* Sparkline — last 24h close trajectory */}
+              <div className="mb-1.5 -mx-1">
+                <Sparkline symbol={symbol} intent={isPositive ? 'positive' : 'negative'} />
               </div>
 
               {/* 24h Change */}

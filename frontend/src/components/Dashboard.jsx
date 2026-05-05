@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import PortfolioCard from './PortfolioCard'
 import PriceTickerGrid from './PriceTickerGrid'
 import EmergencyStop from './EmergencyStop'
@@ -60,20 +60,30 @@ export default function Dashboard() {
   // State for selected chart symbol
   const [selectedSymbol, setSelectedSymbol] = useState('SOLUSDT')
 
+  // Bridge: command palette (⌘K) → focused chart symbol
+  useEffect(() => {
+    const onSelect = (e) => {
+      if (e.detail && typeof e.detail === 'string') setSelectedSymbol(e.detail)
+    }
+    window.addEventListener('cp:select-symbol', onSelect)
+    return () => window.removeEventListener('cp:select-symbol', onSelect)
+  }, [])
+
   return (
     <div className="min-h-screen bg-slate-900 transition-colors duration-200">
       {/* Key Metrics Strip - Research-backed essential metrics */}
       <KeyMetricsStrip />
 
       {/* Compact Header - Streamlined for professional trading */}
-      <header className="bg-slate-800/50 border-b border-slate-700/50 backdrop-blur-sm">
+      <div className="bg-slate-800/50 border-b border-slate-700/50 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              {/* Logo with gradient accent */}
-              <div className="w-9 h-9 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              {/* Logo - editorial viridian on warm-black */}
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center shadow-lg" style={{ background: 'linear-gradient(135deg, #5eead4 0%, #d4af6a 100%)', boxShadow: '0 4px 14px rgba(94, 234, 212, 0.18)' }}>
                 <svg
-                  className="w-5 h-5 text-white"
+                  className="w-5 h-5"
+                  style={{ color: '#0a0a0b' }}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -102,8 +112,10 @@ export default function Dashboard() {
               </div>
 
               <div className="hidden md:flex items-center space-x-2 bg-slate-900/50 rounded-lg px-3 py-1.5 border border-slate-700/50">
-                <span className="text-xs text-slate-400">Chart:</span>
+                <label htmlFor="dashboard-chart-symbol" className="text-xs text-slate-300">Chart:</label>
                 <select
+                  id="dashboard-chart-symbol"
+                  aria-label="Chart symbol"
                   value={selectedSymbol}
                   onChange={(e) => setSelectedSymbol(e.target.value)}
                   className="bg-transparent text-sm font-medium text-slate-100 focus:outline-none cursor-pointer"
@@ -127,10 +139,10 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-      </header>
+      </div>
 
       {/* Main Content - Optimized dark background */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="space-y-5">
           {/* Price Tickers - Compact scrolling section */}
           <section>
@@ -217,16 +229,16 @@ export default function Dashboard() {
 
             {/* Research note */}
             <div className="mt-4 pt-3 border-t border-slate-700/50">
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-400">
                 Parameters optimized based on 2025 crypto trading research: MACD (5-35-5), RSI (9), BB (2.5σ)
               </p>
             </div>
           </section>
         </div>
-      </main>
+      </div>
 
       {/* Compact Footer */}
-      <footer className="bg-slate-800/30 border-t border-slate-700/30 mt-8">
+      <div className="bg-slate-800/30 border-t border-slate-700/30 mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <div className="flex items-center gap-4">
@@ -243,7 +255,7 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-      </footer>
+      </div>
     </div>
   )
 }

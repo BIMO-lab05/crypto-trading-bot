@@ -20,6 +20,7 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import PropTypes from 'prop-types'
 import { format } from 'date-fns'
+import { useDialog } from '../../hooks/useDialog'
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -447,21 +448,48 @@ function ExportPanel({ data, onClose }) {
   // Check if any section is selected
   const hasSelection = Object.values(selectedSections).some(Boolean)
 
+  // Don't fire close while an export is running
+  const handleDialogClose = useCallback(() => {
+    if (!isExporting) onClose()
+  }, [isExporting, onClose])
+
+  const dialogRef = useDialog(true, handleDialogClose)
+
+  const handleBackdropClick = useCallback(
+    (event) => {
+      if (event.target === event.currentTarget) handleDialogClose()
+    },
+    [handleDialogClose],
+  )
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={handleBackdropClick}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-panel-title"
+        aria-describedby="export-panel-desc"
+        tabIndex={-1}
+        className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-100">Export Performance Data</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Select data to include in the export</p>
+            <h2 id="export-panel-title" className="text-lg font-semibold text-slate-100">Export Performance Data</h2>
+            <p id="export-panel-desc" className="text-xs text-slate-500 mt-0.5">Select data to include in the export</p>
           </div>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={handleDialogClose}
+            aria-label="Close export panel"
             className="text-slate-400 hover:text-slate-200 transition-colors"
             disabled={isExporting}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -558,7 +586,7 @@ function ExportPanel({ data, onClose }) {
         <div className="px-6 py-4 border-t border-slate-700 bg-slate-800/30">
           {/* Progress */}
           {exportProgress && (
-            <div className="flex items-center gap-2 mb-4 text-sm text-cyan-400">
+            <div role="status" aria-live="polite" className="flex items-center gap-2 mb-4 text-sm text-cyan-400">
               {isExporting && <LoadingSpinner />}
               <span>{exportProgress}</span>
             </div>
@@ -566,16 +594,18 @@ function ExportPanel({ data, onClose }) {
 
           <div className="flex items-center justify-between">
             <button
-              onClick={onClose}
+              type="button"
+              onClick={handleDialogClose}
               disabled={isExporting}
               className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-slate-100 transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleExport}
               disabled={isExporting || !hasSelection}
-              className="px-6 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-2 bg-blue-700 hover:bg-blue-600 text-white font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {isExporting ? (
                 <>

@@ -18,6 +18,7 @@
 
 import React, { useMemo } from 'react'
 import PropTypes from 'prop-types'
+import ChartFigure from '../a11y/ChartFigure'
 import {
   BarChart,
   Bar,
@@ -244,6 +245,18 @@ function ReturnsDistribution({
             </div>
           </div>
         ) : (
+          <ChartFigure
+            summary={`Returns distribution. ${stats?.count ?? bins.reduce((a, b) => a + (b.count || 0), 0)} trades. Mean ${stats?.mean?.toFixed(2) ?? 'unknown'}, median ${stats?.median?.toFixed(2) ?? 'unknown'}, standard deviation ${stats?.stdDev?.toFixed(2) ?? 'unknown'}. Skewness ${stats?.skewness?.toFixed(2) ?? 'unknown'}, kurtosis ${stats?.kurtosis?.toFixed(2) ?? 'unknown'}. Distribution quality ${quality.label}.`}
+            tableCaption="Returns distribution histogram bins"
+            columns={[
+              { key: 'range', label: 'Range' },
+              { key: 'count', label: 'Trades' },
+            ]}
+            rows={bins.map((b) => ({
+              range: `${b.binStart?.toFixed(2)} to ${b.binEnd?.toFixed(2)}`,
+              count: b.count,
+            }))}
+          >
           <ResponsiveContainer width="100%" height={height}>
             <BarChart
               data={bins}
@@ -308,6 +321,7 @@ function ReturnsDistribution({
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+          </ChartFigure>
         )}
       </div>
 

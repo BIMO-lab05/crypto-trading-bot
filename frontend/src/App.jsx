@@ -31,10 +31,17 @@ import Dashboard from './components/Dashboard'
 import Phase1Dashboard from './pages/Phase1Dashboard'
 import Phase3Dashboard from './pages/Phase3Dashboard'
 import PerformanceDashboard from './pages/PerformanceDashboard'
+import Portfolio from './pages/Portfolio'
 import Settings from './pages/Settings'
 
 // Import theme toggle component
 import ThemeToggle from './components/ThemeToggle'
+
+// Editorial command surface + live status bar + toast center
+import CommandPalette from './components/CommandPalette'
+import StatusBar from './components/StatusBar'
+import KeyboardShortcuts from './components/KeyboardShortcuts'
+import { ToastProvider } from './contexts/ToastContext'
 
 // ============================================================================
 // NAVIGATION LINK COMPONENT
@@ -55,6 +62,7 @@ const NavLink = ({ to, children }) => {
   return (
     <Link
       to={to}
+      aria-current={isActive ? 'page' : undefined}
       className={`
         inline-flex items-center px-1 pt-1 text-sm font-medium
         border-b-2 transition-colors duration-200
@@ -83,6 +91,20 @@ const NavLink = ({ to, children }) => {
  */
 const MobileMenu = ({ isOpen, onClose }) => {
   const location = useLocation()
+  const firstLinkRef = React.useRef(null)
+
+  React.useEffect(() => {
+    if (!isOpen) return undefined
+    const handleKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    if (firstLinkRef.current) firstLinkRef.current.focus()
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [isOpen, onClose])
 
   if (!isOpen) return null
 
@@ -90,20 +112,23 @@ const MobileMenu = ({ isOpen, onClose }) => {
     { to: '/', label: 'Main Dashboard' },
     { to: '/phase1', label: 'Phase 1 Monitoring' },
     { to: '/phase3', label: 'Phase 3: AI Enhanced' },
+    { to: '/portfolio', label: 'Portfolio' },
     { to: '/performance', label: 'Performance' },
     { to: '/settings', label: 'Settings' },
   ]
 
   return (
-    <div className="sm:hidden">
+    <div className="sm:hidden" id="mobile-menu">
       <div className="pt-2 pb-3 space-y-1 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
-        {navItems.map((item) => {
+        {navItems.map((item, idx) => {
           const isActive = location.pathname === item.to
           return (
             <Link
               key={item.to}
               to={item.to}
+              ref={idx === 0 ? firstLinkRef : undefined}
               onClick={onClose}
+              aria-current={isActive ? 'page' : undefined}
               className={`
                 block pl-3 pr-4 py-2 text-base font-medium
                 border-l-4 transition-colors duration-200
@@ -163,6 +188,9 @@ const Header = () => {
               <NavLink to="/phase3">
                 Phase 3: AI Enhanced
               </NavLink>
+              <NavLink to="/portfolio">
+                Portfolio
+              </NavLink>
               <NavLink to="/performance">
                 Performance
               </NavLink>
@@ -183,6 +211,7 @@ const Header = () => {
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="sm:hidden inline-flex items-center justify-center p-2 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors duration-200"
               aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-menu"
               aria-label="Toggle navigation menu"
             >
               {/* Hamburger icon */}
@@ -237,13 +266,22 @@ const Header = () => {
 function App() {
   return (
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <ToastProvider>
       {/* Main application container with dark mode support */}
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200">
+        {/* Skip to main content link (visible on focus) */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:rounded-md focus:bg-blue-700 focus:text-white focus:font-medium focus:shadow-lg"
+        >
+          Skip to main content
+        </a>
+
         {/* Navigation Header */}
         <Header />
 
         {/* Main Content Area */}
-        <main className="transition-colors duration-200">
+        <main id="main-content" tabIndex={-1} className="transition-colors duration-200">
           {/* Route Definitions */}
           <Routes>
             {/* Main Dashboard - Home route */}
@@ -258,20 +296,29 @@ function App() {
             {/* Phase 5.3: Performance Analytics Dashboard */}
             <Route path="/performance" element={<PerformanceDashboard />} />
 
+            {/* Portfolio overview */}
+            <Route path="/portfolio" element={<Portfolio />} />
+
             {/* Settings Page */}
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
 
-        {/* Footer */}
-        <footer className="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 transition-colors duration-200">
+        {/* Footer — sits above the fixed StatusBar */}
+        <footer className="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 transition-colors duration-200" style={{ paddingBottom: 38 }}>
           <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
             <p className="text-center text-sm text-slate-500 dark:text-slate-400">
               Crypto Trading Bot Dashboard - Real-time monitoring and analysis
             </p>
           </div>
         </footer>
+
+        {/* Editorial command palette (⌘K) and live status bar */}
+        <CommandPalette />
+        <StatusBar />
+        <KeyboardShortcuts />
       </div>
+      </ToastProvider>
     </Router>
   )
 }

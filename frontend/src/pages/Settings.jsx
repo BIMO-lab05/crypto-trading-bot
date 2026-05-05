@@ -128,14 +128,18 @@ const SettingsSection = ({ title, description, icon, children }) => {
  * @param {Object} props - Component props
  * @param {string} props.label - Setting label
  * @param {string} props.description - Setting description
+ * @param {string} [props.htmlFor] - id of the control the label belongs to (links label to input for screen readers)
  * @param {React.ReactNode} props.children - Setting control
  */
-const SettingsRow = ({ label, description, children }) => {
+const SettingsRow = ({ label, description, htmlFor, children }) => {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-4 border-b border-slate-200 dark:border-slate-700 last:border-b-0 transition-colors duration-200">
       {/* Label and Description */}
       <div className="mb-2 sm:mb-0 sm:pr-4">
-        <label className="text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors duration-200">
+        <label
+          htmlFor={htmlFor}
+          className="text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors duration-200"
+        >
           {label}
         </label>
         {description && (
@@ -159,13 +163,14 @@ const SettingsRow = ({ label, description, children }) => {
  * @param {Function} props.onChange - Change handler
  * @param {string} props.id - Input ID for accessibility
  */
-const Toggle = ({ checked, onChange, id }) => {
+const Toggle = ({ checked, onChange, id, label }) => {
   return (
     <button
       type="button"
       role="switch"
       id={id}
       aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
       className={`
         relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full
@@ -175,7 +180,7 @@ const Toggle = ({ checked, onChange, id }) => {
         ${checked ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'}
       `}
     >
-      <span className="sr-only">Toggle setting</span>
+      <span className="sr-only">{label || 'Toggle setting'}</span>
       <span
         aria-hidden="true"
         className={`
@@ -536,9 +541,11 @@ const Settings = () => {
           <SettingsRow
             label="Paper Trading Mode"
             description="Trade with virtual funds for testing strategies"
+            htmlFor="paper-trading"
           >
             <Toggle
               id="paper-trading"
+              label="Paper Trading Mode"
               checked={tradingSettings.enablePaperTrading}
               onChange={(value) => updateTradingSetting('enablePaperTrading', value)}
             />
@@ -548,6 +555,7 @@ const Settings = () => {
           <SettingsRow
             label="Default Timeframe"
             description="Default chart timeframe for analysis"
+            htmlFor="default-timeframe"
           >
             <SelectInput
               id="default-timeframe"
@@ -561,6 +569,7 @@ const Settings = () => {
           <SettingsRow
             label="Max Position Size"
             description="Maximum percentage of portfolio per trade"
+            htmlFor="max-position-size"
           >
             <NumberInput
               id="max-position-size"
@@ -586,6 +595,7 @@ const Settings = () => {
           <SettingsRow
             label="Default Stop Loss"
             description="Automatic stop loss percentage for new positions"
+            htmlFor="stop-loss"
           >
             <NumberInput
               id="stop-loss"
@@ -602,6 +612,7 @@ const Settings = () => {
           <SettingsRow
             label="Default Take Profit"
             description="Automatic take profit percentage for new positions"
+            htmlFor="take-profit"
           >
             <NumberInput
               id="take-profit"
@@ -627,9 +638,11 @@ const Settings = () => {
           <SettingsRow
             label="Email Notifications"
             description="Receive important updates via email"
+            htmlFor="email-notifications"
           >
             <Toggle
               id="email-notifications"
+              label="Email Notifications"
               checked={notificationSettings.emailNotifications}
               onChange={(value) => updateNotificationSetting('emailNotifications', value)}
             />
@@ -639,9 +652,11 @@ const Settings = () => {
           <SettingsRow
             label="Push Notifications"
             description="Receive real-time push notifications"
+            htmlFor="push-notifications"
           >
             <Toggle
               id="push-notifications"
+              label="Push Notifications"
               checked={notificationSettings.pushNotifications}
               onChange={(value) => updateNotificationSetting('pushNotifications', value)}
             />
@@ -651,9 +666,11 @@ const Settings = () => {
           <SettingsRow
             label="Trade Alerts"
             description="Get notified when trades are executed"
+            htmlFor="trade-alerts"
           >
             <Toggle
               id="trade-alerts"
+              label="Trade Alerts"
               checked={notificationSettings.tradeAlerts}
               onChange={(value) => updateNotificationSetting('tradeAlerts', value)}
             />
@@ -663,9 +680,11 @@ const Settings = () => {
           <SettingsRow
             label="Price Alerts"
             description="Get notified on significant price movements"
+            htmlFor="price-alerts"
           >
             <Toggle
               id="price-alerts"
+              label="Price Alerts"
               checked={notificationSettings.priceAlerts}
               onChange={(value) => updateNotificationSetting('priceAlerts', value)}
             />
@@ -675,9 +694,11 @@ const Settings = () => {
           <SettingsRow
             label="System Alerts"
             description="Get notified about system status changes"
+            htmlFor="system-alerts"
           >
             <Toggle
               id="system-alerts"
+              label="System Alerts"
               checked={notificationSettings.systemAlerts}
               onChange={(value) => updateNotificationSetting('systemAlerts', value)}
             />
@@ -715,6 +736,7 @@ const Settings = () => {
           <SettingsRow
             label="API Key"
             description="Your Bybit API key for trading"
+            htmlFor="api-key"
           >
             <TextInput
               id="api-key"
@@ -722,6 +744,8 @@ const Settings = () => {
               value={apiKey}
               onChange={setApiKey}
               placeholder="Enter API key"
+              autoComplete="off"
+              spellCheck={false}
             />
           </SettingsRow>
 
@@ -729,6 +753,7 @@ const Settings = () => {
           <SettingsRow
             label="API Secret"
             description="Your Bybit API secret (never shared)"
+            htmlFor="api-secret"
           >
             <TextInput
               id="api-secret"
@@ -736,6 +761,8 @@ const Settings = () => {
               value={apiSecret}
               onChange={setApiSecret}
               placeholder="Enter API secret"
+              autoComplete="off"
+              spellCheck={false}
             />
           </SettingsRow>
         </SettingsSection>

@@ -36,6 +36,7 @@ import {
 import { format, parseISO, isValid } from 'date-fns'
 import { formatCurrency, formatPnL } from '../../utils/formatters'
 import { colors, gridConfig, axisConfig } from '../../utils/chartConfig'
+import ChartFigure from '../a11y/ChartFigure'
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -342,6 +343,23 @@ function DailyPnLChart({
             </div>
           </div>
         ) : (
+          <ChartFigure
+            summary={`Daily profit and loss. ${stats.totalDays} days. ${stats.profitableDays} profitable, ${stats.losingDays} losing. Total P&L ${formatPnL(stats.totalPnL)}. Average daily ${formatPnL(stats.avgDailyPnL)}. Best day ${formatPnL(stats.bestDay)}, worst day ${formatPnL(stats.worstDay)}.`}
+            tableCaption="Daily P&L summary"
+            columns={[
+              { key: 'metric', label: 'Metric' },
+              { key: 'value', label: 'Value' },
+            ]}
+            rows={[
+              { metric: 'Total days', value: stats.totalDays.toString() },
+              { metric: 'Profitable days', value: stats.profitableDays.toString() },
+              { metric: 'Losing days', value: stats.losingDays.toString() },
+              { metric: 'Total P&L', value: formatPnL(stats.totalPnL) },
+              { metric: 'Average daily P&L', value: formatPnL(stats.avgDailyPnL) },
+              { metric: 'Best day', value: formatPnL(stats.bestDay) },
+              { metric: 'Worst day', value: formatPnL(stats.worstDay) },
+            ]}
+          >
           <ResponsiveContainer width="100%" height={height}>
             <ComposedChart
               data={chartData}
@@ -444,6 +462,7 @@ function DailyPnLChart({
               )}
             </ComposedChart>
           </ResponsiveContainer>
+          </ChartFigure>
         )}
       </div>
 

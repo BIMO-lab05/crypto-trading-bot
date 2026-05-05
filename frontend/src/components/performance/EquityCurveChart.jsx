@@ -32,6 +32,7 @@ import {
   Legend,
 } from 'recharts'
 import { format, parseISO, isValid } from 'date-fns'
+import ChartFigure from '../a11y/ChartFigure'
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -328,6 +329,21 @@ function EquityCurveChart({
             </div>
           </div>
         ) : (
+          <ChartFigure
+            summary={`Equity curve over ${period}. Starting ${formatCurrency(stats.first)}, ending ${formatCurrency(stats.current)}, ${stats.change >= 0 ? 'up' : 'down'} ${formatPercent(stats.changePercent)}. High ${formatCurrency(stats.high)}, low ${formatCurrency(stats.low)}.`}
+            tableCaption={`Equity curve summary for ${period}`}
+            columns={[
+              { key: 'metric', label: 'Metric' },
+              { key: 'value', label: 'Value' },
+            ]}
+            rows={[
+              { metric: 'Start', value: formatCurrency(stats.first) },
+              { metric: 'Current', value: formatCurrency(stats.current) },
+              { metric: 'Change', value: `${formatCurrency(stats.change)} (${formatPercent(stats.changePercent)})` },
+              { metric: 'High', value: formatCurrency(stats.high) },
+              { metric: 'Low', value: formatCurrency(stats.low) },
+            ]}
+          >
           <ResponsiveContainer width="100%" height={height}>
             <AreaChart
               data={data}
@@ -394,6 +410,7 @@ function EquityCurveChart({
               />
             </AreaChart>
           </ResponsiveContainer>
+          </ChartFigure>
         )}
       </div>
 

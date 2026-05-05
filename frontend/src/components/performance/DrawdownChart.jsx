@@ -30,6 +30,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { format, parseISO, isValid, differenceInDays } from 'date-fns'
+import ChartFigure from '../a11y/ChartFigure'
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -301,6 +302,20 @@ function DrawdownChart({
             </div>
           </div>
         ) : (
+          <ChartFigure
+            summary={`Drawdown analysis. Current drawdown ${stats.current.toFixed(2)} percent. Maximum drawdown ${stats.max.toFixed(2)} percent. Average drawdown ${stats.avgDrawdown.toFixed(2)} percent. Time spent in drawdown ${stats.timeInDrawdown.toFixed(0)} percent of period.`}
+            tableCaption="Drawdown summary"
+            columns={[
+              { key: 'metric', label: 'Metric' },
+              { key: 'value', label: 'Value' },
+            ]}
+            rows={[
+              { metric: 'Current drawdown', value: `${stats.current.toFixed(2)}%` },
+              { metric: 'Max drawdown', value: `${stats.max.toFixed(2)}%` },
+              { metric: 'Average drawdown', value: `${stats.avgDrawdown.toFixed(2)}%` },
+              { metric: 'Time in drawdown', value: `${stats.timeInDrawdown.toFixed(0)}%` },
+            ]}
+          >
           <ResponsiveContainer width="100%" height={height}>
             <AreaChart
               data={data}
@@ -380,6 +395,7 @@ function DrawdownChart({
               />
             </AreaChart>
           </ResponsiveContainer>
+          </ChartFigure>
         )}
       </div>
 
