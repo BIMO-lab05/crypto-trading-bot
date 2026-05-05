@@ -9,65 +9,65 @@
 ## Session Log
 
 ### Session: 2026-04-25
-**Goal**: Comprehensive project audit and health check after 4-month dormancy
+**Goal**: Full project audit + health check after 4-month dormancy
 
 #### Completed
 - [x] Full codebase audit: 817 Python files (372K LOC), 60+ frontend files, 11 microservices
 - [x] Deployed 6 parallel analysis agents (backend, frontend, backtesting, infra, docs, tests)
-- [x] Verified Jan 2026 critical fixes exist but are NOT committed (609 uncommitted files)
+- [x] Verified Jan 2026 critical fixes exist but NOT committed (609 uncommitted files)
 - [x] Fixed sqzmom_config.py: replaced DOGEUSDT with ADAUSDT to match validated config
 - [x] Fixed .env.example: corrected port mappings to match docker-compose.yml (ports 8000-8009)
-- [x] Updated README.md: LSTM -> GRU references, version 3.7.0, updated dates
+- [x] Updated README.md: LSTM -> GRU refs, version 3.7.0, updated dates
 - [x] Fixed start_profitable_trading.py syntax error (invalid hyphenated imports)
 - [x] Validated all 817 Python files pass syntax check (0 errors)
-- [x] Validated frontend builds successfully (1302 modules, 0 errors)
+- [x] Validated frontend builds clean (1302 modules, 0 errors)
 - [x] Validated docker-compose.yml (13 services, all Dockerfiles exist, all health checks)
-- [x] Confirmed .env files properly gitignored (no security issue)
+- [x] Confirmed .env files gitignored (no security issue)
 - [x] Created persistent memory for future sessions
 
 #### Key Findings
-- **609 uncommitted changes** including 3 critical Jan 2026 trading fixes
-- **Config mismatch fixed**: sqzmom_config had DOGE instead of ADA (validated by paper trading)
+- **609 uncommitted changes** include 3 critical Jan 2026 trading fixes
+- **Config mismatch fixed**: sqzmom_config had DOGE not ADA (validated by paper trading)
 - **Port mapping fixed**: .env.example had wrong service-to-port assignments
 - **All code syntactically valid**: 817 Python files, frontend builds clean
-- **Docker infrastructure valid**: 19 total containers configured correctly
-- **GRU models stale**: 4+ months without retraining (trained Dec 10, 2025)
+- **Docker infra valid**: 19 total containers configured correctly
+- **GRU models stale**: 4+ months no retrain (trained Dec 10, 2025)
 
 #### Issues Still Outstanding
-- [ ] 609 uncommitted files need to be committed (including critical Jan 2026 fixes)
-- [ ] GRU models need retraining (4+ months stale)
+- [ ] 609 uncommitted files need commit (incl. critical Jan 2026 fixes)
+- [ ] GRU models need retrain (4+ months stale)
 - [ ] Resume paper trading validation
-- [ ] HashiCorp Vault still in dev mode
+- [ ] HashiCorp Vault still dev mode
 - [ ] Cannot run pytest without Python venv (no sudo access)
 
 #### Next Steps
-1. Commit the 609 uncommitted changes (carefully, in logical groups)
-2. Install Python venv and run full test suite
+1. Commit 609 uncommitted changes (carefully, logical groups)
+2. Install Python venv, run full test suite
 3. Retrain GRU models with recent market data
-4. Start Docker and resume paper trading
-5. Monitor system for 7 days before considering live trading
+4. Start Docker, resume paper trading
+5. Monitor system 7 days before live trading consideration
 
 ---
 
 ### Session: 2025-12-13
-**Goal**: Comprehensive Trading Performance Analysis - Old vs New Configuration
+**Goal**: Trading Performance Analysis - Old vs New Configuration
 
 #### Completed
-- [x] Comprehensive analysis of historical trade data (89+ trades)
+- [x] Analysis of historical trade data (89+ trades)
 - [x] Validated 3-symbol optimization thesis (3.3x improvement confirmed)
-- [x] Compared old 16-symbol config vs new 3-symbol config
-- [x] Analyzed top performers (SOL, BNB, ADA) vs worst performers (XRP, ETH, BTC, DOGE)
-- [x] Calculated win rates: 66.4% for kept symbols vs 31.6% for excluded
-- [x] Reviewed positions closed on December 12
-- [x] Generated statistics by symbol, strategy, hourly patterns, and side (LONG/SHORT)
-- [x] Created comprehensive performance analysis report
+- [x] Compared old 16-symbol vs new 3-symbol config
+- [x] Analyzed top performers (SOL, BNB, ADA) vs worst (XRP, ETH, BTC, DOGE)
+- [x] Win rates: 66.4% kept symbols vs 31.6% excluded
+- [x] Reviewed positions closed Dec 12
+- [x] Generated stats by symbol, strategy, hourly, side (LONG/SHORT)
+- [x] Created performance analysis report
 
 #### Key Findings
 - **3-Symbol Thesis VALIDATED**: 3.29x improvement factor (expected 3.3x)
 - **Top 3 Symbols (Kept)**: +$127.55 total P&L, 66.4% win rate
 - **Bottom 4 Symbols (Excluded)**: -$88.79 total P&L, 31.6% win rate
-- **Win Rate Improvement**: +34.8 percentage points by focusing on winners
-- **Loss Elimination**: 100% of excluded symbol losses saved
+- **Win Rate Improvement**: +34.8 pp by focus on winners
+- **Loss Elimination**: 100% excluded symbol losses saved
 - **Optimal Trading Hours**: 08:00-21:00 UTC validated by data
 
 #### Performance Summary
@@ -91,13 +91,13 @@
 - Context: Pullback after Dec 12 gains
 
 #### Documents Created
-- `PERFORMANCE_ANALYSIS_OLD_VS_NEW_2025-12-13.md` - Comprehensive 700+ line report
+- `PERFORMANCE_ANALYSIS_OLD_VS_NEW_2025-12-13.md` - 700+ line report
 
 #### Next Steps
-- [ ] Monitor Day 2 trading results (Dec 13-14)
+- [ ] Monitor Day 2 trading (Dec 13-14)
 - [ ] Generate weekly comparison report (Dec 19)
 - [ ] Validate new symbol candidates (ARB, OP, POL, SUI)
-- [ ] Fine-tune allocation weights based on live performance
+- [ ] Tune allocation weights based on live performance
 
 ---
 
@@ -105,18 +105,18 @@
 **Goal**: Day 1 Paper Trading Analysis for New Configuration
 
 #### Completed
-- [x] Comprehensive Day 1 analysis of new SQZMOM configuration
+- [x] Day 1 analysis of new SQZMOM config
 - [x] Reviewed market conditions (SOL +4.89%, BNB +2.25%, BTC +1.37%)
 - [x] Analyzed expected performance vs historical baseline
-- [x] Created actionable recommendations for Day 2
-- [x] Identified configuration discrepancy (3 vs 7 symbols)
-- [x] Generated comprehensive Day 1 analysis report
+- [x] Created Day 2 recommendations
+- [x] Identified config discrepancy (3 vs 7 symbols)
+- [x] Generated Day 1 analysis report
 
 #### Key Findings
 - **Market Conditions FAVORABLE**: SOL +4.89%, BNB +2.25% - Top symbols gaining
-- **Configuration Discrepancy**: docker-compose shows 7 symbols, config.py shows 3
+- **Config Discrepancy**: docker-compose shows 7 symbols, config.py shows 3
 - **Expected Daily P&L**: +$18.22 to +$25.51 (weekday adjusted)
-- **Expected Win Rate**: 60-75% based on historical top 3 performance
+- **Expected Win Rate**: 60-75% based on historical top 3
 - **New Symbols**: ARB, OP, POL, SUI in monitoring phase
 
 #### Day 1 Performance Targets
@@ -128,13 +128,13 @@
 | Time Filter Compliance | 100% | MONITORING |
 
 #### Documents Created
-- `DAY1_PAPER_TRADING_ANALYSIS_2025-12-12.md` - Comprehensive 600+ line report
+- `DAY1_PAPER_TRADING_ANALYSIS_2025-12-12.md` - 600+ line report
 
 #### Action Items for Day 2
-1. **VERIFY**: Configuration (3 vs 7 symbols active)
+1. **VERIFY**: Config (3 vs 7 symbols active)
 2. **COLLECT**: Actual Day 1 trading data
 3. **RUN**: SQL queries to analyze trades
-4. **MONITOR**: Signal quality and time filter enforcement
+4. **MONITOR**: Signal quality + time filter enforcement
 5. **COMPARE**: Actual P&L vs expected (+$18.22)
 
 #### Market Data (Dec 12, 2025)
@@ -147,22 +147,22 @@
 ---
 
 ### Session: 2025-12-12 (Morning)
-**Goal**: Analyze old trade data and validate new SQZMOM configuration changes
+**Goal**: Analyze old trade data, validate new SQZMOM config changes
 
 #### Completed
-- [x] Comprehensive analysis of 30-day trade history
-- [x] Compared old configuration (16 symbols) vs new configuration (7 symbols)
-- [x] Validated symbol selection decisions with historical performance data
-- [x] Calculated expected performance improvement (3.3x / +229%)
-- [x] Analyzed trading patterns (hourly, weekend, exposure levels)
-- [x] Generated comprehensive validation report
+- [x] Analysis of 30-day trade history
+- [x] Compared old config (16 symbols) vs new (7 symbols)
+- [x] Validated symbol selection with historical data
+- [x] Calculated expected improvement (3.3x / +229%)
+- [x] Analyzed trading patterns (hourly, weekend, exposure)
+- [x] Generated validation report
 
 #### Key Findings
-- **Symbol Selection VALIDATED**: Top 3 symbols (SOL, BNB, ADA) generated +$127.55 profit
-- **Underperformers VALIDATED**: Bottom 4 symbols (XRP, ETH, BTC, DOGE) lost -$88.79
-- **Win Rate Disparity**: Winners 66.4% vs Losers 31.6% (34.8 pp difference)
-- **Expected Improvement**: +229% P&L improvement by focusing on profitable symbols
-- **Configuration Changes**: All justified by historical data
+- **Symbol Selection VALIDATED**: Top 3 (SOL, BNB, ADA) generated +$127.55 profit
+- **Underperformers VALIDATED**: Bottom 4 (XRP, ETH, BTC, DOGE) lost -$88.79
+- **Win Rate Disparity**: Winners 66.4% vs Losers 31.6% (34.8 pp gap)
+- **Expected Improvement**: +229% P&L by focus on profitable symbols
+- **Config Changes**: All justified by historical data
 
 #### Analysis Summary
 | Metric | Old Config | New Config | Impact |
@@ -174,45 +174,45 @@
 | Weekend Trading | Yes | No | Risk Reduction |
 
 #### Documents Created
-- `TRADE_ANALYSIS_OLD_VS_NEW_2025-12-12.md` - Comprehensive 500+ line validation report
+- `TRADE_ANALYSIS_OLD_VS_NEW_2025-12-12.md` - 500+ line validation report
 
 #### Recommendations Validated
 1. **KEEP**: BNBUSDT, SOLUSDT, ADAUSDT, ARBUSDT, OPUSDT, POLUSDT, SUIUSDT
 2. **EXCLUDE PERMANENTLY**: XRPUSDT, ETHUSDT, BTCUSDT
 3. **MONITOR**: DOGEUSDT (marginal performance)
-4. **REDUCE**: Total exposure from 80% to 70%
-5. **ENABLE**: Time filters (8:00-21:00 UTC) and weekend avoidance
+4. **REDUCE**: Total exposure 80% to 70%
+5. **ENABLE**: Time filters (8:00-21:00 UTC) + weekend avoidance
 
 #### Next Steps
-- [x] Monitor new configuration performance for 7 days (Day 1 complete)
+- [x] Monitor new config 7 days (Day 1 complete)
 - [ ] Generate weekly comparison report (Dec 19)
-- [ ] Validate APTUSDT, DOTUSDT, LTCUSDT for potential addition
-- [ ] Fine-tune symbol allocation weights based on live performance
+- [ ] Validate APTUSDT, DOTUSDT, LTCUSDT for potential add
+- [ ] Tune symbol allocation weights based on live performance
 
 ---
 
 ### Session: 2025-12-10
-**Goal**: Complete GRU model training and deployment to production
+**Goal**: Complete GRU model training + production deployment
 
 #### Completed
 - [x] Trained 8 new GRU models (AVAX, DOT, LTC, LINK, OP, POL, SUI, ARB)
-- [x] Retrained SUIUSDT with extended data (R2: 0.6638 to 0.9897, +49% improvement)
-- [x] Achieved 100% GRU model coverage (16/16 symbols)
-- [x] All models exceed R2>0.75 target (average R2=0.9197)
-- [x] Created comprehensive GRU vs LSTM comparison report
-- [x] Updated ML service configuration to use GRU models by default
-- [x] Verified all models load and generate predictions via API
+- [x] Retrained SUIUSDT extended data (R2: 0.6638 to 0.9897, +49% improvement)
+- [x] Achieved 100% GRU coverage (16/16 symbols)
+- [x] All models exceed R2>0.75 target (avg R2=0.9197)
+- [x] Created GRU vs LSTM comparison report
+- [x] Updated ML service config to use GRU by default
+- [x] Verified all models load + predict via API
 - [x] Created integration test suite for production validation
 
 #### Key Achievements
-- **All 16 GRU Models Production-Ready**: Average R2=0.9197 (exceptional)
+- **All 16 GRU Models Production-Ready**: Avg R2=0.9197 (exceptional)
 - **Performance Tiers**:
   - Exceptional (R2>=0.95): 7 models - AVAX (0.9977), DOT (0.9944), LTC (0.9932), SUI (0.9897), LINK (0.9706), POL (0.9517)
   - Excellent (R20.90-0.95): 4 models - OP (0.9417), BNB (0.9306), APT (0.9234), BTC (0.9147)
   - Very Good (R20.85-0.90): 3 models - SOL (0.8661), XRP (0.8450), ETH (0.8411)
   - Good (R20.75-0.85): 2 models - ADA (0.7883), DOGE (0.7736)
-- **GRU vs LSTM**: GRU wins 100% of comparisons (+26.5% avg R2 improvement)
-- **Training Session**: 6+ hours total, 100% success rate, zero failures
+- **GRU vs LSTM**: GRU wins 100% comparisons (+26.5% avg R2 improvement)
+- **Training Session**: 6+ hours total, 100% success, zero failures
 - **Storage**: 18.66 MB total (16 models x ~1.17 MB each)
 
 #### Technical Details
@@ -223,51 +223,51 @@
 - **Testing**: API endpoints verified (5/5 loading, 5/5 predictions)
 
 #### Documents Created
-- `GRU_DEPLOYMENT_COMPLETE_2025-12-10.md` - Complete deployment report (500+ lines)
+- `GRU_DEPLOYMENT_COMPLETE_2025-12-10.md` - Deployment report (500+ lines)
 - `COMPREHENSIVE_GRU_LSTM_COMPARISON.md` - Performance analysis (370 lines)
 - `DEPLOYMENT_READINESS_2025-12-10.md` - Readiness assessment (400 lines)
-- `FINAL_GRU_TRAINING_SUMMARY_2025-12-10.md` - Training session summary (389 lines)
+- `FINAL_GRU_TRAINING_SUMMARY_2025-12-10.md` - Training summary (389 lines)
 - `test_gru_integration.py` - Integration test suite (260 lines)
 - `verify_all_16_gru_models.py` - Verification tool (169 lines)
 
 #### System Impact
-- **Trading Engine**: Now automatically receives GRU predictions
+- **Trading Engine**: Now auto receives GRU predictions
 - **Prediction Quality**: +35% R2 improvement over LSTM (0.6798 to 0.9197)
-- **Directional Accuracy**: 85-90% for price movement prediction
-- **Confidence**: Average 0.64-0.80 confidence scores
-- **Backwards Compatibility**: LSTM models still available if needed
+- **Directional Accuracy**: 85-90% for price movement
+- **Confidence**: Avg 0.64-0.80 confidence scores
+- **Backwards Compat**: LSTM models still available if needed
 
 #### Next Steps
-- [x] Run integration tests when services are online
-- [ ] Monitor GRU prediction performance over 24-48 hours
+- [x] Run integration tests when services online
+- [ ] Monitor GRU prediction performance 24-48 hours
 - [ ] Compare trading performance before/after GRU deployment
 - [ ] Schedule monthly model retraining
-- [ ] Phase out LSTM models after validation period
+- [ ] Phase out LSTM after validation period
 
 ---
 
 ### Session: 2025-12-06
-**Goal**: Comprehensive trading performance analysis and optimization recommendations
+**Goal**: Trading performance analysis + optimization recommendations
 
 #### Completed
 - [x] Analyzed 7-day paper trading performance (+$35.67 realized PnL)
-- [x] Identified top performing symbols (BNB +$48.64, SOL +$48.16, ADA +$22.65)
-- [x] Identified underperforming symbols (XRP -$39.73, ETH -$23.65, BTC -$10.59)
+- [x] Identified top symbols (BNB +$48.64, SOL +$48.16, ADA +$22.65)
+- [x] Identified underperformers (XRP -$39.73, ETH -$23.65, BTC -$10.59)
 - [x] Analyzed 88 trades across 7 symbols (78 closed, 10 open)
-- [x] Calculated win rate: 46.15% overall, 66.7% on best performers
-- [x] Generated comprehensive trading status report
-- [x] Created daily summary with actionable recommendations
-- [x] Resolved database connection issues (found correct credentials)
+- [x] Win rate: 46.15% overall, 66.7% on best
+- [x] Generated trading status report
+- [x] Created daily summary with action items
+- [x] Resolved DB connection issues (found correct creds)
 
 #### Key Findings
-- **System is PROFITABLE:** +$35.67 in 7 days (+0.36% ROI)
+- **System PROFITABLE:** +$35.67 in 7 days (+0.36% ROI)
 - **Best Symbols:** BNB, SOL, ADA (66.7% win rate each)
-- **Worst Symbols:** XRP, ETH, BTC (25-40% win rate, losing money)
+- **Worst Symbols:** XRP, ETH, BTC (25-40% win rate, losing)
 - **Current Open Positions:** 10 positions, ~$0 unrealized PnL
 - **ARBUSDT SHORT:** Biggest current loser (-$8.53), needs monitoring
 
 #### Critical Recommendation
-**Stop trading XRP, ETH, BTC** - These 3 symbols lost -$73.97 combined, while BNB/SOL/ADA gained +$119.45. By focusing on winners only, profit could be 3.3x higher (+$119 vs +$35).
+**Stop trading XRP, ETH, BTC** - These 3 lost -$73.97 combined while BNB/SOL/ADA gained +$119.45. Focus on winners → 3.3x higher profit (+$119 vs +$35).
 
 #### System Status
 - All 14 containers: HEALTHY
@@ -276,8 +276,8 @@
 - Database: Connected (crypto-bot-postgres, user: cryptobot)
 
 #### Documents Created
-- `TRADING_STATUS_REPORT_2025-12-06.md` - Comprehensive 250+ line analysis
-- `DAILY_SUMMARY_2025-12-06.md` - Quick reference and action items
+- `TRADING_STATUS_REPORT_2025-12-06.md` - 250+ line analysis
+- `DAILY_SUMMARY_2025-12-06.md` - Quick reference + action items
 - Updated `.claude/memory/SESSION_LOG.json` with findings
 
 #### Next Steps
@@ -289,22 +289,22 @@
 ---
 
 ### Session: 2025-11-26
-**Goal**: System validation and paper trading readiness assessment
+**Goal**: System validation + paper trading readiness
 
 #### Completed
 - [x] Verified all 15 Docker containers running
 - [x] Fixed sentiment-analysis-service Dockerfile port mismatch (8009 -> 8008)
 - [x] Added TRANSFORMERS_CACHE env var to fix HuggingFace cache permission issue
-- [x] All 10 microservices now show healthy status
+- [x] All 10 microservices show healthy
 - [x] API Gateway confirmed all backend services connected
 
 #### Issues Found & Resolved
-- Sentiment service was unhealthy due to port mismatch in Dockerfile
+- Sentiment service unhealthy due to port mismatch in Dockerfile
 - Fixed: `/mnt/d/Bimo_max/crypto-trading-bot/services/sentiment-analysis-service/Dockerfile`
 
 #### Minor Issues (Non-blocking)
 - risk-metrics-service shows "degraded" due to missing REDIS_HOST env var in docker-compose
-- Sentiment service using lexicon-based fallback (ML model cache permission warning)
+- Sentiment service uses lexicon-based fallback (ML model cache permission warning)
 
 #### System Status
 - All 15 containers: HEALTHY
@@ -315,31 +315,31 @@
 ---
 
 ### Session: 2025-11-25 (Previous)
-**Goal**: System validation and session continuity
+**Goal**: System validation + session continuity
 
 #### Completed
 - [x] Reviewed uncommitted Docker changes (build context fixes)
-- [x] Committed Docker configuration improvements
+- [x] Committed Docker config improvements
 - [x] Docker environment fully operational
 
 ---
 
 ### Session: 2025-11-23
-**Goal**: Test coverage mission completion
+**Goal**: Test coverage mission
 
 #### Completed
-- [x] All 10 microservices achieved 80%+ test coverage
+- [x] All 10 microservices hit 80%+ test coverage
 - [x] Deployed 11 specialized AI agents across 4 parallel batches
-- [x] Created 396+ comprehensive tests (~6,500 lines of test code)
-- [x] Added 9 new test files + documentation
-- [x] Zero breaking changes (100% backward compatibility)
-- [x] Docker infrastructure created (10 production-ready Dockerfiles)
+- [x] Created 396+ tests (~6,500 lines test code)
+- [x] Added 9 new test files + docs
+- [x] Zero breaking changes (100% backward compat)
+- [x] Docker infra created (10 production-ready Dockerfiles)
 - [x] CI/CD pipeline added (GitHub Actions + Kubernetes manifests)
 
 ---
 
 ### Session: 2025-11-18-19 (God Class Destroyer)
-**Goal**: Refactor monolithic services using Strangler Fig pattern
+**Goal**: Refactor monolithic services via Strangler Fig
 
 #### Completed
 - [x] signal-aggregator: 651 -> 489 lines (-25%)
@@ -348,7 +348,7 @@
 - [x] portfolio-manager: 1,046 -> 291 lines (-72%)
 - [x] market-data-service: 868 -> 332 lines (-62%)
 - [x] Created 39 focused modules from monolithic classes
-- [x] 100% backward compatibility maintained
+- [x] 100% backward compat maintained
 
 ---
 
@@ -436,15 +436,15 @@ Projected Weekly (new):  +$127.55 (+1.28% ROI)
 ## Paper Trading Readiness Checklist
 
 ### Ready
-- [x] All microservices running and healthy
+- [x] All microservices running + healthy
 - [x] API Gateway routing to all services
 - [x] Bybit connector with testnet API keys
 - [x] Trading engine with SQZMOM strategy
-- [x] Risk management system active
+- [x] Risk management active
 - [x] Technical analysis indicators
 - [x] ML prediction service (GRU models)
 - [x] Notification service
-- [x] Frontend dashboard accessible at localhost:3000
+- [x] Frontend dashboard at localhost:3000
 - [x] Symbol selection optimized (3 profitable only)
 - [x] Time filters enabled (8:00-21:00 UTC)
 - [x] Weekend trading disabled
@@ -452,12 +452,12 @@ Projected Weekly (new):  +$127.55 (+1.28% ROI)
 
 ### Validated
 - [x] Test place order endpoint
-- [x] Verify stop-loss triggers work
+- [x] Verify stop-loss triggers
 - [x] Confirm WebSocket streams active
 - [x] Check market data collection
-- [x] Old vs New configuration analysis complete
+- [x] Old vs New config analysis complete
 - [x] Day 1 analysis report generated
-- [x] Comprehensive performance analysis complete
+- [x] Performance analysis complete
 
 ---
 
@@ -465,17 +465,17 @@ Projected Weekly (new):  +$127.55 (+1.28% ROI)
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2025-10-30 | Microservices architecture | Scalability and independent deployment |
-| 2025-10-30 | Python + FastAPI | Fast development, async support |
+| 2025-10-30 | Microservices architecture | Scalability + independent deployment |
+| 2025-10-30 | Python + FastAPI | Fast dev, async support |
 | 2025-10-30 | TimescaleDB for market data | Optimized for time-series |
-| 2025-11-18 | Strangler Fig pattern | Safe incremental refactoring |
+| 2025-11-18 | Strangler Fig pattern | Safe incremental refactor |
 | 2025-11-19 | 4-layer architecture | Clean separation of concerns |
-| 2025-11-23 | Multi-stage Docker builds | Optimized image sizes |
-| 2025-11-26 | Testnet-first approach | Safe validation before live trading |
+| 2025-11-23 | Multi-stage Docker builds | Smaller images |
+| 2025-11-26 | Testnet-first approach | Safe validation before live |
 | 2025-12-06 | Symbol filtering | Remove unprofitable symbols |
-| 2025-12-10 | GRU over LSTM | +26.5% prediction accuracy improvement |
-| 2025-12-12 | 3-symbol focus | 3.3x P&L improvement validated by data |
-| 2025-12-13 | 3-symbol thesis confirmed | 3.29x improvement factor validated |
+| 2025-12-10 | GRU over LSTM | +26.5% prediction accuracy |
+| 2025-12-12 | 3-symbol focus | 3.3x P&L validated by data |
+| 2025-12-13 | 3-symbol thesis confirmed | 3.29x improvement validated |
 
 ---
 
@@ -494,18 +494,18 @@ Projected Weekly (new):  +$127.55 (+1.28% ROI)
    - [x] Symbol selection optimized
    - [x] Time filters enabled
    - [x] 3-symbol optimization validated
-   - [ ] Verify configuration (3 vs 7 symbols active)
-   - [ ] Fine-tune allocation weights
+   - [ ] Verify config (3 vs 7 symbols active)
+   - [ ] Tune allocation weights
    - [ ] Validate new symbols (ARB, OP, POL, SUI) - Day 1 of 7
 
 3. **ML Model Validation** (After 30 days)
    - Monitor GRU prediction accuracy
    - Compare trading performance with GRU
-   - Schedule monthly model retraining
+   - Schedule monthly model retrain
 
 4. **Production Deployment**
    - Obtain mainnet Bybit API keys
-   - Deploy to production environment
+   - Deploy to production
    - Final security audit
 
 ---
@@ -514,12 +514,12 @@ Projected Weekly (new):  +$127.55 (+1.28% ROI)
 
 | Risk | Impact | Mitigation | Status |
 |------|--------|------------|--------|
-| API rate limits | High | Caching + rate limiting implemented | Mitigated |
-| Market volatility | High | Risk management rules (2% per trade) | Mitigated |
+| API rate limits | High | Caching + rate limiting | Mitigated |
+| Market volatility | High | Risk rules (2% per trade) | Mitigated |
 | System downtime | Medium | Health checks + auto-restart | Mitigated |
-| Data quality | Medium | Validation layer implemented | Mitigated |
-| Model drift | Medium | Retraining pipeline planned | Pending |
-| Symbol performance | High | Data-driven symbol selection | Mitigated |
+| Data quality | Medium | Validation layer | Mitigated |
+| Model drift | Medium | Retrain pipeline planned | Pending |
+| Symbol performance | High | Data-driven selection | Mitigated |
 | Config discrepancy | Medium | Verification needed (3 vs 7 symbols) | Pending |
 
 ---
@@ -566,9 +566,9 @@ docker-compose logs -f [service-name]
 
 | Report | Date | Purpose |
 |--------|------|---------|
-| `PERFORMANCE_ANALYSIS_OLD_VS_NEW_2025-12-13.md` | Dec 13 | Comprehensive old vs new comparison |
+| `PERFORMANCE_ANALYSIS_OLD_VS_NEW_2025-12-13.md` | Dec 13 | Old vs new comparison |
 | `DAY1_PAPER_TRADING_ANALYSIS_2025-12-12.md` | Dec 12 | Day 1 new config analysis |
-| `TRADE_ANALYSIS_OLD_VS_NEW_2025-12-12.md` | Dec 12 | Configuration validation |
+| `TRADE_ANALYSIS_OLD_VS_NEW_2025-12-12.md` | Dec 12 | Config validation |
 | `GRU_PERFORMANCE_ANALYSIS_2025-12-10.md` | Dec 10 | Symbol performance analysis |
 | `GRU_DEPLOYMENT_COMPLETE_2025-12-10.md` | Dec 10 | GRU deployment report |
 | `TRADING_STATUS_REPORT_2025-12-06.md` | Dec 6 | Trading performance report |
@@ -582,7 +582,7 @@ docker-compose logs -f [service-name]
 
 ## 2026-04-26 session — GRU refresh
 
-Resumed yesterday's BTC/ETH GRU work after OOM killed both runs at 2 GiB compose limit. Found WSL is hard-capped at 3.7 GiB host RAM; compose `memory: 6G` cannot apply. Workflow: temporarily stop sentiment-analysis, trading-engine, portfolio-manager, risk-metrics, technical-analysis (frees ~1.4 GiB), train sequentially via chained sh script, restart all.
+Resumed yesterday BTC/ETH GRU work after OOM killed both runs at 2 GiB compose limit. WSL hard-capped at 3.7 GiB host RAM; compose `memory: 6G` cannot apply. Workflow: temporarily stop sentiment-analysis, trading-engine, portfolio-manager, risk-metrics, technical-analysis (frees ~1.4 GiB), train sequentially via chained sh script, restart all.
 
 **Trained today (60m_gru, 24-month 1H data, 11674 samples each):**
 
@@ -594,9 +594,9 @@ Resumed yesterday's BTC/ETH GRU work after OOM killed both runs at 2 GiB compose
 | BNBUSDT | validated | 0.9968 | 0.0047 | 0.0065 | 79.41%  | 19 min    |
 | ADAUSDT | validated | 0.9950 | 0.0050 | 0.0070 | 83.32%  | 28 min    |
 
-LSTM vs GRU comparison: GRU swept 3-0 on every symbol. Mean R² lifted +9.32 pp on validated symbols, +38 pp on research symbols (BTC/ETH/XRP). Caveat: LSTMs trained on 257–1411 samples vs 11674 for GRU, so part of the gap is data not architecture.
+LSTM vs GRU: GRU swept 3-0 every symbol. Mean R² lifted +9.32 pp on validated symbols, +38 pp on research symbols (BTC/ETH/XRP). Caveat: LSTMs trained on 257–1411 samples vs 11674 for GRU, so part of gap is data not architecture.
 
-After session: ml-prediction restarted to load the fresh disk artifacts; `test_gru_integration.py` updated (AVAXUSDT → ADAUSDT, since AVAX is not an actively-ingested symbol); 4/4 integration tests pass with all symbols at ~79% confidence; Prometheus + Grafana brought up via `--profile monitoring`. All 17 containers healthy.
+After session: ml-prediction restarted to load fresh disk artifacts; `test_gru_integration.py` updated (AVAXUSDT → ADAUSDT, since AVAX not actively-ingested); 4/4 integration tests pass with all symbols ~79% confidence; Prometheus + Grafana up via `--profile monitoring`. All 17 containers healthy.
 
 ---
 
@@ -607,14 +607,14 @@ After session: ml-prediction restarted to load the fresh disk artifacts; `test_g
 **The V0 finding (most important):** the 79–84% directional-accuracy numbers
 above were a metric bug — `y_test[:, -1]` referenced a future bar (look-ahead
 leakage) and used a degenerate same-bar reference. Fixed in `c56765c`. After
-the fix, the production GRUs score chance-level (~50%) directional accuracy
-and **negative R² on log-returns** — a naive persistence baseline beats them.
-The R²=0.99 figure measured price-level autocorrelation, not skill.
+fix, production GRUs score chance-level (~50%) directional accuracy
+and **negative R² on log-returns** — naive persistence baseline beats them.
+R²=0.99 figure measured price-level autocorrelation, not skill.
 Reproducer: `docs/strategy/research-2026-04-29/persistence_shootout.py`.
 
 Consequence: `ENABLE_ML_PREDICTIONS` defaulted to `false` (`2f29ca9`).
 
-**Shipped today (default OFF for the new features — paper-mode behaviour
+**Shipped today (default OFF for new features — paper-mode behaviour
 unchanged):**
 
 | Initiative | Module / change | Commits |
@@ -627,7 +627,7 @@ unchanged):**
 | ml-retraining: honest returns-skill metrics | `22b417f` | 1 |
 | LIVE-mode latent-bug fixes (4 sites in connector contract + Pydantic v2) | `6f723c5`, `007a740` | 2 |
 
-**Test suite delta:** ~101 new/maintained tests across the new modules:
+**Test suite delta:** ~101 new/maintained tests across new modules:
 29 sharpe-metrics, 30 cpcv, 16 vol-targeting, 17 funding-gate, 9 maker-order.
 
 **Open threads for next session:**
@@ -647,8 +647,8 @@ each commit.
 | Section | Concern | Commits |
 |---|---|---|
 | A: Slack bot-token + per-severity routing | `notification-service` had `slack_bot_token` config field but webhook-only sender. Added `chat.postMessage` branch + AlertManager routes by `AlertSeverity` to `#bimo-{critical,alerts,performance}`. | `6b79f52`, `1f53c33`, `4196fb6` |
-| B: LSTM removal | `LSTMPricePredictor` was the #1 god-node (734 edges). GRU replaced it late 2025; B migrated 9 live importers, deleted the class file + 3 training scripts + LSTM-only tests, archived `.keras` artifacts under `_archive_lstm/` for rollback safety. | `25ca9ab`, `1d616fc`, `69e48b2`, `4f18548`, `ace3582`, `9a0f584`, `f24fd72`, `324e162` |
-| C: trading-engine lifespan refactor | 200-line `lifespan()` in `services/trading-engine/app/main.py` did 47 init steps across 4 phases. Split into composed `@asynccontextmanager`s under `app/lifespan/{data,ml,strategy,risk}.py`. cm-stack semantics give correct teardown order automatically. Auto-trader gate stays outside the four phases. | `1389dc3` |
+| B: LSTM removal | `LSTMPricePredictor` was #1 god-node (734 edges). GRU replaced it late 2025; B migrated 9 live importers, deleted class file + 3 training scripts + LSTM-only tests, archived `.keras` artifacts under `_archive_lstm/` for rollback safety. | `25ca9ab`, `1d616fc`, `69e48b2`, `4f18548`, `ace3582`, `9a0f584`, `f24fd72`, `324e162` |
+| C: trading-engine lifespan refactor | 200-line `lifespan()` in `services/trading-engine/app/main.py` did 47 init steps across 4 phases. Split into composed `@asynccontextmanager`s under `app/lifespan/{data,ml,strategy,risk}.py`. cm-stack semantics give correct teardown order auto. Auto-trader gate stays outside the four phases. | `1389dc3` |
 
 **Tests:** notification-service 7 pass (4 new in `test_slack_client.py`),
 ml-prediction-service factory 5 pass, trading-engine `test_lifespan.py` 4 pass
@@ -677,3 +677,78 @@ unchanged; `BYBIT_TESTNET` and `PAPER_TRADING_MODE` flags untouched.
 
 **Local install side-effects:** `pip install --user --break-system-packages
 tensorflow-cpu==2.16.1 respx aiohttp` to run B/C tests outside docker.
+## 2026-05-03 session — PR #77 review, deploy from main, api-gateway test fixture
+
+Started on stale PR branch (`fix/api-gateway-py314-deps`, 33 commits behind
+main). Remote `/ultrareview` flagged a real bug: bcrypt 5.0 + libpass 1.9.3
+raise `ValueError` on >72-byte passwords, so `/auth/login` would 500 instead
+of 401 once the cp314 migration lands. Fix committed as `6cd9bf6` on the PR
+branch — switched `CryptContext` scheme to `bcrypt_sha256` (SHA-256 prehash
+sidesteps the 72-byte limit), wrapped `verify_password` in `try/except
+ValueError → False` (preserves constant-time auth contract), bounded
+`UserLogin.password` (`max_length=200`; was unbounded). Tests cover >72-byte
+roundtrip + malformed-hash path. **Important caveat:** main still uses
+`passlib 1.7.4 + bcrypt 4.1.2` which silently truncates and is not affected;
+the bcrypt fix only matters once the py3.14 PR rebases and merges.
+
+Deploy attempt from PR branch surfaced compose regressions that turned out to
+be staleness, not new bugs — `portfolio-manager` env block on the PR branch
+is missing `MARKET_DATA_URL` (re-added on main in `bbf1d5f`),
+`EMERGENCY_STOP_FILE` wiring is gone for both api-gateway and trading-engine,
+RabbitMQ creds gone for market-data, and `BYBIT_TESTNET` default flipped to
+`true` (contradicts the project rule that paper trading uses mainnet
+prices). Posted PR #77 review comment flagging staleness + recommending
+rebase before merge.
+
+Pivoted: switched back to `main`, restored stash, redeployed api-gateway,
+portfolio-manager, trading-engine, risk-metrics with `--force-recreate`.
+`risk-metrics` had failed startup with `PermissionError: '/app/logs/service.log'`
+— the WSL bind-mount race documented in `CLAUDE.md`. `--force-recreate` is
+the published fix and worked. After redeploy, all 13 services healthy
+(`api-gateway`, `bybit-connector`, `market-data`, `portfolio-manager`,
+`technical-analysis`, `trading-engine`, `notification-service`,
+`risk-metrics`, `frontend`, `postgres`, `timescaledb`, `redis`, `rabbitmq`),
+no `localhost:8002` / `localhost:5432` errors in logs.
+
+**api-gateway test fixture (debugged systematically).** Container test suite
+(`docker exec crypto-bot-api-gateway pytest`) showed 13 fails on main. Worked
+the highest-value cluster — 4 emergency-stop tests asserting 200/500 but
+getting 403. Two layers:
+
+1. Routes added admin auth (`Depends(get_current_admin_user)`) after the
+   integration tests were written; tests sent no token → 403 from
+   `HTTPBearer`.
+2. Even after fixing auth, two tests still failed because they patched
+   `builtins.open` while the route uses `Path.write_text()`, which goes
+   through `_io.open`, not `builtins.open` — the patch never intercepts.
+
+Fix landed in `services/api-gateway/tests/conftest.py` + the two test files:
+
+- New `admin_client` fixture overrides both `get_current_admin_user` and
+  `get_current_active_user` via `app.dependency_overrides` and tears down
+  on yield. Works for any future admin-guarded route test, no JWT forging
+  required.
+- Updated `test_main.py::TestEmergencyStop` (2 tests) and
+  `test_gateway_80_coverage.py::TestErrorHandling` (2 tests) to use
+  `admin_client` and patch `pathlib.Path.write_text` (success +
+  `OSError` paths) instead of `builtins.open`. All four now pass; full
+  api-gateway suite went 13 → 9 fails, no regressions.
+
+**Gotcha worth remembering:** when mocking file writes against a route that
+uses `pathlib.Path.write_text`, patch `pathlib.Path.write_text`, not
+`builtins.open`. `Path.open()` ultimately calls `io.open` (which is the C
+implementation); patches on `builtins.open` do not see it. The same
+applies to `Path.read_text`, `Path.touch`, etc.
+
+**Remaining 9 fails on api-gateway** — separate root causes, not addressed
+this session:
+- 4 enhanced-signal tests (`test_app_lifecycle.py`, `test_enhanced_signals.py`)
+  expect counts/values from before the sentiment-leg removal in `c171bb0`.
+- 2 `test_config.py` tests assert defaults that drifted (`DEBUG` vs `INFO`
+  log level, `localhost:8001` vs `bybit-connector:8001`).
+- 1 indicator endpoint test now gets 400 instead of 200 (validation).
+- 2 websocket tests have AsyncMock plumbing issues.
+
+**Project rules honored:** risk caps, paper-trading flags, validated
+symbols, mainnet-prices contract all untouched. No services were rebuilt
+with regression-prone PR branch code (final stack runs main).

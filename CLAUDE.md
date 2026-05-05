@@ -2,6 +2,24 @@
 
 Autonomous Bybit crypto trading bot. 11 Python microservices + React frontend. **Paper-trading mode** (no real orders). Market data feed from **Bybit mainnet** (`BYBIT_TESTNET=false`) for real prices; orders simulated internally via `PAPER_TRADING_MODE=true`. Last active Jan 2026 — resuming after dormancy.
 
+## Wiki Knowledge Base
+
+Path: `wiki/` (Obsidian vault co-located with repo).
+
+When you need context not already in this conversation:
+1. Read `wiki/hot.md` first (≤500 words, recent context cache)
+2. If not enough, read `wiki/index.md` (master catalog)
+3. Drill into `wiki/<domain>/_index.md` (modules/, concepts/, flows/, decisions/, etc.)
+4. Only then read individual pages
+
+Wiki page types: module (per service), concept (cross-cutting rule/pattern), flow (data path), decision (ADR), source (ingested doc summary). All pages have YAML frontmatter (`type`, `status`, `tags`, etc.) and `[[Wikilinks]]` between them.
+
+**Skip the wiki for**: general coding/syntax questions; things already in this CLAUDE.md or current conversation; ephemeral session state.
+
+After significant code changes, run `/wiki-lint` to flag stale claims and dead links. After major commits or new docs, `/wiki-ingest <path>` to fold them in.
+
+> ⚠️ The earlier reference to `docs/architecture/DECISIONS.md` is stale — that file does not exist. Decisions now live in `wiki/decisions/` as ADRs (ADR-001 through ADR-009 captured 2026-05-05).
+
 ## Stack
 
 - **Python 3.12** + FastAPI + asyncio per service. **React 18 + Vite** frontend.

@@ -44,6 +44,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./infrastructure/migrations/003_portfolios_orm_align.sql:/docker-entrypoint-initdb.d/03-portfolios-orm-align.sql:ro
+      - ./infrastructure/migrations/004_positions_orm_align.sql:/docker-entrypoint-initdb.d/04-positions-orm-align.sql:ro
     networks:
       - crypto-bot-network
     healthcheck:
