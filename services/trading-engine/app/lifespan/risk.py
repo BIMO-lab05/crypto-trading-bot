@@ -32,7 +32,7 @@ async def init_risk():
                 f"(${budget.adjusted_budget_usd:,.0f})"
             )
             logger.info(f"     Risk level: {budget.risk_level}")
-            logger.info(f"     Market regime: {budget.market_regime.value}")
+            logger.info(f"     Market regime: {budget.market_regime}")
         except Exception as e:
             logger.warning(
                 f"[WARN] Failed to initialize Dynamic Risk Budget Manager: {e}"

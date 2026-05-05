@@ -34,7 +34,7 @@ async def init_strategy():
             logger.info(
                 f"     Default fraction: {kelly_sizer.default_kelly_fraction * 100:.0f}%"
             )
-            logger.info(f"     Max position: {kelly_sizer.max_position_pct:.0f}%")
+            logger.info(f"     Max position: {kelly_sizer.MAX_POSITION_PCT:.0f}%")
         except Exception as e:
             logger.warning(f"[WARN] Failed to initialize Kelly Position Sizer: {e}")
 
