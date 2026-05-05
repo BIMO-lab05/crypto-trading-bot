@@ -39,12 +39,12 @@ Microservice for interfacing with Bybit exchange API.
 
 5. **Start service**
    ```bash
-   uvicorn app.main:app --reload --port 8002
+   uvicorn app.main:app --reload --port 8001
    ```
 
 ## API Documentation
 
-Once running, visit: http://localhost:8002/docs
+Once running, visit: http://localhost:8001/docs
 
 ## Endpoints
 

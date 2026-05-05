@@ -5,7 +5,7 @@ Purpose: Handle REST API calls to Bybit exchange
 
 import httpx
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Callable, Optional, List
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import logging
 
@@ -17,7 +17,7 @@ from app.exceptions import (
     get_exception_for_bybit_error,
     ValidationException
 )
-from app.circuit_breaker import CircuitBreaker
+from app.circuit_breaker import CircuitBreaker, CircuitState
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -39,7 +39,8 @@ class BybitRestClient:
         api_secret: str,
         testnet: bool = True,
         base_url: Optional[str] = None,
-        timeout: float = 30.0
+        timeout: float = 30.0,
+        on_breaker_state_change: Optional[Callable[[CircuitState], None]] = None,
     ):
         """
         Initialize Bybit REST client
@@ -84,7 +85,8 @@ class BybitRestClient:
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=5,
             recovery_timeout=60,
-            expected_exception=Exception
+            expected_exception=Exception,
+            on_state_change=on_breaker_state_change,
         )
         
         logger.info(
@@ -103,7 +105,10 @@ class BybitRestClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type(RateLimitException)
+        retry=retry_if_exception_type(
+            (RateLimitException, httpx.TimeoutException, httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError)
+        ),
+        reraise=True,
     )
     async def _request(
         self,
@@ -115,17 +120,17 @@ class BybitRestClient:
     ) -> Dict[str, Any]:
         """
         Make authenticated HTTP request to Bybit API
-        
+
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint path
             params: Query parameters
             data: Request body data
             auth_required: Whether authentication is required
-        
+
         Returns:
             API response data
-        
+
         Raises:
             BybitAPIException: If API returns error
             RateLimitException: If rate limit exceeded
@@ -137,7 +142,6 @@ class BybitRestClient:
             body_str = json.dumps(data) if data else None
             headers = self.authenticator.get_headers(params=params, body=body_str)
 
-        # Make request through circuit breaker
         try:
             response = await self.circuit_breaker.call_async(
                 self._make_request,
@@ -147,9 +151,13 @@ class BybitRestClient:
                 json_data=data,
                 headers=headers
             )
-            
+
             return self._handle_response(response)
-            
+
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
+            # Re-raise network errors so tenacity can retry. After tenacity's retries
+            # are exhausted, reraise=True surfaces the original exception.
+            raise
         except httpx.HTTPError as e:
             logger.error(f"HTTP error during request to {endpoint}: {e}")
             raise BybitAPIException(
@@ -192,13 +200,13 @@ class BybitRestClient:
     def _handle_response(self, response: httpx.Response) -> Dict[str, Any]:
         """
         Handle API response and errors
-        
+
         Args:
             response: HTTP response
-        
+
         Returns:
             Parsed response data
-        
+
         Raises:
             BybitAPIException: If API returns error
             RateLimitException: If rate limited
@@ -207,28 +215,53 @@ class BybitRestClient:
         try:
             data = response.json()
         except Exception as e:
-            logger.error(f"Failed to parse response JSON: {e}")
+            logger.error(
+                f"Failed to parse response JSON (status={response.status_code}): {e}"
+            )
             raise BybitAPIException(
-                message="Invalid JSON response",
+                message=f"Invalid JSON response (HTTP {response.status_code})",
                 ret_code=-1,
                 ret_msg=str(e)
             )
-        
+
+        # 429 → rate limit, regardless of body shape
+        if response.status_code == 429:
+            raise RateLimitException(retry_after=60)
+
+        # Other HTTP failures: surface a real exception even if retCode is missing.
+        # Without this, an upstream 4xx/5xx without retCode would default ret_code=0
+        # and silently look like success.
+        if response.status_code >= 400:
+            ret_code = data.get("retCode", response.status_code) if isinstance(data, dict) else response.status_code
+            ret_msg = data.get("retMsg") if isinstance(data, dict) else None
+            ret_msg = ret_msg or data.get("message") if isinstance(data, dict) else None
+            ret_msg = ret_msg or f"HTTP {response.status_code}"
+            logger.error(f"HTTP error: status={response.status_code} code={ret_code} msg={ret_msg}")
+            raise get_exception_for_bybit_error(ret_code, ret_msg)
+
+        # 2xx but body wasn't a dict — treat as malformed
+        if not isinstance(data, dict):
+            raise BybitAPIException(
+                message="Unexpected response body shape",
+                ret_code=-1,
+                ret_msg=str(type(data).__name__)
+            )
+
         # Check return code
         ret_code = data.get("retCode", 0)
         ret_msg = data.get("retMsg", "")
-        
+
         # Success
         if ret_code == 0:
             return data.get("result", {})
-        
+
         # Error - raise appropriate exception
         logger.error(f"API error: code={ret_code}, msg={ret_msg}")
-        
+
         # Handle rate limiting specially
         if ret_code == 10006:
             raise RateLimitException(retry_after=60)
-        
+
         # Raise mapped exception
         raise get_exception_for_bybit_error(ret_code, ret_msg)
     
@@ -298,7 +331,12 @@ class BybitRestClient:
         time_in_force: str = "GTC",
         reduce_only: bool = False,
         close_on_trigger: bool = False,
-        order_link_id: Optional[str] = None
+        order_link_id: Optional[str] = None,
+        take_profit: Optional[str] = None,
+        stop_loss: Optional[str] = None,
+        tpsl_mode: Optional[str] = None,
+        trigger_price: Optional[str] = None,
+        trigger_direction: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Place a new order
@@ -348,7 +386,17 @@ class BybitRestClient:
             payload["closeOnTrigger"] = close_on_trigger
         if order_link_id:
             payload["orderLinkId"] = order_link_id
-        
+        if take_profit:
+            payload["takeProfit"] = take_profit
+        if stop_loss:
+            payload["stopLoss"] = stop_loss
+        if tpsl_mode:
+            payload["tpslMode"] = tpsl_mode
+        if trigger_price:
+            payload["triggerPrice"] = trigger_price
+        if trigger_direction is not None:
+            payload["triggerDirection"] = trigger_direction
+
         logger.info(f"Placing order: {symbol} {side} {qty} @ {price} ({order_type})")
         result = await self._request("POST", "/v5/order/create", data=payload)
         return result
@@ -514,6 +562,37 @@ class BybitRestClient:
         result = await self._request("GET", "/v5/market/kline", params=params, auth_required=False)
         return result.get("list", [])
     
+    async def get_recent_trades(
+        self,
+        category: str,
+        symbol: str,
+        limit: int = 100,
+    ) -> Dict[str, Any]:
+        """
+        Get recent public trades (executions) for a symbol
+
+        Bybit's ``/v5/market/recent-trade`` is unauthenticated and returns the
+        latest N trades. Used by downstream consumers (e.g. multi-exchange
+        adapters) to estimate volume and order-flow.
+
+        Args:
+            category: Product category (linear, inverse, spot, option)
+            symbol: Trading pair
+            limit: Max number of trades (Bybit caps at 1000)
+
+        Returns:
+            Raw result dict (with "list" of trade entries)
+        """
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "limit": min(limit, 1000),
+        }
+        result = await self._request(
+            "GET", "/v5/market/recent-trade", params=params, auth_required=False
+        )
+        return result
+
     async def get_orderbook(self, category: str, symbol: str, limit: int = 25) -> Dict[str, Any]:
         """
         Get orderbook depth
@@ -623,18 +702,24 @@ class BybitRestClient:
 
 
 # Convenience function to create client from settings
-def create_rest_client(settings: Settings) -> BybitRestClient:
+def create_rest_client(
+    settings: Settings,
+    on_breaker_state_change: Optional[Callable[[CircuitState], None]] = None,
+) -> BybitRestClient:
     """
     Create BybitRestClient from application settings
-    
+
     Args:
         settings: Application settings
-    
+        on_breaker_state_change: Optional callback fired whenever the circuit
+            breaker transitions states (used to mirror state into Prometheus).
+
     Returns:
         Configured BybitRestClient
     """
     return BybitRestClient(
         api_key=settings.bybit_api_key,
         api_secret=settings.bybit_api_secret,
-        testnet=settings.bybit_testnet
+        testnet=settings.bybit_testnet,
+        on_breaker_state_change=on_breaker_state_change,
     )

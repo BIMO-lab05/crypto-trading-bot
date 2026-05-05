@@ -34,11 +34,17 @@ from slowapi.errors import RateLimitExceeded
 # Prometheus metrics imports
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
-# JSON logging imports
-from pythonjsonlogger import jsonlogger
+# JSON logging imports.
+# python-json-logger>=3 moved JsonFormatter into pythonjsonlogger.json. Try the
+# new path first, fall back to the legacy path for compatibility.
+try:
+    from pythonjsonlogger import json as jsonlogger  # type: ignore[import]
+except ImportError:  # pragma: no cover — only triggers on python-json-logger<3
+    from pythonjsonlogger import jsonlogger  # type: ignore[no-redef]
 
 from app.config import get_settings, Settings
 from app.bybit_rest_client import BybitRestClient, create_rest_client
+from app.circuit_breaker import CircuitState
 from app.exceptions import BybitConnectorException
 from app.models import PlaceOrderRequest, CancelOrderRequest
 
@@ -175,6 +181,16 @@ circuit_breaker_state = Gauge(
 )
 
 
+def _update_breaker_gauge(state: CircuitState) -> None:
+    """Mirror breaker state into the Prometheus gauge whenever it transitions."""
+    state_mapping = {
+        CircuitState.CLOSED: 0,
+        CircuitState.OPEN: 1,
+        CircuitState.HALF_OPEN: 2,
+    }
+    circuit_breaker_state.set(state_mapping.get(state, 0))
+
+
 # ============================================================================
 # PROMETHEUS METRICS MIDDLEWARE
 # ============================================================================
@@ -297,9 +313,27 @@ async def lifespan(app: FastAPI):
     )
 
     try:
-        # Initialize REST client and store in app state
-        app.state.rest_client = create_rest_client(settings)
+        # Initialize REST client and store in app state. Subscribe the breaker
+        # so its state mirrors into the Prometheus gauge on every transition,
+        # not just when /api/v1/status/circuit-breaker is hit.
+        app.state.rest_client = create_rest_client(
+            settings,
+            on_breaker_state_change=_update_breaker_gauge,
+        )
+        # Initialise gauge to closed so dashboards don't read NaN until first event
+        _update_breaker_gauge(CircuitState.CLOSED)
         logger.info("Bybit REST client initialized successfully")
+
+        # Sync local clock against Bybit server time to immunise against the
+        # 10004 "invalid timestamp" class of errors caused by host-clock drift.
+        try:
+            await app.state.rest_client.authenticator.sync_clock(
+                app.state.rest_client.client, app.state.rest_client.base_url
+            )
+        except Exception as exc:
+            # Best-effort: don't fail startup if clock sync hits a transient
+            # network error — the auth path falls back to local time.
+            logger.warning(f"Clock sync against Bybit server skipped: {exc}")
 
         yield
 
@@ -404,8 +438,9 @@ async def readiness_check(request: Request, client: BybitRestClient = Depends(ge
     Rate limited to 60 requests/minute
     """
     try:
-        # Try to get ticker data (public endpoint, no auth needed)
-        await client.get_ticker(category="linear", symbol="BTCUSDT")
+        # Probe a public endpoint with one of the validated trading symbols
+        # (CLAUDE.md: SOL / BNB / ADA only). Just a connectivity check.
+        await client.get_ticker(category="linear", symbol="SOLUSDT")
         logger.info("Readiness check passed - Bybit connection OK")
         return {"status": "ready", "bybit_connection": "ok"}
     except Exception as e:
@@ -507,7 +542,12 @@ async def place_order(
             price=order.price,
             time_in_force=order.time_in_force,
             reduce_only=order.reduce_only,
-            order_link_id=order.order_link_id
+            order_link_id=order.order_link_id,
+            take_profit=order.take_profit,
+            stop_loss=order.stop_loss,
+            tpsl_mode=order.tpsl_mode,
+            trigger_price=order.trigger_price,
+            trigger_direction=order.trigger_direction,
         )
         logger.info(
             "Order placed successfully",
@@ -711,6 +751,36 @@ async def get_kline(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@app.get("/api/v1/market/recent-trade", tags=["Market Data"])
+@limiter.limit("200/minute")
+async def get_recent_trades(
+    request: Request,
+    category: str = "linear",
+    symbol: str = "SOLUSDT",
+    limit: int = 100,
+    client: BybitRestClient = Depends(get_rest_client)
+):
+    """
+    Get recent public trades (executions)
+
+    Proxies Bybit V5 `/v5/market/recent-trade`. Used by the trading-engine's
+    multi-exchange adapter to estimate volume / order-flow. Public endpoint,
+    no authentication.
+    """
+    try:
+        logger.debug(
+            "Fetching recent trades",
+            extra={"category": category, "symbol": symbol, "limit": limit},
+        )
+        result = await client.get_recent_trades(
+            category=category, symbol=symbol, limit=limit
+        )
+        return {"success": True, "data": result}
+    except BybitConnectorException as e:
+        logger.error(f"Failed to get recent trades: {str(e)}", extra={"error": str(e)})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
 @app.get("/api/v1/market/orderbook", tags=["Market Data"])
 @limiter.limit("200/minute")
 async def get_orderbook(
@@ -845,9 +915,8 @@ async def get_circuit_breaker_status(
     """
     status_data = client.get_circuit_breaker_status()
 
-    # Update Prometheus gauge based on circuit breaker state
-    state_mapping = {"closed": 0, "open": 1, "half_open": 2}
-    circuit_breaker_state.set(state_mapping.get(status_data.get("state"), 0))
+    # Gauge is kept in sync via on_state_change callback registered at startup;
+    # no need to repeat it here. Read-only endpoint.
 
     logger.info(
         "Circuit breaker status checked",
@@ -871,8 +940,7 @@ async def reset_circuit_breaker(
     logger.warning("Circuit breaker manually reset")
     client.reset_circuit_breaker()
 
-    # Update metric to reflect reset state
-    circuit_breaker_state.set(0)  # 0 = closed
+    # Gauge is updated via on_state_change callback fired by reset().
 
     return {"success": True, "message": "Circuit breaker reset"}
 

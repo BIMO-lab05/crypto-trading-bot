@@ -8,8 +8,11 @@ from enum import Enum
 from typing import Callable, Any, Optional
 from functools import wraps
 import asyncio
+import logging
 
 from app.exceptions import CircuitBreakerOpenException
+
+logger = logging.getLogger(__name__)
 
 
 class CircuitState(Enum):
@@ -39,25 +42,43 @@ class CircuitBreaker:
         self,
         failure_threshold: int = 5,
         recovery_timeout: int = 60,
-        expected_exception: type = Exception
+        expected_exception: type = Exception,
+        on_state_change: Optional[Callable[["CircuitState"], None]] = None,
     ):
         """
         Initialize circuit breaker
-        
+
         Args:
             failure_threshold: Number of failures before opening circuit
             recovery_timeout: Seconds to wait before attempting recovery
             expected_exception: Exception type to count as failure
+            on_state_change: Optional callback fired whenever the circuit transitions
+                between states (e.g. so external metrics can mirror the state).
         """
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.expected_exception = expected_exception
-        
+        self._on_state_change = on_state_change
+
         # State tracking
         self.state = CircuitState.CLOSED
         self.failure_count = 0
         self.last_failure_time: Optional[float] = None
         self.success_count = 0
+
+        # Async-safe state mutation
+        self._lock = asyncio.Lock()
+
+    def _set_state(self, new_state: "CircuitState") -> None:
+        """Set state and notify subscribers if it actually changed."""
+        if new_state is self.state:
+            return
+        self.state = new_state
+        if self._on_state_change is not None:
+            try:
+                self._on_state_change(new_state)
+            except Exception as exc:  # never let a bad subscriber break the breaker
+                logger.warning(f"circuit-breaker on_state_change callback raised: {exc}")
     
     def call(self, func: Callable, *args, **kwargs) -> Any:
         """
@@ -75,25 +96,25 @@ class CircuitBreaker:
             CircuitBreakerOpenException: If circuit is open
             Exception: Original exception if function fails
         """
-        # Check if circuit should move to half-open
+        # Check if circuit should move to half-open (sync path: best-effort, no lock)
         if self.state == CircuitState.OPEN:
             if self._should_attempt_reset():
-                self.state = CircuitState.HALF_OPEN
+                self._set_state(CircuitState.HALF_OPEN)
             else:
                 raise CircuitBreakerOpenException(
                     failure_count=self.failure_count,
                     threshold=self.failure_threshold,
                     reset_timeout=self.recovery_timeout
                 )
-        
+
         try:
             # Execute function
             result = func(*args, **kwargs)
-            
+
             # Success - record and potentially close circuit
             self._on_success()
             return result
-            
+
         except self.expected_exception as e:
             # Failure - record and potentially open circuit
             self._on_failure()
@@ -102,64 +123,66 @@ class CircuitBreaker:
     async def call_async(self, func: Callable, *args, **kwargs) -> Any:
         """
         Execute async function with circuit breaker protection
-        
+
         Args:
             func: Async function to execute
             *args: Function arguments
             **kwargs: Function keyword arguments
-        
+
         Returns:
             Function result
-        
+
         Raises:
             CircuitBreakerOpenException: If circuit is open
             Exception: Original exception if function fails
         """
-        # Check if circuit should move to half-open
-        if self.state == CircuitState.OPEN:
-            if self._should_attempt_reset():
-                self.state = CircuitState.HALF_OPEN
-            else:
-                raise CircuitBreakerOpenException(
-                    failure_count=self.failure_count,
-                    threshold=self.failure_threshold,
-                    reset_timeout=self.recovery_timeout
-                )
-        
+        # Check / transition state under lock so concurrent coroutines don't
+        # both observe OPEN and both promote to HALF_OPEN, etc.
+        async with self._lock:
+            if self.state == CircuitState.OPEN:
+                if self._should_attempt_reset():
+                    self._set_state(CircuitState.HALF_OPEN)
+                else:
+                    raise CircuitBreakerOpenException(
+                        failure_count=self.failure_count,
+                        threshold=self.failure_threshold,
+                        reset_timeout=self.recovery_timeout
+                    )
+
+        # Execute the protected call OUTSIDE the lock so slow downstream calls
+        # don't serialize all traffic through one breaker.
         try:
-            # Execute async function
             result = await func(*args, **kwargs)
-            
-            # Success - record and potentially close circuit
-            self._on_success()
-            return result
-            
         except self.expected_exception as e:
-            # Failure - record and potentially open circuit
-            self._on_failure()
+            async with self._lock:
+                self._on_failure()
             raise e
+
+        async with self._lock:
+            self._on_success()
+        return result
     
     def _on_success(self):
         """Handle successful request"""
         self.failure_count = 0
         self.success_count += 1
-        
+
         # If in half-open state, close the circuit
         if self.state == CircuitState.HALF_OPEN:
-            self.state = CircuitState.CLOSED
-    
+            self._set_state(CircuitState.CLOSED)
+
     def _on_failure(self):
         """Handle failed request"""
         self.failure_count += 1
         self.last_failure_time = time.time()
-        
+
         # If in half-open state, reopen circuit immediately
         if self.state == CircuitState.HALF_OPEN:
-            self.state = CircuitState.OPEN
-        
+            self._set_state(CircuitState.OPEN)
+
         # If failure threshold exceeded, open circuit
         elif self.failure_count >= self.failure_threshold:
-            self.state = CircuitState.OPEN
+            self._set_state(CircuitState.OPEN)
     
     def _should_attempt_reset(self) -> bool:
         """
@@ -176,10 +199,10 @@ class CircuitBreaker:
     
     def reset(self):
         """Manually reset circuit breaker to closed state"""
-        self.state = CircuitState.CLOSED
         self.failure_count = 0
         self.success_count = 0
         self.last_failure_time = None
+        self._set_state(CircuitState.CLOSED)
     
     def get_state(self) -> dict:
         """
