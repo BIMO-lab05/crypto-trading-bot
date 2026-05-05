@@ -1576,17 +1576,17 @@ async def reset_circuit_breaker():
 
 @app.get("/api/ml/predict/price/{symbol}")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def ml_predict_price(symbol: str, interval: str = "60", model_type: str = "LSTM"):
-    """Get ML-based price predictions for a symbol"""
+async def ml_predict_price(symbol: str, interval: str = "60", model_type: str = "GRU"):
+    """Get ML-based price predictions for a symbol. LSTM removed late 2025; GRU only."""
     validated_symbol = validate_symbol(symbol)
     validated_interval = validate_interval(interval)
 
-    if model_type not in {"LSTM", "GRU"}:
+    if model_type not in {"GRU"}:
         raise ValidationError(
             field="model_type",
-            message="Model type must be 'LSTM' or 'GRU'",
+            message="Model type must be 'GRU' (LSTM no longer supported)",
             value=model_type,
-            allowed_values=["LSTM", "GRU"],
+            allowed_values=["GRU"],
         )
 
     proxy = get_proxy()
@@ -1600,7 +1600,7 @@ async def ml_predict_price(symbol: str, interval: str = "60", model_type: str = 
 
 @app.get("/api/ml/predict/trend/{symbol}")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def ml_predict_trend(symbol: str, interval: str = "60", model_type: str = "LSTM"):
+async def ml_predict_trend(symbol: str, interval: str = "60", model_type: str = "GRU"):
     """Get ML-based trend prediction (BULLISH/BEARISH/NEUTRAL)"""
     validated_symbol = validate_symbol(symbol)
     validated_interval = validate_interval(interval)
@@ -1632,9 +1632,7 @@ async def ml_predict_volatility(symbol: str, interval: str = "60"):
 
 @app.get("/api/ml/predict/signal/{symbol}")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def ml_predict_signal(
-    symbol: str, interval: str = "60", model_type: str = "LSTM"
-):
+async def ml_predict_signal(symbol: str, interval: str = "60", model_type: str = "GRU"):
     """Get ML-based trading signal"""
     validated_symbol = validate_symbol(symbol)
     validated_interval = validate_interval(interval)

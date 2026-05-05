@@ -61,8 +61,7 @@ from app.models import (
     TrainingRequest,
     TrainingResponse,
 )
-from app.predictor import TENSORFLOW_AVAILABLE
-from app.ml_models.gru_model import GRUPricePredictor
+from app.ml_models.gru_model import GRUPricePredictor, TENSORFLOW_AVAILABLE
 from app.predictor_factory import PredictorFactory, ModelComparator
 from app.utils.redis_cache import PredictionCache
 from app.inference import EnsemblePredictor, EnsembleSignal
