@@ -578,10 +578,11 @@ services:
       # are activated. (2026-05-02)
       - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-false}
       - ENABLE_SENTIMENT_ANALYSIS=${ENABLE_SENTIMENT_ANALYSIS:-false}
-      # Auto-trader off-by-default. Operator opts in via env or POST
-      # /api/trading/auto/start once stack is verified healthy. EMERGENCY_STOP
-      # file at repo root is a second kill switch (file present = halt).
-      - AUTO_TRADING_ENABLED=${AUTO_TRADING_ENABLED:-false}
+      # Auto-trader on-by-default 2026-05-06. Boots whenever stack starts and
+      # EMERGENCY_STOP file is absent at repo root. To disable: set
+      # AUTO_TRADING_ENABLED=false in .env or `touch EMERGENCY_STOP` (file
+      # present = halt). PAPER_TRADING_MODE=true ensures orders simulated.
+      - AUTO_TRADING_ENABLED=${AUTO_TRADING_ENABLED:-true}
     volumes:
       - ./services/trading-engine/logs:/app/logs
       # File-based emergency stop kill switch (read-only).
