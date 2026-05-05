@@ -76,15 +76,17 @@ def overbought_data():
 # ============================================================================
 
 def test_stoch_initialization(stoch_calculator):
-    """Test Stochastic calculator initialization with default parameters
+    """Test Stochastic calculator initialization with default parameters.
 
-    UPDATED 2025-12-03: Thresholds widened from 80/20 to 75/25 for more signals.
+    Reverted 2026-04-30: thresholds restored to the canonical 80/20 to align
+    with the optimized RSI threshold for cross-indicator consistency. (The
+    75/25 widening was an interim experiment that didn't pan out.)
     """
     assert stoch_calculator.period == 14
     assert stoch_calculator.smooth_k == 3
     assert stoch_calculator.smooth_d == 3
-    assert stoch_calculator.overbought == 75  # Changed from 80
-    assert stoch_calculator.oversold == 25    # Changed from 20
+    assert stoch_calculator.overbought == 80
+    assert stoch_calculator.oversold == 20
 
 
 def test_stoch_custom_parameters():

@@ -969,8 +969,13 @@ class TestIndicatorSignalEndpoint:
         test_client,
         mock_service_proxy
     ):
-        """Test indicator signal with various interval values"""
-        intervals = ["1", "5", "15", "60", "240", "1440"]
+        """Test indicator signal with various interval values.
+
+        '1440' (raw minutes-per-day) was never a valid Bybit interval; the
+        canonical day code is 'D'. validate_interval() rejects '1440' with
+        400 — use 'D' here.
+        """
+        intervals = ["1", "5", "15", "60", "240", "D"]
 
         for interval in intervals:
             test_response = {

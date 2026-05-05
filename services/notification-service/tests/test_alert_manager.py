@@ -26,6 +26,30 @@ from app.config import config as _config, NotificationConfig as _NotificationCon
 # Fixtures
 # ========================================
 
+@pytest.fixture(autouse=True)
+def _enable_telegram_in_config():
+    """Enable telegram in NotificationConfig.is_channel_enabled for the suite.
+
+    AlertManager.send_alert filters channels via config.is_channel_enabled
+    BEFORE delegating to channel.send_with_retry. Tests below mock the
+    channel's own is_enabled() but leave the config alone — without this
+    fixture every send_alert returns "No enabled channels available". Tests
+    that need a different channel mix (test_critical_alert_routing,
+    test_get_stats, edge-case tests) layer their own patch on top.
+
+    autospec is intentionally omitted — inner patches in the per-test
+    context managers also override is_channel_enabled, and stacking
+    autospec'd patches on top of an already-mocked attribute trips
+    InvalidSpecError ("Cannot spec a Mock object").
+    """
+    with patch.object(
+        _NotificationConfig,
+        "is_channel_enabled",
+        new=lambda self, ch: ch == "telegram",
+    ):
+        yield
+
+
 @pytest.fixture
 def alert_manager():
     """Create a fresh AlertManager for each test"""

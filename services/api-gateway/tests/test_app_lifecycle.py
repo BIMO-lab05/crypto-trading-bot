@@ -364,14 +364,19 @@ class TestEnhancedSignalRiskLevels:
 
     @pytest.mark.asyncio
     async def test_enhanced_signal_medium_risk(self, test_client, mock_service_proxy):
-        """Test enhanced signal with medium risk level"""
-        # Create responses with 60% confidence
+        """Test enhanced signal with medium risk level.
+
+        Sentiment was removed from enhanced-signal aggregation in PR #86 — endpoint
+        now fans out to 4 services (TA, ML, MTF, signal), so the smallest
+        non-zero confidence is 1/4=0.25 and confidence values are quarters.
+        2 BUY + 2 HOLD with 4 services → buy doesn't beat neutral → HOLD with
+        confidence 2/4=0.5, which lands in the MEDIUM band (0.5..0.7).
+        """
         responses = [
             Mock(body=json.dumps({"aggregated_signal": "BUY"}).encode()),
             Mock(body=json.dumps({"trend": "BULLISH"}).encode()),
-            Mock(body=json.dumps({"combined_label": "BULLISH"}).encode()),
             Mock(body=json.dumps({"consensus_signal": "HOLD"}).encode()),
-            Mock(body=json.dumps({"signal": "HOLD"}).encode())
+            Mock(body=json.dumps({"signal": "HOLD"}).encode()),
         ]
 
         mock_service_proxy.proxy_request.side_effect = responses
@@ -380,20 +385,25 @@ class TestEnhancedSignalRiskLevels:
             response = test_client.get("/api/trading/signals/enhanced/BTCUSDT")
 
         data = response.json()
-        # 3 BUY/BULLISH, 2 HOLD = 0.6 confidence
-        assert data["confidence"] == 0.6
+        assert data["confidence"] == 0.5
         assert data["risk_level"] == "MEDIUM"
 
     @pytest.mark.asyncio
     async def test_enhanced_signal_high_risk(self, test_client, mock_service_proxy):
-        """Test enhanced signal with high risk level"""
-        # Create responses with low confidence
+        """Test enhanced signal with high risk level.
+
+        With 4 services and a tied 1-BUY/1-SELL/1-HOLD spread (the 4th
+        response carries no recognised signal field so it doesn't enter the
+        tally), the endpoint takes the HOLD fallback branch and reports
+        confidence = neutral/total = 1/3 ≈ 0.33, which lands in HIGH.
+        """
         responses = [
             Mock(body=json.dumps({"aggregated_signal": "BUY"}).encode()),
             Mock(body=json.dumps({"trend": "BEARISH"}).encode()),
-            Mock(body=json.dumps({"combined_label": "NEUTRAL"}).encode()),
-            Mock(body=json.dumps({"consensus_signal": "SELL"}).encode()),
-            Mock(body=json.dumps({"signal": "HOLD"}).encode())
+            Mock(body=json.dumps({"consensus_signal": "HOLD"}).encode()),
+            # No "signal" / "trend" / "consensus_signal" / "aggregated_signal"
+            # field — endpoint skips this entry, so total_signals = 3.
+            Mock(body=json.dumps({"unrelated": "field"}).encode()),
         ]
 
         mock_service_proxy.proxy_request.side_effect = responses

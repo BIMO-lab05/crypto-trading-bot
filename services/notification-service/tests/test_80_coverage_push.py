@@ -139,13 +139,20 @@ class TestExceptionHandling:
             assert response.status_code == 500
 
     def test_test_notifications_success(self, test_client):
-        """Test notification test endpoint success"""
+        """Test notification test endpoint success.
+
+        slack/sms must be explicitly disabled — the endpoint's `attempted` list
+        treats any truthy `enabled` value as an active channel, and bare
+        MagicMock attributes are truthy.
+        """
         with patch('app.main.email_notifier') as mock_email, \
              patch('app.main.telegram_notifier') as mock_telegram, \
              patch('app.main.config') as mock_config:
 
             mock_config.email_enabled = True
             mock_config.telegram_enabled = True
+            mock_config.slack_enabled = False
+            mock_config.sms_enabled = False
             mock_email.send_email.return_value = True
             mock_telegram.send_message = AsyncMock(return_value=True)
 
@@ -417,7 +424,8 @@ class TestConfigurationValidation:
     """Test configuration-based behavior"""
 
     def test_email_disabled_skips_notification(self, test_client):
-        """Test that disabled email notifications are skipped"""
+        """Disabled-email path no longer returns 200 silently — now 503
+        with no-channels-enabled detail (false-success fix)."""
         with patch('app.main.config') as mock_config, \
              patch('app.main.email_notifier') as mock_email:
 
@@ -433,12 +441,12 @@ class TestConfigurationValidation:
             }
 
             response = test_client.post("/api/v1/notify/trade", json=notification)
-            assert response.status_code == 200
+            assert response.status_code == 503
             # Email notifier should not be called
             mock_email.notify_trade_executed.assert_not_called()
 
     def test_telegram_disabled_skips_notification(self, test_client):
-        """Test that disabled Telegram notifications are skipped"""
+        """Disabled-telegram path no longer returns 200 silently — now 503."""
         with patch('app.main.config') as mock_config, \
              patch('app.main.telegram_notifier') as mock_telegram:
 
@@ -456,7 +464,7 @@ class TestConfigurationValidation:
             }
 
             response = test_client.post("/api/v1/notify/daily-summary", json=summary)
-            assert response.status_code == 200
+            assert response.status_code == 503
             mock_telegram.notify_daily_summary.assert_not_called()
 
     def test_config_endpoint_returns_all_alert_settings(self, test_client):
@@ -510,7 +518,7 @@ class TestMultiChannelNotifications:
             assert data["telegram_sent"] is True
 
     def test_email_succeeds_telegram_fails(self, test_client):
-        """Test when email succeeds but Telegram fails"""
+        """Partial failure now surfaces as 502 with failed_channels listed."""
         with patch('app.main.email_notifier') as mock_email, \
              patch('app.main.telegram_notifier') as mock_telegram, \
              patch('app.main.config') as mock_config:
@@ -526,14 +534,14 @@ class TestMultiChannelNotifications:
             }
 
             response = test_client.post("/api/v1/notify/error", json=notification)
-            data = response.json()
-
-            assert response.status_code == 200
-            assert data["email_sent"] is True
-            assert data["telegram_sent"] is False
+            assert response.status_code == 502
+            detail = response.json()["detail"]
+            assert detail["email_sent"] is True
+            assert detail["telegram_sent"] is False
+            assert "telegram" in detail["failed_channels"]
 
     def test_email_fails_telegram_succeeds(self, test_client):
-        """Test when email fails but Telegram succeeds"""
+        """Partial failure (email) now surfaces as 502."""
         with patch('app.main.email_notifier') as mock_email, \
              patch('app.main.telegram_notifier') as mock_telegram, \
              patch('app.main.config') as mock_config:
@@ -547,18 +555,18 @@ class TestMultiChannelNotifications:
                 "/api/v1/notify/daily-limit",
                 params={"total_loss": 5000.0}
             )
-            data = response.json()
-
-            assert response.status_code == 200
-            assert data["email_sent"] is False
-            assert data["telegram_sent"] is True
+            assert response.status_code == 502
+            detail = response.json()["detail"]
+            assert detail["email_sent"] is False
+            assert detail["telegram_sent"] is True
+            assert "email" in detail["failed_channels"]
 
 
 class TestNotificationContent:
     """Test notification content formatting"""
 
     def test_trade_notification_includes_timestamp(self, test_client):
-        """Test that trade notification includes timestamp"""
+        """No-channels-enabled now returns 503 detail body with timestamp."""
         with patch('app.main.config') as mock_config:
             mock_config.email_enabled = False
             mock_config.telegram_enabled = False
@@ -573,13 +581,11 @@ class TestNotificationContent:
             }
 
             response = test_client.post("/api/v1/notify/trade", json=notification)
-            data = response.json()
-
-            assert response.status_code == 200
-            assert "timestamp" in data
+            assert response.status_code == 503
+            assert "timestamp" in response.json()["detail"]
 
     def test_pnl_notification_response_structure(self, test_client):
-        """Test P&L notification response structure"""
+        """No-channels-enabled now returns 503 detail body with full structure."""
         with patch('app.main.config') as mock_config:
             mock_config.email_enabled = False
             mock_config.telegram_enabled = False
@@ -596,18 +602,18 @@ class TestNotificationContent:
             }
 
             response = test_client.post("/api/v1/notify/pnl", json=notification)
-            data = response.json()
-
-            assert response.status_code == 200
-            assert "success" in data
-            assert "email_sent" in data
-            assert "telegram_sent" in data
-            assert "timestamp" in data
+            assert response.status_code == 503
+            detail = response.json()["detail"]
+            assert "success" in detail
+            assert "email_sent" in detail
+            assert "telegram_sent" in detail
+            assert "timestamp" in detail
 
     def test_daily_summary_response_structure(self, test_client):
-        """Test daily summary response structure"""
+        """No-channels-enabled now returns 503 detail body."""
         with patch('app.main.config') as mock_config:
             mock_config.telegram_enabled = False
+            mock_config.email_enabled = False
 
             summary = {
                 "total_pnl": 3500.0,
@@ -620,12 +626,11 @@ class TestNotificationContent:
             }
 
             response = test_client.post("/api/v1/notify/daily-summary", json=summary)
-            data = response.json()
-
-            assert response.status_code == 200
-            assert data["success"] is True
-            assert "telegram_sent" in data
-            assert "timestamp" in data
+            assert response.status_code == 503
+            detail = response.json()["detail"]
+            assert detail["success"] is False
+            assert "telegram_sent" in detail
+            assert "timestamp" in detail
 
 
 class TestAsyncBehavior:

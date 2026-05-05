@@ -442,6 +442,8 @@ async def notify_trade(notification: TradeNotification):
             payload=trade_dict,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to send trade notification: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -495,6 +497,8 @@ async def notify_pnl(notification: ProfitLossNotification):
             payload={"trade": trade_dict, "pnl": pnl},
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to send P&L notification: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -545,6 +549,8 @@ async def notify_daily_limit(total_loss: float):
             payload={"total_loss": total_loss},
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to send daily limit notification: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -601,6 +607,8 @@ async def notify_error(notification: ErrorNotification):
             payload=notification.model_dump(),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to send error notification: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -653,6 +661,8 @@ async def notify_startup(notification: StartupNotification):
             payload=config_dict,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to send startup notification: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -693,6 +703,8 @@ async def notify_daily_summary(summary: DailySummary):
             payload=summary_dict,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to send daily summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))

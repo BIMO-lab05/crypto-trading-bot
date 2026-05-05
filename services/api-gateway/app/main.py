@@ -85,6 +85,10 @@ from app.security.security_headers import (
 from slowapi.errors import RateLimitExceeded
 
 # Configure logging
+# Ensure logs directory exists before opening the file handler — pytest runs
+# from various cwds (services/api-gateway/ in CI, repo root locally) so
+# eagerly create it relative to wherever Python is started.
+Path("logs").mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
