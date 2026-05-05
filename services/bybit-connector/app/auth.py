@@ -5,12 +5,15 @@ Purpose: Handle API authentication and signature generation for Bybit API
 
 import hmac
 import hashlib
+import logging
 import time
 from typing import Dict, Any, Optional
 from urllib.parse import urlencode
 
 from app.config import Settings
 from app.exceptions import AuthenticationException
+
+logger = logging.getLogger(__name__)
 
 
 class BybitAuthenticator:
@@ -22,12 +25,12 @@ class BybitAuthenticator:
     def __init__(self, api_key: str, api_secret: str, recv_window: int = 5000):
         """
         Initialize authenticator with API credentials
-        
+
         Args:
             api_key: Bybit API key
             api_secret: Bybit API secret
             recv_window: Request validity window in milliseconds
-        
+
         Raises:
             AuthenticationException: If credentials are invalid
         """
@@ -37,10 +40,51 @@ class BybitAuthenticator:
                 message="API key and secret are required",
                 details={"api_key_provided": bool(api_key), "api_secret_provided": bool(api_secret)}
             )
-        
+
         self.api_key = api_key
         self.api_secret = api_secret
         self.recv_window = recv_window
+        # Offset (milliseconds) added to local time before signing requests so
+        # we stay within Bybit's recv-window when the host clock has drifted.
+        # Populated by sync_clock(); zero by default.
+        self.clock_skew_ms: int = 0
+
+    async def sync_clock(self, http_client, base_url: str) -> None:
+        """
+        Query Bybit's server time and store the skew vs. local time.
+
+        Bybit rejects requests whose timestamp is outside ``recv_window`` from
+        their server's clock with retCode=10004. On a host with drifted time
+        every signed request fails. This calculates the offset once at
+        startup so subsequent ``_get_timestamp()`` calls compensate.
+
+        Args:
+            http_client: An ``httpx.AsyncClient`` (or compatible) to issue the
+                probe with. Reusing the client owned by ``BybitRestClient``
+                avoids opening a second connection pool.
+            base_url: REST base URL (testnet or mainnet); used only when the
+                supplied client has no base_url configured.
+        """
+        try:
+            # /v5/market/time is public and unauthenticated.
+            response = await http_client.get(f"{base_url}/v5/market/time")
+            response.raise_for_status()
+            payload = response.json()
+            server_ms = int(payload.get("result", {}).get("timeNano", 0)) // 1_000_000
+            if server_ms == 0:
+                # older field name on some response shapes
+                server_ms = int(payload.get("time", 0))
+            if server_ms == 0:
+                logger.warning("clock-sync: server time missing from response, leaving skew=0")
+                return
+            local_ms = int(time.time() * 1000)
+            self.clock_skew_ms = server_ms - local_ms
+            logger.info(
+                "clock-sync: applied skew",
+                extra={"clock_skew_ms": self.clock_skew_ms},
+            )
+        except Exception as exc:
+            logger.warning(f"clock-sync failed, leaving skew=0: {exc}")
     
     def generate_signature(
         self,
@@ -156,15 +200,15 @@ class BybitAuthenticator:
         expected_signature = self.generate_signature(timestamp, params, body)
         return signature == expected_signature
     
-    @staticmethod
-    def _get_timestamp() -> int:
+    def _get_timestamp(self) -> int:
         """
-        Get current Unix timestamp in milliseconds
-        
+        Get current Unix timestamp in milliseconds, adjusted by any
+        previously-measured clock skew against Bybit's server time.
+
         Returns:
             Current timestamp in milliseconds
         """
-        return int(time.time() * 1000)
+        return int(time.time() * 1000) + self.clock_skew_ms
     
     @staticmethod
     def validate_timestamp(timestamp: int, recv_window: int = 5000) -> bool:

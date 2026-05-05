@@ -317,6 +317,7 @@ class TestRestClientErrorHandling:
 
         with patch.object(client, "_make_request") as mock_request:
             mock_response = Mock(spec=httpx.Response)
+            mock_response.status_code = 200
             mock_response.json.side_effect = json.JSONDecodeError("msg", "doc", 0)
 
             with patch.object(client.circuit_breaker, "call_async", return_value=mock_response):
@@ -327,13 +328,15 @@ class TestRestClientErrorHandling:
 
     @pytest.mark.asyncio
     async def test_request_with_http_error(self):
-        """Test handling of HTTP errors"""
+        """Network ConnectError is retried then surfaces as itself"""
         client = BybitRestClient("key", "secret")
 
         with patch.object(client.circuit_breaker, "call_async") as mock_call:
             mock_call.side_effect = httpx.ConnectError("Connection failed")
 
-            with pytest.raises(BybitAPIException):
+            # ConnectError is on the retry list and reraise=True; tenacity
+            # exhausts retries then surfaces the original exception.
+            with pytest.raises(httpx.ConnectError):
                 await client._request("GET", "/test")
 
         await client.close()

@@ -12,7 +12,7 @@ from typing import Dict, Any
 
 
 # Configuration
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8001"  # bybit-connector binds to 8001
 TIMEOUT = 10.0
 
 
