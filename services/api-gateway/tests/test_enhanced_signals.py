@@ -17,17 +17,22 @@ class TestMLPredictionEndpoints:
 
     @pytest.mark.asyncio
     async def test_ml_predict_price(self, test_client, mock_service_proxy):
-        """Test ML price prediction endpoint"""
+        """Test ML price prediction endpoint.
+
+        LSTM was retired in late 2025; the gateway now rejects model_type=LSTM
+        with 400 ("Model type must be 'GRU' (LSTM no longer supported)"). Use
+        GRU here.
+        """
         mock_response = JSONResponse(content={
             "symbol": "BTCUSDT",
             "predicted_price": 46000.0,
             "confidence": 0.85,
-            "model_type": "LSTM"
+            "model_type": "GRU"
         })
         mock_service_proxy.proxy_request.return_value = mock_response
 
         with patch('app.main.get_proxy', return_value=mock_service_proxy):
-            response = test_client.get("/api/ml/predict/price/BTCUSDT?interval=60&model_type=LSTM")
+            response = test_client.get("/api/ml/predict/price/BTCUSDT?interval=60&model_type=GRU")
 
         assert response.status_code == 200
         call_kwargs = mock_service_proxy.proxy_request.call_args[1]
@@ -208,16 +213,16 @@ class TestEnhancedTradingSignalEndpoint:
 
     @pytest.mark.asyncio
     async def test_enhanced_signal_all_buy(self, test_client, mock_service_proxy):
-        """Test enhanced signal with all sources indicating BUY"""
-        # Mock responses from all services
+        """Test enhanced signal with all sources indicating BUY.
+
+        Sentiment was removed from the enhanced-signal aggregation (PR #86)
+        so the endpoint now fans out to 4 services: TA, ML, MTF, signal.
+        """
         ta_response = Mock()
         ta_response.body = json.dumps({"aggregated_signal": "BUY"}).encode()
 
         ml_response = Mock()
         ml_response.body = json.dumps({"trend": "BULLISH"}).encode()
-
-        sentiment_response = Mock()
-        sentiment_response.body = json.dumps({"combined_label": "BULLISH"}).encode()
 
         mtf_response = Mock()
         mtf_response.body = json.dumps({"consensus_signal": "BUY"}).encode()
@@ -226,7 +231,7 @@ class TestEnhancedTradingSignalEndpoint:
         signal_response.body = json.dumps({"signal": "BUY"}).encode()
 
         mock_service_proxy.proxy_request.side_effect = [
-            ta_response, ml_response, sentiment_response, mtf_response, signal_response
+            ta_response, ml_response, mtf_response, signal_response
         ]
 
         with patch('app.main.get_proxy', return_value=mock_service_proxy):
@@ -238,20 +243,17 @@ class TestEnhancedTradingSignalEndpoint:
         assert data["signal"] == "BUY"
         assert data["confidence"] == 1.0  # All signals agree
         assert data["risk_level"] == "LOW"
-        assert data["signal_breakdown"]["buy_signals"] == 5
+        assert data["signal_breakdown"]["buy_signals"] == 4
         assert data["signal_breakdown"]["sell_signals"] == 0
 
     @pytest.mark.asyncio
     async def test_enhanced_signal_all_sell(self, test_client, mock_service_proxy):
-        """Test enhanced signal with all sources indicating SELL"""
+        """Test enhanced signal with all sources indicating SELL."""
         ta_response = Mock()
         ta_response.body = json.dumps({"aggregated_signal": "SELL"}).encode()
 
         ml_response = Mock()
         ml_response.body = json.dumps({"trend": "BEARISH"}).encode()
-
-        sentiment_response = Mock()
-        sentiment_response.body = json.dumps({"combined_label": "BEARISH"}).encode()
 
         mtf_response = Mock()
         mtf_response.body = json.dumps({"consensus_signal": "SELL"}).encode()
@@ -260,7 +262,7 @@ class TestEnhancedTradingSignalEndpoint:
         signal_response.body = json.dumps({"signal": "SELL"}).encode()
 
         mock_service_proxy.proxy_request.side_effect = [
-            ta_response, ml_response, sentiment_response, mtf_response, signal_response
+            ta_response, ml_response, mtf_response, signal_response
         ]
 
         with patch('app.main.get_proxy', return_value=mock_service_proxy):
@@ -271,7 +273,7 @@ class TestEnhancedTradingSignalEndpoint:
 
         assert data["signal"] == "SELL"
         assert data["confidence"] == 1.0
-        assert data["signal_breakdown"]["sell_signals"] == 5
+        assert data["signal_breakdown"]["sell_signals"] == 4
 
     @pytest.mark.asyncio
     async def test_enhanced_signal_mixed_signals(self, test_client, mock_service_proxy):
