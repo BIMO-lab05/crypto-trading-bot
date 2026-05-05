@@ -44,7 +44,7 @@ class NotificationConfig(BaseSettings):
     service_name: str = "notification-service"
     service_version: str = "2.0.0"
     host: str = "0.0.0.0"
-    port: int = 8007
+    port: int = 8006
 
     # Database settings for alert storage
     # No hardcoded fallback — silent fall-through to localhost has caused

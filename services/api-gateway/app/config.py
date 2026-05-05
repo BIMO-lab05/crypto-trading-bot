@@ -94,6 +94,14 @@ class Settings(BaseSettings):
         description="Allowed CORS origins"
     )
 
+    # WebSocket broadcast — symbols whose tickers are pushed every 2s on /ws.
+    # Keep aligned with trading_symbols in trading-engine; UI can watch a wider
+    # set without a code change via env override.
+    ws_broadcast_symbols: List[str] = Field(
+        default=["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"],
+        description="Symbols to push live tickers for via /ws"
+    )
+
     # API Documentation
     api_title: str = Field(
         default="Crypto Trading Bot API Gateway",

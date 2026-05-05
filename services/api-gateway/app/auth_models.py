@@ -31,9 +31,15 @@ IS_PRODUCTION = ENVIRONMENT == "production"
 IS_STAGING = ENVIRONMENT == "staging"
 IS_DEVELOPMENT = ENVIRONMENT == "development"
 
-# Password hashing context with increased rounds for production security
-# bcrypt rounds of 14 provides good security while maintaining reasonable performance
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=14)
+# Password hashing context with bcrypt_sha256 + 14 rounds.
+# - bcrypt_sha256 SHA-256-prehashes input so passwords longer than the bcrypt
+#   72-byte limit are not silently truncated (bcrypt 5.0 raises ValueError).
+# - 14 rounds gives strong security while staying responsive.
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256"],
+    deprecated="auto",
+    bcrypt_sha256__rounds=14,
+)
 
 # ============================================================================
 # JWT Configuration - SECURITY HARDENED

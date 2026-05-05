@@ -45,7 +45,7 @@ class TestHealthCheck:
             mock_settings.market_data_url = "http://market-data:8005"
             mock_settings.use_database = False
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -68,7 +68,7 @@ class TestHealthCheck:
             mock_settings.market_data_url = "http://market-data:8005"
             mock_settings.use_database = False
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -89,7 +89,7 @@ class TestHealthCheck:
             mock_settings.market_data_url = "http://market-data:8005"
             mock_settings.use_database = False
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -105,7 +105,7 @@ class TestHealthCheck:
             mock_settings.market_data_url = "http://market-data:8005"
             mock_settings.use_database = False
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -127,7 +127,7 @@ class TestHealthCheck:
             mock_settings.market_data_url = "http://market-data:8005"
             mock_settings.use_database = True
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -147,7 +147,7 @@ class TestHealthCheck:
             mock_settings.market_data_url = "http://market-data:8005"
             mock_settings.use_database = True
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -166,7 +166,7 @@ class TestHealthCheck:
             mock_settings.market_data_url = "http://market-data:8005"
             mock_settings.use_database = True
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -183,7 +183,7 @@ class TestHealthCheck:
             mock_settings.use_database = True
             # Don't patch db_manager - let import fail naturally
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -199,7 +199,7 @@ class TestHealthCheck:
             mock_settings.market_data_url = "http://market-data:8005"
             mock_settings.use_database = False
 
-            response = self.client.get("/api/v1/health")
+            response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
@@ -245,7 +245,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = [portfolio1, portfolio2]
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -269,7 +269,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = [portfolio]
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -284,7 +284,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = []
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -304,7 +304,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = [portfolio]
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -329,7 +329,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = portfolios
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -352,7 +352,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = [portfolio1, portfolio2]
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -363,7 +363,7 @@ class TestGetStatus:
     async def test_get_status_manager_not_initialized(self):
         """Test error when portfolio manager not initialized"""
         with patch('app.main.portfolio_manager', None):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 503
         assert "not initialized" in response.json()["detail"].lower()
@@ -379,7 +379,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = [portfolio]
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -426,7 +426,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = [portfolio1, portfolio2, portfolio3]
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()
@@ -445,7 +445,7 @@ class TestGetStatus:
         mock_manager.list_portfolios.return_value = [portfolio]
 
         with patch('app.main.portfolio_manager', mock_manager):
-            response = self.client.get("/api/v1/status")
+            response = self.client.get("/status")
 
         assert response.status_code == 200
         data = response.json()

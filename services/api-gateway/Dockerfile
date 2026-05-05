@@ -5,7 +5,7 @@
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
 # ============================================================================
-FROM python:3.12-slim as builder
+FROM python:3.14-slim as builder
 
 # Set build-time environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -31,7 +31,7 @@ RUN pip install --user --no-cache-dir -r requirements.txt
 # ============================================================================
 # Stage 2: Runtime - Minimal production image
 # ============================================================================
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # Metadata labels
 LABEL maintainer="crypto-trading-bot"

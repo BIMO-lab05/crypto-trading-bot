@@ -212,38 +212,6 @@ start_monitoring() {
     fi
 }
 
-# Start dashboard
-start_dashboard() {
-    log INFO "Starting dashboard..."
-
-    cd "$PROJECT_ROOT/dashboard"
-
-    # Check if dashboard already running
-    if pgrep -f "http.server 8080" >/dev/null; then
-        log WARNING "Dashboard already running (PID: $(pgrep -f 'http.server 8080'))"
-        return 0
-    fi
-
-    if [ -f "index.html" ]; then
-        nohup python3 -m http.server 8080 > "${LOG_DIR}/dashboard_${TODAY}.log" 2>&1 &
-        local dashboard_pid=$!
-
-        # Wait a moment and check if it's still running
-        sleep 2
-        if ps -p $dashboard_pid > /dev/null; then
-            log SUCCESS "Dashboard started (PID: $dashboard_pid)"
-            log INFO "Access at: http://localhost:8080"
-            return 0
-        else
-            log ERROR "Dashboard failed to start"
-            return 1
-        fi
-    else
-        log WARNING "Dashboard index.html not found"
-        return 0
-    fi
-}
-
 # Check for important updates
 check_updates() {
     log INFO "Checking for important notifications..."
@@ -317,16 +285,9 @@ print_summary() {
         echo -e "  ${RED}✗${NC} Monitoring not running"
     fi
 
-    # Check dashboard
-    if pgrep -f "http.server 8080" >/dev/null; then
-        echo -e "  ${GREEN}✓${NC} Dashboard available at http://localhost:8080"
-    else
-        echo -e "  ${RED}✗${NC} Dashboard not running"
-    fi
-
     echo ""
     echo -e "${CYAN}Quick Links:${NC}"
-    echo "  Dashboard:          http://localhost:8080"
+    echo "  Frontend:           http://localhost:3000  (run via 'cd frontend && npm run dev' or docker-compose)"
     echo "  Trading Engine API: http://localhost:8005/docs"
     echo "  Portfolio Manager:  http://localhost:8003/docs"
     echo "  API Gateway:        http://localhost:8000/docs"
@@ -335,7 +296,6 @@ print_summary() {
     echo -e "${CYAN}Logs:${NC}"
     echo "  Startup log:  $STARTUP_LOG"
     echo "  Monitor log:  $MONITOR_LOG"
-    echo "  Dashboard log: ${LOG_DIR}/dashboard_${TODAY}.log"
 
     echo ""
     echo -e "${CYAN}Useful Commands:${NC}"
@@ -348,7 +308,7 @@ print_summary() {
     echo -e "${CYAN}Next Steps:${NC}"
 
     if [ $health_status -eq 0 ] && [ $risk_status -eq 0 ]; then
-        echo "  1. Monitor dashboard for any alerts"
+        echo "  1. Monitor frontend for any alerts"
         echo "  2. Review positions and balance"
         echo "  3. Check monitor log occasionally: tail -f $MONITOR_LOG"
         echo "  4. Enable auto-trading if desired (after review)"
@@ -374,7 +334,7 @@ main() {
     check_existing_services
 
     echo ""
-    log INFO "Step 1/6: Starting system..."
+    log INFO "Step 1/5: Starting system..."
     start_system
     local startup_result=$?
 
@@ -384,25 +344,21 @@ main() {
     fi
 
     echo ""
-    log INFO "Step 2/6: Validating health..."
+    log INFO "Step 2/5: Validating health..."
     validate_health
     local health_result=$?
 
     echo ""
-    log INFO "Step 3/6: Validating risk controls..."
+    log INFO "Step 3/5: Validating risk controls..."
     validate_risk
     local risk_result=$?
 
     echo ""
-    log INFO "Step 4/6: Starting monitoring..."
+    log INFO "Step 4/5: Starting monitoring..."
     start_monitoring
 
     echo ""
-    log INFO "Step 5/6: Starting dashboard..."
-    start_dashboard
-
-    echo ""
-    log INFO "Step 6/6: Checking for updates..."
+    log INFO "Step 5/5: Checking for updates..."
     check_updates
 
     # Calculate duration

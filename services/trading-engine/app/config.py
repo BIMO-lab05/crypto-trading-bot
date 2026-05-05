@@ -59,6 +59,27 @@ class Settings(BaseSettings):
         default=True, description="Send daily PnL summary notification"
     )
 
+    # Phase C smart-mode flag (auto-trader, 2026-05-05).
+    # When enabled, the auto-trader uses three additional gates per cycle:
+    #   1) regime_strategy_selector chooses the strategy mode per cycle
+    #   2) portfolio_heat_manager skips the cycle entirely if heat is critical
+    #   3) ML predicted direction must match the signal direction with
+    #      confidence >= ml_confidence_floor; otherwise the trade is rejected
+    # Default off so the existing baseline behaviour is unchanged. Flip to
+    # true via AUTO_TRADER_SMART_MODE=true to opt in.
+    auto_trader_smart_mode: bool = Field(
+        default=False,
+        description="Enable Phase C smart-mode gates in auto_trader",
+    )
+    ml_confidence_floor: float = Field(
+        default=0.6,
+        description=(
+            "Minimum ML directional confidence to allow a trade in smart-mode "
+            "(0.0..1.0). Below this, smart-mode rejects with reason "
+            "'ml_disagreement'."
+        ),
+    )
+
     # Phase 3 Feature Flags
     # ML predictions DISABLED by default 2026-04-29 — V0 persistence shootout
     # showed production GRUs have negative R² on log-returns and coin-flip

@@ -30,6 +30,25 @@ from app.models.portfolio import Portfolio, Asset
 from app.models.performance import PerformanceMetrics, AssetPerformance, DailyPerformance, PeriodPerformance
 
 
+def _make_mock_manager():
+    """Build a portfolio_manager mock with AsyncMock for the async methods.
+
+    PortfolioManager has a mix of sync (get_portfolio, list_portfolios,
+    get_snapshot, etc.) and async (initialize, cleanup, update_prices,
+    sync_with_trading_engine, _fetch_current_price) methods. A bare Mock()
+    auto-creates everything as Mock, which causes `await manager.update_prices(...)`
+    to raise "Mock can't be used in 'await' expression". This helper sets the
+    known async methods to AsyncMock so the handler code can await them.
+    """
+    m = MagicMock()
+    m.initialize = AsyncMock()
+    m.cleanup = AsyncMock()
+    m.update_prices = AsyncMock(return_value=True)
+    m.sync_with_trading_engine = AsyncMock(return_value=True)
+    m._fetch_current_price = AsyncMock(return_value=Decimal("100"))
+    return m
+
+
 class TestPortfolioHandlers:
     """Test suite for portfolio handler endpoints covering uncovered code paths"""
 
@@ -41,7 +60,7 @@ class TestPortfolioHandlers:
     # Portfolio Handlers Tests
     async def test_get_portfolio_with_valid_id(self, client):
         """Test retrieving portfolio with valid portfolio_id"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.portfolio_id = "test"
         portfolio.total_value = Decimal("100000")
@@ -55,7 +74,7 @@ class TestPortfolioHandlers:
 
     async def test_get_portfolio_not_found(self, client):
         """Test portfolio retrieval when portfolio doesn't exist"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_manager.get_portfolio.return_value = None
 
         with patch('app.main.portfolio_manager', mock_manager):
@@ -65,7 +84,7 @@ class TestPortfolioHandlers:
 
     async def test_list_portfolios(self, client):
         """Test listing all portfolios"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolios = [Mock(portfolio_id="port1"), Mock(portfolio_id="port2")]
         mock_manager.list_portfolios.return_value = portfolios
 
@@ -76,7 +95,7 @@ class TestPortfolioHandlers:
 
     async def test_get_balance_success(self, client):
         """Test retrieving portfolio balance"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_manager.get_portfolio_balance.return_value = {
             "portfolio_id": "test",
             "total_balance": Decimal("100000"),
@@ -91,7 +110,7 @@ class TestPortfolioHandlers:
 
     async def test_get_holdings_success(self, client):
         """Test retrieving portfolio holdings"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.assets = {
             "BTCUSDT": Mock(quantity=Decimal("1.0"), current_price=Decimal("40000")),
@@ -107,7 +126,7 @@ class TestPortfolioHandlers:
     # Performance Handler Tests
     async def test_get_performance_success(self, client):
         """Test retrieving portfolio performance"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_calculator = Mock()
 
         performance_metrics = PerformanceMetrics(
@@ -133,7 +152,7 @@ class TestPortfolioHandlers:
 
     async def test_get_asset_performance_success(self, client):
         """Test retrieving asset-level performance"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
 
         portfolio = Mock(spec=Portfolio)
         asset_perf = [
@@ -166,7 +185,7 @@ class TestPortfolioHandlers:
 
     async def test_get_asset_performance_missing_portfolio(self, client):
         """Test asset performance when portfolio is missing"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_manager.get_portfolio.return_value = None
 
         with patch('app.main.portfolio_manager', mock_manager):
@@ -177,7 +196,7 @@ class TestPortfolioHandlers:
     # Allocation Handler Tests
     async def test_get_allocation_success(self, client):
         """Test retrieving portfolio allocation"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.get_allocation.return_value = {
             "BTCUSDT": Decimal("70.0"),
@@ -192,7 +211,7 @@ class TestPortfolioHandlers:
 
     async def test_get_allocation_missing_portfolio(self, client):
         """Test allocation retrieval for missing portfolio"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_manager.get_portfolio.return_value = None
 
         with patch('app.main.portfolio_manager', mock_manager):
@@ -202,7 +221,7 @@ class TestPortfolioHandlers:
 
     async def test_get_rebalance_recommendations(self, client):
         """Test getting rebalancing recommendations"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.get_allocation.return_value = {
             "BTCUSDT": Decimal("80.0"),
@@ -218,7 +237,7 @@ class TestPortfolioHandlers:
     # Transaction Handlers Tests
     async def test_buy_asset_success(self, client):
         """Test buying an asset"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.total_value = Decimal("100000")
         mock_manager.get_portfolio.return_value = portfolio
@@ -239,7 +258,7 @@ class TestPortfolioHandlers:
 
     async def test_sell_asset_success(self, client):
         """Test selling an asset"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.assets = {
             "BTCUSDT": Mock(quantity=Decimal("2.0"))
@@ -262,7 +281,7 @@ class TestPortfolioHandlers:
 
     async def test_get_transaction_history(self, client):
         """Test retrieving transaction history"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         transactions = [
             Mock(
                 transaction_id="tx1",
@@ -282,7 +301,7 @@ class TestPortfolioHandlers:
 
     async def test_sync_with_trading_engine(self, client):
         """Test syncing portfolio with trading engine"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_manager.sync_with_trading_engine = AsyncMock(return_value={
             "success": True,
             "synced_positions": 5,
@@ -313,7 +332,7 @@ class TestPortfolioHandlers:
     # Performance Metrics Edge Cases
     async def test_performance_with_no_trades(self, client):
         """Test performance calculation when no trades exist"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_calculator = Mock()
 
         metrics = PerformanceMetrics(
@@ -337,7 +356,7 @@ class TestPortfolioHandlers:
 
     async def test_performance_with_negative_return(self, client):
         """Test performance calculation with negative returns"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_calculator = Mock()
 
         metrics = PerformanceMetrics(
@@ -364,7 +383,7 @@ class TestPortfolioHandlers:
 
     async def test_performance_with_high_volatility(self, client):
         """Test performance with extremely high volatility"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_calculator = Mock()
 
         metrics = PerformanceMetrics(
@@ -393,7 +412,7 @@ class TestPortfolioHandlers:
     # Asset Performance Edge Cases
     async def test_asset_performance_with_losses(self, client):
         """Test asset performance when asset has losses"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
 
         portfolio = Mock(spec=Portfolio)
         asset_perf = [
@@ -417,7 +436,7 @@ class TestPortfolioHandlers:
 
     async def test_asset_performance_zero_position(self, client):
         """Test asset performance when position is zero"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
 
         portfolio = Mock(spec=Portfolio)
         asset_perf = [
@@ -441,7 +460,7 @@ class TestPortfolioHandlers:
 
     async def test_asset_performance_multiple_assets(self, client):
         """Test asset performance with many assets"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
 
         portfolio = Mock(spec=Portfolio)
         asset_perf = [
@@ -467,7 +486,7 @@ class TestPortfolioHandlers:
     # Allocation Edge Cases
     async def test_allocation_single_asset(self, client):
         """Test allocation when portfolio has only one asset"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.get_allocation.return_value = {"BTCUSDT": Decimal("100.0")}
         mock_manager.get_portfolio.return_value = portfolio
@@ -479,7 +498,7 @@ class TestPortfolioHandlers:
 
     async def test_allocation_many_assets(self, client):
         """Test allocation with many assets"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         allocation = {
             f"COIN{i}USDT": Decimal(str(100 / 10))
@@ -496,7 +515,7 @@ class TestPortfolioHandlers:
     # Buy/Sell Edge Cases
     async def test_buy_asset_insufficient_funds(self, client):
         """Test buying asset when insufficient funds"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.total_value = Decimal("1000")  # Only $1000
         mock_manager.get_portfolio.return_value = portfolio
@@ -511,7 +530,7 @@ class TestPortfolioHandlers:
 
     async def test_sell_asset_insufficient_quantity(self, client):
         """Test selling more than available quantity"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.assets = {
             "BTCUSDT": Mock(quantity=Decimal("0.5"))
@@ -528,7 +547,7 @@ class TestPortfolioHandlers:
 
     async def test_buy_asset_invalid_symbol(self, client):
         """Test buying with invalid symbol"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         portfolio = Mock(spec=Portfolio)
         portfolio.total_value = Decimal("100000")
         mock_manager.get_portfolio.return_value = portfolio
@@ -544,7 +563,7 @@ class TestPortfolioHandlers:
     # Transaction History Edge Cases
     async def test_transaction_history_empty(self, client):
         """Test transaction history when no transactions exist"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_manager.get_transaction_history.return_value = []
 
         with patch('app.main.portfolio_manager', mock_manager):
@@ -554,7 +573,7 @@ class TestPortfolioHandlers:
 
     async def test_transaction_history_with_limit(self, client):
         """Test transaction history with custom limit"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         transactions = [
             Mock(
                 transaction_id=f"tx{i}",
@@ -576,7 +595,7 @@ class TestPortfolioHandlers:
     # Sync Tests
     async def test_sync_with_empty_portfolio(self, client):
         """Test syncing an empty portfolio"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_manager.sync_with_trading_engine = AsyncMock(return_value={
             "success": True,
             "synced_positions": 0,
@@ -590,7 +609,7 @@ class TestPortfolioHandlers:
 
     async def test_sync_failure(self, client):
         """Test sync when trading engine is unavailable"""
-        mock_manager = Mock()
+        mock_manager = _make_mock_manager()
         mock_manager.sync_with_trading_engine = AsyncMock(
             side_effect=Exception("Trading engine unavailable")
         )

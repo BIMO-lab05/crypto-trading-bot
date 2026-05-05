@@ -40,16 +40,22 @@ class TestSettingsInitialization:
         assert settings.service_port == 8002
 
     def test_settings_default_values(self, monkeypatch):
-        """Test settings use correct default values.
-
-        test_connector_80_push.py sets SERVICE_HOST=127.0.0.1 / SERVICE_PORT=8004
-        at module import time and never tears them down. Clear those plus DEBUG
-        so we exercise the actual defaults rather than the polluted process env.
-        """
-        # Given minimal settings data and cleared env vars
-        monkeypatch.delenv("DEBUG", raising=False)
-        monkeypatch.delenv("SERVICE_HOST", raising=False)
-        monkeypatch.delenv("SERVICE_PORT", raising=False)
+        """Test settings use correct default values"""
+        # Clear env vars that pydantic-settings would otherwise pull in via
+        # the project's .env file or test-runner shell. Without this, running
+        # under `pytest tests/` (full discovery) picks up SERVICE_PORT etc.
+        # from another service's env and breaks the default-value asserts.
+        for var in (
+            "DEBUG",
+            "SERVICE_PORT",
+            "SERVICE_HOST",
+            "SERVICE_NAME",
+            "ENVIRONMENT",
+            "LOG_LEVEL",
+            "BYBIT_TESTNET",
+            "BYBIT_RECV_WINDOW",
+        ):
+            monkeypatch.delenv(var, raising=False)
 
         settings_data = {
             "bybit_api_key": "test_key",
@@ -67,8 +73,7 @@ class TestSettingsInitialization:
         assert settings.bybit_testnet is True
         assert settings.bybit_recv_window == 5000
         assert settings.service_name == "bybit-connector"
-        # bybit-connector listens on 8001 per CLAUDE.md service map
-        # (8002 is market-data-service).
+        # Default port is 8001 per CLAUDE.md service map.
         assert settings.service_port == 8001
         assert settings.service_host == "0.0.0.0"
 

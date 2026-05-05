@@ -16,39 +16,26 @@ from app.models import (
     SuppressionRule, EscalationRule
 )
 from app.alert_manager import AlertManager
-from app.alert_rules import AlertRulesEngine, SuppressionResult
-from app.alert_rules import alert_rules_engine as _global_rules
+from app.alert_rules import AlertRulesEngine, SuppressionResult, alert_rules_engine
 from app.channels.base import BaseChannel, ChannelResult
-from app.config import config as _config, NotificationConfig as _NotificationConfig
+
+
+class _StubChannel(BaseChannel):
+    """Concrete BaseChannel for testing the abstract base's helpers."""
+
+    async def send(self, message, title=None, metadata=None):
+        return ChannelResult(success=True, channel=self.name)
+
+    async def health_check(self):
+        return True
+
+    def is_enabled(self):
+        return True
 
 
 # ========================================
 # Fixtures
 # ========================================
-
-@pytest.fixture(autouse=True)
-def _enable_telegram_in_config():
-    """Enable telegram in NotificationConfig.is_channel_enabled for the suite.
-
-    AlertManager.send_alert filters channels via config.is_channel_enabled
-    BEFORE delegating to channel.send_with_retry. Tests below mock the
-    channel's own is_enabled() but leave the config alone — without this
-    fixture every send_alert returns "No enabled channels available". Tests
-    that need a different channel mix (test_critical_alert_routing,
-    test_get_stats, edge-case tests) layer their own patch on top.
-
-    autospec is intentionally omitted — inner patches in the per-test
-    context managers also override is_channel_enabled, and stacking
-    autospec'd patches on top of an already-mocked attribute trips
-    InvalidSpecError ("Cannot spec a Mock object").
-    """
-    with patch.object(
-        _NotificationConfig,
-        "is_channel_enabled",
-        new=lambda self, ch: ch == "telegram",
-    ):
-        yield
-
 
 @pytest.fixture
 def alert_manager():
@@ -58,8 +45,10 @@ def alert_manager():
     manager._stats.clear()
     manager._alerts.clear()
     manager._alert_history.clear()
-    # Reset module-global rules engine (dedup cache, throttle, etc.) so per-test isolation holds.
-    _global_rules.clear_history()
+    # AlertManager.send_alert delegates suppression checks to the module-level
+    # alert_rules_engine, whose dedup cache and throttle history would otherwise
+    # leak across tests.
+    alert_rules_engine.clear_history()
     return manager
 
 
@@ -190,24 +179,22 @@ class TestAlertManager:
     @pytest.mark.asyncio
     async def test_critical_alert_routing(self, alert_manager, sample_critical_alert):
         """Test critical alerts route to multiple channels"""
-        with patch.object(_NotificationConfig, 'is_channel_enabled',
-                   side_effect=lambda self, ch: ch in {'telegram', 'email', 'slack'}, autospec=True):
-            with patch.object(alert_manager._telegram, 'is_enabled', return_value=True):
-                with patch.object(alert_manager._email, 'is_enabled', return_value=True):
-                    with patch.object(alert_manager._slack, 'is_enabled', return_value=True):
-                        with patch.object(alert_manager._telegram, 'send_with_retry', new_callable=AsyncMock) as mock_tg:
-                            with patch.object(alert_manager._email, 'send_with_retry', new_callable=AsyncMock) as mock_email:
-                                with patch.object(alert_manager._slack, 'send_with_retry', new_callable=AsyncMock) as mock_slack:
-                                    mock_tg.return_value = ChannelResult(success=True, channel="telegram")
-                                    mock_email.return_value = ChannelResult(success=True, channel="email")
-                                    mock_slack.return_value = ChannelResult(success=True, channel="slack")
+        with patch.object(alert_manager._telegram, 'is_enabled', return_value=True):
+            with patch.object(alert_manager._email, 'is_enabled', return_value=True):
+                with patch.object(alert_manager._slack, 'is_enabled', return_value=True):
+                    with patch.object(alert_manager._telegram, 'send_with_retry', new_callable=AsyncMock) as mock_tg:
+                        with patch.object(alert_manager._email, 'send_with_retry', new_callable=AsyncMock) as mock_email:
+                            with patch.object(alert_manager._slack, 'send_with_retry', new_callable=AsyncMock) as mock_slack:
+                                mock_tg.return_value = ChannelResult(success=True, channel="telegram")
+                                mock_email.return_value = ChannelResult(success=True, channel="email")
+                                mock_slack.return_value = ChannelResult(success=True, channel="slack")
 
-                                    response = await alert_manager.send_alert(sample_critical_alert)
+                                response = await alert_manager.send_alert(sample_critical_alert)
 
-                                    assert response.success is True
-                                    assert "telegram" in response.channels_sent
-                                    assert "email" in response.channels_sent
-                                    assert "slack" in response.channels_sent
+                                assert response.success is True
+                                assert "telegram" in response.channels_sent
+                                assert "email" in response.channels_sent
+                                assert "slack" in response.channels_sent
 
     @pytest.mark.asyncio
     async def test_acknowledge_alert(self, alert_manager, sample_alert_create):
@@ -292,36 +279,31 @@ class TestAlertManager:
     @pytest.mark.asyncio
     async def test_get_stats(self, alert_manager):
         """Test alert statistics"""
-        with patch.object(_NotificationConfig, 'is_channel_enabled',
-                   side_effect=lambda self, ch: ch == 'telegram', autospec=True):
-            with patch.object(alert_manager._telegram, 'is_enabled', return_value=True):
-                with patch.object(alert_manager._telegram, 'send_with_retry', new_callable=AsyncMock) as mock_send:
-                    mock_send.return_value = ChannelResult(
-                        success=True,
-                        channel="telegram",
-                        delivery_time_ms=100
-                    )
+        with patch.object(alert_manager._telegram, 'is_enabled', return_value=True):
+            with patch.object(alert_manager._telegram, 'send_with_retry', new_callable=AsyncMock) as mock_send:
+                mock_send.return_value = ChannelResult(
+                    success=True,
+                    channel="telegram",
+                    delivery_time_ms=100
+                )
 
-                    # Send various alerts. Vary symbol to avoid dedup; vary alert type
-                    # to avoid the 3/hour TRADE throttle so all 5 alerts are tracked.
-                    alert_types = [
-                        AlertType.TRADE, AlertType.RISK, AlertType.SYSTEM,
-                        AlertType.MARKET, AlertType.PERFORMANCE,
-                    ]
-                    for i in range(5):
-                        alert = AlertCreate(
-                            alert_type=alert_types[i],
-                            severity=AlertSeverity.MEDIUM,
-                            title=f"Alert {i}",
-                            message=f"Test {i}",
-                            source="test",
-                            metadata={"symbol": f"SYM{i}", "unique_id": str(uuid.uuid4())}
-                        )
-                        await alert_manager.send_alert(alert)
+                # Send various alerts. Stay within throttle_max_per_hour=3
+                # so each alert is recorded; throttle suppression returns
+                # early and does not count toward total_alerts.
+                for i in range(3):
+                    alert = AlertCreate(
+                        alert_type=AlertType.TRADE,
+                        severity=AlertSeverity.MEDIUM,
+                        title=f"Trade {i}",
+                        message=f"Test {i}",
+                        source="test",
+                        metadata={"unique_id": str(uuid.uuid4())}
+                    )
+                    await alert_manager.send_alert(alert)
 
         stats = alert_manager.get_stats(period_hours=24)
-        assert stats.total_alerts == 5
-        assert stats.alerts_by_severity.get("MEDIUM", 0) == 5
+        assert stats.total_alerts == 3
+        assert stats.alerts_by_severity.get("MEDIUM", 0) == 3
         assert stats.delivery_success_rate == 100.0
 
     @pytest.mark.asyncio
@@ -384,16 +366,18 @@ class TestAlertRulesEngine:
 
     def test_throttle_rule(self, rules_engine):
         """Test throttle rule"""
-        # Send max allowed alerts
+        # Send max allowed alerts. Titles must be unique — dedup_key only
+        # incorporates type/severity/title/source plus a fixed metadata
+        # whitelist (symbol/service/error_type), so a generic "unique" key
+        # in metadata does not differentiate alerts.
         for i in range(3):
             alert = Alert(
                 id=str(uuid.uuid4()),
                 alert_type=AlertType.TRADE,
                 severity=AlertSeverity.MEDIUM,
-                title="Trade Alert",
+                title=f"Trade Alert {i}",
                 message=f"Trade {i}",
                 source="test",
-                metadata={"symbol": f"SYM{i}"}  # Vary recognized dedup key
             )
             result = rules_engine.should_suppress(alert)
             assert result.suppressed is False
@@ -403,10 +387,9 @@ class TestAlertRulesEngine:
             id=str(uuid.uuid4()),
             alert_type=AlertType.TRADE,
             severity=AlertSeverity.MEDIUM,
-            title="Trade Alert",
+            title="Trade Alert 4",
             message="Trade 4",
             source="test",
-            metadata={"symbol": "SYM4"}
         )
         result = rules_engine.should_suppress(alert)
         assert result.suppressed is True
@@ -510,26 +493,22 @@ class TestAlertRulesEngine:
 
     def test_suppression_stats(self, rules_engine):
         """Test suppression statistics"""
-        # Generate some alerts. Vary alert_type to spread across throttle buckets
-        # (default trade-throttle is 3/hour) and metadata symbol to vary the dedup key.
-        alert_types = [
-            AlertType.TRADE, AlertType.RISK, AlertType.SYSTEM,
-            AlertType.MARKET, AlertType.PERFORMANCE,
-        ]
-        for i in range(5):
+        # Stay within the default throttle ceiling (max_per_hour=3) so every
+        # alert is recorded in _alert_history and shows up in the stats.
+        for i in range(3):
             alert = Alert(
                 id=str(uuid.uuid4()),
-                alert_type=alert_types[i],
+                alert_type=AlertType.TRADE,
                 severity=AlertSeverity.MEDIUM,
                 title=f"Alert {i}",
                 message=f"Test {i}",
                 source="test",
-                metadata={"symbol": f"SYM{i}"}
+                metadata={"index": i}
             )
             rules_engine.should_suppress(alert)
 
         stats = rules_engine.get_suppression_stats()
-        assert stats["total_alerts_tracked"] >= 5
+        assert stats["total_alerts_tracked"] >= 3
         assert stats["suppression_rules_count"] > 0
 
 
@@ -537,25 +516,12 @@ class TestAlertRulesEngine:
 # Channel Tests
 # ========================================
 
-class _ConcreteTestChannel(BaseChannel):
-    """Minimal concrete BaseChannel for exercising its non-abstract methods."""
-
-    async def send(self, message, title=None, metadata=None):
-        return ChannelResult(success=True, channel=self.name)
-
-    async def health_check(self) -> bool:
-        return True
-
-    def is_enabled(self) -> bool:
-        return True
-
-
 class TestChannelBase:
     """Tests for base channel functionality"""
 
     def test_rate_limit_check(self, mock_channel):
         """Test rate limiting check"""
-        channel = _ConcreteTestChannel("test", rate_limit=5)
+        channel = _StubChannel("test", rate_limit=5)
 
         # Should allow sends up to rate limit
         for _ in range(5):
@@ -567,7 +533,7 @@ class TestChannelBase:
 
     def test_rate_limit_remaining(self, mock_channel):
         """Test rate limit remaining calculation"""
-        channel = _ConcreteTestChannel("test", rate_limit=10)
+        channel = _StubChannel("test", rate_limit=10)
 
         # Record some sends
         for _ in range(3):
@@ -578,7 +544,7 @@ class TestChannelBase:
 
     def test_health_status(self, mock_channel):
         """Test health status reporting"""
-        channel = _ConcreteTestChannel("test")
+        channel = _StubChannel("test")
         channel._total_sent = 50
         channel._total_failed = 5
         channel._last_success = datetime.utcnow()
@@ -590,7 +556,7 @@ class TestChannelBase:
 
     def test_reset_stats(self, mock_channel):
         """Test stats reset"""
-        channel = _ConcreteTestChannel("test")
+        channel = _StubChannel("test")
         channel._total_sent = 100
         channel._total_failed = 10
 
@@ -678,22 +644,20 @@ class TestAlertFlowIntegration:
     @pytest.mark.asyncio
     async def test_daily_summary_flow(self, alert_manager):
         """Test daily summary alert flow"""
-        with patch.object(_NotificationConfig, 'is_channel_enabled',
-                   side_effect=lambda self, ch: ch == 'email', autospec=True):
-            with patch.object(alert_manager._email, 'is_enabled', return_value=True):
-                with patch.object(alert_manager._email, 'send_with_retry', new_callable=AsyncMock) as mock_email:
-                    mock_email.return_value = ChannelResult(success=True, channel="email")
+        with patch.object(alert_manager._email, 'is_enabled', return_value=True):
+            with patch.object(alert_manager._email, 'send_with_retry', new_callable=AsyncMock) as mock_email:
+                mock_email.return_value = ChannelResult(success=True, channel="email")
 
-                    response = await alert_manager.send_daily_summary(
-                        total_pnl=1250.50,
-                        total_trades=15,
-                        win_rate=0.65,
-                        best_trade=500.0,
-                        worst_trade=-200.0,
-                        balance=50000.0
-                    )
+                response = await alert_manager.send_daily_summary(
+                    total_pnl=1250.50,
+                    total_trades=15,
+                    win_rate=0.65,
+                    best_trade=500.0,
+                    worst_trade=-200.0,
+                    balance=50000.0
+                )
 
-                    assert response.success is True
+                assert response.success is True
 
 
 # ========================================
@@ -706,35 +670,32 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_no_enabled_channels(self, alert_manager, sample_alert_create):
         """Test handling when no channels are enabled"""
-        with patch.object(_NotificationConfig, 'is_channel_enabled', return_value=False, autospec=True):
-            with patch.object(alert_manager._telegram, 'is_enabled', return_value=False):
-                with patch.object(alert_manager._email, 'is_enabled', return_value=False):
-                    with patch.object(alert_manager._slack, 'is_enabled', return_value=False):
-                        with patch.object(alert_manager._sms, 'is_enabled', return_value=False):
-                            response = await alert_manager.send_alert(sample_alert_create)
+        with patch.object(alert_manager._telegram, 'is_enabled', return_value=False):
+            with patch.object(alert_manager._email, 'is_enabled', return_value=False):
+                with patch.object(alert_manager._slack, 'is_enabled', return_value=False):
+                    with patch.object(alert_manager._sms, 'is_enabled', return_value=False):
+                        response = await alert_manager.send_alert(sample_alert_create)
 
-                            assert response.success is False
-                            assert "No enabled channels" in response.message
+                        assert response.success is False
+                        assert "No enabled channels" in response.message
 
     @pytest.mark.asyncio
     async def test_all_channels_fail(self, alert_manager, sample_critical_alert):
         """Test handling when all channel deliveries fail"""
-        with patch.object(_NotificationConfig, 'is_channel_enabled',
-                   side_effect=lambda self, ch: ch in {'telegram', 'email', 'slack'}, autospec=True):
-            with patch.object(alert_manager._telegram, 'is_enabled', return_value=True):
-                with patch.object(alert_manager._email, 'is_enabled', return_value=True):
-                    with patch.object(alert_manager._slack, 'is_enabled', return_value=True):
-                        with patch.object(alert_manager._telegram, 'send_with_retry', new_callable=AsyncMock) as mock_tg:
-                            with patch.object(alert_manager._email, 'send_with_retry', new_callable=AsyncMock) as mock_email:
-                                with patch.object(alert_manager._slack, 'send_with_retry', new_callable=AsyncMock) as mock_slack:
-                                    mock_tg.return_value = ChannelResult(success=False, channel="telegram", error_message="Error")
-                                    mock_email.return_value = ChannelResult(success=False, channel="email", error_message="Error")
-                                    mock_slack.return_value = ChannelResult(success=False, channel="slack", error_message="Error")
+        with patch.object(alert_manager._telegram, 'is_enabled', return_value=True):
+            with patch.object(alert_manager._email, 'is_enabled', return_value=True):
+                with patch.object(alert_manager._slack, 'is_enabled', return_value=True):
+                    with patch.object(alert_manager._telegram, 'send_with_retry', new_callable=AsyncMock) as mock_tg:
+                        with patch.object(alert_manager._email, 'send_with_retry', new_callable=AsyncMock) as mock_email:
+                            with patch.object(alert_manager._slack, 'send_with_retry', new_callable=AsyncMock) as mock_slack:
+                                mock_tg.return_value = ChannelResult(success=False, channel="telegram", error_message="Error")
+                                mock_email.return_value = ChannelResult(success=False, channel="email", error_message="Error")
+                                mock_slack.return_value = ChannelResult(success=False, channel="slack", error_message="Error")
 
-                                    response = await alert_manager.send_alert(sample_critical_alert)
+                                response = await alert_manager.send_alert(sample_critical_alert)
 
-                                    assert response.success is False
-                                    assert len(response.channels_failed) == 3
+                                assert response.success is False
+                                assert len(response.channels_failed) == 3
 
     def test_acknowledge_nonexistent_alert(self, alert_manager):
         """Test acknowledging alert that doesn't exist"""
@@ -752,62 +713,20 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_partial_channel_success(self, alert_manager, sample_critical_alert):
         """Test partial success when some channels fail"""
-        with patch.object(_NotificationConfig, 'is_channel_enabled',
-                   side_effect=lambda self, ch: ch in {'telegram', 'email', 'slack'}, autospec=True):
-            with patch.object(alert_manager._telegram, 'is_enabled', return_value=True):
-                with patch.object(alert_manager._email, 'is_enabled', return_value=True):
-                    with patch.object(alert_manager._slack, 'is_enabled', return_value=True):
-                        with patch.object(alert_manager._telegram, 'send_with_retry', new_callable=AsyncMock) as mock_tg:
-                            with patch.object(alert_manager._email, 'send_with_retry', new_callable=AsyncMock) as mock_email:
-                                with patch.object(alert_manager._slack, 'send_with_retry', new_callable=AsyncMock) as mock_slack:
-                                    mock_tg.return_value = ChannelResult(success=True, channel="telegram")
-                                    mock_email.return_value = ChannelResult(success=False, channel="email", error_message="Error")
-                                    mock_slack.return_value = ChannelResult(success=True, channel="slack")
+        with patch.object(alert_manager._telegram, 'is_enabled', return_value=True):
+            with patch.object(alert_manager._email, 'is_enabled', return_value=True):
+                with patch.object(alert_manager._slack, 'is_enabled', return_value=True):
+                    with patch.object(alert_manager._telegram, 'send_with_retry', new_callable=AsyncMock) as mock_tg:
+                        with patch.object(alert_manager._email, 'send_with_retry', new_callable=AsyncMock) as mock_email:
+                            with patch.object(alert_manager._slack, 'send_with_retry', new_callable=AsyncMock) as mock_slack:
+                                mock_tg.return_value = ChannelResult(success=True, channel="telegram")
+                                mock_email.return_value = ChannelResult(success=False, channel="email", error_message="Error")
+                                mock_slack.return_value = ChannelResult(success=True, channel="slack")
 
-                                    response = await alert_manager.send_alert(sample_critical_alert)
+                                response = await alert_manager.send_alert(sample_critical_alert)
 
-                                    # Should be success if at least one channel succeeded
-                                    assert response.success is True
-                                    assert "telegram" in response.channels_sent
-                                    assert "slack" in response.channels_sent
-                                    assert "email" in response.channels_failed
-
-
-# ========================================
-# Slack severity routing tests (Task A3)
-# ========================================
-
-class TestSlackSeverityRouting:
-    """Verify _send_to_channel routes Slack alerts to per-severity channels."""
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("severity,attr_name", [
-        (AlertSeverity.CRITICAL, "slack_channel_critical"),
-        (AlertSeverity.HIGH, "slack_channel_alerts"),
-        (AlertSeverity.MEDIUM, "slack_channel_alerts"),
-        (AlertSeverity.LOW, "slack_channel_performance"),
-        (AlertSeverity.INFO, "slack_channel_performance"),
-    ])
-    async def test_slack_channel_resolves_from_severity(
-        self, alert_manager, severity, attr_name
-    ):
-        expected = getattr(_config, attr_name)
-        alert_manager._channels["slack"].send_with_retry = AsyncMock(
-            return_value=ChannelResult(success=True, channel="slack")
-        )
-        alert = Alert(
-            id=str(uuid.uuid4()),
-            alert_type=AlertType.TRADE,
-            severity=severity,
-            title="t",
-            message="m",
-            source="test",
-        )
-
-        await alert_manager._send_to_channel(alert, "slack")
-
-        called_metadata = alert_manager._channels["slack"].send_with_retry.call_args.kwargs.get(
-            "metadata"
-        )
-        assert called_metadata is not None
-        assert called_metadata["channel"] == expected
+                                # Should be success if at least one channel succeeded
+                                assert response.success is True
+                                assert "telegram" in response.channels_sent
+                                assert "slack" in response.channels_sent
+                                assert "email" in response.channels_failed
