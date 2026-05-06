@@ -309,19 +309,25 @@ class Settings(BaseSettings):
 
     # Risk Management
     max_position_size_pct: float = Field(
-        default=5.0,
+        default=10.0,
         ge=0.1,
         le=50.0,
-        description="Maximum position size as % of capital (5% optimal for multi-symbol portfolio)",
+        description=(
+            "Maximum position size as % of capital. "
+            "Bumped 2026-05-06 from 5% to 10% to align with per-trade "
+            "10% target on $100 paper balance."
+        ),
     )
     max_risk_per_trade: float = Field(
-        default=0.02,
+        default=0.10,
         ge=0.001,
         le=0.5,
         description=(
             "Maximum per-trade notional cap as a fraction of balance "
-            "(0.02 = 2%). Stored as fraction, not percent — distinct from "
-            "the neighboring *_pct fields. Reads MAX_RISK_PER_TRADE env."
+            "(0.10 = 10%). Stored as fraction, not percent — distinct from "
+            "the neighboring *_pct fields. Reads MAX_RISK_PER_TRADE env. "
+            "Bumped 2026-05-06 from 0.02 to 0.10 per operator request: "
+            "$100 paper balance × 10% = $10/trade for meaningful test sizing."
         ),
     )
     max_daily_loss_pct: float = Field(

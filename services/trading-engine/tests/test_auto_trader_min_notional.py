@@ -58,6 +58,17 @@ class _StubInstrumentsCache:
         return self._spec
 
 
+@pytest.fixture(autouse=True)
+def _force_live_mode(monkeypatch):
+    """Gate is LIVE-only (PAPER short-circuits to allow). Force LIVE for these
+    tests so they exercise the gate logic.
+    """
+    from app.config import get_settings
+
+    s = get_settings()
+    monkeypatch.setattr(s, "trading_mode", "LIVE", raising=False)
+
+
 @pytest.fixture
 def trader():
     """Fresh AutoTrader for each test (no _trading_loop running)."""
