@@ -359,8 +359,12 @@ services:
       - BYBIT_API_KEY=${BYBIT_API_KEY:-}
       - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
       - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
+      - MARKET_DATA_SOURCE=${MARKET_DATA_SOURCE:-tape}
+      - TAPE_FIXTURES_PATH=/app/tests/fixtures/tape
     volumes:
       - ./services/bybit-connector/logs:/app/logs
+      # Tape fixtures for MARKET_DATA_SOURCE=tape mode (D-15). Read-only — never mutated by the connector.
+      - ./tests/fixtures/tape:/app/tests/fixtures/tape:ro
     networks:
       - crypto-bot-network
     healthcheck:
