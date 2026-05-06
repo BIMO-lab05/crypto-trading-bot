@@ -22,6 +22,17 @@ async def init_data():
     """
     logger.info("init_data: enter")
     settings = get_settings()
+
+    # Validate symbol_allocations sum to 1.0 and cover every trading symbol.
+    # Misconfigured allocations silently corrupt position sizing — fail fast
+    # at boot rather than letting the auto-trader divide a depleted pool
+    # mid-session. fail-loud: raise to abort startup so the operator sees it.
+    try:
+        settings.validate_allocations()
+    except ValueError as e:
+        logger.error(f"symbol_allocations invalid: {e}")
+        raise
+
     from app.main import database_health  # deferred: avoid circular import
 
     try:
