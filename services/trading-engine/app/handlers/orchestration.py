@@ -690,3 +690,109 @@ async def submit_signal(request: SignalSubmissionRequest):
     except Exception as e:
         logger.error(f"Error submitting signal: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# INDICATOR ROLLING-CONFIDENCE GATE (2026-05-06)
+# =============================================================================
+# A previously-disabled indicator may not be re-enabled until its rolling-mean
+# confidence over the last 200 calls clears `settings.min_indicator_confidence`.
+# This is the *gate* — the persistence flag (master switch lookup) is left to a
+# follow-up; the point is the gate sits in the path.
+#
+# Auth note: trading-engine has no auth middleware; all admin routes are
+# protected upstream at the api-gateway. We name the prefix `/admin/...` for
+# routing convention, but enforce nothing at this layer.
+
+from app.config import get_settings
+from app.services.indicator_registry import (
+    IndicatorBelowThresholdError,
+    get_indicator_registry,
+)
+
+admin_indicator_router = APIRouter(
+    prefix="/api/v1/admin/indicators",
+    tags=["Admin: Indicator Gate"],
+)
+
+
+@admin_indicator_router.post(
+    "/{name}/enable",
+    summary="Enable a TA indicator (gated by rolling-confidence)",
+)
+async def enable_indicator(name: str) -> Dict[str, Any]:
+    """Enable an indicator after it clears the rolling-confidence gate.
+
+    Flow:
+        1. Query the IndicatorRegistry for the rolling-mean confidence
+           over the last 200 calls.
+        2. If < ``settings.min_indicator_confidence`` (or fewer than 30
+           samples), raise 409 Conflict.
+        3. Otherwise: would flip the indicator's master switch — left as
+           a TODO since the persistence layer for indicator enablement
+           does not exist today.
+
+    This endpoint is the *gate*. It does not by itself re-enable the
+    two known stuck indicators (RSI_DIVERGENCE, SQZMOM_ENHANCED) — they
+    stay commented out in ``signal_aggregator.py`` until they
+    accumulate enough shadow-mode samples to clear the gate.
+    """
+    settings = get_settings()
+    registry = get_indicator_registry()
+    try:
+        await registry.assert_eligible(
+            name=name,
+            threshold=settings.min_indicator_confidence,
+        )
+    except IndicatorBelowThresholdError as exc:
+        logger.warning(
+            "Refusing to enable indicator %s: avg=%s threshold=%s",
+            exc.name,
+            exc.current_avg,
+            exc.threshold,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "indicator_below_threshold",
+                "indicator": exc.name,
+                "current_avg": exc.current_avg,
+                "threshold": exc.threshold,
+                "message": str(exc),
+            },
+        )
+
+    # TODO: indicator master switch lookup
+    # Persistence for the per-indicator enable flag does not exist yet.
+    # When it lands, this is where the flip happens. For now we surface
+    # that the gate passed so an operator can take the next step manually.
+    stats = await registry.stats(name)
+    logger.info("Indicator %s passed rolling-confidence gate", name)
+    return {
+        "success": True,
+        "gated": True,
+        "persisted": False,
+        "indicator": name,
+        "stats": stats,
+        "note": (
+            "Gate passed; persistence layer for indicator master-switch is "
+            "not yet implemented. Re-enablement still requires a code change "
+            "(uncomment in signal_aggregator.py)."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@admin_indicator_router.get(
+    "/{name}/stats",
+    summary="Read rolling-confidence stats for an indicator",
+)
+async def get_indicator_stats(name: str) -> Dict[str, Any]:
+    """Return rolling-confidence stats for ``name``. Read-only."""
+    stats = await get_indicator_registry().stats(name)
+    return {
+        "success": True,
+        **stats,
+        "threshold": get_settings().min_indicator_confidence,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

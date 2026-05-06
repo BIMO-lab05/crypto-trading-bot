@@ -128,6 +128,9 @@ from app.handlers.grid_trading import router as grid_trading_router
 # under /api/v1/orchestrator/* (incl. emergency-stop, risk/utilization,
 # strategies/*) was dead. Wired up 2026-04-29.
 from app.handlers.orchestration import router as orchestration_router
+from app.handlers.orchestration import (  # noqa: F401 — router mounted below
+    admin_indicator_router,
+)
 
 # Import Correlation Manager (Phase 3.1)
 
@@ -153,6 +156,7 @@ from app.database.connection import db_manager  # noqa: F401
 from app.signal_aggregator import get_aggregator  # noqa: F401
 from app.repositories import get_portfolio_repository  # noqa: F401
 from app.paper_trading import get_paper_engine  # noqa: F401
+from app.services.instruments_cache import get_instruments_cache  # noqa: F401
 
 # Fixed: Create logs directory to prevent startup crashes (Critical Issue #1)
 LOG_DIR = Path("logs")
@@ -404,6 +408,10 @@ app.include_router(grid_trading_router)
 
 # Include Multi-Strategy Orchestration router (Phase 9)
 app.include_router(orchestration_router)
+
+# Include Indicator Rolling-Confidence Gate (2026-05-06).
+# Defined in handlers/orchestration.py alongside the orchestrator router.
+app.include_router(admin_indicator_router)
 
 # Include Kelly Position Sizing router (Phase 3.2)
 app.include_router(kelly_router)

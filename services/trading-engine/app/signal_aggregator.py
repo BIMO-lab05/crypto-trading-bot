@@ -20,6 +20,7 @@ from typing import Dict, Optional, List
 from app.config import get_settings
 from app.models import TradingSignal, IndicatorSignal, SignalAction
 from app.aggregation import CoreAggregator
+from app.services.indicator_registry import get_indicator_registry
 
 logger = logging.getLogger(__name__)
 
@@ -725,6 +726,21 @@ class SignalAggregator:
                 else:
                     logger.info(f"  [OK] {name}: {result.signal.value} (conf: {result.confidence:.2f}, role: {role})")
                 success_count += 1
+                # Record into rolling-confidence registry (2026-05-06).
+                # was_voted=True for every active indicator; the False branch
+                # is the shadow-mode hook reserved for a follow-up that
+                # observes disabled indicators (RSI_DIVERGENCE,
+                # SQZMOM_ENHANCED) without counting their vote.
+                try:
+                    await get_indicator_registry().record(
+                        name=name,
+                        confidence=float(result.confidence),
+                        was_voted=True,
+                    )
+                except Exception as reg_err:  # noqa: BLE001 — telemetry must never break the trading loop
+                    logger.warning(
+                        "IndicatorRegistry.record(%s) failed: %s", name, reg_err
+                    )
             else:
                 logger.warning(f"  [FAIL] {name}: Failed to fetch - {result if isinstance(result, Exception) else 'Unknown error'}")
                 fail_count += 1

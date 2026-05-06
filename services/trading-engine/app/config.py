@@ -363,6 +363,22 @@ class Settings(BaseSettings):
         le=10,
         description="USER CONFIG: 3 indicators minimum for balanced consensus",
     )
+    # Per-indicator rolling-confidence gate (2026-05-06)
+    # When an operator flips an indicator from disabled -> enabled via the
+    # admin endpoint, the registry's rolling-mean confidence over the last
+    # 200 calls must be >= this value or the enable is refused. This stops
+    # silent re-enablement of stuck indicators (RSI_DIVERGENCE @ 0.20,
+    # SQZMOM_ENHANCED @ 0.50). Does NOT affect voting for currently-active
+    # indicators. See app/services/indicator_registry.py.
+    min_indicator_confidence: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum rolling-mean confidence (window=200) required before an "
+            "indicator may be re-enabled by the admin endpoint."
+        ),
+    )
 
     # Time-Based Trading Filters (RESEARCH-BACKED 2025-12-01)
     # Best trading hours: 14:00-17:00 UTC (London/NY overlap)
