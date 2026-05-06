@@ -129,7 +129,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Bootstrap & Recorded Tape | 0/TBD | Not started | - |
+| 1. Bootstrap & Recorded Tape | 2/4 | In Progress|  |
 | 2. Integration Test Suite & RUNBOOK | 0/TBD | Not started | - |
 | 3. Tournament Harness Core | 0/TBD | Not started | - |
 | 4. Tournament Significance & Auto-PR | 0/TBD | Not started | - |
