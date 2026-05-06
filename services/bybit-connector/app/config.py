@@ -4,8 +4,9 @@ Purpose: Manage service configuration using Pydantic Settings
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
-from typing import Optional
+from pydantic import Field, field_validator, model_validator
+from typing import Literal, Optional
+from pathlib import Path
 import os
 
 
@@ -25,10 +26,22 @@ class Settings(BaseSettings):
     # ========================================================================
     # BYBIT API CONFIGURATION
     # ========================================================================
-    bybit_api_key: str = Field(..., description="Bybit API key")
-    bybit_api_secret: str = Field(..., description="Bybit API secret")
+    bybit_api_key: str = Field(default="", description="Bybit API key")
+    bybit_api_secret: str = Field(default="", description="Bybit API secret")
     bybit_testnet: bool = Field(default=False, description="Use testnet (true) or production (false). Default False — production prices. Set BYBIT_TESTNET=true explicitly for testnet.")
     bybit_recv_window: int = Field(default=5000, description="API request receive window in milliseconds")
+
+    # ========================================================================
+    # MARKET DATA SOURCE SELECTOR (D-14, D-15, D-17)
+    # ========================================================================
+    market_data_source: Literal["tape", "live"] = Field(
+        default="tape",
+        description="Source for Bybit market data: 'tape' replays JSONL fixtures, 'live' hits real Bybit REST/WS"
+    )
+    tape_fixtures_path: Path = Field(
+        default=Path("/app/tests/fixtures/tape"),
+        description="In-container path to tape JSONL fixtures (bind-mounted RO from repo tests/fixtures/tape)"
+    )
 
     # ========================================================================
     # API ENDPOINTS
@@ -118,13 +131,17 @@ class Settings(BaseSettings):
             raise ValueError(f"Environment must be one of {valid_envs}")
         return v.lower()
 
-    @field_validator("bybit_api_key", "bybit_api_secret")
-    @classmethod
-    def validate_api_credentials(cls, v, info):
-        """Validate API credentials are not empty"""
-        if not v or v == f"your_{info.field_name}_here":
-            raise ValueError(f"{info.field_name} must be set with valid credentials")
-        return v
+    @model_validator(mode="after")
+    def validate_api_credentials(self):
+        """Require non-empty Bybit credentials only in live mode (D-17 — tape mode bypasses auth)."""
+        if self.market_data_source == "live":
+            for field_name in ("bybit_api_key", "bybit_api_secret"):
+                v = getattr(self, field_name)
+                if not v or v == f"your_{field_name}_here":
+                    raise ValueError(
+                        f"{field_name} must be set with valid credentials when market_data_source='live'"
+                    )
+        return self
 
     @field_validator("service_port", "redis_port", "rabbitmq_port", "metrics_port")
     @classmethod
@@ -169,6 +186,11 @@ class Settings(BaseSettings):
     def is_testnet(self) -> bool:
         """Check if using testnet"""
         return self.bybit_testnet
+
+    @property
+    def is_tape_mode(self) -> bool:
+        """True when market data is replayed from JSONL fixtures (D-15)."""
+        return self.market_data_source == "tape"
 
     # ========================================================================
     # CONFIG CLASS (Pydantic V2 syntax)
