@@ -403,6 +403,63 @@ class TestManualDeployGate:
         body = response.json()
         assert "TRAINING" in body["detail"] or "training" in body["detail"]
 
+    def test_force_with_whitespace_only_operator_rejected(
+        self, test_client, fake_db_session
+    ):
+        """?operator=%20%20 (whitespace only) does not satisfy the audit gate."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post(
+            "/api/v1/deploy/7?force=true&backup_current=false&operator=%20%20"
+        )
+        assert response.status_code == 400
+        assert "operator identity" in response.json()["detail"].lower()
+
+    def test_force_with_single_char_operator_rejected(
+        self, test_client, fake_db_session
+    ):
+        """Single-char operator (e.g. '.') does not clear the 2-char minimum."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post(
+            "/api/v1/deploy/7?force=true&backup_current=false&operator=."
+        )
+        assert response.status_code == 400
+
+    def test_force_with_control_char_operator_sanitized(
+        self, test_client, fake_db_session
+    ):
+        """Control chars stripped — if remainder is too short, gate rejects."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        # \x00\x01a → after sanitize → "a" (1 char) → fails 2-char min
+        response = test_client.post(
+            "/api/v1/deploy/7?force=true&backup_current=false&operator=%00%01a"
+        )
+        assert response.status_code == 400
+
+    def test_force_with_oversized_operator_rejected(self, test_client, fake_db_session):
+        """Operator string >100 chars rejected (matches DB column width)."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        long_op = "a" * 101
+        response = test_client.post(
+            f"/api/v1/deploy/7?force=true&backup_current=false&operator={long_op}"
+        )
+        assert response.status_code == 400
+
 
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])

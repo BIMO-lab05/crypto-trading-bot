@@ -1138,18 +1138,40 @@ async def deploy_model_version(
         # When force=true, identity is REQUIRED — override events must be
         # attributable. Without this, "manual_deployment" was a literal
         # string that hid who triggered the bypass.
-        deployer_identity = (
-            operator
-            or request.headers.get("X-Operator")
-            or "manual_deployment_anonymous"
+        #
+        # Sanitize the candidate string before accepting it as identity:
+        # - strip whitespace so `?operator=%20` (space) doesn't satisfy
+        #   the non-empty check with whitespace alone
+        # - strip ASCII control chars (0x00-0x1F, 0x7F) — null bytes and
+        #   line breaks corrupt log scrapes and trigger SQL/NUL handling
+        #   edge cases
+        # - cap at 100 chars to match the deployed_by column width and
+        #   prevent log-flooding via giant identities
+        # - require at least 2 chars after sanitize so single chars
+        #   like "?operator=." cannot satisfy the audit gate
+        def _sanitize_operator(raw: Optional[str]) -> Optional[str]:
+            if raw is None:
+                return None
+            cleaned = "".join(
+                c for c in raw if c.isprintable() and c not in ("\x7f",)
+            ).strip()
+            if len(cleaned) < 2 or len(cleaned) > 100:
+                return None
+            return cleaned
+
+        candidate = _sanitize_operator(operator) or _sanitize_operator(
+            request.headers.get("X-Operator")
         )
+        deployer_identity = candidate or "manual_deployment_anonymous"
+
         if force and deployer_identity == "manual_deployment_anonymous":
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "force=true requires operator identity. Pass "
-                    "?operator=<id> or X-Operator header so the override "
-                    "is attributable in the audit trail."
+                    "force=true requires operator identity (≥2 printable "
+                    "non-control chars, ≤100 chars). Pass ?operator=<id> "
+                    "or X-Operator header so the override is attributable "
+                    "in the audit trail."
                 ),
             )
         if model_version.status not in (
