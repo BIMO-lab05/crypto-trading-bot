@@ -12,7 +12,7 @@ This milestone hardens the bot around four user-named initiatives: a test-driven
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Bootstrap & Recorded Tape** - Reproducible bring-up + deterministic exchange-data fixtures
+- [x] **Phase 1: Bootstrap & Recorded Tape** - Reproducible bring-up + deterministic exchange-data fixtures (completed 2026-05-06)
 - [ ] **Phase 2: Integration Test Suite & RUNBOOK** - Fresh-clone pytest+testcontainers suite + checkpointed iteration + ops runbook
 - [ ] **Phase 3: Tournament Harness Core** - Docker+SQLite orchestrator with leaderboard schema, search-space config, and per-experiment isolation
 - [ ] **Phase 4: Tournament Significance & Auto-PR** - DSR/bootstrap significance gating + draft-PR automation when ensemble wins
@@ -129,7 +129,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Bootstrap & Recorded Tape | 2/4 | In Progress|  |
+| 1. Bootstrap & Recorded Tape | 4/4 | Complete   | 2026-05-06 |
 | 2. Integration Test Suite & RUNBOOK | 0/TBD | Not started | - |
 | 3. Tournament Harness Core | 0/TBD | Not started | - |
 | 4. Tournament Significance & Auto-PR | 0/TBD | Not started | - |
