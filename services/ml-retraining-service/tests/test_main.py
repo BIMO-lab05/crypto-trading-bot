@@ -26,6 +26,7 @@ import pytest
 # Health
 # ---------------------------------------------------------------------------
 
+
 class TestHealthEndpoints:
     def test_health(self, test_client):
         response = test_client.get("/health")
@@ -49,6 +50,7 @@ class TestHealthEndpoints:
 # Data collection
 # ---------------------------------------------------------------------------
 
+
 class TestDataCollectionEndpoints:
     def test_collect_symbol_data(self, test_client):
         fake_collector = MagicMock()
@@ -63,7 +65,9 @@ class TestDataCollectionEndpoints:
         fake_collector.close = AsyncMock(return_value=None)
 
         with patch("app.main.DataCollector", return_value=fake_collector):
-            response = test_client.post("/api/v1/data/collect/SOLUSDT?interval=60&days=30")
+            response = test_client.post(
+                "/api/v1/data/collect/SOLUSDT?interval=60&days=30"
+            )
 
         assert response.status_code == 200
         body = response.json()
@@ -99,6 +103,7 @@ class TestDataCollectionEndpoints:
 # ---------------------------------------------------------------------------
 # Model versions / jobs / status
 # ---------------------------------------------------------------------------
+
 
 class TestModelVersionEndpoints:
     def test_list_versions_empty(self, test_client):
@@ -147,6 +152,7 @@ class TestStatusEndpoint:
 # Deployment management
 # ---------------------------------------------------------------------------
 
+
 class TestDeploymentEndpoints:
     def test_deploy_version_not_found(self, test_client):
         # default fake DB returns scalar_one_or_none() == None
@@ -186,6 +192,7 @@ class TestDeploymentEndpoints:
 # Scheduler management (scheduler module is stubbed in conftest.py)
 # ---------------------------------------------------------------------------
 
+
 class TestSchedulerEndpoints:
     def test_scheduler_status(self, test_client):
         response = test_client.get("/api/v1/scheduler/status")
@@ -213,15 +220,14 @@ class TestSchedulerEndpoints:
 
     def test_scheduler_trigger_invalid_symbol(self, test_client):
         # Non-configured symbol → 400 from the validate-symbols branch
-        response = test_client.post(
-            "/api/v1/scheduler/trigger?symbols=NOTASYMBOL"
-        )
+        response = test_client.post("/api/v1/scheduler/trigger?symbols=NOTASYMBOL")
         assert response.status_code == 400
 
 
 # ---------------------------------------------------------------------------
 # CORS / 404
 # ---------------------------------------------------------------------------
+
 
 class TestRoutingBasics:
     def test_unknown_route_returns_404(self, test_client):
@@ -297,7 +303,7 @@ class TestManualDeployGate:
         assert "force=true" in response.json()["detail"]
 
     def test_validation_status_with_force_proceeds(self, test_client, fake_db_session):
-        """VALIDATION + force=true reaches the deployer."""
+        """VALIDATION + force=true + operator identity reaches the deployer."""
         from app.database.models import ModelStatus
 
         mv = self._model_version_with_status(ModelStatus.VALIDATION)
@@ -309,11 +315,65 @@ class TestManualDeployGate:
         )
         with patch("app.main.ModelDeployer", return_value=fake_deployer):
             response = test_client.post(
-                "/api/v1/deploy/7?force=true&backup_current=false"
+                "/api/v1/deploy/7?force=true&backup_current=false&operator=alice@example.com"
             )
         assert response.status_code == 200
         assert response.json()["success"] is True
         fake_deployer.deploy_model.assert_awaited_once()
+        # deployed_by recorded with attribution + forced flag
+        assert mv.deployed_by == "manual_deployment:alice@example.com:forced"
+
+    def test_force_without_operator_identity_rejected(
+        self, test_client, fake_db_session
+    ):
+        """force=true without ?operator or X-Operator returns 400 — non-bypassable audit."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post("/api/v1/deploy/7?force=true&backup_current=false")
+        assert response.status_code == 400
+        assert "operator identity" in response.json()["detail"].lower()
+
+    def test_force_with_x_operator_header_proceeds(self, test_client, fake_db_session):
+        """Header X-Operator is an alternative to ?operator query param."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        fake_deployer = MagicMock()
+        fake_deployer.deploy_model = AsyncMock(
+            return_value={"success": True, "files_deployed": ["x.keras"]}
+        )
+        with patch("app.main.ModelDeployer", return_value=fake_deployer):
+            response = test_client.post(
+                "/api/v1/deploy/7?force=true&backup_current=false",
+                headers={"X-Operator": "bob@example.com"},
+            )
+        assert response.status_code == 200
+        assert mv.deployed_by == "manual_deployment:bob@example.com:forced"
+
+    def test_approved_no_force_records_anonymous_attribution(
+        self, test_client, fake_db_session
+    ):
+        """APPROVED without force does not require identity but records anonymous tag."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.APPROVED)
+        self._override_db_to_return(fake_db_session, mv)
+
+        fake_deployer = MagicMock()
+        fake_deployer.deploy_model = AsyncMock(
+            return_value={"success": True, "files_deployed": ["x.keras"]}
+        )
+        with patch("app.main.ModelDeployer", return_value=fake_deployer):
+            response = test_client.post("/api/v1/deploy/7?backup_current=false")
+        assert response.status_code == 200
+        # Non-forced deploys may proceed anonymously but the audit string still
+        # records that the identity was missing.
+        assert mv.deployed_by == "manual_deployment:manual_deployment_anonymous"
 
     def test_approved_status_proceeds_without_force(self, test_client, fake_db_session):
         """APPROVED is the validator-blessed state; deploy proceeds."""
