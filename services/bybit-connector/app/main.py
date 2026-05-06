@@ -44,6 +44,7 @@ except ImportError:  # pragma: no cover — only triggers on python-json-logger<
 
 from app.config import get_settings, Settings
 from app.bybit_rest_client import BybitRestClient, create_rest_client
+from app.tape_replay_client import TapeReplayClient
 from app.circuit_breaker import CircuitState
 from app.exceptions import BybitConnectorException
 from app.models import PlaceOrderRequest, CancelOrderRequest
@@ -306,9 +307,33 @@ async def lifespan(app: FastAPI):
             "environment": "development" if settings.debug else "production"
         }
     )
+
+    # D-14/D-15: branch on market_data_source. Tape mode skips live REST + clock sync.
+    if settings.market_data_source == "tape":
+        # Loud, grep-able startup line for log audits (must_have: "BYBIT_PRICE_SOURCE: mode=tape ...").
+        logger.warning(
+            "BYBIT_PRICE_SOURCE: mode=tape source_dir=%s tape_version=1",
+            settings.tape_fixtures_path,
+        )
+        try:
+            app.state.rest_client = TapeReplayClient(settings.tape_fixtures_path)
+            _update_breaker_gauge(CircuitState.CLOSED)
+            logger.info("Tape replay client initialized successfully")
+        except FileNotFoundError as exc:
+            # Landmine §6 — bind-mount race. Refuse to come up rather than silently serve empty.
+            logger.error("TAPE_REPLAY_INIT_FAILED: %s", exc)
+            raise
+        try:
+            yield
+        finally:
+            await app.state.rest_client.close()
+            logger.info("Bybit Connector Service stopped gracefully (tape mode)")
+        return
+
+    # Live mode: connect to real Bybit REST/WS.
     # Loud, grep-able startup line so log audits can confirm the actual price source.
     logger.warning(
-        "BYBIT_PRICE_SOURCE: testnet=%s rest_url=%s ws_url=%s",
+        "BYBIT_PRICE_SOURCE: mode=live testnet=%s rest_url=%s ws_url=%s",
         settings.bybit_testnet, settings.rest_api_url, settings.websocket_url,
     )
 
