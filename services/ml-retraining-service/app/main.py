@@ -1022,6 +1022,16 @@ async def deploy_model_version(
     version_id: int,
     backup_current: bool = Query(default=True, description="Backup current production model"),
     verify_deployment: bool = Query(default=True, description="Verify after deployment"),
+    force: bool = Query(
+        default=False,
+        description=(
+            "Allow deploying a model whose status is VALIDATION (validator "
+            "did not yet approve, e.g. metrics didn't clear gates but "
+            "operator wants to override). Has no effect on REJECTED models — "
+            "those remain blocked unconditionally so the validator's "
+            "DSR/R²-returns/dir-acc gates cannot be silently bypassed."
+        ),
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1031,6 +1041,8 @@ async def deploy_model_version(
         version_id: Model version ID from database
         backup_current: Whether to backup current production model
         verify_deployment: Whether to verify deployment
+        force: Required to deploy a VALIDATION-status model. Cannot bypass
+            REJECTED — that requires a fresh retrain that clears the gates.
 
     Returns:
         Deployment results
@@ -1045,10 +1057,50 @@ async def deploy_model_version(
         if not model_version:
             raise HTTPException(status_code=404, detail=f"Model version {version_id} not found")
 
-        # Check if model is approved
-        if model_version.status not in [ModelStatus.APPROVED, ModelStatus.VALIDATION]:
-            logger.warning(
-                f"Deploying model with status {model_version.status} (not APPROVED)"
+        # Validator-gate enforcement on the manual deploy path.
+        # The auto path (POST /api/v1/retrain/{symbol}) already gates on
+        # validation_result["should_deploy"] before calling the deployer
+        # (main.py ~930). This endpoint is the operator override; without
+        # the checks below it can publish a REJECTED model with a single
+        # curl call, which makes the DSR / R²-returns / dir-acc gates
+        # ceremonial. Hard-refuse REJECTED unconditionally; require
+        # explicit ?force=true for VALIDATION (validator hasn't approved
+        # yet but operator is opting in knowingly). APPROVED and DEPLOYED
+        # proceed normally — APPROVED is the validator-blessed state and
+        # re-deploying DEPLOYED is idempotent.
+        if model_version.status == ModelStatus.REJECTED:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Refusing to deploy REJECTED model version {version_id} "
+                    f"({model_version.symbol} v{model_version.version}). "
+                    "Validator gates blocked this artifact — re-train and "
+                    "clear the gates rather than overriding."
+                ),
+            )
+        if model_version.status == ModelStatus.VALIDATION and not force:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Model version {version_id} is in VALIDATION status "
+                    "(validator has not approved). Pass ?force=true to "
+                    "deploy anyway, or wait for validation to complete."
+                ),
+            )
+        if model_version.status not in (
+            ModelStatus.APPROVED,
+            ModelStatus.DEPLOYED,
+            ModelStatus.VALIDATION,
+        ):
+            # TRAINING / ROLLED_BACK fall through here. Surface explicitly
+            # rather than silently logging a warning.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot deploy model version {version_id} with status "
+                    f"{model_version.status}. Expected APPROVED, DEPLOYED, "
+                    "or VALIDATION (with force=true)."
+                ),
             )
 
         logger.info(f"Deploying model version {version_id} for {model_version.symbol}")

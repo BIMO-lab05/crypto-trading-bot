@@ -240,5 +240,109 @@ class TestRoutingBasics:
         assert response.status_code in {200, 204}
 
 
+# ---------------------------------------------------------------------------
+# Manual deploy gate enforcement (regression for the validator-bypass
+# defect found 2026-05-06: ``/api/v1/deploy/{version_id}`` previously
+# only logged a warning when the model status was REJECTED, so a
+# REJECTED artifact whose validator gates (DSR / R²-returns / dir-acc)
+# had failed could be published with a single curl call. The patch
+# hard-refuses REJECTED unconditionally and requires explicit
+# ``?force=true`` for VALIDATION-status models.
+# ---------------------------------------------------------------------------
+
+
+class TestManualDeployGate:
+    """Lock the deploy-gate enforcement on the manual deploy endpoint."""
+
+    def _model_version_with_status(self, status):
+        """Build a fake ModelVersion stub with the requested status."""
+        from app.database.models import ModelStatus  # noqa: F401  (uses by caller)
+
+        mv = MagicMock()
+        mv.id = 7
+        mv.symbol = "SOLUSDT"
+        mv.version = "v-test"
+        mv.status = status
+        mv.model_path = "/tmp/fake/model.h5"
+        mv.metadata_path = "/tmp/fake/metadata.json"
+        return mv
+
+    def _override_db_to_return(self, fake_db_session, model_version):
+        """Wire fake_db.execute(...).scalar_one_or_none() → model_version."""
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = model_version
+        fake_db_session.execute.return_value = result
+
+    def test_rejected_model_is_hard_blocked(self, test_client, fake_db_session):
+        """REJECTED model returns 400 — no force flag can override it."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.REJECTED)
+        self._override_db_to_return(fake_db_session, mv)
+
+        # Even with force=true, REJECTED stays blocked.
+        response = test_client.post("/api/v1/deploy/7?force=true&backup_current=false")
+        assert response.status_code == 400
+        assert "REJECTED" in response.json()["detail"]
+
+    def test_validation_status_requires_force(self, test_client, fake_db_session):
+        """VALIDATION model without ?force=true returns 400."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post("/api/v1/deploy/7?backup_current=false")
+        assert response.status_code == 400
+        assert "force=true" in response.json()["detail"]
+
+    def test_validation_status_with_force_proceeds(self, test_client, fake_db_session):
+        """VALIDATION + force=true reaches the deployer."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        fake_deployer = MagicMock()
+        fake_deployer.deploy_model = AsyncMock(
+            return_value={"success": True, "files_deployed": ["x.keras"]}
+        )
+        with patch("app.main.ModelDeployer", return_value=fake_deployer):
+            response = test_client.post(
+                "/api/v1/deploy/7?force=true&backup_current=false"
+            )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+        fake_deployer.deploy_model.assert_awaited_once()
+
+    def test_approved_status_proceeds_without_force(self, test_client, fake_db_session):
+        """APPROVED is the validator-blessed state; deploy proceeds."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.APPROVED)
+        self._override_db_to_return(fake_db_session, mv)
+
+        fake_deployer = MagicMock()
+        fake_deployer.deploy_model = AsyncMock(
+            return_value={"success": True, "files_deployed": ["x.keras"]}
+        )
+        with patch("app.main.ModelDeployer", return_value=fake_deployer):
+            response = test_client.post("/api/v1/deploy/7?backup_current=false")
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+    def test_training_status_blocked(self, test_client, fake_db_session):
+        """TRAINING / ROLLED_BACK fall through to the explicit-reject branch."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.TRAINING)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post("/api/v1/deploy/7?backup_current=false")
+        assert response.status_code == 400
+        body = response.json()
+        assert "TRAINING" in body["detail"] or "training" in body["detail"]
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])
