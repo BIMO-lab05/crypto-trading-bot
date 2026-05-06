@@ -57,7 +57,7 @@ pytest-cov==4.1.0         # Coverage
 pytest-mock==3.12.0       # Mocking
 pytest-timeout==2.2.0     # Test timeouts
 freezegun==1.4.0          # Time mocking
-respx==0.20.0             # HTTP mocking for integration tests
+respx==0.22.0             # HTTP mocking for integration tests (>=0.21 needed for httpx 0.27)
 
 # Development
 black==24.1.1             # Code formatter

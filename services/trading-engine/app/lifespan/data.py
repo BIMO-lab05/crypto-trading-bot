@@ -61,6 +61,21 @@ async def init_data():
             logger.warning("Continuing without database persistence")
             database_health.set(0)
 
+        # Pre-warm the instruments cache so the min-notional gate has spec
+        # available on the first auto-trader cycle. Fail-open: connector
+        # outage at boot logs WARN; gate will return None per-symbol until
+        # the next get() succeeds.
+        try:
+            from app.main import get_instruments_cache  # deferred: circular
+
+            cache = get_instruments_cache()
+            await cache.refresh(list(settings.trading_symbols))
+        except Exception as e:
+            logger.warning(
+                f"InstrumentsCache pre-warm failed ({e}); min-notional gate "
+                f"fails open until first successful refresh"
+            )
+
         yield
     finally:
         try:

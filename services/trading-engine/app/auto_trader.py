@@ -1272,6 +1272,106 @@ class AutoTrader:
         self.last_trade_time_per_symbol[symbol] = datetime.now()
         logger.info(f"Trade recorded: {symbol} | Daily count: {self.daily_trades_count}/{self.max_daily_trades}")
 
+    async def _passes_min_notional(
+        self,
+        symbol: str,
+        quantity,
+        price,
+        balance,
+    ):
+        """Pre-submit gate: reject orders below the exchange's min-notional.
+
+        Returns ``(True, None)`` to proceed, ``(False, reason)`` to reject.
+        ``reason`` is one of ``"min_qty"`` / ``"min_notional"`` and matches
+        the Prometheus counter label.
+
+        Fail-open: if the instruments cache has no entry for the symbol
+        (connector outage at boot, symbol not yet refreshed), this returns
+        ``(True, None)`` with a WARN log — refusing to trade because the
+        metadata service is down would be a worse failure mode than letting
+        the order through. Paper engine fills any quantity; LIVE mode would
+        surface Bybit's own rejection.
+
+        We deliberately do NOT auto-upround the quantity here. On a $100
+        balance × 2% per-trade cap, forcing a $5 alt min-notional would
+        silently breach the risk cap (5% notional). Surface the reject so
+        the operator sees the cap configuration is incompatible with
+        live-mode minimums.
+        """
+        from decimal import Decimal as _Decimal
+
+        # Normalise call-site types (Decimal vs float vs int) to Decimal once.
+        try:
+            qty_d = _Decimal(str(quantity))
+            price_d = _Decimal(str(price))
+            balance_d = _Decimal(str(balance))
+        except Exception:
+            # Defensive — bad inputs shouldn't crash the gate.
+            logger.warning(
+                f"min-notional gate: could not parse qty/price/balance for {symbol}, allowing"
+            )
+            return True, None
+
+        # Deferred import: avoids a circular at module load and lets tests
+        # monkeypatch app.main.get_instruments_cache cleanly.
+        try:
+            from app.main import get_instruments_cache
+        except Exception as e:
+            logger.warning(
+                f"min-notional gate: instruments cache import failed for {symbol} ({e!r}), allowing"
+            )
+            return True, None
+
+        try:
+            spec = await get_instruments_cache().get(symbol)
+        except Exception as e:
+            logger.warning(
+                f"min-notional gate: cache.get({symbol}) raised {e!r}, allowing"
+            )
+            return True, None
+
+        if spec is None:
+            logger.warning(
+                f"min-notional cache miss for {symbol}, allowing trade "
+                f"(connector outage or symbol unlisted)"
+            )
+            return True, None
+
+        notional = qty_d * price_d
+        cap = balance_d * _Decimal("0.02")
+
+        if qty_d < spec.min_order_qty:
+            try:
+                from app.core.metrics import trades_rejected_min_notional_total
+                trades_rejected_min_notional_total.labels(
+                    symbol=symbol, reason="min_qty"
+                ).inc()
+            except Exception:
+                pass
+            logger.info(
+                f"rejecting {symbol}: qty {qty_d} below min {spec.min_order_qty} "
+                f"(notional ${notional:.2f}, balance ${balance_d:.2f}, "
+                f"cap 2% = ${cap:.2f})"
+            )
+            return False, "min_qty"
+
+        if spec.min_notional is not None and notional < spec.min_notional:
+            try:
+                from app.core.metrics import trades_rejected_min_notional_total
+                trades_rejected_min_notional_total.labels(
+                    symbol=symbol, reason="min_notional"
+                ).inc()
+            except Exception:
+                pass
+            logger.info(
+                f"rejecting {symbol}: notional ${notional:.2f} below min "
+                f"${spec.min_notional} (qty {qty_d}, balance ${balance_d:.2f}, "
+                f"cap 2% = ${cap:.2f})"
+            )
+            return False, "min_notional"
+
+        return True, None
+
     async def _execute_trade_with_setup(self, symbol: str, trade_setup: TradeSetup):
         """
         Execute a trade using the research strategy TradeSetup
@@ -1575,6 +1675,21 @@ class AutoTrader:
                     f"leverage={leverage:.1f}x allocation={symbol_allocation:.0%} "
                     f"- REJECTING. Reduce symbol_allocations[{symbol}] or leverage."
                 )
+                self.total_trades_rejected += 1
+                return
+
+            # Min-notional / min-qty gate (added 2026-05-06).
+            # Sub-cap sizing on small balances often produces qty < exchange min;
+            # paper engine fills any quantity, but LIVE Bybit will reject.
+            # We REJECT (not upround) — auto-upround would silently breach
+            # max_risk_per_trade.
+            ok, _reason = await self._passes_min_notional(
+                symbol=symbol,
+                quantity=quantity,
+                price=trade_setup.entry_price,
+                balance=balance,
+            )
+            if not ok:
                 self.total_trades_rejected += 1
                 return
 
@@ -2953,6 +3068,19 @@ class AutoTrader:
 
             if has_position:
                 logger.info(f"Already have open position for {symbol}, skipping")
+                self.total_trades_rejected += 1
+                return
+
+            # Min-notional / min-qty gate (added 2026-05-06).
+            # See _passes_min_notional docstring; reject-not-upround keeps
+            # the 2% per-trade cap intact.
+            ok, _reason = await self._passes_min_notional(
+                symbol=symbol,
+                quantity=quantity,
+                price=current_price,
+                balance=balance,
+            )
+            if not ok:
                 self.total_trades_rejected += 1
                 return
 

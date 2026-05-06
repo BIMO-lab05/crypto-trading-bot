@@ -232,6 +232,13 @@ risk_limit_breaches_total = Counter(
     registry=registry
 )
 
+trades_rejected_min_notional_total = Counter(
+    'trading_engine_trades_rejected_min_notional_total',
+    'Trades rejected pre-submit because the sized quantity falls below the exchange minimum',
+    ['symbol', 'reason'],  # reason: min_qty | min_notional
+    registry=registry
+)
+
 # ============================================================================
 # PERFORMANCE METRICS
 # ============================================================================
