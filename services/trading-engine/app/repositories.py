@@ -3,6 +3,7 @@ Database Repositories
 Purpose: Data access layer for persisting trading data
 """
 
+import json as _json
 import logging
 from typing import List, Optional
 from decimal import Decimal
@@ -11,11 +12,13 @@ from datetime import datetime, timezone
 
 # Import local database module (works in Docker without shared directory)
 from app.database.connection import db_manager
-from app.database.models import Position as DBPosition, Trade as DBTrade, Portfolio as DBPortfolio
+from app.database.models import (
+    Position as DBPosition,
+    Portfolio as DBPortfolio,
+)
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Position, PositionStatus, PositionSide
+from app.models import Position
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,9 @@ class PositionRepository:
         self.db = db_manager
         logger.info("PositionRepository initialized")
 
-    async def create(self, position: Position, portfolio_id: str = "paper_trading") -> UUID:
+    async def create(
+        self, position: Position, portfolio_id: str = "paper_trading"
+    ) -> UUID:
         """
         Create a new position in database
 
@@ -64,7 +69,7 @@ class PositionRepository:
                     take_profit=position.take_profit,
                     status=position.status.value,
                     strategy=position.strategy,
-                    opened_at=position.opened_at  # Fixed: was entry_time
+                    opened_at=position.opened_at,  # Fixed: was entry_time
                 )
 
                 session.add(db_position)
@@ -78,10 +83,7 @@ class PositionRepository:
             raise
 
     async def update_price(
-        self,
-        position_id: UUID,
-        current_price: Decimal,
-        unrealized_pnl: Decimal
+        self, position_id: UUID, current_price: Decimal, unrealized_pnl: Decimal
     ):
         """
         Update position price and P&L
@@ -99,7 +101,7 @@ class PositionRepository:
                     .values(
                         current_price=current_price,
                         unrealized_pnl=unrealized_pnl,
-                        updated_at=datetime.now(timezone.utc)
+                        updated_at=datetime.now(timezone.utc),
                     )
                 )
 
@@ -117,7 +119,7 @@ class PositionRepository:
         position_id: UUID,
         exit_price: Decimal,
         realized_pnl: Decimal,
-        exit_reason: Optional[str] = None
+        exit_reason: Optional[str] = None,
     ):
         """
         Close a position in database
@@ -134,19 +136,21 @@ class PositionRepository:
                     update(DBPosition)
                     .where(DBPosition.position_id == position_id)
                     .values(
-                        status='CLOSED',
+                        status="CLOSED",
                         exit_price=exit_price,
                         realized_pnl=realized_pnl,
                         exit_reason=exit_reason,
                         closed_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc)
+                        updated_at=datetime.now(timezone.utc),
                     )
                 )
 
                 await session.execute(stmt)
                 await session.commit()
 
-                logger.info(f"✓ Position {position_id} closed in database (P&L: ${realized_pnl})")
+                logger.info(
+                    f"✓ Position {position_id} closed in database (P&L: ${realized_pnl})"
+                )
 
         except Exception as e:
             logger.error(f"Failed to close position in database: {e}")
@@ -164,21 +168,25 @@ class PositionRepository:
             logger.error(f"Failed to get position from database: {e}")
             return None
 
-    async def get_open_positions(self, portfolio_id: str = "paper_trading") -> List[DBPosition]:
+    async def get_open_positions(
+        self, portfolio_id: str = "paper_trading"
+    ) -> List[DBPosition]:
         """Get all open positions for a portfolio"""
         try:
             async with self.db.get_async_session() as session:
                 result = await session.execute(
                     select(DBPosition)
                     .where(DBPosition.portfolio_id == portfolio_id)
-                    .where(DBPosition.status == 'OPEN')
+                    .where(DBPosition.status == "OPEN")
                 )
                 return result.scalars().all()
         except Exception as e:
             logger.error(f"Failed to get open positions from database: {e}")
             return []
 
-    async def get_closed_positions(self, portfolio_id: str = "paper_trading", limit: int = 50) -> List[DBPosition]:
+    async def get_closed_positions(
+        self, portfolio_id: str = "paper_trading", limit: int = 50
+    ) -> List[DBPosition]:
         """
         Get all closed positions from database for a portfolio
 
@@ -194,12 +202,14 @@ class PositionRepository:
                 result = await session.execute(
                     select(DBPosition)
                     .where(DBPosition.portfolio_id == portfolio_id)
-                    .where(DBPosition.status == 'CLOSED')
+                    .where(DBPosition.status == "CLOSED")
                     .order_by(DBPosition.closed_at.desc())
                     .limit(limit)
                 )
                 positions = result.scalars().all()
-                logger.info(f"Retrieved {len(positions)} closed positions from database")
+                logger.info(
+                    f"Retrieved {len(positions)} closed positions from database"
+                )
                 return positions
         except Exception as e:
             logger.error(f"Failed to get closed positions from database: {e}")
@@ -221,53 +231,108 @@ class TradeRepository:
 
     async def log_trade(
         self,
-        position_id: UUID,
         portfolio_id: str,
         symbol: str,
-        action: str,  # Fixed: was 'side', should be 'action'
+        side: str,
         quantity: Decimal,
         price: Decimal,
         commission: Decimal,
-        order_type: str = "MARKET"  # Fixed: was 'trade_type', should be 'order_type'
+        *,
+        position_id: Optional[
+            UUID
+        ] = None,  # accepted but unused (live schema lacks column)
+        strategy: Optional[str] = None,
+        signal_confidence: Optional[Decimal] = None,
+        order_type: str = "MARKET",  # accepted but unused
+        action: Optional[str] = None,  # legacy kwarg alias for side
     ):
         """
-        Log a trade to database
+        Log a trade to the live `trades` table.
+
+        Schema alignment (2026-05-06): the ORM `DBTrade` model drifted from the
+        actual DB columns (`action`/`order_type`/`total_cost`/`position_id`
+        don't exist in DB; live columns are `side`/`total_value`/`metadata`).
+        Inserts via the ORM silently failed and were swallowed by the prior
+        try/except, leaving `trades` empty and Performance Analytics blank.
+        This impl bypasses the broken ORM and writes the live schema directly
+        with raw SQL so the GIGO chain breaks here.
 
         Args:
-            position_id: Associated position UUID
             portfolio_id: Portfolio ID
             symbol: Trading symbol
-            action: Trade action (BUY/SELL)
+            side: 'BUY' / 'SELL' / 'LONG' / 'SHORT' (mapped to BUY/SELL)
             quantity: Trade quantity
             price: Execution price
-            commission: Commission paid (stored in 'fee' column)
-            order_type: Type of order (MARKET/LIMIT)
+            commission: Commission (persisted to `fee`)
+            position_id: Accepted for caller compat; not persisted (no column)
+            strategy: Optional strategy name (persisted to `strategy`)
+            signal_confidence: Optional confidence 0..1 (persisted)
+            order_type: Accepted for caller compat; not persisted
+            action: Legacy alias for `side`
         """
         try:
+            from sqlalchemy import text
+            from uuid import uuid4 as _uuid4
+
+            effective_side = side or action
+            if effective_side is None:
+                raise ValueError("log_trade requires 'side' (or legacy 'action')")
+            # Map LONG/SHORT → BUY/SELL for the DB CHECK constraint.
+            side_norm = effective_side.upper()
+            if side_norm in ("LONG",):
+                side_norm = "BUY"
+            elif side_norm in ("SHORT",):
+                side_norm = "SELL"
+
+            total_value = Decimal(price) * Decimal(quantity)
+            metadata_json = {
+                "order_type": order_type,
+            }
+            if position_id is not None:
+                metadata_json["position_id"] = str(position_id)
+
             async with self.db.get_async_session() as session:
-                total_cost = price * quantity + commission
-                db_trade = DBTrade(
-                    position_id=position_id,
-                    portfolio_id=portfolio_id,
-                    symbol=symbol,
-                    action=action,  # Fixed: was 'side'
-                    quantity=quantity,
-                    price=price,
-                    total_cost=total_cost,  # Added: required field
-                    fee=commission,  # Fixed: was 'commission', should be 'fee'
-                    order_type=order_type,  # Fixed: was 'trade_type'
-                    executed_at=datetime.now(timezone.utc)
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO trades (
+                            trade_id, portfolio_id, symbol, side,
+                            quantity, price, total_value, fee,
+                            strategy, signal_confidence, executed_at, metadata
+                        ) VALUES (
+                            :trade_id, :portfolio_id, :symbol, :side,
+                            :quantity, :price, :total_value, :fee,
+                            :strategy, :signal_confidence, :executed_at,
+                            CAST(:metadata AS jsonb)
+                        )
+                        """
+                    ),
+                    {
+                        "trade_id": str(_uuid4()),
+                        "portfolio_id": portfolio_id,
+                        "symbol": symbol,
+                        "side": side_norm,
+                        "quantity": quantity,
+                        "price": price,
+                        "total_value": total_value,
+                        "fee": commission,
+                        "strategy": strategy,
+                        "signal_confidence": signal_confidence,
+                        # Live `executed_at` column is `timestamp without time
+                        # zone`; asyncpg rejects tz-aware datetimes against it
+                        # ("can't subtract offset-naive and offset-aware").
+                        "executed_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                        "metadata": _json.dumps(metadata_json),
+                    },
+                )
+                await session.commit()
+                logger.info(
+                    f"✓ Trade logged: {side_norm} {quantity} {symbol} @ ${price}"
                 )
 
-                session.add(db_trade)
-                await session.commit()
-
-                logger.info(f"✓ Trade logged to database: {action} {quantity} {symbol} @ ${price}")
-
         except Exception as e:
-            logger.error(f"Failed to log trade to database: {e}")
-            # Don't raise - trade logging failure shouldn't break execution
-            pass
+            logger.error(f"Failed to log trade to database: {e}", exc_info=True)
+            # Do not re-raise; trade logging failure must not break execution.
 
 
 class PortfolioRepository:
@@ -284,7 +349,7 @@ class PortfolioRepository:
         self,
         portfolio_id: str = "paper_trading",
         name: str = "Paper Trading Portfolio",
-        initial_balance: Decimal = Decimal("10000")
+        initial_balance: Decimal = Decimal("10000"),
     ) -> DBPortfolio:
         """
         Get existing portfolio or create if doesn't exist
@@ -315,7 +380,7 @@ class PortfolioRepository:
                     name=name,
                     initial_balance=initial_balance,
                     cash_balance=initial_balance,
-                    trading_mode='PAPER'
+                    trading_mode="PAPER",
                 )
 
                 session.add(portfolio)
@@ -329,10 +394,7 @@ class PortfolioRepository:
             raise
 
     async def update_balance(
-        self,
-        portfolio_id: str,
-        cash_balance: Decimal,
-        realized_pnl: Decimal = None
+        self, portfolio_id: str, cash_balance: Decimal, realized_pnl: Decimal = None
     ):
         """
         Update portfolio balance and P&L
@@ -345,12 +407,12 @@ class PortfolioRepository:
         try:
             async with self.db.get_async_session() as session:
                 update_values = {
-                    'cash_balance': cash_balance,
-                    'updated_at': datetime.now(timezone.utc)
+                    "cash_balance": cash_balance,
+                    "updated_at": datetime.now(timezone.utc),
                 }
 
                 if realized_pnl is not None:
-                    update_values['realized_pnl'] = realized_pnl
+                    update_values["realized_pnl"] = realized_pnl
 
                 stmt = (
                     update(DBPortfolio)

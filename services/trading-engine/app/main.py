@@ -60,6 +60,7 @@ from app.handlers import (
     health_check,
     get_status,
     get_detailed_health,
+    readiness_check,  # noqa: F401  # used by /ready route — autoflake mis-strips
     get_trading_signal,
     get_enhanced_trading_signal,  # NEW: Enhanced ML prediction integration
     analyze_and_trade,
@@ -460,6 +461,19 @@ async def metrics():
 async def health():
     """Health check endpoint"""
     return await health_check()
+
+
+@app.get("/ready", tags=["Health"])
+async def ready():
+    """
+    Kubernetes-style readiness probe.
+
+    200 only when postgres + technical-analysis + bybit-connector are healthy
+    AND the in-process signal aggregator is initialized. Returns 503 with a
+    `failures` array otherwise. Distinct from /health (liveness) — /ready
+    answers "can this instance accept traffic right now".
+    """
+    return await readiness_check()
 
 
 @app.get("/status", response_model=StatusResponse, tags=["Status"])

@@ -80,4 +80,11 @@ EXPOSE 8005
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8005/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "2"]
+# --workers 1 (2026-05-06): auto-trader keeps process-local in-memory state
+# (position_manager cache, _opening_symbols dedup set, kill_switch). With
+# workers=2, each worker had its own AutoTrader and caches, producing twin
+# positions when both passed has_position before either persisted. The
+# aggregator is HTTP-bound on the TA service, so workers don't help throughput
+# here. Single worker is correct until trade-state moves to a shared lock
+# (Redis SETNX or Postgres advisory lock) — tracked in ADR-013 phase B.
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "1"]

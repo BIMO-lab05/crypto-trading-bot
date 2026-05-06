@@ -28,7 +28,7 @@ UPDATED 2025-11-30 v2: Advanced trading enhancements
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Set
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -241,6 +241,20 @@ class AutoTrader:
         self.emergency_stop_file = Path(self.settings.emergency_stop_file)
         self.emergency_stop_active = False
         self.emergency_stop_last_checked: Optional[datetime] = None
+
+        # Concurrent-open dedup (2026-05-06).
+        # Multiple signal paths can race past the has_position check before
+        # either commits its position row, producing twin positions for the
+        # same (symbol, side) at near-identical entry. Claim per-symbol slot
+        # atomically before the existence check; release after persist or
+        # rejection. Pair with a short cooldown to absorb stale-cache reads
+        # from position_mgr.get_open_positions() right after a close.
+        self._opening_symbols: Set[str] = set()
+        self._opening_lock = asyncio.Lock()
+        self._last_open_at: Dict[str, datetime] = {}
+        self.open_cooldown_seconds: int = int(
+            getattr(self.settings, "open_cooldown_seconds", 60)
+        )
 
         # Get the regime detector
         self.regime_detector = get_market_regime_detector(enabled=enable_market_regime)
@@ -824,6 +838,28 @@ class AutoTrader:
         paper_engine = get_paper_engine()
         starting_balance = paper_engine.get_balance()
         self.kill_switch.initialize_balance(float(starting_balance))
+
+        # Detect broken EMERGENCY_STOP bind-mount at loop start.
+        # Docker auto-creates a *directory* at the mount point if the host file
+        # was missing at compose-up time. Path.is_file() then returns False
+        # forever, silently disabling the operator kill switch. Surface this
+        # state loudly so the operator can fix the mount before relying on it.
+        if self.emergency_stop_file.exists() and not self.emergency_stop_file.is_file():
+            try:
+                from app.core.metrics import risk_limit_breaches_total
+
+                risk_limit_breaches_total.labels(
+                    breach_type="emergency_stop_mount_broken"
+                ).inc()
+            except Exception:
+                pass
+            logger.critical(
+                f"EMERGENCY_STOP mount is broken: {self.emergency_stop_file} exists but "
+                f"is not a regular file (likely a directory created by Docker when the host "
+                f"file was missing at compose-up). Kill switch is non-functional. To fix: "
+                f"stop trading-engine, on host run `rmdir EMERGENCY_STOP && touch EMERGENCY_STOP`, "
+                f"then `docker compose up -d --force-recreate trading-engine api-gateway`."
+            )
 
         while self.is_running:
             try:
@@ -1523,6 +1559,42 @@ class AutoTrader:
 
         return True, None
 
+    async def _claim_open_slot(self, symbol: str) -> bool:
+        """
+        Atomically claim a per-symbol open slot. Prevents twin positions when
+        two signal paths race past the position_mgr.get_open_positions()
+        existence check before either commits its row.
+
+        Returns False if (a) another open is already in flight for this symbol
+        or (b) we just opened one within the cooldown window.
+        """
+        async with self._opening_lock:
+            if symbol in self._opening_symbols:
+                logger.info(
+                    f"[DEDUP] {symbol}: open already in flight, skipping duplicate"
+                )
+                self.total_trades_rejected += 1
+                return False
+            last = self._last_open_at.get(symbol)
+            if last is not None:
+                elapsed = (datetime.now() - last).total_seconds()
+                if elapsed < self.open_cooldown_seconds:
+                    logger.info(
+                        f"[DEDUP] {symbol}: open cooldown "
+                        f"{elapsed:.1f}s/{self.open_cooldown_seconds}s, "
+                        f"skipping duplicate"
+                    )
+                    self.total_trades_rejected += 1
+                    return False
+            self._opening_symbols.add(symbol)
+            return True
+
+    def _release_open_slot(self, symbol: str, *, opened: bool) -> None:
+        """Release the slot. Stamp last_open_at iff a position was opened."""
+        self._opening_symbols.discard(symbol)
+        if opened:
+            self._last_open_at[symbol] = datetime.now()
+
     async def _execute_trade_with_setup(self, symbol: str, trade_setup: TradeSetup):
         """
         Execute a trade using the research strategy TradeSetup
@@ -1539,6 +1611,11 @@ class AutoTrader:
             symbol: Trading symbol
             trade_setup: Complete trade setup from ResearchOptimizedStrategy
         """
+        # Concurrent-open dedup gate (2026-05-06). MUST be first — otherwise
+        # twin signals race past has_position before either persists.
+        if not await self._claim_open_slot(symbol):
+            return
+        opened = False
         try:
             # ================================================================
             # PRE-TRADE CHECKS (Enhanced 2025-11-30)
@@ -1909,6 +1986,7 @@ class AutoTrader:
 
             if executed_order.status == OrderStatus.FILLED:
                 self.total_trades_executed += 1
+                opened = True  # arm cooldown so a duplicate signal in the next 60s short-circuits
                 self._record_trade(symbol)  # Track for daily limit and cooldown
 
                 # ================================================================
@@ -2194,6 +2272,12 @@ class AutoTrader:
                 f"[RESEARCH] Error executing trade for {symbol}: {e}", exc_info=True
             )
             self.total_trades_rejected += 1
+        finally:
+            # Release per-symbol open slot. `opened` is True only on the path
+            # that actually persisted a fill above; every other return / raise
+            # falls through with opened=False, releasing the claim without
+            # arming the cooldown.
+            self._release_open_slot(symbol, opened=opened)
 
     def _log_market_regime(self, symbol: str, regime_analysis) -> None:
         """
@@ -3316,6 +3400,11 @@ class AutoTrader:
             confidence: Signal confidence score
             signal: TradingSignal object
         """
+        # Concurrent-open dedup gate (2026-05-06). Race-safe per-symbol claim
+        # so two signal paths can't both pass has_position before either commits.
+        if not await self._claim_open_slot(symbol):
+            return
+        opened = False
         try:
             logger.info(
                 f"Executing {action} trade for {symbol} (confidence: {confidence:.2f})"
@@ -3445,6 +3534,7 @@ class AutoTrader:
 
             if executed_order.status == OrderStatus.FILLED:
                 self.total_trades_executed += 1
+                opened = True  # arm dedup cooldown for this symbol
                 logger.info(f"Trade executed successfully for {symbol}")
                 logger.info(
                     f"Stats: Checked={self.total_signals_checked}, "
@@ -3479,6 +3569,9 @@ class AutoTrader:
         except Exception as e:
             logger.error(f"Error executing trade for {symbol}: {e}", exc_info=True)
             self.total_trades_rejected += 1
+        finally:
+            # Release per-symbol open slot. Arms cooldown only on `opened=True`.
+            self._release_open_slot(symbol, opened=opened)
 
     def _get_performance_summary(self) -> dict:
         """

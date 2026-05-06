@@ -17,7 +17,6 @@ import httpx
 import logging
 from typing import Dict, Optional, List
 from decimal import Decimal
-from datetime import datetime
 
 from app.strategies.sqzmom_config import sqzmom_config
 
@@ -74,9 +73,7 @@ class SQZMOMStrategy:
         )
 
     async def get_signal(
-        self,
-        symbol: str,
-        interval: Optional[str] = None
+        self, symbol: str, interval: Optional[str] = None
     ) -> Optional[Dict]:
         """
         Get SQZMOM trading signal from Technical Analysis service
@@ -140,15 +137,13 @@ class SQZMOMStrategy:
                 "interval": interval,
                 "min_momentum": self.config.min_momentum_threshold,
                 "stop_loss_pct": symbol_params.get(
-                    "stop_loss_pct",
-                    self.config.stop_loss_pct
+                    "stop_loss_pct", self.config.stop_loss_pct
                 ),
                 "take_profit_pct": symbol_params.get(
-                    "take_profit_pct",
-                    self.config.take_profit_pct
+                    "take_profit_pct", self.config.take_profit_pct
                 ),
                 "require_squeeze_release": self.config.require_squeeze_release,
-                "require_volume": self.config.require_volume_confirmation
+                "require_volume": self.config.require_volume_confirmation,
             }
 
             logger.info(f"Fetching SQZMOM signal for {symbol} ({interval}m)")
@@ -169,6 +164,140 @@ class SQZMOMStrategy:
             )
             logger.debug(f"Full signal: {signal}")
 
+            # ATR-based stop / take-profit override (2026-05-06).
+            # The TA service responds with stops derived from the fixed
+            # stop_loss_pct hint we sent. That ignores volatility regime —
+            # in low-vol the stops are wider than needed; in high-vol they
+            # are too tight and get knocked out by noise. Hit the ATR
+            # indicator endpoint and let it set ATR-multiple stops with the
+            # 2:1 risk-reward already wired into TA. Falls back to the
+            # original fixed-pct stops if the ATR call fails — strictly
+            # an improvement, never worse than current behavior.
+            if signal.get("action") in ("BUY", "SELL"):
+                try:
+                    atr_url = f"{self.ta_url}/api/v1/indicators/atr/{symbol}"
+                    atr_resp = await self.http_client.get(
+                        atr_url, params={"interval": interval}
+                    )
+                    atr_resp.raise_for_status()
+                    atr_data = atr_resp.json().get("data", {})
+                    if signal["action"] == "BUY":
+                        sl = atr_data.get("stop_loss_long")
+                        tp = atr_data.get("take_profit_long")
+                    else:
+                        sl = atr_data.get("stop_loss_short")
+                        tp = atr_data.get("take_profit_short")
+                    if sl is not None and tp is not None:
+                        prev_sl = signal.get("stop_loss")
+                        prev_tp = signal.get("take_profit")
+                        signal["stop_loss"] = float(sl)
+                        signal["take_profit"] = float(tp)
+                        signal["stop_source"] = "atr"
+                        signal["atr"] = atr_data.get("atr")
+                        signal["atr_pct"] = atr_data.get("atr_pct")
+                        logger.info(
+                            f"[ATR_STOP] {symbol} {signal['action']} "
+                            f"SL {prev_sl} -> {sl} | TP {prev_tp} -> {tp} "
+                            f"(ATR={atr_data.get('atr')}, "
+                            f"vol={atr_data.get('volatility')})"
+                        )
+                    else:
+                        signal.setdefault(
+                            "stop_source", "fixed_pct_fallback_no_atr_data"
+                        )
+                except Exception as atr_err:
+                    logger.warning(
+                        f"[ATR_STOP] {symbol}: ATR fetch failed, falling back to "
+                        f"fixed-pct stops. Error: {atr_err}"
+                    )
+                    signal.setdefault("stop_source", "fixed_pct_fallback_atr_error")
+
+            # Research-derived confirmation filters (2026-05-06).
+            # Sources: PineIndicators / Bitduke sqzmom strategy publications
+            # + Stoic.ai / EnlightenedStockTrading guidance. Bare squeeze
+            # release ~50% directional accuracy in crypto chop; the working
+            # implementations stack:
+            #   (a) ADX >= 20 trend-strength gate (skip mean-revert chop)
+            #   (b) ADX direction agreement with action (long requires BULLISH)
+            #   (c) Volume on release > 1.2× SMA(20)
+            # Engine-side gating is fail-open: any TA hiccup just lets the
+            # bare signal through (degrades to current behavior, never worse).
+            if signal.get("action") in ("BUY", "SELL"):
+                # ADX gate
+                try:
+                    adx_resp = await self.http_client.get(
+                        f"{self.ta_url}/api/v1/indicators/adx/{symbol}",
+                        params={"interval": interval},
+                    )
+                    adx_resp.raise_for_status()
+                    adx_data = adx_resp.json().get("data", {})
+                    adx_val = float(adx_data.get("adx", 0.0))
+                    adx_dir = adx_data.get("direction", "NEUTRAL")
+                    signal["adx"] = adx_val
+                    signal["adx_direction"] = adx_dir
+
+                    if adx_val < 20.0:
+                        logger.info(
+                            f"[SQZMOM_GATE] {symbol}: ADX {adx_val:.1f} < 20 "
+                            f"(weak trend). Demoting {signal['action']} → HOLD."
+                        )
+                        signal["action_pre_gate"] = signal["action"]
+                        signal["action"] = "HOLD"
+                        signal["gate_rejection"] = "adx_weak_trend"
+                    elif signal["action"] == "BUY" and adx_dir == "BEARISH":
+                        logger.info(
+                            f"[SQZMOM_GATE] {symbol}: BUY against BEARISH ADX "
+                            f"(adx={adx_val:.1f}). Demoting → HOLD."
+                        )
+                        signal["action_pre_gate"] = "BUY"
+                        signal["action"] = "HOLD"
+                        signal["gate_rejection"] = "adx_counter_trend_long"
+                    elif signal["action"] == "SELL" and adx_dir == "BULLISH":
+                        logger.info(
+                            f"[SQZMOM_GATE] {symbol}: SELL against BULLISH ADX "
+                            f"(adx={adx_val:.1f}). Demoting → HOLD."
+                        )
+                        signal["action_pre_gate"] = "SELL"
+                        signal["action"] = "HOLD"
+                        signal["gate_rejection"] = "adx_counter_trend_short"
+                except Exception as adx_err:
+                    logger.warning(
+                        f"[SQZMOM_GATE] {symbol}: ADX gate skipped (fail-open). "
+                        f"Error: {adx_err}"
+                    )
+
+                # Volume confirmation gate (only if action survived ADX)
+                if signal.get("action") in ("BUY", "SELL"):
+                    try:
+                        vol_resp = await self.http_client.get(
+                            f"{self.ta_url}/api/v1/indicators/volume/{symbol}",
+                            params={"interval": interval},
+                        )
+                        vol_resp.raise_for_status()
+                        vol_data = vol_resp.json().get("data", {}) or {}
+                        # endpoint exposes 'confirmed' / 'ratio' / 'strength'
+                        confirmed = bool(vol_data.get("confirmed", True))
+                        ratio = float(
+                            vol_data.get("ratio", vol_data.get("volume_ratio", 1.0))
+                        )
+                        signal["volume_ratio"] = ratio
+                        if not confirmed or ratio < 1.2:
+                            logger.info(
+                                f"[SQZMOM_GATE] {symbol}: volume_ratio={ratio:.2f} "
+                                f"(<1.2 or unconfirmed). Demoting "
+                                f"{signal['action']} → HOLD."
+                            )
+                            signal["action_pre_gate"] = signal.get(
+                                "action_pre_gate", signal["action"]
+                            )
+                            signal["action"] = "HOLD"
+                            signal["gate_rejection"] = "weak_volume"
+                    except Exception as vol_err:
+                        logger.warning(
+                            f"[SQZMOM_GATE] {symbol}: volume gate skipped "
+                            f"(fail-open). Error: {vol_err}"
+                        )
+
             return signal
 
         except httpx.HTTPStatusError as e:
@@ -178,14 +307,12 @@ class SQZMOMStrategy:
             )
             return None
         except httpx.RequestError as e:
-            logger.error(
-                f"Request error fetching SQZMOM signal for {symbol}: {e}"
-            )
+            logger.error(f"Request error fetching SQZMOM signal for {symbol}: {e}")
             return None
         except Exception as e:
             logger.error(
                 f"Unexpected error fetching SQZMOM signal for {symbol}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             return None
 
@@ -217,11 +344,7 @@ class SQZMOMStrategy:
         return signals
 
     async def calculate_position_size(
-        self,
-        symbol: str,
-        entry_price: float,
-        stop_loss: float,
-        account_balance: float
+        self, symbol: str, entry_price: float, stop_loss: float, account_balance: float
     ) -> Decimal:
         """
         Calculate position size based on risk management rules
@@ -249,8 +372,7 @@ class SQZMOMStrategy:
         # Get symbol-specific position size or use default
         symbol_config = self.config.symbol_config.get(symbol, {})
         position_pct = symbol_config.get(
-            "position_size_pct",
-            self.config.position_size_pct
+            "position_size_pct", self.config.position_size_pct
         )
 
         # Calculate position value (% of capital)
@@ -264,9 +386,7 @@ class SQZMOMStrategy:
         risk_amount = float(quantity) * risk_per_unit
         risk_pct = (risk_amount / account_balance) * 100
 
-        logger.info(
-            f"Position size calculated for {symbol}:"
-        )
+        logger.info(f"Position size calculated for {symbol}:")
         logger.info(f"  Account balance: ${account_balance:,.2f}")
         logger.info(f"  Position size: {position_pct}% = ${position_value:,.2f}")
         logger.info(f"  Entry price: ${entry_price:,.2f}")
@@ -277,9 +397,7 @@ class SQZMOMStrategy:
         return quantity
 
     async def should_execute_trade(
-        self,
-        signal: Dict,
-        current_positions: int
+        self, signal: Dict, current_positions: int
     ) -> tuple[bool, str]:
         """
         Validate if trade should be executed based on risk rules
@@ -298,7 +416,7 @@ class SQZMOMStrategy:
         Returns:
             Tuple of (should_execute: bool, reason: str)
         """
-        symbol = signal.get('symbol', 'UNKNOWN')
+        symbol = signal.get("symbol", "UNKNOWN")
 
         # Check if trading is enabled
         if not self.config.auto_trading:
@@ -312,22 +430,18 @@ class SQZMOMStrategy:
             )
 
         # Check action is BUY or SELL (not HOLD)
-        action = signal.get('action', 'HOLD')
-        if action == 'HOLD':
+        action = signal.get("action", "HOLD")
+        if action == "HOLD":
             return False, "Signal action is HOLD"
 
         # Check signal confidence (symbol-specific or default)
-        confidence = signal.get('confidence', 0.0)
+        confidence = signal.get("confidence", 0.0)
         symbol_config = self.config.symbol_config.get(symbol, {})
-        min_confidence = symbol_config.get(
-            'min_confidence',
-            self.config.min_confidence
-        )
+        min_confidence = symbol_config.get("min_confidence", self.config.min_confidence)
 
         if confidence < min_confidence:
             return False, (
-                f"Signal confidence too low: {confidence:.2f} < "
-                f"{min_confidence:.2f}"
+                f"Signal confidence too low: {confidence:.2f} < {min_confidence:.2f}"
             )
 
         # All checks passed
@@ -347,11 +461,11 @@ class SQZMOMStrategy:
         """
         # Start with defaults
         config = {
-            'position_size_pct': self.config.position_size_pct,
-            'stop_loss_pct': self.config.stop_loss_pct,
-            'take_profit_pct': self.config.take_profit_pct,
-            'min_confidence': self.config.min_confidence,
-            'description': f"Default SQZMOM configuration"
+            "position_size_pct": self.config.position_size_pct,
+            "stop_loss_pct": self.config.stop_loss_pct,
+            "take_profit_pct": self.config.take_profit_pct,
+            "min_confidence": self.config.min_confidence,
+            "description": "Default SQZMOM configuration",
         }
 
         # Override with symbol-specific config if exists
@@ -377,29 +491,29 @@ class SQZMOMStrategy:
             and current state
         """
         return {
-            'name': 'SQZMOM',
-            'description': 'Squeeze Momentum strategy with optimized parameters',
-            'version': '1.0.0',
-            'enabled_symbols': self.config.enabled_symbols,
-            'paper_trading': self.config.paper_trading,
-            'auto_trading': self.config.auto_trading,
-            'max_positions': self.config.max_positions,
-            'parameters': {
-                'bb_length': self.config.bb_length,
-                'kc_length': self.config.kc_length,
-                'min_momentum_threshold': self.config.min_momentum_threshold,
-                'stop_loss_pct': self.config.stop_loss_pct,
-                'take_profit_pct': self.config.take_profit_pct,
-                'require_squeeze_release': self.config.require_squeeze_release,
-                'require_volume_confirmation': self.config.require_volume_confirmation,
-                'min_confidence': self.config.min_confidence
+            "name": "SQZMOM",
+            "description": "Squeeze Momentum strategy with optimized parameters",
+            "version": "1.0.0",
+            "enabled_symbols": self.config.enabled_symbols,
+            "paper_trading": self.config.paper_trading,
+            "auto_trading": self.config.auto_trading,
+            "max_positions": self.config.max_positions,
+            "parameters": {
+                "bb_length": self.config.bb_length,
+                "kc_length": self.config.kc_length,
+                "min_momentum_threshold": self.config.min_momentum_threshold,
+                "stop_loss_pct": self.config.stop_loss_pct,
+                "take_profit_pct": self.config.take_profit_pct,
+                "require_squeeze_release": self.config.require_squeeze_release,
+                "require_volume_confirmation": self.config.require_volume_confirmation,
+                "min_confidence": self.config.min_confidence,
             },
-            'symbol_configs': self.config.symbol_config,
-            'backtesting_results': {
-                'SOLUSDT': '+2,706% (22% WR, 4.76 Sharpe)',
-                'DOGEUSDT': '+630% (28% WR, 5.41 Sharpe)',
-                'BNBUSDT': '+330% (31% WR)'
-            }
+            "symbol_configs": self.config.symbol_config,
+            "backtesting_results": {
+                "SOLUSDT": "+2,706% (22% WR, 4.76 Sharpe)",
+                "DOGEUSDT": "+630% (28% WR, 5.41 Sharpe)",
+                "BNBUSDT": "+330% (31% WR)",
+            },
         }
 
     async def close(self):

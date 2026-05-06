@@ -21,7 +21,7 @@ Phase 9: Added multi-strategy orchestration handlers (2025-12-12)
 """
 
 # Health endpoints
-from .health import health_check, get_status, get_detailed_health
+from .health import health_check, get_status, get_detailed_health, readiness_check
 
 # Signal endpoints
 from .signals import get_trading_signal, get_enhanced_trading_signal, analyze_and_trade
@@ -33,17 +33,13 @@ from .positions import get_positions, get_position
 from .performance import get_performance
 
 # Trading control endpoints
-from .trading_control import (
-    start_trading,
-    stop_trading,
-    get_auto_trading_status
-)
+from .trading_control import start_trading, stop_trading, get_auto_trading_status
 
 # Phase 1 endpoints
 from .phase1 import (
     get_phase1_metrics_endpoint,
     get_phase1_health,
-    get_latest_phase1_signal
+    get_latest_phase1_signal,
 )
 
 # Trade history endpoints
@@ -56,7 +52,7 @@ from .backtest import (
     get_backtest_quick_run,
     compare_strategies,
     get_equity_curve,
-    BacktestRequest
+    BacktestRequest,
 )
 
 # Statistical Arbitrage endpoints (Phase 2.2)
@@ -69,7 +65,7 @@ from .statistical_arbitrage import (
     generate_signals as generate_stat_arb_signals,
     get_performance as get_stat_arb_performance,
     get_status as get_stat_arb_status,
-    reset_manager as reset_stat_arb_manager
+    reset_manager as reset_stat_arb_manager,
 )
 
 # Correlation Analysis endpoints (Phase 3.1)
@@ -81,7 +77,7 @@ from .correlation import (
     get_correlation_alerts,
     check_can_open_position,
     update_correlations,
-    initialize_correlation_manager
+    initialize_correlation_manager,
 )
 
 # Kelly Position Sizing endpoints (Phase 3.2)
@@ -92,7 +88,7 @@ from .risk_kelly import (
     simulate_kelly_position,
     record_trade_for_kelly,
     get_kelly_comparison,
-    reset_kelly_tracking
+    reset_kelly_tracking,
 )
 
 # Dynamic Risk Budget endpoints (Phase 3.3)
@@ -127,7 +123,7 @@ from .execution_router import (
     analyze_orderbook,
     estimate_slippage,
     get_execution_quality_report,
-    reset_router
+    reset_router,
 )
 
 # TWAP/VWAP Execution endpoints (Phase 4.2)

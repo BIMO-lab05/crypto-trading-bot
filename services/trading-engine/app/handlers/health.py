@@ -16,7 +16,6 @@ from app.position_manager import get_position_manager
 from app.paper_trading import get_paper_engine
 from app.models import HealthResponse, StatusResponse
 from app.monitoring import get_health_monitor
-from app.database.connection import db_manager
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -55,17 +54,23 @@ async def health_check() -> HealthResponse:
         return HealthResponse(
             status=cached_health.status.value,
             service=settings.service_name,
-            technical_analysis_connection=ta_healthy.status.value == "healthy" if ta_healthy else False,
-            bybit_connector_connection=bybit_healthy_obj.status.value == "healthy" if bybit_healthy_obj else False,
-            database_connection=db_healthy_obj.status.value == "healthy" if db_healthy_obj else False,
+            technical_analysis_connection=ta_healthy.status.value == "healthy"
+            if ta_healthy
+            else False,
+            bybit_connector_connection=bybit_healthy_obj.status.value == "healthy"
+            if bybit_healthy_obj
+            else False,
+            database_connection=db_healthy_obj.status.value == "healthy"
+            if db_healthy_obj
+            else False,
             timestamp=int(time.time() * 1000),
             details={
                 "dependencies": {
                     name: dep.to_dict()
                     for name, dep in cached_health.dependencies.items()
                 },
-                "metrics": cached_health.metrics
-            }
+                "metrics": cached_health.metrics,
+            },
         )
 
     # Perform fresh health check
@@ -75,9 +80,7 @@ async def health_check() -> HealthResponse:
     }
 
     system_health = await health_monitor.perform_health_check(
-        postgres_enabled=True,
-        redis_url=settings.redis_url,
-        external_apis=external_apis
+        postgres_enabled=True, redis_url=settings.redis_url, external_apis=external_apis
     )
 
     # Extract individual statuses for backward compatibility
@@ -89,18 +92,92 @@ async def health_check() -> HealthResponse:
     return HealthResponse(
         status=system_health.status.value,
         service=settings.service_name,
-        technical_analysis_connection=ta_healthy.status.value == "healthy" if ta_healthy else False,
-        bybit_connector_connection=bybit_healthy_obj.status.value == "healthy" if bybit_healthy_obj else False,
-        database_connection=db_healthy_obj.status.value == "healthy" if db_healthy_obj else False,
+        technical_analysis_connection=ta_healthy.status.value == "healthy"
+        if ta_healthy
+        else False,
+        bybit_connector_connection=bybit_healthy_obj.status.value == "healthy"
+        if bybit_healthy_obj
+        else False,
+        database_connection=db_healthy_obj.status.value == "healthy"
+        if db_healthy_obj
+        else False,
         timestamp=int(time.time() * 1000),
         details={
             "dependencies": {
-                name: dep.to_dict()
-                for name, dep in system_health.dependencies.items()
+                name: dep.to_dict() for name, dep in system_health.dependencies.items()
             },
-            "metrics": system_health.metrics
-        }
+            "metrics": system_health.metrics,
+        },
     )
+
+
+async def readiness_check():
+    """
+    Kubernetes-style readiness probe (2026-05-06).
+
+    Returns 200 only if every critical dependency is healthy AND the in-process
+    signal aggregator has been instantiated. Returns 503 otherwise. Distinct
+    from /health which is a liveness signal — readiness is "this instance can
+    accept traffic right now".
+
+    Critical deps: postgres, technical-analysis, bybit-connector. Aggregator
+    presence is checked via get_aggregator() (raises / returns None pre-init).
+    """
+    from fastapi.responses import JSONResponse
+
+    health_monitor = get_health_monitor()
+    external_apis = {
+        "technical_analysis": f"{settings.technical_analysis_url}/health",
+        "bybit_connector": f"{settings.bybit_connector_url}/health",
+    }
+    system_health = await health_monitor.perform_health_check(
+        postgres_enabled=True,
+        redis_url=settings.redis_url,
+        external_apis=external_apis,
+    )
+
+    deps = system_health.dependencies
+    critical = ("postgres", "technical_analysis", "bybit_connector")
+    failures = []
+    for name in critical:
+        dep = deps.get(name)
+        if dep is None or dep.status.value != "healthy":
+            failures.append(
+                {
+                    "dep": name,
+                    "status": dep.status.value if dep else "missing",
+                    "detail": getattr(dep, "error_message", None) if dep else None,
+                }
+            )
+
+    aggregator_ready = True
+    aggregator_error = None
+    try:
+        agg = get_aggregator()
+        if agg is None:
+            aggregator_ready = False
+            aggregator_error = "aggregator instance is None"
+    except Exception as e:
+        aggregator_ready = False
+        aggregator_error = str(e)
+    if not aggregator_ready:
+        failures.append(
+            {
+                "dep": "signal_aggregator",
+                "status": "not_ready",
+                "detail": aggregator_error,
+            }
+        )
+
+    payload = {
+        "ready": not failures,
+        "service": settings.service_name,
+        "timestamp": int(time.time() * 1000),
+        "failures": failures,
+    }
+    if failures:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 async def get_status() -> StatusResponse:
@@ -129,13 +206,15 @@ async def get_status() -> StatusResponse:
 
     # Surface emergency-stop file kill-switch state from the auto-trader singleton.
     from app.auto_trader import get_auto_trader
+
     auto_trader = get_auto_trader()
     emergency_stop_state = {
         "file_path": str(auto_trader.emergency_stop_file),
         "active": auto_trader.emergency_stop_active,
         "last_checked": (
             auto_trader.emergency_stop_last_checked.isoformat()
-            if auto_trader.emergency_stop_last_checked else None
+            if auto_trader.emergency_stop_last_checked
+            else None
         ),
         "auto_trader_running": auto_trader.is_running,
     }
@@ -149,7 +228,7 @@ async def get_status() -> StatusResponse:
         current_balance=float(paper_engine.get_balance()),
         timestamp=int(time.time() * 1000),
         system_metrics=system_metrics,
-        emergency_stop=emergency_stop_state
+        emergency_stop=emergency_stop_state,
     )
 
 
@@ -170,9 +249,7 @@ async def get_detailed_health() -> dict:
     }
 
     system_health = await health_monitor.perform_health_check(
-        postgres_enabled=True,
-        redis_url=settings.redis_url,
-        external_apis=external_apis
+        postgres_enabled=True, redis_url=settings.redis_url, external_apis=external_apis
     )
 
     return {
@@ -180,13 +257,12 @@ async def get_detailed_health() -> dict:
         "timestamp": system_health.timestamp.isoformat(),
         "service": settings.service_name,
         "dependencies": {
-            name: dep.to_dict()
-            for name, dep in system_health.dependencies.items()
+            name: dep.to_dict() for name, dep in system_health.dependencies.items()
         },
         "system_metrics": system_health.metrics,
         "health_check_config": {
             "check_interval_seconds": health_monitor.check_interval,
             "failure_threshold": health_monitor.failure_threshold,
-            "timeout_seconds": health_monitor.timeout_seconds
-        }
+            "timeout_seconds": health_monitor.timeout_seconds,
+        },
     }
