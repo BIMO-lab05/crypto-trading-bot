@@ -5,7 +5,7 @@
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
 # ============================================================================
-FROM python:3.12-slim as builder
+FROM python:3.12-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
