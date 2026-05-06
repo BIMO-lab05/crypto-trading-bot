@@ -15,7 +15,6 @@ import pytest
 pytestmark = pytest.mark.skip(reason="stale tests after PR #86 refactor; needs rewrite")
 
 import pytest
-import pytest_asyncio
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
@@ -26,9 +25,7 @@ from app.models import (
     OrderSide,
     OrderType,
     PositionSide,
-    PositionStatus,
-    Order,
-    OrderStatus
+    OrderStatus,
 )
 
 
@@ -36,7 +33,9 @@ from app.models import (
 def mock_repositories():
     """Mock database repositories"""
     trade_repo = MagicMock()
-    trade_repo.log_trade = AsyncMock(return_value=UUID('12345678-1234-5678-1234-567812345678'))
+    trade_repo.log_trade = AsyncMock(
+        return_value=UUID("12345678-1234-5678-1234-567812345678")
+    )
 
     portfolio_repo = MagicMock()
     portfolio_repo.update_balance = AsyncMock()
@@ -73,11 +72,14 @@ def paper_engine(mock_repositories, mock_managers):
     trade_repo, portfolio_repo = mock_repositories
     position_manager, risk_manager = mock_managers
 
-    with patch('app.paper_trading.get_trade_repository', return_value=trade_repo), \
-         patch('app.paper_trading.get_portfolio_repository', return_value=portfolio_repo), \
-         patch('app.paper_trading.get_position_manager', return_value=position_manager), \
-         patch('app.paper_trading.get_risk_manager', return_value=risk_manager):
-
+    with (
+        patch("app.paper_trading.get_trade_repository", return_value=trade_repo),
+        patch(
+            "app.paper_trading.get_portfolio_repository", return_value=portfolio_repo
+        ),
+        patch("app.paper_trading.get_position_manager", return_value=position_manager),
+        patch("app.paper_trading.get_risk_manager", return_value=risk_manager),
+    ):
         engine = PaperTradingEngine()
         engine.initial_balance = Decimal("100000")
         engine.balance = Decimal("100000")
@@ -143,11 +145,13 @@ class TestBuyOrderExecution:
             side=OrderSide.BUY,
             type=OrderType.MARKET,
             quantity=Decimal("0.1"),
-            strategy="TEST_STRATEGY"
+            strategy="TEST_STRATEGY",
         )
 
         current_price = Decimal("50000.00")
-        executed_order, error = await paper_engine.execute_market_order(order, current_price)
+        executed_order, error = await paper_engine.execute_market_order(
+            order, current_price
+        )
 
         # Verify order executed
         assert error is None
@@ -175,11 +179,13 @@ class TestBuyOrderExecution:
             side=OrderSide.BUY,
             type=OrderType.MARKET,
             quantity=Decimal("1.0"),  # Large quantity
-            strategy="TEST_STRATEGY"
+            strategy="TEST_STRATEGY",
         )
 
         current_price = Decimal("50000.00")
-        executed_order, error = await paper_engine.execute_market_order(order, current_price)
+        executed_order, error = await paper_engine.execute_market_order(
+            order, current_price
+        )
 
         # Verify order rejected
         assert error is not None
@@ -199,7 +205,7 @@ class TestBuyOrderExecution:
             side=OrderSide.BUY,
             type=OrderType.MARKET,
             quantity=Decimal("0.5"),
-            strategy="TEST_STRATEGY"
+            strategy="TEST_STRATEGY",
         )
 
         current_price = Decimal("50000.00")
@@ -208,23 +214,25 @@ class TestBuyOrderExecution:
         # Verify position created
         position_manager.create_position.assert_called_once()
         call_args = position_manager.create_position.call_args
-        assert call_args[1]['symbol'] == "BTCUSDT"
-        assert call_args[1]['side'] == PositionSide.LONG
-        assert call_args[1]['quantity'] == Decimal("0.5")
+        assert call_args[1]["symbol"] == "BTCUSDT"
+        assert call_args[1]["side"] == PositionSide.LONG
+        assert call_args[1]["quantity"] == Decimal("0.5")
 
 
 class TestSellOrderExecution:
     """Test SELL order execution"""
 
     @pytest.mark.asyncio
-    async def test_execute_sell_order_success(self, paper_engine, mock_managers, mock_repositories):
+    async def test_execute_sell_order_success(
+        self, paper_engine, mock_managers, mock_repositories
+    ):
         """Test successful SELL order execution"""
         position_manager, _ = mock_managers
         trade_repo, _ = mock_repositories
 
         # Mock existing open position
         mock_position = MagicMock()
-        mock_position.id = UUID('12345678-1234-5678-1234-567812345678')
+        mock_position.id = UUID("12345678-1234-5678-1234-567812345678")
         mock_position.symbol = "BTCUSDT"
         mock_position.quantity = Decimal("0.1")
         mock_position.entry_price = Decimal("50000.00")
@@ -239,11 +247,13 @@ class TestSellOrderExecution:
             type=OrderType.MARKET,
             quantity=Decimal("0.1"),
             position_id=mock_position.id,
-            strategy="TEST_STRATEGY"
+            strategy="TEST_STRATEGY",
         )
 
         current_price = Decimal("52000.00")
-        executed_order, error = await paper_engine.execute_market_order(order, current_price)
+        executed_order, error = await paper_engine.execute_market_order(
+            order, current_price
+        )
 
         # Verify order executed
         assert error is None
@@ -252,7 +262,9 @@ class TestSellOrderExecution:
         # Verify balance increased
         order_value = current_price * order.quantity
         commission = paper_engine.calculate_commission(order_value)
-        expected_balance = initial_balance + order_value - commission + Decimal("200.00")
+        expected_balance = (
+            initial_balance + order_value - commission + Decimal("200.00")
+        )
         assert paper_engine.balance == expected_balance
 
         # Verify position closed
@@ -269,11 +281,13 @@ class TestSellOrderExecution:
             side=OrderSide.SELL,
             type=OrderType.MARKET,
             quantity=Decimal("0.1"),
-            strategy="TEST_STRATEGY"
+            strategy="TEST_STRATEGY",
         )
 
         current_price = Decimal("52000.00")
-        executed_order, error = await paper_engine.execute_market_order(order, current_price)
+        executed_order, error = await paper_engine.execute_market_order(
+            order, current_price
+        )
 
         # Verify order rejected
         assert error is not None
@@ -290,9 +304,7 @@ class TestPositionChecks:
         position_manager.get_open_positions.return_value = []  # No open positions
 
         can_open, reason = paper_engine.can_open_position(
-            symbol="BTCUSDT",
-            quantity=Decimal("0.1"),
-            price=Decimal("50000.00")
+            symbol="BTCUSDT", quantity=Decimal("0.1"), price=Decimal("50000.00")
         )
 
         assert can_open is True
@@ -303,9 +315,7 @@ class TestPositionChecks:
         paper_engine.balance = Decimal("100.00")
 
         can_open, reason = paper_engine.can_open_position(
-            symbol="BTCUSDT",
-            quantity=Decimal("1.0"),
-            price=Decimal("50000.00")
+            symbol="BTCUSDT", quantity=Decimal("1.0"), price=Decimal("50000.00")
         )
 
         assert can_open is False
@@ -320,9 +330,7 @@ class TestPositionChecks:
         position_manager.get_open_positions.return_value = [mock_position]
 
         can_open, reason = paper_engine.can_open_position(
-            symbol="BTCUSDT",
-            quantity=Decimal("0.1"),
-            price=Decimal("50000.00")
+            symbol="BTCUSDT", quantity=Decimal("0.1"), price=Decimal("50000.00")
         )
 
         assert can_open is False
@@ -334,12 +342,14 @@ class TestPositionChecks:
         position_manager.get_open_positions.return_value = []
 
         # Mock risk manager to reject
-        risk_manager.validate_position_size = MagicMock(return_value=(False, "Exceeds risk limit"))
+        risk_manager.validate_position_size = MagicMock(
+            return_value=(False, "Exceeds risk limit")
+        )
 
         can_open, reason = paper_engine.can_open_position(
             symbol="BTCUSDT",
             quantity=Decimal("10.0"),  # Large position
-            price=Decimal("50000.00")
+            price=Decimal("50000.00"),
         )
 
         assert can_open is False
@@ -360,7 +370,10 @@ class TestPerformanceMetrics:
         mock_losing_pos = MagicMock()
         mock_losing_pos.realized_pnl = Decimal("-200.00")
 
-        position_manager.get_closed_positions.return_value = [mock_winning_pos, mock_losing_pos]
+        position_manager.get_closed_positions.return_value = [
+            mock_winning_pos,
+            mock_losing_pos,
+        ]
 
         summary = paper_engine.get_performance_summary()
 
@@ -390,7 +403,9 @@ class TestDatabasePersistence:
     """Test database persistence integration"""
 
     @pytest.mark.asyncio
-    async def test_buy_order_logs_trade_to_database(self, paper_engine, mock_repositories):
+    async def test_buy_order_logs_trade_to_database(
+        self, paper_engine, mock_repositories
+    ):
         """Test that BUY order logs trade to database"""
         trade_repo, _ = mock_repositories
 
@@ -399,7 +414,8 @@ class TestDatabasePersistence:
             side=OrderSide.BUY,
             type=OrderType.MARKET,
             quantity=Decimal("0.1"),
-            strategy="TEST_STRATEGY"
+            strategy="TEST_STRATEGY",
+            entry_signal_confidence=0.42,
         )
 
         await paper_engine.execute_market_order(order, Decimal("50000.00"))
@@ -410,9 +426,15 @@ class TestDatabasePersistence:
         assert call_kwargs["symbol"] == "BTCUSDT"
         assert call_kwargs["side"] == "BUY"
         assert call_kwargs["quantity"] == Decimal("0.1")
+        # 2026-05-06: strategy + signal_confidence must flow from order to trade row
+        # (silent NULL drift left Performance Analytics blank).
+        assert call_kwargs.get("strategy") == "TEST_STRATEGY"
+        assert call_kwargs.get("signal_confidence") == 0.42
 
     @pytest.mark.asyncio
-    async def test_database_error_doesnt_break_trading(self, paper_engine, mock_repositories):
+    async def test_database_error_doesnt_break_trading(
+        self, paper_engine, mock_repositories
+    ):
         """Test that database errors don't prevent trading execution"""
         trade_repo, _ = mock_repositories
         trade_repo.log_trade.side_effect = Exception("Database error")
@@ -422,11 +444,13 @@ class TestDatabasePersistence:
             side=OrderSide.BUY,
             type=OrderType.MARKET,
             quantity=Decimal("0.1"),
-            strategy="TEST_STRATEGY"
+            strategy="TEST_STRATEGY",
         )
 
         # Should not raise exception
-        executed_order, error = await paper_engine.execute_market_order(order, Decimal("50000.00"))
+        executed_order, error = await paper_engine.execute_market_order(
+            order, Decimal("50000.00")
+        )
 
         # Trade should still execute successfully
         assert error is None
