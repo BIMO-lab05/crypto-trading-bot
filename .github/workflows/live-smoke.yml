@@ -1,0 +1,87 @@
+# Live Smoke Test (Bybit mainnet/testnet REST + WS)
+# Triggers: nightly cron + manual dispatch ONLY.
+# NEVER on push/PR — must not block the deterministic CI lane (D-16).
+# Probe failures are advisory (continue-on-error) per INFRA-03 — "allowed to be flaky".
+
+name: Live Smoke (Bybit)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # nightly at 03:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: live-smoke
+  cancel-in-progress: true
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Boot stack via bootstrap.sh in LIVE mode
+        env:
+          MARKET_DATA_SOURCE: live
+          BYBIT_TESTNET: 'true'
+          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+          PAPER_TRADING_MODE: 'true'
+          TRADING_MODE: PAPER
+          AUTO_TRADING_ENABLED: 'false'
+          ENABLE_ML_PREDICTIONS: 'false'
+          ENABLE_SENTIMENT_ANALYSIS: 'false'
+        run: |
+          cp .env.example .env
+          {
+            echo "MARKET_DATA_SOURCE=$MARKET_DATA_SOURCE"
+            echo "BYBIT_TESTNET=$BYBIT_TESTNET"
+            printf 'BYBIT_API_KEY=%s\n'    "$BYBIT_API_KEY"
+            printf 'BYBIT_API_SECRET=%s\n' "$BYBIT_API_SECRET"
+            echo "PAPER_TRADING_MODE=$PAPER_TRADING_MODE"
+            echo "TRADING_MODE=$TRADING_MODE"
+            echo "AUTO_TRADING_ENABLED=$AUTO_TRADING_ENABLED"
+            echo "ENABLE_ML_PREDICTIONS=$ENABLE_ML_PREDICTIONS"
+            echo "ENABLE_SENTIMENT_ANALYSIS=$ENABLE_SENTIMENT_ANALYSIS"
+          } >> .env
+          bash bootstrap.sh
+
+      - name: Probe — live ticker via bybit-connector
+        id: probe
+        continue-on-error: true
+        run: |
+          set -e
+          RESP=$(curl -fsS 'http://localhost:8001/api/v1/market/kline?category=linear&symbol=SOLUSDT&interval=5&limit=5')
+          echo "$RESP" | head -c 500
+          echo "$RESP" | python3 -c "import sys, json; d = json.load(sys.stdin); assert d.get('success') is True; lst = d.get('data', {}); lst = lst.get('list', lst) if isinstance(lst, dict) else lst; assert isinstance(lst, list) and len(lst) > 0, 'empty list'; print('OK live SOLUSDT klines:', len(lst))"
+          docker compose -f docker-compose.unified.yml logs bybit-connector | grep 'BYBIT_PRICE_SOURCE: mode=live' || (echo "WARNING: connector did not log mode=live"; exit 1)
+
+      - name: Collect service logs
+        if: always()
+        run: |
+          docker compose -f docker-compose.unified.yml logs > live-smoke-logs.txt 2>&1 || true
+
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-smoke-logs
+          path: live-smoke-logs.txt
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f docker-compose.unified.yml down -v || true
+
+      - name: Surface probe result (advisory)
+        if: always()
+        run: |
+          if [ "${{ steps.probe.outcome }}" = "success" ]; then
+            echo "::notice title=Live Smoke::PASS"
+          else
+            echo "::warning title=Live Smoke::FAILED — investigate logs artifact (does NOT block deterministic CI)"
+          fi
