@@ -27,3 +27,11 @@ ADRs and design choices, captured from progress.md, CLAUDE.md, and code archaeol
 
 - [[ADR-008-conventional-commits]] — `feat(service): ...`, `fix(service): ...`
 - [[ADR-009-docker-compose-unified-canonical]] — `docker-compose.unified.yml` is canonical, plain `docker-compose.yml` is incomplete
+
+## Risk
+
+- [[ADR-010-max-risk-per-trade-paper-bump]] — `max_risk_per_trade` 0.02 → 0.10 in paper mode for $100 balance min-notional clearance; LIVE remains ≤ 2%
+
+## Strategy
+
+- [[ADR-013-strategy-rebuild-plan]] — phased rebuild grounded in 2026 crypto-bot research; kill 22 of 25 strategy files; honest walk-forward harness; sqzmom + ADX + volume + 4h-alignment as the one canonical strategy
