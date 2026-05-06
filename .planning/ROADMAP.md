@@ -28,7 +28,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements**: INFRA-02, INFRA-03
 **Success Criteria** (what must be TRUE):
   1. Operator can run `bootstrap.sh` against an empty `.env` and the script provisions the stack from a documented template (no manual editing required to reach a healthy idle state)
-  2. A recorded-tape replay loader serves Bybit OHLCV / orderbook / funding fixtures to market-data-service so downstream services see deterministic data
+  2. A recorded-tape replay loader serves Bybit OHLCV (klines + ticker) fixtures to market-data-service so downstream services see deterministic data — orderbook + funding deferred to Phase 5 per Phase 1 CONTEXT.md D-02 (their consumers `PREFER_MAKER_ORDERS` / `ENABLE_FUNDING_GATE` default off and forward-test in Phase 5)
   3. `bootstrap.sh` brings the docker-compose stack up to a healthy state (all 15 services pass health checks) reproducibly across two consecutive runs in a fresh tmp clone
   4. A separate "live smoke" path is documented and explicitly out-of-scope for the deterministic suite (allowed to be flaky, runs nightly only)
 **Plans**: TBD

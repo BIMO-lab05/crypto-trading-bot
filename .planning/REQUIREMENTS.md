@@ -10,7 +10,7 @@ Active requirements for this milestone. Each maps to roadmap phases. Validated r
 ### Infra (test-driven rebuild)
 
 - [ ] **INFRA-01**: pytest+testcontainers integration suite asserts full stack health from a fresh `git clone` into a tmp directory: services healthy, real exchange prices via recorded tape, ML models loaded if `ENABLE_ML_PREDICTIONS=true`, notifications delivered, paper trade end-to-end <60s
-- [ ] **INFRA-02**: `bootstrap.sh` provisions `.env` from a template, brings up the docker-compose stack, runs DB migrations, and idles waiting for the integration suite — no destructive `git clean -fdx` against the working tree
+- [ ] **INFRA-02**: `bootstrap.sh` provisions `.env` from a template, brings up the docker-compose stack, and idles waiting for the integration suite — no destructive `git clean -fdx` against the working tree. (DB migrations deferred to Phase 2 per Phase 1 CONTEXT.md `<deferred>`: compose-managed init scripts cover v1; revisit if Phase 2 integration suite hits schema drift.)
 - [ ] **INFRA-03**: Recorded-tape exchange data fixtures + replay loader for deterministic test runs; one nightly live smoke test allowed to be flaky
 - [ ] **INFRA-04**: Checkpointed iteration harness — fix one bug, run tests, present diff for review before next fix; no unattended "iterate until 3 green runs" loop
 - [ ] **INFRA-05**: RUNBOOK.md documents the WSL2 BuildKit hang (`DOCKER_BUILDKIT=0` workaround), docker context misconfig recovery, stale-model restart procedure, and bootstrap-test failure triage
