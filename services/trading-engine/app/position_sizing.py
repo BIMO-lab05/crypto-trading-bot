@@ -78,7 +78,12 @@ class PositionSizer:
         self,
         min_position_pct: float = 1.0,  # Minimum 1% of capital
         max_position_pct: float = 10.0,  # Maximum 10% of capital
-        default_position_pct: float = 10.0,  # Default 10% for fixed sizing (2026-05-06)
+        # 2026-05-06: default == max so FIXED sizing always emits 10%.
+        # CONFIDENCE_ADJUSTED's high-confidence boost (1.2-1.5x) computes
+        # 12-15% then clamps back to max_position_pct=10% at line 219 — the
+        # dual-cap is intentional. AutoTrader default is now FIXED so the
+        # clamp rarely triggers.
+        default_position_pct: float = 10.0,
         kelly_fraction: float = 0.25,  # Use 25% of full Kelly (conservative)
         confidence_scaling: bool = True,  # Scale size by signal confidence
         max_risk_per_trade_pct: float = 2.0,  # RESEARCH-OPTIMIZED: Max 2% risk per trade

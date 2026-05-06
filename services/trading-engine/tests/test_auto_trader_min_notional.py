@@ -160,6 +160,35 @@ async def test_passes_when_min_notional_field_absent(trader, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_paper_mode_short_circuits_gate(trader, monkeypatch):
+    """In PAPER mode the gate must short-circuit to (True, None) regardless
+    of qty/notional. Paper-engine fills any size deterministically; gate's
+    purpose is LIVE-only protection. Without the short-circuit, $10 trades
+    on a $100 balance would fail every crypto exchange minimum and zero
+    out paper trading."""
+    from app.config import get_settings
+
+    s = get_settings()
+    # Override the autouse LIVE fixture for this single test.
+    monkeypatch.setattr(s, "trading_mode", "PAPER", raising=False)
+
+    # A spec that *would* reject in LIVE: tiny qty + huge min_notional.
+    cache = _StubInstrumentsCache(spec=_spec(min_qty="1.0", min_notional="1000"))
+    monkeypatch.setattr("app.main.get_instruments_cache", lambda: cache)
+
+    ok, reason = await trader._passes_min_notional(
+        symbol="BTCUSDT",
+        quantity=Decimal("0.0000166"),  # would fail in LIVE
+        price=Decimal("60000"),
+        balance=Decimal("100"),
+    )
+    assert ok is True
+    assert reason is None
+    # Gate must NOT have hit the cache — short-circuit happens before lookup.
+    assert cache.calls == [], "cache.get() should not be invoked in PAPER mode"
+
+
+@pytest.mark.asyncio
 async def test_fail_open_when_cache_get_raises(trader, monkeypatch):
     class _Boom:
         async def get(self, symbol):
