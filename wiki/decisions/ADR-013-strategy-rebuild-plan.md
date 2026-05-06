@@ -98,3 +98,29 @@ Build ONE strategy aligned with the research findings, not 25 alternates. Specif
 - `.claude/skills/trading-strategy-dev/references/leakage-tests.md`
 - `.claude/skills/trading-strategy-dev/references/acceptance-gates.md`
 - 2026-05-06 research synthesis (web-search-researcher + general-purpose agents) — sources cited in respective audit comments
+
+## Phase C update — 2026-05-06 (gate FAIL, do NOT advance)
+
+Phase C synthesis built and validated:
+
+- `backtesting/strategies/sqzmom_v2.py` — TTM Squeeze + 200-EMA + ADX(>=20)+DI agreement + volume>1.2× + 4h-MTF + 1.5×ATR stop / 3×ATR TP. Causal precompute, prefix-stability leakage test PASSED.
+- `backtesting/sqzmom_v2_layer_sweep.py` — L0..L5 isolation sweep (SOL 90d): all layers produce trades, PF stays < 1.0 across stack; rising win-rate (26→38%) on L4→L5 ATR-stop transition.
+- `backtesting/run_walk_forward_sqzmom_v2.py` — walk-forward gate (4 folds, IS-frac 0.75) on validated 5 symbols, 180d hourly.
+
+**Result: GATE FAIL on 0 / 5 symbols.**
+
+| Symbol | OOS Sharpe | DSR | Gate |
+|--------|------------|-----|------|
+| SOL | 0.56 | 0.00 | FAIL |
+| BNB | 0.25 | 0.00 | FAIL |
+| ADA | 0.99 | 0.00 | FAIL |
+| BTC | -2.39 | 0.00 | FAIL |
+| ETH | 2.88 | 1.00 | FAIL (PF mean only) |
+
+Strategy does **not** advance to Phase D paper validation. ETH outlier (4 of 5 gate criteria pass) is rejected as cherry-pick risk per skill rule "Don't tune to pass."
+
+Per-fold structure shows fold 1 (oldest OOS) consistently outperforms fold 3 (newest OOS) → suggests regime drift in early 2026. Squeeze-breakout templates may be decaying on hourly crypto.
+
+Detailed report: `docs/phase_c_results_2026-05-06.md`.
+
+**Phase C status:** complete-with-negative-result. Code, harness, and gate are all working as designed; the proposed alpha is not present at the proposed time-frame. Rebuild iteration required before Phase D — see "Next-step options" in the results doc. No Phase D promotion.

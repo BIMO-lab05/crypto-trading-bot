@@ -49,6 +49,9 @@ from app.indicators.moving_averages import (  # noqa: E402
     SMACalculator as SMA,
     EMACalculator as EMA,
 )
+from app.indicators.squeeze_momentum import (  # noqa: E402,F401
+    SqueezeMomentumIndicator,
+)
 from app.indicators.stochastic import Stochastic  # noqa: E402
 from app.indicators.trend_filter import TrendFilter  # noqa: E402
 from app.indicators.volume_confirmation import VolumeConfirmation  # noqa: E402
@@ -72,6 +75,7 @@ __all__ = [
     "MACD",
     "SMA",
     "EMA",
+    "SqueezeMomentumIndicator",
     "Stochastic",
     "TrendFilter",
     "VolumeConfirmation",
