@@ -86,38 +86,38 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Will be populated by `gsd-roadmapper` during roadmap creation. Each requirement maps to exactly one phase.
+Each requirement maps to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | TBD | Pending |
-| INFRA-02 | TBD | Pending |
-| INFRA-03 | TBD | Pending |
-| INFRA-04 | TBD | Pending |
-| INFRA-05 | TBD | Pending |
-| INFRA-06 | TBD | Pending |
-| TOURN-01 | TBD | Pending |
-| TOURN-02 | TBD | Pending |
-| TOURN-03 | TBD | Pending |
-| TOURN-04 | TBD | Pending |
-| TOURN-05 | TBD | Pending |
-| TOURN-06 | TBD | Pending |
-| TOURN-07 | TBD | Pending |
-| MLCL-01 | TBD | Pending |
-| MLCL-02 | TBD | Pending |
-| MLCL-03 | TBD | Pending |
-| MLCL-04 | TBD | Pending |
-| DASH-01 | TBD | Pending |
-| DASH-02 | TBD | Pending |
-| DASH-03 | TBD | Pending |
-| DASH-04 | TBD | Pending |
-| DASH-05 | TBD | Pending |
-| DASH-06 | TBD | Pending |
+| INFRA-02 | Phase 1 | Pending |
+| INFRA-03 | Phase 1 | Pending |
+| INFRA-01 | Phase 2 | Pending |
+| INFRA-04 | Phase 2 | Pending |
+| INFRA-05 | Phase 2 | Pending |
+| INFRA-06 | Phase 2 | Pending |
+| TOURN-01 | Phase 3 | Pending |
+| TOURN-02 | Phase 3 | Pending |
+| TOURN-03 | Phase 3 | Pending |
+| TOURN-04 | Phase 3 | Pending |
+| TOURN-07 | Phase 3 | Pending |
+| TOURN-05 | Phase 4 | Pending |
+| TOURN-06 | Phase 4 | Pending |
+| MLCL-01 | Phase 5 | Pending |
+| MLCL-02 | Phase 5 | Pending |
+| MLCL-03 | Phase 5 | Pending |
+| MLCL-04 | Phase 5 | Pending |
+| DASH-01 | Phase 6 | Pending |
+| DASH-02 | Phase 6 | Pending |
+| DASH-03 | Phase 6 | Pending |
+| DASH-05 | Phase 6 | Pending |
+| DASH-04 | Phase 7 | Pending |
+| DASH-06 | Phase 7 | Pending |
 
 **Coverage:**
 - v1 requirements: 23 total
-- Mapped to phases: 0 ⚠️ (filled by roadmapper)
-- Unmapped: 23
+- Mapped to phases: 23 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-06*

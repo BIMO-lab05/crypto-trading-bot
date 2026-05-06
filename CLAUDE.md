@@ -69,7 +69,7 @@ Useful scripts at repo root: `health_check.sh`, `monitor_paper_trading.sh`, `che
 
 - **Search rule (mandatory, always-on):** any time about to *search* for something — code, docs, config, concept, prior decision, library, integration option — **first** action is `/graphify` (skill: `graphify`) over relevant input. Build graph, read audit, then pick targeted tool (serena / context7 / grep / web) informed by what graphify surface. Apply every session, every search, no exceptions outside explicit skip below. Skipping = regression, self-correct.
   - **Skip allowed only for:** trivially exact lookups where path/symbol/string already known (user said "open file X" or "grep for literal Y") and one-shot tool call resolves it. When in doubt, graphify.
-- **Risk caps wired into trading-engine**: max 2% capital per trade, 5% daily-loss circuit-breaker. No relax without explicit approval.
+- **Risk caps wired into trading-engine**: 5% daily-loss circuit-breaker (always). Per-trade cap: **2% in LIVE mode** (non-negotiable, no relax without explicit approval); **paper mode currently relaxed to 10%** per ADR-010 (filed 2026-05-06) to clear Bybit min-notional on $100 balance. Pre-live checklist must restore ≤ 2% before flipping `TRADING_MODE=LIVE`.
 - **Trading-mode flags — four deliberate steps to LIVE, no confuse:** `BYBIT_TESTNET` selects price source (testnet=fake, mainnet=real). `PAPER_TRADING_MODE` / `TRADING_MODE` selects whether orders simulated. Current state: mainnet prices + simulated orders. Real-money trading needs (1) `PAPER_TRADING_MODE=false`, (2) `TRADING_MODE=LIVE`, (3) mainnet Bybit keys with trade permissions, (4) `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY` (added 2026-05; trading-engine refuses to boot in LIVE without it; catches env drift on cloud hosts).
 - **Feature flags** (compose defaults, 2026-05): `ENABLE_ML_PREDICTIONS=false`, `ENABLE_SENTIMENT_ANALYSIS=false`. Sentiment leg removed from signal pipeline (commits `c346483`, `acae081`, `fe941cf`, `c171bb0`); sentiment-analysis-service still runs in compose but idle.
 - **Auto-trader**: compose default `AUTO_TRADING_ENABLED=false`, but **operator override is `AUTO_TRADING_ENABLED=true` in `.env`** (set 2026-05-05). Trading-engine boots with auto-trader armed; loop only fires once `EMERGENCY_STOP` file is absent at repo root (RO bind-mount in trading-engine). To pause: `touch EMERGENCY_STOP` or `POST /api/portfolio/emergency-stop` (admin-guarded). To stop fully: `POST /api/trading/auto/stop`.
@@ -215,3 +215,73 @@ When install something new and tell you about it:
 
 - Bootstrap section load-bearing. If future session shows me speaking normal English unprompted, or skipping graphify before integrating new feature, treat as regression and self-correct.
 - Strategic-review modes above remain opt-in only; caveman voice orthogonal to them and applies inside those modes too (unless explicitly want florid prose for Jobs/Trajectory answer — then say so).
+
+<!-- GSD:project-start source:PROJECT.md -->
+## Project
+
+**Crypto Trading Bot**
+
+A self-hosted, microservices-based crypto trading bot targeting Bybit (paper trading by default; live trading gated behind three explicit flag flips). Runs a 9-indicator voting aggregator over OHLCV + sentiment + (optional) ML signals, with portfolio management, risk caps, and a React dashboard. Built and operated by a solo founder; safety and honest measurement come before performance claims.
+
+**Core Value:** The bot must never lose money it wasn't authorized to risk. Every trade goes through enforced risk caps (per-trade, daily-loss, drawdown, kill-switch) backed by code that actually runs — and any "edge" claim must be backed by DSR/CPCV evidence, not raw R² on price levels.
+
+### Constraints
+
+- **Tech stack**: Python 3.11+ services / Node+React frontend / Docker Compose orchestration — locked; no rewrite in this milestone.
+- **Compatibility**: Bybit-first; no other exchange in scope.
+- **Performance**: Paper-trade round-trip <60s end-to-end (signal → order ack → portfolio update) — bootstrap-test asserts this.
+- **Security**: Real exchange API keys in `.env` (gitignored); never run `git clean -fdx` against the working tree; bootstrap-tests always run against a fresh clone in a tmp directory.
+- **Data integrity**: Backtest must filter `is_mainnet=true` to avoid testnet-flip contamination from 2026-04-25.
+- **Evaluation**: All ML edge claims go through `returns_metrics.py` + PSR/DSR (`sharpe_metrics.py`) + CPCV (`cpcv.py`). Raw R² on price levels is forbidden.
+- **Autonomy**: No unattended loops that can weaken tests, mock failing pieces, or commit/push without checkpoint review.
+<!-- GSD:project-end -->
+
+<!-- GSD:stack-start source:STACK.md -->
+## Technology Stack
+
+Technology stack not yet documented. Will populate after codebase mapping or first phase.
+<!-- GSD:stack-end -->
+
+<!-- GSD:conventions-start source:CONVENTIONS.md -->
+## Conventions
+
+Conventions not yet established. Will populate as patterns emerge during development.
+<!-- GSD:conventions-end -->
+
+<!-- GSD:architecture-start source:ARCHITECTURE.md -->
+## Architecture
+
+Architecture not yet mapped. Follow existing patterns found in the codebase.
+<!-- GSD:architecture-end -->
+
+<!-- GSD:skills-start source:skills/ -->
+## Project Skills
+
+| Skill | Description | Path |
+|-------|-------------|------|
+| backtest | Run a Phase 1 backtest for one or more symbols using the project's backtesting engine. Downloads recent historical klines from Bybit, runs the chosen strategy against the data, and prints win-rate / drawdown / P&L metrics. Pass the symbol(s) and an optional `--days N` (default 90). Use when validating a strategy change before deploying to paper trading. | `.claude/skills/backtest/SKILL.md` |
+| deploy | Rebuild and recreate a single docker service in this project. Forces image rebuild from source, recreates the container, waits for healthcheck, then prints status and recent logs. Use when source has changed or a service is misbehaving and a clean restart is the right move. Pass the service name as the only argument — must match a service in docker-compose.unified.yml. | `.claude/skills/deploy/SKILL.md` |
+| start-system | Boot the crypto trading bot stack from cold. Verifies Docker daemon, brings up all 17 services (postgres, timescale, redis, rabbitmq, prometheus, grafana, 11 Python microservices + frontend), applies pending DB migrations, runs health probes, and optionally starts the auto-trader. Use when the user says "/start the system", "start the bot", "bring up the stack", or after a reboot. | `.claude/skills/start-system/SKILL.md` |
+| trading-strategy-dev | Use when authoring or modifying trading indicators, strategies, or auditing the trading-engine pipeline in this repo. Enforces project conventions (StrategyBase contract, indicator module shape, no look-ahead leakage, risk-cap honoring), routes verification through backtest + live-engine sanity checks, and forces evidence-based pass/fail before declaring work done. Trigger phrases - "write a new indicator", "add a strategy", "verify strategies", "audit trading engine", "/strategy-dev". | `.claude/skills/trading-strategy-dev/SKILL.md` |
+| verify-stack | Verify the trading stack is genuinely working end-to-end with real data, not shallow HTTP 200 checks. Use before declaring any deploy, fix, or refactor "working". Confirms live (non-testnet) prices, real notification delivery, DB persistence, and that services were restarted after config changes. Reports PASS/FAIL per check — never aggregates to "working" unless all 4 pass. | `.claude/skills/verify-stack/SKILL.md` |
+<!-- GSD:skills-end -->
+
+<!-- GSD:workflow-start source:GSD defaults -->
+## GSD Workflow Enforcement
+
+Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+
+Use these entry points:
+- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
+- `/gsd-debug` for investigation and bug fixing
+- `/gsd-execute-phase` for planned phase work
+
+Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
+<!-- GSD:workflow-end -->
+
+<!-- GSD:profile-start -->
+## Developer Profile
+
+> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
+> This section is managed by `generate-claude-profile` -- do not edit manually.
+<!-- GSD:profile-end -->
