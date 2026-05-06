@@ -7,8 +7,6 @@ Downloads OHLCV data from Bybit for backtesting purposes
 import asyncio
 import httpx
 import pandas as pd
-from datetime import datetime, timedelta
-import time
 import logging
 from typing import Optional
 
@@ -38,7 +36,7 @@ class HistoricalDataDownloader:
         symbol: str,
         interval: str = "60",  # 1 hour
         days: int = 90,  # 3 months
-        output_file: Optional[str] = None
+        output_file: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Download historical OHLCV data
@@ -52,7 +50,9 @@ class HistoricalDataDownloader:
         Returns:
             DataFrame with columns: timestamp, open, high, low, close, volume
         """
-        logger.info(f"Downloading {days} days of {symbol} data at {interval}m interval...")
+        logger.info(
+            f"Downloading {days} days of {symbol} data at {interval}m interval..."
+        )
 
         # Calculate number of candles needed
         if interval == "D":
@@ -66,6 +66,13 @@ class HistoricalDataDownloader:
 
         all_data = []
         candles_downloaded = 0
+        # 2026-05-06: walk backwards via end_time cursor. The endpoint with
+        # only `limit` returned the same most-recent 200 every batch; dedup
+        # then collapsed N batches into 200 unique candles, capping any
+        # backtest window at ~8 days regardless of --days. The market-data
+        # service exposes start_time/end_time epoch-ms, so anchor the next
+        # batch's end_time at the oldest timestamp seen so far minus 1ms.
+        end_time_cursor: Optional[int] = None
 
         while candles_downloaded < total_candles:
             # Request next batch
@@ -73,12 +80,13 @@ class HistoricalDataDownloader:
 
             try:
                 url = f"{self.market_data_url}/api/v1/klines/{symbol}"
-                params = {
-                    "interval": interval,
-                    "limit": limit
-                }
+                params = {"interval": interval, "limit": limit}
+                if end_time_cursor is not None:
+                    params["end_time"] = end_time_cursor
 
-                logger.info(f"Requesting {limit} candles (total: {candles_downloaded}/{total_candles})...")
+                logger.info(
+                    f"Requesting {limit} candles (total: {candles_downloaded}/{total_candles}, end_time={end_time_cursor})..."
+                )
                 response = await self.client.get(url, params=params)
                 response.raise_for_status()
 
@@ -100,6 +108,28 @@ class HistoricalDataDownloader:
                 candles_downloaded += len(klines)
                 logger.info(f"Downloaded {len(klines)} candles")
 
+                # Advance cursor: oldest timestamp in this batch minus 1ms.
+                # Klines endpoint returns timestamps in ms; payload column
+                # could be 'timestamp' or 'open_time'. Probe both.
+                ts_col = (
+                    "timestamp"
+                    if "timestamp" in df.columns
+                    else ("open_time" if "open_time" in df.columns else None)
+                )
+                if ts_col is None:
+                    logger.warning(
+                        "No timestamp column in batch; cannot paginate further"
+                    )
+                    break
+                try:
+                    oldest_ts = int(df[ts_col].astype("int64").min())
+                    end_time_cursor = oldest_ts - 1
+                except Exception as cur_err:
+                    logger.warning(
+                        f"Cursor advance failed ({cur_err}); stopping pagination"
+                    )
+                    break
+
                 # Rate limiting
                 await asyncio.sleep(0.5)
 
@@ -120,14 +150,16 @@ class HistoricalDataDownloader:
         df = pd.concat(all_data, ignore_index=True)
 
         # Remove duplicates and sort
-        df = df.drop_duplicates(subset=['timestamp'])
-        df = df.sort_values('timestamp')
+        df = df.drop_duplicates(subset=["timestamp"])
+        df = df.sort_values("timestamp")
 
         # Convert timestamp to datetime
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
         logger.info(f"Total candles downloaded: {len(df)}")
-        logger.info(f"Date range: {df.iloc[0]['timestamp']} to {df.iloc[-1]['timestamp']}")
+        logger.info(
+            f"Date range: {df.iloc[0]['timestamp']} to {df.iloc[-1]['timestamp']}"
+        )
 
         # Save to CSV if requested
         if output_file:
@@ -141,7 +173,7 @@ class HistoricalDataDownloader:
         symbols: list,
         interval: str = "60",
         days: int = 90,
-        output_dir: str = "backtesting/data"
+        output_dir: str = "backtesting/data",
     ):
         """
         Download data for multiple symbols
@@ -153,20 +185,18 @@ class HistoricalDataDownloader:
             output_dir: Directory to save CSV files
         """
         import os
+
         os.makedirs(output_dir, exist_ok=True)
 
         for symbol in symbols:
-            logger.info(f"\n{'='*80}")
+            logger.info(f"\n{'=' * 80}")
             logger.info(f"Downloading {symbol}")
-            logger.info(f"{'='*80}\n")
+            logger.info(f"{'=' * 80}\n")
 
             output_file = f"{output_dir}/{symbol}_{interval}m_{days}d.csv"
 
             df = await self.download_historical_data(
-                symbol=symbol,
-                interval=interval,
-                days=days,
-                output_file=output_file
+                symbol=symbol, interval=interval, days=days, output_file=output_file
             )
 
             logger.info(f"✓ {symbol} complete: {len(df)} candles\n")
@@ -177,37 +207,55 @@ async def main():
     """Main entry point"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Download historical data for backtesting")
-    parser.add_argument('--symbol', type=str, default='BTCUSDT', help='Trading pair (default: BTCUSDT)')
-    parser.add_argument('--interval', type=str, default='60', help='Interval in minutes (default: 60)')
-    parser.add_argument('--days', type=int, default=90, help='Days of historical data (default: 90)')
-    parser.add_argument('--output', type=str, help='Output CSV file')
-    parser.add_argument('--market-data-url', type=str, default='http://localhost:8002', help='Market data service URL')
+    parser = argparse.ArgumentParser(
+        description="Download historical data for backtesting"
+    )
+    parser.add_argument(
+        "--symbol", type=str, default="BTCUSDT", help="Trading pair (default: BTCUSDT)"
+    )
+    parser.add_argument(
+        "--interval", type=str, default="60", help="Interval in minutes (default: 60)"
+    )
+    parser.add_argument(
+        "--days", type=int, default=90, help="Days of historical data (default: 90)"
+    )
+    parser.add_argument("--output", type=str, help="Output CSV file")
+    parser.add_argument(
+        "--market-data-url",
+        type=str,
+        default="http://localhost:8002",
+        help="Market data service URL",
+    )
 
     args = parser.parse_args()
 
     downloader = HistoricalDataDownloader(market_data_url=args.market_data_url)
 
     try:
-        output_file = args.output or f"backtesting/data/{args.symbol}_{args.interval}m_{args.days}d.csv"
+        output_file = (
+            args.output
+            or f"backtesting/data/{args.symbol}_{args.interval}m_{args.days}d.csv"
+        )
 
         df = await downloader.download_historical_data(
             symbol=args.symbol,
             interval=args.interval,
             days=args.days,
-            output_file=output_file
+            output_file=output_file,
         )
 
         if not df.empty:
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print("DOWNLOAD COMPLETE")
-            print("="*80)
+            print("=" * 80)
             print(f"Symbol: {args.symbol}")
             print(f"Interval: {args.interval} minutes")
             print(f"Total Candles: {len(df)}")
-            print(f"Date Range: {df.iloc[0]['timestamp']} to {df.iloc[-1]['timestamp']}")
+            print(
+                f"Date Range: {df.iloc[0]['timestamp']} to {df.iloc[-1]['timestamp']}"
+            )
             print(f"File: {output_file}")
-            print("="*80)
+            print("=" * 80)
 
     finally:
         await downloader.close()
