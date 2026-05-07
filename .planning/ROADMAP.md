@@ -48,16 +48,23 @@ Plans:
 **Plans**: 10 plans
 
 Plans:
+**Wave 1**
 - [ ] 02-01-PLAN.md — bybit-connector POST /admin/tape/reset endpoint + reset() method
 - [ ] 02-02-PLAN.md — trading-engine POST /api/v1/admin/force-signal admin router
-- [ ] 02-03-PLAN.md — extend tests/integration/conftest.py with bootstrap_stack/tmp_fresh_clone/tape_reset/force_signal/db_truncate/notification_received (mode-aware) fixtures (fix port-mapping bug, refactor to session-scope)
-- [ ] 02-04-PLAN.md — INFRA-01 e2e test (test_fresh_clone_round_trip) + ML-on variant (CD-05) + remove pytest.skip anti-pattern
-- [ ] 02-05-PLAN.md — notification verification harness (.env.test.example, NOTIFICATION_TEST_MODE wiring, test_notification_delivery)
 - [ ] 02-06-PLAN.md — scripts/iter-fix.sh checkpointed iteration harness + scripts/iter-fix-check-diff.sh anti-mock guard
 - [ ] 02-07-PLAN.md — RUNBOOK.md failure-triage-first at repo root (6 mandated symptom sections)
+- [ ] 02-10-PLAN.md — Makefile build-no-buildkit ergonomic shortcut (CD-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 02-03-PLAN.md — extend tests/integration/conftest.py with bootstrap_stack/tmp_fresh_clone/tape_reset/force_signal/db_truncate/notification_received (mode-aware) fixtures (fix port-mapping bug, refactor to session-scope)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 02-04-PLAN.md — INFRA-01 e2e test (test_fresh_clone_round_trip) + ML-on variant (CD-05) + remove pytest.skip anti-pattern
+- [ ] 02-05-PLAN.md — notification verification harness (.env.test.example, NOTIFICATION_TEST_MODE wiring, test_notification_delivery)
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 02-08-PLAN.md — INFRA-06 pre-existing bug triage (stale ML model + confidence=0 + WSL2 BuildKit)
 - [ ] 02-09-PLAN.md — CI workflows: .github/workflows/integration.yml (push+PR) + integration-ml-on.yml (nightly+manual)
-- [ ] 02-10-PLAN.md — Makefile build-no-buildkit ergonomic shortcut (CD-02)
 
 ### Phase 3: Tournament Harness Core
 **Goal**: A Docker-isolated, Python-orchestrated tournament can launch GRU/LSTM/Transformer/TCN candidates over {SOL, BNB, ADA} × hyperparameter grid, capture honest returns metrics into a SQLite leaderboard, and reuse the existing `returns_metrics.py` / `sharpe_metrics.py` / `cpcv.py` modules — no LLM-subagent fanout, no parallel metrics path.
