@@ -15,6 +15,7 @@ Lines 2..N:
   klines: ["<ts_ms>", "<open>", "<high>", "<low>", "<close>", "<volume>", "<turnover>"]
   ticker: the ticker dict from /v5/market/tickers result.list[0]
 """
+
 import json
 import logging
 from pathlib import Path
@@ -43,9 +44,14 @@ class TapeReplayClient:
 
     def __init__(self, fixtures_path: Path):
         self.fixtures_path = Path(fixtures_path)
-        self._klines: Dict[str, List[List[str]]] = {}   # symbol -> list of klines
-        self._tickers: Dict[str, Dict[str, Any]] = {}   # symbol -> ticker dict
+        self._klines: Dict[str, List[List[str]]] = {}  # symbol -> list of klines
+        self._tickers: Dict[str, Dict[str, Any]] = {}  # symbol -> ticker dict
         self._load_fixtures()
+        # Cursor fields populated after _load_fixtures() so symbol keys are available.
+        # Per-test reset semantics (D-04): POST /admin/tape/reset zeroes these so the
+        # next test starts at fixture position 0 without restarting the connector.
+        self._kline_cursor: Dict[str, int] = {sym: 0 for sym in self._klines}
+        self._ticker_cursor: Dict[str, int] = {sym: 0 for sym in self._tickers}
 
     def _load_fixtures(self) -> None:
         """Eagerly load all JSONL fixtures into memory at init.
@@ -115,6 +121,20 @@ class TapeReplayClient:
     # ASYNC LIFECYCLE (mirrors BybitRestClient)
     # =========================================================================
 
+    def reset(self) -> None:
+        """Reset all in-memory cursors to fixture position 0 (D-04).
+
+        Called by POST /admin/tape/reset between integration tests so the
+        recorded-tape data clock rewinds without restarting the connector.
+        """
+        self._kline_cursor = {sym: 0 for sym in self._klines}
+        self._ticker_cursor = {sym: 0 for sym in self._tickers}
+        logger.warning(
+            "TAPE_REPLAY: cursors reset (klines=%d, tickers=%d)",
+            len(self._kline_cursor),
+            len(self._ticker_cursor),
+        )
+
     async def close(self) -> None:
         """No-op: no HTTP client to close. Mirrors BybitRestClient.close()."""
         logger.info("TapeReplayClient closed (no-op)")
@@ -163,6 +183,7 @@ class TapeReplayClient:
 
         # Optional window filter (mimics live Bybit start/end behaviour)
         if start_time is not None or end_time is not None:
+
             def in_window(k: List[str]) -> bool:
                 ts = int(k[0])
                 if start_time is not None and ts < int(start_time):
@@ -170,6 +191,7 @@ class TapeReplayClient:
                 if end_time is not None and ts > int(end_time):
                     return False
                 return True
+
             klines = [k for k in klines if in_window(k)]
 
         # Bybit V5 returns descending (newest first); stored ascending -> reverse
@@ -187,7 +209,9 @@ class TapeReplayClient:
     async def get_recent_trades(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         return {"list": []}
 
-    async def get_funding_rate_history(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    async def get_funding_rate_history(
+        self, *args: Any, **kwargs: Any
+    ) -> Dict[str, Any]:
         return {"list": []}
 
     async def get_instruments_info(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
