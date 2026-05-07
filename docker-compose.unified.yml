@@ -630,9 +630,22 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
+      # CD-01 / Plan 02-05 — Phase 2 notification test mode passthrough.
+      # Without these explicit `${VAR:-}` lines, env from workspace-level .env or
+      # CI `env:` blocks never reaches the container process; record mode never engages
+      # and Plan 02-04's notification assertion fails. The env_file above points at
+      # services/notification-service/.env (gitignored host-only) which cannot carry
+      # per-test variables. (Blocker #1, revision 2.)
+      - NOTIFICATION_TEST_MODE=${NOTIFICATION_TEST_MODE:-}
+      - NOTIFICATION_RECORD_PATH=${NOTIFICATION_RECORD_PATH:-tests/.notifications.log}
+      - TELEGRAM_TEST_BOT_TOKEN=${TELEGRAM_TEST_BOT_TOKEN:-}
+      - TELEGRAM_TEST_CHAT_ID=${TELEGRAM_TEST_CHAT_ID:-}
     volumes:
       - ./services/notification-service/logs:/app/logs
       - ./services/notification-service/data:/app/data
+      # CD-01 — record-mode writes through to host so the host pytest fixture can read
+      # tests/.notifications.log. RW because the fixture also truncates between tests.
+      - ./tests:/app/tests:rw
     networks:
       - crypto-bot-network
     depends_on:
