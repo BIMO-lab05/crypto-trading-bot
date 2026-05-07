@@ -5,6 +5,11 @@ Shared fixtures and utilities for integration tests
 
 import asyncio
 import os
+import shutil
+import subprocess
+import tempfile
+import time
+from pathlib import Path
 from typing import AsyncGenerator, Dict
 
 import httpx
@@ -45,13 +50,84 @@ async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
         yield client
 
 
+def _repo_root() -> Path:
+    """Walk up from this file to find the git repo root."""
+    p = Path(__file__).resolve().parent
+    while p != p.parent:
+        if (p / ".git").exists():
+            return p
+        p = p.parent
+    raise RuntimeError("Could not locate git repo root from conftest.py")
+
+
 @pytest.fixture(scope="session")
-def bootstrap_stack(services_config):
-    """Stub session fixture — body replaced in Task 2 (bootstrap_stack + tmp_fresh_clone).
-    Session-scoped per D-03: single boot shared across the whole pytest run.
+def tmp_fresh_clone(request) -> Path:
+    """Create /tmp/cb-test-<sha> via git clone (D-05). Delete on success (D-08)."""
+    repo_root = _repo_root()
+    sha = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    tmp = Path(tempfile.gettempdir()) / f"cb-test-{sha}"
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    subprocess.run(
+        ["git", "clone", f"file://{repo_root}", str(tmp)],
+        check=True,
+        capture_output=True,
+    )
+    # D-06: empty .env at bootstrap entry
+    (tmp / ".env").write_text("")
+
+    yield tmp
+
+    # D-08: only delete if no test failures
+    if request.session.testsfailed == 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+    else:
+        print(f"\n[D-08] keeping tmp clone for post-mortem: {tmp}")
+
+
+@pytest.fixture(scope="session")
+def bootstrap_stack(tmp_fresh_clone, services_config):
+    """Shell out to bootstrap.sh in tmp clone (D-01, D-03). Single boot, shared.
+    Pytest runs on host (D-02), bootstrap brings up docker compose stack.
     """
-    # Placeholder: Task 2 replaces this body with subprocess.run(bootstrap.sh)
-    pass
+    result = subprocess.run(
+        ["./bootstrap.sh"],
+        cwd=tmp_fresh_clone,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        print(f"\n=== bootstrap.sh stdout (last 50) ===\n{result.stdout[-5000:]}")
+        print(f"\n=== bootstrap.sh stderr (last 50) ===\n{result.stderr[-5000:]}")
+        pytest.fail(
+            f"bootstrap.sh failed (exit={result.returncode}) in {tmp_fresh_clone}. "
+            f"Per D-08, tmp clone preserved at: {tmp_fresh_clone}"
+        )
+
+    # Re-poll /health for each service (paranoid double-check across the network seam)
+    deadline = time.monotonic() + 60.0
+    for svc, url in services_config.items():
+        ok = False
+        while time.monotonic() < deadline:
+            try:
+                r = httpx.get(f"{url}/health", timeout=2.0)
+                if r.status_code == 200:
+                    ok = True
+                    break
+            except httpx.RequestError:
+                pass
+            time.sleep(1.0)
+        if not ok:
+            pytest.fail(f"Service {svc} at {url} did not return 200 within 60s")
+
+    yield tmp_fresh_clone
 
 
 @pytest.fixture(scope="session")
