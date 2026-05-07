@@ -131,6 +131,7 @@ from app.handlers.grid_trading import router as grid_trading_router
 from app.handlers.orchestration import router as orchestration_router
 from app.handlers.orchestration import (  # noqa: F401 — router mounted below
     admin_indicator_router,
+    admin_force_signal_router,  # CD-04 — Phase 2 INFRA-01 force-signal endpoint
 )
 
 # Import Correlation Manager (Phase 3.1)
@@ -413,6 +414,11 @@ app.include_router(orchestration_router)
 # Include Indicator Rolling-Confidence Gate (2026-05-06).
 # Defined in handlers/orchestration.py alongside the orchestrator router.
 app.include_router(admin_indicator_router)
+
+# Include Force-Signal admin endpoint (CD-04, Phase 2 INFRA-01, 2026-05-07).
+# Test-only entry point for the integration suite — refuses in TRADING_MODE=LIVE.
+# Plan 02-04's <60s round-trip test calls POST /api/v1/admin/force-signal.
+app.include_router(admin_force_signal_router)
 
 # Include Kelly Position Sizing router (Phase 3.2)
 app.include_router(kelly_router)
