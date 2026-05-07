@@ -3,6 +3,9 @@
 **Version:** 1.0
 **Last Updated:** 2025-11-16
 
+> **For failure-triage and emergency recovery procedures**, see [`/RUNBOOK.md`](../../RUNBOOK.md) at the repo root.
+> This file covers nominal operations (service management, backups, monitoring, deploys).
+
 ---
 
 ## Table of Contents
