@@ -31,7 +31,16 @@ ADRs and design choices, captured from progress.md, CLAUDE.md, and code archaeol
 ## Risk
 
 - [[ADR-010-max-risk-per-trade-paper-bump]] — `max_risk_per_trade` 0.02 → 0.10 in paper mode for $100 balance min-notional clearance; LIVE remains ≤ 2%
+- [[ADR-011-paper-deterministic-execution]] — paper-trading fills with zero slippage / zero latency / always-filled; do not trust paper P&L for edge
+
+## Architecture (cont.)
+
+- [[ADR-012-http-not-events]] — service mesh is synchronous HTTP end-to-end; documented RabbitMQ topics are fiction
 
 ## Strategy
 
 - [[ADR-013-strategy-rebuild-plan]] — phased rebuild grounded in 2026 crypto-bot research; kill 22 of 25 strategy files; honest walk-forward harness; sqzmom + ADX + volume + 4h-alignment as the one canonical strategy
+
+## Sizing
+
+- [[ADR-015-ensemble-sizing-cascade]] — bind ensemble sizing to `settings.max_risk_per_trade` + expose floor/multiplier; defaults push trades to 5-10 % to honor ADR-010 intent

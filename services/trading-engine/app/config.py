@@ -330,6 +330,37 @@ class Settings(BaseSettings):
             "$100 paper balance × 10% = $10/trade for meaningful test sizing."
         ),
     )
+    # Ensemble sizing cascade (2026-05-07) — see ADR-015.
+    # Replaces hardcoded constants in multi_strategy_ensemble.py that ignored
+    # max_risk_per_trade and clamped trades to 1-3% of capital.
+    # Formula: max(min_pos, min(cap, confidence × cap × multiplier))
+    # where cap = max_risk_per_trade.
+    # Default multiplier 3.7 chosen so confidence ≈ 0.27 (the documented
+    # ensemble ceiling per ADR-013 — 7 voting legs × typical conf 0.16-0.50)
+    # produces a trade at the cap. Default min 0.05 ensures a single fired
+    # trade is meaningful at $100 balance ($5 not $1).
+    ensemble_min_position_pct: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=0.5,
+        description=(
+            "Floor for ensemble position sizing as a fraction of capital. "
+            "When the confidence-scaled formula produces a smaller value, "
+            "this floor is used instead. Defaults to 0.05 = 5% (was 0.01)."
+        ),
+    )
+    ensemble_confidence_size_multiplier: float = Field(
+        default=3.7,
+        ge=1.0,
+        le=10.0,
+        description=(
+            "Multiplier on confidence × max_risk_per_trade in the ensemble "
+            "sizing formula. Higher = trades reach the cap at lower "
+            "confidence. Default 3.7 hits the cap at conf ≈ 0.27 (the "
+            "documented ensemble ceiling per ADR-013). Was 1.5 — required "
+            "conf 0.67 to hit cap, which the ensemble cannot produce."
+        ),
+    )
     max_daily_loss_pct: float = Field(
         default=5.0, ge=1.0, le=20.0, description="Maximum daily loss as % of capital"
     )
