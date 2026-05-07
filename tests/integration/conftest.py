@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict
 
 import httpx
 import pytest
@@ -146,3 +146,126 @@ def test_symbol():
 def test_portfolio_id():
     """Test portfolio ID"""
     return "test_portfolio"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: function-scoped fixtures for per-test isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="function")
+async def tape_reset(http_client, services_config, bootstrap_stack):
+    """HTTP POST /admin/tape/reset before each test (D-04).
+    Stack must be in tape mode (MARKET_DATA_SOURCE=tape).
+    """
+    url = f"{services_config['bybit_connector']}/admin/tape/reset"
+    r = await http_client.post(url)
+    assert r.status_code == 200, (
+        f"tape/reset failed: status={r.status_code} body={r.text}. "
+        "Stack must be in MARKET_DATA_SOURCE=tape mode."
+    )
+    yield
+
+
+@pytest.fixture(scope="function")
+def force_signal(http_client, services_config):
+    """Helper for POSTing synthetic signals to trading-engine (CD-04).
+    Returns an async callable; test bodies await it.
+    """
+    url = f"{services_config['trading_engine']}/api/v1/admin/force-signal"
+
+    async def _send(payload: Dict[str, Any]) -> Dict[str, Any]:
+        r = await http_client.post(url, json=payload)
+        assert r.status_code == 200, f"force-signal failed: {r.status_code} {r.text}"
+        return r.json()
+
+    return _send
+
+
+@pytest.fixture(scope="function")
+async def db_truncate():
+    """Clear klines, tickers, positions, orders between tests. Schema preserved.
+
+    [Rule 1 fix] Plan defaults used postgres:postgres@.../crypto_trading and .../timescale
+    but docker-compose.unified.yml shows user=cryptobot, pg_db=cryptobot, ts_db=market_data,
+    ts_host_port=5433. Corrected here so defaults match compose out-of-the-box.
+    Operator may override via POSTGRES_URL / TIMESCALE_URL env vars.
+    """
+    import asyncpg
+
+    postgres_url = os.getenv(
+        "POSTGRES_URL",
+        "postgresql://cryptobot:cryptobot_dev_password@localhost:5432/cryptobot",
+    )
+    timescale_url = os.getenv(
+        "TIMESCALE_URL",
+        "postgresql://cryptobot:timescale_dev_password@localhost:5433/market_data",
+    )
+    async with asyncpg.create_pool(timescale_url, min_size=1, max_size=2) as ts_pool:
+        async with ts_pool.acquire() as conn:
+            await conn.execute(
+                "TRUNCATE TABLE klines, tickers RESTART IDENTITY CASCADE"
+            )
+    async with asyncpg.create_pool(postgres_url, min_size=1, max_size=2) as pg_pool:
+        async with pg_pool.acquire() as conn:
+            await conn.execute(
+                "TRUNCATE TABLE positions, orders RESTART IDENTITY CASCADE"
+            )
+    yield
+
+
+@pytest.fixture(scope="function")
+async def notification_received():
+    """Mode-aware notification verification (CD-01).
+
+    Returns an async callable that tests use to assert a notification was emitted.
+    Branches on NOTIFICATION_TEST_MODE env var:
+      - "record" (default, local): tails tests/.notifications.log for the substring.
+      - "live"   (CI):             polls https://api.telegram.org/bot{TOKEN}/getUpdates.
+
+    Both paths return bool so test bodies are mode-agnostic.
+    Uses pathlib.Path for file I/O (bypasses builtins.open mocking trap per
+    feedback_pathlib_mocking.md in project memory).
+    """
+    mode = os.getenv("NOTIFICATION_TEST_MODE", "record") or "record"
+    log_path = _repo_root() / "tests" / ".notifications.log"
+    if mode == "record":
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("")  # truncate before each test
+
+    async def _wait_for(text: str, timeout: float = 10.0) -> bool:
+        deadline = time.monotonic() + timeout
+        if mode == "record":
+            while time.monotonic() < deadline:
+                if log_path.exists():
+                    if any(
+                        text in ln
+                        for ln in log_path.read_text().splitlines()
+                        if ln.strip()
+                    ):
+                        return True
+                await asyncio.sleep(0.25)
+            return False
+        # live mode: poll Telegram getUpdates
+        bot_token = os.getenv("TEST_TELEGRAM_BOT_TOKEN", "")
+        if not bot_token:
+            pytest.fail(
+                "NOTIFICATION_TEST_MODE=live requires TEST_TELEGRAM_BOT_TOKEN env var. "
+                "Set it via CI secrets, or use NOTIFICATION_TEST_MODE=record locally."
+            )
+        tg_url = f"https://api.telegram.org/bot{bot_token}/getUpdates"
+        async with httpx.AsyncClient() as client:
+            while time.monotonic() < deadline:
+                try:
+                    r = await client.get(tg_url, timeout=5.0)
+                    if r.status_code == 200:
+                        for upd in r.json().get("result", []):
+                            m = upd.get("message", {}).get("text", "")
+                            if text in m:
+                                return True
+                except httpx.RequestError:
+                    pass
+                await asyncio.sleep(1.0)
+        return False
+
+    yield _wait_for
