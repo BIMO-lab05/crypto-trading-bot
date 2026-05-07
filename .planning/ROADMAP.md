@@ -49,11 +49,11 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 02-01-PLAN.md — bybit-connector POST /admin/tape/reset endpoint + reset() method
-- [ ] 02-02-PLAN.md — trading-engine POST /api/v1/admin/force-signal admin router
-- [ ] 02-06-PLAN.md — scripts/iter-fix.sh checkpointed iteration harness + scripts/iter-fix-check-diff.sh anti-mock guard
-- [ ] 02-07-PLAN.md — RUNBOOK.md failure-triage-first at repo root (6 mandated symptom sections)
-- [ ] 02-10-PLAN.md — Makefile build-no-buildkit ergonomic shortcut (CD-02)
+- [x] 02-01-PLAN.md — bybit-connector POST /admin/tape/reset endpoint + reset() method
+- [x] 02-02-PLAN.md — trading-engine POST /api/v1/admin/force-signal admin router
+- [x] 02-06-PLAN.md — scripts/iter-fix.sh checkpointed iteration harness + scripts/iter-fix-check-diff.sh anti-mock guard
+- [x] 02-07-PLAN.md — RUNBOOK.md failure-triage-first at repo root (6 mandated symptom sections)
+- [x] 02-10-PLAN.md — Makefile build-no-buildkit ergonomic shortcut (CD-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 02-03-PLAN.md — extend tests/integration/conftest.py with bootstrap_stack/tmp_fresh_clone/tape_reset/force_signal/db_truncate/notification_received (mode-aware) fixtures (fix port-mapping bug, refactor to session-scope)
