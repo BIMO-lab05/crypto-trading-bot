@@ -51,6 +51,8 @@ venv.bak/
 .env.development
 .env.staging
 .env.production
+# Test-mode environment override (gitignored — may contain real test bot creds)
+.env.test
 *.secret
 *.secrets
 secrets/
