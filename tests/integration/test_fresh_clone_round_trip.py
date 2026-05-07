@@ -49,9 +49,9 @@ async def test_fresh_clone_round_trip(
     body = r.json()
     # Bybit V5 envelope: success + result.list
     assert body.get("success") is True, f"ticker not success: {body}"
-    ticker_list = body.get("result", {}).get("list", []) or body.get(
-        "data", {}, {}
-    ).get("list", [])
+    ticker_list = body.get("result", {}).get("list", []) or body.get("data", {}).get(
+        "list", []
+    )
     assert ticker_list, f"ticker list empty — recorded tape not loaded: {body}"
 
     # --- 3. Paper-trade round-trip < 60s ---
