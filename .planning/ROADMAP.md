@@ -56,7 +56,7 @@ Plans:
 - [x] 02-10-PLAN.md — Makefile build-no-buildkit ergonomic shortcut (CD-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 02-03-PLAN.md — extend tests/integration/conftest.py with bootstrap_stack/tmp_fresh_clone/tape_reset/force_signal/db_truncate/notification_received (mode-aware) fixtures (fix port-mapping bug, refactor to session-scope)
+- [x] 02-03-PLAN.md — extend tests/integration/conftest.py with bootstrap_stack/tmp_fresh_clone/tape_reset/force_signal/db_truncate/notification_received (mode-aware) fixtures (fix port-mapping bug, refactor to session-scope)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 02-04-PLAN.md — INFRA-01 e2e test (test_fresh_clone_round_trip) + ML-on variant (CD-05) + remove pytest.skip anti-pattern
