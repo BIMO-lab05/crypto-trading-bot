@@ -3,19 +3,18 @@ Bybit Connector Service - FastAPI Main Application Tests
 Purpose: Comprehensive tests for FastAPI endpoints, CORS, and error handling
 """
 
-import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, patch
 from fastapi import status
 
 from app.main import app
 from app.exceptions import BybitAPIException, RateLimitException, ValidationException
-from app.models import OrderSide, OrderType, TimeInForce, Category
 
 
 # ============================================================================
 # HEALTH ENDPOINT TESTS
 # ============================================================================
+
 
 class TestHealthEndpoints:
     """Test health check and readiness endpoints"""
@@ -32,11 +31,13 @@ class TestHealthEndpoints:
     def test_readiness_check_endpoint_success(self, client, mock_rest_client):
         """Test /ready endpoint when Bybit connection is OK"""
         # Given mock client returns successful ticker response
-        mock_rest_client.get_ticker = AsyncMock(return_value={
-            "retCode": 0,
-            "retMsg": "OK",
-            "result": {"list": [{"symbol": "BTCUSDT", "lastPrice": "50000"}]}
-        })
+        mock_rest_client.get_ticker = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "retMsg": "OK",
+                "result": {"list": [{"symbol": "BTCUSDT", "lastPrice": "50000"}]},
+            }
+        )
 
         # When calling readiness endpoint
         response = client.get("/ready")
@@ -49,7 +50,9 @@ class TestHealthEndpoints:
     def test_readiness_check_endpoint_failure(self, client, mock_rest_client):
         """Test /ready endpoint when Bybit connection fails"""
         # Given mock client raises exception
-        mock_rest_client.get_ticker = AsyncMock(side_effect=Exception("Connection failed"))
+        mock_rest_client.get_ticker = AsyncMock(
+            side_effect=Exception("Connection failed")
+        )
 
         # When calling readiness endpoint
         response = client.get("/ready")
@@ -76,22 +79,22 @@ class TestHealthEndpoints:
 # ACCOUNT ENDPOINT TESTS
 # ============================================================================
 
+
 class TestAccountEndpoints:
     """Test account-related endpoints"""
 
     def test_get_balance_endpoint_success(self, client, mock_rest_client):
         """Test GET /api/v1/account/balance success"""
         # Given mock client returns balance data
-        mock_rest_client.get_wallet_balance = AsyncMock(return_value={
-            "retCode": 0,
-            "retMsg": "OK",
-            "result": {
-                "list": [{
-                    "totalEquity": "10000",
-                    "availableBalance": "8000"
-                }]
+        mock_rest_client.get_wallet_balance = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "retMsg": "OK",
+                "result": {
+                    "list": [{"totalEquity": "10000", "availableBalance": "8000"}]
+                },
             }
-        })
+        )
 
         # When calling balance endpoint
         response = client.get("/api/v1/account/balance")
@@ -103,17 +106,15 @@ class TestAccountEndpoints:
 
         # And client was called correctly
         mock_rest_client.get_wallet_balance.assert_called_once_with(
-            account_type="UNIFIED",
-            coin=None
+            account_type="UNIFIED", coin=None
         )
 
     def test_get_balance_endpoint_with_params(self, client, mock_rest_client):
         """Test GET /api/v1/account/balance with query parameters"""
         # Given mock client returns balance data
-        mock_rest_client.get_wallet_balance = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {}
-        })
+        mock_rest_client.get_wallet_balance = AsyncMock(
+            return_value={"retCode": 0, "result": {}}
+        )
 
         # When calling balance endpoint with parameters
         response = client.get("/api/v1/account/balance?account_type=CONTRACT&coin=BTC")
@@ -121,15 +122,16 @@ class TestAccountEndpoints:
         # Then client is called with correct params
         assert response.status_code == status.HTTP_200_OK
         mock_rest_client.get_wallet_balance.assert_called_once_with(
-            account_type="CONTRACT",
-            coin="BTC"
+            account_type="CONTRACT", coin="BTC"
         )
 
     def test_get_balance_endpoint_error(self, client, mock_rest_client):
         """Test GET /api/v1/account/balance with API error"""
         # Given mock client raises exception
         mock_rest_client.get_wallet_balance = AsyncMock(
-            side_effect=BybitAPIException("API Error", ret_code=10001, ret_msg="Invalid request")
+            side_effect=BybitAPIException(
+                "API Error", ret_code=10001, ret_msg="Invalid request"
+            )
         )
 
         # When calling balance endpoint
@@ -142,18 +144,22 @@ class TestAccountEndpoints:
     def test_get_positions_endpoint_success(self, client, mock_rest_client):
         """Test GET /api/v1/account/positions success"""
         # Given mock client returns position data
-        mock_rest_client.get_positions = AsyncMock(return_value={
-            "retCode": 0,
-            "retMsg": "OK",
-            "result": {
-                "list": [{
-                    "symbol": "BTCUSDT",
-                    "side": "Buy",
-                    "size": "0.01",
-                    "positionValue": "500"
-                }]
+        mock_rest_client.get_positions = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "retMsg": "OK",
+                "result": {
+                    "list": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "side": "Buy",
+                            "size": "0.01",
+                            "positionValue": "500",
+                        }
+                    ]
+                },
             }
-        })
+        )
 
         # When calling positions endpoint
         response = client.get("/api/v1/account/positions")
@@ -166,10 +172,9 @@ class TestAccountEndpoints:
     def test_get_positions_endpoint_with_symbol(self, client, mock_rest_client):
         """Test GET /api/v1/account/positions with symbol filter"""
         # Given mock client returns position data
-        mock_rest_client.get_positions = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"list": []}
-        })
+        mock_rest_client.get_positions = AsyncMock(
+            return_value={"retCode": 0, "result": {"list": []}}
+        )
 
         # When calling positions endpoint with symbol
         response = client.get("/api/v1/account/positions?symbol=ETHUSDT")
@@ -177,14 +182,14 @@ class TestAccountEndpoints:
         # Then client is called with symbol parameter
         assert response.status_code == status.HTTP_200_OK
         mock_rest_client.get_positions.assert_called_once_with(
-            category="linear",
-            symbol="ETHUSDT"
+            category="linear", symbol="ETHUSDT"
         )
 
 
 # ============================================================================
 # TRADING ENDPOINT TESTS
 # ============================================================================
+
 
 class TestTradingEndpoints:
     """Test trading-related endpoints"""
@@ -199,18 +204,17 @@ class TestTradingEndpoints:
             "order_type": "Limit",
             "qty": "0.01",
             "price": "50000",
-            "time_in_force": "GTC"
+            "time_in_force": "GTC",
         }
 
         # And mock client returns success
-        mock_rest_client.place_order = AsyncMock(return_value={
-            "retCode": 0,
-            "retMsg": "OK",
-            "result": {
-                "orderId": "test-order-123",
-                "orderLinkId": ""
+        mock_rest_client.place_order = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "retMsg": "OK",
+                "result": {"orderId": "test-order-123", "orderLinkId": ""},
             }
-        })
+        )
 
         # When calling place order endpoint
         response = client.post("/api/v1/order/place", json=order_data)
@@ -235,7 +239,7 @@ class TestTradingEndpoints:
             "side": "Buy",
             "order_type": "Limit",
             "qty": "-0.01",
-            "price": "50000"
+            "price": "50000",
         }
 
         # When calling place order endpoint
@@ -251,7 +255,7 @@ class TestTradingEndpoints:
             "symbol": "BTCUSDT",
             "side": "Buy",
             "order_type": "Limit",
-            "qty": "0.01"
+            "qty": "0.01",
         }
 
         # When calling place order endpoint
@@ -267,11 +271,13 @@ class TestTradingEndpoints:
             "symbol": "BTCUSDT",
             "side": "Buy",
             "order_type": "Market",
-            "qty": "0.01"
+            "qty": "0.01",
         }
 
         mock_rest_client.place_order = AsyncMock(
-            side_effect=BybitAPIException("Insufficient balance", ret_code=10006, ret_msg="Balance not enough")
+            side_effect=BybitAPIException(
+                "Insufficient balance", ret_code=10006, ret_msg="Balance not enough"
+            )
         )
 
         # When calling place order endpoint
@@ -284,16 +290,15 @@ class TestTradingEndpoints:
     def test_cancel_order_endpoint_with_order_id(self, client, mock_rest_client):
         """Test POST /api/v1/order/cancel with order_id"""
         # Given cancel request with order_id
-        cancel_data = {
-            "symbol": "BTCUSDT",
-            "order_id": "test-order-123"
-        }
+        cancel_data = {"symbol": "BTCUSDT", "order_id": "test-order-123"}
 
-        mock_rest_client.cancel_order = AsyncMock(return_value={
-            "retCode": 0,
-            "retMsg": "OK",
-            "result": {"orderId": "test-order-123"}
-        })
+        mock_rest_client.cancel_order = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "retMsg": "OK",
+                "result": {"orderId": "test-order-123"},
+            }
+        )
 
         # When calling cancel order endpoint
         response = client.post("/api/v1/order/cancel", json=cancel_data)
@@ -308,15 +313,11 @@ class TestTradingEndpoints:
     def test_cancel_order_endpoint_with_order_link_id(self, client, mock_rest_client):
         """Test POST /api/v1/order/cancel with order_link_id"""
         # Given cancel request with order_link_id
-        cancel_data = {
-            "symbol": "BTCUSDT",
-            "order_link_id": "my-order-456"
-        }
+        cancel_data = {"symbol": "BTCUSDT", "order_link_id": "my-order-456"}
 
-        mock_rest_client.cancel_order = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {}
-        })
+        mock_rest_client.cancel_order = AsyncMock(
+            return_value={"retCode": 0, "result": {}}
+        )
 
         # When calling cancel order endpoint
         response = client.post("/api/v1/order/cancel", json=cancel_data)
@@ -327,9 +328,7 @@ class TestTradingEndpoints:
     def test_cancel_order_endpoint_without_ids(self, client):
         """Test POST /api/v1/order/cancel without order IDs"""
         # Given cancel request without IDs
-        cancel_data = {
-            "symbol": "BTCUSDT"
-        }
+        cancel_data = {"symbol": "BTCUSDT"}
 
         # When calling cancel order endpoint
         response = client.post("/api/v1/order/cancel", json=cancel_data)
@@ -340,15 +339,17 @@ class TestTradingEndpoints:
     def test_get_open_orders_endpoint(self, client, mock_rest_client):
         """Test GET /api/v1/order/open"""
         # Given mock client returns open orders
-        mock_rest_client.get_open_orders = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {
-                "list": [
-                    {"orderId": "1", "symbol": "BTCUSDT", "status": "New"},
-                    {"orderId": "2", "symbol": "ETHUSDT", "status": "New"}
-                ]
+        mock_rest_client.get_open_orders = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "result": {
+                    "list": [
+                        {"orderId": "1", "symbol": "BTCUSDT", "status": "New"},
+                        {"orderId": "2", "symbol": "ETHUSDT", "status": "New"},
+                    ]
+                },
             }
-        })
+        )
 
         # When calling get open orders endpoint
         response = client.get("/api/v1/order/open")
@@ -360,10 +361,9 @@ class TestTradingEndpoints:
     def test_get_open_orders_endpoint_with_params(self, client, mock_rest_client):
         """Test GET /api/v1/order/open with query parameters"""
         # Given mock client
-        mock_rest_client.get_open_orders = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"list": []}
-        })
+        mock_rest_client.get_open_orders = AsyncMock(
+            return_value={"retCode": 0, "result": {"list": []}}
+        )
 
         # When calling with parameters
         response = client.get("/api/v1/order/open?symbol=BTCUSDT&limit=20")
@@ -371,21 +371,21 @@ class TestTradingEndpoints:
         # Then client is called with correct params
         assert response.status_code == status.HTTP_200_OK
         mock_rest_client.get_open_orders.assert_called_once_with(
-            category="linear",
-            symbol="BTCUSDT",
-            limit=20
+            category="linear", symbol="BTCUSDT", limit=20
         )
 
     def test_get_order_history_endpoint(self, client, mock_rest_client):
         """Test GET /api/v1/order/history"""
         # Given mock client returns order history
-        mock_rest_client.get_order_history = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {
-                "list": [{"orderId": "1", "status": "Filled"}],
-                "nextPageCursor": "cursor123"
+        mock_rest_client.get_order_history = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "result": {
+                    "list": [{"orderId": "1", "status": "Filled"}],
+                    "nextPageCursor": "cursor123",
+                },
             }
-        })
+        )
 
         # When calling order history endpoint
         response = client.get("/api/v1/order/history")
@@ -397,10 +397,9 @@ class TestTradingEndpoints:
     def test_get_order_history_endpoint_with_cursor(self, client, mock_rest_client):
         """Test GET /api/v1/order/history with pagination cursor"""
         # Given mock client
-        mock_rest_client.get_order_history = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"list": []}
-        })
+        mock_rest_client.get_order_history = AsyncMock(
+            return_value={"retCode": 0, "result": {"list": []}}
+        )
 
         # When calling with cursor
         response = client.get("/api/v1/order/history?cursor=cursor123")
@@ -415,22 +414,23 @@ class TestTradingEndpoints:
 # MARKET DATA ENDPOINT TESTS
 # ============================================================================
 
+
 class TestMarketDataEndpoints:
     """Test market data endpoints"""
 
     def test_get_ticker_endpoint(self, client, mock_rest_client):
         """Test GET /api/v1/market/ticker"""
         # Given mock client returns ticker data
-        mock_rest_client.get_ticker = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {
-                "list": [{
-                    "symbol": "BTCUSDT",
-                    "lastPrice": "50000",
-                    "volume24h": "1000"
-                }]
+        mock_rest_client.get_ticker = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "result": {
+                    "list": [
+                        {"symbol": "BTCUSDT", "lastPrice": "50000", "volume24h": "1000"}
+                    ]
+                },
             }
-        })
+        )
 
         # When calling ticker endpoint
         response = client.get("/api/v1/market/ticker")
@@ -443,10 +443,9 @@ class TestMarketDataEndpoints:
     def test_get_ticker_endpoint_with_symbol(self, client, mock_rest_client):
         """Test GET /api/v1/market/ticker with symbol parameter"""
         # Given mock client
-        mock_rest_client.get_ticker = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"list": []}
-        })
+        mock_rest_client.get_ticker = AsyncMock(
+            return_value={"retCode": 0, "result": {"list": []}}
+        )
 
         # When calling with symbol
         response = client.get("/api/v1/market/ticker?symbol=ETHUSDT")
@@ -454,21 +453,22 @@ class TestMarketDataEndpoints:
         # Then client is called with symbol
         assert response.status_code == status.HTTP_200_OK
         mock_rest_client.get_ticker.assert_called_once_with(
-            category="linear",
-            symbol="ETHUSDT"
+            category="linear", symbol="ETHUSDT"
         )
 
     def test_get_kline_endpoint(self, client, mock_rest_client):
         """Test GET /api/v1/market/kline"""
         # Given mock client returns kline data
-        mock_rest_client.get_kline = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {
-                "list": [
-                    ["1234567890000", "50000", "51000", "49000", "50500", "100"]
-                ]
+        mock_rest_client.get_kline = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "result": {
+                    "list": [
+                        ["1234567890000", "50000", "51000", "49000", "50500", "100"]
+                    ]
+                },
             }
-        })
+        )
 
         # When calling kline endpoint
         response = client.get("/api/v1/market/kline")
@@ -480,10 +480,9 @@ class TestMarketDataEndpoints:
     def test_get_kline_endpoint_with_params(self, client, mock_rest_client):
         """Test GET /api/v1/market/kline with parameters"""
         # Given mock client
-        mock_rest_client.get_kline = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"list": []}
-        })
+        mock_rest_client.get_kline = AsyncMock(
+            return_value={"retCode": 0, "result": {"list": []}}
+        )
 
         # When calling with parameters
         response = client.get(
@@ -506,13 +505,15 @@ class TestMarketDataEndpoints:
     def test_get_orderbook_endpoint(self, client, mock_rest_client):
         """Test GET /api/v1/market/orderbook"""
         # Given mock client returns orderbook data
-        mock_rest_client.get_orderbook = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {
-                "b": [["50000", "0.5"], ["49900", "1.0"]],
-                "a": [["50100", "0.3"], ["50200", "0.8"]]
+        mock_rest_client.get_orderbook = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "result": {
+                    "b": [["50000", "0.5"], ["49900", "1.0"]],
+                    "a": [["50100", "0.3"], ["50200", "0.8"]],
+                },
             }
-        })
+        )
 
         # When calling orderbook endpoint
         response = client.get("/api/v1/market/orderbook")
@@ -524,30 +525,30 @@ class TestMarketDataEndpoints:
     def test_get_orderbook_endpoint_with_params(self, client, mock_rest_client):
         """Test GET /api/v1/market/orderbook with parameters"""
         # Given mock client
-        mock_rest_client.get_orderbook = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"b": [], "a": []}
-        })
+        mock_rest_client.get_orderbook = AsyncMock(
+            return_value={"retCode": 0, "result": {"b": [], "a": []}}
+        )
 
         # When calling with parameters
-        response = client.get(
-            "/api/v1/market/orderbook?symbol=ETHUSDT&limit=50"
-        )
+        response = client.get("/api/v1/market/orderbook?symbol=ETHUSDT&limit=50")
 
         # Then client is called with correct params
         assert response.status_code == status.HTTP_200_OK
         mock_rest_client.get_orderbook.assert_called_once_with(
-            category="linear",
-            symbol="ETHUSDT",
-            limit=50
+            category="linear", symbol="ETHUSDT", limit=50
         )
 
     def test_get_funding_rate_history_endpoint(self, client, mock_rest_client):
         """Test GET /api/v1/market/funding-rate/history"""
-        mock_rest_client.get_funding_rate_history = AsyncMock(return_value=[
-            {"symbol": "SOLUSDT", "fundingRate": "0.00010000",
-             "fundingRateTimestamp": "1672041600000"},
-        ])
+        mock_rest_client.get_funding_rate_history = AsyncMock(
+            return_value=[
+                {
+                    "symbol": "SOLUSDT",
+                    "fundingRate": "0.00010000",
+                    "fundingRateTimestamp": "1672041600000",
+                },
+            ]
+        )
 
         response = client.get(
             "/api/v1/market/funding-rate/history?symbol=SOLUSDT&limit=50"
@@ -565,10 +566,15 @@ class TestMarketDataEndpoints:
             limit=50,
         )
 
-    def test_get_funding_rate_history_endpoint_rejects_spot(self, client, mock_rest_client):
+    def test_get_funding_rate_history_endpoint_rejects_spot(
+        self, client, mock_rest_client
+    ):
         """Spot has no funding — handler should surface a 400, not propagate."""
+
         async def raises(*_args, **_kwargs):
-            raise ValueError("funding-rate history is perp-only; category='spot' unsupported")
+            raise ValueError(
+                "funding-rate history is perp-only; category='spot' unsupported"
+            )
 
         mock_rest_client.get_funding_rate_history = AsyncMock(side_effect=raises)
 
@@ -581,11 +587,16 @@ class TestMarketDataEndpoints:
 
     def test_get_instruments_info_endpoint(self, client, mock_rest_client):
         """Test GET /api/v1/market/instruments-info"""
-        mock_rest_client.get_instruments_info = AsyncMock(return_value=[
-            {"symbol": "SOLUSDT", "fundingInterval": "480",
-             "priceFilter": {"tickSize": "0.001"},
-             "lotSizeFilter": {"minOrderQty": "0.1"}}
-        ])
+        mock_rest_client.get_instruments_info = AsyncMock(
+            return_value=[
+                {
+                    "symbol": "SOLUSDT",
+                    "fundingInterval": "480",
+                    "priceFilter": {"tickSize": "0.001"},
+                    "lotSizeFilter": {"minOrderQty": "0.1"},
+                }
+            ]
+        )
 
         response = client.get(
             "/api/v1/market/instruments-info?category=linear&symbol=SOLUSDT"
@@ -605,17 +616,20 @@ class TestMarketDataEndpoints:
 # MONITORING ENDPOINT TESTS
 # ============================================================================
 
+
 class TestMonitoringEndpoints:
     """Test monitoring and circuit breaker endpoints"""
 
     def test_get_circuit_breaker_status(self, client, mock_rest_client):
         """Test GET /api/v1/status/circuit-breaker"""
         # Given mock client returns circuit breaker status
-        mock_rest_client.get_circuit_breaker_status = Mock(return_value={
-            "state": "closed",
-            "failure_count": 0,
-            "last_failure_time": None
-        })
+        mock_rest_client.get_circuit_breaker_status = Mock(
+            return_value={
+                "state": "closed",
+                "failure_count": 0,
+                "last_failure_time": None,
+            }
+        )
 
         # When calling circuit breaker status endpoint
         response = client.get("/api/v1/status/circuit-breaker")
@@ -646,6 +660,7 @@ class TestMonitoringEndpoints:
 # CORS TESTS
 # ============================================================================
 
+
 class TestCORSConfiguration:
     """Test CORS middleware configuration"""
 
@@ -653,10 +668,7 @@ class TestCORSConfiguration:
         """Test CORS headers are included in responses"""
         # Given CORS configured origins
         # When making request with Origin header
-        response = client.get(
-            "/health",
-            headers={"Origin": "http://localhost:3000"}
-        )
+        response = client.get("/health", headers={"Origin": "http://localhost:3000"})
 
         # Then CORS headers are present
         assert response.status_code == status.HTTP_200_OK
@@ -669,8 +681,8 @@ class TestCORSConfiguration:
             "/api/v1/account/balance",
             headers={
                 "Origin": "http://localhost:3000",
-                "Access-Control-Request-Method": "GET"
-            }
+                "Access-Control-Request-Method": "GET",
+            },
         )
 
         # Then preflight response is successful
@@ -680,6 +692,7 @@ class TestCORSConfiguration:
 # ============================================================================
 # ERROR HANDLING TESTS
 # ============================================================================
+
 
 class TestErrorHandling:
     """Test error handling across endpoints"""
@@ -709,7 +722,7 @@ class TestErrorHandling:
             "symbol": "BTCUSDT",
             "side": "Buy",
             "order_type": "Market",
-            "qty": "0.01"
+            "qty": "0.01",
         }
 
         # When calling endpoint
@@ -753,16 +766,19 @@ class TestErrorHandling:
 # INTEGRATION TESTS
 # ============================================================================
 
+
 class TestEndpointIntegration:
     """Test endpoint integration and workflows"""
 
     def test_place_and_cancel_order_workflow(self, client, mock_rest_client):
         """Test complete workflow: place order then cancel it"""
         # Given successful place order
-        mock_rest_client.place_order = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"orderId": "order-123", "orderLinkId": "my-order"}
-        })
+        mock_rest_client.place_order = AsyncMock(
+            return_value={
+                "retCode": 0,
+                "result": {"orderId": "order-123", "orderLinkId": "my-order"},
+            }
+        )
 
         order_data = {
             "symbol": "BTCUSDT",
@@ -770,7 +786,7 @@ class TestEndpointIntegration:
             "order_type": "Limit",
             "qty": "0.01",
             "price": "50000",
-            "order_link_id": "my-order"
+            "order_link_id": "my-order",
         }
 
         # When placing order
@@ -781,15 +797,11 @@ class TestEndpointIntegration:
         order_id = place_response.json()["data"]["result"]["orderId"]
 
         # Given successful cancel order
-        mock_rest_client.cancel_order = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"orderId": order_id}
-        })
+        mock_rest_client.cancel_order = AsyncMock(
+            return_value={"retCode": 0, "result": {"orderId": order_id}}
+        )
 
-        cancel_data = {
-            "symbol": "BTCUSDT",
-            "order_id": order_id
-        }
+        cancel_data = {"symbol": "BTCUSDT", "order_id": order_id}
 
         # When canceling order
         cancel_response = client.post("/api/v1/order/cancel", json=cancel_data)
@@ -800,18 +812,15 @@ class TestEndpointIntegration:
     def test_multiple_endpoint_calls(self, client, mock_rest_client):
         """Test making multiple API calls in sequence"""
         # Given mock responses for multiple endpoints
-        mock_rest_client.get_ticker = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"list": []}
-        })
-        mock_rest_client.get_wallet_balance = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"list": []}
-        })
-        mock_rest_client.get_positions = AsyncMock(return_value={
-            "retCode": 0,
-            "result": {"list": []}
-        })
+        mock_rest_client.get_ticker = AsyncMock(
+            return_value={"retCode": 0, "result": {"list": []}}
+        )
+        mock_rest_client.get_wallet_balance = AsyncMock(
+            return_value={"retCode": 0, "result": {"list": []}}
+        )
+        mock_rest_client.get_positions = AsyncMock(
+            return_value={"retCode": 0, "result": {"list": []}}
+        )
 
         # When calling multiple endpoints
         ticker_resp = client.get("/api/v1/market/ticker")
@@ -822,3 +831,152 @@ class TestEndpointIntegration:
         assert ticker_resp.status_code == status.HTTP_200_OK
         assert balance_resp.status_code == status.HTTP_200_OK
         assert positions_resp.status_code == status.HTTP_200_OK
+
+
+# ============================================================================
+# TAPE RESET ENDPOINT TESTS (D-04 / T-02-01-01..04)
+# ============================================================================
+
+
+class TestTapeResetEndpoint:
+    """Tests for POST /admin/tape/reset (plan 02-01).
+
+    Covers:
+      - 200 in tape mode with a TapeReplayClient (reset() called once)
+      - 403 in live mode (T-02-01-01: elevation threat mitigated)
+      - 503 when client is not a TapeReplayClient
+      - TAPE_REPLAY: cursor reset log line emitted on 200 path
+    """
+
+    def test_tape_reset_endpoint_tape_mode_returns_200(self):
+        """D-04 / T-02-01-01: POST /admin/tape/reset returns 200 in tape mode.
+
+        The endpoint must:
+          - Return {"success": True, "message": "tape cursor reset"}
+          - Call client.reset() exactly once
+        """
+        from unittest.mock import MagicMock
+        from app.config import Settings, get_settings
+        from app.tape_replay_client import TapeReplayClient
+
+        tape_settings = Settings(
+            bybit_api_key="test",
+            bybit_api_secret="test",
+            market_data_source="tape",
+            tape_fixtures_path="/tmp/fake",
+        )
+
+        mock_client = MagicMock(spec=TapeReplayClient)
+        mock_client.reset = MagicMock()
+
+        with patch("app.main.create_rest_client", return_value=mock_client):
+            with TestClient(app) as test_client:
+                test_client.app.state.rest_client = mock_client
+                app.dependency_overrides[get_settings] = lambda: tape_settings
+                try:
+                    response = test_client.post("/admin/tape/reset")
+                finally:
+                    app.dependency_overrides.pop(get_settings, None)
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["success"] is True
+        assert body["message"] == "tape cursor reset"
+        mock_client.reset.assert_called_once()
+
+    def test_tape_reset_endpoint_live_mode_returns_403(self):
+        """T-02-01-01: POST /admin/tape/reset returns 403 when MARKET_DATA_SOURCE=live.
+
+        Gate must fire BEFORE client lookup — refusing in live mode is a hard
+        security boundary (HIGH severity threat per threat model).
+        """
+        from app.config import Settings, get_settings
+
+        live_settings = Settings(
+            bybit_api_key="test",
+            bybit_api_secret="test",
+            market_data_source="live",
+        )
+
+        app.dependency_overrides[get_settings] = lambda: live_settings
+        try:
+            with TestClient(app) as test_client:
+                response = test_client.post("/admin/tape/reset")
+        finally:
+            app.dependency_overrides.pop(get_settings, None)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            "tape mode" in response.json()["detail"].lower()
+            or "tape" in response.json()["detail"]
+        )
+
+    def test_tape_reset_endpoint_non_tape_client_returns_503(self):
+        """T-02-01-02: POST /admin/tape/reset returns 503 when rest_client is
+        a BybitRestClient (not a TapeReplayClient).
+
+        Guards against configuration drift: tape mode flag set but live client
+        still wired (e.g. init race or code bug).
+        """
+        from unittest.mock import MagicMock
+        from app.config import Settings, get_settings
+        from app.bybit_rest_client import BybitRestClient
+
+        tape_settings = Settings(
+            bybit_api_key="test",
+            bybit_api_secret="test",
+            market_data_source="tape",
+            tape_fixtures_path="/tmp/fake",
+        )
+        live_client = MagicMock(spec=BybitRestClient)
+
+        app.dependency_overrides[get_settings] = lambda: tape_settings
+        try:
+            with TestClient(app) as test_client:
+                test_client.app.state.rest_client = live_client
+                response = test_client.post("/admin/tape/reset")
+        finally:
+            app.dependency_overrides.pop(get_settings, None)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "tape client not initialized" in response.json()["detail"]
+
+    def test_tape_reset_endpoint_emits_grep_able_log_line(self, caplog):
+        """T-02-01-04: endpoint emits TAPE_REPLAY: cursor reset at WARNING level.
+
+        Log line is parameter-free (threat T-02-01-04: no operator input logged).
+        """
+        import logging
+        from unittest.mock import MagicMock
+        from app.config import Settings, get_settings
+        from app.tape_replay_client import TapeReplayClient
+
+        tape_settings = Settings(
+            bybit_api_key="test",
+            bybit_api_secret="test",
+            market_data_source="tape",
+            tape_fixtures_path="/tmp/fake",
+        )
+        mock_client = MagicMock(spec=TapeReplayClient)
+        mock_client.reset = MagicMock()
+
+        app.dependency_overrides[get_settings] = lambda: tape_settings
+        try:
+            with caplog.at_level(logging.WARNING, logger="app.main"):
+                with patch("app.main.create_rest_client", return_value=mock_client):
+                    with TestClient(app) as test_client:
+                        test_client.app.state.rest_client = mock_client
+                        response = test_client.post("/admin/tape/reset")
+        finally:
+            app.dependency_overrides.pop(get_settings, None)
+
+        assert response.status_code == status.HTTP_200_OK
+        matching = [
+            rec
+            for rec in caplog.records
+            if "TAPE_REPLAY: cursor reset" in rec.getMessage()
+        ]
+        assert len(matching) >= 1, (
+            f"Expected log record with 'TAPE_REPLAY: cursor reset'; "
+            f"saw: {[r.getMessage() for r in caplog.records]}"
+        )
