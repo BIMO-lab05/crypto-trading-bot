@@ -15,7 +15,6 @@ import numpy as np
 import logging
 from typing import Optional, Tuple, Dict
 from scipy import stats
-from app.models import SignalType
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class SqueezeMomentumIndicator:
         bb_mult: float = 2.0,
         kc_length: int = 20,
         kc_mult: float = 1.5,
-        use_true_range: bool = True
+        use_true_range: bool = True,
     ):
         """
         Initialize Squeeze Momentum Indicator
@@ -75,8 +74,7 @@ class SqueezeMomentumIndicator:
         )
 
     def _calculate_bollinger_bands(
-        self,
-        close: pd.Series
+        self, close: pd.Series
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate Bollinger Bands
@@ -133,24 +131,25 @@ class SqueezeMomentumIndicator:
         True Range captures volatility including gaps between periods.
         """
         # Current period's high - low
-        high_low = df['high'] - df['low']
+        high_low = df["high"] - df["low"]
 
         # abs(current high - previous close)
-        high_prev_close = (df['high'] - df['close'].shift(1)).abs()
+        high_prev_close = (df["high"] - df["close"].shift(1)).abs()
 
         # abs(current low - previous close)
-        low_prev_close = (df['low'] - df['close'].shift(1)).abs()
+        low_prev_close = (df["low"] - df["close"].shift(1)).abs()
 
         # True Range is the maximum of these three values
-        true_range = pd.concat([high_low, high_prev_close, low_prev_close], axis=1).max(axis=1)
+        true_range = pd.concat([high_low, high_prev_close, low_prev_close], axis=1).max(
+            axis=1
+        )
 
         logger.debug(f"True Range calculated: current={true_range.iloc[-1]:.4f}")
 
         return true_range
 
     def _calculate_keltner_channels(
-        self,
-        df: pd.DataFrame
+        self, df: pd.DataFrame
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate Keltner Channels
@@ -169,14 +168,14 @@ class SqueezeMomentumIndicator:
             lower_kc = ma - rangema × kc_mult
         """
         # Calculate moving average (middle line)
-        ma = df['close'].rolling(window=self.kc_length).mean()
+        ma = df["close"].rolling(window=self.kc_length).mean()
 
         # Calculate range (True Range or simple high-low)
         if self.use_true_range:
             range_values = self._calculate_true_range(df)
         else:
             # Simple range: high - low
-            range_values = df['high'] - df['low']
+            range_values = df["high"] - df["low"]
 
         # Calculate average range
         rangema = range_values.rolling(window=self.kc_length).mean()
@@ -218,22 +217,22 @@ class SqueezeMomentumIndicator:
         This measures how price deviates from the midpoint with linear regression smoothing.
         """
         # Calculate highest high over kc_length periods
-        highest_high = df['high'].rolling(window=self.kc_length).max()
+        highest_high = df["high"].rolling(window=self.kc_length).max()
 
         # Calculate lowest low over kc_length periods
-        lowest_low = df['low'].rolling(window=self.kc_length).min()
+        lowest_low = df["low"].rolling(window=self.kc_length).min()
 
         # Average of highest high and lowest low
         hl_avg = (highest_high + lowest_low) / 2
 
         # Simple moving average of close
-        close_sma = df['close'].rolling(window=self.kc_length).mean()
+        close_sma = df["close"].rolling(window=self.kc_length).mean()
 
         # Midpoint: average of hl_avg and close_sma
         midpoint = (hl_avg + close_sma) / 2
 
         # Deviation: source (close) minus midpoint
-        deviation = df['close'] - midpoint
+        deviation = df["close"] - midpoint
 
         # Calculate linear regression of deviation
         # Linear regression returns the fitted value at offset 0 (current point)
@@ -259,6 +258,7 @@ class SqueezeMomentumIndicator:
 
         This is equivalent to Pine Script's linreg(source, length, offset=0)
         """
+
         def linreg_value(y_values):
             """Calculate linear regression fitted value at x=0"""
             if len(y_values) < period:
@@ -277,7 +277,9 @@ class SqueezeMomentumIndicator:
 
             try:
                 # Perform linear regression
-                slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
+                slope, intercept, r_value, p_value, std_err = stats.linregress(
+                    x_clean, y_clean
+                )
 
                 # Return fitted value at x=0 (most recent point in window)
                 # Note: In the rolling window, index 0 is the oldest point
@@ -317,7 +319,7 @@ class SqueezeMomentumIndicator:
         Returns None if insufficient data.
         """
         # Validate input data
-        required_cols = ['open', 'high', 'low', 'close', 'volume']
+        required_cols = ["open", "high", "low", "close", "volume"]
         if not all(col in df.columns for col in required_cols):
             logger.error(f"Missing required columns. Need: {required_cols}")
             return None
@@ -335,34 +337,36 @@ class SqueezeMomentumIndicator:
             result_df = df.copy()
 
             # 1. Calculate Bollinger Bands
-            bb_upper, bb_basis, bb_lower = self._calculate_bollinger_bands(df['close'])
-            result_df['bb_upper'] = bb_upper
-            result_df['bb_basis'] = bb_basis
-            result_df['bb_lower'] = bb_lower
+            bb_upper, bb_basis, bb_lower = self._calculate_bollinger_bands(df["close"])
+            result_df["bb_upper"] = bb_upper
+            result_df["bb_basis"] = bb_basis
+            result_df["bb_lower"] = bb_lower
 
             # 2. Calculate Keltner Channels
             kc_upper, kc_basis, kc_lower = self._calculate_keltner_channels(df)
-            result_df['kc_upper'] = kc_upper
-            result_df['kc_basis'] = kc_basis
-            result_df['kc_lower'] = kc_lower
+            result_df["kc_upper"] = kc_upper
+            result_df["kc_basis"] = kc_basis
+            result_df["kc_lower"] = kc_lower
 
             # 3. Detect squeeze conditions
             # Squeeze ON: BB is inside KC (lower BB > lower KC AND upper BB < upper KC)
-            result_df['squeeze_on'] = (bb_lower > kc_lower) & (bb_upper < kc_upper)
+            result_df["squeeze_on"] = (bb_lower > kc_lower) & (bb_upper < kc_upper)
 
             # Squeeze OFF: BB is outside KC (lower BB < lower KC AND upper BB > upper KC)
-            result_df['squeeze_off'] = (bb_lower < kc_lower) & (bb_upper > kc_upper)
+            result_df["squeeze_off"] = (bb_lower < kc_lower) & (bb_upper > kc_upper)
 
             # No Squeeze: Neither condition (transitional state)
-            result_df['no_squeeze'] = ~result_df['squeeze_on'] & ~result_df['squeeze_off']
+            result_df["no_squeeze"] = (
+                ~result_df["squeeze_on"] & ~result_df["squeeze_off"]
+            )
 
             # 4. Calculate momentum
-            result_df['sqz_momentum'] = self._calculate_momentum(df)
+            result_df["sqz_momentum"] = self._calculate_momentum(df)
 
             # 5. Generate color signals (matching Pine Script logic)
             # Determine if momentum is increasing or decreasing
-            momentum_prev = result_df['sqz_momentum'].shift(1)
-            momentum_increasing = result_df['sqz_momentum'] > momentum_prev
+            momentum_prev = result_df["sqz_momentum"].shift(1)
+            momentum_increasing = result_df["sqz_momentum"] > momentum_prev
 
             # Color logic from Pine Script:
             # bcolor = iff(val > 0,
@@ -370,24 +374,24 @@ class SqueezeMomentumIndicator:
             #              iff(val < nz(val[1]), red, maroon))
 
             conditions = [
-                (result_df['sqz_momentum'] > 0) & momentum_increasing,  # lime
-                (result_df['sqz_momentum'] > 0) & ~momentum_increasing,  # green
-                (result_df['sqz_momentum'] < 0) & ~momentum_increasing,  # red (decreasing, more negative)
-                (result_df['sqz_momentum'] < 0) & momentum_increasing,   # maroon (increasing, less negative)
+                (result_df["sqz_momentum"] > 0) & momentum_increasing,  # lime
+                (result_df["sqz_momentum"] > 0) & ~momentum_increasing,  # green
+                (result_df["sqz_momentum"] < 0)
+                & ~momentum_increasing,  # red (decreasing, more negative)
+                (result_df["sqz_momentum"] < 0)
+                & momentum_increasing,  # maroon (increasing, less negative)
             ]
-            colors = ['lime', 'green', 'red', 'maroon']
-            result_df['sqz_color'] = np.select(conditions, colors, default='gray')
+            colors = ["lime", "green", "red", "maroon"]
+            result_df["sqz_color"] = np.select(conditions, colors, default="gray")
 
             # 6. Generate trading signals
-            result_df['sqz_signal'] = result_df.apply(
-                lambda row: self._generate_signal_for_row(row),
-                axis=1
+            result_df["sqz_signal"] = result_df.apply(
+                lambda row: self._generate_signal_for_row(row), axis=1
             )
 
             # 7. Calculate confidence
-            result_df['sqz_confidence'] = result_df.apply(
-                lambda row: self._calculate_confidence(row),
-                axis=1
+            result_df["sqz_confidence"] = result_df.apply(
+                lambda row: self._calculate_confidence(row), axis=1
             )
 
             logger.info(
@@ -419,30 +423,32 @@ class SqueezeMomentumIndicator:
         - HOLD: Squeeze active or unclear momentum
         """
         # Check for NaN values
-        if pd.isna(row['sqz_momentum']):
-            return 'HOLD'
+        if pd.isna(row["sqz_momentum"]):
+            return "HOLD"
 
-        momentum = row['sqz_momentum']
-        color = row['sqz_color']
-        squeeze_on = row['squeeze_on']
-        squeeze_off = row['squeeze_off']
+        momentum = row["sqz_momentum"]
+        color = row["sqz_color"]
+        squeeze_on = row["squeeze_on"]
+        squeeze_off = row["squeeze_off"]
 
         # Strong signals: Squeeze release with clear momentum direction
         if squeeze_off:
-            if color in ['lime', 'green']:  # Positive momentum
-                return 'BUY'
-            elif color in ['red', 'maroon']:  # Negative momentum
-                return 'SELL'
+            if color in ["lime", "green"]:  # Positive momentum
+                return "BUY"
+            elif color in ["red", "maroon"]:  # Negative momentum
+                return "SELL"
 
         # Moderate signals: Squeeze active but momentum accelerating
         if squeeze_on:
-            if color == 'lime':  # Momentum accelerating up (potential long breakout)
-                return 'BUY'
-            elif color == 'red':  # Momentum accelerating down (potential short breakout)
-                return 'SELL'
+            if color == "lime":  # Momentum accelerating up (potential long breakout)
+                return "BUY"
+            elif (
+                color == "red"
+            ):  # Momentum accelerating down (potential short breakout)
+                return "SELL"
 
         # Default: Hold for unclear conditions
-        return 'HOLD'
+        return "HOLD"
 
     def _calculate_confidence(self, row: pd.Series) -> float:
         """
@@ -460,13 +466,13 @@ class SqueezeMomentumIndicator:
         3. Color (accelerating momentum = higher confidence)
         """
         # Check for NaN values
-        if pd.isna(row['sqz_momentum']):
+        if pd.isna(row["sqz_momentum"]):
             return 0.0
 
-        momentum = abs(row['sqz_momentum'])
-        color = row['sqz_color']
-        squeeze_on = row['squeeze_on']
-        squeeze_off = row['squeeze_off']
+        momentum = abs(row["sqz_momentum"])
+        color = row["sqz_color"]
+        squeeze_on = row["squeeze_on"]
+        squeeze_off = row["squeeze_off"]
 
         # Base confidence from momentum magnitude
         # Normalize to 0-1 range (assuming typical momentum range is 0-10)
@@ -477,7 +483,7 @@ class SqueezeMomentumIndicator:
             base_confidence *= 1.3
 
         # Boost for accelerating momentum (lime or red bars)
-        if color in ['lime', 'red']:
+        if color in ["lime", "red"]:
             base_confidence *= 1.2
 
         # Reduce for squeeze active (still building pressure)
@@ -514,36 +520,36 @@ class SqueezeMomentumIndicator:
 
         if result_df is None:
             return {
-                'error': 'Failed to calculate SQZMOM',
-                'signal': 'HOLD',
-                'confidence': 0.0
+                "error": "Failed to calculate SQZMOM",
+                "signal": "HOLD",
+                "confidence": 0.0,
             }
 
         # Get the most recent row
         latest = result_df.iloc[-1]
 
         # Calculate momentum strength (normalized)
-        momentum = latest['sqz_momentum']
-        max_momentum = result_df['sqz_momentum'].abs().max()
+        momentum = latest["sqz_momentum"]
+        max_momentum = result_df["sqz_momentum"].abs().max()
         strength = abs(momentum) / max_momentum if max_momentum > 0 else 0.0
 
         return {
-            'signal': latest['sqz_signal'],
-            'squeeze_on': bool(latest['squeeze_on']),
-            'squeeze_off': bool(latest['squeeze_off']),
-            'no_squeeze': bool(latest['no_squeeze']),
-            'momentum': round(float(momentum), 4),
-            'color': latest['sqz_color'],
-            'strength': round(float(strength), 2),
-            'confidence': float(latest['sqz_confidence']),
-            'bb_bands': {
-                'upper': round(float(latest['bb_upper']), 2),
-                'basis': round(float(latest['bb_basis']), 2),
-                'lower': round(float(latest['bb_lower']), 2)
+            "signal": latest["sqz_signal"],
+            "squeeze_on": bool(latest["squeeze_on"]),
+            "squeeze_off": bool(latest["squeeze_off"]),
+            "no_squeeze": bool(latest["no_squeeze"]),
+            "momentum": round(float(momentum), 4),
+            "color": latest["sqz_color"],
+            "strength": round(float(strength), 2),
+            "confidence": float(latest["sqz_confidence"]),
+            "bb_bands": {
+                "upper": float(latest["bb_upper"]),
+                "basis": float(latest["bb_basis"]),
+                "lower": float(latest["bb_lower"]),
             },
-            'kc_channels': {
-                'upper': round(float(latest['kc_upper']), 2),
-                'basis': round(float(latest['kc_basis']), 2),
-                'lower': round(float(latest['kc_lower']), 2)
-            }
+            "kc_channels": {
+                "upper": float(latest["kc_upper"]),
+                "basis": float(latest["kc_basis"]),
+                "lower": float(latest["kc_lower"]),
+            },
         }

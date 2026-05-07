@@ -109,10 +109,10 @@ class IndicatorService:
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
-            "upper_band": round(bb_data["upper_band"], 2),
-            "middle_band": round(bb_data["middle_band"], 2),
-            "lower_band": round(bb_data["lower_band"], 2),
-            "current_price": round(bb_data["current_price"], 2),
+            "upper_band": float(bb_data["upper_band"]),
+            "middle_band": float(bb_data["middle_band"]),
+            "lower_band": float(bb_data["lower_band"]),
+            "current_price": float(bb_data["current_price"]),
             "signal": bb_signal,
             "confidence": confidence,
         }
@@ -141,8 +141,8 @@ class IndicatorService:
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
-            "value": round(sma_value, 2),
-            "current_price": round(current_price, 2),
+            "value": float(sma_value),
+            "current_price": float(current_price),
             "signal": signal,
             "confidence": confidence,
         }
@@ -171,8 +171,8 @@ class IndicatorService:
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
-            "value": round(ema_value, 2),
-            "current_price": round(current_price, 2),
+            "value": float(ema_value),
+            "current_price": float(current_price),
             "signal": signal,
             "confidence": confidence,
         }
