@@ -45,10 +45,19 @@ Plans:
   2. Iteration harness presents a diff for review after every fix attempt and refuses to mock or comment out failing assertions automatically
   3. RUNBOOK.md documents WSL2 BuildKit hangs (`DOCKER_BUILDKIT=0` workaround), docker context misconfig recovery, stale-model restart, and bootstrap-test failure triage with concrete commands
   4. The three named pre-existing bugs (stale in-memory ML model, hardcoded `confidence=0` paths still emitting signals, WSL2 BuildKit env) are each either fixed with a regression test or explicitly deferred with a written decision
-**Plans**: TBD
+**Plans**: 10 plans
 
 Plans:
-- [ ] 02-01: TBD
+- [ ] 02-01-PLAN.md — bybit-connector POST /admin/tape/reset endpoint + reset() method
+- [ ] 02-02-PLAN.md — trading-engine POST /api/v1/admin/force-signal admin router
+- [ ] 02-03-PLAN.md — extend tests/integration/conftest.py with bootstrap_stack/tmp_fresh_clone/tape_reset/force_signal/db_truncate/notification_log fixtures (fix port-mapping bug, refactor to session-scope)
+- [ ] 02-04-PLAN.md — INFRA-01 e2e test (test_fresh_clone_round_trip) + ML-on variant (CD-05) + remove pytest.skip anti-pattern
+- [ ] 02-05-PLAN.md — notification verification harness (.env.test.example, NOTIFICATION_TEST_MODE wiring, test_notification_delivery)
+- [ ] 02-06-PLAN.md — scripts/iter-fix.sh checkpointed iteration harness + scripts/iter-fix-check-diff.sh anti-mock guard
+- [ ] 02-07-PLAN.md — RUNBOOK.md failure-triage-first at repo root (6 mandated symptom sections)
+- [ ] 02-08-PLAN.md — INFRA-06 pre-existing bug triage (stale ML model + confidence=0 + WSL2 BuildKit)
+- [ ] 02-09-PLAN.md — CI workflows: .github/workflows/integration.yml (push+PR) + integration-ml-on.yml (nightly+manual)
+- [ ] 02-10-PLAN.md — Makefile build-no-buildkit ergonomic shortcut (CD-02)
 
 ### Phase 3: Tournament Harness Core
 **Goal**: A Docker-isolated, Python-orchestrated tournament can launch GRU/LSTM/Transformer/TCN candidates over {SOL, BNB, ADA} × hyperparameter grid, capture honest returns metrics into a SQLite leaderboard, and reuse the existing `returns_metrics.py` / `sharpe_metrics.py` / `cpcv.py` modules — no LLM-subagent fanout, no parallel metrics path.
@@ -130,7 +139,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Bootstrap & Recorded Tape | 4/4 | Complete   | 2026-05-06 |
-| 2. Integration Test Suite & RUNBOOK | 0/TBD | Not started | - |
+| 2. Integration Test Suite & RUNBOOK | 0/10 | Not started | - |
 | 3. Tournament Harness Core | 0/TBD | Not started | - |
 | 4. Tournament Significance & Auto-PR | 0/TBD | Not started | - |
 | 5. ML Cleanup (post-V0) | 0/TBD | Not started | - |
