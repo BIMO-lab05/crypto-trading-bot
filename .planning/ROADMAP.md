@@ -50,7 +50,7 @@ Plans:
 Plans:
 - [ ] 02-01-PLAN.md — bybit-connector POST /admin/tape/reset endpoint + reset() method
 - [ ] 02-02-PLAN.md — trading-engine POST /api/v1/admin/force-signal admin router
-- [ ] 02-03-PLAN.md — extend tests/integration/conftest.py with bootstrap_stack/tmp_fresh_clone/tape_reset/force_signal/db_truncate/notification_log fixtures (fix port-mapping bug, refactor to session-scope)
+- [ ] 02-03-PLAN.md — extend tests/integration/conftest.py with bootstrap_stack/tmp_fresh_clone/tape_reset/force_signal/db_truncate/notification_received (mode-aware) fixtures (fix port-mapping bug, refactor to session-scope)
 - [ ] 02-04-PLAN.md — INFRA-01 e2e test (test_fresh_clone_round_trip) + ML-on variant (CD-05) + remove pytest.skip anti-pattern
 - [ ] 02-05-PLAN.md — notification verification harness (.env.test.example, NOTIFICATION_TEST_MODE wiring, test_notification_delivery)
 - [ ] 02-06-PLAN.md — scripts/iter-fix.sh checkpointed iteration harness + scripts/iter-fix-check-diff.sh anti-mock guard
