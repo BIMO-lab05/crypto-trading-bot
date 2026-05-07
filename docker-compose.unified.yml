@@ -267,10 +267,6 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=${RABBITMQ_USER:-cryptobot}
-      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-rabbitmq_dev_password}
       # Service URLs
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
       - MARKET_DATA_URL=http://market-data:8002
@@ -404,14 +400,6 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      # Without these 4, market-data falls back to its config defaults
-      # (port 5672 ok, but user='cryptobot'/password='change_this_secure_password'
-      # don't match the live RabbitMQ — silent connection failures.)
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=${RABBITMQ_USER:-cryptobot}
-      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-rabbitmq_dev_password}
-      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-cryptobot}
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
     volumes:
       - ./services/market-data-service/logs:/app/logs
@@ -550,7 +538,6 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      - RABBITMQ_HOST=rabbitmq
       # Risk management
       # 2026-05-06: bumped default 0.02 → 0.10 to align with $100 paper balance × 10%/trade target.
       # service-local .env was being overridden by this compose-level block.
@@ -643,7 +630,6 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      - RABBITMQ_HOST=rabbitmq
     volumes:
       - ./services/notification-service/logs:/app/logs
       - ./services/notification-service/data:/app/data
