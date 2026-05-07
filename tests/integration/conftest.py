@@ -3,11 +3,12 @@ Integration Test Configuration
 Shared fixtures and utilities for integration tests
 """
 
-import pytest
 import asyncio
-import httpx
-from typing import AsyncGenerator, Dict
 import os
+from typing import AsyncGenerator, Dict
+
+import httpx
+import pytest
 
 
 @pytest.fixture(scope="session")
@@ -19,15 +20,21 @@ def event_loop():
 
 
 @pytest.fixture(scope="session")
-async def services_config() -> Dict[str, str]:
-    """Service URLs configuration"""
+def services_config() -> Dict[str, str]:
+    """Service URLs configuration. Ports per crypto-trading-bot/CLAUDE.md and bootstrap.sh:67-78.
+    Phase 2 fix: prior version inverted bybit_connector (8001) and trading_engine (8005).
+    """
     return {
         "api_gateway": os.getenv("API_GATEWAY_URL", "http://localhost:8000"),
-        "trading_engine": os.getenv("TRADING_ENGINE_URL", "http://localhost:8001"),
+        "bybit_connector": os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001"),
         "market_data": os.getenv("MARKET_DATA_URL", "http://localhost:8002"),
-        "technical_analysis": os.getenv("TECHNICAL_ANALYSIS_URL", "http://localhost:8003"),
-        "portfolio_manager": os.getenv("PORTFOLIO_MANAGER_URL", "http://localhost:8004"),
-        "bybit_connector": os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8005"),
+        "portfolio": os.getenv("PORTFOLIO_URL", "http://localhost:8003"),
+        "technical_analysis": os.getenv("TA_URL", "http://localhost:8004"),
+        "trading_engine": os.getenv("TRADING_ENGINE_URL", "http://localhost:8005"),
+        "notification": os.getenv("NOTIFICATION_URL", "http://localhost:8006"),
+        "ml_prediction": os.getenv("ML_PREDICTION_URL", "http://localhost:8007"),
+        "sentiment": os.getenv("SENTIMENT_URL", "http://localhost:8008"),
+        "risk_metrics": os.getenv("RISK_METRICS_URL", "http://localhost:8009"),
     }
 
 
@@ -38,21 +45,19 @@ async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
         yield client
 
 
-@pytest.fixture(scope="function")
-async def wait_for_services(services_config, http_client):
-    """Wait for all services to be healthy"""
-    max_attempts = 30
-    for service_name, url in services_config.items():
-        for attempt in range(max_attempts):
-            try:
-                response = await http_client.get(f"{url}/health")
-                if response.status_code == 200:
-                    print(f"✅ {service_name} is healthy")
-                    break
-            except:
-                if attempt == max_attempts - 1:
-                    pytest.fail(f"Service {service_name} not available")
-                await asyncio.sleep(2)
+@pytest.fixture(scope="session")
+def bootstrap_stack(services_config):
+    """Stub session fixture — body replaced in Task 2 (bootstrap_stack + tmp_fresh_clone).
+    Session-scoped per D-03: single boot shared across the whole pytest run.
+    """
+    # Placeholder: Task 2 replaces this body with subprocess.run(bootstrap.sh)
+    pass
+
+
+@pytest.fixture(scope="session")
+def wait_for_services(bootstrap_stack):
+    """Backward-compat alias. New tests should depend on bootstrap_stack directly."""
+    return bootstrap_stack
 
 
 @pytest.fixture(scope="function")
