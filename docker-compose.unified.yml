@@ -728,6 +728,61 @@ services:
           memory: 2G
 
   # ---------------------------------------------------------------------------
+  # Tournament Harness - Docker-isolated ML candidate evaluation (Phase 3)
+  # Profile: opt-in only. Default `bootstrap.sh up` does not start it (D-01).
+  # Bring up with:
+  #   docker compose -f docker-compose.unified.yml --profile tournament up tournament-harness
+  #
+  # PRIVILEGE BOUNDARY: This container bind-mounts /var/run/docker.sock so the
+  # orchestrator can launch experiment containers via the Docker SDK (D-02).
+  # That is effectively root on the host. Mitigations: (a) profile-gated above,
+  # (b) single-image runner pattern (D-05) — orchestrator only launches
+  # crypto-bot-tournament-harness:latest, never user-supplied images.
+  # ---------------------------------------------------------------------------
+  tournament-harness:
+    build:
+      context: ./services/tournament-harness
+      dockerfile: Dockerfile
+    container_name: crypto-bot-tournament-harness
+    hostname: tournament-harness
+    ports:
+      - "${TOURNAMENT_PORT:-8010}:8010"
+    environment:
+      - SERVICE_NAME=tournament-harness
+      - SERVICE_PORT=8010
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TIMESCALE_HOST=timescaledb
+      - TIMESCALE_PORT=5432
+      - TIMESCALE_DB=${TIMESCALE_DB:-trading_bot}
+      - TIMESCALE_USER=tournament_reader
+      - TIMESCALE_PASSWORD=${TOURNAMENT_READER_PASSWORD:-}
+      - DOCKER_NETWORK=crypto-bot-network
+      - RUNNER_IMAGE=crypto-bot-tournament-harness:latest
+    volumes:
+      - ./services/tournament-harness/data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - crypto-bot-network
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    profiles:
+      - tournament
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+
+  # ---------------------------------------------------------------------------
   # Sentiment Analysis Service - News and social sentiment
   # ---------------------------------------------------------------------------
   sentiment-analysis:
