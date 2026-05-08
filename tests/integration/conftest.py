@@ -95,6 +95,33 @@ def tmp_fresh_clone(request) -> Path:
 def bootstrap_stack(tmp_fresh_clone, services_config):
     """Shell out to bootstrap.sh in tmp clone (D-01, D-03). Single boot, shared.
     Pytest runs on host (D-02), bootstrap brings up docker compose stack.
+
+    WR-09 (Phase 2) — EMERGENCY_STOP coupling:
+    bootstrap.sh:54 calls `touch EMERGENCY_STOP` (D-11), which the
+    trading-engine's lifespan check at services/trading-engine/app/main.py:
+    282-289 reads to refuse arming the auto-trader. This fixture
+    intentionally does NOT remove the file — every test in this suite
+    bypasses the auto-trader (test_fresh_clone_round_trip uses
+    force_signal which calls orchestrator.submit_signal directly;
+    test_notification_delivery_via_trade_endpoint POSTs to
+    /api/v1/notify/trade directly). The auto-trader periodic loop is
+    NOT exercised by this suite.
+
+    Future tests that depend on the auto-trader actually firing periodic
+    signals (or assume a "freshly-booted, ready-to-trade" stack) MUST
+    either clear `tmp_fresh_clone / "EMERGENCY_STOP"` themselves before
+    yielding, or mark themselves with a fixture that does so. Doing it
+    here would change test isolation semantics for every downstream
+    test and is intentionally out of scope.
+
+    Worse trap (per services/trading-engine/app/main.py:267-272): if the
+    WSL bind-mount race fires, Docker may create a *directory* at the
+    EMERGENCY_STOP mount point — `is_file()` returns False, but the
+    in-container check at line 282 still reports "present" via the
+    bootstrap-created host file. If a future test sees auto-trader
+    refusing to arm with EMERGENCY_STOP visibly absent, check the
+    container's /app/EMERGENCY_STOP for directory-vs-file confusion
+    before chasing other suspects.
     """
     result = subprocess.run(
         ["./bootstrap.sh"],
