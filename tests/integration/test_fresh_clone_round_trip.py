@@ -60,7 +60,14 @@ async def test_fresh_clone_round_trip(
         "strategy_id": strategy_id,
         "symbol": "SOLUSDT",
         "direction": "long",
-        "action": "buy",
+        # WR-06 (Phase 2): match the SignalSubmissionRequest field convention.
+        # services/trading-engine/app/handlers/orchestration.py:77 documents
+        # the action enum as "BUY, SELL, CLOSE_LONG, CLOSE_SHORT" (uppercase),
+        # and the trading-engine unit tests at test_force_signal.py:62,185
+        # both send "BUY". Pydantic does NOT normalize string fields, so
+        # downstream comparisons against the literal "BUY" silently dropped
+        # this test's signal.
+        "action": "BUY",
         "strength": 0.8,
         "confidence": 0.7,
     }
