@@ -148,7 +148,19 @@ class GRUPricePredictor:
                 logger.info(
                     f"Loaded GRU metadata: version={self.model_version}, trained={self.last_trained}"
                 )
-                return True
+            else:
+                logger.warning(
+                    "GRU model loaded without metadata sidecar (partial retrain?): "
+                    "path=%s",
+                    metadata_path,
+                )
+
+            # WR-07 (Phase 2): success path always returns True. Previously the
+            # `return True` was nested inside `if metadata_path.exists()`, so a
+            # successful model-only load (real failure mode after partial retrain)
+            # fell through to implicit None — _reload_if_stale then reported
+            # "no reload" on a successful reload.
+            return True
 
         except Exception as e:
             logger.error(f"Error loading GRU model: {e}")
