@@ -117,11 +117,31 @@ DIFF_T5="--- a/tests/foo.py
 +    assert elapsed < 120.0
 "
 
+# Test 5b (WR-01): paired -/+ assert lowering on `>` threshold (e.g., win_rate
+# minimum was 0.5, relaxed to 0.3) → exit 1. The original regex only caught
+# `<`/`<=`; this case verifies the inverse-comparison branch.
+DIFF_T5B="--- a/tests/foo.py
++++ b/tests/foo.py
+@@ -10,2 +10,2 @@
+-    assert win_rate > 0.5
++    assert win_rate > 0.3
+"
+
 # Test 6: clean diff inside tests/ (no banned patterns) → exit 0, silent
 DIFF_T6="--- a/tests/foo.py
 +++ b/tests/foo.py
 @@ -1 +1 @@
 +    assert x == 5
+"
+
+# Test 6b: legitimate raise on `>` threshold (e.g., win_rate minimum tightened
+# from 0.5 to 0.6) → exit 0. Confirms direction-aware logic does not
+# false-positive on tightening.
+DIFF_T6B="--- a/tests/foo.py
++++ b/tests/foo.py
+@@ -10,2 +10,2 @@
+-    assert win_rate > 0.5
++    assert win_rate > 0.6
 "
 
 # Test 7: ADDS unittest.mock to non-test file → exit 0 (rule scoped to tests/)
@@ -146,9 +166,11 @@ run_case "T2: +mocker.patch in tests/ -> refused"          1 "mocker.patch"   "$
 run_case "T3: +pytest.skip in tests/ -> refused"           1 "pytest.skip"    "$DIFF_T3"
 run_case "T4: +pytest.mark.xfail in tests/ -> refused"     1 "pytest.mark.xfail" "$DIFF_T4"
 run_case "T5: paired assert lowering in tests/ -> refused" 1 "threshold"      "$DIFF_T5"
+run_case "T5b: paired assert > lowering in tests/ -> refused" 1 "threshold"   "$DIFF_T5B"
 
 echo -e "${YELLOW}--- Allow cases ---${NC}"
 run_case "T6: clean diff in tests/ -> allowed"             0 ""                "$DIFF_T6"
+run_case "T6b: paired assert > tightening in tests/ -> allowed" 0 ""          "$DIFF_T6B"
 run_case "T7: unittest.mock in services/ (not tests/) -> allowed" 0 ""        "$DIFF_T7"
 
 echo -e "${YELLOW}--- File-path citation case ---${NC}"

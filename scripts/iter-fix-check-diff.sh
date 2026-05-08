@@ -52,9 +52,13 @@ BANNED_RE="(${P_UNITTEST_MOCK}|${P_MOCKER_PATCH}|${P_PYTEST_SKIP}|${P_PYTEST_XFA
 # slightly broader than literal but safe for this purpose; D-12 wording allows it
 # (e.g., `unittest_mock` would also match — overzealous, surfaces for human review).
 
-# Threshold extractor — match `assert ... < <numeric>` (with optional <=).
-# Captures the numeric in BASH_REMATCH[1].
-THRESHOLD_RE='assert.*<=?[[:space:]]*([0-9]+(\.[0-9]+)?)'
+# Threshold extractor — match `assert ... <op> <numeric>` for `<`, `<=`, `>`, `>=`.
+# WR-01 (Phase 2): the prior regex only matched `<` / `<=`. A real Goodhart move
+# uses `>`/`>=` thresholds too — e.g., `assert win_rate > 0.5` relaxed to
+# `> 0.3`. Capture the operator in BASH_REMATCH[1] and the numeric in
+# BASH_REMATCH[2] so we can branch on direction below: `<`/`<=` lowered means
+# new_num > old_num; `>`/`>=` lowered means new_num < old_num.
+THRESHOLD_RE='assert.*([<>])=?[[:space:]]*([0-9]+(\.[0-9]+)?)'
 
 while IFS= read -r line; do
     # File header — update scope
@@ -110,12 +114,31 @@ while IFS= read -r line; do
         fi
     elif [[ "$line" =~ ^\+ ]] && ! [[ "$line" =~ ^\+\+\+ ]]; then
         if [ "$prev_was_minus" = true ] && [[ "$line" =~ $THRESHOLD_RE ]]; then
-            new_num="${BASH_REMATCH[1]}"
+            new_op="${BASH_REMATCH[1]}"
+            new_num="${BASH_REMATCH[2]}"
             if [[ "$prev_line" =~ $THRESHOLD_RE ]]; then
-                old_num="${BASH_REMATCH[1]}"
-                # Numeric compare via awk (handles floats; bash arith doesn't)
-                if awk -v n="$new_num" -v o="$old_num" 'BEGIN{exit !(n+0 > o+0)}'; then
-                    refused+=("$current_file: [threshold lowering] $prev_line -> $line")
+                old_op="${BASH_REMATCH[1]}"
+                old_num="${BASH_REMATCH[2]}"
+                # Operator must match — flipping `<` to `>` is a different
+                # change and not a "lowering" in the Goodhart sense; skip.
+                if [ "$new_op" = "$old_op" ]; then
+                    # `<`/`<=` direction: assert x < N relaxed by raising N
+                    #   (new_num > old_num is a relax).
+                    # `>`/`>=` direction: assert x > N relaxed by lowering N
+                    #   (new_num < old_num is a relax).
+                    relaxed=false
+                    if [ "$old_op" = "<" ]; then
+                        if awk -v n="$new_num" -v o="$old_num" 'BEGIN{exit !(n+0 > o+0)}'; then
+                            relaxed=true
+                        fi
+                    elif [ "$old_op" = ">" ]; then
+                        if awk -v n="$new_num" -v o="$old_num" 'BEGIN{exit !(n+0 < o+0)}'; then
+                            relaxed=true
+                        fi
+                    fi
+                    if [ "$relaxed" = true ]; then
+                        refused+=("$current_file: [threshold lowering] $prev_line -> $line")
+                    fi
                 fi
             fi
         fi
