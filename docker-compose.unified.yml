@@ -636,7 +636,14 @@ services:
       # and Plan 02-04's notification assertion fails. The env_file above points at
       # services/notification-service/.env (gitignored host-only) which cannot carry
       # per-test variables. (Blocker #1, revision 2.)
-      - NOTIFICATION_TEST_MODE=${NOTIFICATION_TEST_MODE:-}
+      # WR-05 (Phase 2): default to "record" so out-of-the-box `pytest tests/integration`
+      # on a developer's local stack matches the host conftest fixture
+      # (tests/integration/conftest.py:230, which defaults to "record" and
+      # tails tests/.notifications.log). Empty string fell through to the
+      # production POST path while the host watched a log the container
+      # never wrote; the test then hung until timeout. CI workflows
+      # explicitly export NOTIFICATION_TEST_MODE=live and unaffected.
+      - NOTIFICATION_TEST_MODE=${NOTIFICATION_TEST_MODE:-record}
       - NOTIFICATION_RECORD_PATH=${NOTIFICATION_RECORD_PATH:-tests/.notifications.log}
       - TEST_TELEGRAM_BOT_TOKEN=${TEST_TELEGRAM_BOT_TOKEN:-}
       - TEST_TELEGRAM_CHAT_ID=${TEST_TELEGRAM_CHAT_ID:-}
