@@ -23,15 +23,18 @@ class TelegramNotifier:
         self.chat_id = config.telegram_chat_id
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
 
-        # DEBUGGER: Log configuration on init
+        # WR-02 (Phase 2): replaced eight ad-hoc [DEBUGGER:...] string-formatted
+        # log lines with a single structured init line. Project convention is
+        # JSON-style structured logging; the prior scaffolding leaked stale
+        # line numbers and method names into prod logs.
         logger.info(
-            f"[DEBUGGER:TelegramNotifier:__init__:20] enabled={self.enabled}, chat_id={self.chat_id}, bot_token_set={bool(self.bot_token)}"
+            "TelegramNotifier initialized",
+            extra={
+                "enabled": self.enabled,
+                "chat_id_set": bool(self.chat_id),
+                "token_set": bool(self.bot_token),
+            },
         )
-
-        if self.enabled:
-            logger.info(f"Telegram notifications enabled: Chat ID {self.chat_id}")
-        else:
-            logger.info("Telegram notifications disabled")
 
     async def send_message(self, message: str, parse_mode: str = "HTML") -> bool:
         """
@@ -44,24 +47,17 @@ class TelegramNotifier:
         Returns:
             bool: Success status
         """
-        # DEBUGGER: Entry log
-        logger.info(
-            f"[DEBUGGER:TelegramNotifier:send_message:42] CALLED - enabled={self.enabled}, chat_id={self.chat_id}, msg_len={len(message)}"
-        )
-
         if not self.enabled:
             logger.debug("Telegram notifications disabled, skipping")
-            # DEBUGGER: disabled check
-            logger.warning(
-                "[DEBUGGER:TelegramNotifier:send_message:47] SKIPPED - enabled=False"
-            )
             return False
 
         if not self.bot_token or not self.chat_id:
-            logger.warning("Telegram bot token or chat ID not configured")
-            # DEBUGGER: token/chat check
             logger.warning(
-                f"[DEBUGGER:TelegramNotifier:send_message:52] SKIPPED - token_set={bool(self.bot_token)}, chat_id_set={bool(self.chat_id)}"
+                "Telegram bot token or chat ID not configured",
+                extra={
+                    "token_set": bool(self.bot_token),
+                    "chat_id_set": bool(self.chat_id),
+                },
             )
             return False
 
@@ -97,31 +93,20 @@ class TelegramNotifier:
                 "parse_mode": parse_mode,
             }
 
-            # DEBUGGER: Before API call
-            logger.info(
-                f"[DEBUGGER:TelegramNotifier:send_message:63] Calling Telegram API: chat_id={self.chat_id}"
-            )
-
             async with httpx.AsyncClient() as client:
                 response = await client.post(url, json=payload, timeout=10.0)
-                # DEBUGGER: Response status
-                logger.info(
-                    f"[DEBUGGER:TelegramNotifier:send_message:68] API response status={response.status_code}"
-                )
                 response.raise_for_status()
 
-            logger.info("Telegram message sent successfully")
-            # DEBUGGER: Success
             logger.info(
-                f"[DEBUGGER:TelegramNotifier:send_message:73] SUCCESS - message sent to {self.chat_id}"
+                "Telegram message sent successfully",
+                extra={"status_code": response.status_code, "chat_id": self.chat_id},
             )
             return True
 
         except Exception as e:
-            logger.error(f"Failed to send Telegram message: {e}")
-            # DEBUGGER: Error details
             logger.error(
-                f"[DEBUGGER:TelegramNotifier:send_message:79] ERROR - type={type(e).__name__}, msg={str(e)}"
+                "Failed to send Telegram message",
+                extra={"error_type": type(e).__name__, "error_msg": str(e)},
             )
             return False
 
