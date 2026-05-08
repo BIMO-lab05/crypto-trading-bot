@@ -5,10 +5,13 @@ callable. Tournament harness (Phase 3) imports REGISTRY to launch experiments
 across architectures; ml-retraining-service uses REGISTRY["gru"] by default.
 """
 
-from app.core.models import gru
+from app.core.models import gru, lstm, transformer, tcn
 
 REGISTRY = {
     "gru": gru,
+    "lstm": lstm,
+    "transformer": transformer,
+    "tcn": tcn,
 }
 
 __all__ = ["REGISTRY"]
