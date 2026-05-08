@@ -20,6 +20,7 @@ try:
     import tensorflow as tf
     from tensorflow import keras
     from tensorflow.keras import layers
+
     TENSORFLOW_AVAILABLE = True
 except ImportError:
     TENSORFLOW_AVAILABLE = False
@@ -61,6 +62,10 @@ class GRUPricePredictor:
         self.last_trained = None
         self.training_stats = {}
 
+        # Track when the on-disk model file was last loaded (mtime, seconds since epoch).
+        # Used by _reload_if_stale to pick up retrained models without a service restart.
+        self.model_loaded_at: float = 0.0
+
         # Feature columns
         self.feature_columns = []
 
@@ -89,36 +94,78 @@ class GRUPricePredictor:
             metadata_path = self._get_metadata_path()
 
             if not model_path.exists():
-                logger.info(f"No trained GRU model found for {self.symbol} {self.interval}m")
+                logger.info(
+                    f"No trained GRU model found for {self.symbol} {self.interval}m"
+                )
                 return False
 
             # Load model
             self.model = keras.models.load_model(str(model_path))
-            logger.info(f"Loaded GRU model from {model_path}")
+            self.model_loaded_at = model_path.stat().st_mtime
+            logger.info(
+                f"Loaded GRU model from {model_path} (mtime={self.model_loaded_at})"
+            )
 
             # Load metadata
             if metadata_path.exists():
-                with open(metadata_path, 'r') as f:
+                with open(metadata_path, "r") as f:
                     metadata = json.load(f)
-                    self.model_version = metadata.get('model_version')
-                    self.last_trained = datetime.fromisoformat(metadata.get('last_trained'))
-                    self.training_stats = metadata.get('training_stats', {})
-                    self.feature_columns = metadata.get('feature_columns', [])
+                    self.model_version = metadata.get("model_version")
+                    self.last_trained = datetime.fromisoformat(
+                        metadata.get("last_trained")
+                    )
+                    self.training_stats = metadata.get("training_stats", {})
+                    self.feature_columns = metadata.get("feature_columns", [])
 
                     # Load scalers
-                    scaler_path = self._get_model_path().parent / f"{self.symbol}_{self.interval}m_gru_scalers.pkl"
+                    scaler_path = (
+                        self._get_model_path().parent
+                        / f"{self.symbol}_{self.interval}m_gru_scalers.pkl"
+                    )
                     if scaler_path.exists():
-                        with open(scaler_path, 'rb') as f:
+                        with open(scaler_path, "rb") as f:
                             scaler_data = pickle.load(f)
-                            self.price_scaler = scaler_data['price_scaler']
-                            self.feature_scaler = scaler_data['feature_scaler']
+                            self.price_scaler = scaler_data["price_scaler"]
+                            self.feature_scaler = scaler_data["feature_scaler"]
 
-                logger.info(f"Loaded GRU metadata: version={self.model_version}, trained={self.last_trained}")
+                logger.info(
+                    f"Loaded GRU metadata: version={self.model_version}, trained={self.last_trained}"
+                )
                 return True
 
         except Exception as e:
             logger.error(f"Error loading GRU model: {e}")
             return False
+
+    def _reload_if_stale(self) -> bool:
+        """
+        Reload the model from disk if its mtime is newer than the cached load-time.
+
+        Called at the top of predict() to pick up retrained models without a
+        service restart. One stat() per request — overhead is negligible against
+        the 10-50 ms predict path. Tolerant of missing files / stat errors:
+        a failure leaves the cached model in place and predict() proceeds.
+
+        Returns:
+            True if a reload happened, False otherwise.
+        """
+        try:
+            model_path = self._get_model_path()
+            if not model_path.exists():
+                return False
+            disk_mtime = model_path.stat().st_mtime
+            if disk_mtime > self.model_loaded_at:
+                logger.warning(
+                    "MODEL_RELOAD: path=%s mtime=%s (was=%s)",
+                    model_path,
+                    disk_mtime,
+                    self.model_loaded_at,
+                )
+                # _load_model resets model, scalers, metadata, and model_loaded_at
+                return self._load_model()
+        except Exception as e:
+            logger.warning(f"Stale-check failed for {self.symbol}: {e}")
+        return False
 
     def _save_model(self):
         """Save trained GRU model and metadata"""
@@ -132,27 +179,32 @@ class GRUPricePredictor:
 
             # Save metadata
             metadata = {
-                'symbol': self.symbol,
-                'interval': self.interval,
-                'model_type': 'GRU',
-                'model_version': self.model_version,
-                'last_trained': self.last_trained.isoformat(),
-                'training_stats': self.training_stats,
-                'feature_columns': self.feature_columns,
-                'sequence_length': self.sequence_length,
-                'prediction_horizon': self.prediction_horizon
+                "symbol": self.symbol,
+                "interval": self.interval,
+                "model_type": "GRU",
+                "model_version": self.model_version,
+                "last_trained": self.last_trained.isoformat(),
+                "training_stats": self.training_stats,
+                "feature_columns": self.feature_columns,
+                "sequence_length": self.sequence_length,
+                "prediction_horizon": self.prediction_horizon,
             }
 
-            with open(metadata_path, 'w') as f:
+            with open(metadata_path, "w") as f:
                 json.dump(metadata, f, indent=2)
 
             # Save scalers
-            scaler_path = model_path.parent / f"{self.symbol}_{self.interval}m_gru_scalers.pkl"
-            with open(scaler_path, 'wb') as f:
-                pickle.dump({
-                    'price_scaler': self.price_scaler,
-                    'feature_scaler': self.feature_scaler
-                }, f)
+            scaler_path = (
+                model_path.parent / f"{self.symbol}_{self.interval}m_gru_scalers.pkl"
+            )
+            with open(scaler_path, "wb") as f:
+                pickle.dump(
+                    {
+                        "price_scaler": self.price_scaler,
+                        "feature_scaler": self.feature_scaler,
+                    },
+                    f,
+                )
 
             logger.info(f"Saved GRU metadata to {metadata_path}")
 
@@ -174,36 +226,36 @@ class GRUPricePredictor:
             df = data.copy()
 
         # Price returns (log returns for better distribution)
-        df['return_1'] = np.log(df['close'] / df['close'].shift(1))
-        df['return_5'] = np.log(df['close'] / df['close'].shift(5))
-        df['return_10'] = np.log(df['close'] / df['close'].shift(10))
+        df["return_1"] = np.log(df["close"] / df["close"].shift(1))
+        df["return_5"] = np.log(df["close"] / df["close"].shift(5))
+        df["return_10"] = np.log(df["close"] / df["close"].shift(10))
 
         # Price momentum
-        df['price_momentum_5'] = df['close'] - df['close'].shift(5)
-        df['price_momentum_10'] = df['close'] - df['close'].shift(10)
+        df["price_momentum_5"] = df["close"] - df["close"].shift(5)
+        df["price_momentum_10"] = df["close"] - df["close"].shift(10)
 
         # Moving averages
-        df['sma_7'] = df['close'].rolling(window=7).mean()
-        df['sma_14'] = df['close'].rolling(window=14).mean()
-        df['sma_30'] = df['close'].rolling(window=30).mean()
-        df['ema_7'] = df['close'].ewm(span=7, adjust=False).mean()
-        df['ema_14'] = df['close'].ewm(span=14, adjust=False).mean()
+        df["sma_7"] = df["close"].rolling(window=7).mean()
+        df["sma_14"] = df["close"].rolling(window=14).mean()
+        df["sma_30"] = df["close"].rolling(window=30).mean()
+        df["ema_7"] = df["close"].ewm(span=7, adjust=False).mean()
+        df["ema_14"] = df["close"].ewm(span=14, adjust=False).mean()
 
         # Price position relative to MAs
-        df['price_vs_sma7'] = (df['close'] - df['sma_7']) / df['sma_7']
-        df['price_vs_sma14'] = (df['close'] - df['sma_14']) / df['sma_14']
+        df["price_vs_sma7"] = (df["close"] - df["sma_7"]) / df["sma_7"]
+        df["price_vs_sma14"] = (df["close"] - df["sma_14"]) / df["sma_14"]
 
         # Volatility features
-        df['high_low_range'] = (df['high'] - df['low']) / df['close']
-        df['volatility_10'] = df['return_1'].rolling(window=10).std()
-        df['volatility_20'] = df['return_1'].rolling(window=20).std()
+        df["high_low_range"] = (df["high"] - df["low"]) / df["close"]
+        df["volatility_10"] = df["return_1"].rolling(window=10).std()
+        df["volatility_20"] = df["return_1"].rolling(window=20).std()
 
         # Volume features
-        df['volume_sma_7'] = df['volume'].rolling(window=7).mean()
-        df['volume_ratio'] = df['volume'] / df['volume_sma_7']
+        df["volume_sma_7"] = df["volume"].rolling(window=7).mean()
+        df["volume_ratio"] = df["volume"] / df["volume_sma_7"]
 
         # RSI calculation
-        df['rsi_14'] = self._calculate_rsi(df['close'], 14)
+        df["rsi_14"] = self._calculate_rsi(df["close"], 14)
 
         # Drop NaN rows from feature engineering
         df = df.dropna()
@@ -226,7 +278,7 @@ class GRUPricePredictor:
         Same as LSTM but for GRU architecture
         """
         # Select feature columns
-        feature_cols = [col for col in df.columns if col not in ['timestamp', 'symbol']]
+        feature_cols = [col for col in df.columns if col not in ["timestamp", "symbol"]]
         self.feature_columns = feature_cols
 
         # Extract values
@@ -238,15 +290,19 @@ class GRUPricePredictor:
         # Prepare sequences
         X, y = [], []
 
-        for i in range(len(scaled_data) - self.sequence_length - self.prediction_horizon):
+        for i in range(
+            len(scaled_data) - self.sequence_length - self.prediction_horizon
+        ):
             # Input sequence
-            X.append(scaled_data[i:i + self.sequence_length])
+            X.append(scaled_data[i : i + self.sequence_length])
 
             # Target: future close prices
-            close_idx = feature_cols.index('close')
+            close_idx = feature_cols.index("close")
             future_prices = scaled_data[
-                i + self.sequence_length:i + self.sequence_length + self.prediction_horizon,
-                close_idx
+                i + self.sequence_length : i
+                + self.sequence_length
+                + self.prediction_horizon,
+                close_idx,
             ]
             y.append(future_prices)
 
@@ -266,40 +322,34 @@ class GRUPricePredictor:
         - Similar performance on many tasks
         - Better for shorter sequences
         """
-        model = keras.Sequential([
-            # First GRU layer (return sequences for stacking)
-            layers.GRU(
-                units=128,
-                return_sequences=True,
-                input_shape=input_shape
-            ),
-            layers.Dropout(0.2),
-
-            # Second GRU layer
-            layers.GRU(
-                units=64,
-                return_sequences=False
-            ),
-            layers.Dropout(0.2),
-
-            # Dense layers
-            layers.Dense(32, activation='relu'),
-            layers.Dropout(0.1),
-
-            # Output layer (predict N future prices)
-            layers.Dense(self.prediction_horizon)
-        ])
+        model = keras.Sequential(
+            [
+                # First GRU layer (return sequences for stacking)
+                layers.GRU(units=128, return_sequences=True, input_shape=input_shape),
+                layers.Dropout(0.2),
+                # Second GRU layer
+                layers.GRU(units=64, return_sequences=False),
+                layers.Dropout(0.2),
+                # Dense layers
+                layers.Dense(32, activation="relu"),
+                layers.Dropout(0.1),
+                # Output layer (predict N future prices)
+                layers.Dense(self.prediction_horizon),
+            ]
+        )
 
         # Compile model
         model.compile(
             optimizer=keras.optimizers.Adam(learning_rate=settings.learning_rate),
-            loss='mean_squared_error',
-            metrics=['mae']
+            loss="mean_squared_error",
+            metrics=["mae"],
         )
 
         return model
 
-    async def train(self, historical_data: Union[pd.DataFrame, List[Dict]]) -> ModelInfo:
+    async def train(
+        self, historical_data: Union[pd.DataFrame, List[Dict]]
+    ) -> ModelInfo:
         """
         Train GRU model on historical data
 
@@ -316,7 +366,9 @@ class GRUPricePredictor:
         if isinstance(historical_data, list):
             historical_data = pd.DataFrame(historical_data)
 
-        logger.info(f"Training GRU model for {self.symbol} {self.interval}m with {len(historical_data)} samples")
+        logger.info(
+            f"Training GRU model for {self.symbol} {self.interval}m with {len(historical_data)} samples"
+        )
         start_time = datetime.utcnow()
 
         try:
@@ -339,18 +391,17 @@ class GRUPricePredictor:
 
             # Train model
             history = self.model.fit(
-                X_train, y_train,
+                X_train,
+                y_train,
                 epochs=settings.epochs,
                 batch_size=settings.batch_size,
                 validation_data=(X_test, y_test),
                 verbose=0,
                 callbacks=[
                     keras.callbacks.EarlyStopping(
-                        monitor='val_loss',
-                        patience=10,
-                        restore_best_weights=True
+                        monitor="val_loss", patience=10, restore_best_weights=True
                     )
-                ]
+                ],
             )
 
             # Evaluate model
@@ -365,20 +416,22 @@ class GRUPricePredictor:
             self.model_version = f"v{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
             self.last_trained = datetime.utcnow()
             self.training_stats = {
-                'train_samples': len(X_train),
-                'test_samples': len(X_test),
-                'final_train_loss': float(history.history['loss'][-1]),
-                'final_val_loss': float(history.history['val_loss'][-1]),
-                'mae': float(mae),
-                'rmse': float(rmse),
-                'r2_score': float(r2)
+                "train_samples": len(X_train),
+                "test_samples": len(X_test),
+                "final_train_loss": float(history.history["loss"][-1]),
+                "final_val_loss": float(history.history["val_loss"][-1]),
+                "mae": float(mae),
+                "rmse": float(rmse),
+                "r2_score": float(r2),
             }
 
             self._save_model()
 
             training_duration = (datetime.utcnow() - start_time).total_seconds()
 
-            logger.info(f"GRU training complete! MAE={mae:.4f}, RMSE={rmse:.4f}, R²={r2:.4f}")
+            logger.info(
+                f"GRU training complete! MAE={mae:.4f}, RMSE={rmse:.4f}, R²={r2:.4f}"
+            )
 
             return ModelInfo(
                 model_type="GRU",
@@ -394,14 +447,16 @@ class GRUPricePredictor:
                 validation_r2_score=float(r2),
                 top_features=[],
                 status="READY",
-                needs_retraining=False
+                needs_retraining=False,
             )
 
         except Exception as e:
             logger.error(f"GRU training failed: {e}")
             raise
 
-    async def predict(self, recent_data: Union[pd.DataFrame, List[Dict]]) -> PricePrediction:
+    async def predict(
+        self, recent_data: Union[pd.DataFrame, List[Dict]]
+    ) -> PricePrediction:
         """
         Make price predictions using trained GRU model
 
@@ -411,6 +466,9 @@ class GRUPricePredictor:
         Returns:
             PricePrediction with future price points
         """
+        # Pick up freshly retrained models without a restart (mtime check + reload).
+        self._reload_if_stale()
+
         if not TENSORFLOW_AVAILABLE or self.model is None:
             raise RuntimeError("GRU model not available for predictions")
 
@@ -420,22 +478,34 @@ class GRUPricePredictor:
 
         try:
             # Sort data by timestamp ascending (oldest first) for time-series processing
-            if 'timestamp' in recent_data.columns:
-                recent_data = recent_data.sort_values('timestamp', ascending=True).reset_index(drop=True)
+            if "timestamp" in recent_data.columns:
+                recent_data = recent_data.sort_values(
+                    "timestamp", ascending=True
+                ).reset_index(drop=True)
 
             # Store the actual current price BEFORE feature engineering (which may drop rows)
-            actual_current_price = float(recent_data.iloc[-1]['close'])
-            actual_current_timestamp = recent_data.iloc[-1]['timestamp'] if 'timestamp' in recent_data.columns else datetime.utcnow()
+            actual_current_price = float(recent_data.iloc[-1]["close"])
+            actual_current_timestamp = (
+                recent_data.iloc[-1]["timestamp"]
+                if "timestamp" in recent_data.columns
+                else datetime.utcnow()
+            )
 
             # Feature engineering on recent data
             df = self._create_features(recent_data)
 
             # Get last sequence
             if len(df) < self.sequence_length:
-                raise ValueError(f"Need at least {self.sequence_length} data points, got {len(df)}")
+                raise ValueError(
+                    f"Need at least {self.sequence_length} data points, got {len(df)}"
+                )
 
-            last_sequence = df.iloc[-self.sequence_length:]
-            feature_cols = [col for col in last_sequence.columns if col not in ['timestamp', 'symbol']]
+            last_sequence = df.iloc[-self.sequence_length :]
+            feature_cols = [
+                col
+                for col in last_sequence.columns
+                if col not in ["timestamp", "symbol"]
+            ]
             sequence_data = last_sequence[feature_cols].values
 
             # Scale
@@ -448,7 +518,7 @@ class GRUPricePredictor:
             prediction = self.model.predict(X, verbose=0)[0]
 
             # Get close price index for inverse scaling
-            close_idx = feature_cols.index('close')
+            close_idx = feature_cols.index("close")
 
             # Use the actual current price we stored before feature engineering
             current_price = actual_current_price
@@ -456,42 +526,52 @@ class GRUPricePredictor:
             # Build prediction points
             predictions = []
             # Use the actual current timestamp for proper future time calculation
-            base_timestamp = actual_current_timestamp if isinstance(actual_current_timestamp, datetime) else datetime.utcnow()
+            base_timestamp = (
+                actual_current_timestamp
+                if isinstance(actual_current_timestamp, datetime)
+                else datetime.utcnow()
+            )
 
             for i, pred_value in enumerate(prediction):
                 # Calculate timestamp for this prediction
-                future_timestamp = base_timestamp + timedelta(minutes=int(self.interval) * (i + 1))
+                future_timestamp = base_timestamp + timedelta(
+                    minutes=int(self.interval) * (i + 1)
+                )
 
                 # Inverse scale prediction using proper method:
                 # The model outputs scaled values [0-1], we need to convert back to price
                 # Use the current price as anchor and apply relative change
-                price_range = df['close'].max() - df['close'].min()
+                price_range = df["close"].max() - df["close"].min()
                 if price_range > 0:
                     # Scale predicted value relative to current price
-                    scaled_current = (current_price - df['close'].min()) / price_range
+                    scaled_current = (current_price - df["close"].min()) / price_range
                     price_change_ratio = pred_value - scaled_current
-                    predicted_price = float(current_price * (1 + price_change_ratio * 0.1))  # Dampen extreme predictions
+                    predicted_price = float(
+                        current_price * (1 + price_change_ratio * 0.1)
+                    )  # Dampen extreme predictions
                 else:
                     predicted_price = float(current_price)
 
                 # Calculate confidence (based on model performance and prediction variance).
                 # See predictor.py:480-490 for the rationale on the 0.0 floor.
-                base_confidence = float(self.training_stats.get('r2_score', 0.5))
+                base_confidence = float(self.training_stats.get("r2_score", 0.5))
                 confidence_decay = 0.1 * i  # Confidence decreases with time horizon
                 confidence = max(0.0, base_confidence - confidence_decay)
 
                 # Confidence intervals (±2 standard deviations)
-                std_dev = float(self.training_stats.get('rmse', predicted_price * 0.02))
+                std_dev = float(self.training_stats.get("rmse", predicted_price * 0.02))
                 lower_bound = predicted_price - (2 * std_dev)
                 upper_bound = predicted_price + (2 * std_dev)
 
-                predictions.append(PricePoint(
-                    timestamp=future_timestamp,
-                    predicted_price=predicted_price,
-                    confidence=confidence,
-                    lower_bound=lower_bound,
-                    upper_bound=upper_bound
-                ))
+                predictions.append(
+                    PricePoint(
+                        timestamp=future_timestamp,
+                        predicted_price=predicted_price,
+                        confidence=confidence,
+                        lower_bound=lower_bound,
+                        upper_bound=upper_bound,
+                    )
+                )
 
             # Determine overall direction
             avg_predicted = np.mean([p.predicted_price for p in predictions])
@@ -504,7 +584,9 @@ class GRUPricePredictor:
             else:
                 direction = "SIDEWAYS"
 
-            directional_strength = min(1.0, abs(price_change_pct) / 5.0)  # 5% change = 100% strength
+            directional_strength = min(
+                1.0, abs(price_change_pct) / 5.0
+            )  # 5% change = 100% strength
 
             return PricePrediction(
                 symbol=self.symbol,
@@ -517,7 +599,7 @@ class GRUPricePredictor:
                 average_confidence=float(np.mean([p.confidence for p in predictions])),
                 prediction_horizon_minutes=int(self.interval) * self.prediction_horizon,
                 predicted_direction=direction,
-                directional_strength=directional_strength
+                directional_strength=directional_strength,
             )
 
         except Exception as e:
