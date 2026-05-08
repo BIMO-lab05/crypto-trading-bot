@@ -87,6 +87,19 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
                 )
             )
 
+        # Drop confidence=0 entries before aggregation (INFRA-06 Bug 2).
+        # A disabled or uninitialised indicator may emit a (label, 0.0) tuple;
+        # letting it through pollutes the weighted sum and can swing the final
+        # signal on zero information.
+        original_count = len(signals)
+        signals = [(sig, weight) for sig, weight in signals if weight > 0.0]
+        dropped = original_count - len(signals)
+        if dropped:
+            logger.info(
+                "AGGREGATOR_CONFIDENCE_FILTER: dropped %d zero-confidence signals",
+                dropped,
+            )
+
         # Calculate weighted signal
         signal_weights = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
         total_weight = 0.0
