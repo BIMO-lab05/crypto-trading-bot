@@ -6,7 +6,7 @@ Enhanced with multi-channel routing and alert management
 
 from pydantic_settings import BaseSettings
 from pydantic import AliasChoices, Field, model_validator
-from typing import List
+from typing import List, Literal
 from enum import Enum
 
 
@@ -110,7 +110,12 @@ class NotificationConfig(BaseSettings):
     # - "" (default, production): live API behavior preserved
     # - "record": write would-be sends to tests/.notifications.log instead of POSTing
     # - "live":   force live POST even in test contexts (CI uses this with TEST_TELEGRAM_*)
-    notification_test_mode: str = Field(
+    # WR-08 (Phase 2): Literal[] surfaces typos at startup. Previously the str
+    # accepted any value — `RECORD` or `Record` (typos) would silently fall
+    # through the case-sensitive `== "record"` check at telegram_notifier.py
+    # and drop into the production POST path with whatever creds were
+    # configured. Literal makes the bad value a startup ValueError.
+    notification_test_mode: Literal["", "record", "live"] = Field(
         default="",
         description="record|live; empty string = default production behavior",
     )
