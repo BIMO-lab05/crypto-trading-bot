@@ -55,7 +55,7 @@ patterns-established:
   - "Read-only API + CLI mutation split (CD-07): main.py has zero @app.post; mutation flows live in app/cli.py landing in 03-08"
   - "Pin lockstep with ml-retraining-service for ML libs (TF 2.15, pandas 2.1.4, numpy 1.26.2) so CD-01 model-registry imports stay binary-compatible — bumping one without the other breaks the registry import path"
 
-requirements-completed: [TOURN-01]
+requirements-completed: []  # TOURN-01 is *addressed* by this plan (skeleton only) but not *completed* — full TOURN-01 fulfillment requires plans 03-02 through 03-09. Mark complete only at phase end.
 
 # Metrics
 duration: 20min
