@@ -41,7 +41,7 @@ async def test_fresh_clone_round_trip(
     """
 
     # --- 2. Recorded-tape prices flow ---
-    tickers_url = f"{services_config['bybit_connector']}/api/v1/market/tickers"
+    tickers_url = f"{services_config['bybit_connector']}/api/v1/market/ticker"
     r = await http_client.get(
         tickers_url, params={"category": "linear", "symbol": "SOLUSDT"}
     )
@@ -138,7 +138,7 @@ async def test_unknown_symbol_does_not_500(
     XRPUSDT is excluded from paper-trading data scope (validated symbols: BTC, ETH, SOL,
     BNB, ADA only per CLAUDE.md). Tape replay returns empty list for unknowns (landmine §4).
     """
-    url = f"{services_config['bybit_connector']}/api/v1/market/tickers"
+    url = f"{services_config['bybit_connector']}/api/v1/market/ticker"
     r = await http_client.get(url, params={"category": "linear", "symbol": "XRPUSDT"})
     assert r.status_code == 200, f"unknown symbol returned {r.status_code}: {r.text}"
     body = r.json()
