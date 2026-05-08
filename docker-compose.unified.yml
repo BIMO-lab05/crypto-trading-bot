@@ -638,8 +638,8 @@ services:
       # per-test variables. (Blocker #1, revision 2.)
       - NOTIFICATION_TEST_MODE=${NOTIFICATION_TEST_MODE:-}
       - NOTIFICATION_RECORD_PATH=${NOTIFICATION_RECORD_PATH:-tests/.notifications.log}
-      - TELEGRAM_TEST_BOT_TOKEN=${TELEGRAM_TEST_BOT_TOKEN:-}
-      - TELEGRAM_TEST_CHAT_ID=${TELEGRAM_TEST_CHAT_ID:-}
+      - TEST_TELEGRAM_BOT_TOKEN=${TEST_TELEGRAM_BOT_TOKEN:-}
+      - TEST_TELEGRAM_CHAT_ID=${TEST_TELEGRAM_CHAT_ID:-}
     volumes:
       - ./services/notification-service/logs:/app/logs
       - ./services/notification-service/data:/app/data
