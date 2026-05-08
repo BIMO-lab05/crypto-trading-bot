@@ -57,9 +57,9 @@ echo -e "${GREEN}[3/6] EMERGENCY_STOP touched at $REPO_ROOT/EMERGENCY_STOP${NC}"
 # ---- Step 4: docker compose up (canonical compose; CLAUDE.md gotcha) -----
 COMPOSE_FILE="docker-compose.unified.yml"
 if [ "$SKIP_BUILD" = true ]; then
-    docker compose -f "$COMPOSE_FILE" up -d
+    docker compose -f "$COMPOSE_FILE" --profile ml --profile analytics up -d
 else
-    docker compose -f "$COMPOSE_FILE" up -d --build
+    docker compose -f "$COMPOSE_FILE" --profile ml --profile analytics up -d --build
 fi
 echo -e "${GREEN}[4/6] docker compose up -d completed${NC}"
 
