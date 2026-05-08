@@ -63,8 +63,8 @@ Plans:
 - [x] 02-05-PLAN.md — notification verification harness (.env.test.example, NOTIFICATION_TEST_MODE wiring, test_notification_delivery)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 02-08-PLAN.md — INFRA-06 pre-existing bug triage (stale ML model + confidence=0 + WSL2 BuildKit)
-- [ ] 02-09-PLAN.md — CI workflows: .github/workflows/integration.yml (push+PR) + integration-ml-on.yml (nightly+manual)
+- [x] 02-08-PLAN.md — INFRA-06 pre-existing bug triage (stale ML model + confidence=0 + WSL2 BuildKit)
+- [x] 02-09-PLAN.md — CI workflows: .github/workflows/integration.yml (push+PR) + integration-ml-on.yml (nightly+manual)
 
 ### Phase 3: Tournament Harness Core
 **Goal**: A Docker-isolated, Python-orchestrated tournament can launch GRU/LSTM/Transformer/TCN candidates over {SOL, BNB, ADA} × hyperparameter grid, capture honest returns metrics into a SQLite leaderboard, and reuse the existing `returns_metrics.py` / `sharpe_metrics.py` / `cpcv.py` modules — no LLM-subagent fanout, no parallel metrics path.
