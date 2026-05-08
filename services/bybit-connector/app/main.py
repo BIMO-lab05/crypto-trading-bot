@@ -473,14 +473,12 @@ async def metrics():
     """
     Prometheus metrics endpoint
     Returns metrics in Prometheus text format
-    """
-    # Update circuit breaker state metric before returning
-    try:
-        # This will be updated when we access the circuit breaker status
-        pass
-    except:
-        pass
 
+    The breaker gauge is kept in sync via the on-state-change callback
+    (see add_listener around line 222 + the comment at the bottom of this
+    file); no in-endpoint refresh is needed. WR-04 removed a stale
+    placeholder try/except pair with a bare `except:` (project ban-list).
+    """
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
