@@ -5,7 +5,7 @@ Enhanced with multi-channel routing and alert management
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from typing import List
 from enum import Enum
 
@@ -82,8 +82,22 @@ class NotificationConfig(BaseSettings):
     # Telegram settings
     # ========================================
     telegram_enabled: bool = False
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
+    # BL-03 follow-up (Phase 2): AliasChoices lets the field accept either
+    # TELEGRAM_BOT_TOKEN (production / dev .env file) OR TEST_TELEGRAM_BOT_TOKEN
+    # (CI workflow secret + integration suite). Without this, the BL-03 compose
+    # rename (TELEGRAM_TEST_* → TEST_TELEGRAM_*) only delivered the env var to
+    # the container — Pydantic still read TELEGRAM_BOT_TOKEN, so CI saw an
+    # empty token and the test still failed identically. AliasChoices preserves
+    # the primary TELEGRAM_BOT_TOKEN lookup so `services/notification-service/.env`
+    # in dev is unaffected.
+    telegram_bot_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("TELEGRAM_BOT_TOKEN", "TEST_TELEGRAM_BOT_TOKEN"),
+    )
+    telegram_chat_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("TELEGRAM_CHAT_ID", "TEST_TELEGRAM_CHAT_ID"),
+    )
     telegram_rate_limit: int = Field(default=20, description="Max messages per minute")
     telegram_retry_attempts: int = Field(
         default=3, description="Number of retry attempts"
