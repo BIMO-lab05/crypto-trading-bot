@@ -46,7 +46,11 @@ def test_env_test_example_has_no_real_token():
     """Regression: .env.test.example MUST be placeholder-only — never a real token committed."""
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     p = os.path.join(repo_root, ".env.test.example")
-    text_content = open(p, encoding="utf-8").read()
+    # WR-03 (Phase 2): use a context manager. The prior `open(p).read()` left
+    # the file handle dangling until GC, which the project ban-list flags and
+    # which is a known Windows-host flaky-test hazard.
+    with open(p, encoding="utf-8") as fh:
+        text_content = fh.read()
     bot_token_pat = re.compile(
         r"^TEST_TELEGRAM_BOT_TOKEN=\d{8,12}:[A-Za-z0-9_-]{30,}", re.MULTILINE
     )
