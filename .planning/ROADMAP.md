@@ -76,10 +76,27 @@ Plans:
   3. Failed runs persist a leaderboard row tagged with the failure reason rather than vanishing
   4. Leaderboard queries (e.g. "top-3 GRU runs on SOL by DSR") return correct rows from the SQLite store
   5. The harness imports its metrics from the existing modules — `grep -r "def directional_accuracy\|def sharpe\|def deflated" services/tournament-harness/` returns no parallel implementations
-**Plans**: TBD
+**Plans**: 9 plans
 
 Plans:
-- [ ] 03-01: TBD
+**Wave 1** (foundation, parallel)
+- [ ] 03-01-PLAN.md — service skeleton + compose profile (Dockerfile, FastAPI status API, --profile tournament gating)
+- [ ] 03-02-PLAN.md — model registry refactor: extract gru/lstm/transformer/tcn builders under ml-retraining (CD-01)
+
+**Wave 2** (parallel, depends on 03-01)
+- [ ] 03-03-PLAN.md — SQLite leaderboard schema + migration runner + result_schema validator (TOURN-02, TOURN-04)
+- [ ] 03-04-PLAN.md — tournament_loader: YAML safe_load + Cartesian enumeration + hp_hash determinism (TOURN-03)
+- [ ] 03-05-PLAN.md — Postgres tournament_reader role (read-only SELECT on klines, D-09) + RUNBOOK.md operator notes
+
+**Wave 3** (depends on Wave 2)
+- [ ] 03-06-PLAN.md — per-experiment runner: load klines, train via registry, IMPORT honest metrics, atomic result.json (TOURN-07)
+- [ ] 03-07-PLAN.md — orchestrator: Docker SDK launcher, failure classifier (D-15 enum), ingest with size-cap + schema validate
+
+**Wave 4** (depends on Wave 3)
+- [ ] 03-08-PLAN.md — operator CLI: run / leaderboard list (safe --where DSL CD-05) / export-snapshot (D-18); wire main.py FastAPI list endpoints
+
+**Wave 5** (final — verification)
+- [ ] 03-09-PLAN.md — tests: TOURN-07 grep gate + fake-docker pipeline + real-stack end-to-end + CI workflow
 
 ### Phase 4: Tournament Significance & Auto-PR
 **Goal**: A tournament run automatically constructs a top-3 ensemble, runs a bootstrap significance test against the production baseline on OOS Sharpe and corrected directional accuracy, and opens a draft PR with the leaderboard and significance results when the ensemble wins — humans always merge.
@@ -147,7 +164,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Bootstrap & Recorded Tape | 4/4 | Complete   | 2026-05-06 |
 | 2. Integration Test Suite & RUNBOOK | 0/10 | Not started | - |
-| 3. Tournament Harness Core | 0/TBD | Not started | - |
+| 3. Tournament Harness Core | 0/9 | Not started | - |
 | 4. Tournament Significance & Auto-PR | 0/TBD | Not started | - |
 | 5. ML Cleanup (post-V0) | 0/TBD | Not started | - |
 | 6. Dashboard Audit & Safety State | 0/TBD | Not started | - |
