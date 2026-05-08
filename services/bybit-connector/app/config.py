@@ -7,7 +7,6 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator, model_validator
 from typing import Literal, Optional
 from pathlib import Path
-import os
 
 
 class Settings(BaseSettings):
@@ -19,7 +18,9 @@ class Settings(BaseSettings):
     # ========================================================================
     # ENVIRONMENT
     # ========================================================================
-    environment: str = Field(default="development", description="Deployment environment")
+    environment: str = Field(
+        default="development", description="Deployment environment"
+    )
     log_level: str = Field(default="INFO", description="Logging level")
     debug: bool = Field(default=False, description="Debug mode")
 
@@ -28,28 +29,43 @@ class Settings(BaseSettings):
     # ========================================================================
     bybit_api_key: str = Field(default="", description="Bybit API key")
     bybit_api_secret: str = Field(default="", description="Bybit API secret")
-    bybit_testnet: bool = Field(default=False, description="Use testnet (true) or production (false). Default False — production prices. Set BYBIT_TESTNET=true explicitly for testnet.")
-    bybit_recv_window: int = Field(default=5000, description="API request receive window in milliseconds")
+    bybit_testnet: bool = Field(
+        default=False,
+        description="Use testnet (true) or production (false). Default False — production prices. Set BYBIT_TESTNET=true explicitly for testnet.",
+    )
+    bybit_recv_window: int = Field(
+        default=5000, description="API request receive window in milliseconds"
+    )
 
     # ========================================================================
     # MARKET DATA SOURCE SELECTOR (D-14, D-15, D-17)
     # ========================================================================
     market_data_source: Literal["tape", "live"] = Field(
         default="tape",
-        description="Source for Bybit market data: 'tape' replays JSONL fixtures, 'live' hits real Bybit REST/WS"
+        description="Source for Bybit market data: 'tape' replays JSONL fixtures, 'live' hits real Bybit REST/WS",
     )
     tape_fixtures_path: Path = Field(
         default=Path("/app/tests/fixtures/tape"),
-        description="In-container path to tape JSONL fixtures (bind-mounted RO from repo tests/fixtures/tape)"
+        description="In-container path to tape JSONL fixtures (bind-mounted RO from repo tests/fixtures/tape)",
     )
 
     # ========================================================================
     # API ENDPOINTS
     # ========================================================================
-    bybit_rest_url_testnet: str = Field(default="https://api-testnet.bybit.com", description="Testnet REST API URL")
-    bybit_rest_url_mainnet: str = Field(default="https://api.bybit.com", description="Mainnet REST API URL")
-    bybit_ws_url_testnet: str = Field(default="wss://stream-testnet.bybit.com/v5/public/linear", description="Testnet WebSocket URL")
-    bybit_ws_url_mainnet: str = Field(default="wss://stream.bybit.com/v5/public/linear", description="Mainnet WebSocket URL")
+    bybit_rest_url_testnet: str = Field(
+        default="https://api-testnet.bybit.com", description="Testnet REST API URL"
+    )
+    bybit_rest_url_mainnet: str = Field(
+        default="https://api.bybit.com", description="Mainnet REST API URL"
+    )
+    bybit_ws_url_testnet: str = Field(
+        default="wss://stream-testnet.bybit.com/v5/public/linear",
+        description="Testnet WebSocket URL",
+    )
+    bybit_ws_url_mainnet: str = Field(
+        default="wss://stream.bybit.com/v5/public/linear",
+        description="Mainnet WebSocket URL",
+    )
 
     # ========================================================================
     # SERVICE CONFIGURATION
@@ -72,42 +88,103 @@ class Settings(BaseSettings):
     rabbitmq_host: str = Field(default="localhost", description="RabbitMQ host")
     rabbitmq_port: int = Field(default=5672, description="RabbitMQ port")
     rabbitmq_user: str = Field(default="cryptobot", description="RabbitMQ username")
-    rabbitmq_password: str = Field(default="change_this_secure_password", description="RabbitMQ password")
-    rabbitmq_vhost: str = Field(default="cryptobot", description="RabbitMQ virtual host")
+    rabbitmq_password: str = Field(
+        default="change_this_secure_password", description="RabbitMQ password"
+    )
+    rabbitmq_vhost: str = Field(
+        default="cryptobot", description="RabbitMQ virtual host"
+    )
 
     # ========================================================================
     # CIRCUIT BREAKER CONFIGURATION
     # ========================================================================
-    circuit_breaker_failure_threshold: int = Field(default=5, description="Failures before circuit opens")
-    circuit_breaker_recovery_timeout: int = Field(default=60, description="Seconds before attempting recovery")
-    circuit_breaker_expected_exception: str = Field(default="Exception", description="Exception type to track")
+    circuit_breaker_failure_threshold: int = Field(
+        default=5, description="Failures before circuit opens"
+    )
+    circuit_breaker_recovery_timeout: int = Field(
+        default=60, description="Seconds before attempting recovery"
+    )
+    circuit_breaker_expected_exception: str = Field(
+        default="Exception", description="Exception type to track"
+    )
 
     # ========================================================================
     # RETRY CONFIGURATION
     # ========================================================================
-    max_retry_attempts: int = Field(default=3, description="Maximum retry attempts for failed requests")
-    retry_base_delay: float = Field(default=1.0, description="Base delay for exponential backoff (seconds)")
-    retry_max_delay: float = Field(default=60.0, description="Maximum delay between retries (seconds)")
+    max_retry_attempts: int = Field(
+        default=3, description="Maximum retry attempts for failed requests"
+    )
+    retry_base_delay: float = Field(
+        default=1.0, description="Base delay for exponential backoff (seconds)"
+    )
+    retry_max_delay: float = Field(
+        default=60.0, description="Maximum delay between retries (seconds)"
+    )
 
     # ========================================================================
     # RATE LIMITING
     # ========================================================================
-    rate_limit_requests_per_second: int = Field(default=10, description="Max requests per second")
-    rate_limit_burst: int = Field(default=20, description="Burst allowance for rate limiting")
+    rate_limit_requests_per_second: int = Field(
+        default=10, description="Max requests per second"
+    )
+    rate_limit_burst: int = Field(
+        default=20, description="Burst allowance for rate limiting"
+    )
 
     # ========================================================================
     # WEBSOCKET CONFIGURATION
     # ========================================================================
-    ws_ping_interval: int = Field(default=20, description="WebSocket ping interval (seconds)")
-    ws_ping_timeout: int = Field(default=10, description="WebSocket ping timeout (seconds)")
-    ws_reconnect_delay: int = Field(default=5, description="Delay before reconnect attempt (seconds)")
-    ws_max_reconnect_attempts: int = Field(default=10, description="Maximum reconnection attempts")
+    ws_ping_interval: int = Field(
+        default=20, description="WebSocket ping interval (seconds)"
+    )
+    ws_ping_timeout: int = Field(
+        default=10, description="WebSocket ping timeout (seconds)"
+    )
+    ws_reconnect_delay: int = Field(
+        default=5, description="Delay before reconnect attempt (seconds)"
+    )
+    ws_max_reconnect_attempts: int = Field(
+        default=10, description="Maximum reconnection attempts"
+    )
 
     # ========================================================================
     # MONITORING
     # ========================================================================
     enable_metrics: bool = Field(default=True, description="Enable Prometheus metrics")
     metrics_port: int = Field(default=9090, description="Metrics endpoint port")
+
+    # ========================================================================
+    # SECURITY — CORS (BL-04: never `*` with credentials; spec violation)
+    # ========================================================================
+    cors_origins: List[str] = Field(
+        default=[
+            "http://localhost:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:8000",
+        ],
+        description="Allowed CORS origins (no wildcards in production)",
+    )
+    internal_service_origins: List[str] = Field(
+        default=[
+            "http://api-gateway:8000",
+            "http://localhost:8000",
+            "http://localhost:8001",
+            "http://localhost:8002",
+            "http://localhost:8003",
+            "http://localhost:8004",
+            "http://localhost:8005",
+            "http://localhost:8006",
+            "http://localhost:8007",
+            "http://localhost:8008",
+        ],
+        description="Internal microservice origins for inter-service communication",
+    )
+
+    @property
+    def all_cors_origins(self) -> List[str]:
+        """Get combined list of all allowed CORS origins."""
+        return list(set(self.cors_origins + self.internal_service_origins))
 
     # ========================================================================
     # VALIDATORS (Pydantic V2 syntax)
@@ -158,12 +235,20 @@ class Settings(BaseSettings):
     @property
     def rest_api_url(self) -> str:
         """Get appropriate REST API URL based on testnet setting"""
-        return self.bybit_rest_url_testnet if self.bybit_testnet else self.bybit_rest_url_mainnet
+        return (
+            self.bybit_rest_url_testnet
+            if self.bybit_testnet
+            else self.bybit_rest_url_mainnet
+        )
 
     @property
     def websocket_url(self) -> str:
         """Get appropriate WebSocket URL based on testnet setting"""
-        return self.bybit_ws_url_testnet if self.bybit_testnet else self.bybit_ws_url_mainnet
+        return (
+            self.bybit_ws_url_testnet
+            if self.bybit_testnet
+            else self.bybit_ws_url_mainnet
+        )
 
     @property
     def redis_url(self) -> str:
@@ -200,7 +285,7 @@ class Settings(BaseSettings):
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
-        "extra": "ignore"
+        "extra": "ignore",
     }
 
 
@@ -226,9 +311,10 @@ def get_settings() -> Settings:
             settings = Settings()
         except Exception as e:
             from app.exceptions import ConfigurationException
+
             raise ConfigurationException(
                 message=f"Failed to load configuration: {str(e)}",
-                config_field="settings"
+                config_field="settings",
             )
 
     return settings

@@ -426,7 +426,7 @@ app.add_middleware(PrometheusMiddleware)
 settings_instance = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for dashboard access
+    allow_origins=settings_instance.all_cors_origins,  # BL-04: never `*` with credentials
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],  # Only allow safe methods for trading API
     allow_headers=[
