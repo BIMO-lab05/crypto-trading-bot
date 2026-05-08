@@ -1,0 +1,84 @@
+name: Integration Suite (Phase 2)
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: pytest tests/integration (deterministic, tape mode)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for `git diff origin/main..HEAD` in anti-mock guard
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pytest dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install httpx asyncpg pytest pytest-asyncio
+
+      - name: Boot stack via bootstrap.sh in tape mode
+        env:
+          MARKET_DATA_SOURCE: tape
+          PAPER_TRADING_MODE: 'true'
+          TRADING_MODE: PAPER
+          AUTO_TRADING_ENABLED: 'true'
+          ENABLE_ML_PREDICTIONS: 'false'
+          ENABLE_SENTIMENT_ANALYSIS: 'false'
+          NOTIFICATION_TEST_MODE: live
+          TEST_TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN }}
+          TEST_TELEGRAM_CHAT_ID: ${{ secrets.TEST_TELEGRAM_CHAT_ID }}
+        run: |
+          : > .env  # D-06 -- empty .env at bootstrap entry
+          bash bootstrap.sh
+
+      - name: Run integration suite
+        env:
+          MARKET_DATA_SOURCE: tape
+          NOTIFICATION_TEST_MODE: live
+          TEST_TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN }}
+          TEST_TELEGRAM_CHAT_ID: ${{ secrets.TEST_TELEGRAM_CHAT_ID }}
+        run: |
+          pytest tests/integration -v --tb=short
+
+      - name: Anti-mock guard (D-12)
+        if: github.event_name == 'pull_request'
+        run: |
+          # Compare PR HEAD against main to enforce D-12 -- refuse mocks/skips/xfails/threshold-lowering inside tests/.
+          # NOTE: gated to pull_request events. Direct pushes bypass this. Operator MUST
+          # configure GitHub branch protection on main/master to require PRs (see plan
+          # verification block).
+          git fetch origin main
+          git diff origin/main..HEAD -- 'tests/' | bash scripts/iter-fix-check-diff.sh
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          mkdir -p logs
+          docker compose -f docker-compose.unified.yml logs > logs/integration-logs.txt 2>&1 || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs
+          path: logs/integration-logs.txt
+          retention-days: 14
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.unified.yml down -v || true
