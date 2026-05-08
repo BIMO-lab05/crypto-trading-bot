@@ -161,3 +161,15 @@ docker compose -f docker-compose.unified.yml restart trading-engine
 - `curl http://localhost:8000/api/portfolio/emergency-stop/status` — returns `active: false`.
 - `docker logs trading-engine --tail 20 | grep -iE "auto.?trader.armed|loop running"` — engine reports armed and looping.
 - Stack reaches healthy idle (re-run `bash bootstrap.sh` if needed; expect `[6/6] Bootstrap complete`).
+
+---
+
+## INFRA-06 Bug Triage Outcomes (Phase 2)
+
+Logged 2026-05-08 per Phase 2 INFRA-06 / CD-02. All three bugs from the INFRA-06 defect register have been addressed.
+
+| Bug | Status | Reference |
+|-----|--------|-----------|
+| 1. Stale in-memory ML model after retrain | FIXED — `_reload_if_stale()` added to `gru_predictor.py` (mirrors existing `gru_model.py:140-166`); log format aligned to `MODEL_RELOAD: path=` in both predictors; regression tests in `services/ml-prediction-service/tests/test_model_reload.py` and `tests/integration/test_pre_existing_bug_regressions.py::test_stale_ml_model_reload` | `services/ml-prediction-service/app/ml_models/gru_predictor.py` |
+| 2. Hardcoded confidence=0 still emitting signals | FIXED — explicit `confidence > 0` filter + `AGGREGATOR_CONFIDENCE_FILTER` log in `services/technical-analysis/app/handlers/analysis.py`; regression test in `services/technical-analysis/tests/test_signal_aggregator_confidence_zero.py`; integration coverage implicit via `test_fresh_clone_round_trip` | `services/technical-analysis/app/handlers/analysis.py` |
+| 3. WSL2 BuildKit hang on `docker compose up --build` | DOCUMENTED — no code fix possible (environmental). Workaround: `make build-no-buildkit SVC=<name>` (Plan 02-10) or `DOCKER_BUILDKIT=0 docker compose -f docker-compose.unified.yml build`. See `## Symptom: BuildKit hang` above. | RUNBOOK § BuildKit hang; `Makefile` |
