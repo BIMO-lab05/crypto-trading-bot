@@ -35,12 +35,15 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 - ✓ **OBS-02**: Sentiment endpoints honest (501 Not Implemented for fabricated `/trend`+`/aggregate`; `/combined` returns 503 instead of fabricating neutral) — commit `41bd5ab`
 - ✓ **UI-01**: React dashboard (Vite) with REST-polling performance metrics (dead WebSocket scaffolding stripped) — commit `6a424e3`
 - ✓ **TEST-01**: ~101 new tests across the Tier-1 modules; full suite green for changed services
+- ✓ **INFRA-01**: pytest integration suite + fresh-clone round-trip + ML-on variant + notification delivery + 3 pre-existing bug regressions — all wired (10 plans, 13 review findings fixed). Live Docker run pending in `02-HUMAN-UAT.md`. Validated in Phase 02.
+- ✓ **INFRA-04**: CI workflows `.github/workflows/integration.yml` (per-push + PR with anti-mock guard) and `.github/workflows/integration-ml-on.yml` (nightly + manual). Validated in Phase 02.
+- ✓ **INFRA-05**: Iteration harness `scripts/iter-fix.sh` + anti-mock guard `scripts/iter-fix-check-diff.sh` (10/10 test_iter_fix.sh PASS, including `>` direction). Validated in Phase 02.
+- ✓ **INFRA-06**: Three named pre-existing bugs triaged — Bug 1 (stale ML model) FIXED with `_reload_if_stale()` in `gru_predictor.py` + log format alignment in `gru_model.py`; Bug 2 (confidence=0) FIXED with `confidence > 0` filter + `AGGREGATOR_CONFIDENCE_FILTER` log in `handlers/analysis.py`; Bug 3 (WSL2 BuildKit) DOCUMENTED in RUNBOOK + `make build-no-buildkit`. Validated in Phase 02.
 
 ### Active
 
 <!-- Current scope for this milestone. Hypotheses until shipped + validated. -->
 
-- [ ] **INFRA-01**: Test-driven infra rebuild — pytest+testcontainers integration suite asserting full stack from a fresh `git clone` into a tmp dir (services healthy, real exchange prices via recorded tape, ML models loaded if enabled, notifications delivered, paper trade <60s)
 - [ ] **INFRA-02**: Bootstrap script (`bootstrap.sh`) that wires `.env` from a template + brings up the stack reproducibly, with a checkpointed iteration loop for fixing infra bugs (no unattended `git clean -fdx` loop)
 - [ ] **INFRA-03**: RUNBOOK.md documenting WSL2 BuildKit hangs, docker context misconfig, stale-model restart procedure, and bootstrap-test failure recovery
 - [ ] **TOURN-01**: Docker+SQLite tournament harness (Bash/Python orchestrator, NOT 30 LLM subagents) running GRU/LSTM/Transformer/TCN × {SOL,BNB,ADA} × hyperparameter grid with per-experiment Docker isolation
@@ -117,4 +120,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-06 after initialization*
+*Last updated: 2026-05-08 after Phase 02 completion (integration-test-suite-runbook)*
