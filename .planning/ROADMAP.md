@@ -111,8 +111,8 @@ Plans:
 
 Plans:
 **Wave 1** (parallel, no dependencies)
-- [ ] 04-01-PLAN.md — significance package: artifact writers + per-symbol top-3-by-DSR ensemble selection + predict-only re-hydration cache (D-01/02/03/14, CD-11)
-- [ ] 04-05-PLAN.md — CI grep gates: no `>5% R²` win criterion (D-13) + no `gh pr merge` (CD-10)
+- [x] 04-01-PLAN.md — significance package: artifact writers + per-symbol top-3-by-DSR ensemble selection + predict-only re-hydration cache (D-01/02/03/14, CD-11)
+- [x] 04-05-PLAN.md — CI grep gates: no `>5% R²` win criterion (D-13) + no `gh pr merge` (CD-10)
 
 **Wave 2** (depends on 04-01)
 - [ ] 04-02-PLAN.md — persistence baseline + stationary block bootstrap kernel + per-symbol win gate (D-04/05/06/08, CD-07/08)
