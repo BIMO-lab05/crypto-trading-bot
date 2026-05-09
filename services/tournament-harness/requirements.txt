@@ -1,0 +1,38 @@
+# Tournament Harness Service Dependencies (Phase 3)
+#
+# TF / pandas / numpy versions match ml-retraining-service so the model-registry
+# import in 03-02 stays binary-compatible. Do NOT drift these without also
+# bumping ml-retraining-service/requirements.txt in lockstep.
+
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# DB clients
+asyncpg==0.29.0          # TimescaleDB klines reads (read-only via tournament_reader role, D-09)
+# NB: leaderboard uses stdlib sqlite3 only (D-17) — no ORM, no migration tool deps.
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# ML/AI (registry needs all four arch families per CD-01; same TF version as ml-retraining)
+tensorflow==2.15.0
+scikit-learn==1.3.2
+
+# YAML config (D-11)
+pyyaml==6.0.1
+
+# Docker SDK (D-02)
+docker==7.0.0
+
+# HTTP client for healthcheck (Dockerfile uses httpx.get)
+httpx==0.25.2
+
+# Logging / Testing
+python-json-logger==2.0.7
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
