@@ -35,3 +35,7 @@ Items found during execution that are out-of-scope for the current plan.
   attribute arrays) or assert only the type contract. Out-of-scope for the registry refactor (this is a
   test correctness bug in `test_save_model_writes_scalers_pkl_with_expected_keys`, not in production code).
 - **Owner:** Test-hygiene cleanup; tracked here so the verifier doesn't flag it as a regression of 03-02.
+
+## 03-06 Deferred: pre-existing docker-compose.unified.yml semgrep warnings
+- Lines 33/70/105/139/177/209: postgres/timescaledb/redis/rabbitmq/prometheus/grafana missing `no-new-privileges` + `read_only:true`. Pre-existing; not introduced by 03-06.
+- Line 762: docker.sock volume on tournament-harness — load-bearing per D-02 (orchestrator must launch experiment containers). Accepted risk documented in compose comment block.
