@@ -96,7 +96,7 @@ Plans:
 - [x] 03-08-PLAN.md — operator CLI: run / leaderboard list (safe --where DSL CD-05) / export-snapshot (D-18); wire main.py FastAPI list endpoints
 
 **Wave 5** (final — verification)
-- [ ] 03-09-PLAN.md — tests: TOURN-07 grep gate + fake-docker pipeline + real-stack end-to-end + CI workflow
+- [x] 03-09-PLAN.md — tests: TOURN-07 grep gate + fake-docker pipeline + real-stack end-to-end + CI workflow
 
 ### Phase 4: Tournament Significance & Auto-PR
 **Goal**: A tournament run automatically constructs a top-3 ensemble, runs a bootstrap significance test against the production baseline on OOS Sharpe and corrected directional accuracy, and opens a draft PR with the leaderboard and significance results when the ensemble wins — humans always merge.
