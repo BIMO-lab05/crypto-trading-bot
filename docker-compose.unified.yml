@@ -741,8 +741,8 @@ services:
   # ---------------------------------------------------------------------------
   tournament-harness:
     build:
-      context: ./services/tournament-harness
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/tournament-harness/Dockerfile
     container_name: crypto-bot-tournament-harness
     hostname: tournament-harness
     ports:

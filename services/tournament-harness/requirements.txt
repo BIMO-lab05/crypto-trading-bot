@@ -12,6 +12,7 @@ pydantic-settings==2.1.0
 
 # DB clients
 asyncpg==0.29.0          # TimescaleDB klines reads (read-only via tournament_reader role, D-09)
+psycopg2-binary==2.9.9   # Synchronous klines loader in runner/data.py (single-threaded, D-09)
 # NB: leaderboard uses stdlib sqlite3 only (D-17) — no ORM, no migration tool deps.
 
 # Data Processing
