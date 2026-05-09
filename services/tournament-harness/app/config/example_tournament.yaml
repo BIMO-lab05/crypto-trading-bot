@@ -1,6 +1,11 @@
 # Tournament Harness — example config
 # Reproducibility (D-13): same yaml + same git_sha + same tournament_start_ts ⇒ identical leaderboard.
 # Sweep method: full Cartesian grid (D-12). To shrink, trim each list. Random / Bayesian rejected for v1.
+#
+# SECURITY (T-03-13 / T-03-30): never put secrets, API keys, or passwords in this
+# file or in YAML comments — even commented-out values are checked into git history.
+# Use env vars for credentials: TIMESCALE_PASSWORD, TOURNAMENT_READER_PASSWORD, etc.
+# This file MAY be committed to source control; nothing in it should be sensitive.
 
 tournament_id: "example_2026_05_08"
 seed: 42
