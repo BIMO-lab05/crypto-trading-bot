@@ -26,9 +26,11 @@ def test_no_metric_definitions_in_tournament_harness():
 def test_metrics_bridge_imports_resolve():
     """Importable shape — module imports the canonical functions, not redefining."""
     # This test runs OUTSIDE the container; it depends on /opt/ml_retraining
-    # being on PYTHONPATH. Skip if the import would fail (unit tests run on host
-    # where ml-retraining app/ is reachable via test fixture path).
+    # being on PYTHONPATH. Skip if either tensorflow or app.core (ml-retraining)
+    # are not importable — the full check runs inside the container where
+    # PYTHONPATH=/app:/opt/ml_retraining resolves both.
     pytest.importorskip("tensorflow")
+    pytest.importorskip("app.core.returns_metrics")
     from app.runner import metrics_bridge
 
     # The names must be present (imported) on the bridge module
