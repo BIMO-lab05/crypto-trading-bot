@@ -5,6 +5,7 @@ status: approved
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-05-08
+updated: 2026-05-09
 reconstructed_from: SUMMARY.md artifacts (state B — phase already executed)
 ---
 
@@ -121,3 +122,27 @@ Five behaviors require operator first-green smoke against a live Docker stack. T
 | Manual-only items recorded | 5 |
 | Tasks classified COVERED (automated) | 17 |
 | Tasks marked ⬜ pending live stack / CI run | 6 |
+
+## Validation Audit 2026-05-09
+
+Re-audit run by orchestrator. All host-runnable suites + static gates re-verified green; no regressions since 2026-05-08.
+
+| Re-audit check | Result |
+|---|---|
+| 02-01-01 `pytest -k test_reset` (4 tests) | green |
+| 02-01-02 `TapeResetEndpoint` (4 tests) | green |
+| 02-02-01 `test_force_signal` (4 tests) | green |
+| 02-05-01 `test_telegram_notifier_record_mode` (3 tests) | green |
+| 02-08-02 `test_model_reload` (3 tests) | green |
+| 02-08-03 `test_signal_aggregator_confidence_zero` (3 tests) | green |
+| 02-06-01 `tests/scripts/test_iter_fix.sh` (10 cases) | green |
+| 02-04-03 banned-pattern static (`pytest.skip|xfail|unittest.mock`) | 0 matches |
+| 02-07-01 RUNBOOK 6 `## Symptom:` sections + buildkit + force-recreate | present |
+| 02-10-01 `make -n build-no-buildkit` expansion | correct |
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Status | re-confirmed nyquist-compliant |
