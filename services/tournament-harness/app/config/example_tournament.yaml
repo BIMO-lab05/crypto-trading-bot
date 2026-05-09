@@ -1,0 +1,81 @@
+# Tournament Harness — example config
+# Reproducibility (D-13): same yaml + same git_sha + same tournament_start_ts ⇒ identical leaderboard.
+# Sweep method: full Cartesian grid (D-12). To shrink, trim each list. Random / Bayesian rejected for v1.
+
+tournament_id: "example_2026_05_08"
+seed: 42
+
+# v1 validated symbols (CLAUDE.md project rules — only SOL/BNB/ADA in scope here per Phase 3 boundary).
+# XRP/AVAX deferred to v2 (TOURN-V2-01) — operator opts in by adding here, but production allocation
+# review (PROJECT.md) must approve before flipping live trading on those symbols.
+# Bybit-convention symbols (matches klines.symbol column written by market-data-service).
+# Validated set per .planning/PROJECT.md is {SOLUSDT, BNBUSDT, ADAUSDT} for v1.
+symbols:
+  - SOLUSDT
+  - BNBUSDT
+  - ADAUSDT
+
+intervals:
+  - "5m"
+
+# target_mode is shared across all architectures (D-14): grid both modes per cell so we can
+# compare R²-on-price-levels (V0 finding) vs the post-fix R²-on-log-returns honest path.
+target_modes:
+  - "log_returns"
+  - "price"
+
+# Default per-experiment resource caps (D-04). Architecture-specific overrides below.
+default_resource_caps:
+  mem_limit: "4g"
+  cpus: 2.0
+  wallclock_timeout_seconds: 1800   # 30 min (CD-02)
+
+# Hard cap on total grid size — prevents accidentally launching a 10⁹-cell tournament.
+# Override in YAML if intentional; loader raises if Cartesian product exceeds this.
+max_experiments: 1000
+
+architectures:
+  gru:
+    units:
+      - [64]
+      - [128, 64]
+      - [128, 64, 32]
+    dropout: [0.1, 0.2, 0.3]
+    lr: [0.001, 0.0005]
+    batch: [32, 64]
+    lookback: [60]
+    horizon: [5]
+    # No depth dimension — depth is implicit in len(units)
+  lstm:
+    units:
+      - [64]
+      - [128, 64]
+    dropout: [0.1, 0.2]
+    lr: [0.001]
+    batch: [32, 64]
+    lookback: [60]
+    horizon: [5]
+  transformer:
+    units: [[64]]                     # ff_dim base width
+    dropout: [0.1, 0.2]
+    lr: [0.001]
+    batch: [32]
+    lookback: [60]
+    horizon: [5]
+    n_heads: [2, 4]
+    n_blocks: [2, 4]
+    ff_dim_multiplier: [2]            # ff_dim = units[0] * ff_dim_multiplier
+    resource_caps:                    # transformer override (D-04)
+      mem_limit: "8g"
+      cpus: 2.0
+      wallclock_timeout_seconds: 3600
+  tcn:
+    units: [[32]]
+    dropout: [0.1, 0.2]
+    lr: [0.001]
+    batch: [32]
+    lookback: [60]
+    horizon: [5]
+    kernel_size: [3, 5]
+    dilation_base: [2]
+    n_blocks: [3, 4]
