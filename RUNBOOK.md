@@ -14,6 +14,7 @@ Symptom-indexed recovery procedures for the crypto-trading-bot stack.
 - [Symptom: Stale in-memory ML model after retrain](#symptom-stale-in-memory-ml-model-after-retrain)
 - [Symptom: bootstrap.sh fails with one or more UNHEALTHY services](#symptom-bootstrapsh-fails-with-one-or-more-unhealthy-services)
 - [Symptom: EMERGENCY_STOP recovery — auto-trader will not arm after stop](#symptom-emergency_stop-recovery--auto-trader-will-not-arm-after-stop)
+- [Tournament harness — first-time setup](#tournament-harness--first-time-setup)
 
 ---
 
@@ -173,3 +174,83 @@ Logged 2026-05-08 per Phase 2 INFRA-06 / CD-02. All three bugs from the INFRA-06
 | 1. Stale in-memory ML model after retrain | FIXED — `_reload_if_stale()` added to `gru_predictor.py` (mirrors existing `gru_model.py:140-166`); log format aligned to `MODEL_RELOAD: path=` in both predictors; regression tests in `services/ml-prediction-service/tests/test_model_reload.py` and `tests/integration/test_pre_existing_bug_regressions.py::test_stale_ml_model_reload` | `services/ml-prediction-service/app/ml_models/gru_predictor.py` |
 | 2. Hardcoded confidence=0 still emitting signals | FIXED — explicit `confidence > 0` filter + `AGGREGATOR_CONFIDENCE_FILTER` log in `services/technical-analysis/app/handlers/analysis.py`; regression test in `services/technical-analysis/tests/test_signal_aggregator_confidence_zero.py`; integration coverage implicit via `test_fresh_clone_round_trip` | `services/technical-analysis/app/handlers/analysis.py` |
 | 3. WSL2 BuildKit hang on `docker compose up --build` | DOCUMENTED — no code fix possible (environmental). Workaround: `make build-no-buildkit SVC=<name>` (Plan 02-10) or `DOCKER_BUILDKIT=0 docker compose -f docker-compose.unified.yml build`. See `## Symptom: BuildKit hang` above. | RUNBOOK § BuildKit hang; `Makefile` |
+
+---
+
+## Tournament harness — first-time setup
+
+The tournament harness (Phase 3) is opt-in via Docker compose profile `tournament`.
+It does not start with the default `bootstrap.sh up`. Bring it up with:
+
+    docker compose -f docker-compose.unified.yml --profile tournament up tournament-harness
+
+Before the first tournament can run, two operator steps:
+
+### 1. Apply the tournament_reader migration
+
+The experiment containers use a SELECT-only Postgres role:
+
+    # With the stack running, apply the migration manually
+    docker exec -i crypto-bot-timescaledb \
+        psql -U postgres -d trading_bot \
+        < infrastructure/migrations/005_tournament_reader.sql
+
+    # Confirm role exists
+    docker exec crypto-bot-timescaledb \
+        psql -U postgres -d trading_bot -c \
+        "SELECT rolname FROM pg_roles WHERE rolname = 'tournament_reader';"
+
+### 2. Set + rotate TOURNAMENT_READER_PASSWORD
+
+    # Pick a strong random password
+    PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+
+    # Persist in your .env (NEVER commit to git)
+    echo "TOURNAMENT_READER_PASSWORD=$PASSWORD" >> .env
+
+    # Apply to Postgres (rotates from the CHANGE_ME_VIA_ENV placeholder)
+    docker exec -i crypto-bot-timescaledb \
+        psql -U postgres -d trading_bot -c \
+        "ALTER ROLE tournament_reader PASSWORD '$PASSWORD';"
+
+    # Verify by connecting as the role
+    docker exec crypto-bot-timescaledb \
+        psql -U tournament_reader -d trading_bot -c "SELECT 1 FROM klines LIMIT 1"
+
+    # Confirm SELECT-only (this command MUST fail with permission denied)
+    docker exec crypto-bot-timescaledb \
+        psql -U tournament_reader -d trading_bot -c \
+        "DELETE FROM klines WHERE FALSE"
+
+### Rotating the password later
+
+Same as above — re-run step 2 with a new password. No service restart needed
+because the orchestrator reads `TOURNAMENT_READER_PASSWORD` from `.env` at the
+start of each tournament.
+
+### Pre-tournament data check
+
+The tournament refuses to start if any (symbol, interval) pair has fewer than
+50,000 rows in the 12-month trailing window (D-07 hard floor). Verify ahead of time:
+
+    # Symbols are Bybit-convention (USDT-suffixed) — matches what market-data-service writes.
+    # tournament_loader rejects bare base symbols (e.g. 'SOL') at YAML load time, so the
+    # rows you see here MUST include 'SOLUSDT' / 'BNBUSDT' / 'ADAUSDT' for the v1
+    # validated-symbol set. If you see only bare base entries, market-data-service
+    # is misconfigured and no tournament can run.
+    docker exec crypto-bot-timescaledb psql -U postgres -d trading_bot -c \
+      "SELECT symbol, interval, COUNT(*) FROM klines
+         WHERE is_mainnet = true
+           AND timestamp > now() - interval '365 days'
+         GROUP BY symbol, interval
+         ORDER BY symbol, interval;"
+
+    # Targeted check for the v1 validated-symbol set (each must show >= 50000 rows):
+    docker exec crypto-bot-timescaledb psql -U postgres -d trading_bot -c \
+      "SELECT symbol, COUNT(*) FROM klines
+         WHERE is_mainnet = true
+           AND interval = '5m'
+           AND symbol IN ('SOLUSDT','BNBUSDT','ADAUSDT')
+           AND timestamp > now() - interval '365 days'
+         GROUP BY symbol
+         ORDER BY symbol;"
