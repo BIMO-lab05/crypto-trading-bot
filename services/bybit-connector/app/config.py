@@ -5,7 +5,7 @@ Purpose: Manage service configuration using Pydantic Settings
 
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator, model_validator
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from pathlib import Path
 
 
