@@ -80,13 +80,13 @@ Plans:
 
 Plans:
 **Wave 1** (foundation, parallel)
-- [ ] 03-01-PLAN.md — service skeleton + compose profile (Dockerfile, FastAPI status API, --profile tournament gating)
-- [ ] 03-02-PLAN.md — model registry refactor: extract gru/lstm/transformer/tcn builders under ml-retraining (CD-01)
+- [x] 03-01-PLAN.md — service skeleton + compose profile (Dockerfile, FastAPI status API, --profile tournament gating)
+- [x] 03-02-PLAN.md — model registry refactor: extract gru/lstm/transformer/tcn builders under ml-retraining (CD-01)
 
 **Wave 2** (parallel, depends on 03-01)
-- [ ] 03-03-PLAN.md — SQLite leaderboard schema + migration runner + result_schema validator (TOURN-02, TOURN-04)
-- [ ] 03-04-PLAN.md — tournament_loader: YAML safe_load + Cartesian enumeration + hp_hash determinism (TOURN-03)
-- [ ] 03-05-PLAN.md — Postgres tournament_reader role (read-only SELECT on klines, D-09) + RUNBOOK.md operator notes
+- [x] 03-03-PLAN.md — SQLite leaderboard schema + migration runner + result_schema validator (TOURN-02, TOURN-04)
+- [x] 03-04-PLAN.md — tournament_loader: YAML safe_load + Cartesian enumeration + hp_hash determinism (TOURN-03)
+- [x] 03-05-PLAN.md — Postgres tournament_reader role (read-only SELECT on klines, D-09) + RUNBOOK.md operator notes
 
 **Wave 3** (depends on Wave 2)
 - [ ] 03-06-PLAN.md — per-experiment runner: load klines, train via registry, IMPORT honest metrics, atomic result.json (TOURN-07)
