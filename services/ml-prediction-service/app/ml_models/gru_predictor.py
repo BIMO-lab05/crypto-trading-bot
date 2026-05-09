@@ -474,10 +474,11 @@ class GRUPricePredictor:
                 else:
                     predicted_price = float(current_price)
 
-                # Calculate confidence (based on model performance and prediction variance)
+                # Calculate confidence (based on model performance and prediction variance).
+                # See predictor.py:480-490 for the rationale on the 0.0 floor.
                 base_confidence = float(self.training_stats.get('r2_score', 0.5))
                 confidence_decay = 0.1 * i  # Confidence decreases with time horizon
-                confidence = max(0.3, base_confidence - confidence_decay)
+                confidence = max(0.0, base_confidence - confidence_decay)
 
                 # Confidence intervals (±2 standard deviations)
                 std_dev = float(self.training_stats.get('rmse', predicted_price * 0.02))

@@ -594,7 +594,8 @@ async def train_model(
                 test_metrics=training_result["test_metrics"],
                 scaler_x=training_result["scaler_x"],
                 scaler_y=training_result["scaler_y"],
-                output_dir=output_dir
+                output_dir=output_dir,
+                eval_arrays=training_result.get("eval_arrays"),
             )
 
             logger.info(f"Model saved to {output_dir}")
@@ -843,7 +844,8 @@ async def retrain_model(
             test_metrics=training_result["test_metrics"],
             scaler_x=training_result["scaler_x"],
             scaler_y=training_result["scaler_y"],
-            output_dir=output_dir
+            output_dir=output_dir,
+            eval_arrays=training_result.get("eval_arrays"),
         )
 
         # Record model version
@@ -935,8 +937,7 @@ async def retrain_model(
                     symbol=symbol,
                     model_path=saved_paths["model_path"],
                     metadata_path=saved_paths["metadata_path"],
-                    scaler_x_path=saved_paths["scaler_x_path"],
-                    scaler_y_path=saved_paths["scaler_y_path"],
+                    scalers_path=saved_paths["scalers_path"],
                     version=version,
                     backup_current=settings.retrain_backup_before_deploy,
                     verify_deployment=True
@@ -1064,8 +1065,7 @@ async def deploy_model_version(
             symbol=model_version.symbol,
             model_path=model_version.model_path,
             metadata_path=model_version.metadata_path,
-            scaler_x_path=os.path.join(model_dir, "scaler_x.pkl"),
-            scaler_y_path=os.path.join(model_dir, "scaler_y.pkl"),
+            scalers_path=os.path.join(model_dir, "scalers.pkl"),
             version=model_version.version,
             backup_current=backup_current,
             verify_deployment=verify_deployment

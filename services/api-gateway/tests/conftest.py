@@ -4,13 +4,46 @@ Provides common test utilities and mock services
 """
 
 import pytest
+from datetime import datetime
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 import httpx
-from typing import Dict, Any
 
+from app.auth_middleware import get_current_active_user, get_current_admin_user
+from app.auth_models import User
 from app.main import app
 from app.services.service_proxy import ServiceProxy
+
+
+def _fake_admin() -> User:
+    return User(
+        user_id="test-admin",
+        username="testadmin",
+        email="admin@test.local",
+        full_name="Test Admin",
+        is_active=True,
+        is_admin=True,
+        created_at=datetime.utcnow(),
+    )
+
+
+@pytest.fixture
+def admin_client():
+    """TestClient with auth dependencies overridden to a fake admin user.
+
+    Use for routes guarded by `get_current_admin_user`. Auth was added to
+    several endpoints (e.g. /api/portfolio/emergency-stop) after the
+    integration tests were written; this fixture lets those tests exercise
+    the route logic without forging JWTs.
+    """
+    user = _fake_admin()
+    app.dependency_overrides[get_current_admin_user] = lambda: user
+    app.dependency_overrides[get_current_active_user] = lambda: user
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_current_admin_user, None)
+        app.dependency_overrides.pop(get_current_active_user, None)
 
 
 @pytest.fixture
@@ -55,8 +88,8 @@ def sample_ticker_response():
             "volume_24h": "1234567890",
             "high_24h": "46000.00",
             "low_24h": "44000.00",
-            "timestamp": 1699200000000
-        }
+            "timestamp": 1699200000000,
+        },
     }
 
 
@@ -75,10 +108,10 @@ def sample_portfolio_response():
                     "quantity": "1.0",
                     "avg_price": "44000.00",
                     "current_price": "45000.50",
-                    "pnl": "1000.50"
+                    "pnl": "1000.50",
                 }
-            ]
-        }
+            ],
+        },
     }
 
 
@@ -90,7 +123,7 @@ def sample_health_checks():
         "market-data": True,
         "technical-analysis": True,
         "trading-engine": True,
-        "portfolio-manager": True
+        "portfolio-manager": True,
     }
 
 

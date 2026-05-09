@@ -100,7 +100,7 @@ spec:
             memory: 2Gi
           limits:
             cpu: "8"
-            memory: 2GiMi
+            memory: 2Gi
         
         # Health checks
         livenessProbe:

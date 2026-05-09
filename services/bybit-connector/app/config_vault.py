@@ -85,8 +85,8 @@ class BybitConnectorConfig(VaultAwareSettings):
     # BYBIT API CONFIGURATION (Non-Secret)
     # ========================================================================
     bybit_testnet: bool = Field(
-        default=True,
-        description="Use testnet (true) or production (false)"
+        default=False,
+        description="Use testnet (true) or production (false). Default False — production prices. Set BYBIT_TESTNET=true explicitly for testnet."
     )
 
     bybit_recv_window: int = Field(

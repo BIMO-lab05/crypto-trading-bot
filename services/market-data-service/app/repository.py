@@ -9,6 +9,7 @@ from typing import List, Optional
 import logging
 import time
 
+from app.config import get_settings
 from app.models import Kline, Ticker
 from app.database import get_db_session
 
@@ -37,7 +38,11 @@ class KlineRepository:
             # Prepare data for insert
             records = []
             created_at = int(time.time() * 1000)
-            
+            # Tag every ingest row with the current connector source. Each
+            # batch is homogeneous because we only flip BYBIT_TESTNET via
+            # restart, never mid-run. Audit 2026-04-29.
+            is_mainnet = not get_settings().bybit_testnet
+
             for k in klines:
                 records.append({
                     'timestamp': k['timestamp'],
@@ -49,6 +54,7 @@ class KlineRepository:
                     'close': k['close'],
                     'volume': k['volume'],
                     'turnover': k.get('turnover'),
+                    'is_mainnet': is_mainnet,
                     'created_at': created_at
                 })
 
@@ -89,18 +95,24 @@ class KlineRepository:
         interval: str,
         start_time: Optional[int] = None,
         end_time: Optional[int] = None,
-        limit: int = 1000
+        limit: int = 1000,
+        mainnet_only: bool = True
     ) -> List[Kline]:
         """
-        Query klines from database
-        
+        Query klines from database.
+
         Args:
             symbol: Trading pair
             interval: Candlestick interval
             start_time: Start timestamp (ms)
             end_time: End timestamp (ms)
             limit: Maximum records to return
-        
+            mainnet_only: If True (default), exclude rows tagged
+                ``is_mainnet=False``. The 2026-04-25 testnet→mainnet flip
+                left mixed history in the table; default-True filtering
+                is the audit-aligned safe behaviour. Pass ``False`` to
+                explicitly include testnet rows (e.g. forensic analysis).
+
         Returns:
             List of Kline objects
         """
@@ -112,21 +124,27 @@ class KlineRepository:
                     Kline.interval == interval
                 )
             )
-            
+
+            if mainnet_only:
+                query = query.where(Kline.is_mainnet.is_(True))
+
             # Add time filters
             if start_time:
                 query = query.where(Kline.timestamp >= start_time)
             if end_time:
                 query = query.where(Kline.timestamp <= end_time)
-            
+
             # Order by time descending and limit
             query = query.order_by(desc(Kline.timestamp)).limit(limit)
-            
+
             # Execute
             result = await session.execute(query)
             klines = result.scalars().all()
-            
-            logger.info(f"Retrieved {len(klines)} klines for {symbol} ({interval})")
+
+            logger.info(
+                f"Retrieved {len(klines)} klines for {symbol} ({interval}) "
+                f"mainnet_only={mainnet_only}"
+            )
             return klines
     
     @staticmethod

@@ -3,9 +3,11 @@ ML Retraining Service Configuration
 Purpose: Centralized configuration for automated model retraining
 """
 
-from pydantic import Field
+import json
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from typing import List, Optional
 
 
 class RetrainingSettings(BaseSettings):
@@ -105,6 +107,99 @@ class RetrainingSettings(BaseSettings):
         le=0.5,
         description="Maximum allowed metric degradation (10% = 0.10)"
     )
+    retrain_min_dsr: Optional[float] = Field(
+        default=None,
+        description=(
+            "Deflated Sharpe Ratio gate (0..1). When set, retrains failing "
+            "this threshold are not deployed. None disables the gate "
+            "(DSR is still recorded as informational). 0.95 = 5% significance "
+            "level after correcting for non-normality and selection bias."
+        ),
+    )
+    retrain_target_mode: str = Field(
+        default="price",
+        pattern="^(price|log_returns)$",
+        description=(
+            "Training target. 'price' (default) preserves the legacy "
+            "behaviour — model predicts raw close price, R² is "
+            "autocorrelation-dominated (V0 finding c56765c). "
+            "'log_returns' targets the 1-bar log-return directly; the "
+            "T0.1 GRU rebuild uses this. Either way the on-disk artifact "
+            "shape is unchanged: scaler_y maps the chosen target to "
+            "[0,1] and the inference path recovers prices via "
+            "last_close * exp(predicted_log_return) when needed."
+        ),
+    )
+    retrain_feature_set: str = Field(
+        default="legacy",
+        pattern="^(legacy|stationary)$",
+        description=(
+            "Feature pipeline. 'legacy' (default) is the 22-indicator "
+            "pile that mixes stationary and non-stationary inputs — what "
+            "every production retrain has used. 'stationary' is the T0.1 "
+            "rebuild's 17-feature stationary-only set: drops sma_*, "
+            "ema_*, bb_middle/upper/lower, volume_sma, high_low_ratio; "
+            "adds vol-of-vol, log-volume change, range-ratio, time-of-day "
+            "sin/cos. See app/core/stationary_features.py."
+        ),
+    )
+    retrain_min_r2_returns: Optional[float] = Field(
+        default=None,
+        description=(
+            "R²-on-log-returns gate. When set, retrains failing this "
+            "threshold are not deployed. None disables (R²-returns is "
+            "still recorded informationally). Per the T0.1 design, the "
+            "rebuild's pre-flight gate is `> 0.0` — naive persistence "
+            "scores ~0 on log-returns, so any positive value means the "
+            "model carries information beyond persistence."
+        ),
+    )
+    retrain_min_dir_acc: Optional[float] = Field(
+        default=None,
+        description=(
+            "Corrected directional-accuracy gate (0..1). When set, retrains "
+            "failing this threshold are not deployed. None disables (the "
+            "metric is still recorded informationally). T0.1 design's "
+            "pre-flight gate is `> 0.55` — clearly above coin-flip after "
+            "the V0 metric fix (commit c56765c)."
+        ),
+    )
+    retrain_gru_units: List[int] = Field(
+        default=[128, 64],
+        description=(
+            "GRU layer widths, in order. Default [128, 64] preserves the "
+            "production architecture. T0.1 rebuild uses [32] (single-layer) "
+            "— smaller nets generalize better on low-SNR returns. Each "
+            "entry must be a positive int; len > 0 means at least one "
+            "GRU layer; the last layer always has return_sequences=False. "
+            "Pass via env as a JSON list, e.g. RETRAIN_GRU_UNITS='[32]'."
+        ),
+    )
+
+    @field_validator("retrain_gru_units", mode="before")
+    @classmethod
+    def _parse_gru_units(cls, v):
+        # Allow JSON-list env strings: RETRAIN_GRU_UNITS='[32]' or '[128, 64]'.
+        # Pydantic-settings doesn't auto-parse list[int] from a single string.
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"retrain_gru_units must be a JSON list of ints; got {v!r}"
+                ) from e
+        if not isinstance(v, (list, tuple)) or not v:
+            raise ValueError(
+                f"retrain_gru_units must be a non-empty list of positive ints; got {v!r}"
+            )
+        out = []
+        for item in v:
+            if not isinstance(item, int) or isinstance(item, bool) or item <= 0:
+                raise ValueError(
+                    f"retrain_gru_units entries must be positive ints; got {item!r}"
+                )
+            out.append(item)
+        return out
 
     # Deployment Settings
     retrain_auto_deploy: bool = Field(

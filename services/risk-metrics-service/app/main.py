@@ -750,66 +750,19 @@ async def get_value_at_risk(confidence_level: float = 0.95, time_horizon_days: i
 
 
 # === API V1 ENDPOINTS (RESTful) ===
-
-@app.get("/api/v1/alerts/active", response_model=List[RiskAlert])
-async def get_active_alerts():
-    """Get all active risk alerts"""
-    engine = get_risk_engine()
-
-    # Get current portfolio data
-    portfolio_data = await fetch_portfolio_data()
-    if not portfolio_data:
-        return []
-
-    # Generate current alerts
-    alerts = engine.generate_risk_alerts(
-        portfolio_data.get("total_value", 0),
-        portfolio_data.get("positions", []),
-        portfolio_data.get("exposures", {}),
-        portfolio_data.get("drawdown_pct", 0)
-    )
-
-    return alerts
-
-
-@app.get("/api/v1/portfolio/{portfolio_id}/risk-scorecard", response_model=RiskScorecard)
-async def get_portfolio_risk_scorecard(portfolio_id: str):
-    """Get comprehensive risk scorecard for a specific portfolio"""
-    engine = get_risk_engine()
-
-    # For now, return the default portfolio scorecard
-    # In production, this would fetch portfolio-specific data
-    portfolio_data = await fetch_portfolio_data()
-
-    if not portfolio_data:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
-
-    # Calculate risk metrics
-    total_capital = portfolio_data.get("total_value", 0)
-    positions = portfolio_data.get("positions", [])
-    exposures = portfolio_data.get("exposures", {})
-    drawdown_pct = portfolio_data.get("drawdown_pct", 0)
-
-    # Calculate risk score
-    risk_score = engine.calculate_risk_score(total_capital, positions, exposures)
-
-    # Generate alerts
-    alerts = engine.generate_risk_alerts(total_capital, positions, exposures, drawdown_pct)
-
-    # Get circuit breaker status
-    cb_status = engine.get_circuit_breaker_status()
-
-    return RiskScorecard(
-        portfolio_id=portfolio_id,
-        risk_score=risk_score,
-        risk_level=engine.get_risk_level(risk_score),
-        timestamp=datetime.now(),
-        total_exposure_usd=sum(exposures.values()) if exposures else Decimal("0"),
-        max_drawdown_pct=drawdown_pct,
-        active_alerts=alerts,
-        circuit_breaker_status=cb_status.status if cb_status else "closed",
-        recommendations=engine.generate_recommendations(risk_score, alerts)
-    )
+#
+# NOTE: Two endpoints previously lived here:
+#   - GET /api/v1/alerts/active
+#   - GET /api/v1/portfolio/{portfolio_id}/risk-scorecard
+# Both called RiskEngine methods that do not exist
+# (get_circuit_breaker_status, get_risk_level, generate_recommendations)
+# and passed wrong arg shapes to generate_risk_alerts / calculate_risk_score
+# (raw scalars instead of typed metrics objects). They returned HTTP 500 on
+# first call. Removed during 2026-05-01 audit.
+#
+# - Use /alerts (line ~882) for the alerts list (delegates to /risk/scorecard).
+# - Use /risk/scorecard for the scorecard. Per-portfolio scoping is not yet
+#   implemented; portfolio-manager exposes a single portfolio.
 
 
 # === PERFORMANCE ENDPOINTS ===
@@ -872,7 +825,7 @@ async def get_sharpe_ratio():
         "volatility": metrics.volatility,
         "risk_free_rate": settings.risk_free_rate,
         "target_sharpe": settings.target_sharpe_ratio,
-        "meets_target": metrics.sharpe_ratio >= settings.target_sharpe_ratio if metrics.sharpe_ratio else False
+        "meets_target": metrics.sharpe_ratio >= settings.target_sharpe_ratio if metrics.sharpe_ratio is not None else False
     }
 
 

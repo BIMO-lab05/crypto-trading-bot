@@ -41,29 +41,32 @@ CREATE TABLE IF NOT EXISTS portfolio.performance_history (
 
     -- Metadata
     snapshot_type VARCHAR(20) DEFAULT 'DAILY', -- DAILY, MANUAL, EOD
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    -- Ensure one snapshot per portfolio per day
-    UNIQUE(portfolio_id, date_trunc('day', timestamp))
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Ensure one snapshot per portfolio per day. Postgres requires expressions
+-- in unique indexes to be IMMUTABLE; anchor to UTC so the cast-to-date is
+-- not session-tz dependent. (`date_trunc('day', timestamptz)` is only STABLE.)
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_performance_portfolio_day
+ON portfolio.performance_history (portfolio_id, ((timestamp AT TIME ZONE 'UTC')::date));
 
 -- ============================================================================
 -- INDEXES FOR PERFORMANCE
 -- ============================================================================
 -- Index for portfolio-based queries with time ordering (most common query)
-CREATE INDEX idx_performance_portfolio_time
+CREATE INDEX IF NOT EXISTS idx_performance_portfolio_time
 ON portfolio.performance_history(portfolio_id, timestamp DESC);
 
--- Index for date-based queries
-CREATE INDEX idx_performance_date
-ON portfolio.performance_history(date_trunc('day', timestamp) DESC);
+-- Index for date-based queries (UTC-anchored cast is IMMUTABLE; date_trunc on timestamptz is only STABLE)
+CREATE INDEX IF NOT EXISTS idx_performance_date
+ON portfolio.performance_history (((timestamp AT TIME ZONE 'UTC')::date) DESC);
 
 -- Index for snapshot type filtering
-CREATE INDEX idx_performance_type
+CREATE INDEX IF NOT EXISTS idx_performance_type
 ON portfolio.performance_history(snapshot_type);
 
 -- Composite index for period queries
-CREATE INDEX idx_performance_portfolio_date_range
+CREATE INDEX IF NOT EXISTS idx_performance_portfolio_date_range
 ON portfolio.performance_history(portfolio_id, timestamp)
 WHERE snapshot_type = 'DAILY';
 

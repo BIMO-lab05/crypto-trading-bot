@@ -267,7 +267,13 @@ class TestUserManagement:
         USERS_DB.clear()
 
     def test_create_user_success(self):
-        """Test successful user creation"""
+        """Test successful user creation.
+
+        First-user auto-admin is now gated on IS_DEVELOPMENT (auth_models.py
+        line 445). The CI suite runs with ENVIRONMENT=test, so the first
+        user does NOT get admin privileges automatically — that path is
+        covered by an explicit dev-environment test below.
+        """
         user_create = UserCreate(
             username="newuser",
             email="new@example.com",
@@ -281,7 +287,7 @@ class TestUserManagement:
         assert user.email == "new@example.com"
         assert user.full_name == "New User"
         assert user.is_active is True
-        assert user.is_admin is True  # First user is admin
+        assert user.is_admin is False  # ENVIRONMENT=test → no auto-admin
         assert user.user_id.startswith("user_")
 
     def test_create_second_user_not_admin(self):

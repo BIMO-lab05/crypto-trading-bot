@@ -1,0 +1,351 @@
+# =============================================================================
+# CRYPTO TRADING BOT - HEADLESS DEPLOY (Oracle Cloud Always Free target)
+# =============================================================================
+# Trimmed copy of docker-compose.unified.yml for $0/month single-VM hosting.
+#
+# DROPPED:
+#   rabbitmq            (no real publishers/consumers; probe dormant)
+#   api-gateway         (headless: hit trading-engine directly via CF Tunnel)
+#   frontend            (observability only)
+#   prometheus, grafana (use docker logs + Healthchecks.io free)
+#   notification-service, risk-metrics-service (optional, off-path)
+#   ml-prediction       (analytics profile in unified; here: skipped, fallback ok)
+#   sentiment-analysis  (already removed from signal weighting 2026-05-02)
+#
+# KEPT (8 services):
+#   postgres, timescaledb, redis            (4 stateful → 3, no rabbit)
+#   bybit-connector, market-data,
+#   technical-analysis, trading-engine,
+#   portfolio-manager
+#
+# Usage on Oracle VM:
+#   docker compose -f docker-compose.headless.yml pull
+#   docker compose -f docker-compose.headless.yml up -d
+#
+# Only trading-engine is bound to host (127.0.0.1:8005). Cloudflare Tunnel
+# fronts it for remote access; everything else stays on the internal network.
+# =============================================================================
+
+services:
+
+  # ===========================================================================
+  # INFRASTRUCTURE
+  # ===========================================================================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: crypto-bot-postgres
+    hostname: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cryptobot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-cryptobot}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cryptobot} -d ${POSTGRES_DB:-cryptobot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: crypto-bot-timescaledb
+    hostname: timescaledb
+    environment:
+      POSTGRES_USER: ${TIMESCALE_USER:-cryptobot}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}
+      POSTGRES_DB: ${TIMESCALE_DB:-market_data}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./infrastructure/scripts/init-timescale.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER:-cryptobot} -d ${TIMESCALE_DB:-market_data}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-bot-redis
+    hostname: redis
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ===========================================================================
+  # APPLICATION SERVICES
+  # ===========================================================================
+
+  bybit-connector:
+    build:
+      context: ./services/bybit-connector
+      dockerfile: Dockerfile
+    container_name: crypto-bot-bybit
+    hostname: bybit-connector
+    environment:
+      - SERVICE_NAME=bybit-connector
+      - SERVICE_PORT=8001
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - BYBIT_API_KEY=${BYBIT_API_KEY:?BYBIT_API_KEY must be set}
+      - BYBIT_API_SECRET=${BYBIT_API_SECRET:?BYBIT_API_SECRET must be set}
+      - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
+    volumes:
+      - ./services/bybit-connector/logs:/app/logs
+    networks:
+      - crypto-bot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  market-data:
+    build:
+      context: ./services/market-data-service
+      dockerfile: Dockerfile
+    container_name: crypto-bot-market-data
+    hostname: market-data
+    environment:
+      - SERVICE_NAME=market-data-service
+      - SERVICE_PORT=8002
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TIMESCALE_HOST=timescaledb
+      - TIMESCALE_PORT=5432
+      - TIMESCALE_USER=${TIMESCALE_USER:-cryptobot}
+      - TIMESCALE_PASSWORD=${TIMESCALE_PASSWORD}
+      - TIMESCALE_DB=${TIMESCALE_DB:-market_data}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      # No RABBITMQ_* — broker dropped from headless deploy.
+    volumes:
+      - ./services/market-data-service/logs:/app/logs
+    networks:
+      - crypto-bot-network
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      bybit-connector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  portfolio-manager:
+    build:
+      context: ./services/portfolio-manager
+      dockerfile: Dockerfile
+    container_name: crypto-bot-portfolio
+    hostname: portfolio-manager
+    environment:
+      - SERVICE_NAME=portfolio-manager
+      - SERVICE_PORT=8003
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - USE_DATABASE=true
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-cryptobot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cryptobot}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${POSTGRES_DB:-cryptobot}
+      - DB_USER=${POSTGRES_USER:-cryptobot}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      - TRADING_ENGINE_URL=http://trading-engine:8005
+      - MARKET_DATA_URL=http://market-data:8002
+    volumes:
+      - ./services/portfolio-manager/logs:/app/logs
+    networks:
+      - crypto-bot-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bybit-connector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  technical-analysis:
+    build:
+      context: ./services/technical-analysis
+      dockerfile: Dockerfile
+    container_name: crypto-bot-ta
+    hostname: technical-analysis
+    environment:
+      - SERVICE_NAME=technical-analysis
+      - SERVICE_PORT=8004
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      - MARKET_DATA_URL=http://market-data:8002
+    volumes:
+      - ./services/technical-analysis/logs:/app/logs
+    networks:
+      - crypto-bot-network
+    depends_on:
+      bybit-connector:
+        condition: service_healthy
+      market-data:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  trading-engine:
+    build:
+      context: ./services/trading-engine
+      dockerfile: Dockerfile
+    container_name: crypto-bot-trading
+    hostname: trading-engine
+    # Only service bound to host. Cloudflare Tunnel routes
+    # bot.<domain> -> http://localhost:8005 with Access policy.
+    ports:
+      - "127.0.0.1:8005:8005"
+    environment:
+      - SERVICE_NAME=trading-engine
+      - SERVICE_PORT=8005
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      # Risk caps (CLAUDE.md: do not relax without approval)
+      - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.02}
+      - EMERGENCY_STOP_LOSS=${EMERGENCY_STOP_LOSS:-0.05}
+      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
+      # Paper-trading invariants — both must stay true to avoid live orders
+      - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
+      - TRADING_MODE=${TRADING_MODE:-PAPER}
+      - PAPER_INITIAL_BALANCE=${PAPER_INITIAL_BALANCE:-100.0}
+      - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
+      # Database
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-cryptobot}
+      - POSTGRES_USER=${POSTGRES_USER:-cryptobot}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # Service URLs
+      - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      - MARKET_DATA_URL=http://market-data:8002
+      - PORTFOLIO_MANAGER_URL=http://portfolio-manager:8003
+      - TECHNICAL_ANALYSIS_URL=http://technical-analysis:8004
+      # ML + sentiment dropped from headless deploy — fan-out calls
+      # 503 and aggregator falls back. Setting these flags off saves
+      # the wasted DNS/connect roundtrips.
+      - ENABLE_ML_PREDICTIONS=false
+      - ENABLE_SENTIMENT_ANALYSIS=false
+    volumes:
+      - ./services/trading-engine/logs:/app/logs
+      - ./EMERGENCY_STOP:/app/EMERGENCY_STOP:ro
+    networks:
+      - crypto-bot-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bybit-connector:
+        condition: service_healthy
+      technical-analysis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+networks:
+  crypto-bot-network:
+    name: crypto-bot-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: crypto-bot-postgres-data
+  timescaledb_data:
+    name: crypto-bot-timescaledb-data
+  redis_data:
+    name: crypto-bot-redis-data

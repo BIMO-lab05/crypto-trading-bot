@@ -15,17 +15,15 @@ Date: 2025-12-11
 
 import logging
 from datetime import datetime
-from decimal import Decimal
 from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.risk.kelly_position_sizing import (
     get_kelly_sizer,
     KellyMode,
     TradeRecord,
-    KellyResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,8 +36,10 @@ router = APIRouter(prefix="/api/v1/risk", tags=["risk", "kelly"])
 # Pydantic Models for Request/Response
 # ==========================================
 
+
 class KellyStatsResponse(BaseModel):
     """Response model for Kelly statistics endpoint"""
+
     kelly: Dict[str, Any] = Field(description="Kelly calculation details")
     performance: Dict[str, Any] = Field(description="Performance metrics")
     trades: Dict[str, Any] = Field(description="Trade statistics")
@@ -54,57 +54,50 @@ class KellyStatsResponse(BaseModel):
                     "full_kelly_pct": 12.5,
                     "current_fraction": 0.30,
                     "default_fraction": 0.25,
-                    "edge": 0.85
+                    "edge": 0.85,
                 },
                 "performance": {
                     "win_rate": 0.58,
                     "avg_win_pct": 1.8,
                     "avg_loss_pct": 1.2,
                     "profit_factor": 1.5,
-                    "expectancy": 0.55
+                    "expectancy": 0.55,
                 },
                 "trades": {
                     "total_trades": 45,
                     "rolling_window": 50,
                     "trades_in_window": 45,
                     "min_for_kelly": 10,
-                    "has_sufficient_data": True
+                    "has_sufficient_data": True,
                 },
-                "streak": {
-                    "current_streak": 3,
-                    "streak_type": "win"
-                },
+                "streak": {"current_streak": 3, "streak_type": "win"},
                 "limits": {
                     "max_position_pct": 10.0,
                     "min_position_pct": 1.0,
-                    "fallback_pct": 3.0
+                    "fallback_pct": 3.0,
                 },
-                "timestamp": "2025-12-11T14:30:00Z"
+                "timestamp": "2025-12-11T14:30:00Z",
             }
         }
 
 
 class KellyCalculateRequest(BaseModel):
     """Request model for Kelly position size calculation"""
+
     capital: float = Field(..., gt=0, description="Available capital")
     current_price: float = Field(..., gt=0, description="Current asset price")
     mode: str = Field(
-        default="FRACTIONAL",
-        description="Kelly mode: FULL, FRACTIONAL, or DYNAMIC"
+        default="FRACTIONAL", description="Kelly mode: FULL, FRACTIONAL, or DYNAMIC"
     )
     signal_confidence: Optional[float] = Field(
-        default=None,
-        ge=0,
-        le=1,
-        description="Signal confidence (0-1)"
+        default=None, ge=0, le=1, description="Signal confidence (0-1)"
     )
     stop_loss_pct: Optional[float] = Field(
-        default=None,
-        gt=0,
-        description="Stop loss percentage for risk limiting"
+        default=None, gt=0, description="Stop loss percentage for risk limiting"
     )
 
-    @validator("mode")
+    @field_validator("mode")
+    @classmethod
     def validate_mode(cls, v):
         valid_modes = ["FULL", "FRACTIONAL", "DYNAMIC"]
         if v.upper() not in valid_modes:
@@ -118,13 +111,14 @@ class KellyCalculateRequest(BaseModel):
                 "current_price": 50000,
                 "mode": "DYNAMIC",
                 "signal_confidence": 0.75,
-                "stop_loss_pct": 3.0
+                "stop_loss_pct": 3.0,
             }
         }
 
 
 class KellyCalculateResponse(BaseModel):
     """Response model for Kelly position size calculation"""
+
     position_size_pct: float = Field(description="Recommended position size (%)")
     position_value: float = Field(description="Position value in currency")
     quantity: float = Field(description="Number of units to trade")
@@ -154,21 +148,25 @@ class KellyCalculateResponse(BaseModel):
                 "edge": 0.55,
                 "confidence_level": 0.9,
                 "reasoning": "Kelly calculation: W=58.0%, Avg Win=1.80%, Avg Loss=1.20%...",
-                "metadata": {"streak": 2, "total_trades": 45}
+                "metadata": {"streak": 2, "total_trades": 45},
             }
         }
 
 
 class KellySimulateRequest(BaseModel):
     """Request model for Kelly simulation (what-if analysis)"""
+
     win_rate: float = Field(..., gt=0, lt=1, description="Hypothetical win rate (0-1)")
     avg_win_pct: float = Field(..., gt=0, description="Average win percentage")
     avg_loss_pct: float = Field(..., gt=0, description="Average loss percentage")
     capital: float = Field(default=10000, gt=0, description="Capital for calculation")
-    current_price: float = Field(default=50000, gt=0, description="Price for calculation")
+    current_price: float = Field(
+        default=50000, gt=0, description="Price for calculation"
+    )
     mode: str = Field(default="FRACTIONAL", description="Kelly mode")
 
-    @validator("mode")
+    @field_validator("mode")
+    @classmethod
     def validate_mode(cls, v):
         valid_modes = ["FULL", "FRACTIONAL", "DYNAMIC"]
         if v.upper() not in valid_modes:
@@ -183,13 +181,14 @@ class KellySimulateRequest(BaseModel):
                 "avg_loss_pct": 1.5,
                 "capital": 10000,
                 "current_price": 50000,
-                "mode": "FRACTIONAL"
+                "mode": "FRACTIONAL",
             }
         }
 
 
 class RecordTradeRequest(BaseModel):
     """Request model for recording a trade"""
+
     trade_id: str = Field(..., description="Unique trade identifier")
     symbol: str = Field(..., description="Trading pair (e.g., 'BTCUSDT/ETHUSDT')")
     entry_time: datetime = Field(..., description="Trade entry timestamp")
@@ -211,13 +210,14 @@ class RecordTradeRequest(BaseModel):
                 "exit_price": 51000,
                 "pnl": 100,
                 "pnl_pct": 2.0,
-                "strategy": "pairs_trading"
+                "strategy": "pairs_trading",
             }
         }
 
 
 class RecordTradeResponse(BaseModel):
     """Response model for recording a trade"""
+
     success: bool
     message: str
     updated_stats: Dict[str, Any]
@@ -226,6 +226,7 @@ class RecordTradeResponse(BaseModel):
 # ==========================================
 # API Endpoint Handlers
 # ==========================================
+
 
 @router.get("/kelly-stats", response_model=KellyStatsResponse)
 async def get_kelly_stats():
@@ -260,8 +261,7 @@ async def get_kelly_stats():
     except Exception as e:
         logger.error(f"Failed to get Kelly stats: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve Kelly statistics: {str(e)}"
+            status_code=500, detail=f"Failed to retrieve Kelly statistics: {str(e)}"
         )
 
 
@@ -300,7 +300,7 @@ async def calculate_kelly_position(request: KellyCalculateRequest):
             current_price=request.current_price,
             mode=mode,
             signal_confidence=request.signal_confidence,
-            stop_loss_pct=request.stop_loss_pct
+            stop_loss_pct=request.stop_loss_pct,
         )
 
         logger.info(
@@ -323,14 +323,13 @@ async def calculate_kelly_position(request: KellyCalculateRequest):
             edge=result.edge,
             confidence_level=result.confidence_level,
             reasoning=result.reasoning,
-            metadata=result.metadata
+            metadata=result.metadata,
         )
 
     except Exception as e:
         logger.error(f"Failed to calculate Kelly position: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to calculate position size: {str(e)}"
+            status_code=500, detail=f"Failed to calculate position size: {str(e)}"
         )
 
 
@@ -371,7 +370,7 @@ async def simulate_kelly_position(request: KellySimulateRequest):
             avg_loss_pct=request.avg_loss_pct,
             capital=request.capital,
             current_price=request.current_price,
-            mode=mode
+            mode=mode,
         )
 
         logger.info(
@@ -395,14 +394,13 @@ async def simulate_kelly_position(request: KellySimulateRequest):
             edge=result.edge,
             confidence_level=result.confidence_level,
             reasoning=result.reasoning,
-            metadata=result.metadata
+            metadata=result.metadata,
         )
 
     except Exception as e:
         logger.error(f"Failed to simulate Kelly position: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to simulate position size: {str(e)}"
+            status_code=500, detail=f"Failed to simulate position size: {str(e)}"
         )
 
 
@@ -447,7 +445,7 @@ async def record_trade_for_kelly(request: RecordTradeRequest):
             pnl=request.pnl,
             pnl_pct=request.pnl_pct,
             is_win=is_win,
-            strategy=request.strategy
+            strategy=request.strategy,
         )
 
         # Record trade
@@ -467,20 +465,17 @@ async def record_trade_for_kelly(request: RecordTradeRequest):
             success=True,
             message=f"Trade {request.trade_id} recorded successfully",
             updated_stats={
-                "win_rate": updated_stats['win_rate'],
-                "total_trades": updated_stats['total_trades'],
-                "current_streak": updated_stats['current_streak'],
-                "kelly_fraction": updated_stats['current_kelly_fraction'],
-                "expectancy": updated_stats['expectancy']
-            }
+                "win_rate": updated_stats["win_rate"],
+                "total_trades": updated_stats["total_trades"],
+                "current_streak": updated_stats["current_streak"],
+                "kelly_fraction": updated_stats["current_kelly_fraction"],
+                "expectancy": updated_stats["expectancy"],
+            },
         )
 
     except Exception as e:
         logger.error(f"Failed to record trade: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to record trade: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to record trade: {str(e)}")
 
 
 @router.get("/kelly-comparison")
@@ -514,7 +509,7 @@ async def get_kelly_comparison(
                 win_rate=win_rate,
                 avg_win_pct=avg_win_pct,
                 avg_loss_pct=avg_loss_pct,
-                mode=mode
+                mode=mode,
             )
 
             results[mode_name] = {
@@ -522,7 +517,7 @@ async def get_kelly_comparison(
                 "position_size_pct": result.position_size_pct,
                 "full_kelly_pct": result.full_kelly_pct,
                 "kelly_fraction": result.kelly_fraction_used,
-                "edge": result.edge
+                "edge": result.edge,
             }
 
         # Calculate expected edge
@@ -534,22 +529,24 @@ async def get_kelly_comparison(
                 "avg_win_pct": avg_win_pct,
                 "avg_loss_pct": avg_loss_pct,
                 "edge": edge,
-                "has_edge": edge > 0
+                "has_edge": edge > 0,
             },
             "comparison": results,
             "recommendation": (
-                "Full Kelly" if edge > 2.0 else
-                "Fractional Kelly (25%)" if edge > 0.5 else
-                "Conservative sizing" if edge > 0 else
-                "No trade - negative edge"
-            )
+                "Full Kelly"
+                if edge > 2.0
+                else "Fractional Kelly (25%)"
+                if edge > 0.5
+                else "Conservative sizing"
+                if edge > 0
+                else "No trade - negative edge"
+            ),
         }
 
     except Exception as e:
         logger.error(f"Failed to compare Kelly modes: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to compare Kelly modes: {str(e)}"
+            status_code=500, detail=f"Failed to compare Kelly modes: {str(e)}"
         )
 
 
@@ -572,14 +569,10 @@ async def reset_kelly_tracking():
 
         logger.warning("Kelly tracking reset by API call")
 
-        return {
-            "success": True,
-            "message": "Kelly tracking reset to initial state"
-        }
+        return {"success": True, "message": "Kelly tracking reset to initial state"}
 
     except Exception as e:
         logger.error(f"Failed to reset Kelly tracking: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reset Kelly tracking: {str(e)}"
+            status_code=500, detail=f"Failed to reset Kelly tracking: {str(e)}"
         )

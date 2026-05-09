@@ -4,13 +4,13 @@ Provides request/response validation and OpenAPI documentation
 """
 
 from typing import Dict, List, Optional, Any
-from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 # ============================================================================
 # REQUEST MODELS
 # ============================================================================
+
 
 class InitializeManagerRequest(BaseModel):
     """Request model for initializing Statistical Arbitrage Manager"""
@@ -19,50 +19,52 @@ class InitializeManagerRequest(BaseModel):
         default=100000.0,
         gt=0,
         description="Total capital to allocate across strategies",
-        example=100000.0
+        example=100000.0,
     )
     pairs_allocation: float = Field(
         default=0.4,
         ge=0.0,
         le=1.0,
         description="Percentage allocation for pairs trading (0.0-1.0)",
-        example=0.4
+        example=0.4,
     )
     funding_allocation: float = Field(
         default=0.4,
         ge=0.0,
         le=1.0,
         description="Percentage allocation for funding rate arbitrage (0.0-1.0)",
-        example=0.4
+        example=0.4,
     )
     triangular_allocation: float = Field(
         default=0.2,
         ge=0.0,
         le=1.0,
         description="Percentage allocation for triangular arbitrage (0.0-1.0)",
-        example=0.2
+        example=0.2,
     )
 
-    @validator('pairs_allocation', 'funding_allocation', 'triangular_allocation')
-    def validate_allocation(cls, v, values):
+    @field_validator("pairs_allocation", "funding_allocation", "triangular_allocation")
+    @classmethod
+    def validate_allocation(cls, v):
         """Validate that allocations are between 0 and 1"""
         if v < 0 or v > 1:
             raise ValueError(f"Allocation must be between 0 and 1, got {v}")
         return v
 
-    @validator('triangular_allocation')
-    def validate_total_allocation(cls, v, values):
+    @field_validator("triangular_allocation")
+    @classmethod
+    def validate_total_allocation(cls, v, info: ValidationInfo):
         """Validate that total allocation sums to 1.0"""
         total = (
-            values.get('pairs_allocation', 0) +
-            values.get('funding_allocation', 0) +
-            v
+            info.data.get("pairs_allocation", 0)
+            + info.data.get("funding_allocation", 0)
+            + v
         )
         if abs(total - 1.0) > 0.001:
             raise ValueError(
                 f"Allocations must sum to 1.0, got {total:.3f}. "
-                f"pairs={values.get('pairs_allocation')}, "
-                f"funding={values.get('funding_allocation')}, "
+                f"pairs={info.data.get('pairs_allocation')}, "
+                f"funding={info.data.get('funding_allocation')}, "
                 f"triangular={v}"
             )
         return v
@@ -73,7 +75,7 @@ class InitializeManagerRequest(BaseModel):
                 "total_capital": 100000.0,
                 "pairs_allocation": 0.4,
                 "funding_allocation": 0.4,
-                "triangular_allocation": 0.2
+                "triangular_allocation": 0.2,
             }
         }
 
@@ -82,51 +84,43 @@ class AddPairsStrategyRequest(BaseModel):
     """Request model for adding a pairs trading strategy"""
 
     symbol_x: str = Field(
-        ...,
-        description="First symbol in the pair (e.g., BTCUSDT)",
-        example="BTCUSDT"
+        ..., description="First symbol in the pair (e.g., BTCUSDT)", example="BTCUSDT"
     )
     symbol_y: str = Field(
-        ...,
-        description="Second symbol in the pair (e.g., ETHUSDT)",
-        example="ETHUSDT"
+        ..., description="Second symbol in the pair (e.g., ETHUSDT)", example="ETHUSDT"
     )
     entry_threshold: float = Field(
         default=2.0,
         gt=0,
         description="Z-score threshold to enter position",
-        example=2.0
+        example=2.0,
     )
     exit_threshold: float = Field(
-        default=0.5,
-        gt=0,
-        description="Z-score threshold to exit position",
-        example=0.5
+        default=0.5, gt=0, description="Z-score threshold to exit position", example=0.5
     )
     lookback_period: int = Field(
         default=20,
         gt=0,
         description="Historical period for spread calculation",
-        example=20
+        example=20,
     )
     stop_loss_z: float = Field(
-        default=3.0,
-        gt=0,
-        description="Maximum z-score before stop loss",
-        example=3.0
+        default=3.0, gt=0, description="Maximum z-score before stop loss", example=3.0
     )
 
-    @validator('symbol_x', 'symbol_y')
+    @field_validator("symbol_x", "symbol_y")
+    @classmethod
     def validate_symbol(cls, v):
         """Validate symbol format"""
         if not v or len(v) < 3:
             raise ValueError(f"Invalid symbol: {v}")
         return v.upper()
 
-    @validator('exit_threshold')
-    def validate_exit_threshold(cls, v, values):
+    @field_validator("exit_threshold")
+    @classmethod
+    def validate_exit_threshold(cls, v, info: ValidationInfo):
         """Validate that exit threshold is less than entry threshold"""
-        entry = values.get('entry_threshold', 2.0)
+        entry = info.data.get("entry_threshold", 2.0)
         if v >= entry:
             raise ValueError(
                 f"Exit threshold ({v}) must be less than entry threshold ({entry})"
@@ -141,7 +135,7 @@ class AddPairsStrategyRequest(BaseModel):
                 "entry_threshold": 2.0,
                 "exit_threshold": 0.5,
                 "lookback_period": 20,
-                "stop_loss_z": 3.0
+                "stop_loss_z": 3.0,
             }
         }
 
@@ -150,13 +144,10 @@ class CalibratePairsStrategyRequest(BaseModel):
     """Request model for calibrating a pairs trading strategy"""
 
     strategy_id: str = Field(
-        ...,
-        description="ID of the strategy to calibrate",
-        example="BTCUSDT_ETHUSDT"
+        ..., description="ID of the strategy to calibrate", example="BTCUSDT_ETHUSDT"
     )
     historical_data: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Historical price data for calibration"
+        default=None, description="Historical price data for calibration"
     )
 
     class Config:
@@ -165,8 +156,8 @@ class CalibratePairsStrategyRequest(BaseModel):
                 "strategy_id": "BTCUSDT_ETHUSDT",
                 "historical_data": {
                     "BTCUSDT": [45000, 45100, 45200],
-                    "ETHUSDT": [3000, 3010, 3020]
-                }
+                    "ETHUSDT": [3000, 3010, 3020],
+                },
             }
         }
 
@@ -175,24 +166,23 @@ class AddFundingStrategyRequest(BaseModel):
     """Request model for adding a funding rate arbitrage strategy"""
 
     symbol: str = Field(
-        ...,
-        description="Trading symbol (e.g., BTCUSDT)",
-        example="BTCUSDT"
+        ..., description="Trading symbol (e.g., BTCUSDT)", example="BTCUSDT"
     )
     min_funding_rate: float = Field(
         default=0.0001,
         ge=0,
         description="Minimum funding rate to trigger trade (0.01%)",
-        example=0.0001
+        example=0.0001,
     )
     max_position_size: float = Field(
         default=10000.0,
         gt=0,
         description="Maximum position size in USDT",
-        example=10000.0
+        example=10000.0,
     )
 
-    @validator('symbol')
+    @field_validator("symbol")
+    @classmethod
     def validate_symbol(cls, v):
         """Validate symbol format"""
         if not v or len(v) < 3:
@@ -204,7 +194,7 @@ class AddFundingStrategyRequest(BaseModel):
             "example": {
                 "symbol": "BTCUSDT",
                 "min_funding_rate": 0.0001,
-                "max_position_size": 10000.0
+                "max_position_size": 10000.0,
             }
         }
 
@@ -216,23 +206,24 @@ class SetupTriangularArbitrageRequest(BaseModel):
         ...,
         min_items=3,
         description="List of assets for triangular arbitrage paths",
-        example=["BTC", "ETH", "BNB", "USDT"]
+        example=["BTC", "ETH", "BNB", "USDT"],
     )
     min_profit_threshold: float = Field(
         default=0.005,
         gt=0,
         le=1.0,
         description="Minimum profit percentage to execute (0.5%)",
-        example=0.005
+        example=0.005,
     )
     max_latency_ms: float = Field(
         default=100.0,
         gt=0,
         description="Maximum acceptable latency in milliseconds",
-        example=100.0
+        example=100.0,
     )
 
-    @validator('assets')
+    @field_validator("assets")
+    @classmethod
     def validate_assets(cls, v):
         """Validate assets list"""
         if len(v) < 3:
@@ -248,7 +239,7 @@ class SetupTriangularArbitrageRequest(BaseModel):
             "example": {
                 "assets": ["BTC", "ETH", "BNB", "USDT"],
                 "min_profit_threshold": 0.005,
-                "max_latency_ms": 100.0
+                "max_latency_ms": 100.0,
             }
         }
 
@@ -261,11 +252,12 @@ class GenerateSignalsRequest(BaseModel):
         description="Current market data including prices, volumes, funding rates",
         example={
             "BTCUSDT": {"price": 45000.0, "volume": 1000000},
-            "ETHUSDT": {"price": 3000.0, "volume": 500000}
-        }
+            "ETHUSDT": {"price": 3000.0, "volume": 500000},
+        },
     )
 
-    @validator('market_data')
+    @field_validator("market_data")
+    @classmethod
     def validate_market_data(cls, v):
         """Validate market data structure"""
         if not v:
@@ -274,9 +266,9 @@ class GenerateSignalsRequest(BaseModel):
         for symbol, data in v.items():
             if not isinstance(data, dict):
                 raise ValueError(f"Invalid data format for {symbol}")
-            if 'price' not in data:
+            if "price" not in data:
                 raise ValueError(f"Price missing for {symbol}")
-            if data['price'] <= 0:
+            if data["price"] <= 0:
                 raise ValueError(f"Invalid price for {symbol}: {data['price']}")
 
         return v
@@ -288,13 +280,13 @@ class GenerateSignalsRequest(BaseModel):
                     "BTCUSDT": {
                         "price": 45000.0,
                         "volume": 1000000,
-                        "funding_rate": 0.0001
+                        "funding_rate": 0.0001,
                     },
                     "ETHUSDT": {
                         "price": 3000.0,
                         "volume": 500000,
-                        "funding_rate": 0.0002
-                    }
+                        "funding_rate": 0.0002,
+                    },
                 }
             }
         }
@@ -304,20 +296,19 @@ class GenerateSignalsRequest(BaseModel):
 # RESPONSE MODELS
 # ============================================================================
 
+
 class StrategyAllocationResponse(BaseModel):
     """Response model for strategy allocation"""
 
     pairs_trading: float = Field(description="Pairs trading allocation percentage")
-    funding_rate: float = Field(description="Funding rate arbitrage allocation percentage")
+    funding_rate: float = Field(
+        description="Funding rate arbitrage allocation percentage"
+    )
     triangular: float = Field(description="Triangular arbitrage allocation percentage")
 
     class Config:
         schema_extra = {
-            "example": {
-                "pairs_trading": 0.4,
-                "funding_rate": 0.4,
-                "triangular": 0.2
-            }
+            "example": {"pairs_trading": 0.4, "funding_rate": 0.4, "triangular": 0.2}
         }
 
 
@@ -337,10 +328,10 @@ class InitializeManagerResponse(BaseModel):
                     "allocation": {
                         "pairs_trading": 0.4,
                         "funding_rate": 0.4,
-                        "triangular": 0.2
-                    }
+                        "triangular": 0.2,
+                    },
                 },
-                "message": "Statistical Arbitrage Manager initialized successfully"
+                "message": "Statistical Arbitrage Manager initialized successfully",
             }
         }
 
@@ -364,9 +355,9 @@ class StrategyResponse(BaseModel):
                     "symbol_x": "BTCUSDT",
                     "symbol_y": "ETHUSDT",
                     "entry_threshold": 2.0,
-                    "exit_threshold": 0.5
+                    "exit_threshold": 0.5,
                 },
-                "allocated_capital": 13333.33
+                "allocated_capital": 13333.33,
             }
         }
 
@@ -430,15 +421,15 @@ class SignalsResponse(BaseModel):
                             "signal": {
                                 "action": "LONG_X_SHORT_Y",
                                 "z_score": 2.5,
-                                "confidence": 0.85
-                            }
+                                "confidence": 0.85,
+                            },
                         }
                     ],
                     "funding": [],
-                    "triangular": []
+                    "triangular": [],
                 },
                 "timestamp": "2025-12-07T10:00:00",
-                "total_signals": 1
+                "total_signals": 1,
             }
         }
 
@@ -480,11 +471,11 @@ class PerformanceResponse(BaseModel):
                             "strategy_type": "pairs_trading",
                             "trades": 15,
                             "pnl": 1234.50,
-                            "win_rate": 0.733
+                            "win_rate": 0.733,
                         }
-                    }
+                    },
                 },
-                "timestamp": "2025-12-07T10:00:00"
+                "timestamp": "2025-12-07T10:00:00",
             }
         }
 
@@ -511,13 +502,13 @@ class StatusResponse(BaseModel):
                 "active_strategies": {
                     "pairs_trading": 3,
                     "funding_rate": 2,
-                    "triangular": 1
+                    "triangular": 1,
                 },
                 "allocation": {
                     "pairs_trading": 0.4,
                     "funding_rate": 0.4,
-                    "triangular": 0.2
-                }
+                    "triangular": 0.2,
+                },
             }
         }
 
@@ -534,7 +525,7 @@ class ResetResponse(BaseModel):
             "example": {
                 "status": "success",
                 "message": "Statistical Arbitrage Manager reset successfully",
-                "strategies_cleared": 6
+                "strategies_cleared": 6,
             }
         }
 
@@ -544,13 +535,15 @@ class ErrorResponse(BaseModel):
 
     status: str = Field(default="error", description="Error status")
     error: str = Field(description="Error message")
-    detail: Optional[str] = Field(default=None, description="Detailed error information")
+    detail: Optional[str] = Field(
+        default=None, description="Detailed error information"
+    )
 
     class Config:
         schema_extra = {
             "example": {
                 "status": "error",
                 "error": "Manager not initialized",
-                "detail": "Please call /initialize endpoint first"
+                "detail": "Please call /initialize endpoint first",
             }
         }

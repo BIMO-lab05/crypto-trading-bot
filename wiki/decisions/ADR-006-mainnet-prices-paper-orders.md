@@ -1,0 +1,34 @@
+---
+type: decision
+status: accepted
+date: 2026-04-25
+context: "paper trading needs real market signal"
+deciders: []
+tags: [decision, adr, trading]
+created: 2026-05-05
+updated: 2026-05-05
+---
+
+# ADR-006: mainnet prices + paper-simulated orders (current dual-mode contract)
+
+## Context
+
+Pure-testnet mode produced unrealistic price action (low liquidity, occasional gaps). Needed real price signal while still avoiding real-money risk.
+
+## Decision
+
+- `BYBIT_TESTNET=false` — pull real prices from Bybit mainnet
+- `PAPER_TRADING_MODE=true` — simulate orders internally; no exchange order calls
+- TimescaleDB stores mainnet prices
+
+## Consequences
+
+- Realistic backtests / paper P&L
+- ⚠️ TimescaleDB has mixed testnet/mainnet history before 2026-04-25 mid-day. Wipe `klines` / `tickers` if running historical analysis.
+- Live forward-going data clean.
+
+## Related
+
+- [[../concepts/Trading-Mode-Flags]]
+- [[../modules/market-data-service]]
+- [[ADR-004-paper-trading-default]]

@@ -162,25 +162,48 @@ async def create_hypertables():
         "SELECT add_retention_policy('orderbook_snapshots', INTERVAL '7 days', if_not_exists => TRUE)",
     ]
 
-    async with engine.begin() as conn:
-        # Create hypertables
-        for stmt in hypertable_statements:
+    # Idempotent column-add migrations. SQLAlchemy's create_all() only
+    # creates tables that don't exist; existing tables don't pick up new
+    # Column() declarations. Each ALTER TABLE here is `IF NOT EXISTS`
+    # safe and runs every startup.
+    column_migrations = [
+        # is_mainnet flag (audit 2026-04-29) — pre-flip testnet rows
+        # default to True; operators should wipe pre-flip data manually.
+        "ALTER TABLE klines ADD COLUMN IF NOT EXISTS is_mainnet BOOLEAN NOT NULL DEFAULT true",
+        "CREATE INDEX IF NOT EXISTS idx_klines_mainnet ON klines (is_mainnet)",
+    ]
+
+    # Hypertable + retention statements share a transaction. Some of them
+    # legitimately fail on certain server states (e.g. orderbook_snapshots
+    # has a pkey that conflicts with create_hypertable; the
+    # `if_not_exists` clause doesn't help there). PostgreSQL aborts the
+    # whole transaction on the first error and silently rejects every
+    # following statement with InFailedSQLTransactionError, so we have to
+    # run each statement in its OWN transaction. Otherwise the column
+    # migrations below get stranded inside an already-failed transaction
+    # and the ALTER TABLE never actually applies — that's exactly what
+    # bit the is_mainnet column on first deploy (2026-04-29).
+    async def _run_isolated(stmt: str, label: str) -> None:
+        async with engine.begin() as conn:
             try:
                 await conn.execute(text(stmt))
-                logger.info(f"Hypertable created successfully")
+                logger.info(f"{label} applied")
             except Exception as e:
-                # Log but continue - hypertable may already exist
-                logger.warning(f"Hypertable creation: {e}")
+                logger.warning(f"{label}: {e}")
 
-        # Add retention policies
-        for stmt in retention_statements:
-            try:
-                await conn.execute(text(stmt))
-                logger.info(f"Retention policy added")
-            except Exception as e:
-                logger.warning(f"Retention policy: {e}")
+    for stmt in hypertable_statements:
+        await _run_isolated(stmt, "Hypertable")
 
-        logger.info("TimescaleDB hypertables and policies configured")
+    for stmt in retention_statements:
+        await _run_isolated(stmt, "Retention policy")
+
+    # Idempotent column-add migrations — run each in its own transaction
+    # for the same reason. ALTER TABLE + CREATE INDEX must not abort each
+    # other.
+    for stmt in column_migrations:
+        await _run_isolated(stmt, f"Column migration ({stmt[:50]}...)")
+
+    logger.info("TimescaleDB hypertables, policies, and column migrations configured")
 
 
 async def close_database():

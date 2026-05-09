@@ -115,11 +115,29 @@ class ServiceProxy:
                     detail=f"Method '{method}' not supported"
                 )
 
-            # Return response
+            # Return response.
+            #
+            # IMPORTANT: do NOT forward the backend's raw headers. Those
+            # include `Content-Length` (wrong after we re-serialize the
+            # JSON body), `Content-Encoding` (broken if the backend
+            # gzipped the upstream response), `Transfer-Encoding`,
+            # `Server`, `Connection`, etc. Starlette will set the right
+            # Content-Type / Content-Length for the new payload; we
+            # only forward a safe subset of metadata headers.
+            _SAFE_FORWARD_HEADERS = {
+                "x-request-id",
+                "x-trace-id",
+                "x-correlation-id",
+            }
+            forwarded = {
+                k: v
+                for k, v in response.headers.items()
+                if k.lower() in _SAFE_FORWARD_HEADERS
+            }
             return JSONResponse(
                 content=response.json() if response.text else {},
                 status_code=response.status_code,
-                headers=dict(response.headers)
+                headers=forwarded,
             )
 
         except httpx.TimeoutException:

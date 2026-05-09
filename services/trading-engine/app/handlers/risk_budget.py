@@ -20,18 +20,11 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.risk.dynamic_risk_budget import (
     get_risk_budget_manager,
     reset_risk_budget_manager,
-    DynamicRiskBudget,
-    RiskBudgetConfig,
-    RiskBudgetRequest,
-    RiskBudgetResponse,
-    RiskAllocation,
-    RiskUtilization,
-    RiskAdjustment,
     MarketRegime,
     EmergencyTrigger,
     RiskBudgetAlertSeverity,
@@ -47,8 +40,10 @@ router = APIRouter(prefix="/api/v1/risk/budget", tags=["risk", "budget"])
 # PYDANTIC REQUEST/RESPONSE MODELS
 # =============================================================================
 
+
 class CurrentBudgetResponse(BaseModel):
     """Response model for current budget endpoint"""
+
     success: bool
     budget: Dict[str, Any] = Field(description="Current risk budget details")
     utilization: Dict[str, Any] = Field(description="Budget utilization breakdown")
@@ -72,26 +67,24 @@ class CurrentBudgetResponse(BaseModel):
                     "liquidity_multiplier": 1.0,
                     "combined_multiplier": 0.8,
                     "market_regime": "ELEVATED_VOLATILITY",
-                    "risk_level": "conservative"
+                    "risk_level": "conservative",
                 },
                 "utilization": {
                     "total_budget_usd": 1600.0,
                     "used_budget_usd": 400.0,
                     "available_budget_usd": 1200.0,
-                    "utilization_pct": 25.0
+                    "utilization_pct": 25.0,
                 },
                 "emergency_mode": False,
-                "config": {
-                    "base_equity": 100000.0,
-                    "base_risk_pct": 2.0
-                },
-                "timestamp": "2025-12-12T10:30:00Z"
+                "config": {"base_equity": 100000.0, "base_risk_pct": 2.0},
+                "timestamp": "2025-12-12T10:30:00Z",
             }
         }
 
 
 class UtilizationResponse(BaseModel):
     """Response model for utilization endpoint"""
+
     success: bool
     total_budget_usd: float = Field(description="Total available budget")
     used_budget_usd: float = Field(description="Currently used budget")
@@ -116,38 +109,38 @@ class UtilizationResponse(BaseModel):
                         "allocated": 640.0,
                         "used": 300.0,
                         "available": 340.0,
-                        "utilization_pct": 46.9
+                        "utilization_pct": 46.9,
                     },
                     "mean_reversion": {
                         "allocated": 480.0,
                         "used": 200.0,
                         "available": 280.0,
-                        "utilization_pct": 41.7
-                    }
+                        "utilization_pct": 41.7,
+                    },
                 },
                 "by_asset": {
                     "BTCUSDT": {"used": 300.0, "pct_of_total": 18.75},
-                    "ETHUSDT": {"used": 200.0, "pct_of_total": 12.5}
+                    "ETHUSDT": {"used": 200.0, "pct_of_total": 12.5},
                 },
                 "emergency_mode": False,
                 "current_risk_level": "conservative",
-                "timestamp": "2025-12-12T10:30:00Z"
+                "timestamp": "2025-12-12T10:30:00Z",
             }
         }
 
 
 class AllocationRequest(BaseModel):
     """Request model for setting strategy allocations"""
+
     strategies: Dict[str, float] = Field(
-        ...,
-        description="Strategy name to allocation percentage (0-100)"
+        ..., description="Strategy name to allocation percentage (0-100)"
     )
     performance: Optional[Dict[str, Dict[str, float]]] = Field(
-        default=None,
-        description="Optional performance metrics per strategy"
+        default=None, description="Optional performance metrics per strategy"
     )
 
-    @validator("strategies")
+    @field_validator("strategies")
+    @classmethod
     def validate_allocations(cls, v):
         total = sum(v.values())
         if total > 100:
@@ -162,18 +155,19 @@ class AllocationRequest(BaseModel):
                 "strategies": {
                     "pairs_trading": 40.0,
                     "mean_reversion": 30.0,
-                    "momentum": 30.0
+                    "momentum": 30.0,
                 },
                 "performance": {
                     "pairs_trading": {"sharpe_ratio": 1.5, "trades_count": 25},
-                    "mean_reversion": {"sharpe_ratio": 1.2, "trades_count": 30}
-                }
+                    "mean_reversion": {"sharpe_ratio": 1.2, "trades_count": 30},
+                },
             }
         }
 
 
 class AllocationResponse(BaseModel):
     """Response model for allocation endpoint"""
+
     success: bool
     allocations: Dict[str, Dict[str, Any]] = Field(description="Strategy allocations")
     total_budget_usd: float
@@ -192,52 +186,41 @@ class AllocationResponse(BaseModel):
                         "available_budget_usd": 640.0,
                         "utilization_pct": 0.0,
                         "performance_multiplier": 1.2,
-                        "effective_budget_usd": 768.0
+                        "effective_budget_usd": 768.0,
                     }
                 },
                 "total_budget_usd": 1600.0,
-                "timestamp": "2025-12-12T10:30:00Z"
+                "timestamp": "2025-12-12T10:30:00Z",
             }
         }
 
 
 class CalculateBudgetRequest(BaseModel):
     """Request model for budget calculation"""
+
     equity: float = Field(..., gt=0, description="Current equity/capital")
     volatility_percentile: Optional[float] = Field(
-        default=None,
-        ge=0,
-        le=100,
-        description="Volatility as percentile (0-100)"
+        default=None, ge=0, le=100, description="Volatility as percentile (0-100)"
     )
     current_drawdown: Optional[float] = Field(
-        default=None,
-        ge=0,
-        le=100,
-        description="Current drawdown percentage"
+        default=None, ge=0, le=100, description="Current drawdown percentage"
     )
     win_streak: Optional[int] = Field(
-        default=None,
-        ge=0,
-        description="Number of consecutive wins"
+        default=None, ge=0, description="Number of consecutive wins"
     )
     loss_streak: Optional[int] = Field(
-        default=None,
-        ge=0,
-        description="Number of consecutive losses"
+        default=None, ge=0, description="Number of consecutive losses"
     )
     avg_correlation: Optional[float] = Field(
-        default=None,
-        ge=0,
-        le=1,
-        description="Average portfolio correlation"
+        default=None, ge=0, le=1, description="Average portfolio correlation"
     )
     market_regime: Optional[str] = Field(
         default=None,
-        description="Market regime (LOW_VOLATILITY, NORMAL, ELEVATED_VOLATILITY, HIGH_VOLATILITY, EXTREME_VOLATILITY)"
+        description="Market regime (LOW_VOLATILITY, NORMAL, ELEVATED_VOLATILITY, HIGH_VOLATILITY, EXTREME_VOLATILITY)",
     )
 
-    @validator("market_regime")
+    @field_validator("market_regime")
+    @classmethod
     def validate_regime(cls, v):
         if v is not None:
             valid = [r.value for r in MarketRegime]
@@ -254,13 +237,14 @@ class CalculateBudgetRequest(BaseModel):
                 "current_drawdown": 5.0,
                 "win_streak": 3,
                 "avg_correlation": 0.45,
-                "market_regime": "ELEVATED_VOLATILITY"
+                "market_regime": "ELEVATED_VOLATILITY",
             }
         }
 
 
 class CalculateBudgetResponse(BaseModel):
     """Response model for budget calculation"""
+
     success: bool
     base_budget_pct: float
     base_budget_usd: float
@@ -287,36 +271,36 @@ class CalculateBudgetResponse(BaseModel):
                     "streak": 1.0,
                     "correlation": 1.0,
                     "liquidity": 1.0,
-                    "combined": 0.72
+                    "combined": 0.72,
                 },
                 "market_regime": "ELEVATED_VOLATILITY",
                 "risk_level": "conservative",
                 "max_position_size": 1440.0,
                 "recommendations": [
                     "High volatility detected (65th percentile). Consider reducing position sizes.",
-                    "Portfolio in drawdown (5.0%). Focus on capital preservation."
+                    "Portfolio in drawdown (5.0%). Focus on capital preservation.",
                 ],
-                "timestamp": "2025-12-12T10:30:00Z"
+                "timestamp": "2025-12-12T10:30:00Z",
             }
         }
 
 
 class AdjustBudgetRequest(BaseModel):
     """Request model for manual budget adjustment"""
+
     adjustment_type: str = Field(
-        ...,
-        description="Type: 'increase', 'decrease', 'set_level', 'emergency_stop'"
+        ..., description="Type: 'increase', 'decrease', 'set_level', 'emergency_stop'"
     )
     value: Optional[float] = Field(
         default=None,
-        description="Adjustment value (% for increase/decrease, level for set_level)"
+        description="Adjustment value (% for increase/decrease, level for set_level)",
     )
     reason: str = Field(
-        default="Manual adjustment",
-        description="Reason for adjustment"
+        default="Manual adjustment", description="Reason for adjustment"
     )
 
-    @validator("adjustment_type")
+    @field_validator("adjustment_type")
+    @classmethod
     def validate_type(cls, v):
         valid = ["increase", "decrease", "set_level", "emergency_stop"]
         if v.lower() not in valid:
@@ -328,13 +312,14 @@ class AdjustBudgetRequest(BaseModel):
             "example": {
                 "adjustment_type": "decrease",
                 "value": 0.5,
-                "reason": "Market showing weakness"
+                "reason": "Market showing weakness",
             }
         }
 
 
 class AdjustBudgetResponse(BaseModel):
     """Response model for budget adjustment"""
+
     success: bool
     adjustment_type: str
     previous_risk_pct: float
@@ -350,13 +335,14 @@ class AdjustBudgetResponse(BaseModel):
                 "previous_risk_pct": 2.0,
                 "new_risk_pct": 1.5,
                 "reason": "Market showing weakness",
-                "timestamp": "2025-12-12T10:30:00Z"
+                "timestamp": "2025-12-12T10:30:00Z",
             }
         }
 
 
 class BudgetHistoryResponse(BaseModel):
     """Response model for budget history"""
+
     success: bool
     entries: List[Dict[str, Any]]
     period_hours: int
@@ -374,12 +360,12 @@ class BudgetHistoryResponse(BaseModel):
                         "risk_budget_pct": 2.0,
                         "risk_budget_usd": 2000.0,
                         "market_regime": "NORMAL",
-                        "volatility_percentile": 50
+                        "volatility_percentile": 50,
                     }
                 ],
                 "period_hours": 24,
                 "entry_count": 24,
-                "timestamp": "2025-12-12T10:30:00Z"
+                "timestamp": "2025-12-12T10:30:00Z",
             }
         }
 
@@ -387,6 +373,7 @@ class BudgetHistoryResponse(BaseModel):
 # =============================================================================
 # API ENDPOINT HANDLERS
 # =============================================================================
+
 
 @router.get("/current", response_model=CurrentBudgetResponse)
 async def get_current_budget():
@@ -424,8 +411,7 @@ async def get_current_budget():
     except Exception as e:
         logger.error(f"Failed to get current budget: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve current budget: {str(e)}"
+            status_code=500, detail=f"Failed to retrieve current budget: {str(e)}"
         )
 
 
@@ -468,8 +454,7 @@ async def get_risk_utilization():
     except Exception as e:
         logger.error(f"Failed to get utilization: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve utilization: {str(e)}"
+            status_code=500, detail=f"Failed to retrieve utilization: {str(e)}"
         )
 
 
@@ -516,8 +501,7 @@ async def get_strategy_allocations():
     except Exception as e:
         logger.error(f"Failed to get allocations: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve allocations: {str(e)}"
+            status_code=500, detail=f"Failed to retrieve allocations: {str(e)}"
         )
 
 
@@ -545,8 +529,7 @@ async def set_strategy_allocations(request: AllocationRequest):
 
         # Convert to dict
         allocations_dict = {
-            name: alloc.to_dict()
-            for name, alloc in allocations.items()
+            name: alloc.to_dict() for name, alloc in allocations.items()
         }
 
         # Get total budget
@@ -570,8 +553,7 @@ async def set_strategy_allocations(request: AllocationRequest):
     except Exception as e:
         logger.error(f"Failed to set allocations: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to set allocations: {str(e)}"
+            status_code=500, detail=f"Failed to set allocations: {str(e)}"
         )
 
 
@@ -641,8 +623,7 @@ async def calculate_risk_budget(request: CalculateBudgetRequest):
     except Exception as e:
         logger.error(f"Failed to calculate budget: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to calculate budget: {str(e)}"
+            status_code=500, detail=f"Failed to calculate budget: {str(e)}"
         )
 
 
@@ -693,18 +674,14 @@ async def adjust_risk_budget(request: AdjustBudgetRequest):
     except Exception as e:
         logger.error(f"Failed to adjust budget: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to adjust budget: {str(e)}"
+            status_code=500, detail=f"Failed to adjust budget: {str(e)}"
         )
 
 
 @router.get("/history", response_model=BudgetHistoryResponse)
 async def get_budget_history(
     hours: int = Query(
-        default=24,
-        ge=1,
-        le=720,
-        description="Number of hours of history to retrieve"
+        default=24, ge=1, le=720, description="Number of hours of history to retrieve"
     ),
 ):
     """
@@ -742,8 +719,7 @@ async def get_budget_history(
     except Exception as e:
         logger.error(f"Failed to get history: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve history: {str(e)}"
+            status_code=500, detail=f"Failed to retrieve history: {str(e)}"
         )
 
 
@@ -751,11 +727,12 @@ async def get_budget_history(
 # ADDITIONAL UTILITY ENDPOINTS
 # =============================================================================
 
+
 @router.get("/alerts")
 async def get_budget_alerts(
     min_severity: str = Query(
         default="WARNING",
-        description="Minimum severity: INFO, WARNING, HIGH, CRITICAL, EMERGENCY"
+        description="Minimum severity: INFO, WARNING, HIGH, CRITICAL, EMERGENCY",
     ),
     limit: int = Query(default=20, ge=1, le=100),
 ):
@@ -793,8 +770,7 @@ async def get_budget_alerts(
     except Exception as e:
         logger.error(f"Failed to get alerts: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve alerts: {str(e)}"
+            status_code=500, detail=f"Failed to retrieve alerts: {str(e)}"
         )
 
 
@@ -832,16 +808,14 @@ async def trigger_emergency(
     except Exception as e:
         logger.error(f"Failed to trigger emergency: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to trigger emergency: {str(e)}"
+            status_code=500, detail=f"Failed to trigger emergency: {str(e)}"
         )
 
 
 @router.post("/emergency/clear")
 async def clear_emergency(
     reason: str = Query(
-        default="Manual clear via API",
-        description="Reason for clearing emergency"
+        default="Manual clear via API", description="Reason for clearing emergency"
     ),
 ):
     """
@@ -866,8 +840,7 @@ async def clear_emergency(
     except Exception as e:
         logger.error(f"Failed to clear emergency: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to clear emergency: {str(e)}"
+            status_code=500, detail=f"Failed to clear emergency: {str(e)}"
         )
 
 
@@ -898,14 +871,14 @@ async def reset_budget_manager():
     except Exception as e:
         logger.error(f"Failed to reset manager: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reset manager: {str(e)}"
+            status_code=500, detail=f"Failed to reset manager: {str(e)}"
         )
 
 
 # =============================================================================
 # STANDALONE HANDLER FUNCTIONS (for handlers/__init__.py export)
 # =============================================================================
+
 
 async def get_current_budget_handler() -> Dict[str, Any]:
     """Handler function for current budget"""

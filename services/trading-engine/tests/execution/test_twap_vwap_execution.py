@@ -764,7 +764,7 @@ class TestOrderStatusReporting:
         assert status["symbol"] == "BTCUSDT"
         assert status["side"] == "BUY"
         assert status["state"] == "queued"
-        assert status["progress"]["total_quantity"] == "1"
+        assert status["progress"]["total_quantity"] == "1.0"
         assert status["progress"]["fill_rate"] == 0.0
 
     @pytest.mark.asyncio

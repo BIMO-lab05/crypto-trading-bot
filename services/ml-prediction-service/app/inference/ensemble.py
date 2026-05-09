@@ -1,17 +1,19 @@
 """
 Ensemble Predictor - Combines Multiple Signal Sources
-Combines TA + ML + Sentiment + Multi-Timeframe for robust predictions
+Combines TA + ML + Multi-Timeframe for robust predictions.
 
-Weighting Strategy (as per plan):
-- Traditional TA: 40%
-- ML Predictions: 30%
-- Sentiment Analysis: 15%
-- Multi-Timeframe: 15%
+Weighting Strategy (renormalized 2026-05-02 after sentiment removal —
+sentiment-analysis-service archived; placeholder always returned NEUTRAL
+with confidence 0.0, contributed nothing to the weighted score):
+- Traditional TA:   47%  (was 40%)
+- ML Predictions:   35%  (was 30%)
+- Multi-Timeframe:  18%  (was 15%)
+Survivors scaled up by 1/0.85 to preserve their original ratios.
 """
 
 import logging
 import httpx
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 from datetime import datetime
 import numpy as np
 from pydantic import BaseModel
@@ -21,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 class SignalComponent(BaseModel):
     """Individual signal component"""
-    source: str  # 'TA', 'ML', 'Sentiment', 'MultiTimeframe'
+
+    source: str  # 'TA', 'ML', 'MultiTimeframe'
     direction: str  # 'BUY', 'SELL', 'NEUTRAL'
     confidence: float  # 0.0 to 1.0
     weight: float  # Weight in ensemble (0.0 to 1.0)
@@ -30,6 +33,7 @@ class SignalComponent(BaseModel):
 
 class EnsembleSignal(BaseModel):
     """Final ensemble signal"""
+
     symbol: str
     interval: str
     timestamp: datetime
@@ -58,39 +62,35 @@ class EnsemblePredictor:
     Ensemble predictor combining multiple signal sources
 
     Combines:
-    1. Traditional TA (40%) - RSI, MACD, Bollinger Bands
-    2. ML Predictions (30%) - LSTM/GRU price predictions
-    3. Sentiment Analysis (15%) - News/social media sentiment (placeholder)
-    4. Multi-Timeframe (15%) - Trend alignment across timeframes
+    1. Traditional TA (~47%) - RSI, MACD, Bollinger Bands
+    2. ML Predictions (~35%) - GRU price predictions
+    3. Multi-Timeframe (~18%) - Trend alignment across timeframes
     """
 
     def __init__(
         self,
-        ta_weight: float = 0.40,
-        ml_weight: float = 0.30,
-        sentiment_weight: float = 0.15,
-        multi_tf_weight: float = 0.15,
+        ta_weight: float = 0.47,
+        ml_weight: float = 0.35,
+        multi_tf_weight: float = 0.18,
         ta_service_url: str = "http://localhost:8004",
         ml_service_url: str = "http://localhost:8007",
-        market_data_url: str = "http://localhost:8003"
+        market_data_url: str = "http://localhost:8003",
     ):
         """
         Initialize ensemble predictor
 
         Args:
-            ta_weight: Weight for traditional TA signals (default: 0.40)
-            ml_weight: Weight for ML predictions (default: 0.30)
-            sentiment_weight: Weight for sentiment analysis (default: 0.15)
-            multi_tf_weight: Weight for multi-timeframe analysis (default: 0.15)
+            ta_weight: Weight for traditional TA signals (default: 0.47)
+            ml_weight: Weight for ML predictions (default: 0.35)
+            multi_tf_weight: Weight for multi-timeframe analysis (default: 0.18)
             ta_service_url: URL of technical analysis service
             ml_service_url: URL of ML prediction service
             market_data_url: URL of market data service
         """
         # Normalize weights to sum to 1.0
-        total_weight = ta_weight + ml_weight + sentiment_weight + multi_tf_weight
+        total_weight = ta_weight + ml_weight + multi_tf_weight
         self.ta_weight = ta_weight / total_weight
         self.ml_weight = ml_weight / total_weight
-        self.sentiment_weight = sentiment_weight / total_weight
         self.multi_tf_weight = multi_tf_weight / total_weight
 
         # Service URLs
@@ -104,10 +104,12 @@ class EnsemblePredictor:
         logger.info(
             f"EnsemblePredictor initialized with weights: "
             f"TA={self.ta_weight:.2f}, ML={self.ml_weight:.2f}, "
-            f"Sentiment={self.sentiment_weight:.2f}, MultiTF={self.multi_tf_weight:.2f}"
+            f"MultiTF={self.multi_tf_weight:.2f}"
         )
 
-    async def get_ta_signal(self, symbol: str, interval: str = "60") -> Optional[SignalComponent]:
+    async def get_ta_signal(
+        self, symbol: str, interval: str = "60"
+    ) -> Optional[SignalComponent]:
         """
         Get traditional TA signal from technical analysis service
 
@@ -132,9 +134,9 @@ class EnsemblePredictor:
             data = response.json()
 
             # Extract signal components
-            rsi_signal = data.get('rsi', {}).get('signal', 0)  # -1 to 1
-            macd_signal = data.get('macd', {}).get('signal', 0)
-            bb_signal = data.get('bollinger_bands', {}).get('signal', 0)
+            rsi_signal = data.get("rsi", {}).get("signal", 0)  # -1 to 1
+            macd_signal = data.get("macd", {}).get("signal", 0)
+            bb_signal = data.get("bollinger_bands", {}).get("signal", 0)
 
             # Average the signals
             raw_score = (rsi_signal + macd_signal + bb_signal) / 3.0
@@ -155,7 +157,7 @@ class EnsemblePredictor:
                 direction=direction,
                 confidence=confidence,
                 weight=self.ta_weight,
-                raw_score=raw_score
+                raw_score=raw_score,
             )
 
         except Exception as e:
@@ -163,10 +165,7 @@ class EnsemblePredictor:
             return None
 
     async def get_ml_signal(
-        self,
-        symbol: str,
-        interval: str = "60",
-        model_type: str = "LSTM"
+        self, symbol: str, interval: str = "60", model_type: str = "GRU"
     ) -> Optional[SignalComponent]:
         """
         Get ML prediction signal
@@ -185,8 +184,7 @@ class EnsemblePredictor:
             # Call ML prediction service
             url = f"{self.ml_service_url}/api/v1/predict/price/{symbol}"
             response = await self.http_client.get(
-                url,
-                params={"interval": interval, "model_type": model_type}
+                url, params={"interval": interval, "model_type": model_type}
             )
 
             if response.status_code != 200:
@@ -196,19 +194,21 @@ class EnsemblePredictor:
             data = response.json()
 
             # Extract prediction data
-            current_price = data.get('current_price', 0)
-            predictions = data.get('predictions', [])
-            avg_confidence = data.get('average_confidence', 0)
+            current_price = data.get("current_price", 0)
+            predictions = data.get("predictions", [])
+            avg_confidence = data.get("average_confidence", 0)
 
             if not predictions:
                 return None
 
             # Calculate average predicted price change
-            predicted_prices = [p['predicted_price'] for p in predictions]
+            predicted_prices = [p["predicted_price"] for p in predictions]
             avg_predicted_price = np.mean(predicted_prices)
 
             # Calculate % change
-            price_change_pct = ((avg_predicted_price - current_price) / current_price) * 100
+            price_change_pct = (
+                (avg_predicted_price - current_price) / current_price
+            ) * 100
 
             # Normalize to -1 to 1 scale
             # ±10% change = ±1.0 signal
@@ -230,48 +230,15 @@ class EnsemblePredictor:
                 direction=direction,
                 confidence=confidence,
                 weight=self.ml_weight,
-                raw_score=raw_score
+                raw_score=raw_score,
             )
 
         except Exception as e:
             logger.error(f"Error getting ML signal: {e}")
             return None
 
-    async def get_sentiment_signal(self, symbol: str) -> Optional[SignalComponent]:
-        """
-        Get sentiment analysis signal
-
-        PLACEHOLDER: Sentiment analysis not yet implemented
-        Returns neutral signal with low weight
-
-        Future implementation:
-        - Twitter/Reddit sentiment
-        - News headline analysis
-        - Social media volume
-
-        Args:
-            symbol: Trading pair
-
-        Returns:
-            SignalComponent (placeholder - always NEUTRAL)
-        """
-        # TODO: Implement sentiment analysis service
-        # For now, return neutral signal
-
-        logger.debug(f"Sentiment signal not implemented - returning NEUTRAL for {symbol}")
-
-        return SignalComponent(
-            source="Sentiment",
-            direction="NEUTRAL",
-            confidence=0.0,
-            weight=self.sentiment_weight,
-            raw_score=0.0
-        )
-
     async def get_multi_timeframe_signal(
-        self,
-        symbol: str,
-        base_interval: str = "60"
+        self, symbol: str, base_interval: str = "60"
     ) -> Optional[SignalComponent]:
         """
         Get multi-timeframe trend alignment signal
@@ -302,7 +269,7 @@ class EnsemblePredictor:
 
                 if response.status_code == 200:
                     data = response.json()
-                    overall_signal = data.get('overall_signal', 0)
+                    overall_signal = data.get("overall_signal", 0)
                     signals.append(overall_signal)
 
             if not signals:
@@ -331,7 +298,7 @@ class EnsemblePredictor:
                 direction=direction,
                 confidence=confidence,
                 weight=self.multi_tf_weight,
-                raw_score=avg_signal
+                raw_score=avg_signal,
             )
 
         except Exception as e:
@@ -339,10 +306,7 @@ class EnsemblePredictor:
             return None
 
     async def predict(
-        self,
-        symbol: str,
-        interval: str = "60",
-        ml_model: str = "LSTM"
+        self, symbol: str, interval: str = "60", ml_model: str = "GRU"
     ) -> EnsembleSignal:
         """
         Generate ensemble prediction combining all signal sources
@@ -365,17 +329,12 @@ class EnsemblePredictor:
         if ta_signal:
             components.append(ta_signal)
 
-        # 2. ML Predictions (30%)
+        # 2. ML Predictions (~35%)
         ml_signal = await self.get_ml_signal(symbol, interval, ml_model)
         if ml_signal:
             components.append(ml_signal)
 
-        # 3. Sentiment Analysis (15%)
-        sentiment_signal = await self.get_sentiment_signal(symbol)
-        if sentiment_signal:
-            components.append(sentiment_signal)
-
-        # 4. Multi-Timeframe (15%)
+        # 3. Multi-Timeframe (~18%)
         mtf_signal = await self.get_multi_timeframe_signal(symbol, interval)
         if mtf_signal:
             components.append(mtf_signal)
@@ -397,7 +356,7 @@ class EnsemblePredictor:
                 buy_probability=0.5,
                 sell_probability=0.5,
                 components_available=0,
-                components_used=0
+                components_used=0,
             )
 
         # Weighted voting
@@ -431,8 +390,8 @@ class EnsemblePredictor:
             weighted_score=weighted_score,
             buy_probability=buy_prob,
             sell_probability=sell_prob,
-            components_available=4,  # TA, ML, Sentiment, MultiTF
-            components_used=len(components)
+            components_available=3,  # TA, ML, MultiTF
+            components_used=len(components),
         )
 
     async def close(self):
@@ -442,9 +401,7 @@ class EnsemblePredictor:
 
 # Convenience function for quick ensemble prediction
 async def get_ensemble_signal(
-    symbol: str,
-    interval: str = "60",
-    ml_model: str = "LSTM"
+    symbol: str, interval: str = "60", ml_model: str = "GRU"
 ) -> EnsembleSignal:
     """
     Quick function to get ensemble signal

@@ -306,6 +306,11 @@ async def lifespan(app: FastAPI):
             "environment": "development" if settings.debug else "production"
         }
     )
+    # Loud, grep-able startup line so log audits can confirm the actual price source.
+    logger.warning(
+        "BYBIT_PRICE_SOURCE: testnet=%s rest_url=%s ws_url=%s",
+        settings.bybit_testnet, settings.rest_api_url, settings.websocket_url,
+    )
 
     try:
         # Initialize REST client and store in app state. Subscribe the breaker
@@ -799,6 +804,96 @@ async def get_orderbook(
         return {"success": True, "data": result}
     except BybitConnectorException as e:
         logger.error(f"Failed to get orderbook: {str(e)}", extra={"error": str(e)})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.get("/api/v1/market/funding-rate/history", tags=["Market Data"])
+@limiter.limit("200/minute")
+async def get_funding_rate_history(
+    request: Request,
+    symbol: str,
+    category: str = "linear",
+    start: Optional[int] = None,
+    end: Optional[int] = None,
+    limit: int = 200,
+    client: BybitRestClient = Depends(get_rest_client),
+):
+    """
+    Get historical funding rates for a perpetual contract.
+
+    Funding settles every fundingInterval minutes (8h default for SOL/BNB/ADA-USDT
+    on Bybit; some symbols use 1h or 4h — query /api/v1/market/instruments-info
+    for the per-symbol interval). Funding rate is bounded ~±0.05% per settlement.
+
+    Use case: T2.3 funding-rate awareness on perp entries — gate entries on
+    funding sign/magnitude to avoid persistent funding drag (worst case
+    ~55%/yr if always long into positive funding). Also enables cash-and-carry
+    research (basis trade between spot and perp).
+
+    Args:
+        symbol: Trading pair (required, e.g. SOLUSDT).
+        category: linear or inverse (perpetuals only — spot has no funding).
+        start: Start timestamp in milliseconds (optional).
+        end: End timestamp in milliseconds (optional).
+        limit: 1-200 (Bybit hard limit), default 200.
+
+    Returns:
+        {success, data: [{symbol, fundingRate, fundingRateTimestamp}, ...]}
+        ordered newest-first per Bybit convention.
+    """
+    try:
+        logger.debug(
+            "Fetching funding rate history",
+            extra={"category": category, "symbol": symbol, "limit": limit,
+                   "start": start, "end": end},
+        )
+        result = await client.get_funding_rate_history(
+            category=category,
+            symbol=symbol,
+            start_time=start,
+            end_time=end,
+            limit=limit,
+        )
+        return {"success": True, "data": result}
+    except ValueError as e:
+        # category=spot or other invalid — surface as 400 not 500
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except BybitConnectorException as e:
+        logger.error(f"Failed to get funding rate history: {str(e)}", extra={"error": str(e)})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.get("/api/v1/market/instruments-info", tags=["Market Data"])
+@limiter.limit("60/minute")
+async def get_instruments_info(
+    request: Request,
+    category: str = "linear",
+    symbol: Optional[str] = None,
+    client: BybitRestClient = Depends(get_rest_client),
+):
+    """
+    Get instrument metadata (tick size, lot size, fundingInterval, etc.).
+
+    Lower rate limit (60/min) since this is a slow-changing reference dataset
+    that callers should cache locally.
+
+    Args:
+        category: spot, linear, inverse, or option.
+        symbol: Restrict to a single symbol (optional).
+
+    Returns:
+        {success, data: [...]}. For perp instruments each item includes
+        fundingInterval (string of minutes) plus priceFilter / lotSizeFilter.
+    """
+    try:
+        logger.debug(
+            "Fetching instruments info",
+            extra={"category": category, "symbol": symbol},
+        )
+        result = await client.get_instruments_info(category=category, symbol=symbol)
+        return {"success": True, "data": result}
+    except BybitConnectorException as e:
+        logger.error(f"Failed to get instruments info: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 

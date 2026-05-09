@@ -26,10 +26,7 @@ settings = get_settings()
 ml_client = httpx.AsyncClient(timeout=30.0)
 
 
-async def get_trading_signal(
-    symbol: str,
-    interval: str = "60"
-) -> SignalResponse:
+async def get_trading_signal(symbol: str, interval: str = "60") -> SignalResponse:
     """
     Get trading signal for a symbol
 
@@ -52,9 +49,7 @@ async def get_trading_signal(
         signal = await aggregator.get_trading_signal(symbol, interval)
 
         return SignalResponse(
-            success=True,
-            signal=signal,
-            timestamp=int(time.time() * 1000)
+            success=True, signal=signal, timestamp=int(time.time() * 1000)
         )
 
     except Exception as e:
@@ -63,8 +58,7 @@ async def get_trading_signal(
 
 
 async def get_enhanced_trading_signal(
-    symbol: str,
-    interval: str = "60"
+    symbol: str, interval: str = "60"
 ) -> SignalResponse:
     """
     Get ENHANCED trading signal with ML predictions for 5-10% win rate improvement
@@ -94,15 +88,12 @@ async def get_enhanced_trading_signal(
         # Fetch ML prediction from ML service
         ml_prediction = await _fetch_ml_prediction(symbol, interval)
 
-        # Fetch sentiment analysis if available
-        sentiment_data = await _fetch_sentiment_data(symbol)
-
         # Fetch market regime data
         market_regime = await _fetch_market_regime(symbol, interval)
 
         # Calculate enhanced signal with weighted combination
         enhanced_signal = await _calculate_enhanced_signal(
-            base_signal, ml_prediction, sentiment_data, market_regime
+            base_signal, ml_prediction, market_regime
         )
 
         return SignalResponse(
@@ -113,9 +104,8 @@ async def get_enhanced_trading_signal(
                 "enhanced": True,
                 "win_rate_target": "5-10%",
                 "ml_prediction": ml_prediction,
-                "sentiment_data": sentiment_data,
-                "market_regime": market_regime
-            }
+                "market_regime": market_regime,
+            },
         )
 
     except Exception as e:
@@ -134,7 +124,7 @@ async def _fetch_ml_prediction(symbol: str, interval: str) -> dict:
             "interval": interval,
             "lookback_days": 90,
             "model_type": "ENSEMBLE",
-            "confidence_threshold": 0.55  # Lowered for more signals
+            "confidence_threshold": 0.55,  # Lowered for more signals
         }
 
         response = await ml_client.get(ml_url, params=params)
@@ -149,28 +139,7 @@ async def _fetch_ml_prediction(symbol: str, interval: str) -> dict:
             "interval": interval,
             "signal": "HOLD",
             "confidence": 0.0,
-            "reason": f"ML service error: {str(e)}"
-        }
-
-
-async def _fetch_sentiment_data(symbol: str) -> dict:
-    """
-    Fetch sentiment analysis from Sentiment Analysis Service
-    """
-    try:
-        sentiment_url = f"{settings.sentiment_analysis_url}/api/v1/sentiment/combined/{symbol}"
-
-        response = await ml_client.get(sentiment_url)
-        response.raise_for_status()
-
-        return response.json()
-
-    except Exception as e:
-        logger.warning(f"Sentiment data fetch failed for {symbol}: {e}")
-        return {
-            "combined_label": "NEUTRAL",
-            "confidence": 0.5,
-            "reason": f"Sentiment service error: {str(e)}"
+            "reason": f"ML service error: {str(e)}",
         }
 
 
@@ -197,11 +166,7 @@ async def _fetch_market_regime(symbol: str, interval: str) -> dict:
         else:
             regime = "WEAK_TREND"
 
-        return {
-            "regime": regime,
-            "adx": adx_value,
-            "confidence": 0.7
-        }
+        return {"regime": regime, "adx": adx_value, "confidence": 0.7}
 
     except Exception as e:
         logger.warning(f"Market regime fetch failed for {symbol}: {e}")
@@ -209,29 +174,31 @@ async def _fetch_market_regime(symbol: str, interval: str) -> dict:
             "regime": "UNKNOWN",
             "adx": 25,
             "confidence": 0.5,
-            "reason": f"Regime service error: {str(e)}"
+            "reason": f"Regime service error: {str(e)}",
         }
 
 
 async def _calculate_enhanced_signal(
-    base_signal,
-    ml_prediction: dict,
-    sentiment_data: dict,
-    market_regime: dict
+    base_signal, ml_prediction: dict, market_regime: dict
 ) -> any:  # Return type matches base signal type
     """
     Calculate enhanced signal combining all data sources
     """
     try:
         # Extract signal components
-        ta_signal = base_signal.signal.action.value if hasattr(base_signal.signal, 'action') else 'HOLD'
-        ta_confidence = base_signal.signal.confidence if hasattr(base_signal.signal, 'confidence') else 0.5
+        ta_signal = (
+            base_signal.signal.action.value
+            if hasattr(base_signal.signal, "action")
+            else "HOLD"
+        )
+        ta_confidence = (
+            base_signal.signal.confidence
+            if hasattr(base_signal.signal, "confidence")
+            else 0.5
+        )
 
         ml_signal = ml_prediction.get("signal", "HOLD")
         ml_confidence = ml_prediction.get("confidence", 0.5)
-
-        sentiment_signal = sentiment_data.get("combined_label", "NEUTRAL")
-        sentiment_confidence = sentiment_data.get("confidence", 0.5)
 
         regime = market_regime.get("regime", "UNKNOWN")
 
@@ -249,23 +216,23 @@ async def _calculate_enhanced_signal(
         signals = []
         weights = []
 
-        # Technical Analysis (30% weight)
+        # Renormalized 2026-05-02 after sentiment removal: was
+        # TA 0.30 / ML 0.35 / Sentiment 0.15 / Risk 0.10 (sum 0.90 — never
+        # actually summed to 1.0 even before). Rescaled the remaining three
+        # legs to sum to 1.0 in the same proportions.
+        # Technical Analysis (40% weight)
         signals.append(_normalize_signal(ta_signal))
-        weights.append(ta_confidence * 0.30 * regime_multiplier)
+        weights.append(ta_confidence * 0.40 * regime_multiplier)
 
-        # ML Prediction (35% weight) - MAIN IMPROVEMENT DRIVER
+        # ML Prediction (45% weight) - MAIN IMPROVEMENT DRIVER
         signals.append(_normalize_signal(ml_signal))
-        weights.append(ml_confidence * 0.35)
+        weights.append(ml_confidence * 0.45)
 
-        # Sentiment Analysis (15% weight)
-        signals.append(_normalize_signal(sentiment_signal))
-        weights.append(sentiment_confidence * 0.15)
-
-        # Risk Adjustment (10% weight) - Based on market regime
+        # Risk Adjustment (15% weight) - Based on market regime
         risk_signal = _get_risk_adjusted_signal(regime)
         risk_confidence = market_regime.get("confidence", 0.5)
         signals.append(_normalize_signal(risk_signal))
-        weights.append(risk_confidence * 0.10)
+        weights.append(risk_confidence * 0.15)
 
         # Calculate final weighted signal
         if signals and weights:
@@ -287,44 +254,43 @@ async def _calculate_enhanced_signal(
                 adjusted_confidence = overall_confidence * win_rate_factor
 
                 # Update the signal with enhanced data
-                if hasattr(base_signal.signal, 'confidence'):
+                if hasattr(base_signal.signal, "confidence"):
                     base_signal.signal.confidence = min(adjusted_confidence, 1.0)
 
                 # Add enhanced metadata
-                if not hasattr(base_signal.signal, 'metadata'):
+                if not hasattr(base_signal.signal, "metadata"):
                     base_signal.signal.metadata = {}
 
-                base_signal.signal.metadata.update({
-                    "enhanced": True,
-                    "win_rate_improvement_target": "5-10%",
-                    "win_rate_factor_applied": win_rate_factor,
-                    "individual_signals": {
-                        "technical_analysis": {
-                            "signal": ta_signal,
-                            "confidence": ta_confidence
+                base_signal.signal.metadata.update(
+                    {
+                        "enhanced": True,
+                        "win_rate_improvement_target": "5-10%",
+                        "win_rate_factor_applied": win_rate_factor,
+                        "individual_signals": {
+                            "technical_analysis": {
+                                "signal": ta_signal,
+                                "confidence": ta_confidence,
+                            },
+                            "ml_prediction": {
+                                "signal": ml_signal,
+                                "confidence": ml_confidence,
+                                "win_rate_potential": ml_prediction.get(
+                                    "enhanced_metrics", {}
+                                ).get("win_rate_potential", 0.5),
+                            },
+                            "risk_adjustment": {
+                                "signal": risk_signal,
+                                "confidence": risk_confidence,
+                                "regime": regime,
+                            },
                         },
-                        "ml_prediction": {
-                            "signal": ml_signal,
-                            "confidence": ml_confidence,
-                            "win_rate_potential": ml_prediction.get("enhanced_metrics", {}).get("win_rate_potential", 0.5)
+                        "weights_applied": {
+                            "technical_analysis": 0.40,
+                            "ml_prediction": 0.45,
+                            "risk_adjustment": 0.15,
                         },
-                        "sentiment": {
-                            "signal": sentiment_signal,
-                            "confidence": sentiment_confidence
-                        },
-                        "risk_adjustment": {
-                            "signal": risk_signal,
-                            "confidence": risk_confidence,
-                            "regime": regime
-                        }
-                    },
-                    "weights_applied": {
-                        "technical_analysis": 0.30,
-                        "ml_prediction": 0.35,
-                        "sentiment": 0.15,
-                        "risk_adjustment": 0.10
                     }
-                })
+                )
 
         return base_signal.signal
 
@@ -387,7 +353,9 @@ async def _calculate_win_rate_factor(ml_prediction: dict) -> float:
         potential_improvement = max(0, ml_win_rate_potential - baseline)
 
         # Convert to factor (1.0 = no improvement, 1.1 = 10% improvement)
-        improvement_factor = 1.0 + (potential_improvement * 0.2)  # 20% of potential improvement
+        improvement_factor = 1.0 + (
+            potential_improvement * 0.2
+        )  # 20% of potential improvement
 
         return min(max(improvement_factor, 0.9), 1.10)  # Clamp between 0.9-1.1
 
@@ -396,9 +364,7 @@ async def _calculate_win_rate_factor(ml_prediction: dict) -> float:
 
 
 async def analyze_and_trade(
-    symbol: str,
-    interval: str = "60",
-    execute: bool = False
+    symbol: str, interval: str = "60", execute: bool = False
 ) -> SignalResponse:
     """
     Analyze signal and optionally execute trade
@@ -435,7 +401,7 @@ async def analyze_and_trade(
                 success=False,
                 signal=signal,
                 message=f"Signal validation failed: {reason}",
-                timestamp=int(time.time() * 1000)
+                timestamp=int(time.time() * 1000),
             )
 
         # Execute trade if requested (paper trading only)
@@ -445,14 +411,14 @@ async def analyze_and_trade(
                 success=True,
                 signal=signal,
                 message=message,
-                timestamp=int(time.time() * 1000)
+                timestamp=int(time.time() * 1000),
             )
 
         return SignalResponse(
             success=True,
             signal=signal,
             message="Signal analyzed (not executed)",
-            timestamp=int(time.time() * 1000)
+            timestamp=int(time.time() * 1000),
         )
 
     except Exception as e:

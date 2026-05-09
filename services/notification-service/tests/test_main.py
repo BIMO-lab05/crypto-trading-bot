@@ -124,7 +124,12 @@ class TestTradeNotificationEndpoint:
         mock_email_notifier,
         mock_telegram_notifier
     ):
-        """Test trade notification handles email failure gracefully"""
+        """Partial-delivery failure now surfaces as 502 (false-success fix).
+
+        Previously the endpoint returned 200 with `success=True` even when one
+        channel failed. The PR replaced that pattern: any failed channel now
+        raises 502 so callers can react instead of trusting HTTP 200.
+        """
         mock_email_notifier.notify_trade_executed.return_value = False
 
         with patch('app.main.email_notifier', mock_email_notifier), \
@@ -139,13 +144,15 @@ class TestTradeNotificationEndpoint:
                 json=sample_trade_notification
             )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        assert data["email_sent"] is False
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert detail["success"] is False
+        assert detail["email_sent"] is False
+        assert "email" in detail["failed_channels"]
 
     def test_notify_trade_with_optional_confidence(self, test_client):
-        """Test trade notification with optional confidence score"""
+        """Endpoint accepts the optional confidence field; with no channels
+        enabled it now returns 503 per the false-success fix."""
         notification_with_confidence = {
             "action": "BUY",
             "symbol": "BTCUSDT",
@@ -164,7 +171,7 @@ class TestTradeNotificationEndpoint:
                 json=notification_with_confidence
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
 
 class TestProfitLossNotificationEndpoint:
@@ -196,7 +203,7 @@ class TestProfitLossNotificationEndpoint:
         assert data["success"] is True
 
     def test_notify_pnl_positive(self, test_client):
-        """Test P&L notification for profitable trade"""
+        """Endpoint accepts positive P&L; no-channels-enabled now returns 503."""
         notification = {
             "trade": {
                 "action": "SELL",
@@ -214,10 +221,10 @@ class TestProfitLossNotificationEndpoint:
 
             response = test_client.post("/api/v1/notify/pnl", json=notification)
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
     def test_notify_pnl_negative(self, test_client):
-        """Test P&L notification for losing trade"""
+        """Endpoint accepts negative P&L; no-channels-enabled now returns 503."""
         notification = {
             "trade": {
                 "action": "SELL",
@@ -235,7 +242,7 @@ class TestProfitLossNotificationEndpoint:
 
             response = test_client.post("/api/v1/notify/pnl", json=notification)
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
 
 class TestDailyLimitNotificationEndpoint:
@@ -266,7 +273,7 @@ class TestDailyLimitNotificationEndpoint:
         assert data["success"] is True
 
     def test_notify_daily_limit_with_zero_loss(self, test_client):
-        """Test daily limit notification with zero loss"""
+        """Endpoint accepts zero loss; no-channels-enabled now returns 503."""
         with patch('app.main.config') as mock_config:
             mock_config.email_enabled = False
             mock_config.telegram_enabled = False
@@ -276,7 +283,7 @@ class TestDailyLimitNotificationEndpoint:
                 params={"total_loss": 0.0}
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
 
 class TestErrorNotificationEndpoint:
@@ -308,7 +315,7 @@ class TestErrorNotificationEndpoint:
         assert data["success"] is True
 
     def test_notify_error_without_context(self, test_client):
-        """Test error notification without context"""
+        """Endpoint accepts error without context; no-channels → 503."""
         notification = {
             "error_message": "Generic error occurred"
         }
@@ -319,10 +326,10 @@ class TestErrorNotificationEndpoint:
 
             response = test_client.post("/api/v1/notify/error", json=notification)
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
     def test_notify_error_with_context(self, test_client):
-        """Test error notification with detailed context"""
+        """Endpoint accepts error with context; no-channels → 503."""
         notification = {
             "error_message": "Order execution failed",
             "context": {
@@ -339,7 +346,7 @@ class TestErrorNotificationEndpoint:
 
             response = test_client.post("/api/v1/notify/error", json=notification)
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
 
 class TestStartupNotificationEndpoint:
@@ -371,7 +378,7 @@ class TestStartupNotificationEndpoint:
         assert data["success"] is True
 
     def test_notify_startup_paper_trading_mode(self, test_client):
-        """Test startup notification for paper trading mode"""
+        """Endpoint accepts paper-trading payload; no-channels → 503."""
         notification = {
             "mode": "PAPER_TRADING",
             "symbols": ["BTCUSDT"],
@@ -388,10 +395,10 @@ class TestStartupNotificationEndpoint:
 
             response = test_client.post("/api/v1/notify/startup", json=notification)
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
     def test_notify_startup_live_trading_mode(self, test_client):
-        """Test startup notification for live trading mode"""
+        """Endpoint accepts live-trading payload; no-channels → 503."""
         notification = {
             "mode": "LIVE_TRADING",
             "symbols": ["BTCUSDT", "ETHUSDT"],
@@ -408,7 +415,7 @@ class TestStartupNotificationEndpoint:
 
             response = test_client.post("/api/v1/notify/startup", json=notification)
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
 
 class TestDailySummaryNotificationEndpoint:
@@ -438,7 +445,7 @@ class TestDailySummaryNotificationEndpoint:
         assert "telegram_sent" in data
 
     def test_notify_daily_summary_profitable_day(self, test_client):
-        """Test daily summary for profitable day"""
+        """Endpoint accepts profitable summary; no-channels → 503."""
         summary = {
             "total_pnl": 5000.0,
             "total_trades": 15,
@@ -451,16 +458,17 @@ class TestDailySummaryNotificationEndpoint:
 
         with patch('app.main.config') as mock_config:
             mock_config.telegram_enabled = False
+            mock_config.email_enabled = False
 
             response = test_client.post(
                 "/api/v1/notify/daily-summary",
                 json=summary
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
     def test_notify_daily_summary_losing_day(self, test_client):
-        """Test daily summary for losing day"""
+        """Endpoint accepts losing summary; no-channels → 503."""
         summary = {
             "total_pnl": -2000.0,
             "total_trades": 10,
@@ -473,13 +481,14 @@ class TestDailySummaryNotificationEndpoint:
 
         with patch('app.main.config') as mock_config:
             mock_config.telegram_enabled = False
+            mock_config.email_enabled = False
 
             response = test_client.post(
                 "/api/v1/notify/daily-summary",
                 json=summary
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 503
 
 
 class TestNotificationTestEndpoint:
@@ -492,13 +501,21 @@ class TestNotificationTestEndpoint:
         mock_email_notifier,
         mock_telegram_notifier
     ):
-        """Test notification test endpoint"""
+        """Test notification test endpoint.
+
+        slack/sms must be explicitly disabled — the endpoint's `attempted` list
+        includes any channel where `enabled` is truthy, and a bare MagicMock
+        attribute is truthy, which would otherwise make the honest-success
+        check fail.
+        """
         with patch('app.main.email_notifier', mock_email_notifier), \
              patch('app.main.telegram_notifier', mock_telegram_notifier), \
              patch('app.main.config') as mock_config:
 
             mock_config.email_enabled = True
             mock_config.telegram_enabled = True
+            mock_config.slack_enabled = False
+            mock_config.sms_enabled = False
 
             response = test_client.post("/api/v1/test")
 

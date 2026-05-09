@@ -12,8 +12,31 @@ Features:
 - Compares performance across different market regimes
 - Validates against research claims (65-70% win rate target)
 
+============================================================================
+!!! KNOWN LIMITATION — READ BEFORE TRUSTING ANY PnL OUTPUT !!!
+============================================================================
+
+**Signal logic does not match live trading.** The live auto-trader uses a
+9-indicator voting aggregator (CoreAggregator + SignalVoter in
+app/orchestration/, with TREND_FILTER + VOLUME_CONFIRMATION gates and
+weighted votes). This script uses HybridStrategyRouter (trend-follow +
+mean-reversion fallback), which is a different decision surface. So a
+backtest "win rate" here does NOT predict live win rate. Fixing requires
+importing the live aggregator into the backtest path (high effort,
+separate change).
+
+Until aligned, treat this script's output as "strategy regime
+characterisation" rather than "expected live PnL".
+
+Resolved 2026-04-29 (the testnet contamination half): market-data-service
+GET /api/v1/klines now defaults to `mainnet_only=true`, filtering rows
+tagged `is_mainnet=False`. Pre-flip rows that existed before the column
+was added are migrated to `is_mainnet=true` (the column's server default)
+— if your klines table contains pre-2026-04-25 testnet history, wipe it
+or back-label those rows before relying on backtest output.
+
 Author: Trading System
-Date: 2026-01-04
+Date: 2026-01-04 (limitations block added 2026-04-29)
 """
 
 import asyncio
@@ -569,6 +592,12 @@ async def main():
 
     logger.info("=" * 70)
     logger.info("EXTENDED BACKTEST - HYBRID STRATEGY VALIDATION")
+    logger.info("=" * 70)
+    logger.warning(
+        "PnL output is SUSPECT: backtest uses HybridStrategyRouter, "
+        "not the live 9-indicator voting aggregator. Testnet contamination "
+        "is now filtered server-side by default. See module docstring."
+    )
     logger.info("=" * 70)
     logger.info("")
 

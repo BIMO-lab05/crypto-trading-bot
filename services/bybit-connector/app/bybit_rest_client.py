@@ -596,12 +596,12 @@ class BybitRestClient:
     async def get_orderbook(self, category: str, symbol: str, limit: int = 25) -> Dict[str, Any]:
         """
         Get orderbook depth
-        
+
         Args:
             category: Product category
             symbol: Trading pair
             limit: Depth limit (1, 25, 50, 100, 200)
-        
+
         Returns:
             Orderbook with bids and asks
         """
@@ -610,10 +610,83 @@ class BybitRestClient:
             "symbol": symbol,
             "limit": limit
         }
-        
+
         result = await self._request("GET", "/v5/market/orderbook", params=params, auth_required=False)
         return result
-    
+
+    async def get_funding_rate_history(
+        self,
+        category: str,
+        symbol: str,
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, str]]:
+        """
+        Get historical funding rates for a perpetual contract.
+
+        Args:
+            category: linear or inverse (perpetuals only — not applicable to spot)
+            symbol: Trading pair (e.g. SOLUSDT)
+            start_time: Start timestamp (ms). Bybit returns rates with
+                fundingRateTimestamp >= start_time.
+            end_time: End timestamp (ms).
+            limit: 1-200 (Bybit hard limit), default 200.
+
+        Returns:
+            List of {symbol, fundingRate, fundingRateTimestamp} dicts ordered
+            newest-first per Bybit convention. Each fundingRate is a stringified
+            decimal (e.g. "0.00010000" = 0.01% per settlement interval).
+        """
+        if category not in ("linear", "inverse"):
+            raise ValueError(
+                f"funding-rate history is perp-only; category={category!r} unsupported"
+            )
+        params: Dict[str, Any] = {
+            "category": category,
+            "symbol": symbol,
+            "limit": min(max(limit, 1), 200),
+        }
+        if start_time:
+            params["startTime"] = start_time
+        if end_time:
+            params["endTime"] = end_time
+
+        result = await self._request(
+            "GET", "/v5/market/funding/history", params=params, auth_required=False
+        )
+        return result.get("list", [])
+
+    async def get_instruments_info(
+        self,
+        category: str,
+        symbol: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get instrument metadata (lot size, tick size, funding interval, etc.).
+
+        For perp instruments, the response includes ``fundingInterval`` in
+        minutes (e.g. 480 for 8h). Some symbols use 1h or 4h funding —
+        T2.3 funding-rate awareness needs the per-symbol interval, not a
+        hardcoded 8h.
+
+        Args:
+            category: spot, linear, inverse, or option.
+            symbol: Restrict to a single symbol (optional).
+
+        Returns:
+            List of instrument dicts. For perps, key fields include:
+              symbol, fundingInterval (str minutes), priceFilter.tickSize,
+              lotSizeFilter.minOrderQty, lotSizeFilter.maxOrderQty.
+        """
+        params: Dict[str, Any] = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        result = await self._request(
+            "GET", "/v5/market/instruments-info", params=params, auth_required=False
+        )
+        return result.get("list", [])
+
     # ========================================================================
     # UTILITY METHODS
     # ========================================================================

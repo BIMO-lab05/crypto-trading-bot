@@ -18,12 +18,18 @@ class Settings(BaseSettings):
 
     # Service
     service_name: str = Field(default="market-data-service")
-    service_port: int = Field(default=8003)
+    # 8002 matches the production / compose port. Was 8003 in the in-code
+    # default, which collided with portfolio-manager (also 8003) on
+    # standalone runs. The compose stack overrode this via SERVICE_PORT,
+    # so the live system was fine — this is the standalone-run fix.
+    service_port: int = Field(default=8002)
     service_host: str = Field(default="0.0.0.0")
 
     # TimescaleDB (market data storage)
     timescale_host: str = Field(default="localhost")
-    timescale_port: int = Field(default=5432)  # Internal Docker port, not host-mapped port
+    timescale_port: int = Field(
+        default=5432
+    )  # Internal Docker port, not host-mapped port
     timescale_user: str = Field(default="cryptobot")
     timescale_password: str = Field(default="change_this_secure_password")
     timescale_db: str = Field(default="market_data")
@@ -51,13 +57,23 @@ class Settings(BaseSettings):
     # Bybit Connector Service
     bybit_connector_url: str = Field(default="http://localhost:8002")
 
-    # Data Collection Settings - 13 ACTIVE symbols (2025-12-05)
+    # Mirror of the BYBIT_TESTNET env var on bybit-connector. Used to tag
+    # ingested klines with `is_mainnet=not bybit_testnet` so the table
+    # can later be filtered by source. Operators must keep this in sync
+    # with whatever bybit-connector is running against. Audit 2026-04-29.
+    bybit_testnet: bool = Field(
+        default=False,
+        description="True if connector is on testnet — newly-ingested klines get is_mainnet=False",
+    )
+
+    # Data Collection Settings - 14 ACTIVE symbols (2026-05-03)
     # SYNCHRONIZED with trading-engine config.py
-    # Excluded: XRP (-$39.73, 23% WR), DOGE (-$9.81, 30% WR), ETH (-$15.12, 43% WR)
+    # 2026-05-03: ETH re-added per operator request (was excluded 2025-12-05).
+    # Still excluded: XRP (-$39.73, 23% WR), DOGE (-$9.81, 30% WR).
     default_symbols: str = Field(
         default=(
             # TIER 1: MEGA CAPS (Core trading pairs, highest liquidity)
-            "BTCUSDT,BNBUSDT,SOLUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,"
+            "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,"
             # TIER 2: VERIFIED ALTCOINS (Working indicators, good historical data)
             "ARBUSDT,OPUSDT,SUIUSDT,"
             # TIER 3: NEWLY ADDED (2025-12-05) - All have 1000 klines, 41 days data
@@ -101,7 +117,7 @@ class Settings(BaseSettings):
     model_config = {
         "env_file": ".env",
         "case_sensitive": False,
-        "extra": "ignore"  # Ignore extra environment variables (like DB_*, API_KEYS)
+        "extra": "ignore",  # Ignore extra environment variables (like DB_*, API_KEYS)
     }
 
 

@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     service_host: str = Field(default="0.0.0.0")
 
     # Market Data Service
-    market_data_url: str = Field(default="http://localhost:8003")
+    market_data_url: str = Field(default="http://localhost:8002")
 
     # Redis (caching)
     redis_host: str = Field(default="localhost")
@@ -102,7 +102,18 @@ class Settings(BaseSettings):
     # Signal Generation
     # RESEARCH NOTE: 0.6 confidence threshold works well with crypto-optimized indicators
     signal_confidence_threshold: float = Field(default=0.6)
-    enable_signal_publishing: bool = Field(default=True)
+    # NOT YET IMPLEMENTED — kept as a config knob so .env files don't fail
+    # validation, but no code path actually publishes signals to RabbitMQ
+    # today. Default flipped from `True` (which was a lie) to `False` on
+    # 2026-04-29 (audit finding). To wire this up: build an aio_pika
+    # publisher module, declare a `signals` topic exchange with routing
+    # key `signals.{symbol}`, and call it from the three handlers that
+    # build signal responses (handlers/analysis.py:get_aggregated_signal,
+    # handlers/analysis.py:get_multi_timeframe_analysis,
+    # handlers/sqzmom.py:get_sqzmom_strategy_signal). trading-engine
+    # would also need a consumer — none exists today, so today's
+    # downstream is HTTP-only via the aggregator service.
+    enable_signal_publishing: bool = Field(default=False)
 
     # Caching TTL
     cache_ttl_indicator: int = Field(default=300)  # 5 minutes

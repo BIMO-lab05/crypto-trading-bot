@@ -11,7 +11,9 @@ IMPORTANT:
 - Monitor positions actively
 """
 
+import asyncio
 import logging
+import time
 import httpx
 from decimal import Decimal
 from typing import Optional, Tuple
@@ -23,6 +25,9 @@ from app.position_manager import get_position_manager
 from app.risk_manager import get_risk_manager
 
 logger = logging.getLogger(__name__)
+
+
+_MAKER_POLL_INTERVAL_SECONDS = 2.0
 
 
 class LiveTradingEngine:
@@ -97,16 +102,15 @@ class LiveTradingEngine:
             response.raise_for_status()
             payload = response.json()
 
-            # Connector wraps as {"success": True, "data": {...}}; legacy
-            # callers may have observed raw {"result": {...}}. Try both.
-            inner = payload.get("data") or payload.get("result")
-            if inner:
-                # Bybit returns a "list" of accounts under data; take the first.
-                if "list" in inner and inner["list"]:
-                    inner = inner["list"][0]
-                equity = inner.get("totalEquity") or \
-                        inner.get("totalWalletBalance") or \
-                        "0"
+            data = payload.get("data") or {}
+            account_list = data.get("list") or []
+            if account_list:
+                account = account_list[0]
+                equity = (
+                    account.get("totalEquity")
+                    or account.get("totalWalletBalance")
+                    or "0"
+                )
                 return Decimal(str(equity))
 
             return await self.get_balance()
@@ -131,12 +135,19 @@ class LiveTradingEngine:
             Tuple of (executed_order, error_message)
         """
         try:
-            # Risk check first
-            if not self.risk_manager.can_open_position(
-                order.symbol,
-                current_price * order.quantity
-            ):
-                error = "Risk manager rejected: exposure limit reached"
+            # Risk check first.
+            # FIX (audit 2026-05-01): RiskManager has no can_open_position
+            # method — calling this in LIVE mode raised AttributeError before
+            # an order was ever placed, so LIVE has been silently broken at
+            # this gate. The existing API is check_position_limits(positions,
+            # balance), so wire that.
+            open_positions = self.position_manager.get_open_positions()
+            balance_for_check = await self.get_balance()
+            allowed, reason = self.risk_manager.check_position_limits(
+                open_positions, balance_for_check
+            )
+            if not allowed:
+                error = f"Risk manager rejected: {reason}"
                 logger.warning(f"[LIVE] {error}")
                 return None, error
 
@@ -163,9 +174,11 @@ class LiveTradingEngine:
             logger.info(f"  Price (reference): {current_price}")
             logger.info("=" * 60)
 
-            # Send order to Bybit (via the connector). The connector wraps
-            # successful responses as {"success": True, "data": <result>}; on
-            # failure it surfaces a non-2xx HTTP status (caught below).
+            # Send order to Bybit. The bybit-connector raises HTTP 400 on Bybit
+            # API errors and wraps the success payload as
+            # {"success": True, "data": <bybit_result>}, so we extract orderId
+            # from response["data"]["orderId"] and rely on raise_for_status
+            # plus the broad except below for error handling.
             response = await self.client.post(
                 f"{self.bybit_url}/api/v1/order/place",
                 json=order_request
@@ -173,15 +186,9 @@ class LiveTradingEngine:
             response.raise_for_status()
             payload = response.json()
 
-            logger.info(f"[LIVE] Bybit connector response: {payload}")
+            logger.info(f"[LIVE] Bybit response: {payload}")
 
-            if not payload.get("success"):
-                error_msg = payload.get("detail", payload.get("retMsg", "Unknown error"))
-                logger.error(f"[LIVE] Order rejected by Bybit: {error_msg}")
-                return None, error_msg
-
-            # Connector returns the Bybit `result` dict directly under "data"
-            order_result = payload.get("data", {})
+            order_result = payload.get("data") or {}
             order_id = order_result.get("orderId", "")
 
             # Create executed order record
@@ -190,11 +197,13 @@ class LiveTradingEngine:
                 side=order.side,
                 type=order.type,
                 quantity=order.quantity,
-                price=current_price,  # Will be updated with fill price
+                price=current_price,
                 status=OrderStatus.FILLED,
-                strategy=order.strategy
+                strategy=order.strategy,
+                bybit_order_id=order_id,
+                filled_price=current_price,
+                filled_quantity=order.quantity,
             )
-            executed_order.bybit_order_id = order_id
 
             # Create position in position manager
             position_side = PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
@@ -234,6 +243,187 @@ class LiveTradingEngine:
             error = f"Failed to execute order: {str(e)}"
             logger.error(f"[LIVE] {error}", exc_info=True)
             return None, error
+
+    async def _get_best_quote(self, symbol: str) -> Optional[Tuple[Decimal, Decimal]]:
+        """Return (best_bid, best_ask) for the linear perp, or None on error."""
+        try:
+            response = await self.client.get(
+                f"{self.bybit_url}/api/v1/market/orderbook",
+                params={"category": "linear", "symbol": symbol, "limit": 1},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") or payload.get("result") or {}
+            bids = data.get("b") or data.get("bids") or []
+            asks = data.get("a") or data.get("asks") or []
+            if not bids or not asks:
+                return None
+            return Decimal(str(bids[0][0])), Decimal(str(asks[0][0]))
+        except Exception as e:
+            logger.warning(f"[LIVE] Orderbook fetch failed for {symbol}: {e}")
+            return None
+
+    async def _is_order_open(self, symbol: str, order_id: str) -> bool:
+        """Return True iff order_id is still on the book (not filled/cancelled)."""
+        try:
+            response = await self.client.get(
+                f"{self.bybit_url}/api/v1/order/open",
+                params={"category": "linear", "symbol": symbol},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") or payload.get("result") or {}
+            open_orders = data.get("list") or data
+            if isinstance(open_orders, list):
+                return any(o.get("orderId") == order_id for o in open_orders)
+            return False
+        except Exception as e:
+            logger.warning(f"[LIVE] Open-order check failed for {order_id}: {e}")
+            return True  # Conservative: assume still open so we don't double-place
+
+    async def execute_maker_order_with_fallback(
+        self,
+        order: OrderCreate,
+        current_price: Decimal,
+    ) -> Tuple[Optional[Order], Optional[str]]:
+        """
+        Place a PostOnly limit order at best bid (BUY) or best ask (SELL).
+        If unfilled within `maker_quote_timeout_seconds`, cancel and either
+        fall back to a taker market order or abort, per `maker_fallback_to_taker`.
+
+        Falls back to `execute_market_order` immediately if the orderbook is
+        unreachable — better to take liquidity than to silently skip a signal.
+        """
+        # FIX (audit 2026-05-01): same broken can_open_position call as in
+        # execute_market_order — replaced with the real check_position_limits
+        # so the maker entry path doesn't raise AttributeError.
+        open_positions = self.position_manager.get_open_positions()
+        balance_for_check = await self.get_balance()
+        allowed, reason = self.risk_manager.check_position_limits(
+            open_positions, balance_for_check
+        )
+        if not allowed:
+            return None, f"Risk manager rejected: {reason}"
+
+        quote = await self._get_best_quote(order.symbol)
+        if quote is None:
+            logger.warning(
+                f"[LIVE][MAKER] No orderbook for {order.symbol}; falling back to taker"
+            )
+            return await self.execute_market_order(order, current_price)
+        best_bid, best_ask = quote
+
+        side = "Buy" if order.side == OrderSide.BUY else "Sell"
+        # PostOnly side: BUY → bid (don't cross); SELL → ask
+        limit_price = best_bid if order.side == OrderSide.BUY else best_ask
+
+        order_request = {
+            "category": "linear",
+            "symbol": order.symbol,
+            "side": side,
+            "order_type": "Limit",
+            "qty": str(order.quantity),
+            "price": str(limit_price),
+            "time_in_force": "PostOnly",
+            "reduce_only": False,
+        }
+
+        logger.info(
+            f"[LIVE][MAKER] PostOnly {side} {order.symbol} qty={order.quantity} "
+            f"@ {limit_price} (bid={best_bid}, ask={best_ask}, ref={current_price})"
+        )
+
+        try:
+            place_resp = await self.client.post(
+                f"{self.bybit_url}/api/v1/order/place", json=order_request
+            )
+            place_resp.raise_for_status()
+            place_result = place_resp.json()
+        except Exception as e:
+            logger.error(f"[LIVE][MAKER] Place failed: {e}")
+            if self.settings.maker_fallback_to_taker:
+                return await self.execute_market_order(order, current_price)
+            return None, f"Maker place failed: {e}"
+
+        # The bybit-connector raises HTTP 4xx on Bybit rejection (caught
+        # above as `Exception`), so a 2xx success response carries
+        # `{"success": True, "data": <bybit_inner>}` and we just need to
+        # extract orderId. PostOnly-would-cross specifically returns 4xx
+        # from Bybit and is therefore handled by the except block above.
+        place_data = place_result.get("data") or {}
+        order_id = place_data.get("orderId", "")
+        if not order_id:
+            logger.error(f"[LIVE][MAKER] No orderId returned: {place_result}")
+            if self.settings.maker_fallback_to_taker:
+                return await self.execute_market_order(order, current_price)
+            return None, "PostOnly: no orderId returned"
+
+        timeout_s = self.settings.maker_quote_timeout_seconds
+        deadline = time.monotonic() + timeout_s
+        filled = False
+        while time.monotonic() < deadline:
+            await asyncio.sleep(_MAKER_POLL_INTERVAL_SECONDS)
+            still_open = await self._is_order_open(order.symbol, order_id)
+            if not still_open:
+                filled = True
+                break
+
+        if not filled:
+            logger.info(
+                f"[LIVE][MAKER] Timeout after {timeout_s}s — cancelling {order_id}"
+            )
+            try:
+                await self.client.post(
+                    f"{self.bybit_url}/api/v1/order/cancel",
+                    json={
+                        "category": "linear",
+                        "symbol": order.symbol,
+                        "order_id": order_id,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"[LIVE][MAKER] Cancel failed for {order_id}: {e}")
+            if self.settings.maker_fallback_to_taker:
+                logger.info(f"[LIVE][MAKER] Falling back to taker market order")
+                return await self.execute_market_order(order, current_price)
+            return None, "Maker quote timed out; taker fallback disabled"
+
+        # Filled at limit_price → record position
+        executed_order = Order(
+            symbol=order.symbol,
+            side=order.side,
+            type=order.type,
+            quantity=order.quantity,
+            price=limit_price,
+            status=OrderStatus.FILLED,
+            strategy=order.strategy,
+            bybit_order_id=order_id,
+            filled_price=limit_price,
+            filled_quantity=order.quantity,
+        )
+
+        position_side = (
+            PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
+        )
+        stop_loss = self.risk_manager.calculate_stop_loss(limit_price, position_side)
+        take_profit = self.risk_manager.calculate_take_profit(limit_price, position_side)
+
+        self.position_manager.create_position(
+            symbol=order.symbol,
+            side=position_side,
+            entry_price=limit_price,
+            quantity=order.quantity,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            strategy=order.strategy or "live_trading",
+            entry_signal_confidence=order.entry_signal_confidence,
+        )
+
+        logger.info(
+            f"[LIVE][MAKER] FILLED {order.symbol} {side} qty={order.quantity} "
+            f"@ {limit_price} (id={order_id})"
+        )
+        return executed_order, None
 
     async def close_position(
         self,
@@ -281,18 +471,13 @@ class LiveTradingEngine:
             logger.info(f"  Reason: {reason}")
             logger.info("=" * 60)
 
-            # Send close order (via connector — wrapped success response shape)
+            # Send close order. The bybit-connector raises HTTP 400 on Bybit
+            # rejection, so a 2xx here means the close was accepted.
             response = await self.client.post(
                 f"{self.bybit_url}/api/v1/order/place",
                 json=close_request
             )
             response.raise_for_status()
-            payload = response.json()
-
-            if not payload.get("success"):
-                error_msg = payload.get("detail", payload.get("retMsg", "Unknown error"))
-                logger.error(f"[LIVE] Close order rejected: {error_msg}")
-                return False, error_msg
 
             # Update position manager
             self.position_manager.close_position(position_id, close_price, reason)
@@ -316,10 +501,8 @@ class LiveTradingEngine:
             response.raise_for_status()
             payload = response.json()
 
-            # Accept both connector-wrap ({"data": [...]}) and raw Bybit
-            # ({"result": {"list": [...]}}) shapes.
-            inner = payload.get("data") or payload.get("result") or {}
-            positions = inner if isinstance(inner, list) else inner.get("list", [])
+            # Connector returns {"success": True, "data": [pos, ...]}
+            positions = payload.get("data") or []
             logger.info(f"[LIVE] Found {len(positions)} positions on exchange")
 
             for pos in positions:

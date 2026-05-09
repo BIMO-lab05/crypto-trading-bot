@@ -12,6 +12,32 @@ import react from '@vitejs/plugin-react'
  * - Proper CORS and HMR configuration
  *
  * Fixed 2025-11-29: Added cache control to fix normal browsing mode issues
+ *
+ * --- DEV vs PROD ROUTING (read this before "fixing" the URL mismatch) ---
+ *
+ * In **production** (`frontend/nginx.conf`), nginx proxies `/api/`
+ * unchanged to the api-gateway: `/api/<domain>/<resource>` →
+ * `crypto-bot-api-gateway:8000/api/<domain>/<resource>`. The gateway
+ * routes are `/api/<domain>/<resource>` (NO `v1` prefix — see CLAUDE.md
+ * "Project rules"). One ingress, gateway middleware (auth, rate limit,
+ * input validation, security headers) applies to everything.
+ *
+ * In **development** below, the proxy block instead **bypasses the
+ * gateway** and rewrites `/api/<domain>/...` directly to the
+ * individual service on its host port with a `/api/v1/<resource>`
+ * shape (e.g. `/api/portfolio/...` → port 8003 with rewrite to
+ * `/api/v1/portfolio/...`). That's a deliberate dev-only shortcut so
+ * the gateway doesn't have to be running for the UI to work, but it
+ * means **gateway middleware does not execute in dev** — auth checks,
+ * rate limits, and the validation pipeline are silently skipped.
+ *
+ * The audit flagged this as a "dev/prod URL mismatch". It's not a
+ * routing bug — both forms reach a working backend — but it is a
+ * dev/prod parity issue: features added to gateway middleware (e.g.
+ * the admin-auth requirement on /api/portfolio/emergency-stop) only
+ * exercise in prod. Test gateway-mediated paths against a running
+ * gateway (`docker compose up api-gateway` and proxy `/api` →
+ * `localhost:8000`) before declaring a feature done.
  */
 export default defineConfig({
   plugins: [react()],

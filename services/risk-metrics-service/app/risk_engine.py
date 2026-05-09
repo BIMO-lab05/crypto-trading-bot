@@ -195,13 +195,14 @@ class RiskEngine:
         underwater_periods = 0
         drawdowns = []
 
+        currently_underwater = False
         for date, value in processed_historical:
             if value > peak:
                 peak = value
                 last_peak_date = date
-                if underwater_days > 0:
+                if currently_underwater:
                     underwater_periods += 1
-                underwater_days = 0
+                currently_underwater = False
             else:
                 if peak > 0:
                     drawdown = float((peak - value) / peak)
@@ -209,9 +210,15 @@ class RiskEngine:
                     if drawdown > max_drawdown:
                         max_drawdown = drawdown
                         max_dd_date = date
+                if value < peak:
+                    currently_underwater = True
 
-                if last_peak_date:
-                    underwater_days = (datetime.now() - last_peak_date).days
+        # Underwater days = days since last peak, computed once (was being
+        # overwritten every loop iteration with datetime.now() — a bug).
+        if currently_underwater and last_peak_date:
+            underwater_days = (datetime.now() - last_peak_date).days
+        else:
+            underwater_days = 0
 
         # Calculate average drawdown
         avg_drawdown = float(np.mean(drawdowns)) if drawdowns else 0.0
@@ -269,7 +276,8 @@ class RiskEngine:
         annualized_return = self._annualize_return(total_return, len(returns))
 
         # Calculate volatility with edge case handling
-        volatility = float(np.std(returns_array))
+        # Use ddof=1 for sample std — convention for Sharpe/Sortino over realized returns
+        volatility = float(np.std(returns_array, ddof=1)) if len(returns_array) > 1 else 0.0
 
         # For very consistent returns (e.g., all same value), add small noise for realistic Sharpe
         if volatility < 1e-10:  # Essentially zero volatility
@@ -290,10 +298,11 @@ class RiskEngine:
             sharpe_ratio = excess_return / annualized_volatility
 
         # Sortino Ratio (uses downside deviation)
+        # Sample std (ddof=1) for consistency with Sharpe; need >=2 downside obs.
         sortino_ratio = None
         downside_returns = returns_array[returns_array < 0]
-        if len(downside_returns) > 0:
-            downside_std = float(np.std(downside_returns)) * np.sqrt(252)
+        if len(downside_returns) > 1:
+            downside_std = float(np.std(downside_returns, ddof=1)) * np.sqrt(252)
             if downside_std > 0:
                 sortino_ratio = (annualized_return - self.risk_free_rate) / downside_std
 

@@ -356,34 +356,38 @@ async def execute_rebalancing(
     # Execute trades if requested
     executed_trades = []
     if execute:
-        for symbol, (action, amount_usd) in trades.items():
-            # Get current price
-            current_price = await manager._fetch_current_price(symbol)
-            if current_price == 0:
-                logger.warning(f"Skipping {symbol} - unable to fetch price")
-                continue
+        # Serialize the per-trade fetch+execute window per portfolio so a
+        # concurrent buy/sell handler can't interleave with these rebalance
+        # legs and overdraw the cash balance.
+        async with manager.get_transaction_lock(portfolio_id):
+            for symbol, (action, amount_usd) in trades.items():
+                # Get current price
+                current_price = await manager._fetch_current_price(symbol)
+                if current_price == 0:
+                    logger.warning(f"Skipping {symbol} - unable to fetch price")
+                    continue
 
-            # Calculate quantity
-            quantity = Decimal(str(amount_usd)) / Decimal(str(current_price))
+                # Calculate quantity
+                quantity = Decimal(str(amount_usd)) / Decimal(str(current_price))
 
-            # Execute trade
-            success, message, realized_pnl = manager.execute_transaction(
-                portfolio_id=portfolio_id,
-                symbol=symbol,
-                action=action,
-                quantity=quantity,
-                price=Decimal(str(current_price))
-            )
+                # Execute trade
+                success, message, realized_pnl = manager.execute_transaction(
+                    portfolio_id=portfolio_id,
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    price=Decimal(str(current_price))
+                )
 
-            executed_trades.append({
-                "symbol": symbol,
-                "action": action,
-                "quantity": str(quantity),
-                "price": str(current_price),
-                "amount_usd": f"{amount_usd:.2f}",
-                "success": success,
-                "message": message
-            })
+                executed_trades.append({
+                    "symbol": symbol,
+                    "action": action,
+                    "quantity": str(quantity),
+                    "price": str(current_price),
+                    "amount_usd": f"{amount_usd:.2f}",
+                    "success": success,
+                    "message": message
+                })
 
     return {
         "success": True,

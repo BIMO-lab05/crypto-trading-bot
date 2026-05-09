@@ -77,36 +77,75 @@ export function usePerformanceAnalytics() {
 export function extractTradingEnhancements(statusData) {
   if (!statusData) return null
 
-  const tradingEnhancements = statusData.trading_enhancements || {}
-  const advancedEnhancements = statusData.advanced_enhancements || {}
+  // /api/trading/status wraps everything in `status: {}`. Accept either the
+  // wrapped envelope or the inner object directly so the hook is shape-agnostic.
+  const inner = statusData.status || statusData
+  const tradingEnhancements = inner.trading_enhancements || {}
+  const advancedEnhancements = inner.advanced_enhancements || {}
+
+  // Real API field names live under nested config/stats. Map them into the
+  // flat shape the component expects, with sensible fallbacks.
+  const cb = tradingEnhancements.circuit_breaker || {}
+  const ks = tradingEnhancements.kill_switch || {}
+  const sm = tradingEnhancements.slippage_manager || {}
+  const et = tradingEnhancements.execution_timer || {}
+  const ps = advancedEnhancements.position_sizer || null
+  const se = advancedEnhancements.smart_executor || null
+
+  // Slippage values from the API are already percent units (e.g. 0.15 means
+  // 0.15%). Component multiplies by 100 for display, so we divide here so
+  // the round-trip lands on the right number.
+  const pctToFraction = (pct) => (pct == null ? 0 : Number(pct) / 100)
 
   return {
     circuitBreaker: {
-      state: tradingEnhancements.circuit_breaker?.state || 'unknown',
-      failures: tradingEnhancements.circuit_breaker?.consecutive_failures || 0,
-      threshold: tradingEnhancements.circuit_breaker?.failure_threshold || 5,
-      lastFailure: tradingEnhancements.circuit_breaker?.last_failure_time,
+      state: cb.state || 'unknown',
+      failures: cb.stats?.consecutive_failures ?? cb.consecutive_failures ?? 0,
+      threshold: cb.config?.failure_threshold ?? cb.failure_threshold ?? 5,
+      lastFailure: cb.stats?.last_failure ?? cb.last_failure_time,
     },
     killSwitch: {
-      isActive: tradingEnhancements.kill_switch?.is_active || false,
-      reason: tradingEnhancements.kill_switch?.reason,
-      activatedAt: tradingEnhancements.kill_switch?.activated_at,
-      thresholds: tradingEnhancements.kill_switch?.thresholds || {},
+      isActive: ks.is_active || false,
+      reason: ks.activation_reason ?? ks.reason,
+      activatedAt: ks.activation_time ?? ks.activated_at,
+      thresholds: ks.thresholds || {},
     },
     slippageManager: {
-      maxSlippage: tradingEnhancements.slippage_manager?.max_slippage_percent || 0,
-      stats: tradingEnhancements.slippage_manager?.stats || {
-        total_trades: 0,
-        avg_slippage: 0,
-        max_slippage: 0,
+      // Component does (val * 100).toFixed(2)% — pass the fraction.
+      maxSlippage: pctToFraction(sm.config?.base_tolerance_pct ?? sm.max_slippage_percent),
+      stats: {
+        total_trades: sm.stats?.total_trades ?? 0,
+        avg_slippage: pctToFraction(sm.stats?.avg_slippage_pct ?? sm.stats?.avg_slippage ?? 0),
+        max_slippage: pctToFraction(sm.stats?.max_slippage_pct ?? sm.stats?.max_slippage ?? 0),
+        rejected_count: sm.stats?.rejected_count ?? 0,
+        rejection_rate: sm.stats?.rejection_rate ?? 0,
       },
     },
     executionTimer: {
-      mode: tradingEnhancements.execution_timer?.mode || 'paper',
-      minInterval: tradingEnhancements.execution_timer?.min_interval_seconds || 60,
+      mode: et.mode || 'paper',
+      minInterval:
+        et.config?.position_check_interval ??
+        et.min_interval_seconds ??
+        60,
     },
-    positionSizer: advancedEnhancements.position_sizer || null,
-    smartExecutor: advancedEnhancements.smart_executor || null,
+    positionSizer: ps
+      ? {
+          // Component reads max_position_pct / kelly_fraction / default_method.
+          ...ps,
+          default_method: ps.method ?? ps.default_method,
+        }
+      : null,
+    smartExecutor: se
+      ? {
+          // Component reads default_algorithm / max_slices / slice_interval.
+          ...se,
+          slice_interval:
+            se.slice_interval ??
+            (se.twap_duration_minutes != null
+              ? Math.round((se.twap_duration_minutes * 60) / Math.max(1, se.max_slices || 1))
+              : 0),
+        }
+      : null,
     performanceAnalytics: advancedEnhancements.performance_analytics || null,
   }
 }
@@ -117,9 +156,11 @@ export function extractTradingEnhancements(statusData) {
  * @returns {Object} - Extracted performance summary
  */
 export function extractPerformanceSummary(statusData) {
-  if (!statusData?.performance_summary) return null
+  if (!statusData) return null
+  const inner = statusData.status || statusData
+  if (!inner.performance_summary) return null
 
-  const summary = statusData.performance_summary
+  const summary = inner.performance_summary
 
   return {
     sharpeRatio: summary.sharpe_ratio,

@@ -100,7 +100,7 @@ spec:
             memory: 1Gi
           limits:
             cpu: "4"
-            memory: 1GiMi
+            memory: 1Gi
         
         # Health checks
         livenessProbe:

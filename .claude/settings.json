@@ -77,7 +77,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/scripts/block-dangerous-bash.sh"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/scripts/block-dangerous-bash.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/scripts/pre-commit-smoke-check.sh"
           }
         ]
       },
@@ -86,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/scripts/block-secret-writes.sh"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/scripts/block-secret-writes.sh"
           }
         ]
       }
@@ -97,7 +106,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/scripts/format-python.sh"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/scripts/format-python.sh"
           }
         ]
       }

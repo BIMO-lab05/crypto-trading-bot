@@ -22,52 +22,41 @@ class Settings(BaseSettings):
 
     # Service URLs
     technical_analysis_url: str = Field(
-        default="http://localhost:8004",
-        description="Technical Analysis Service URL"
+        default="http://localhost:8004", description="Technical Analysis Service URL"
     )
     market_data_url: str = Field(
         default="http://localhost:8002",
-        description="Market Data Service URL for fetching live prices"
+        description="Market Data Service URL for fetching live prices",
     )
     bybit_connector_url: str = Field(
-        default="http://bybit-connector:8001",
-        description="Bybit Connector Service URL"
+        default="http://bybit-connector:8001", description="Bybit Connector Service URL"
     )
     portfolio_manager_url: str = Field(
-        default="http://localhost:8006",
-        description="Portfolio Manager Service URL"
+        default="http://localhost:8006", description="Portfolio Manager Service URL"
     )
 
     # Phase 3 ML/AI Service URLs
     ml_prediction_url: str = Field(
         default="http://localhost:8007",
-        description="ML Prediction Service URL for trend/price predictions"
-    )
-    sentiment_analysis_url: str = Field(
-        default="http://localhost:8008",
-        description="Sentiment Analysis Service URL (Phase 3)"
+        description="ML Prediction Service URL for trend/price predictions",
     )
     notification_service_url: str = Field(
         default="http://localhost:8006",
-        description="Notification Service URL for trade alerts"
+        description="Notification Service URL for trade alerts",
     )
 
     # Notification Settings
     enable_notifications: bool = Field(
-        default=True,
-        description="Enable trade notifications via Telegram/Email"
+        default=True, description="Enable trade notifications via Telegram/Email"
     )
     notify_on_trade_open: bool = Field(
-        default=True,
-        description="Send notification when trade is opened"
+        default=True, description="Send notification when trade is opened"
     )
     notify_on_trade_close: bool = Field(
-        default=True,
-        description="Send notification when trade is closed"
+        default=True, description="Send notification when trade is closed"
     )
     notify_on_daily_summary: bool = Field(
-        default=True,
-        description="Send daily PnL summary notification"
+        default=True, description="Send daily PnL summary notification"
     )
 
     # Phase C smart-mode flag (auto-trader, 2026-05-05).
@@ -91,24 +80,25 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Phase 3 Feature Flags - ENABLED 2025-12-02
+    # Phase 3 Feature Flags
+    # ML predictions DISABLED by default 2026-04-29 — V0 persistence shootout
+    # showed production GRUs have negative R² on log-returns and coin-flip
+    # directional accuracy on the corrected metric. See
+    # docs/strategy/research-2026-04-29/V0-RESULTS-no-edge.md.
+    # Re-enable only after retraining with returns target + CPCV evaluation +
+    # gates: r2_returns > 0, dir_acc_corrected > 0.55, isolated paper Sharpe > 0.5.
     enable_ml_predictions: bool = Field(
-        default=True,
-        description="Enable ML predictions in signal aggregation (30% weight)"
-    )
-    enable_sentiment_analysis: bool = Field(
-        default=True,
-        description="Enable sentiment analysis in signal aggregation (15% weight)"
+        default=False,
+        description="Enable ML predictions in signal aggregation (30% weight). Off until GRU is rebuilt — see Tier 0 of RESEARCH_PLAN_2026-04-29.",
     )
     enable_multi_timeframe: bool = Field(
-        default=False,
-        description="Enable multi-timeframe analysis (15% weight)"
+        default=False, description="Enable multi-timeframe analysis (15% weight)"
     )
 
     # Ensemble Predictor (2025-12-07) - Combines all signals in ML service
     use_ensemble_predictor: bool = Field(
         default=True,
-        description="Use ensemble predictor endpoint (combines TA+ML+Sentiment+MTF with optimal weights)"
+        description="Use ensemble predictor endpoint (combines TA+ML+Sentiment+MTF with optimal weights)",
     )
 
     # Multi-Timeframe Alignment Requirements (2025-12-01)
@@ -116,32 +106,104 @@ class Settings(BaseSettings):
     # ADJUSTED 2026-01-02: Temporarily disabled to test single-timeframe trading
     mtf_require_alignment: bool = Field(
         default=False,  # Disabled to allow single-timeframe trading
-        description="Require TF alignment before trading (reduces false signals)"
+        description="Require TF alignment before trading (reduces false signals)",
     )
     mtf_min_alignment_score: float = Field(
         default=40.0,  # Lowered from 60.0 to allow 2/3 timeframe agreement
         ge=0.0,
         le=100.0,
-        description="Minimum MTF alignment score (0-100) to execute trades. 40% allows solid 2/3 agreement."
+        description="Minimum MTF alignment score (0-100) to execute trades. 40% allows solid 2/3 agreement.",
+    )
+
+    # Per-Position Vol Parity Sizing (T1.2 chunk 3, 2026-04-30)
+    # Outer overlay above the per-trade cap. When enabled and the estimator
+    # is warm, sizes new entries inversely to the symbol's realised volatility
+    # so each position contributes roughly equal expected vol. Default OFF
+    # — opt in via env, then forward-paper-test ≥7 days before judging.
+    # See docs/strategy/research-2026-04-29/T1.2-design.md.
+    enable_vol_targeting: bool = Field(
+        default=False,
+        description="Apply per-position vol-parity sizing on entries. Off until forward-paper-tested.",
+    )
+    vol_target_annualised: float = Field(
+        default=0.30,
+        ge=0.05,
+        le=2.0,
+        description="Target annualised vol per position (e.g. 0.30 = 30%).",
+    )
+    vol_estimator_window_bars: int = Field(
+        default=168,
+        ge=24,
+        le=2160,
+        description="Rolling window in hourly bars for the realised-vol estimator (168 = 7 days).",
+    )
+    vol_target_cap_multiplier: float = Field(
+        default=1.0,
+        ge=1.0,
+        le=5.0,
+        description="Max scale factor over baseline. 1.0 = downside-only (safest); 3.0 = full Carver-style symmetric.",
+    )
+
+    # Funding-Rate Gate (T2.3, 2026-04-30)
+    # Reject perp entries that would pay funding above a threshold so we
+    # don't bleed ~5%/yr on persistent funding drag. Fail-open: if the
+    # rate fetch breaks, the gate allows the trade rather than blocking.
+    # Default off — opt in via env after a forward-paper-test confirms
+    # the gate doesn't reject the profitable side of a real edge.
+    enable_funding_gate: bool = Field(
+        default=False,
+        description="Block perp entries when current funding rate works against the intended direction by more than funding_gate_threshold_bps.",
+    )
+    funding_gate_threshold_bps: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=50.0,
+        description="Per-settlement funding-rate threshold in bps. 5 bps/8h ≈ 5.5%/yr cost; longs blocked above +threshold, shorts below -threshold.",
+    )
+    funding_cache_ttl_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="How long a fetched funding rate is cached in-memory. Settlements are 8h on most pairs so 5min is plenty.",
+    )
+
+    # Order Execution Configuration
+    # T1.3 prep 2026-04-29 — flags only, not yet wired into live_trading.py.
+    # Default off so this commit is plumbing only. When wiring lands and a
+    # forward-paper-test of maker behaviour passes, opt in via env var.
+    # Bybit perp economics: taker 0.055% / maker 0.020% → ~7 bps round-trip
+    # saved → ~140 bps/yr at 200 round-trips/yr. Spot is flat 0.1%/0.1%
+    # — no benefit on spot. See docs/strategy/RESEARCH_PLAN_2026-04-29 T1.3.
+    prefer_maker_orders: bool = Field(
+        default=False,
+        description="Place perp entries as PostOnly limit at best bid/ask to harvest the maker fee. Off until forward-paper-tested.",
+    )
+    maker_quote_timeout_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=600,
+        description="If a maker quote isn't filled within this window, cancel and decide based on maker_fallback_to_taker.",
+    )
+    maker_fallback_to_taker: bool = Field(
+        default=True,
+        description="On maker timeout, fall back to a taker market order if the signal is still valid; otherwise abort.",
     )
 
     # Trading Configuration
     trading_mode: Literal["PAPER", "LIVE"] = Field(
-        default="PAPER",
-        description="Trading mode: PAPER or LIVE"
+        default="PAPER", description="Trading mode: PAPER or LIVE"
     )
     auto_trading_enabled: bool = Field(
-        default=False,
-        description="Enable automatic trading"
+        default=False, description="Enable automatic trading"
+    )
+    emergency_stop_file: str = Field(
+        default="/app/EMERGENCY_STOP",
+        description="Path to file-based kill switch. If file exists, auto-trader refuses to start and halts the loop.",
     )
     default_strategy: str = Field(
-        default="consensus",
-        description="Default trading strategy"
+        default="consensus", description="Default trading strategy"
     )
-    default_symbol: str = Field(
-        default="BTCUSDT",
-        description="Default trading symbol"
-    )
+    default_symbol: str = Field(default="BTCUSDT", description="Default trading symbol")
     trading_symbols: List[str] = Field(
         default=[
             # =============================================================================
@@ -163,17 +225,15 @@ class Settings(BaseSettings):
             # - BNBUSDT: 66,786 candles (253 days) ✅
             # - ADAUSDT: 61,840 candles (251 days) ✅
             # =============================================================================
-
             # === TIER 1: MAJOR CAPS (50% allocation) ===
-            "BTCUSDT",    # Bitcoin - Flagship, most liquid, market leader (66k candles)
-            "ETHUSDT",    # Ethereum - 2nd most liquid, DeFi/smart contracts (66k candles)
-
+            "BTCUSDT",  # Bitcoin - Flagship, most liquid, market leader (66k candles)
+            "ETHUSDT",  # Ethereum - 2nd most liquid, DeFi/smart contracts (66k candles)
             # === TIER 1: PROVEN PERFORMERS (50% allocation) ===
-            "SOLUSDT",    # Solana - BEST: 60% WR, +$55.90 profit in 15 trades ✅ (66k candles)
-            "BNBUSDT",    # Binance Coin - 2nd: 64.3% WR, +$44.22 profit in 14 trades ✅ (66k candles)
-            "ADAUSDT",    # Cardano - 3rd: 75% WR, +$27.43 profit in 4 trades ✅ (61k candles)
+            "SOLUSDT",  # Solana - BEST: 60% WR, +$55.90 profit in 15 trades ✅ (66k candles)
+            "BNBUSDT",  # Binance Coin - 2nd: 64.3% WR, +$44.22 profit in 14 trades ✅ (66k candles)
+            "ADAUSDT",  # Cardano - 3rd: 75% WR, +$27.43 profit in 4 trades ✅ (61k candles)
         ],
-        description="5 ACTIVE SYMBOLS - Tier 1 only with excellent data (250+ days) - OPTIMIZED 2026-01-19"
+        description="5 ACTIVE SYMBOLS - Tier 1 only with excellent data (250+ days) - OPTIMIZED 2026-01-19",
     )
 
     # =============================================================================
@@ -202,20 +262,18 @@ class Settings(BaseSettings):
             #   - BTCUSDT: Break-even, market leader (keep core holding)
             #   - BNBUSDT: Moderate (44-48% WR, break-even to slight loss)
             #   - ETHUSDT: #5 both periods (25-33% WR, -0.01-0.04%, worst) ❌
-
-            "SOLUSDT": 0.30,    # ⬆️ 30% (was 20%) - BEST performer, consistent winner
-            "BTCUSDT": 0.25,    # ➡️ 25% (same) - Market leader, core holding
-            "BNBUSDT": 0.20,    # ➡️ 20% (same) - Moderate performer, stable
-            "ADAUSDT": 0.15,    # ⬆️ 15% (was 10%) - 2nd best in 90d, improving
-            "ETHUSDT": 0.10,    # ⬇️ 10% (was 25%) - WORST performer, reduced risk
+            "SOLUSDT": 0.30,  # ⬆️ 30% (was 20%) - BEST performer, consistent winner
+            "BTCUSDT": 0.25,  # ➡️ 25% (same) - Market leader, core holding
+            "BNBUSDT": 0.20,  # ➡️ 20% (same) - Moderate performer, stable
+            "ADAUSDT": 0.15,  # ⬆️ 15% (was 10%) - 2nd best in 90d, improving
+            "ETHUSDT": 0.10,  # ⬇️ 10% (was 25%) - WORST performer, reduced risk
         },
         description="BACKTEST-OPTIMIZED: Increased SOL (30%), ADA (15%), decreased ETH (10%). "
-                    "Focus capital on proven winners. Updated 2026-01-19 based on 30d/90d backtests."
+        "Focus capital on proven winners. Updated 2026-01-19 based on 30d/90d backtests.",
     )
 
     default_interval: str = Field(
-        default="60",
-        description="Default candlestick interval"
+        default="60", description="Default candlestick interval"
     )
 
     # Strategy Mode - STANDARD for more trading opportunities (2026-02-24)
@@ -223,7 +281,7 @@ class Settings(BaseSettings):
     # CHANGED: From 'hybrid' to 'standard' to enable trading in ranging market conditions
     strategy_mode: str = Field(
         default="standard",
-        description="Trading strategy mode: standard (more active), research, hybrid (dual confirmation), or grid_trading"
+        description="Trading strategy mode: standard (more active), research, hybrid (dual confirmation), or grid_trading",
     )
 
     # Trade Frequency Settings - ADJUSTED for 11 symbols (2026-01-07)
@@ -231,23 +289,22 @@ class Settings(BaseSettings):
         default=50,
         ge=1,
         le=150,
-        description="Maximum trades per day (adjusted for 11 symbols - ~4-5 trades per symbol)"
+        description="Maximum trades per day (adjusted for 11 symbols - ~4-5 trades per symbol)",
     )
     check_frequency_seconds: int = Field(
         default=30,
         ge=10,
         le=300,
-        description="How often to check for signals (seconds)"
+        description="How often to check for signals (seconds)",
     )
     allow_same_symbol_reentry: bool = Field(
-        default=True,
-        description="Allow re-entry on same symbol after position closed"
+        default=True, description="Allow re-entry on same symbol after position closed"
     )
     min_time_between_trades_same_symbol: int = Field(
         default=60,
         ge=0,
         le=3600,
-        description="Minimum seconds between trades on same symbol"
+        description="Minimum seconds between trades on same symbol",
     )
 
     # Risk Management
@@ -255,31 +312,38 @@ class Settings(BaseSettings):
         default=5.0,
         ge=0.1,
         le=50.0,
-        description="Maximum position size as % of capital (5% optimal for multi-symbol portfolio)"
+        description="Maximum position size as % of capital (5% optimal for multi-symbol portfolio)",
+    )
+    max_risk_per_trade: float = Field(
+        default=0.02,
+        ge=0.001,
+        le=0.5,
+        description=(
+            "Maximum per-trade notional cap as a fraction of balance "
+            "(0.02 = 2%). Stored as fraction, not percent — distinct from "
+            "the neighboring *_pct fields. Reads MAX_RISK_PER_TRADE env."
+        ),
     )
     max_daily_loss_pct: float = Field(
-        default=5.0,
-        ge=1.0,
-        le=20.0,
-        description="Maximum daily loss as % of capital"
+        default=5.0, ge=1.0, le=20.0, description="Maximum daily loss as % of capital"
     )
     max_total_exposure_pct: float = Field(
         default=80.0,
         ge=5.0,
         le=100.0,
-        description="Maximum total exposure as % of capital (80% to allow 20+ positions)"
+        description="Maximum total exposure as % of capital (80% to allow 20+ positions)",
     )
     default_stop_loss_pct: float = Field(
         default=2.0,  # TIGHTENED 2026-01-14: Reduced from 3% to 2% to prevent large losses
         ge=0.5,
         le=10.0,
-        description="Default stop loss as % from entry (2% TIGHTER protection after -$14.33 loss)"
+        description="Default stop loss as % from entry (2% TIGHTER protection after -$14.33 loss)",
     )
     default_take_profit_pct: float = Field(
         default=4.0,  # ADJUSTED 2026-01-20: Changed from 6% to 4% for better trade completion in volatile market
         ge=1.0,
         le=50.0,
-        description="Default take profit as % from entry (4% for 2:1 R/R ratio with 2% SL, better for current market)"
+        description="Default take profit as % from entry (4% for 2:1 R/R ratio with 2% SL, better for current market)",
     )
 
     # Signal Thresholds - RESEARCH-BACKED (2025-12-23)
@@ -290,38 +354,33 @@ class Settings(BaseSettings):
         default=0.40,  # SYNCED to 40% to match aggregator (enables trading in current market)
         ge=0.0,
         le=1.0,
-        description="SYNCED: 40% to match aggregator - enables trading while filtering noise"
+        description="SYNCED: 40% to match aggregator - enables trading while filtering noise",
     )
     # Need 3 indicators from different categories for consensus
     min_consensus_indicators: int = Field(
         default=3,
         ge=1,
         le=10,
-        description="USER CONFIG: 3 indicators minimum for balanced consensus"
+        description="USER CONFIG: 3 indicators minimum for balanced consensus",
     )
 
     # Time-Based Trading Filters (RESEARCH-BACKED 2025-12-01)
     # Best trading hours: 14:00-17:00 UTC (London/NY overlap)
     # Avoid: weekends, early morning UTC, low volume periods
     enable_time_filters: bool = Field(
-        default=True,
-        description="Enable time-based trade filtering for quality"
+        default=True, description="Enable time-based trade filtering for quality"
     )
     trading_start_hour_utc: int = Field(
         default=1,
         ge=0,
         le=23,
-        description="Start trading hour UTC (1:00 = Asia/Europe overlap - OPTIMIZED 2026-01-19)"
+        description="Start trading hour UTC (1:00 = Asia/Europe overlap - OPTIMIZED 2026-01-19)",
     )
     trading_end_hour_utc: int = Field(
-        default=21,
-        ge=0,
-        le=23,
-        description="End trading hour UTC (21:00 = US close)"
+        default=21, ge=0, le=23, description="End trading hour UTC (21:00 = US close)"
     )
     avoid_weekends: bool = Field(
-        default=True,
-        description="Avoid trading on weekends (lower volume)"
+        default=True, description="Avoid trading on weekends (lower volume)"
     )
 
     # ===========================================================================
@@ -333,11 +392,11 @@ class Settings(BaseSettings):
         default=48,  # Force exit after 48 hours (2 days)
         ge=1,
         le=720,  # Max 30 days
-        description="Maximum hours to hold a position before forced exit (prevents holding losers)"
+        description="Maximum hours to hold a position before forced exit (prevents holding losers)",
     )
     enable_max_hold_time: bool = Field(
         default=True,
-        description="Enable automatic position closure after max hold time"
+        description="Enable automatic position closure after max hold time",
     )
 
     # ===========================================================================
@@ -348,11 +407,11 @@ class Settings(BaseSettings):
     # Solution: Enable SHORT with TIGHTER risk controls + automatic circuit breaker
     allowed_trade_sides: List[str] = Field(
         default=["LONG", "SHORT"],  # Both sides enabled for market adaptability
-        description="Allowed trade sides: ['LONG', 'SHORT'] for market adaptability"
+        description="Allowed trade sides: ['LONG', 'SHORT'] for market adaptability",
     )
     short_trading_enabled: bool = Field(
         default=True,  # SHORT trading enabled based on recent profitable analysis
-        description="Enable SHORT trading for current market conditions"
+        description="Enable SHORT trading for current market conditions",
     )
 
     # ===========================================================================
@@ -365,19 +424,19 @@ class Settings(BaseSettings):
         default=1.5,  # TIGHTER: 1.5% vs 2.0% for LONG (25% tighter)
         ge=0.5,
         le=5.0,
-        description="SHORT stop loss: 1.5% (tighter than LONG's 2.0%)"
+        description="SHORT stop loss: 1.5% (tighter than LONG's 2.0%)",
     )
     short_min_confidence: float = Field(
         default=0.70,  # HIGHER: 70% vs 65% for LONG (higher bar)
         ge=0.5,
         le=1.0,
-        description="SHORT minimum confidence: 70% (higher than LONG's 65%)"
+        description="SHORT minimum confidence: 70% (higher than LONG's 65%)",
     )
     short_max_position_pct: float = Field(
         default=3.0,  # SMALLER: 3% vs 5% for LONG (40% smaller)
         ge=0.5,
         le=10.0,
-        description="SHORT max position size: 3% (smaller than LONG's 5%)"
+        description="SHORT max position size: 3% (smaller than LONG's 5%)",
     )
 
     # ===========================================================================
@@ -387,43 +446,45 @@ class Settings(BaseSettings):
     # Trigger: If ANY condition breached during evaluation period → disable SHORT
     # Recovery: Requires manual re-enable after review
     circuit_breaker_enabled: bool = Field(
-        default=True,
-        description="Enable automatic SHORT shutdown on poor performance"
+        default=True, description="Enable automatic SHORT shutdown on poor performance"
     )
     circuit_breaker_max_consecutive_losses: int = Field(
         default=3,  # Disable after 3 losses in a row
         ge=2,
         le=10,
-        description="Auto-disable SHORT after N consecutive losses"
+        description="Auto-disable SHORT after N consecutive losses",
     )
     circuit_breaker_max_drawdown_pct: float = Field(
         default=10.0,  # Disable if portfolio drops 10%
         ge=3.0,
         le=25.0,
-        description="Auto-disable SHORT if drawdown exceeds %"
+        description="Auto-disable SHORT if drawdown exceeds %",
     )
     circuit_breaker_min_win_rate_pct: float = Field(
         default=45.0,  # Disable if win rate falls below 45%
         ge=30.0,
         le=60.0,
-        description="Auto-disable SHORT if win rate below % (after evaluation period)"
+        description="Auto-disable SHORT if win rate below % (after evaluation period)",
     )
     circuit_breaker_evaluation_trades: int = Field(
         default=30,  # Evaluate after 30 trades
         ge=10,
         le=100,
-        description="Number of SHORT trades before evaluating circuit breaker"
+        description="Number of SHORT trades before evaluating circuit breaker",
     )
     circuit_breaker_check_interval_minutes: int = Field(
         default=60,  # Check every hour
         ge=15,
         le=1440,
-        description="How often to check circuit breaker conditions (minutes)"
+        description="How often to check circuit breaker conditions (minutes)",
     )
 
     # Database Configuration
+    # Port 5432 is the in-container TimescaleDB port. The host-mapped port
+    # (5433 in docker-compose.unified.yml) is for tooling on the host only —
+    # never the right value when this service runs inside the docker network.
     postgres_host: str = Field(default="localhost")
-    postgres_port: int = Field(default=5433)
+    postgres_port: int = Field(default=5432)
     postgres_db: str = Field(default="trading_engine")
     postgres_user: str = Field(default="cryptobot")
     postgres_password: str = Field(default="")
@@ -436,15 +497,15 @@ class Settings(BaseSettings):
 
     # Paper Trading
     paper_initial_balance: float = Field(
-        default=10000.0,
+        default=100.0,
         ge=100.0,
-        description="Initial balance for paper trading"
+        description="Initial balance for paper trading (matches portfolio-manager initial_capital and risk-budget base_equity)",
     )
     paper_commission_pct: float = Field(
         default=0.1,
         ge=0.0,
         le=1.0,
-        description="Commission percentage for paper trading"
+        description="Commission percentage for paper trading",
     )
 
     # =========================================================================
@@ -453,26 +514,18 @@ class Settings(BaseSettings):
     # Bybit-style leverage: Initial Margin = Position Value / Leverage
     # Example: $100 position with 10x leverage = $10 margin required
     leverage_enabled: bool = Field(
-        default=False,
-        description="Enable leverage trading (Bybit style)"
+        default=False, description="Enable leverage trading (Bybit style)"
     )
     default_leverage: float = Field(
         default=1.0,
         ge=1.0,
         le=100.0,
-        description="Default leverage multiplier (1x = no leverage, 10x = 10x leverage)"
+        description="Default leverage multiplier (1x = no leverage, 10x = 10x leverage)",
     )
     max_leverage: float = Field(
-        default=20.0,
-        ge=1.0,
-        le=100.0,
-        description="Maximum allowed leverage"
+        default=20.0, ge=1.0, le=100.0, description="Maximum allowed leverage"
     )
-    min_leverage: float = Field(
-        default=1.0,
-        ge=1.0,
-        description="Minimum leverage"
-    )
+    min_leverage: float = Field(default=1.0, ge=1.0, description="Minimum leverage")
 
     # =========================================================================
     # SECURITY CONFIGURATION (Added 2025-12-12)
@@ -481,12 +534,12 @@ class Settings(BaseSettings):
     # CORS Configuration - Strict mode for production
     cors_origins: List[str] = Field(
         default=[
-            "http://localhost:3000",     # React frontend development
-            "http://localhost:8000",     # API Gateway
+            "http://localhost:3000",  # React frontend development
+            "http://localhost:8000",  # API Gateway
             "http://127.0.0.1:3000",
             "http://127.0.0.1:8000",
         ],
-        description="Allowed CORS origins (no wildcards in production)"
+        description="Allowed CORS origins (no wildcards in production)",
     )
 
     # Internal service origins (for microservice communication)
@@ -503,7 +556,7 @@ class Settings(BaseSettings):
             "http://localhost:8007",
             "http://localhost:8008",
         ],
-        description="Internal microservice origins for inter-service communication"
+        description="Internal microservice origins for inter-service communication",
     )
 
     @field_validator("log_level")
@@ -551,6 +604,7 @@ class Settings(BaseSettings):
         extra_symbols = set(self.symbol_allocations.keys()) - set(self.trading_symbols)
         if extra_symbols:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning(
                 f"Allocations defined for symbols not in trading_symbols: {extra_symbols}. "
@@ -578,10 +632,7 @@ class Settings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
 

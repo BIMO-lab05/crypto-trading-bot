@@ -26,6 +26,7 @@ Optimal: Combine 1 momentum + 1 trend + volume confirmation.
 import logging
 from typing import Dict, Tuple, Set
 from app.models import IndicatorSignal, SignalAction
+from app.aggregation.confidence_guard import validate_confidence
 
 logger = logging.getLogger(__name__)
 
@@ -244,22 +245,25 @@ class SignalVoter:
         - score <= -threshold -> SELL with confidence = |score|
         - score in between -> HOLD with confidence = 1.0 - |score|
         """
+        # validate_confidence rejects NaN/None/non-numeric and clamps to [0, 1].
+        # Replaces the previous upper-only `min(abs(x), 1.0)` cap which let
+        # negatives and NaN through.
         if aggregated_score >= self.aggregation_threshold:
             # BUY signal
             action = SignalAction.BUY
-            confidence = min(abs(aggregated_score), 1.0)  # Cap at 1.0
+            confidence = validate_confidence(abs(aggregated_score), source="voter.BUY")
             logger.info(f"Preliminary: BUY (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")
 
         elif aggregated_score <= -self.aggregation_threshold:
             # SELL signal
             action = SignalAction.SELL
-            confidence = min(abs(aggregated_score), 1.0)  # Cap at 1.0
+            confidence = validate_confidence(abs(aggregated_score), source="voter.SELL")
             logger.info(f"Preliminary: SELL (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")
 
         else:
             # Weak signal -> HOLD
             action = SignalAction.HOLD
-            confidence = 1.0 - abs(aggregated_score)  # Higher confidence for scores near 0
+            confidence = validate_confidence(1.0 - abs(aggregated_score), source="voter.HOLD")
             logger.info(f"Preliminary: HOLD (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")
 
         return action, confidence

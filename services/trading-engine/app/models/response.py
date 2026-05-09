@@ -30,6 +30,7 @@ class StatusResponse(BaseModel):
     open_positions_count: int = Field(description="Number of open positions")
     current_balance: float = Field(description="Current account balance")
     timestamp: int = Field(description="Response timestamp (ms)")
+    emergency_stop: Optional[Dict] = Field(default=None, description="Emergency stop file kill-switch state")
 
 
 class SignalResponse(BaseModel):

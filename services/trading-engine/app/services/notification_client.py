@@ -53,14 +53,28 @@ class NotificationClient:
             logger.info(f"[DEBUGGER:NotificationClient:_post:52] Sending POST to url={url}")
             async with session.post(url, json=data) as response:
                 result = await response.json()
-                # DEBUGGER: Response status
-                logger.info(f"[DEBUGGER:NotificationClient:_post:56] Response status={response.status}, result_keys={list(result.keys()) if isinstance(result, dict) else 'not_dict'}")
-                if response.status == 200:
-                    logger.info(f"Notification sent: {endpoint}")
+                # 200 + success=True is the only true success. The notification
+                # service now returns 502 (delivery failed) or 503 (no channels)
+                # when actual delivery did not happen, even if the request was
+                # well-formed — match that by treating anything else as failure.
+                if response.status == 200 and isinstance(result, dict) and result.get("success") is True:
+                    logger.info(f"Notification delivered: {endpoint}")
                     return result
-                else:
-                    logger.warning(f"Notification failed: {response.status} - {result}")
-                    return {"success": False, "error": result}
+                # Pre-fix endpoints sometimes wrapped the body inside {"detail": ...}
+                # when raising HTTPException. Surface that body verbatim so callers
+                # see failed_channels and reason fields.
+                payload = result.get("detail") if isinstance(result, dict) and "detail" in result else result
+                logger.error(
+                    f"Notification NOT DELIVERED endpoint={endpoint} "
+                    f"status={response.status} body={payload}"
+                )
+                # Always return success=False so callers cannot mistake this for OK.
+                return {
+                    "success": False,
+                    "http_status": response.status,
+                    "error": payload,
+                    "endpoint": endpoint,
+                }
         except aiohttp.ClientError as e:
             logger.error(f"Notification service connection error: {e}")
             # DEBUGGER: Connection error

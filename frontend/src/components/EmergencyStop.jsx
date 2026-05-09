@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import { useEmergencyStop } from '../hooks/usePortfolio'
+import { useDialog } from '../hooks/useDialog'
 
 /**
  * EmergencyStop component provides critical trading halt functionality
@@ -7,7 +8,15 @@ import { useEmergencyStop } from '../hooks/usePortfolio'
  */
 export default function EmergencyStop() {
   const [showConfirm, setShowConfirm] = useState(false)
+  const triggerRef = useRef(null)
   const emergencyStop = useEmergencyStop()
+
+  const closeConfirm = useCallback(() => {
+    if (emergencyStop.isPending) return
+    setShowConfirm(false)
+  }, [emergencyStop.isPending])
+
+  const dialogRef = useDialog(showConfirm, closeConfirm)
 
   const handleEmergencyStop = async () => {
     try {
@@ -21,10 +30,19 @@ export default function EmergencyStop() {
 
   if (showConfirm) {
     return (
-      <div className="bg-rose-500/10 border-2 border-rose-500/50 backdrop-blur-sm rounded-lg p-6">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="emergency-stop-title"
+        aria-describedby="emergency-stop-desc"
+        tabIndex={-1}
+        className="bg-rose-500/10 border-2 border-rose-500/50 backdrop-blur-sm rounded-lg p-6"
+      >
         <div className="text-center">
           <div className="mb-4">
             <svg
+              aria-hidden="true"
               className="mx-auto h-12 w-12 text-rose-400"
               fill="none"
               stroke="currentColor"
@@ -39,17 +57,18 @@ export default function EmergencyStop() {
             </svg>
           </div>
 
-          <h3 className="text-xl font-bold text-rose-300 mb-2">
+          <h3 id="emergency-stop-title" className="text-xl font-bold text-rose-300 mb-2">
             Confirm Emergency Stop
           </h3>
 
-          <p className="text-rose-200 mb-6">
+          <p id="emergency-stop-desc" className="text-rose-200 mb-6">
             This will immediately halt all trading operations. Open positions will remain, but no new trades will be executed. Are you sure you want to continue?
           </p>
 
           <div className="flex gap-3 justify-center">
             <button
-              onClick={() => setShowConfirm(false)}
+              type="button"
+              onClick={closeConfirm}
               className="px-6 py-2 bg-slate-700 text-slate-100 rounded-lg font-semibold hover:bg-slate-600 transition-colors"
               disabled={emergencyStop.isPending}
             >
@@ -57,6 +76,7 @@ export default function EmergencyStop() {
             </button>
 
             <button
+              type="button"
               onClick={handleEmergencyStop}
               disabled={emergencyStop.isPending}
               className="px-6 py-2 bg-rose-600 text-white rounded-lg font-semibold hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -74,6 +94,7 @@ export default function EmergencyStop() {
       <div className="flex items-start space-x-4">
         <div className="flex-shrink-0">
           <svg
+            aria-hidden="true"
             className="h-8 w-8 text-rose-400"
             fill="none"
             stroke="currentColor"
@@ -98,11 +119,14 @@ export default function EmergencyStop() {
           </p>
 
           <button
+            ref={triggerRef}
+            type="button"
             onClick={() => setShowConfirm(true)}
             className="w-full md:w-auto px-6 py-3 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 active:bg-rose-800 transition-colors shadow-md hover:shadow-lg transform hover:scale-105"
           >
             <div className="flex items-center justify-center space-x-2">
               <svg
+                aria-hidden="true"
                 className="h-5 w-5"
                 fill="none"
                 stroke="currentColor"
@@ -121,7 +145,7 @@ export default function EmergencyStop() {
                   d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"
                 />
               </svg>
-              <span>EMERGENCY STOP</span>
+              <span className="uppercase">Emergency stop</span>
             </div>
           </button>
         </div>

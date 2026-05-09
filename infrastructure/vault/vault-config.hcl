@@ -1,7 +1,19 @@
 # HashiCorp Vault Configuration for Crypto Trading Bot
-# Version: 1.0
-# Last Updated: 2025-11-19
-# Environment: Production
+# Version: 1.1
+# Last Updated: 2026-04-29
+#
+# ============================================================================
+# !!! DEVELOPMENT / PAPER-TRADING ONLY — DO NOT USE FOR LIVE TRADING !!!
+# ============================================================================
+# This config has `tls_disable = 1` (plaintext API) and binds Vault to
+# 127.0.0.1 only. It is fine for the paper-trading stack on a single
+# developer host. For any live-money or networked deployment, switch to
+# the sibling file `vault-config-prod.hcl`, which requires TLS, real
+# cert paths, and (optionally) auto-unseal via cloud KMS.
+#
+# Earlier versions of this header said "Environment: Production" while
+# shipping tls_disable=1 — corrected 2026-04-29 (audit finding).
+# ============================================================================
 
 # Storage backend - File storage for single-server deployment
 # For production cluster, use Consul or integrated storage (Raft)
@@ -12,9 +24,10 @@ storage "file" {
 # TCP listener configuration
 listener "tcp" {
   address       = "127.0.0.1:8200"
-  tls_disable   = 1  # WARNING: Enable TLS in production!
+  tls_disable   = 1  # DEV-ONLY plaintext. See vault-config-prod.hcl for TLS.
 
-  # For production, use TLS:
+  # For production (USE vault-config-prod.hcl INSTEAD — that's the
+  # actual prod file). Inline reference left only as a hint:
   # tls_disable     = 0
   # tls_cert_file   = "/path/to/cert.pem"
   # tls_key_file    = "/path/to/key.pem"

@@ -215,3 +215,28 @@ bandit-report.json
 generated-credentials*.txt
 credentials-backup*.txt
 .credentials/
+
+# ============================================================================
+# Agent / audit caches
+# ============================================================================
+.audit/
+.serena/
+scripts/screenshots/
+
+# LSTM model archive (rollback safety after late-2025 GRU migration)
+services/ml-prediction-service/**/_archive_lstm/
+
+# ============================================================================
+# Local-only knowledge tooling (Obsidian vault, graphify outputs)
+# ============================================================================
+.obsidian/
+graphify-out/
+
+# ============================================================================
+# Working artifacts (screenshots, snapshots, pristine backup copies)
+# ============================================================================
+/*.png
+/*.original.md
+/enh-snapshot.yml
+.playwright-mcp/
+.claudian/

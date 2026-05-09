@@ -1026,10 +1026,24 @@ class ExecutionScheduler:
         success_rate: float,
         timing_accuracy: float
     ) -> float:
-        """Calculate execution quality score (0-100)"""
+        """Calculate execution quality score (0-100).
+
+        Weights (sum to 1.0):
+          - fill_rate:       0.50  (most important — did we get the size we wanted?)
+          - success_rate:    0.20  (chunk-level reliability)
+          - timing_accuracy: 0.15  (did we hit the schedule?)
+          - slippage:        0.15  (price quality given the fill)
+
+        fill_rate is the dominant factor: a perfect-quality partial fill is
+        still a worse execution than a slightly-slippy complete fill, because
+        unfilled inventory is unrealised exposure. The previous weighting
+        (fill=0.35, slippage=0.30) let a 50%-filled order with zero slippage
+        outscore a 100%-filled order with 0.3% slippage, which inverted the
+        intended ordering.
+        """
         # Weighted average of factors
-        fill_score = fill_rate * 100 * 0.35
-        slippage_score = max(0, (0.5 - slippage_pct) / 0.5 * 100) * 0.30
+        fill_score = fill_rate * 100 * 0.50
+        slippage_score = max(0, (0.5 - slippage_pct) / 0.5 * 100) * 0.15
         success_score = success_rate * 100 * 0.20
         timing_score = max(0, timing_accuracy * 100) * 0.15
 

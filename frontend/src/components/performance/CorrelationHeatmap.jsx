@@ -18,6 +18,7 @@
 
 import React, { useMemo } from 'react'
 import PropTypes from 'prop-types'
+import ChartFigure from '../a11y/ChartFigure'
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -341,6 +342,26 @@ function CorrelationHeatmap({
 
       {/* Content */}
       <div className="p-4">
+        <ChartFigure
+          summary={`Asset correlation matrix for ${dataSymbols.length} symbols: ${dataSymbols.map((s) => s.replace('USDT', '')).join(', ')}. Average pairwise correlation ${avgCorrelation.toFixed(2)}.`}
+          tableCaption="Pairwise correlation coefficients"
+          columns={[
+            { key: 'pair', label: 'Pair' },
+            { key: 'value', label: 'Correlation' },
+          ]}
+          rows={(() => {
+            const out = []
+            for (let i = 0; i < dataSymbols.length; i++) {
+              for (let j = i + 1; j < dataSymbols.length; j++) {
+                out.push({
+                  pair: `${dataSymbols[i].replace('USDT', '')} / ${dataSymbols[j].replace('USDT', '')}`,
+                  value: dataMatrix[i]?.[j]?.toFixed(2) ?? '',
+                })
+              }
+            }
+            return out
+          })()}
+        >
         <div className="flex gap-4">
           {/* Heatmap Grid */}
           <div className="flex-shrink-0 overflow-x-auto">
@@ -397,6 +418,7 @@ function CorrelationHeatmap({
             <CorrelationDetailPanel selection={selection} />
           </div>
         </div>
+        </ChartFigure>
       </div>
 
       {/* Footer - Color Legend */}

@@ -157,18 +157,19 @@ class TestWebSocketManager:
 
     @pytest.mark.asyncio
     async def test_fetch_dashboard_updates_success(self, ws_manager):
-        """Test fetching dashboard updates from services"""
+        """Test fetching dashboard updates from services.
+
+        The dashboard now sources health from `service_proxy.aggregate_health_checks()`
+        (returns dict[str, bool] directly), not a proxied /health request, so
+        the mock has to populate that method instead of `proxy_request`.
+        """
         mock_proxy = AsyncMock(spec=ServiceProxy)
+        mock_proxy.aggregate_health_checks = AsyncMock(return_value={"status": "healthy"})
 
-        # Mock health response
-        health_response = Mock()
-        health_response.body = json.dumps({"status": "healthy"}).encode()
-
-        # Mock portfolio response
+        # Portfolio is still fetched via proxy_request.
         portfolio_response = Mock()
         portfolio_response.body = json.dumps({"balance": "100000"}).encode()
-
-        mock_proxy.proxy_request = AsyncMock(side_effect=[health_response, portfolio_response])
+        mock_proxy.proxy_request = AsyncMock(return_value=portfolio_response)
 
         data = await ws_manager.fetch_dashboard_updates(mock_proxy)
 
@@ -193,13 +194,18 @@ class TestWebSocketManager:
 
     @pytest.mark.asyncio
     async def test_fetch_dashboard_updates_malformed_response(self, ws_manager):
-        """Test fetching dashboard updates handles malformed responses"""
-        mock_proxy = AsyncMock(spec=ServiceProxy)
+        """Test fetching dashboard updates handles malformed responses.
 
-        # Mock response with invalid JSON
+        Health-check failure now bubbles up from `aggregate_health_checks`
+        (it's the source of truth for the dashboard's health field).
+        Malformed portfolio JSON keeps `data["portfolio"]` at None.
+        """
+        mock_proxy = AsyncMock(spec=ServiceProxy)
+        mock_proxy.aggregate_health_checks = AsyncMock(side_effect=Exception("aggregate failed"))
+
+        # Mock response with invalid JSON for portfolio
         invalid_response = Mock()
         invalid_response.body = b"not valid json"
-
         mock_proxy.proxy_request = AsyncMock(return_value=invalid_response)
 
         data = await ws_manager.fetch_dashboard_updates(mock_proxy)
@@ -207,6 +213,7 @@ class TestWebSocketManager:
         # Should handle gracefully and return None for failed parsing
         assert data["type"] == "dashboard_update"
         assert data["data"]["health"] is None
+        assert data["data"]["portfolio"] is None
 
     @pytest.mark.asyncio
     async def test_start_broadcasting_with_clients(self, ws_manager):

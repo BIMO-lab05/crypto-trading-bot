@@ -78,9 +78,12 @@ SELECT add_compression_policy('market_data.ticks', INTERVAL '3 days', if_not_exi
 SELECT add_compression_policy('market_data.orderbook_snapshots', INTERVAL '2 days', if_not_exists => TRUE);
 SELECT add_compression_policy('market_data.indicators', INTERVAL '7 days', if_not_exists => TRUE);
 
--- Retention policy: keep data for 90 days (adjust as needed)
-SELECT add_retention_policy('market_data.ticks', INTERVAL '90 days', if_not_exists => TRUE);
-SELECT add_retention_policy('market_data.orderbook_snapshots', INTERVAL '30 days', if_not_exists => TRUE);
+-- Retention policies tuned for free-tier single-host deploy (≤ ~2 GB on disk).
+-- Override on a fat host by re-running ALTER ... drop_after.
+SELECT add_retention_policy('market_data.ticks', INTERVAL '14 days', if_not_exists => TRUE);
+SELECT add_retention_policy('market_data.orderbook_snapshots', INTERVAL '7 days', if_not_exists => TRUE);
+SELECT add_retention_policy('market_data.candles', INTERVAL '90 days', if_not_exists => TRUE);
+SELECT add_retention_policy('market_data.indicators', INTERVAL '90 days', if_not_exists => TRUE);
 
 -- Create continuous aggregates for common queries
 CREATE MATERIALIZED VIEW IF NOT EXISTS market_data.candles_1h

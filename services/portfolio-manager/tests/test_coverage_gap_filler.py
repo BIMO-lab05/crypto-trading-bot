@@ -4,6 +4,7 @@ Targeted tests to fill coverage gaps for 77% to 80%+ coverage push
 Focus: Handler edge cases and uncovered branches
 """
 
+import asyncio
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from decimal import Decimal
@@ -313,6 +314,9 @@ class TestCoverageGapFiller:
         mock_manager.get_portfolio.return_value = mock_portfolio
         # execute_transaction returns (success, message, realized_pnl)
         mock_manager.execute_transaction.return_value = (True, "Buy executed", Decimal("0"))
+        # Handler wraps the txn in `async with manager.get_transaction_lock(pid):`
+        # — return a real asyncio.Lock so the context manager works.
+        mock_manager.get_transaction_lock.return_value = asyncio.Lock()
 
         with patch('app.main.portfolio_manager', mock_manager):
             response = client.post(
@@ -330,6 +334,9 @@ class TestCoverageGapFiller:
         mock_manager.get_portfolio.return_value = mock_portfolio
         # execute_transaction returns (success, message, realized_pnl)
         mock_manager.execute_transaction.return_value = (True, "Sell executed", Decimal("1000"))
+        # Handler wraps the txn in `async with manager.get_transaction_lock(pid):`
+        # — return a real asyncio.Lock so the context manager works.
+        mock_manager.get_transaction_lock.return_value = asyncio.Lock()
 
         with patch('app.main.portfolio_manager', mock_manager):
             response = client.post(

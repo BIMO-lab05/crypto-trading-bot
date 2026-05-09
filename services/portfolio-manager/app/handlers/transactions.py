@@ -76,25 +76,28 @@ async def buy_asset(
     # Validate quantity
     qty = parse_decimal(quantity, "quantity")
 
-    # Get price if not provided
-    if price is None:
-        current_price = await manager._fetch_current_price(symbol)
-        if current_price == 0:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Could not fetch current price for {symbol}. Market Data service may be unavailable."
-            )
-    else:
-        current_price = parse_decimal(price, "price")
+    # Serialize the price-fetch + execute window per portfolio so a concurrent
+    # SELL/BUY can't interleave around the await and overdraw the cash balance.
+    async with manager.get_transaction_lock(portfolio_id):
+        # Get price if not provided
+        if price is None:
+            current_price = await manager._fetch_current_price(symbol)
+            if current_price == 0:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Could not fetch current price for {symbol}. Market Data service may be unavailable."
+                )
+        else:
+            current_price = parse_decimal(price, "price")
 
-    # Execute transaction
-    success, message, _ = manager.execute_transaction(
-        portfolio_id=portfolio_id,
-        symbol=symbol,
-        action="BUY",
-        quantity=qty,
-        price=current_price
-    )
+        # Execute transaction
+        success, message, _ = manager.execute_transaction(
+            portfolio_id=portfolio_id,
+            symbol=symbol,
+            action="BUY",
+            quantity=qty,
+            price=current_price
+        )
 
     if not success:
         raise HTTPException(status_code=400, detail=message)
@@ -162,25 +165,28 @@ async def sell_asset(
     # Validate quantity
     qty = parse_decimal(quantity, "quantity")
 
-    # Get price if not provided
-    if price is None:
-        current_price = await manager._fetch_current_price(symbol)
-        if current_price == 0:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Could not fetch current price for {symbol}. Market Data service may be unavailable."
-            )
-    else:
-        current_price = parse_decimal(price, "price")
+    # Serialize the price-fetch + execute window per portfolio so a concurrent
+    # BUY/SELL can't interleave around the await and corrupt holdings/cash.
+    async with manager.get_transaction_lock(portfolio_id):
+        # Get price if not provided
+        if price is None:
+            current_price = await manager._fetch_current_price(symbol)
+            if current_price == 0:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Could not fetch current price for {symbol}. Market Data service may be unavailable."
+                )
+        else:
+            current_price = parse_decimal(price, "price")
 
-    # Execute transaction
-    success, message, realized_pnl = manager.execute_transaction(
-        portfolio_id=portfolio_id,
-        symbol=symbol,
-        action="SELL",
-        quantity=qty,
-        price=current_price
-    )
+        # Execute transaction
+        success, message, realized_pnl = manager.execute_transaction(
+            portfolio_id=portfolio_id,
+            symbol=symbol,
+            action="SELL",
+            quantity=qty,
+            price=current_price
+        )
 
     if not success:
         raise HTTPException(status_code=400, detail=message)

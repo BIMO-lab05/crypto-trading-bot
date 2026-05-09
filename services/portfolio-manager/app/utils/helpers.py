@@ -198,7 +198,10 @@ async def fetch_historical_prices(
                     logger.warning(f"Failed to fetch historical data for {symbol}: {response.status_code}")
 
         # Forward fill missing values
-        price_data.fillna(method="ffill", inplace=True)
+        # FIX: pandas 2.x deprecated `fillna(method='ffill', ...)` in favour of
+        # `ffill()`. The old call still works but emits a FutureWarning every
+        # request, and will be removed in a future release.
+        price_data = price_data.ffill()
 
         # Drop any remaining NaN values
         price_data.dropna(inplace=True)

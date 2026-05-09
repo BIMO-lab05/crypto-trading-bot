@@ -127,6 +127,19 @@ async def get_status() -> StatusResponse:
     health_monitor = get_health_monitor()
     system_metrics = health_monitor.get_system_metrics()
 
+    # Surface emergency-stop file kill-switch state from the auto-trader singleton.
+    from app.auto_trader import get_auto_trader
+    auto_trader = get_auto_trader()
+    emergency_stop_state = {
+        "file_path": str(auto_trader.emergency_stop_file),
+        "active": auto_trader.emergency_stop_active,
+        "last_checked": (
+            auto_trader.emergency_stop_last_checked.isoformat()
+            if auto_trader.emergency_stop_last_checked else None
+        ),
+        "auto_trader_running": auto_trader.is_running,
+    }
+
     return StatusResponse(
         status="running",
         trading_mode=settings.trading_mode,
@@ -135,7 +148,8 @@ async def get_status() -> StatusResponse:
         open_positions_count=len(open_positions),
         current_balance=float(paper_engine.get_balance()),
         timestamp=int(time.time() * 1000),
-        system_metrics=system_metrics
+        system_metrics=system_metrics,
+        emergency_stop=emergency_stop_state
     )
 
 

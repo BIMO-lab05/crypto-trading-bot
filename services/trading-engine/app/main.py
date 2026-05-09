@@ -25,7 +25,6 @@ import logging
 import time
 import re
 from contextlib import asynccontextmanager
-from decimal import Decimal
 from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, Query, Request
@@ -35,14 +34,16 @@ from typing import Optional, List, Dict
 from fastapi.middleware.cors import CORSMiddleware
 
 # Prometheus metrics imports
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import (
+    Counter,
+    Histogram,
+    Gauge,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
 
 from app.config import get_settings
-from app.signal_aggregator import get_aggregator, close_aggregator
-from app.multi_timeframe import get_multi_timeframe_analyzer, close_multi_timeframe_analyzer
-from app.repositories import get_portfolio_repository
 from app.position_manager import get_position_manager
-from app.database.connection import db_manager
 from app.models import (
     HealthResponse,
     StatusResponse,
@@ -51,7 +52,7 @@ from app.models import (
     PositionResponse,
     PerformanceResponse,
     TradingControlResponse,
-    TradeHistoryResponse
+    TradeHistoryResponse,
 )
 
 # Import all handler functions (Phase 3: Modular architecture)
@@ -97,8 +98,6 @@ from app.handlers import (
     get_correlation_alerts,
     check_can_open_position,
     update_correlations,
-    initialize_correlation_manager,
-    # Kelly Position Sizing Router (Phase 3.2)
     kelly_router,
     # Dynamic Risk Budget Router (Phase 3.3)
     risk_budget_router,
@@ -111,6 +110,11 @@ from app.handlers import (
     # Advanced Performance Metrics Router (Phase 5.2)
     analytics_router,
     analytics_report_router,
+    # Performance Dashboard Router (Phase 5.3) — equity-curve, drawdown,
+    # returns-distribution, correlations, statistics endpoints used by the
+    # Performance frontend page. Was defined but never mounted; added
+    # 2026-05-01 alongside gateway proxy routes.
+    performance_dashboard_router,
 )
 
 # Import SQZMOM strategy (NEW)
@@ -119,23 +123,36 @@ from app.strategies import sqzmom_strategy, sqzmom_config
 # Import Grid Trading router (Phase 2.3)
 from app.handlers.grid_trading import router as grid_trading_router
 
+# Import Multi-Strategy Orchestration router (Phase 9). Was defined in
+# handlers/orchestration.py but never actually mounted — every endpoint
+# under /api/v1/orchestrator/* (incl. emergency-stop, risk/utilization,
+# strategies/*) was dead. Wired up 2026-04-29.
+from app.handlers.orchestration import router as orchestration_router
+
 # Import Correlation Manager (Phase 3.1)
-from app.risk import get_correlation_manager
 
 # Import Kelly Sizer (Phase 3.2)
-from app.risk.kelly_position_sizing import get_kelly_sizer
 
 # Import Dynamic Risk Budget Manager (Phase 3.3)
-from app.risk.dynamic_risk_budget import get_risk_budget_manager
 
 # Import Smart Router (Phase 4.1)
-from app.execution.smart_router import get_smart_router
 
 # Import Execution Scheduler (Phase 4.2)
-from app.execution.execution_scheduler import get_execution_scheduler
 
 # Import Attribution Analyzer (Phase 5.1)
-from app.analytics import get_attribution_analyzer
+
+# Lifespan phase context managers (refactored 2026-05-01 — split fat lifespan
+# into 4 composed @asynccontextmanager phases, see app/lifespan/__init__.py)
+from app.lifespan import init_data, init_ml, init_risk, init_strategy
+
+# Backward-compat re-exports for tests that patch `app.main.<symbol>`. These
+# symbols moved into app/lifespan/* during the 2026-05-01 refactor; the F401
+# noqa keeps autoflake from stripping them. Removing any line here will break
+# tests that monkeypatch the lifespan dependencies via the main module.
+from app.database.connection import db_manager  # noqa: F401
+from app.signal_aggregator import get_aggregator  # noqa: F401
+from app.repositories import get_portfolio_repository  # noqa: F401
+from app.paper_trading import get_paper_engine  # noqa: F401
 
 # Fixed: Create logs directory to prevent startup crashes (Critical Issue #1)
 LOG_DIR = Path("logs")
@@ -143,8 +160,7 @@ LOG_DIR.mkdir(exist_ok=True)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -161,282 +177,157 @@ VERSION = "3.7.0"
 
 # HTTP request counter
 http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status_code']
+    "http_requests_total", "Total HTTP requests", ["method", "endpoint", "status_code"]
 )
 
 # HTTP request duration histogram
 http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'endpoint'],
-    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0]
+    "http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "endpoint"],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0],
 )
 
 # Active requests gauge
-http_requests_active = Gauge(
-    'http_requests_active',
-    'Number of active HTTP requests'
-)
+http_requests_active = Gauge("http_requests_active", "Number of active HTTP requests")
 
 # Trading-specific metrics
 trades_executed_total = Counter(
-    'trades_executed_total',
-    'Total trades executed',
-    ['symbol', 'side', 'status']
+    "trades_executed_total", "Total trades executed", ["symbol", "side", "status"]
 )
 
 signals_generated_total = Counter(
-    'signals_generated_total',
-    'Total trading signals generated',
-    ['symbol', 'signal_type']
+    "signals_generated_total",
+    "Total trading signals generated",
+    ["symbol", "signal_type"],
 )
 
 open_positions_gauge = Gauge(
-    'open_positions_total',
-    'Number of open positions',
-    ['symbol']
+    "open_positions_total", "Number of open positions", ["symbol"]
 )
 
-portfolio_value_gauge = Gauge(
-    'portfolio_value_usd',
-    'Total portfolio value in USD'
-)
+portfolio_value_gauge = Gauge("portfolio_value_usd", "Total portfolio value in USD")
 
-total_pnl_gauge = Gauge(
-    'total_pnl_usd',
-    'Total realized P&L in USD'
-)
+total_pnl_gauge = Gauge("total_pnl_usd", "Total realized P&L in USD")
 
 auto_trader_status = Gauge(
-    'auto_trader_running',
-    'Auto trader running status (1=running, 0=stopped)'
+    "auto_trader_running", "Auto trader running status (1=running, 0=stopped)"
 )
 
 database_health = Gauge(
-    'database_connection_health',
-    'Database connection health (1=healthy, 0=unhealthy)'
+    "database_connection_health", "Database connection health (1=healthy, 0=unhealthy)"
 )
 
 ta_service_health = Gauge(
-    'technical_analysis_service_health',
-    'Technical Analysis service health (1=healthy, 0=unhealthy)'
+    "technical_analysis_service_health",
+    "Technical Analysis service health (1=healthy, 0=unhealthy)",
 )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown"""
-    logger.info(f"Starting {settings.service_name} v{VERSION} on port {settings.service_port}")
+    logger.info(
+        f"Starting {settings.service_name} v{VERSION} on port {settings.service_port}"
+    )
     logger.info(f"Trading Mode: {settings.trading_mode}")
     logger.info(f"Auto Trading: {settings.auto_trading_enabled}")
     logger.info("Prometheus metrics: enabled at /metrics")
 
-    # Initialize database connection
-    try:
-        db_manager.init_async_engine()
-        db_health = db_manager.health_check()
-        if db_health:
-            logger.info("Database connection initialized")
-            database_health.set(1)
+    # Defense-in-depth: refuse to boot in LIVE mode without an explicit
+    # operator ack. CLAUDE.md mandates a deliberate three-flag flip
+    # (PAPER_TRADING_MODE=false + TRADING_MODE=LIVE + mainnet trade-permission
+    # keys). The ack env var is a fourth gate to catch silent env drift on
+    # cloud hosts where a forgotten value might otherwise reach prod.
+    import os
 
-            # Ensure paper trading portfolio exists
-            portfolio_repo = get_portfolio_repository()
-            await portfolio_repo.get_or_create(
-                portfolio_id="paper_trading",
-                name="Paper Trading Portfolio",
-                initial_balance=Decimal(str(settings.paper_initial_balance))
+    if settings.trading_mode == "LIVE":
+        ack = os.environ.get("LIVE_TRADING_ACK", "")
+        if ack != "I_UNDERSTAND_REAL_MONEY":
+            raise RuntimeError(
+                "Refusing to boot: TRADING_MODE=LIVE without "
+                "LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY. "
+                "Set the ack env var explicitly to authorize live trading."
             )
-            logger.info("Paper trading portfolio verified")
+        logger.critical("LIVE trading mode acknowledged via LIVE_TRADING_ACK")
 
-            # Load open positions from database into memory
-            position_manager = get_position_manager()
-            loaded_count = await position_manager.load_positions_from_db()
-            logger.info(f"Loaded {loaded_count} positions from database")
-
-            # Sync paper trading balance with loaded positions
-            # This deducts position costs from initial balance so balance reflects actual cash
-            from app.paper_trading import get_paper_engine
-            paper_engine = get_paper_engine()
-            paper_engine.sync_balance_with_positions()
-            logger.info(f"Paper trading balance synced: ${paper_engine.get_balance():.2f}")
-        else:
-            logger.warning("Database connection failed - trades will not be persisted")
-            database_health.set(0)
-    except Exception as e:
-        logger.error(f"Database initialization error: {e}")
-        logger.warning("Continuing without database persistence")
-        database_health.set(0)
-
-    # Check Technical Analysis Service connection
-    aggregator = await get_aggregator()
-    is_healthy = await aggregator.health_check()
-    if is_healthy:
-        logger.info("Technical Analysis Service connection verified")
-        ta_service_health.set(1)
-    else:
-        logger.warning("Technical Analysis Service not available")
-        ta_service_health.set(0)
-
-    # =========================================================================
-    # PHASE 3-5 ENHANCEMENTS INITIALIZATION
-    # =========================================================================
-    logger.info("=" * 60)
-    logger.info("Initializing Phase 3-5 enhancements...")
-    logger.info("=" * 60)
-
-    # Initialize Correlation Manager (Phase 3.1)
-    try:
-        correlation_manager = get_correlation_manager()
-        await correlation_manager.initialize(redis_url=settings.redis_url)
-        logger.info("[OK] Correlation Manager initialized (Phase 3.1)")
-    except Exception as e:
-        logger.warning(f"[WARN] Failed to initialize Correlation Manager: {e}")
-
-    # Initialize Kelly Sizer (Phase 3.2)
-    try:
-        kelly_sizer = get_kelly_sizer()
-        logger.info(f"[OK] Kelly Position Sizer initialized (Phase 3.2)")
-        logger.info(f"     Default fraction: {kelly_sizer.default_kelly_fraction * 100:.0f}%")
-        logger.info(f"     Max position: {kelly_sizer.max_position_pct:.0f}%")
-    except Exception as e:
-        logger.warning(f"[WARN] Failed to initialize Kelly Position Sizer: {e}")
-
-    # Initialize Dynamic Risk Budget Manager (Phase 3.3)
-    try:
-        risk_budget_manager = get_risk_budget_manager()
-        logger.info("[OK] Dynamic Risk Budget Manager initialized (Phase 3.3)")
-        # Calculate initial risk budget
-        budget = risk_budget_manager.calculate_risk_budget()
-        logger.info(f"     Base equity: ${risk_budget_manager.config.base_equity:,.0f}")
-        logger.info(f"     Risk budget: {budget.adjusted_budget_pct:.2f}% (${budget.adjusted_budget_usd:,.0f})")
-        logger.info(f"     Risk level: {budget.risk_level}")
-        logger.info(f"     Market regime: {budget.market_regime.value}")
-    except Exception as e:
-        logger.warning(f"[WARN] Failed to initialize Dynamic Risk Budget Manager: {e}")
-
-    # Initialize Smart Router (Phase 4.1)
-    try:
-        smart_router = get_smart_router()
-        logger.info("[OK] Smart Order Router initialized (Phase 4.1)")
-        status = smart_router.get_status()
-        logger.info(f"     Tight spread threshold: {status.get('config', {}).get('tight_spread_threshold', 'N/A')}")
-    except Exception as e:
-        logger.warning(f"[WARN] Failed to initialize Smart Order Router: {e}")
-
-    # Initialize Execution Scheduler (Phase 4.2)
-    try:
-        execution_scheduler = get_execution_scheduler()
-        await execution_scheduler.start()
-        logger.info("[OK] Execution Scheduler initialized (Phase 4.2)")
-        scheduler_status = execution_scheduler.get_scheduler_status()
-        logger.info(f"     Max concurrent orders: {scheduler_status['config']['max_concurrent_orders']}")
-        logger.info(f"     Default participation: {scheduler_status['config']['default_participation_rate']:.0%}")
-    except Exception as e:
-        logger.warning(f"[WARN] Failed to initialize Execution Scheduler: {e}")
-
-    # Initialize Attribution Analyzer (Phase 5.1)
-    try:
-        attribution_analyzer = get_attribution_analyzer(
-            initial_capital=settings.paper_initial_balance
-        )
-        logger.info(f"[OK] Attribution Analyzer initialized (Phase 5.1)")
-        logger.info(f"     Initial capital: ${settings.paper_initial_balance:,.2f}")
-    except Exception as e:
-        logger.warning(f"[WARN] Failed to initialize Attribution Analyzer: {e}")
-
-    logger.info("=" * 60)
-    logger.info("Phase 3-5 enhancements ready!")
-    logger.info("=" * 60)
-
-    # Log SQZMOM strategy status (NEW)
-    logger.info("=" * 60)
-    logger.info("SQZMOM Strategy Configuration:")
-    logger.info(f"  Enabled symbols: {sqzmom_config.enabled_symbols}")
-    logger.info(f"  Paper trading: {sqzmom_config.paper_trading}")
-    logger.info(f"  Auto trading: {sqzmom_config.auto_trading}")
-    logger.info(f"  Max positions: {sqzmom_config.max_positions}")
-    logger.info("=" * 60)
-
-    # AUTO-START: Start the auto trader automatically on service startup
-    # This runs regardless of database status
-    try:
-        from app.auto_trader import get_auto_trader
-        auto_trader = get_auto_trader()
-        await auto_trader.start()
-        auto_trader_status.set(1)
-        logger.info("=" * 60)
-        logger.info("AUTO TRADER STARTED AUTOMATICALLY")
-        logger.info(f"   Trading symbols: {auto_trader.symbols}")
-        logger.info(f"   Check frequency: {auto_trader.check_frequency}s")
-        logger.info(f"   Strategy mode: {auto_trader.strategy_mode.value}")
-        logger.info("   Bot is now ACTIVE and monitoring markets!")
-        logger.info("=" * 60)
-    except Exception as e:
-        logger.error(f"Failed to auto-start trading: {e}")
-        auto_trader_status.set(0)
-
-    yield
-
-    # Cleanup
-    logger.info("Shutting down Trading Engine Service")
-
-    # Stop auto trader if running
-    try:
-        from app.auto_trader import get_auto_trader
-        auto_trader = get_auto_trader()
-        if auto_trader.is_running:
-            await auto_trader.stop()
+    # 4 phase context managers run in order on enter, reverse on exit (cm stack
+    # semantics). Auto-trader start/stop stays OUTSIDE the phases — gated on
+    # settings.auto_trading_enabled + EMERGENCY_STOP file (both off-switches).
+    async with init_data(), init_ml(), init_strategy(), init_risk():
+        # AUTO-START gate. Two off-switches block lifespan auto-start, in order:
+        #   1. settings.auto_trading_enabled=False — operator says "don't auto-start
+        #      at boot" (default). The /start API endpoint still works for manual
+        #      operator control; this only governs the on-boot auto-start.
+        #   2. EMERGENCY_STOP file present — strong "halt now" signal from the
+        #      operator-side kill switch. Uses is_file() (not exists()) to handle
+        #      the WSL bind-mount edge case where Docker may create a directory at
+        #      the mount point if the host file is absent.
+        auto_trader = None
+        stop_file = Path(settings.emergency_stop_file)
+        if not settings.auto_trading_enabled:
+            logger.warning("=" * 60)
+            logger.warning(
+                "AUTO_TRADING_ENABLED=false — auto-trader will NOT auto-start"
+            )
+            logger.warning("Use the /start API endpoint to start manually.")
+            logger.warning("=" * 60)
             auto_trader_status.set(0)
-            logger.info("Auto Trader stopped")
-    except Exception as e:
-        logger.error(f"Error stopping auto trader: {e}")
+        elif stop_file.is_file():
+            logger.critical("=" * 60)
+            logger.critical(f"EMERGENCY_STOP file present at {stop_file}")
+            logger.critical(
+                "REFUSING to start auto-trader. Delete the file to re-enable."
+            )
+            logger.critical("=" * 60)
+            auto_trader_status.set(0)
+        else:
+            try:
+                from app.auto_trader import get_auto_trader
 
-    await close_aggregator()
-    await close_multi_timeframe_analyzer()
+                auto_trader = get_auto_trader()
+                await auto_trader.start()
+                auto_trader_status.set(1)
+                logger.info("=" * 60)
+                logger.info("AUTO TRADER STARTED AUTOMATICALLY")
+                logger.info(f"   Trading symbols: {auto_trader.symbols}")
+                logger.info(f"   Check frequency: {auto_trader.check_frequency}s")
+                logger.info(f"   Strategy mode: {auto_trader.strategy_mode.value}")
+                logger.info("   Bot is now ACTIVE and monitoring markets!")
+                logger.info("=" * 60)
+            except Exception as e:
+                logger.error(f"Failed to auto-start trading: {e}")
+                auto_trader_status.set(0)
 
-    # Close SQZMOM strategy (NEW)
-    await sqzmom_strategy.close()
-
-    # Close Correlation Manager (Phase 3.1)
-    try:
-        correlation_manager = get_correlation_manager()
-        await correlation_manager.close()
-        logger.info("Correlation Manager closed")
-    except Exception as e:
-        logger.error(f"Error closing Correlation Manager: {e}")
-
-    # Stop Execution Scheduler (Phase 4.2)
-    try:
-        execution_scheduler = get_execution_scheduler()
-        await execution_scheduler.stop(wait_for_completion=True)
-        logger.info("Execution Scheduler stopped")
-    except Exception as e:
-        logger.error(f"Error stopping Execution Scheduler: {e}")
-
-    # Close database connections
-    try:
-        await db_manager.close()
-        logger.info("Database connections closed")
-    except Exception as e:
-        logger.error(f"Error closing database connections: {e}")
+        try:
+            yield
+        finally:
+            logger.info("Shutting down Trading Engine Service")
+            if auto_trader is not None:
+                try:
+                    if auto_trader.is_running:
+                        await auto_trader.stop()
+                        auto_trader_status.set(0)
+                        logger.info("Auto Trader stopped")
+                except Exception as e:
+                    logger.error(f"Error stopping auto trader: {e}")
 
 
 # FastAPI app
 app = FastAPI(
     title="Trading Engine Service",
     description="Core trading decision-making and execution service with Phase 3-5 enhancements: "
-                "Correlation Analysis, Kelly Position Sizing, Dynamic Risk Budgeting, "
-                "Smart Order Routing, TWAP/VWAP Execution, and Attribution Analysis",
+    "Correlation Analysis, Kelly Position Sizing, Dynamic Risk Budgeting, "
+    "Smart Order Routing, TWAP/VWAP Execution, and Attribution Analysis",
     version=VERSION,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
 # ============================================================================
 # PROMETHEUS METRICS MIDDLEWARE
 # ============================================================================
+
 
 @app.middleware("http")
 async def prometheus_metrics_middleware(request: Request, call_next):
@@ -449,8 +340,13 @@ async def prometheus_metrics_middleware(request: Request, call_next):
     path = request.url.path
 
     # Normalize path to prevent high cardinality
-    normalized_path = re.sub(r'/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '/{uuid}', path, flags=re.IGNORECASE)
-    normalized_path = re.sub(r'/[A-Z]+USDT', '/{symbol}', normalized_path)
+    normalized_path = re.sub(
+        r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        "/{uuid}",
+        path,
+        flags=re.IGNORECASE,
+    )
+    normalized_path = re.sub(r"/[A-Z]+USDT", "/{symbol}", normalized_path)
 
     http_requests_active.inc()
     start_time = time.time()
@@ -458,7 +354,7 @@ async def prometheus_metrics_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
         status_code = response.status_code
-    except Exception as e:
+    except Exception:
         status_code = 500
         raise
     finally:
@@ -466,14 +362,11 @@ async def prometheus_metrics_middleware(request: Request, call_next):
         http_requests_active.dec()
 
         http_requests_total.labels(
-            method=method,
-            endpoint=normalized_path,
-            status_code=status_code
+            method=method, endpoint=normalized_path, status_code=status_code
         ).inc()
 
         http_request_duration_seconds.labels(
-            method=method,
-            endpoint=normalized_path
+            method=method, endpoint=normalized_path
         ).observe(duration)
 
     return response
@@ -509,6 +402,9 @@ app.add_middleware(
 # Include Grid Trading router (Phase 2.3 - Grid Trading Integration)
 app.include_router(grid_trading_router)
 
+# Include Multi-Strategy Orchestration router (Phase 9)
+app.include_router(orchestration_router)
+
 # Include Kelly Position Sizing router (Phase 3.2)
 app.include_router(kelly_router)
 
@@ -528,10 +424,18 @@ app.include_router(attribution_router)
 app.include_router(analytics_router)
 app.include_router(analytics_report_router)
 
+# Include Performance Dashboard router (Phase 5.3). Provides
+# /api/v1/trading/{equity-curve,drawdown,returns-distribution,
+# correlations,statistics} consumed by the frontend Performance page.
+# Was defined in handlers/performance_dashboard.py but never mounted —
+# same shape as the orchestration-router fix in commit 4a158e2.
+app.include_router(performance_dashboard_router)
+
 
 # ============================================================================
 # PROMETHEUS METRICS ENDPOINT
 # ============================================================================
+
 
 @app.get("/metrics", include_in_schema=False)
 async def metrics():
@@ -542,6 +446,7 @@ async def metrics():
 # ============================================================================
 # HEALTH ENDPOINTS
 # ============================================================================
+
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health():
@@ -573,25 +478,22 @@ async def detailed_health():
 # SIGNAL ENDPOINTS
 # ============================================================================
 
+
 @app.get("/api/v1/signals/{symbol}", response_model=SignalResponse, tags=["Signals"])
-async def signal_endpoint(
-    symbol: str,
-    interval: str = "60"
-):
+async def signal_endpoint(symbol: str, interval: str = "60"):
     """
     Get trading signal for a symbol
 
     Fetches all technical indicators and aggregates them into a trading signal.
     """
-    signals_generated_total.labels(symbol=symbol, signal_type='aggregated').inc()
+    signals_generated_total.labels(symbol=symbol, signal_type="aggregated").inc()
     return await get_trading_signal(symbol, interval)
 
 
-@app.get("/api/v1/signals/enhanced/{symbol}", response_model=SignalResponse, tags=["Signals"])
-async def enhanced_signal_endpoint(
-    symbol: str,
-    interval: str = "60"
-):
+@app.get(
+    "/api/v1/signals/enhanced/{symbol}", response_model=SignalResponse, tags=["Signals"]
+)
+async def enhanced_signal_endpoint(symbol: str, interval: str = "60"):
     """
     Get ENHANCED trading signal with ML predictions for 5-10% win rate improvement
 
@@ -604,16 +506,14 @@ async def enhanced_signal_endpoint(
 
     Target: 5-10% improvement in win rate through better signal quality
     """
-    signals_generated_total.labels(symbol=symbol, signal_type='enhanced').inc()
+    signals_generated_total.labels(symbol=symbol, signal_type="enhanced").inc()
     return await get_enhanced_trading_signal(symbol, interval)
 
 
-@app.post("/api/v1/signals/{symbol}/analyze", response_model=SignalResponse, tags=["Signals"])
-async def analyze_endpoint(
-    symbol: str,
-    interval: str = "60",
-    execute: bool = False
-):
+@app.post(
+    "/api/v1/signals/{symbol}/analyze", response_model=SignalResponse, tags=["Signals"]
+)
+async def analyze_endpoint(symbol: str, interval: str = "60", execute: bool = False):
     """
     Analyze signal and optionally execute trade
 
@@ -629,6 +529,7 @@ async def analyze_endpoint(
 # POSITION ENDPOINTS
 # ============================================================================
 
+
 @app.get("/api/v1/positions", response_model=PositionListResponse, tags=["Positions"])
 async def positions_endpoint(status: str = "all"):
     """
@@ -640,7 +541,11 @@ async def positions_endpoint(status: str = "all"):
     return await get_positions(status)
 
 
-@app.get("/api/v1/positions/{position_id}", response_model=PositionResponse, tags=["Positions"])
+@app.get(
+    "/api/v1/positions/{position_id}",
+    response_model=PositionResponse,
+    tags=["Positions"],
+)
 async def position_endpoint(position_id: str):
     """Get specific position by ID"""
     return await get_position(position_id)
@@ -658,12 +563,13 @@ async def update_tp_levels_endpoint():
         Number of positions updated
     """
     from app.position_manager import get_position_manager
+
     position_mgr = get_position_manager()
     updated = position_mgr.update_positions_with_tp_levels()
     return {
         "success": True,
         "updated_positions": updated,
-        "message": f"Updated {updated} positions with TP1/TP2/TP3 levels"
+        "message": f"Updated {updated} positions with TP1/TP2/TP3 levels",
     }
 
 
@@ -671,7 +577,10 @@ async def update_tp_levels_endpoint():
 # PERFORMANCE ENDPOINTS
 # ============================================================================
 
-@app.get("/api/v1/performance", response_model=PerformanceResponse, tags=["Performance"])
+
+@app.get(
+    "/api/v1/performance", response_model=PerformanceResponse, tags=["Performance"]
+)
 async def performance_endpoint():
     """Get performance metrics"""
     return await get_performance()
@@ -681,7 +590,12 @@ async def performance_endpoint():
 # TRADE HISTORY ENDPOINTS
 # ============================================================================
 
-@app.get("/api/v1/trades/history", response_model=TradeHistoryResponse, tags=["Trade History"])
+
+@app.get(
+    "/api/v1/trades/history",
+    response_model=TradeHistoryResponse,
+    tags=["Trade History"],
+)
 async def trade_history_endpoint(limit: int = 50):
     """
     Get trade history with statistics
@@ -703,7 +617,12 @@ async def trade_history_endpoint(limit: int = 50):
 # TRADING CONTROL ENDPOINTS
 # ============================================================================
 
-@app.post("/api/v1/trading/start", response_model=TradingControlResponse, tags=["Trading Control"])
+
+@app.post(
+    "/api/v1/trading/start",
+    response_model=TradingControlResponse,
+    tags=["Trading Control"],
+)
 async def trading_start_endpoint():
     """
     Start automated trading loop
@@ -719,7 +638,11 @@ async def trading_start_endpoint():
     return result
 
 
-@app.post("/api/v1/trading/stop", response_model=TradingControlResponse, tags=["Trading Control"])
+@app.post(
+    "/api/v1/trading/stop",
+    response_model=TradingControlResponse,
+    tags=["Trading Control"],
+)
 async def trading_stop_endpoint():
     """Stop automated trading loop"""
     result = await stop_trading()
@@ -741,6 +664,7 @@ async def trading_status_endpoint():
 # ============================================================================
 # PHASE 1 METRICS ENDPOINTS
 # ============================================================================
+
 
 @app.get("/api/v1/phase1/metrics", tags=["Phase 1"])
 async def phase1_metrics_endpoint(hours: int = 24):
@@ -772,6 +696,7 @@ async def phase1_latest_endpoint():
 # CORRELATION ANALYSIS ENDPOINTS (Phase 3.1)
 # ============================================================================
 
+
 @app.get("/api/v1/risk/correlation", tags=["Risk - Correlation"])
 async def correlation_matrix_endpoint():
     """
@@ -802,8 +727,8 @@ async def correlation_status_endpoint():
 async def diversification_score_endpoint(
     symbols: Optional[str] = Query(
         default=None,
-        description="Comma-separated list of symbols (uses open positions if not provided)"
-    )
+        description="Comma-separated list of symbols (uses open positions if not provided)",
+    ),
 ):
     """
     Get portfolio diversification score (0-100)
@@ -825,7 +750,9 @@ async def diversification_score_endpoint(
     return await get_diversification_score(symbol_list)
 
 
-@app.get("/api/v1/risk/correlation/pair/{symbol_a}/{symbol_b}", tags=["Risk - Correlation"])
+@app.get(
+    "/api/v1/risk/correlation/pair/{symbol_a}/{symbol_b}", tags=["Risk - Correlation"]
+)
 async def pair_correlation_endpoint(symbol_a: str, symbol_b: str):
     """
     Get detailed correlation info for a specific pair
@@ -844,8 +771,8 @@ async def pair_correlation_endpoint(symbol_a: str, symbol_b: str):
 async def correlation_alerts_endpoint(
     min_severity: str = Query(
         default="WARNING",
-        description="Minimum severity level (INFO, WARNING, HIGH, CRITICAL)"
-    )
+        description="Minimum severity level (INFO, WARNING, HIGH, CRITICAL)",
+    ),
 ):
     """
     Get correlation alerts
@@ -862,7 +789,9 @@ async def correlation_alerts_endpoint(
     return await get_correlation_alerts(min_severity)
 
 
-@app.post("/api/v1/risk/correlation/check-position/{symbol}", tags=["Risk - Correlation"])
+@app.post(
+    "/api/v1/risk/correlation/check-position/{symbol}", tags=["Risk - Correlation"]
+)
 async def check_position_correlation_endpoint(symbol: str):
     """
     Check if a new position can be opened based on correlation limits
@@ -883,7 +812,7 @@ async def check_position_correlation_endpoint(symbol: str):
 
 @app.post("/api/v1/risk/correlation/update", tags=["Risk - Correlation"])
 async def update_correlations_endpoint(
-    price_data: Optional[Dict[str, List[float]]] = None
+    price_data: Optional[Dict[str, List[float]]] = None,
 ):
     """
     Manually trigger correlation update
@@ -902,6 +831,7 @@ async def update_correlations_endpoint(
 # ============================================================================
 # SQZMOM STRATEGY ENDPOINTS
 # ============================================================================
+
 
 @app.get("/api/v1/strategies/sqzmom/info", tags=["SQZMOM Strategy"])
 async def get_sqzmom_info():
@@ -933,8 +863,8 @@ async def get_sqzmom_config():
 async def enable_sqzmom_trading(
     auto_trading: bool = Query(
         default=False,
-        description="Enable automatic trade execution (False = manual approval required)"
-    )
+        description="Enable automatic trade execution (False = manual approval required)",
+    ),
 ):
     """
     Enable SQZMOM strategy
@@ -960,7 +890,9 @@ async def enable_sqzmom_trading(
         "paper_trading": sqzmom_config.paper_trading,
         "auto_trading": sqzmom_config.auto_trading,
         "max_positions": sqzmom_config.max_positions,
-        "note": "Manual approval required" if not auto_trading else "Automatic execution enabled"
+        "note": "Manual approval required"
+        if not auto_trading
+        else "Automatic execution enabled",
     }
 
 
@@ -979,7 +911,7 @@ async def disable_sqzmom_trading():
     return {
         "success": True,
         "message": "SQZMOM strategy disabled (auto_trading set to False)",
-        "auto_trading": sqzmom_config.auto_trading
+        "auto_trading": sqzmom_config.auto_trading,
     }
 
 
@@ -1003,7 +935,7 @@ async def get_all_sqzmom_signals():
         "timestamp": datetime.now().isoformat(),
         "enabled_symbols": sqzmom_config.enabled_symbols,
         "signals_retrieved": len(signals),
-        "signals": signals
+        "signals": signals,
     }
 
 
@@ -1012,8 +944,8 @@ async def get_sqzmom_signal(
     symbol: str,
     interval: Optional[str] = Query(
         default=None,
-        description="Timeframe in minutes (default: from config, typically 60)"
-    )
+        description="Timeframe in minutes (default: from config, typically 60)",
+    ),
 ):
     """
     Get SQZMOM signal for a specific symbol
@@ -1034,7 +966,7 @@ async def get_sqzmom_signal(
         return {
             "success": False,
             "error": f"Symbol {symbol} not in enabled list",
-            "enabled_symbols": sqzmom_config.enabled_symbols
+            "enabled_symbols": sqzmom_config.enabled_symbols,
         }
 
     # Get signal
@@ -1044,26 +976,21 @@ async def get_sqzmom_signal(
         return {
             "success": False,
             "error": f"Failed to fetch signal for {symbol}",
-            "symbol": symbol
+            "symbol": symbol,
         }
 
-    return {
-        "success": True,
-        "signal": signal
-    }
+    return {"success": True, "signal": signal}
 
 
 @app.post("/api/v1/strategies/sqzmom/trade/{symbol}", tags=["SQZMOM Strategy"])
 async def execute_sqzmom_trade(
     symbol: str,
     account_balance: float = Query(
-        default=10000.0,
-        description="Account balance for position sizing"
+        default=10000.0, description="Account balance for position sizing"
     ),
     force: bool = Query(
-        default=False,
-        description="Force execution even if auto_trading is disabled"
-    )
+        default=False, description="Force execution even if auto_trading is disabled"
+    ),
 ):
     """
     Execute SQZMOM trade for a symbol
@@ -1088,26 +1015,22 @@ async def execute_sqzmom_trade(
         return {
             "success": False,
             "error": f"Symbol {symbol} not in enabled list",
-            "enabled_symbols": sqzmom_config.enabled_symbols
+            "enabled_symbols": sqzmom_config.enabled_symbols,
         }
 
     # Get signal
     signal = await sqzmom_strategy.get_signal(symbol)
 
     if not signal:
-        return {
-            "success": False,
-            "error": "Failed to fetch signal",
-            "symbol": symbol
-        }
+        return {"success": False, "error": "Failed to fetch signal", "symbol": symbol}
 
     # Check if HOLD
-    if signal['action'] == 'HOLD':
+    if signal["action"] == "HOLD":
         return {
             "success": False,
             "message": "No valid signal (action is HOLD)",
             "symbol": symbol,
-            "signal": signal
+            "signal": signal,
         }
 
     # Check if should execute (unless forced)
@@ -1115,8 +1038,7 @@ async def execute_sqzmom_trade(
         position_manager = get_position_manager()
         current_positions = len(position_manager.get_open_positions())
         should_execute, reason = await sqzmom_strategy.should_execute_trade(
-            signal,
-            current_positions
+            signal, current_positions
         )
 
         if not should_execute:
@@ -1126,15 +1048,12 @@ async def execute_sqzmom_trade(
                 "reason": reason,
                 "symbol": symbol,
                 "signal": signal,
-                "note": "Use force=true to override (manual approval)"
+                "note": "Use force=true to override (manual approval)",
             }
 
     # Calculate position size
     quantity = await sqzmom_strategy.calculate_position_size(
-        symbol,
-        signal['entry_price'],
-        signal['stop_loss'],
-        account_balance
+        symbol, signal["entry_price"], signal["stop_loss"], account_balance
     )
 
     # Get symbol config for display
@@ -1142,9 +1061,7 @@ async def execute_sqzmom_trade(
 
     # Record trade metric
     trades_executed_total.labels(
-        symbol=symbol,
-        side=signal['action'],
-        status='success'
+        symbol=symbol, side=signal["action"], status="success"
     ).inc()
 
     # Build trade result
@@ -1152,18 +1069,18 @@ async def execute_sqzmom_trade(
         "success": True,
         "timestamp": datetime.now().isoformat(),
         "symbol": symbol,
-        "action": signal['action'],
+        "action": signal["action"],
         "quantity": float(quantity),
-        "entry_price": signal['entry_price'],
-        "stop_loss": signal['stop_loss'],
-        "take_profit": signal['take_profit'],
-        "confidence": signal['confidence'],
-        "reason": signal['reason'],
-        "position_size_pct": symbol_cfg['position_size_pct'],
-        "position_value": float(quantity) * signal['entry_price'],
+        "entry_price": signal["entry_price"],
+        "stop_loss": signal["stop_loss"],
+        "take_profit": signal["take_profit"],
+        "confidence": signal["confidence"],
+        "reason": signal["reason"],
+        "position_size_pct": symbol_cfg["position_size_pct"],
+        "position_value": float(quantity) * signal["entry_price"],
         "paper_trading": sqzmom_config.paper_trading,
         "forced": force,
-        "note": "This is a simulated trade - actual execution not implemented yet"
+        "note": "This is a simulated trade - actual execution not implemented yet",
     }
 
     logger.info(
@@ -1190,21 +1107,18 @@ async def get_symbol_config(symbol: str):
         return {
             "success": False,
             "error": f"Symbol {symbol} not in enabled list",
-            "enabled_symbols": sqzmom_config.enabled_symbols
+            "enabled_symbols": sqzmom_config.enabled_symbols,
         }
 
     config = sqzmom_strategy.get_symbol_config(symbol)
 
-    return {
-        "success": True,
-        "symbol": symbol,
-        "config": config
-    }
+    return {"success": True, "symbol": symbol, "config": config}
 
 
 # ============================================================================
 # BACKTESTING ENDPOINTS
 # ============================================================================
+
 
 @app.get("/api/v1/backtest/strategies", tags=["Backtesting"])
 async def backtest_strategies_endpoint():
@@ -1240,7 +1154,7 @@ async def backtest_run_endpoint(request: BacktestRequest):
 async def backtest_quick_endpoint(
     strategy: str,
     symbol: str = Query(default="BTCUSDT", description="Trading symbol"),
-    days: int = Query(default=30, description="Number of days to backtest")
+    days: int = Query(default=30, description="Number of days to backtest"),
 ):
     """
     Quick backtest with default parameters
@@ -1258,7 +1172,7 @@ async def backtest_quick_endpoint(
 @app.get("/api/v1/backtest/compare", tags=["Backtesting"])
 async def backtest_compare_endpoint(
     symbol: str = Query(default="BTCUSDT", description="Trading symbol"),
-    days: int = Query(default=90, description="Number of days to backtest")
+    days: int = Query(default=90, description="Number of days to backtest"),
 ):
     """
     Compare all available strategies
@@ -1278,7 +1192,7 @@ async def backtest_equity_curve_endpoint(
     strategy: str,
     symbol: str = Query(default="BTCUSDT", description="Trading symbol"),
     days: int = Query(default=30, description="Number of days"),
-    sample_rate: int = Query(default=24, description="Sample every N points")
+    sample_rate: int = Query(default=24, description="Sample every N points"),
 ):
     """
     Get equity curve data for charting
@@ -1298,12 +1212,21 @@ async def backtest_equity_curve_endpoint(
 # STATISTICAL ARBITRAGE ENDPOINTS (Phase 2.2)
 # ============================================================================
 
+
 @app.post("/api/v1/statistical-arbitrage/initialize", tags=["Statistical Arbitrage"])
 async def stat_arb_initialize_endpoint(
-    total_capital: float = Query(default=100000.0, description="Total capital to allocate"),
-    pairs_allocation: float = Query(default=0.4, description="Pairs trading allocation (0.0-1.0)"),
-    funding_allocation: float = Query(default=0.4, description="Funding rate arbitrage allocation (0.0-1.0)"),
-    triangular_allocation: float = Query(default=0.2, description="Triangular arbitrage allocation (0.0-1.0)")
+    total_capital: float = Query(
+        default=100000.0, description="Total capital to allocate"
+    ),
+    pairs_allocation: float = Query(
+        default=0.4, description="Pairs trading allocation (0.0-1.0)"
+    ),
+    funding_allocation: float = Query(
+        default=0.4, description="Funding rate arbitrage allocation (0.0-1.0)"
+    ),
+    triangular_allocation: float = Query(
+        default=0.2, description="Triangular arbitrage allocation (0.0-1.0)"
+    ),
 ):
     """
     Initialize Statistical Arbitrage Manager
@@ -1324,7 +1247,7 @@ async def stat_arb_initialize_endpoint(
         total_capital=total_capital,
         pairs_allocation=pairs_allocation,
         funding_allocation=funding_allocation,
-        triangular_allocation=triangular_allocation
+        triangular_allocation=triangular_allocation,
     )
 
 
@@ -1332,10 +1255,16 @@ async def stat_arb_initialize_endpoint(
 async def stat_arb_add_pairs_endpoint(
     symbol_x: str = Query(..., description="First symbol in pair (e.g., BTCUSDT)"),
     symbol_y: str = Query(..., description="Second symbol in pair (e.g., ETHUSDT)"),
-    entry_threshold: float = Query(default=2.0, description="Z-score threshold for entry"),
-    exit_threshold: float = Query(default=0.5, description="Z-score threshold for exit"),
-    lookback_period: int = Query(default=20, description="Lookback period for cointegration"),
-    stop_loss_z: float = Query(default=3.0, description="Stop loss z-score threshold")
+    entry_threshold: float = Query(
+        default=2.0, description="Z-score threshold for entry"
+    ),
+    exit_threshold: float = Query(
+        default=0.5, description="Z-score threshold for exit"
+    ),
+    lookback_period: int = Query(
+        default=20, description="Lookback period for cointegration"
+    ),
+    stop_loss_z: float = Query(default=3.0, description="Stop loss z-score threshold"),
 ):
     """
     Add a pairs trading strategy
@@ -1361,14 +1290,16 @@ async def stat_arb_add_pairs_endpoint(
         entry_threshold=entry_threshold,
         exit_threshold=exit_threshold,
         lookback_period=lookback_period,
-        stop_loss_z=stop_loss_z
+        stop_loss_z=stop_loss_z,
     )
 
 
-@app.post("/api/v1/statistical-arbitrage/pairs/calibrate", tags=["Statistical Arbitrage"])
+@app.post(
+    "/api/v1/statistical-arbitrage/pairs/calibrate", tags=["Statistical Arbitrage"]
+)
 async def stat_arb_calibrate_pairs_endpoint(
     strategy_id: str = Query(..., description="Strategy ID to calibrate"),
-    historical_data: dict = None
+    historical_data: dict = None,
 ):
     """
     Calibrate a pairs trading strategy
@@ -1383,14 +1314,20 @@ async def stat_arb_calibrate_pairs_endpoint(
     Returns:
         Calibration results including updated parameters
     """
-    return await calibrate_pairs_strategy(strategy_id=strategy_id, historical_data=historical_data)
+    return await calibrate_pairs_strategy(
+        strategy_id=strategy_id, historical_data=historical_data
+    )
 
 
 @app.post("/api/v1/statistical-arbitrage/funding/add", tags=["Statistical Arbitrage"])
 async def stat_arb_add_funding_endpoint(
     symbol: str = Query(..., description="Trading symbol (e.g., BTCUSDT)"),
-    min_funding_rate: float = Query(default=0.0001, description="Minimum funding rate threshold"),
-    max_position_size: float = Query(default=10000.0, description="Maximum position size")
+    min_funding_rate: float = Query(
+        default=0.0001, description="Minimum funding rate threshold"
+    ),
+    max_position_size: float = Query(
+        default=10000.0, description="Maximum position size"
+    ),
 ):
     """
     Add a funding rate arbitrage strategy
@@ -1409,15 +1346,24 @@ async def stat_arb_add_funding_endpoint(
     return await add_funding_strategy(
         symbol=symbol,
         min_funding_rate=min_funding_rate,
-        max_position_size=max_position_size
+        max_position_size=max_position_size,
     )
 
 
-@app.post("/api/v1/statistical-arbitrage/triangular/setup", tags=["Statistical Arbitrage"])
+@app.post(
+    "/api/v1/statistical-arbitrage/triangular/setup", tags=["Statistical Arbitrage"]
+)
 async def stat_arb_setup_triangular_endpoint(
-    assets: list = Query(..., description="List of assets for triangular arbitrage (e.g., ['BTC', 'ETH', 'BNB', 'USDT'])"),
-    min_profit_threshold: float = Query(default=0.005, description="Minimum profit threshold (0.5%)"),
-    max_latency_ms: float = Query(default=100.0, description="Maximum acceptable latency in milliseconds")
+    assets: list = Query(
+        ...,
+        description="List of assets for triangular arbitrage (e.g., ['BTC', 'ETH', 'BNB', 'USDT'])",
+    ),
+    min_profit_threshold: float = Query(
+        default=0.005, description="Minimum profit threshold (0.5%)"
+    ),
+    max_latency_ms: float = Query(
+        default=100.0, description="Maximum acceptable latency in milliseconds"
+    ),
 ):
     """
     Setup triangular arbitrage strategy
@@ -1436,11 +1382,13 @@ async def stat_arb_setup_triangular_endpoint(
     return await setup_triangular_arbitrage(
         assets=assets,
         min_profit_threshold=min_profit_threshold,
-        max_latency_ms=max_latency_ms
+        max_latency_ms=max_latency_ms,
     )
 
 
-@app.post("/api/v1/statistical-arbitrage/signals/generate", tags=["Statistical Arbitrage"])
+@app.post(
+    "/api/v1/statistical-arbitrage/signals/generate", tags=["Statistical Arbitrage"]
+)
 async def stat_arb_generate_signals_endpoint(market_data: dict):
     """
     Generate signals from all enabled strategies
@@ -1506,6 +1454,7 @@ async def stat_arb_reset_endpoint():
 # ROOT ENDPOINT
 # ============================================================================
 
+
 @app.get("/", tags=["Info"])
 async def root():
     """Root endpoint with service information"""
@@ -1527,12 +1476,12 @@ async def root():
             "trading_control": {
                 "start": "/api/v1/trading/start",
                 "stop": "/api/v1/trading/stop",
-                "status": "/api/v1/trading/status"
+                "status": "/api/v1/trading/status",
             },
             "phase1": {
                 "metrics": "/api/v1/phase1/metrics",
                 "health": "/api/v1/phase1/health",
-                "latest": "/api/v1/phase1/latest"
+                "latest": "/api/v1/phase1/latest",
             },
             "correlation_analysis": {
                 "matrix": "/api/v1/risk/correlation",
@@ -1541,7 +1490,7 @@ async def root():
                 "pair": "/api/v1/risk/correlation/pair/{symbol_a}/{symbol_b}",
                 "alerts": "/api/v1/risk/correlation/alerts",
                 "check_position": "POST /api/v1/risk/correlation/check-position/{symbol}",
-                "update": "POST /api/v1/risk/correlation/update"
+                "update": "POST /api/v1/risk/correlation/update",
             },
             "kelly_position_sizing": {
                 "stats": "GET /api/v1/risk/kelly-stats",
@@ -1549,7 +1498,7 @@ async def root():
                 "simulate": "POST /api/v1/risk/kelly-simulate",
                 "record_trade": "POST /api/v1/risk/kelly-record-trade",
                 "comparison": "GET /api/v1/risk/kelly-comparison",
-                "reset": "DELETE /api/v1/risk/kelly-reset"
+                "reset": "DELETE /api/v1/risk/kelly-reset",
             },
             "dynamic_risk_budget": {
                 "current": "GET /api/v1/risk/budget/current",
@@ -1561,7 +1510,7 @@ async def root():
                 "alerts": "GET /api/v1/risk/budget/alerts",
                 "emergency_trigger": "POST /api/v1/risk/budget/emergency/trigger",
                 "emergency_clear": "POST /api/v1/risk/budget/emergency/clear",
-                "reset": "DELETE /api/v1/risk/budget/reset"
+                "reset": "DELETE /api/v1/risk/budget/reset",
             },
             "smart_order_routing": {
                 "stats": "GET /api/v1/execution/router-stats",
@@ -1570,7 +1519,7 @@ async def root():
                 "analyze_orderbook": "POST /api/v1/execution/analyze-orderbook",
                 "estimate_slippage": "POST /api/v1/execution/estimate-slippage",
                 "quality_report": "GET /api/v1/execution/quality-report",
-                "reset": "POST /api/v1/execution/reset"
+                "reset": "POST /api/v1/execution/reset",
             },
             "twap_vwap_execution": {
                 "twap": "POST /api/v1/execution/twap",
@@ -1580,7 +1529,7 @@ async def root():
                 "active_algorithms": "GET /api/v1/execution/active-algorithms",
                 "pause": "POST /api/v1/execution/pause/{order_id}",
                 "cancel": "POST /api/v1/execution/cancel/{order_id}",
-                "performance_report": "GET /api/v1/execution/performance-report"
+                "performance_report": "GET /api/v1/execution/performance-report",
             },
             "attribution_analysis": {
                 "by_strategy": "GET /api/v1/analytics/attribution/by-strategy",
@@ -1588,7 +1537,7 @@ async def root():
                 "summary": "GET /api/v1/analytics/attribution/summary",
                 "trends": "GET /api/v1/analytics/attribution/trends",
                 "daily_report": "GET /api/v1/analytics/attribution/daily-report",
-                "decomposition": "GET /api/v1/analytics/attribution/performance-decomposition"
+                "decomposition": "GET /api/v1/analytics/attribution/performance-decomposition",
             },
             "sqzmom_strategy": {
                 "info": "/api/v1/strategies/sqzmom/info",
@@ -1598,14 +1547,14 @@ async def root():
                 "signals": "/api/v1/strategies/sqzmom/signals",
                 "signal": "/api/v1/strategies/sqzmom/signal/{symbol}",
                 "trade": "POST /api/v1/strategies/sqzmom/trade/{symbol}",
-                "symbol_config": "/api/v1/strategies/sqzmom/symbols/{symbol}/config"
+                "symbol_config": "/api/v1/strategies/sqzmom/symbols/{symbol}/config",
             },
             "backtesting": {
                 "strategies": "/api/v1/backtest/strategies",
                 "run": "POST /api/v1/backtest/run",
                 "quick": "/api/v1/backtest/quick/{strategy}",
                 "compare": "/api/v1/backtest/compare",
-                "equity_curve": "/api/v1/backtest/equity-curve/{strategy}"
+                "equity_curve": "/api/v1/backtest/equity-curve/{strategy}",
             },
             "statistical_arbitrage": {
                 "initialize": "POST /api/v1/statistical-arbitrage/initialize",
@@ -1616,17 +1565,15 @@ async def root():
                 "generate_signals": "POST /api/v1/statistical-arbitrage/signals/generate",
                 "performance": "/api/v1/statistical-arbitrage/performance",
                 "status": "/api/v1/statistical-arbitrage/status",
-                "reset": "DELETE /api/v1/statistical-arbitrage/reset"
-            }
+                "reset": "DELETE /api/v1/statistical-arbitrage/reset",
+            },
         },
-        "features": {
-            "prometheus_metrics": True
-        },
+        "features": {"prometheus_metrics": True},
         "refactoring": {
             "status": "Phase 3.3 Complete",
             "version": VERSION,
             "modules": 15,
-            "architecture": "main.py -> handlers -> services -> domain"
+            "architecture": "main.py -> handlers -> services -> domain",
         },
         "enhancements": {
             "phase_3_1_correlation": {
@@ -1637,8 +1584,8 @@ async def root():
                     "Rolling correlation (30-day, 60-day windows)",
                     "Portfolio diversification scoring (0-100)",
                     "Correlation-based position limits",
-                    "High correlation alerts"
-                ]
+                    "High correlation alerts",
+                ],
             },
             "phase_3_2_kelly": {
                 "description": "Kelly Criterion Position Sizing",
@@ -1648,8 +1595,8 @@ async def root():
                     "Fractional Kelly (25% - conservative)",
                     "Dynamic Kelly (streak-adjusted)",
                     "Rolling win rate tracking",
-                    "Trade recording and performance stats"
-                ]
+                    "Trade recording and performance stats",
+                ],
             },
             "phase_3_3_risk_budget": {
                 "description": "Dynamic Risk Budgeting",
@@ -1662,8 +1609,8 @@ async def root():
                     "Liquidity timing adjustment",
                     "Emergency risk triggers",
                     "Risk ladder (0.5% - 2.5%)",
-                    "Multi-strategy budget allocation"
-                ]
+                    "Multi-strategy budget allocation",
+                ],
             },
             "phase_4_1_smart_routing": {
                 "description": "Smart Order Routing",
@@ -1673,8 +1620,8 @@ async def root():
                     "Slippage estimation and minimization",
                     "Order book liquidity analysis",
                     "Basic TWAP for large orders",
-                    "Execution quality reporting"
-                ]
+                    "Execution quality reporting",
+                ],
             },
             "phase_4_2_twap_vwap": {
                 "description": "Enhanced TWAP/VWAP Execution",
@@ -1687,8 +1634,8 @@ async def root():
                     "Participation rate limiting (max 30%)",
                     "Pause/Resume/Cancel mechanisms",
                     "Execution quality benchmarking",
-                    "Slippage tracking vs TWAP/VWAP benchmark"
-                ]
+                    "Slippage tracking vs TWAP/VWAP benchmark",
+                ],
             },
             "phase_5_1_attribution": {
                 "description": "P&L Attribution Analysis",
@@ -1699,9 +1646,9 @@ async def root():
                     "Attribution by Direction (Long/Short)",
                     "Attribution by Market Condition",
                     "Performance Decomposition (Alpha, Beta, Residual)",
-                    "Daily attribution reports"
-                ]
-            }
+                    "Daily attribution reports",
+                ],
+            },
         },
         "sqzmom_strategy": {
             "enabled": True,
@@ -1711,17 +1658,18 @@ async def root():
             "backtesting_results": {
                 "SOLUSDT": "+2,706% (22% WR, 4.76 Sharpe)",
                 "DOGEUSDT": "+630% (28% WR, 5.41 Sharpe)",
-                "BNBUSDT": "+330% (31% WR)"
-            }
-        }
+                "BNBUSDT": "+330% (31% WR)",
+            },
+        },
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host=settings.service_host,
         port=settings.service_port,
-        reload=settings.debug
+        reload=settings.debug,
     )

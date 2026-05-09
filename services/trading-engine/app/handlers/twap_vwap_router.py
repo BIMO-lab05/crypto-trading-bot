@@ -32,7 +32,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 # Import execution scheduler
 from app.execution.execution_scheduler import (
@@ -147,21 +147,24 @@ class TWAPOrderRequest(BaseModel):
         description="Auto-pause if slippage exceeds max threshold"
     )
 
-    @validator('side')
+    @field_validator('side')
+    @classmethod
     def validate_side(cls, v):
         """Validate order side"""
         if v.upper() not in ('BUY', 'SELL'):
             raise ValueError('side must be BUY or SELL')
         return v.upper()
 
-    @validator('urgency')
+    @field_validator('urgency')
+    @classmethod
     def validate_urgency(cls, v):
         """Validate urgency level"""
         if v.lower() not in ('low', 'medium', 'high'):
             raise ValueError('urgency must be low, medium, or high')
         return v.lower()
 
-    @validator('size', 'arrival_price')
+    @field_validator('size', 'arrival_price')
+    @classmethod
     def validate_decimal(cls, v):
         """Validate decimal string values"""
         if v is None:
@@ -241,21 +244,24 @@ class VWAPOrderRequest(BaseModel):
         description="Maximum acceptable slippage vs VWAP (0.01-1.0%)"
     )
 
-    @validator('side')
+    @field_validator('side')
+    @classmethod
     def validate_side(cls, v):
         """Validate order side"""
         if v.upper() not in ('BUY', 'SELL'):
             raise ValueError('side must be BUY or SELL')
         return v.upper()
 
-    @validator('urgency')
+    @field_validator('urgency')
+    @classmethod
     def validate_urgency(cls, v):
         """Validate urgency level"""
         if v.lower() not in ('low', 'medium', 'high', 'urgent'):
             raise ValueError('urgency must be low, medium, high, or urgent')
         return v.lower()
 
-    @validator('adaptive_mode')
+    @field_validator('adaptive_mode')
+    @classmethod
     def validate_adaptive_mode(cls, v):
         """Validate adaptive mode"""
         if v.lower() not in ('passive', 'neutral', 'aggressive', 'urgent'):

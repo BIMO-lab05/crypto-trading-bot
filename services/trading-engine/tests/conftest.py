@@ -594,13 +594,11 @@ def test_stats():
 # ==========================================
 # PYTEST ASYNCIO CONFIGURATION
 # ==========================================
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """
-    Create event loop for async tests
-    Required for pytest-asyncio
-    """
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# Note: A custom session-scoped `event_loop` fixture used to live here.
+# It was removed because pytest-asyncio 0.23 deprecates user-defined
+# event_loop fixtures and the inspection it performs against this fixture
+# was failing inside the container (linecache for the conftest source path
+# was empty when the file was loaded via a host bind-mount), causing every
+# async test in this directory to ERROR with "could not get source code".
+# In `asyncio_mode = auto`, pytest-asyncio supplies its own function-scoped
+# loop, which is what these tests already rely on.

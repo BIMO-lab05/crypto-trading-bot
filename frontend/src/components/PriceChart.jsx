@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { useKlines } from '../hooks/useTicker'
 import { formatDistanceToNow } from 'date-fns'
+import ChartFigure from './a11y/ChartFigure'
 
 /**
  * PriceChart component displays historical price data for a cryptocurrency
@@ -204,6 +205,22 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
       </div>
 
       {/* Combined chart showing price and volume */}
+      <ChartFigure
+        summary={`${symbol} price chart, last ${chartData.length} ${interval}-minute candles. Current price ${currentPrice.toFixed(2)} dollars, ${priceChange >= 0 ? 'up' : 'down'} ${Math.abs(priceChange).toFixed(2)} (${priceChangePercent.toFixed(2)} percent) over period. 24h high ${stats.maxPrice.toFixed(2)}, 24h low ${stats.minPrice.toFixed(2)}, average volume ${(stats.avgVolume / 1000000).toFixed(2)} million.`}
+        tableCaption={`${symbol} price summary`}
+        columns={[
+          { key: 'metric', label: 'Metric' },
+          { key: 'value', label: 'Value' },
+        ]}
+        rows={[
+          { metric: 'Current price', value: `$${currentPrice.toFixed(2)}` },
+          { metric: 'Change', value: `${priceChange >= 0 ? '+' : ''}$${priceChange.toFixed(2)} (${priceChangePercent.toFixed(2)}%)` },
+          { metric: '24h high', value: `$${stats.maxPrice.toFixed(2)}` },
+          { metric: '24h low', value: `$${stats.minPrice.toFixed(2)}` },
+          { metric: 'Avg volume', value: `${(stats.avgVolume / 1000000).toFixed(2)}M` },
+          { metric: 'Data points', value: String(chartData.length) },
+        ]}
+      >
       <ResponsiveContainer width="100%" height={400}>
         <ComposedChart
           data={chartData}
@@ -310,6 +327,7 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
           />
         </ComposedChart>
       </ResponsiveContainer>
+      </ChartFigure>
 
       {/* Data summary statistics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-700/50">

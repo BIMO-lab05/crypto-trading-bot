@@ -258,10 +258,11 @@ async def klines_endpoint(
     interval: str = "60",
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
-    limit: int = Query(default=100, ge=1, le=10000)
+    limit: int = Query(default=100, ge=1, le=10000),
+    mainnet_only: bool = Query(default=True, description="Exclude testnet-tagged rows (default True after 2026-04-25 audit)")
 ):
     """Get kline data from database"""
-    return await get_klines(symbol, interval, start_time, end_time, limit)
+    return await get_klines(symbol, interval, start_time, end_time, limit, mainnet_only)
 
 
 @app.get("/api/v1/ticker/{symbol}", tags=["Market Data"])

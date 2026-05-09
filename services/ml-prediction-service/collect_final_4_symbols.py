@@ -113,9 +113,9 @@ async def main():
     print("="*100)
 
     client = BybitClient(
-        api_key=settings.BYBIT_API_KEY,
-        api_secret=settings.BYBIT_API_SECRET,
-        testnet=settings.BYBIT_TESTNET
+        api_key=settings.bybit_api_key,
+        api_secret=settings.bybit_api_secret,
+        testnet=settings.bybit_testnet,
     )
 
     results = {}

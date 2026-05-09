@@ -388,31 +388,23 @@ class BybitExchangeAdapter(ExchangeInterface):
                     json=json_data
                 )
 
-                # Parse response
+                # Parse response.
+                # The bybit-connector strips Bybit's V5 envelope (retCode /
+                # retMsg / result) and wraps the inner payload as
+                # `{"success": True, "data": <bybit_inner>}` on success.
+                # On Bybit-side rejection it raises an HTTPException with
+                # `{"detail": "..."}`. There is therefore no retCode in
+                # success bodies and no retCode/retMsg in error bodies.
                 data = response.json()
 
-                # Check for Bybit API errors in response
                 if response.status_code >= 400:
-                    ret_code = data.get("retCode", response.status_code)
-                    ret_msg = data.get("retMsg", data.get("message", "Unknown error"))
-                    raise map_bybit_error(ret_code, ret_msg, data.get("result"))
+                    detail = data.get("detail") or data.get("message") or "Unknown error"
+                    # Caller infrastructure expects a numeric retCode; reuse
+                    # the HTTP status as a proxy when Bybit's code isn't
+                    # available through this layer.
+                    raise map_bybit_error(response.status_code, str(detail), data)
 
-                # Check for Bybit error in body (retCode != 0)
-                ret_code = data.get("retCode", 0)
-                if ret_code != 0:
-                    ret_msg = data.get("retMsg", "Unknown Bybit error")
-                    raise map_bybit_error(ret_code, ret_msg, data.get("result"))
-
-                # The bybit-connector wraps successful responses as
-                # {"success": True, "data": <result>}. Older callers may have
-                # received raw Bybit shapes ({"retCode":0, "result":...}); we
-                # try both for defence-in-depth.
-                if isinstance(data, dict):
-                    if "data" in data:
-                        return data["data"]
-                    if "result" in data:
-                        return data["result"]
-                return data
+                return data.get("data", {})
 
             except httpx.TimeoutException as e:
                 last_error = TimeoutError(
@@ -573,7 +565,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "GET",
-                "/api/v1/account/positions",
+                "/api/v1/position/list",
                 params=params
             )
 
@@ -670,7 +662,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "POST",
-                "/api/v1/order/place",
+                "/api/v1/order/create",
                 json_data=payload
             )
 
@@ -848,7 +840,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "GET",
-                "/api/v1/order/open",
+                "/api/v1/order/realtime",
                 params=params
             )
 
@@ -968,7 +960,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "GET",
-                "/api/v1/order/open",
+                "/api/v1/order/realtime",
                 params=params
             )
 
@@ -1008,7 +1000,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         try:
             result = await self._request(
                 "GET",
-                "/api/v1/market/ticker",
+                "/api/v1/market/tickers",
                 params=params
             )
 

@@ -44,6 +44,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./infrastructure/migrations/003_portfolios_orm_align.sql:/docker-entrypoint-initdb.d/03-portfolios-orm-align.sql:ro
+      - ./infrastructure/migrations/004_positions_orm_align.sql:/docker-entrypoint-initdb.d/04-positions-orm-align.sql:ro
     networks:
       - crypto-bot-network
     healthcheck:
@@ -279,8 +281,14 @@ services:
       - ML_PREDICTION_URL=http://ml-prediction:8007
       - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
       - RISK_METRICS_URL=http://risk-metrics:8009
+      # Emergency stop file - admin endpoint writes here, trading-engine reads
+      # the same host file via its own bind-mount (see trading-engine block).
+      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
     volumes:
       - ./services/api-gateway/logs:/app/logs
+      # RW for the gateway: it creates/overwrites the EMERGENCY_STOP file.
+      # trading-engine mounts the same host file read-only.
+      - ./EMERGENCY_STOP:/app/EMERGENCY_STOP
     networks:
       - crypto-bot-network
     depends_on:
@@ -350,7 +358,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - BYBIT_API_KEY=${BYBIT_API_KEY:-}
       - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
-      - BYBIT_TESTNET=${BYBIT_TESTNET:-true}
+      - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
     volumes:
       - ./services/bybit-connector/logs:/app/logs
     networks:
@@ -392,7 +400,14 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
+      # Without these 4, market-data falls back to its config defaults
+      # (port 5672 ok, but user='cryptobot'/password='change_this_secure_password'
+      # don't match the live RabbitMQ — silent connection failures.)
       - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=${RABBITMQ_USER:-cryptobot}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-rabbitmq_dev_password}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-cryptobot}
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
     volumes:
       - ./services/market-data-service/logs:/app/logs
@@ -443,6 +458,10 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
+      # Without these two, portfolio-manager falls back to localhost:8005/8002
+      # defaults from app/config.py and chronically fails its 60s sync poll.
+      - TRADING_ENGINE_URL=http://trading-engine:8005
+      - MARKET_DATA_URL=http://market-data:8002
     volumes:
       - ./services/portfolio-manager/logs:/app/logs
     networks:
@@ -531,17 +550,13 @@ services:
       # Risk management
       - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.02}
       - EMERGENCY_STOP_LOSS=${EMERGENCY_STOP_LOSS:-0.05}
+      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
       - PAPER_INITIAL_BALANCE=100.0
       # Strategy mode: ensemble = SimpleRSI + multi-indicator + mean-reversion (performance-weighted)
       - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
-      # Database — trading-engine code reads DB_* (services/trading-engine/app/database/connection.py)
-      # while pydantic settings reads POSTGRES_*. Set both to avoid drift.
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${POSTGRES_DB:-cryptobot}
-      - DB_USER=${POSTGRES_USER:-cryptobot}
-      - DB_PASSWORD=${POSTGRES_PASSWORD:-cryptobot_dev_password}
+      # Database — POSTGRES_* is the single source of truth now that
+      # connection.py reads it instead of DB_* (audit 2026-04-27).
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-cryptobot}
@@ -556,10 +571,26 @@ services:
       - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
       # Notification client URL (was missing — code defaulted to localhost:8006 which fails inside docker)
       - NOTIFICATION_SERVICE_URL=http://notification-service:8006
-      - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-true}
-      - ENABLE_SENTIMENT_ANALYSIS=${ENABLE_SENTIMENT_ANALYSIS:-true}
+      # Disabled by default: ml-prediction is gated behind --profile ml and
+      # sentiment-analysis behind --profile analytics. Setting true while those
+      # services are down causes the aggregator to log degradation messages on
+      # every signal eval (graceful but noisy). Flip to true if those profiles
+      # are activated. (2026-05-02)
+      - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-false}
+      - ENABLE_SENTIMENT_ANALYSIS=${ENABLE_SENTIMENT_ANALYSIS:-false}
+      # Auto-trader on-by-default 2026-05-06. Boots whenever stack starts and
+      # EMERGENCY_STOP file is absent at repo root. To disable: set
+      # AUTO_TRADING_ENABLED=false in .env or `touch EMERGENCY_STOP` (file
+      # present = halt). PAPER_TRADING_MODE=true ensures orders simulated.
+      - AUTO_TRADING_ENABLED=${AUTO_TRADING_ENABLED:-true}
     volumes:
       - ./services/trading-engine/logs:/app/logs
+      # File-based emergency stop kill switch (read-only).
+      # NOTE: host file must exist before `docker compose up` — bind-mounting a
+      # missing file causes Docker to create a directory at the mount point, which
+      # the in-container check (Path.is_file()) correctly rejects but is wasteful.
+      # The repo root has the file pre-created. Operator: touch/rm to halt/resume.
+      - ./EMERGENCY_STOP:/app/EMERGENCY_STOP:ro
     networks:
       - crypto-bot-network
     depends_on:
@@ -608,6 +639,7 @@ services:
       - RABBITMQ_HOST=rabbitmq
     volumes:
       - ./services/notification-service/logs:/app/logs
+      - ./services/notification-service/data:/app/data
     networks:
       - crypto-bot-network
     depends_on:
@@ -644,6 +676,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MARKET_DATA_URL=http://market-data:8002
       - MODEL_DIR=/app/models
+      - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
+      - BYBIT_API_KEY=${BYBIT_API_KEY:-}
+      - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
     volumes:
       - ./services/ml-prediction-service/logs:/app/logs
       - ./services/ml-prediction-service/models:/app/models
@@ -659,11 +694,25 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    # Opt-in profile so a RAM-constrained WSL host can run the core
+    # trading flow without ml-prediction. Bring up with
+    # `docker compose --profile ml up -d` when ML signals are needed.
+    # trading-engine depends_on does NOT include ml-prediction, so the
+    # core stack starts cleanly without it; runtime fan-out calls to
+    # ml-prediction return connection-refused and the aggregator
+    # downgrades to non-ML signals.
+    profiles:
+      - ml
     deploy:
       resources:
         limits:
           cpus: '2.0'
-          memory: 6G
+          # Was 6G — fictional on this stack since WSL caps RAM well
+          # below that. Inference is bounded by the loaded GRU models
+          # (~150 MB each, 5 active) plus FastAPI/TF runtime overhead.
+          # 2G covers steady state + headroom; raise if loading more
+          # models concurrently.
+          memory: 2G
 
   # ---------------------------------------------------------------------------
   # Sentiment Analysis Service - News and social sentiment
@@ -695,6 +744,12 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    # Opt-in profile (analytics) — same rationale as ml-prediction.
+    # No service depends_on sentiment-analysis; bringing it up is a
+    # superset operation. `docker compose --profile analytics up -d`
+    # to enable.
+    profiles:
+      - analytics
     deploy:
       resources:
         limits:

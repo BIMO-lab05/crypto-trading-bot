@@ -20,6 +20,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from dataclasses import dataclass, asdict
+import numpy as np
 import pandas as pd
 
 from app.strategies.pairs_trading import PairsTradingStrategy, PairsTradeSignal
@@ -450,9 +451,7 @@ class StatisticalArbitrageManager:
             'triangular': self._get_triangular_performance()
         }
 
-        # TODO: Calculate Sharpe ratio and max drawdown with historical data
-        sharpe_ratio = None
-        max_drawdown = 0.0
+        sharpe_ratio, max_drawdown = self._compute_sharpe_and_drawdown()
 
         return PortfolioPerformance(
             total_capital=self.total_capital,
@@ -466,6 +465,45 @@ class StatisticalArbitrageManager:
             max_drawdown=max_drawdown,
             strategies_performance=strategies_performance
         )
+
+    def _compute_sharpe_and_drawdown(self) -> tuple[Optional[float], float]:
+        """
+        Compute per-trade Sharpe ratio and maximum drawdown from
+        ``self.trades_executed``.
+
+        - Sharpe is the per-trade ratio: mean(return) / stdev(return),
+          where return_i = profit_i / total_capital. NOT annualised — the
+          DSR pipeline (PSR/DSR in risk-metrics-service) is the right tool
+          for de-biased reporting; this value is the input.
+        - Max drawdown is computed on the cumulative equity curve
+          ``total_capital + cumsum(profits)`` and returned as a positive
+          fraction (0.10 == 10% drawdown).
+
+        Returns ``(None, 0.0)`` when there are fewer than two trades, when
+        total_capital is non-positive, or when return variance is zero.
+        """
+        n = len(self.trades_executed)
+        if n < 2 or self.total_capital <= 0:
+            return None, 0.0
+
+        profits = np.array(
+            [float(t.get("profit", 0.0)) for t in self.trades_executed],
+            dtype=float,
+        )
+
+        returns = profits / float(self.total_capital)
+        std = float(np.std(returns, ddof=1))
+        sharpe: Optional[float] = float(np.mean(returns) / std) if std > 0 else None
+
+        equity = float(self.total_capital) + np.cumsum(profits)
+        running_max = np.maximum.accumulate(equity)
+        # Guard against running_max == 0 (cannot happen with positive
+        # total_capital, but be defensive).
+        with np.errstate(divide="ignore", invalid="ignore"):
+            drawdowns = np.where(running_max > 0, (equity - running_max) / running_max, 0.0)
+        max_drawdown = float(abs(np.min(drawdowns))) if drawdowns.size else 0.0
+
+        return sharpe, max_drawdown
 
     def _get_pairs_performance(self) -> Dict:
         """Get performance metrics for pairs trading strategies"""

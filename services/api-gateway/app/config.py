@@ -17,12 +17,16 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
 
     # Backend Service URLs
+    # Defaults match the canonical port table in CLAUDE.md and
+    # docker-compose.unified.yml. (Previous defaults had multiple
+    # off-by-one errors and a port collision between risk_metrics and
+    # ml_prediction at 8007 — fixed 2026-05-01.)
     bybit_connector_url: str = Field(
-        default="http://localhost:8002",
+        default="http://localhost:8001",
         description="Bybit Connector service URL"
     )
     market_data_url: str = Field(
-        default="http://localhost:8003",
+        default="http://localhost:8002",
         description="Market Data service URL"
     )
     technical_analysis_url: str = Field(
@@ -34,11 +38,11 @@ class Settings(BaseSettings):
         description="Trading Engine service URL"
     )
     portfolio_manager_url: str = Field(
-        default="http://localhost:8006",
+        default="http://localhost:8003",
         description="Portfolio Manager service URL"
     )
     risk_metrics_url: str = Field(
-        default="http://localhost:8007",
+        default="http://localhost:8009",
         description="Risk & Metrics service URL"
     )
     ml_prediction_url: str = Field(

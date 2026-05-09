@@ -23,13 +23,17 @@ class DatabaseConfig:
     """Database configuration from environment variables"""
 
     def __init__(self):
-        self.host = os.getenv('DB_HOST', 'localhost')
-        self.port = int(os.getenv('DB_PORT', '5432'))
-        self.name = os.getenv('DB_NAME', 'crypto_trading_bot')
-        self.user = os.getenv('DB_USER', 'postgres')
-        self.password = os.getenv('DB_PASSWORD', '')
+        # Read POSTGRES_* (matches the Pydantic settings in app/config.py).
+        # Previously this read DB_*, requiring compose to set both names — the
+        # drift caused subtle bugs when one name was changed but not the other.
+        self.host = os.getenv('POSTGRES_HOST', 'localhost')
+        self.port = int(os.getenv('POSTGRES_PORT', '5432'))
+        self.name = os.getenv('POSTGRES_DB', 'trading_engine')
+        self.user = os.getenv('POSTGRES_USER', 'cryptobot')
+        self.password = os.getenv('POSTGRES_PASSWORD', '')
 
-        # Connection pool settings
+        # Connection pool settings — keep DB_POOL_* names since they're
+        # pool-specific (no equivalent POSTGRES_POOL_* convention).
         self.pool_size = int(os.getenv('DB_POOL_SIZE', '20'))
         self.max_overflow = int(os.getenv('DB_MAX_OVERFLOW', '40'))
         self.pool_timeout = int(os.getenv('DB_POOL_TIMEOUT', '30'))

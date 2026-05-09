@@ -1,0 +1,44 @@
+# noise / generated artifacts
+htmlcov/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+.graphify-venv/
+node_modules/
+dist/
+build/
+.next/
+.serena/
+.audit/
+.obsidian/
+
+# coverage & profiling output
+*.coverage
+.coverage*
+profiling/
+benchmarks/results/
+
+# logs
+logs/
+*.log
+
+# graphify own output
+graphify-out/
+
+# generated/downloaded ML model artifacts
+*.h5
+*.pkl
+*.joblib
+*.onnx
+*.pt
+*.pth
+
+# graphify install files (per recommendation)
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.gemini/
+.opencode/

@@ -32,6 +32,7 @@ Author: Trading Bot Development Team
 Date: 2025-12-11
 """
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -224,7 +225,7 @@ class KellyPositionSizer:
             f"fallback={fallback_position_pct}%"
         )
 
-    def record_trade(self, trade: TradeRecord) -> None:
+    def record_trade(self, trade: TradeRecord, _persist: bool = True) -> None:
         """
         Record a completed trade for performance tracking
 
@@ -236,6 +237,8 @@ class KellyPositionSizer:
 
         Args:
             trade: TradeRecord with trade details
+            _persist: If False, skip DB write (used by load_trades_from_db replay
+                to avoid re-persisting trades that came from the DB).
         """
         # Add to rolling window
         self._trade_history.append(trade)
@@ -275,7 +278,7 @@ class KellyPositionSizer:
         )
 
         # Persist to database if available
-        if self.db_session_factory:
+        if _persist and self.db_session_factory:
             self._persist_trade(trade)
 
     def _update_dynamic_kelly_fraction(self) -> None:
@@ -655,33 +658,49 @@ class KellyPositionSizer:
 
         return " | ".join(parts)
 
-    def _persist_trade(self, trade: TradeRecord) -> None:
-        """
-        Persist the sizer's full state (aggregates + rolling window) to the
-        kelly_state row. Called after each trade is recorded so the Kelly
-        fraction and streak survive restarts.
-
-        We persist the full state rather than each trade row because Kelly
-        sizing only consumes aggregates plus the recent rolling window, and
-        a single upsert on a single row is cheaper than per-trade inserts.
-        """
-        if self.db_session_factory is None:
-            return
+    async def _persist_trade_async(self, trade: TradeRecord) -> None:
+        """Insert a TradeRecord row into kelly_trade_history."""
+        from app.risk.kelly_models import KellyTradeHistory
 
         try:
-            from app.risk.kelly_persistence import save_state
-
-            # db_session_factory is the sync sessionmaker from
-            # database.connection.DatabaseManager — calling it returns a
-            # Session that exposes connection() for Core operations.
-            session = self.db_session_factory()
-            try:
-                save_state(session.connection(), self)
-                session.commit()
-            finally:
-                session.close()
+            async with self.db_session_factory() as session:
+                row = KellyTradeHistory(
+                    trade_id=trade.trade_id,
+                    symbol=trade.symbol,
+                    entry_time=trade.entry_time,
+                    exit_time=trade.exit_time,
+                    entry_price=trade.entry_price,
+                    exit_price=trade.exit_price,
+                    pnl=trade.pnl,
+                    pnl_pct=trade.pnl_pct,
+                    is_win=trade.is_win,
+                    strategy=trade.strategy,
+                    kelly_suggested=trade.kelly_suggested,
+                    actual_size=trade.actual_size,
+                )
+                session.add(row)
+                await session.commit()
         except Exception as e:
-            logger.error(f"Failed to persist Kelly state after trade {trade.trade_id}: {e}")
+            logger.error(f"Failed to persist trade {trade.trade_id}: {e}")
+
+    def _persist_trade(self, trade: TradeRecord) -> None:
+        """
+        Persist a TradeRecord to PostgreSQL.
+
+        record_trade is sync but the SQLAlchemy session is async — schedule the
+        write on the running loop. If no loop is running (sync-only caller, e.g.
+        a script or test), skip silently rather than spinning up a fresh loop;
+        callers that want guaranteed persistence should await
+        _persist_trade_async directly.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug(
+                f"No running event loop; skipping persist for trade {trade.trade_id}"
+            )
+            return
+        loop.create_task(self._persist_trade_async(trade))
 
     def get_kelly_stats(self) -> Dict:
         """
@@ -726,39 +745,65 @@ class KellyPositionSizer:
             'timestamp': datetime.now().isoformat(),
         }
 
-    def load_trades_from_db(self, limit: int = 50) -> int:
+    async def load_trades_from_db(self, limit: int = 50) -> int:
         """
-        Restore the sizer state (aggregates + rolling window) from the
-        kelly_state row. The `limit` argument is retained for API
-        compatibility but is implicitly bounded by ROLLING_WINDOW since
-        that's all we persist.
+        Load most recent trades from PostgreSQL and replay them into the
+        in-memory deque + counters. Replay does NOT re-persist.
+
+        Args:
+            limit: Maximum number of trades to load
 
         Returns:
-            Number of trades restored to the rolling window. 0 means either
-            no row was found (fresh deploy) or no factory was configured.
+            Number of trades loaded
         """
         if self.db_session_factory is None:
             logger.warning("No database session factory configured")
             return 0
 
+        from sqlalchemy import select
+
+        from app.risk.kelly_models import KellyTradeHistory
+
         try:
-            from app.risk.kelly_persistence import load_state
+            async with self.db_session_factory() as session:
+                stmt = (
+                    select(KellyTradeHistory)
+                    .order_by(KellyTradeHistory.exit_time.desc())
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                rows = list(result.scalars().all())
 
-            session = self.db_session_factory()
-            try:
-                restored = load_state(session.connection(), self)
-                session.commit()
-            finally:
-                session.close()
+            # Replay oldest-first so streak/cache state matches real-time order.
+            rows.reverse()
+            for row in rows:
+                trade = TradeRecord(
+                    trade_id=row.trade_id,
+                    symbol=row.symbol,
+                    entry_time=row.entry_time,
+                    exit_time=row.exit_time,
+                    entry_price=float(row.entry_price),
+                    exit_price=float(row.exit_price),
+                    pnl=float(row.pnl),
+                    pnl_pct=float(row.pnl_pct),
+                    is_win=bool(row.is_win),
+                    strategy=row.strategy,
+                    kelly_suggested=(
+                        float(row.kelly_suggested)
+                        if row.kelly_suggested is not None
+                        else None
+                    ),
+                    actual_size=(
+                        float(row.actual_size) if row.actual_size is not None else None
+                    ),
+                )
+                self.record_trade(trade, _persist=False)
 
-            logger.info(
-                f"Loaded Kelly state: {self._total_trades} trades total, "
-                f"{restored} in rolling window"
-            )
-            return restored
+            logger.info(f"Loaded {len(rows)} trades from kelly_trade_history")
+            return len(rows)
 
         except Exception as e:
-            logger.error(f"Failed to load Kelly state from database: {e}")
+            logger.error(f"Failed to load trades from database: {e}")
             return 0
 
     def reset(self) -> None:

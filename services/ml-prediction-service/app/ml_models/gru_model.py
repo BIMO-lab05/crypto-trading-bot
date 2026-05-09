@@ -72,6 +72,10 @@ class GRUPricePredictor:
         self.training_stats = {}
         self.inference_time_ms = 0.0  # Track inference speed
 
+        # Track when the on-disk model file was last loaded (mtime, seconds since epoch).
+        # Used by _reload_if_stale to pick up retrained models without a service restart.
+        self.model_loaded_at: float = 0.0
+
         # Feature columns
         self.feature_columns = []
 
@@ -105,7 +109,8 @@ class GRUPricePredictor:
 
             # Load model
             self.model = keras.models.load_model(str(model_path))
-            logger.info(f"Loaded GRU model from {model_path}")
+            self.model_loaded_at = model_path.stat().st_mtime
+            logger.info(f"Loaded GRU model from {model_path} (mtime={self.model_loaded_at})")
 
             # Load metadata
             if metadata_path.exists():
@@ -131,6 +136,34 @@ class GRUPricePredictor:
         except Exception as e:
             logger.error(f"Error loading GRU model: {e}")
             return False
+
+    def _reload_if_stale(self) -> bool:
+        """
+        Reload the model from disk if its mtime is newer than the cached load-time.
+
+        Called at the top of predict() to pick up retrained models without a
+        service restart. One stat() per request — overhead is negligible against
+        the 10-50 ms predict path. Tolerant of missing files / stat errors:
+        a failure leaves the cached model in place and predict() proceeds.
+
+        Returns:
+            True if a reload happened, False otherwise.
+        """
+        try:
+            model_path = self._get_model_path()
+            if not model_path.exists():
+                return False
+            disk_mtime = model_path.stat().st_mtime
+            if disk_mtime > self.model_loaded_at:
+                logger.info(
+                    f"Stale GRU model for {self.symbol} {self.interval}m; reloading "
+                    f"(loaded={self.model_loaded_at}, disk={disk_mtime})"
+                )
+                # _load_model resets model, scalers, metadata, and model_loaded_at
+                return self._load_model()
+        except Exception as e:
+            logger.warning(f"Stale-check failed for {self.symbol}: {e}")
+        return False
 
     def _save_model(self):
         """Save trained GRU model and metadata"""
@@ -405,9 +438,12 @@ class GRUPricePredictor:
             # Calculate MAPE (Mean Absolute Percentage Error)
             mape = mean_absolute_percentage_error(y_test[:, 0], y_pred[:, 0])
 
-            # Calculate directional accuracy (how often we predict correct direction)
-            y_test_direction = np.sign(y_test[:, 0] - y_test[:, -1])
-            y_pred_direction = np.sign(y_pred[:, 0] - y_test[:, -1])
+            # Reference is last bar of input sequence (prior bug used y_test[:, -1] —
+            # a future bar — making the metric look-ahead leaked and degenerate).
+            close_idx = self.feature_columns.index('close')
+            last_input_close = X_test[:, -1, close_idx]
+            y_test_direction = np.sign(y_test[:, 0] - last_input_close)
+            y_pred_direction = np.sign(y_pred[:, 0] - last_input_close)
             directional_accuracy = np.mean(y_test_direction == y_pred_direction)
 
             # Measure inference time
@@ -480,6 +516,9 @@ class GRUPricePredictor:
         Returns:
             PricePrediction with future price points and metadata
         """
+        # Pick up freshly retrained models without a restart (mtime check + reload).
+        self._reload_if_stale()
+
         if not TENSORFLOW_AVAILABLE or self.model is None:
             raise RuntimeError("GRU model not available for predictions")
 
@@ -526,10 +565,11 @@ class GRUPricePredictor:
                 # Inverse scale prediction (approximate)
                 predicted_price = float(pred_value * (df['close'].max() - df['close'].min()) + df['close'].min())
 
-                # Calculate confidence (decreases with time horizon)
+                # Calculate confidence (decreases with time horizon).
+                # See predictor.py:480-490 for the rationale on the 0.0 floor.
                 base_confidence = float(self.training_stats.get('r2_score', 0.5))
                 confidence_decay = 0.1 * i  # Confidence decreases with time
-                confidence = max(0.3, base_confidence - confidence_decay)
+                confidence = max(0.0, base_confidence - confidence_decay)
 
                 # Confidence intervals (±2 standard deviations)
                 std_dev = float(self.training_stats.get('rmse', predicted_price * 0.02))

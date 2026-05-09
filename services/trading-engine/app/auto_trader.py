@@ -27,12 +27,24 @@ UPDATED 2025-11-30 v2: Advanced trading enhancements
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 
 from app.config import get_settings
+from app.risk.vol_targeting import (
+    RealizedVolEstimator,
+    VolEstimatorConfig,
+    VolParitySizingConfig,
+    vol_parity_size,
+)
+from app.risk.funding_gate import (
+    FundingGateConfig,
+    FundingRateClient,
+    funding_gate_decision,
+)
 from app.signal_aggregator import get_aggregator
 from app.paper_trading import get_paper_engine
 from app.live_trading import get_live_engine
@@ -234,21 +246,11 @@ class AutoTrader:
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
 
-        # ============================================================================
-        # PHASE C: SMART-MODE GATES (2026-05-05) — opt-in via AUTO_TRADER_SMART_MODE
-        # ============================================================================
-        # When smart_mode is enabled three additional gates apply per cycle:
-        #   1) early-exit when portfolio heat is CRITICAL
-        #   2) per-cycle regime-driven strategy choice (override self.strategy_mode)
-        #   3) ML-confidence floor: reject trades where ML disagrees with the signal
-        #      direction or confidence is below ml_confidence_floor.
-        # Default off — flip via env to enable for A/B comparison against the
-        # construction-time baseline.
-        self.smart_mode = bool(getattr(settings, "auto_trader_smart_mode", False))
-        self.ml_confidence_floor = float(getattr(settings, "ml_confidence_floor", 0.6))
-        self.smart_mode_heat_skips = 0
-        self.smart_mode_ml_rejections = 0
-        self.smart_mode_regime_overrides = 0
+        # File-based emergency stop (operator kill switch).
+        # Halts auto-trader at the top of every loop cycle when the file is present.
+        self.emergency_stop_file = Path(self.settings.emergency_stop_file)
+        self.emergency_stop_active = False
+        self.emergency_stop_last_checked: Optional[datetime] = None
 
         # Get the regime detector
         self.regime_detector = get_market_regime_detector(enabled=enable_market_regime)
@@ -305,20 +307,60 @@ class AutoTrader:
             )
         )
 
-        # Kill Switch: Multi-threshold emergency stop
-        # Research: Industry standard risk controls
-        # RELAXED FOR SAMPLE COLLECTION (2025-11-30)
+        # Kill Switch: Multi-threshold emergency stop.
+        # Daily-loss threshold is operator-tunable via MAX_DAILY_LOSS_PCT
+        # (settings.max_daily_loss_pct, default 5%). Drawdown, consecutive-loss,
+        # auto-reset and trigger-mode use the research-backed defaults from
+        # KillSwitchConfig (drawdown 20%, consec 5, reset 24h, single-threshold
+        # trigger). Earlier code hard-coded 50%/50%/20 with the comment
+        # "RELAXED FOR SAMPLE COLLECTION" — that left CLAUDE.md's documented
+        # 5%/10% safety claims as fiction. Restored 2026-04-28.
         self.kill_switch = get_kill_switch(
             KillSwitchConfig(
-                max_daily_loss_pct=50.0,       # Relaxed: 50% for sample collection
-                max_drawdown_pct=50.0,         # Relaxed: 50% for sample collection
-                max_position_value=100000.0,   # Stop if position > $100k
-                max_consecutive_losses=20,     # Relaxed: 20 consecutive losses
-                confirmation_delay_seconds=5,  # 5s delay for manual activation
-                auto_reset_hours=1,            # Faster reset: 1 hour
-                require_multi_threshold=True   # Require 2+ thresholds for auto-activate
+                max_daily_loss_pct=self.settings.max_daily_loss_pct,
             )
         )
+
+        # Vol Parity Sizing (T1.2 chunk 3, 2026-04-30, default off)
+        # Outer overlay above the per-trade cap. When enabled and the
+        # estimator is warm (>= min_samples hourly bars per symbol), sizes
+        # new entries inversely to realised vol so each contributes equal
+        # expected risk. With default cap_multiplier=1.0 this is downside-
+        # only — vol parity may shrink positions but never grows them past
+        # the existing baseline, so the per-trade-cap REJECT idiom is
+        # untouched. See docs/strategy/research-2026-04-29/T1.2-design.md.
+        self._vol_last_hour: Dict[str, datetime] = {}
+        if self.settings.enable_vol_targeting:
+            self.vol_estimator: Optional[RealizedVolEstimator] = RealizedVolEstimator(
+                VolEstimatorConfig(
+                    window_bars=self.settings.vol_estimator_window_bars,
+                )
+            )
+            logger.info(
+                f"[VOL_PARITY] enabled: target={self.settings.vol_target_annualised:.0%} ann, "
+                f"window={self.settings.vol_estimator_window_bars}h, "
+                f"cap_multiplier={self.settings.vol_target_cap_multiplier}"
+            )
+        else:
+            self.vol_estimator = None
+            logger.info("[VOL_PARITY] disabled (set ENABLE_VOL_TARGETING=true to opt in)")
+
+        # Funding-Rate Gate (T2.3, 2026-04-30) — perp-only entry filter.
+        # Lazy-built (None until first signal-check call site that needs it)
+        # so tests and PAPER mode don't open an httpx session up-front.
+        self._funding_gate_config: Optional[FundingGateConfig] = None
+        self._funding_client: Optional[FundingRateClient] = None
+        if self.settings.enable_funding_gate:
+            self._funding_gate_config = FundingGateConfig(
+                threshold_bps=self.settings.funding_gate_threshold_bps,
+                cache_ttl_seconds=self.settings.funding_cache_ttl_seconds,
+            )
+            logger.info(
+                f"[FUNDING_GATE] enabled: threshold=±{self.settings.funding_gate_threshold_bps:.1f}bps, "
+                f"ttl={self.settings.funding_cache_ttl_seconds}s"
+            )
+        else:
+            logger.info("[FUNDING_GATE] disabled (set ENABLE_FUNDING_GATE=true to opt in)")
 
         # Slippage Manager: Execution quality control
         # Research: LuxAlgo Trading Slippage Analysis
@@ -554,7 +596,12 @@ class AutoTrader:
         logger.info("RESEARCH-BACKED TRADING ENHANCEMENTS ENABLED (2025-11-30)")
         logger.info("=" * 70)
         logger.info(f"  Circuit Breaker: failure_threshold=5, timeout=60s")
-        logger.info(f"  Kill Switch: daily_loss=5%, drawdown=10%, consecutive_losses=5")
+        ks_cfg = self.kill_switch.config
+        logger.info(
+            f"  Kill Switch: daily_loss={ks_cfg.max_daily_loss_pct}%, "
+            f"drawdown={ks_cfg.max_drawdown_pct}%, "
+            f"consecutive_losses={ks_cfg.max_consecutive_losses}"
+        )
         logger.info(f"  Slippage Manager: base=0.15%, volatile=0.30%, reject=0.50%")
         logger.info(f"  Execution Timer: position=15s, price=10s, trailing=15s")
         logger.info(f"  Order State Machine: FIX protocol style tracking")
@@ -665,125 +712,23 @@ class AutoTrader:
 
         return True
 
-    # =========================================================================
-    # PHASE C: SMART-MODE HELPERS (gated by self.smart_mode)
-    # =========================================================================
-
-    def _smart_should_skip_for_heat(self) -> bool:
+    def _update_vol_estimator(self, symbol: str, current_price: float) -> None:
         """
-        Phase C(2): when smart_mode is on, skip the entire scan cycle if
-        portfolio heat is critical. Cheaper than letting every per-symbol
-        check fall through and reject one-by-one.
+        Feed the vol-parity estimator one (symbol, ts, close) sample.
+
+        No-op when ENABLE_VOL_TARGETING is False. Deduped by hour boundary
+        so the trading loop's sub-bar polling collapses to one bar per hour
+        — keeps the estimator's annualisation factor (sqrt(8760)) honest.
         """
-        if not self.smart_mode:
-            return False
-        try:
-            summary = self.portfolio_heat_manager.get_summary_dict()
-            heat_pct = summary.get("total_heat_pct", 0.0)
-            critical = summary.get("limits", {}).get("critical_heat_threshold", 10.0)
-            if heat_pct >= critical:
-                self.smart_mode_heat_skips += 1
-                logger.warning(
-                    f"[SMART] Skipping cycle — portfolio heat critical: "
-                    f"{heat_pct:.2f}% >= {critical:.2f}%"
-                )
-                return True
-        except Exception as exc:
-            # Don't let a heat-manager hiccup wedge the trader; just continue.
-            logger.debug(f"[SMART] heat-skip check failed, continuing: {exc}")
-        return False
-
-    async def _smart_resolve_strategy(self, symbol: str) -> "StrategyMode":
-        """
-        Phase C(1): when smart_mode is on, pick the per-cycle strategy mode
-        based on the live market regime for this symbol. Otherwise, fall
-        back to the construction-time `self.strategy_mode`.
-        """
-        if not self.smart_mode:
-            return self.strategy_mode
-        try:
-            analysis = await self.regime_detector.detect_regime(symbol, self.interval)
-            regime = analysis.regime
-            # Cheap, conservative mapping. STRONG_TREND/TRENDING/WEAK_TREND →
-            # use the trend-favouring RESEARCH path. RANGING → HYBRID
-            # (which routes to mean-reversion when ADX is low). VOLATILE and
-            # UNKNOWN keep the operator's chosen baseline.
-            if regime in (MarketRegime.STRONG_TREND, MarketRegime.TRENDING, MarketRegime.WEAK_TREND):
-                resolved = StrategyMode.RESEARCH
-            elif regime == MarketRegime.RANGING:
-                resolved = StrategyMode.HYBRID
-            else:
-                resolved = self.strategy_mode
-
-            if resolved != self.strategy_mode:
-                self.smart_mode_regime_overrides += 1
-                logger.info(
-                    f"[SMART] {symbol}: regime={regime.value} → strategy "
-                    f"{self.strategy_mode.value} → {resolved.value}"
-                )
-            return resolved
-        except Exception as exc:
-            logger.debug(f"[SMART] strategy-resolution failed for {symbol}, falling back: {exc}")
-            return self.strategy_mode
-
-    def _smart_check_ml_disagreement(self, signal, action) -> Optional[str]:
-        """
-        Phase C(3): when smart_mode + enable_ml are both on, require the ML
-        component of the aggregated signal to (a) point in the same
-        direction as ``action`` and (b) carry confidence ≥ ml_confidence_floor.
-
-        Returns a rejection reason string if the trade should be skipped,
-        otherwise None.
-        """
-        if not (self.smart_mode and self.enable_ml):
-            return None
-        if signal is None or not getattr(signal, "indicators", None):
-            return None  # nothing to compare against
-
-        # The ML predictor surfaces under signal.indicators with various names
-        # depending on signal-aggregator version; probe a few keys.
-        ml_signal = None
-        for key in ("ml_prediction", "ml", "gru", "gru_prediction"):
-            if key in signal.indicators:
-                ml_signal = signal.indicators[key]
-                break
-        if ml_signal is None:
-            return None  # ML wasn't part of the signal — don't gate on it
-
-        # Be defensive about the schema: ml_signal might be a SignalAction
-        # enum, a dict, or a thin object with .action / .confidence fields.
-        ml_action = getattr(ml_signal, "action", None) or (
-            ml_signal.get("action") if isinstance(ml_signal, dict) else None
-        )
-        ml_confidence = getattr(ml_signal, "confidence", None)
-        if ml_confidence is None and isinstance(ml_signal, dict):
-            ml_confidence = ml_signal.get("confidence")
-        try:
-            ml_confidence = float(ml_confidence) if ml_confidence is not None else None
-        except (TypeError, ValueError):
-            ml_confidence = None
-
-        if ml_confidence is not None and ml_confidence < self.ml_confidence_floor:
-            self.smart_mode_ml_rejections += 1
-            return (
-                f"ml_disagreement: confidence {ml_confidence:.2f} < floor "
-                f"{self.ml_confidence_floor:.2f}"
-            )
-
-        # Direction check — ml_action and trade action should both reduce to BUY/SELL
-        def _norm(x):
-            if x is None:
-                return None
-            value = getattr(x, "value", x)
-            return str(value).upper()
-
-        ml_dir = _norm(ml_action)
-        trade_dir = _norm(action)
-        if ml_dir and trade_dir and ml_dir != trade_dir and ml_dir != "HOLD":
-            self.smart_mode_ml_rejections += 1
-            return f"ml_disagreement: ML={ml_dir} vs trade={trade_dir}"
-
-        return None
+        if self.vol_estimator is None:
+            return
+        if current_price is None or current_price <= 0:
+            return
+        hour_key = datetime.now().replace(minute=0, second=0, microsecond=0)
+        if self._vol_last_hour.get(symbol) == hour_key:
+            return
+        self.vol_estimator.update(symbol, hour_key, current_price)
+        self._vol_last_hour[symbol] = hour_key
 
     async def _trading_loop(self):
         """Main trading loop - runs continuously until stopped"""
@@ -799,6 +744,25 @@ class AutoTrader:
 
         while self.is_running:
             try:
+                # ================================================================
+                # STEP 0a: FILE-BASED EMERGENCY STOP (operator kill switch)
+                # ================================================================
+                # Cheap stat check; out-ranks balance kill switch, signal fetch,
+                # and order submit. Uses is_file() (not exists()) to handle the
+                # WSL bind-mount edge case where Docker may create a directory at
+                # the mount point if the host file is absent.
+                self.emergency_stop_last_checked = datetime.now()
+                if self.emergency_stop_file.is_file():
+                    if not self.emergency_stop_active:
+                        logger.critical(
+                            f"EMERGENCY_STOP file detected at {self.emergency_stop_file} - "
+                            f"halting auto-trader. Open positions left for operator review. "
+                            f"Delete the file and restart the service to resume."
+                        )
+                        self.emergency_stop_active = True
+                    self.is_running = False
+                    break
+
                 # ================================================================
                 # STEP 0: CHECK KILL SWITCH (2025-11-30)
                 # ================================================================
@@ -829,12 +793,6 @@ class AutoTrader:
                 # ================================================================
                 # Only check signals if timer allows (prevents excessive API calls)
                 if self.execution_timer.should_check_signals():
-                    # Phase C(2): smart-mode early heat gate. Critical heat
-                    # → skip the per-symbol scan entirely this cycle.
-                    if self._smart_should_skip_for_heat():
-                        await asyncio.sleep(self.check_frequency)
-                        continue
-
                     for symbol in self.symbols:
                         # Check circuit breaker before making API calls
                         if not self.circuit_breaker.can_execute():
@@ -845,19 +803,16 @@ class AutoTrader:
                             continue
 
                         try:
-                            # Phase C(1): when smart_mode is on, choose the
-                            # strategy per cycle based on live market regime.
-                            mode = await self._smart_resolve_strategy(symbol)
-                            if mode == StrategyMode.RESEARCH:
+                            if self.strategy_mode == StrategyMode.RESEARCH:
                                 # Use research-optimized strategy (2025-11-28)
                                 await self._check_and_trade_research(symbol)
-                            elif mode == StrategyMode.HYBRID:
+                            elif self.strategy_mode == StrategyMode.HYBRID:
                                 # Use both strategies and trade only if both agree
                                 await self._check_and_trade_hybrid(symbol)
-                            elif mode == StrategyMode.GRID_TRADING:
+                            elif self.strategy_mode == StrategyMode.GRID_TRADING:
                                 # Use Grid Trading strategy (Phase 2.3 - 2025-12-08)
                                 await self._check_and_trade_grid(symbol)
-                            elif mode == StrategyMode.ENSEMBLE:
+                            elif self.strategy_mode == StrategyMode.ENSEMBLE:
                                 # Combined RSI + multi-indicator + mean-reversion with performance weighting (2026-04-25)
                                 await self._check_and_trade_ensemble(symbol)
                             else:
@@ -942,6 +897,8 @@ class AutoTrader:
             if not current_price:
                 logger.warning(f"[HYBRID] No current price found for {symbol}")
                 return
+
+            self._update_vol_estimator(symbol, current_price)
 
             # Get paper trading engine for balance
             paper_engine = get_paper_engine()
@@ -1174,6 +1131,8 @@ class AutoTrader:
                 logger.warning(f"[RESEARCH] No current price found for {symbol}")
                 return
 
+            self._update_vol_estimator(symbol, current_price)
+
             # Get paper trading engine for balance
             paper_engine = get_paper_engine()
             balance = paper_engine.get_balance()
@@ -1187,15 +1146,6 @@ class AutoTrader:
 
             if not trade_setup:
                 logger.info(f"[RESEARCH] No valid trade setup for {symbol} (insufficient indicator alignment)")
-                return
-
-            # Phase C(3): smart-mode ML-confidence floor. If ML disagrees with
-            # the signal direction, or ML confidence is below the configured
-            # floor, reject the trade rather than rely on aggregator weighting.
-            ml_reject = self._smart_check_ml_disagreement(signal, trade_setup.action)
-            if ml_reject:
-                self.total_trades_rejected += 1
-                logger.info(f"[SMART][RESEARCH] {symbol}: rejecting — {ml_reject}")
                 return
 
             # Log research signal details
@@ -1444,6 +1394,35 @@ class AutoTrader:
                 f"Side: {side} | Allowed: {self.settings.allowed_trade_sides}"
             )
 
+            # ================================================================
+            # FUNDING-RATE GATE (T2.3, 2026-04-30) — perp-only entry filter.
+            # Cheap gate: runs before allocation/sizing so we don't compute
+            # quantities for trades that won't survive the gate. Fail-open
+            # on any fetch error; gate disabled in PAPER mode.
+            # ================================================================
+            if (
+                self._funding_gate_config is not None
+                and trading_mode == "LIVE"
+            ):
+                if self._funding_client is None:
+                    self._funding_client = FundingRateClient(
+                        connector_base_url=self.settings.bybit_connector_url,
+                        config=self._funding_gate_config,
+                    )
+                rate = await self._funding_client.get_latest_rate(symbol)
+                decision = funding_gate_decision(
+                    rate_per_period=rate,
+                    is_long=(side == "LONG"),
+                    config=self._funding_gate_config,
+                )
+                if not decision.allow:
+                    logger.warning(
+                        f"[FUNDING_GATE] ❌ Rejecting {side} on {symbol}: {decision.reason}"
+                    )
+                    self.total_trades_rejected += 1
+                    return
+                logger.info(f"[FUNDING_GATE] ✅ {symbol} {side}: {decision.reason}")
+
             logger.info(f"[{trading_mode}] Executing {action} trade for {symbol}")
 
             # ================================================================
@@ -1540,6 +1519,65 @@ class AutoTrader:
                 f"[MARGIN] Margin required: ${margin_required:.2f} (Position: ${position_value:.2f} / Leverage: {leverage:.0f}x)"
             )
 
+            # ================================================================
+            # VOL PARITY OVERLAY (T1.2 chunk 3, default off)
+            # ================================================================
+            # Outer overlay above the per-trade cap. With cap_multiplier=1.0
+            # (default) this is downside-only: shrinks positions when realised
+            # vol exceeds target, leaves baseline alone when below — never
+            # grows past baseline so the cap REJECT below stays intact. With
+            # cap_multiplier=3.0 the user can opt into Carver-style symmetric
+            # vol targeting; in that case vol parity may exceed the per-trade
+            # cap and the existing REJECT idiom kicks in (still safe — just
+            # surfaces a tension to investigate).
+            if self.vol_estimator is not None:
+                realized_vol = self.vol_estimator.get_realized_vol_annualized(symbol)
+                pre_parity_value = position_value
+                position_value = float(
+                    vol_parity_size(
+                        Decimal(str(position_value)),
+                        realized_vol,
+                        VolParitySizingConfig(
+                            target_vol_annualised=self.settings.vol_target_annualised,
+                            cap_multiplier=self.settings.vol_target_cap_multiplier,
+                        ),
+                    )
+                )
+                if abs(position_value - pre_parity_value) > 1e-6:
+                    rv_str = f"{realized_vol:.2%}" if realized_vol is not None else "warming-up"
+                    logger.info(
+                        f"[VOL_PARITY] {symbol}: realised_vol={rv_str}, "
+                        f"baseline=${pre_parity_value:.2f} → post=${position_value:.2f} "
+                        f"(target={self.settings.vol_target_annualised:.0%})"
+                    )
+                    margin_required = position_value / leverage
+                    quantity = position_value / trade_setup.entry_price
+
+            # ================================================================
+            # PER-TRADE CAP (MAX_RISK_PER_TRADE, default 0.02)
+            # ================================================================
+            # CLAUDE.md historically claimed "max 2% capital per trade", but
+            # the sizing path above (symbol_allocation × leverage × heat) had
+            # no runtime check — a 30% allocation × 1x leverage produced a
+            # 30% trade. This gate validates the final notional against the
+            # cap and rejects-and-skips (matching the kill-switch / heat /
+            # daily-limit idiom) so the breach is observable rather than
+            # silently smoothed over by a resize.
+            cap_fraction = self.settings.max_risk_per_trade
+            cap_value = float(balance) * cap_fraction
+            if position_value > cap_value:
+                from app.core.metrics import risk_limit_breaches_total
+                risk_limit_breaches_total.labels(breach_type="position_size").inc()
+                logger.critical(
+                    f"[RISK_GATE] PER_TRADE_CAP BREACH | symbol={symbol} "
+                    f"attempted=${position_value:.2f} cap=${cap_value:.2f} "
+                    f"({cap_fraction:.1%} of ${float(balance):.2f}) "
+                    f"leverage={leverage:.1f}x allocation={symbol_allocation:.0%} "
+                    f"- REJECTING. Reduce symbol_allocations[{symbol}] or leverage."
+                )
+                self.total_trades_rejected += 1
+                return
+
             # Execute the trade
             side = OrderSide.BUY if action == "BUY" else OrderSide.SELL
 
@@ -1553,10 +1591,23 @@ class AutoTrader:
                 entry_signal_confidence=trade_setup.confidence
             )
 
-            # Execute through appropriate engine (paper or live)
-            executed_order, error = await trading_engine.execute_market_order(
-                order, Decimal(str(trade_setup.entry_price))
+            # Execute through appropriate engine (paper or live).
+            # T1.3: in LIVE mode, prefer_maker_orders routes the entry through
+            # a PostOnly limit at best bid/ask with timeout-based fallback.
+            # Paper engine has no maker/taker distinction — keep market path.
+            use_maker = (
+                trading_mode == "LIVE"
+                and self.settings.prefer_maker_orders
+                and hasattr(trading_engine, "execute_maker_order_with_fallback")
             )
+            if use_maker:
+                executed_order, error = await trading_engine.execute_maker_order_with_fallback(
+                    order, Decimal(str(trade_setup.entry_price))
+                )
+            else:
+                executed_order, error = await trading_engine.execute_market_order(
+                    order, Decimal(str(trade_setup.entry_price))
+                )
 
             # FIXED: Null check for executed_order (code review 2025-11-28)
             if executed_order is None:
@@ -1771,18 +1822,29 @@ class AutoTrader:
                 )
 
                 # Send trade open notification (2025-12-01)
+                # Audit 2026-04-27: failures here used to be logged at debug
+                # and the result dict ignored, so silent delivery failures
+                # looked identical to successes. Now we inspect the dict.
                 try:
-                    await self.notification_client.notify_trade_open(
+                    notify_result = await self.notification_client.notify_trade_open(
                         symbol=symbol,
                         action=action,
                         quantity=float(quantity),
                         price=float(trade_setup.entry_price),
                         confidence=trade_setup.confidence,
                         stop_loss=adjusted_sl,
-                        take_profit=adjusted_tp
+                        take_profit=adjusted_tp,
                     )
+                    if not (isinstance(notify_result, dict) and notify_result.get("success")):
+                        logger.warning(
+                            "Trade-open notification NOT DELIVERED for %s: %s",
+                            symbol, notify_result,
+                        )
                 except Exception as notify_err:
-                    logger.debug(f"Notification failed (non-critical): {notify_err}")
+                    logger.warning(
+                        "Trade-open notification raised for %s: %s",
+                        symbol, notify_err,
+                    )
             else:
                 self.total_trades_rejected += 1
                 logger.warning(f"[{trading_mode}] Trade execution failed for {symbol}: {error}")
@@ -1867,16 +1929,28 @@ class AutoTrader:
                 trading_engine = get_paper_engine()
 
             # Create market order to close position immediately
+            # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`
+            # — passing order_type would raise pydantic ValidationError on every
+            # max-hold-time forced close. Also: paper/live engines expose
+            # execute_market_order, not place_order — calling place_order would
+            # raise AttributeError immediately after the ValidationError. Both
+            # bugs were dead-on-first-invocation, so the max-hold force-close
+            # path has never executed since 2026-01-16.
             exit_order = OrderCreate(
                 symbol=position.symbol,
                 side=OrderSide.SELL if exit_action == "SELL" else OrderSide.BUY,
-                order_type=OrderType.MARKET,
+                type=OrderType.MARKET,
                 quantity=position.quantity,
-                position_id=position.position_id
+                position_id=position.id,
+                reduce_only=True,
             )
 
             # Execute force close
-            executed_order = await trading_engine.place_order(exit_order)
+            executed_order, exec_err = await trading_engine.execute_market_order(
+                exit_order, Decimal(str(current_price))
+            )
+            if exec_err:
+                logger.warning(f"[MAX_HOLD] execute error for {position.symbol}: {exec_err}")
 
             if executed_order and executed_order.status == OrderStatus.FILLED:
                 # Update position manager
@@ -2270,7 +2344,18 @@ class AutoTrader:
 
             # Send trade close notification (2025-12-01)
             try:
-                side = "SELL" if position.side == "BUY" else "BUY"  # Closing is opposite side
+                # FIX (audit 2026-05-01): position.side is the app.models
+                # PositionSide enum (LONG/SHORT), never the string "BUY".
+                # Previously the close side always evaluated to "BUY" — every
+                # close notification showed action=BUY even for LONG closes.
+                # Compare via .value rather than the enum because this file
+                # imports a *different* PositionSide from atr_trailing_stop
+                # (lowercase values) at the top, shadowing the right one.
+                _pos_side_str = (
+                    position.side.value if hasattr(position.side, "value")
+                    else str(position.side)
+                ).upper()
+                side = "SELL" if _pos_side_str == "LONG" else "BUY"
                 await self.notification_client.notify_trade_close(
                     symbol=position.symbol,
                     action=side,
@@ -2316,6 +2401,24 @@ class AutoTrader:
             limit_buffer_pct: Buffer percentage for limit order (default 0.5%)
             timeout_seconds: Max wait time for limit order (default 10s)
         """
+        # FIX (T12, 2026-05-01): Loud-failure guard for LIVE mode.
+        # LiveTradingEngine does not yet expose a LIMIT IOC reduce_only
+        # close-order method (see the in-block comment in STEP 2 below).
+        # Both the inner except Exception as limit_err at the limit-order
+        # fallthrough and the outer except Exception as e would otherwise
+        # swallow our RuntimeError and silently route a LIVE stop-loss exit
+        # through the paper engine or through execute_market_order (which
+        # ignores reduce_only=True and would OPEN a new opposite position
+        # on Bybit instead of closing). Raise BEFORE entering the outer try
+        # so the failure propagates to the caller untouched.
+        if self.settings.trading_mode == "LIVE":
+            raise RuntimeError(
+                "LIVE limit-order stop-loss path requires "
+                "LiveTradingEngine.close_position_with_limit (LIMIT IOC "
+                "reduce_only) — not yet implemented; T1.3 maker-order "
+                "test cannot run in LIVE mode. See "
+                "app/auto_trader.py:_close_position_with_limit_order."
+            )
         try:
             import asyncio
             from app.models import OrderCreate, OrderSide, OrderType, OrderStatus, TimeInForce
@@ -2353,17 +2456,46 @@ class AutoTrader:
                 # Get trading engine (paper or live)
                 trading_mode = self.settings.trading_mode
                 if trading_mode == "LIVE":
-                    # TODO: Implement live trading limit order support
-                    logger.warning("[LIMIT_STOP] Live trading not fully implemented, using paper trading logic")
-                    trading_engine = get_paper_engine()
+                    # FIX (T12, 2026-05-01): Previously this branch silently fell back
+                    # to the paper engine, which would log a paper-trading fill and
+                    # leave the LIVE position OPEN on Bybit while updating local
+                    # PositionManager as if it were closed. That is the worst
+                    # possible failure mode in LIVE.
+                    #
+                    # The correct fix is a real LIMIT IOC reduce_only call, but
+                    # LiveTradingEngine (app/live_trading.py) does not expose
+                    # one yet:
+                    #   - execute_market_order hardcodes order_type="Market"
+                    #     and reduce_only=False, so it ignores both the LIMIT
+                    #     type and the reduce_only=True flag on
+                    #     OrderCreate and would OPEN a new opposite position
+                    #     instead of closing.
+                    #   - execute_maker_order_with_fallback is for ENTRY
+                    #     (PostOnly + create_position), not for stop-loss
+                    #     exits.
+                    # The bybit-connector itself supports LIMIT/IOC/reduce_only
+                    # (see services/bybit-connector/app/bybit_rest_client.py
+                    # place_order), so the fix is to add a
+                    # close_position_with_limit method on
+                    # LiveTradingEngine that wires those parameters through.
+                    # Until that exists, fail LOUD instead of silently routing
+                    # LIVE stop-loss exits through the paper engine.
+                    raise RuntimeError(
+                        "LIVE limit-order stop-loss path requires "
+                        "LiveTradingEngine.close_position_with_limit (LIMIT IOC "
+                        "reduce_only) — not yet implemented; T1.3 maker-order "
+                        "test cannot run in LIVE mode. See "
+                        "app/auto_trader.py:_close_position_with_limit_order."
+                    )
                 else:
                     trading_engine = get_paper_engine()
 
                 # Create limit order (IOC = Immediate or Cancel)
+                # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`.
                 limit_order = OrderCreate(
                     symbol=position.symbol,
                     side=exit_side,
-                    order_type=OrderType.LIMIT,
+                    type=OrderType.LIMIT,
                     price=Decimal(str(limit_price)),
                     quantity=position.quantity,
                     time_in_force=TimeInForce.IOC if hasattr(TimeInForce, 'IOC') else None,
@@ -2428,10 +2560,11 @@ class AutoTrader:
             )
 
             # Create market order as fallback
+            # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`.
             market_order = OrderCreate(
                 symbol=position.symbol,
                 side=exit_side,
-                order_type=OrderType.MARKET,
+                type=OrderType.MARKET,
                 quantity=position.quantity,
                 reduce_only=True,
                 position_id=position.id
@@ -2660,8 +2793,16 @@ class AutoTrader:
             logger.info(f"  Deviation: {safety_order.deviation_pct:.2f}%")
             logger.info("=" * 70)
 
-            # Execute the safety order
-            side = OrderSide.BUY if position.side == "BUY" else OrderSide.SELL
+            # Execute the safety order.
+            # FIX (audit 2026-05-01): position.side is app.models PositionSide
+            # (LONG/SHORT). Comparing to "BUY" was always False, so the DCA
+            # safety order would always SELL — adding to a SHORT averages
+            # correctly but inverts the LONG case. Compare on LONG/SHORT.
+            _pos_side_str = (
+                position.side.value if hasattr(position.side, "value")
+                else str(position.side)
+            ).upper()
+            side = OrderSide.BUY if _pos_side_str == "LONG" else OrderSide.SELL
 
             order = OrderCreate(
                 symbol=position.symbol,
@@ -2760,6 +2901,8 @@ class AutoTrader:
                 logger.warning(f"No current price found for {symbol}, skipping trade")
                 self.total_trades_rejected += 1
                 return
+
+            self._update_vol_estimator(symbol, current_price)
 
             # Get performance stats for Kelly calculation
             performance_stats = None
@@ -2927,6 +3070,14 @@ class AutoTrader:
 
         status = {
             "is_running": self.is_running,
+            "emergency_stop": {
+                "file_path": str(self.emergency_stop_file),
+                "active": self.emergency_stop_active,
+                "last_checked": (
+                    self.emergency_stop_last_checked.isoformat()
+                    if self.emergency_stop_last_checked else None
+                ),
+            },
             "symbols": self.symbols,
             "symbols_count": len(self.symbols),
             "interval": self.interval,

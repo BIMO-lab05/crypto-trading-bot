@@ -1,26 +1,26 @@
 /**
- * usePerformanceMetrics.js - Real-Time Performance Metrics Hook
+ * usePerformanceMetrics.js - Performance Metrics Hook (REST polling)
  *
- * Purpose: Custom React hook providing real-time performance metrics data
- * with WebSocket support for live updates and REST API fallback.
+ * Provides performance metrics, equity curve, drawdown series, returns
+ * distribution, and trade statistics via REST polling against the
+ * trading-engine analytics endpoints.
  *
- * Features:
- * - Real-time metrics via WebSocket
- * - REST API polling fallback
- * - Computed metrics from trade history
- * - Caching and data persistence
- * - Connection state management
+ * The hook used to support a WebSocket path against `/ws/metrics`, but
+ * the gateway never had that endpoint implemented (only `/ws` exists)
+ * — every connection failed silently and fell through to REST polling
+ * anyway. The WebSocket scaffolding was stripped 2026-04-29 (audit
+ * follow-up); if/when a server-side metrics push is added, reintroduce
+ * a WebSocket layer deliberately rather than reviving this dead path.
  *
  * Author: Frontend Developer Agent
- * Date: 2025-12-11
+ * Date: 2025-12-11 (WebSocket scaffolding removed 2026-04-29)
  * Phase: 5.3 - Real-Time Performance Dashboard
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   analyticsAPI,
-  WebSocketManager,
   calculateEquityCurve,
   calculateDrawdownSeries,
   calculateReturnsDistribution,
@@ -43,23 +43,14 @@ import {
  *
  * @param {Object} options - Hook options
  * @param {string} options.period - Time period ('1d', '7d', '30d', '90d', 'all')
- * @param {boolean} options.enableWebSocket - Enable WebSocket for real-time updates
  * @param {number} options.pollingInterval - REST API polling interval in ms
  * @returns {Object} Performance metrics data and status
  */
 export function usePerformanceMetrics(options = {}) {
   const {
     period = '30d',
-    enableWebSocket = false, // WebSocket disabled by default until backend support
     pollingInterval = 30000, // 30 second polling
   } = options
-
-  // Query client for cache management
-  const queryClient = useQueryClient()
-
-  // WebSocket connection state
-  const [wsConnected, setWsConnected] = useState(false)
-  const wsManagerRef = useRef(null)
 
   // ============================================================================
   // REST API QUERIES
@@ -109,66 +100,6 @@ export function usePerformanceMetrics(options = {}) {
     staleTime: pollingInterval - 5000,
     retry: 2,
   })
-
-  // ============================================================================
-  // WEBSOCKET CONNECTION (when enabled and backend supports it)
-  // ============================================================================
-
-  useEffect(() => {
-    if (!enableWebSocket) return
-
-    // Create WebSocket manager
-    const wsManager = new WebSocketManager({
-      url: `ws://${window.location.host}/ws/metrics`,
-      maxReconnectAttempts: 5,
-      reconnectDelay: 1000,
-    })
-
-    wsManagerRef.current = wsManager
-
-    // Set up event handlers
-    wsManager.on('connected', () => {
-      console.log('[usePerformanceMetrics] WebSocket connected')
-      setWsConnected(true)
-      wsManager.subscribe('metrics')
-      wsManager.subscribe('equity')
-    })
-
-    wsManager.on('disconnected', () => {
-      console.log('[usePerformanceMetrics] WebSocket disconnected')
-      setWsConnected(false)
-    })
-
-    wsManager.on('metrics', (data) => {
-      // Update performance summary cache with real-time data
-      queryClient.setQueryData(['analytics', 'performance', period], (old) => ({
-        ...old,
-        ...data,
-      }))
-    })
-
-    wsManager.on('equity', (data) => {
-      // Update trade history cache with new trade
-      queryClient.setQueryData(['analytics', 'trades', period], (old) => {
-        if (!old?.trades) return old
-        return {
-          ...old,
-          trades: [...old.trades, data],
-        }
-      })
-    })
-
-    // Connect to WebSocket
-    wsManager.connect().catch((error) => {
-      console.warn('[usePerformanceMetrics] WebSocket connection failed, using REST polling')
-    })
-
-    // Cleanup on unmount
-    return () => {
-      wsManager.disconnect()
-      wsManagerRef.current = null
-    }
-  }, [enableWebSocket, period, queryClient])
 
   // ============================================================================
   // COMPUTED DATA FROM TRADE HISTORY
@@ -271,9 +202,11 @@ export function usePerformanceMetrics(options = {}) {
     isError: summaryError || historyError || portfolioError,
     error: summaryErrorDetails || historyErrorDetails,
 
-    // Connection status
-    wsConnected,
-    dataSource: wsConnected ? 'websocket' : 'rest',
+    // Connection status. WebSocket support was removed when the
+    // server-side `/ws/metrics` route turned out to never have been
+    // implemented; this hook is now REST-polling only. Field kept for
+    // back-compat with the dashboard's <ConnectionStatus> indicator.
+    dataSource: 'rest',
 
     // Core metrics
     metrics,

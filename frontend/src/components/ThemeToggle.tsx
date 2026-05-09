@@ -384,11 +384,17 @@ export const ThemeSelector: React.FC<{
   const { theme, setTheme, useSystemTheme } = useTheme();
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div
+      role="group"
+      aria-label="Theme selection"
+      className={`flex items-center gap-2 ${className}`}
+    >
       {/* Dark Mode Button */}
       <button
         type="button"
         onClick={() => setTheme('dark')}
+        aria-pressed={theme === 'dark'}
+        aria-label="Dark theme"
         className={`
           flex items-center gap-2 px-3 py-2 rounded-lg
           transition-all duration-200
@@ -406,6 +412,8 @@ export const ThemeSelector: React.FC<{
       <button
         type="button"
         onClick={() => setTheme('light')}
+        aria-pressed={theme === 'light'}
+        aria-label="Light theme"
         className={`
           flex items-center gap-2 px-3 py-2 rounded-lg
           transition-all duration-200
@@ -423,6 +431,7 @@ export const ThemeSelector: React.FC<{
       <button
         type="button"
         onClick={useSystemTheme}
+        aria-label="Use system theme"
         className={`
           flex items-center gap-2 px-3 py-2 rounded-lg
           transition-all duration-200

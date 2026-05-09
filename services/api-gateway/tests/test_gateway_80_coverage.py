@@ -5,29 +5,20 @@ This test suite focuses on gaps in coverage and edge cases
 """
 
 import pytest
-import asyncio
-import json
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from fastapi.testclient import TestClient
-from fastapi.responses import JSONResponse
-from datetime import datetime, timedelta
+from unittest.mock import Mock, AsyncMock, patch
 import httpx
 
 from app.main import (
     app,
-    get_proxy,
     WebSocketManager,
-    websocket_manager,
-    service_proxy,
 )
 from app.services.service_proxy import ServiceProxy
-from app.config import settings
-from app.auth_models import User
 
 
 # ============================================================================
 # TEST SUITE 1: Route Forwarding & Service Proxy Tests
 # ============================================================================
+
 
 class TestRouteForwarding:
     """Test request routing to various backend services"""
@@ -36,7 +27,11 @@ class TestRouteForwarding:
         """Test that portfolio routes work correctly"""
         response = test_client.get("/api/portfolio?portfolio_id=default")
         # Route should exist and forward request
-        assert response.status_code in [200, 500, 503]  # May be 503 if service not running
+        assert response.status_code in [
+            200,
+            500,
+            503,
+        ]  # May be 503 if service not running
 
     def test_holdings_route_exists(self, test_client):
         """Test holdings endpoint exists and is accessible"""
@@ -58,11 +53,7 @@ class TestRouteForwarding:
         """Test buy asset endpoint exists"""
         response = test_client.post(
             "/api/portfolio/buy",
-            params={
-                "symbol": "BTCUSDT",
-                "quantity": "0.5",
-                "price": "50000.00"
-            }
+            params={"symbol": "BTCUSDT", "quantity": "0.5", "price": "50000.00"},
         )
         assert response.status_code in [200, 500, 503]
 
@@ -70,11 +61,7 @@ class TestRouteForwarding:
         """Test sell asset endpoint exists"""
         response = test_client.post(
             "/api/portfolio/sell",
-            params={
-                "symbol": "ETHUSDT",
-                "quantity": "1.0",
-                "price": "3000.00"
-            }
+            params={"symbol": "ETHUSDT", "quantity": "1.0", "price": "3000.00"},
         )
         assert response.status_code in [200, 500, 503]
 
@@ -90,8 +77,7 @@ class TestRiskMetricsRouting:
     def test_var_endpoint_with_parameters(self, test_client):
         """Test Value at Risk endpoint with custom parameters"""
         response = test_client.get(
-            "/api/risk/var",
-            params={"confidence_level": 0.99, "time_horizon_days": 5}
+            "/api/risk/var", params={"confidence_level": 0.99, "time_horizon_days": 5}
         )
         assert response.status_code in [200, 500, 503]
 
@@ -119,6 +105,7 @@ class TestRiskMetricsRouting:
 # ============================================================================
 # TEST SUITE 2: Authentication & Authorization Tests
 # ============================================================================
+
 
 class TestServiceProxyEdgeCases:
     """Test service proxy error handling and edge cases"""
@@ -172,6 +159,7 @@ class TestServiceProxyMethods:
 # ============================================================================
 # TEST SUITE 4: WebSocket Manager & Broadcast Tests
 # ============================================================================
+
 
 class TestWebSocketBroadcasting:
     """Test WebSocket broadcasting functionality"""
@@ -270,22 +258,24 @@ class TestWebSocketLifecycle:
 # TEST SUITE 5: Error Handling & Edge Cases
 # ============================================================================
 
+
 class TestErrorHandling:
     """Test error handling across gateway"""
 
-    def test_emergency_stop_endpoint(self, test_client):
-        """Test emergency stop endpoint creates flag file"""
-        with patch("builtins.open", create=True) as mock_open:
-            response = test_client.post("/api/portfolio/emergency-stop")
+    def test_emergency_stop_endpoint(self, admin_client):
+        """Route writes the EMERGENCY_STOP file (mocked) and returns 200."""
+        with patch("pathlib.Path.write_text") as mock_write:
+            response = admin_client.post("/api/portfolio/emergency-stop")
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
             assert "Emergency stop" in data["message"]
+            mock_write.assert_called_once()
 
-    def test_emergency_stop_file_write_error(self, test_client):
-        """Test emergency stop handles file write errors"""
-        with patch("builtins.open", side_effect=IOError("Permission denied")):
-            response = test_client.post("/api/portfolio/emergency-stop")
+    def test_emergency_stop_file_write_error(self, admin_client):
+        """Route returns 500 when the file write fails with OSError."""
+        with patch("pathlib.Path.write_text", side_effect=OSError("Permission denied")):
+            response = admin_client.post("/api/portfolio/emergency-stop")
             assert response.status_code == 500
 
     def test_cors_headers_present(self, test_client):
@@ -299,6 +289,7 @@ class TestErrorHandling:
 # ============================================================================
 # TEST SUITE 6: Request/Response Transformation
 # ============================================================================
+
 
 class TestRequestResponseTransformation:
     """Test request and response transformations"""
@@ -336,6 +327,7 @@ class TestAnalysisEndpointTransformation:
 # ============================================================================
 # TEST SUITE 7: Advanced Signal Endpoints
 # ============================================================================
+
 
 class TestAdvancedSignalGeneration:
     """Test enhanced and ML-based trading signals"""
@@ -409,6 +401,7 @@ class TestMLPredictionEndpoints:
 # TEST SUITE 8: Sentiment Analysis Endpoints
 # ============================================================================
 
+
 class TestSentimentAnalysisEndpoints:
     """Test sentiment analysis endpoints"""
 
@@ -428,9 +421,12 @@ class TestSentimentAnalysisEndpoints:
         assert response.status_code in [200, 500, 503]
 
     def test_sentiment_trend_endpoint_exists(self, test_client):
-        """Test sentiment trend endpoint exists"""
+        """Test sentiment trend endpoint is routed (currently proxies a 501)."""
         response = test_client.get("/api/sentiment/trend/BTCUSDT")
-        assert response.status_code in [200, 500, 503]
+        # Upstream returns 501 (not yet implemented); 503 if sentiment
+        # service is down; 5xx if proxy errors. 200 only resurfaces if a
+        # real implementation is added.
+        assert response.status_code in [200, 500, 501, 503]
 
     def test_sentiment_backward_compat_endpoint(self, test_client):
         """Test backward compatibility sentiment endpoint"""
@@ -438,14 +434,15 @@ class TestSentimentAnalysisEndpoints:
         assert response.status_code in [200, 500, 503]
 
     def test_sentiment_aggregate_endpoint(self, test_client):
-        """Test aggregated sentiment endpoint"""
+        """Test aggregated sentiment endpoint is routed (currently proxies a 501)."""
         response = test_client.get("/api/sentiment/aggregate")
-        assert response.status_code in [200, 500, 503]
+        assert response.status_code in [200, 500, 501, 503]
 
 
 # ============================================================================
 # TEST SUITE 9: Multi-Timeframe Analysis
 # ============================================================================
+
 
 class TestMultiTimeframeAnalysis:
     """Test multi-timeframe analysis endpoints"""
@@ -465,6 +462,7 @@ class TestMultiTimeframeAnalysis:
 # TEST SUITE 10: Aggregation & Dashboard Endpoints
 # ============================================================================
 
+
 class TestAggregationEndpoints:
     """Test multi-service aggregation endpoints"""
 
@@ -477,6 +475,7 @@ class TestAggregationEndpoints:
 # ============================================================================
 # TEST SUITE 11: Health Check & Status Monitoring
 # ============================================================================
+
 
 class TestHealthAndMonitoring:
     """Test health check and monitoring endpoints"""
@@ -495,6 +494,7 @@ class TestHealthAndMonitoring:
 # ============================================================================
 # TEST SUITE 12: Configuration & Settings
 # ============================================================================
+
 
 class TestGatewayConfiguration:
     """Test API Gateway configuration"""
@@ -532,6 +532,7 @@ class TestGatewayConfiguration:
 # TEST SUITE 13: Concurrent & Parallel Request Handling
 # ============================================================================
 
+
 class TestConcurrentHandling:
     """Test concurrent request handling"""
 
@@ -551,6 +552,7 @@ class TestConcurrentHandling:
 # TEST SUITE 14: Performance Metrics Endpoints
 # ============================================================================
 
+
 class TestPerformanceMetrics:
     """Test performance metrics endpoints"""
 
@@ -568,6 +570,7 @@ class TestPerformanceMetrics:
 # ============================================================================
 # TEST SUITE 15: Service Health Monitoring
 # ============================================================================
+
 
 class TestServiceHealthMonitoring:
     """Test individual service health monitoring"""
@@ -609,6 +612,7 @@ class TestServiceHealthMonitoring:
 # ============================================================================
 # TEST SUITE 16: WebSocket Endpoint
 # ============================================================================
+
 
 class TestWebSocketEndpoint:
     """Test WebSocket endpoint"""

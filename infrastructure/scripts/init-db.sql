@@ -1,67 +1,34 @@
 -- PostgreSQL initialization script for Crypto Trading Bot
--- Creates initial database schema and tables
+--
+-- Canonical schema layout (audit 2026-04-27):
+--   public.*    — transactional state (portfolios, positions, trades, ...)
+--                 Created by infrastructure/migrations/001_initial_schema.sql.
+--   portfolio.* — analytics-only. portfolio.performance_history is the only
+--                 table here, created by infrastructure/migrations/002_performance_history.sql.
+--   audit.*     — compliance/event audit log. Defined below.
+--
+-- This script is responsible only for the audit schema, the `portfolio` schema
+-- container, the shared trigger function, and required extensions. Application
+-- tables live in the migrations files above so a fresh DB run looks like:
+--   1) docker-entrypoint runs init-db.sql (this file)
+--   2) operator runs 001_initial_schema.sql + 002_performance_history.sql
+--
+-- Earlier versions of this file ALSO created `trading_engine.*` and
+-- `portfolio.{balances,positions}` tables that conflicted with the canonical
+-- public.* tables. Those orphans were dropped 2026-04-27 after an audit found
+-- zero code consumers — see git log for details.
 
--- Create extensions
+-- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Create schemas for different services
-CREATE SCHEMA IF NOT EXISTS trading_engine;
+-- Container schemas. `public` exists by default. `trading_engine` is gone.
 CREATE SCHEMA IF NOT EXISTS portfolio;
 CREATE SCHEMA IF NOT EXISTS audit;
 
--- Trading Engine Tables
-CREATE TABLE IF NOT EXISTS trading_engine.strategies (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL UNIQUE,
-    description TEXT,
-    parameters JSONB,
-    is_active BOOLEAN DEFAULT false,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS trading_engine.trades (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    strategy_id UUID REFERENCES trading_engine.strategies(id),
-    symbol VARCHAR(20) NOT NULL,
-    side VARCHAR(10) NOT NULL CHECK (side IN ('BUY', 'SELL')),
-    order_type VARCHAR(20) NOT NULL,
-    quantity DECIMAL(20, 8) NOT NULL,
-    price DECIMAL(20, 8),
-    status VARCHAR(20) DEFAULT 'PENDING',
-    order_id VARCHAR(100),
-    executed_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Portfolio Tables
-CREATE TABLE IF NOT EXISTS portfolio.balances (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    asset VARCHAR(20) NOT NULL,
-    free_balance DECIMAL(20, 8) DEFAULT 0,
-    locked_balance DECIMAL(20, 8) DEFAULT 0,
-    total_balance DECIMAL(20, 8) GENERATED ALWAYS AS (free_balance + locked_balance) STORED,
-    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(asset)
-);
-
-CREATE TABLE IF NOT EXISTS portfolio.positions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    symbol VARCHAR(20) NOT NULL,
-    side VARCHAR(10) NOT NULL CHECK (side IN ('LONG', 'SHORT')),
-    quantity DECIMAL(20, 8) NOT NULL,
-    entry_price DECIMAL(20, 8) NOT NULL,
-    current_price DECIMAL(20, 8),
-    unrealized_pnl DECIMAL(20, 8),
-    realized_pnl DECIMAL(20, 8) DEFAULT 0,
-    opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    closed_at TIMESTAMP,
-    status VARCHAR(20) DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
-    UNIQUE(symbol, status) WHERE status = 'OPEN'
-);
-
--- Audit Tables (for compliance and tracking)
+-- ----------------------------------------------------------------------------
+-- Audit tables (consumed by application code via raw inserts; not in any ORM)
+-- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS audit.api_calls (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     service_name VARCHAR(50) NOT NULL,
@@ -82,39 +49,18 @@ CREATE TABLE IF NOT EXISTS audit.system_events (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create indexes for performance
-CREATE INDEX idx_trades_symbol ON trading_engine.trades(symbol);
-CREATE INDEX idx_trades_created_at ON trading_engine.trades(created_at DESC);
-CREATE INDEX idx_trades_status ON trading_engine.trades(status);
-CREATE INDEX idx_positions_symbol ON portfolio.positions(symbol);
-CREATE INDEX idx_positions_status ON portfolio.positions(status);
-CREATE INDEX idx_api_calls_created_at ON audit.api_calls(created_at DESC);
-CREATE INDEX idx_system_events_created_at ON audit.system_events(created_at DESC);
-CREATE INDEX idx_system_events_severity ON audit.system_events(severity);
+CREATE INDEX IF NOT EXISTS idx_api_calls_created_at ON audit.api_calls(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_events_created_at ON audit.system_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_events_severity ON audit.system_events(severity);
 
--- Create updated_at trigger function
+-- ----------------------------------------------------------------------------
+-- Shared utility: updated_at autoupdate trigger function
+-- (Used by 001_initial_schema.sql attaching to public.portfolios etc.)
+-- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$ language 'plpgsql';
-
--- Apply trigger to strategies table
-CREATE TRIGGER update_strategies_updated_at
-    BEFORE UPDATE ON trading_engine.strategies
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-
--- Insert default data
-INSERT INTO trading_engine.strategies (name, description, parameters, is_active)
-VALUES
-    ('Simple Moving Average', 'Basic SMA crossover strategy', '{"short_period": 10, "long_period": 50}', false),
-    ('RSI Oversold/Overbought', 'Trade on RSI extreme values', '{"rsi_period": 14, "oversold": 30, "overbought": 70}', false)
-ON CONFLICT (name) DO NOTHING;
-
--- Grant permissions (adjust as needed)
--- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA trading_engine TO cryptobot;
--- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA portfolio TO cryptobot;
--- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA audit TO cryptobot;
+$$ LANGUAGE plpgsql;

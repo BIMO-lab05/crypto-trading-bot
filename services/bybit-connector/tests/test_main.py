@@ -542,6 +542,64 @@ class TestMarketDataEndpoints:
             limit=50
         )
 
+    def test_get_funding_rate_history_endpoint(self, client, mock_rest_client):
+        """Test GET /api/v1/market/funding-rate/history"""
+        mock_rest_client.get_funding_rate_history = AsyncMock(return_value=[
+            {"symbol": "SOLUSDT", "fundingRate": "0.00010000",
+             "fundingRateTimestamp": "1672041600000"},
+        ])
+
+        response = client.get(
+            "/api/v1/market/funding-rate/history?symbol=SOLUSDT&limit=50"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["success"] is True
+        assert len(body["data"]) == 1
+        mock_rest_client.get_funding_rate_history.assert_called_once_with(
+            category="linear",
+            symbol="SOLUSDT",
+            start_time=None,
+            end_time=None,
+            limit=50,
+        )
+
+    def test_get_funding_rate_history_endpoint_rejects_spot(self, client, mock_rest_client):
+        """Spot has no funding — handler should surface a 400, not propagate."""
+        async def raises(*_args, **_kwargs):
+            raise ValueError("funding-rate history is perp-only; category='spot' unsupported")
+
+        mock_rest_client.get_funding_rate_history = AsyncMock(side_effect=raises)
+
+        response = client.get(
+            "/api/v1/market/funding-rate/history?symbol=SOLUSDT&category=spot"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "perp-only" in response.json()["detail"]
+
+    def test_get_instruments_info_endpoint(self, client, mock_rest_client):
+        """Test GET /api/v1/market/instruments-info"""
+        mock_rest_client.get_instruments_info = AsyncMock(return_value=[
+            {"symbol": "SOLUSDT", "fundingInterval": "480",
+             "priceFilter": {"tickSize": "0.001"},
+             "lotSizeFilter": {"minOrderQty": "0.1"}}
+        ])
+
+        response = client.get(
+            "/api/v1/market/instruments-info?category=linear&symbol=SOLUSDT"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["success"] is True
+        assert body["data"][0]["fundingInterval"] == "480"
+        mock_rest_client.get_instruments_info.assert_called_once_with(
+            category="linear",
+            symbol="SOLUSDT",
+        )
+
 
 # ============================================================================
 # MONITORING ENDPOINT TESTS

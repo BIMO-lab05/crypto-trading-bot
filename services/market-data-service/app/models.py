@@ -3,7 +3,7 @@ Market Data Service - Database Models
 Purpose: SQLAlchemy models for TimescaleDB
 """
 
-from sqlalchemy import Column, String, Numeric, BigInteger, Index, text
+from sqlalchemy import Boolean, Column, String, Numeric, BigInteger, Index, text
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 from typing import Optional
@@ -33,16 +33,32 @@ class Kline(Base):
     volume = Column(Numeric(20, 8), nullable=False, comment="Trading volume")
     turnover = Column(Numeric(30, 8), nullable=True, comment="Trading turnover (volume * price)")
     
+    # Source flag: True for Bybit mainnet, False for testnet. Added
+    # 2026-04-29 (audit finding) — earlier the table mixed both, and the
+    # 2026-04-25 mid-day flip contaminated backtest history. Default True
+    # (`server_default='true'`) so existing rows get the conservative
+    # value during the ALTER TABLE migration. Operators who had testnet
+    # data before the flip should still wipe (see CLAUDE.md gotcha) — the
+    # default-True can't tell apart pre-flip rows by itself.
+    is_mainnet = Column(
+        Boolean,
+        nullable=False,
+        server_default=text("true"),
+        default=True,
+        comment="True for Bybit mainnet rows, False for testnet"
+    )
+
     # Metadata
     created_at = Column(BigInteger, nullable=False, comment="Record creation timestamp")
-    
+
     # Indexes for efficient querying
     __table_args__ = (
         Index('idx_klines_symbol_interval_time', 'symbol', 'interval', 'timestamp'),
         Index('idx_klines_time', 'timestamp'),
+        Index('idx_klines_mainnet', 'is_mainnet'),
         {'comment': 'Candlestick/Kline OHLCV data'}
     )
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary"""
         return {
@@ -55,6 +71,11 @@ class Kline(Base):
             'close': float(self.close),
             'volume': float(self.volume),
             'turnover': float(self.turnover) if self.turnover else None,
+            # `default=True` on the Column applies at INSERT only — an
+            # un-flushed Kline() instance keeps the attribute as None.
+            # Fall back to True (server default) so to_dict() output is
+            # consistent regardless of persistence state.
+            'is_mainnet': bool(self.is_mainnet) if self.is_mainnet is not None else True,
             'created_at': self.created_at
         }
 

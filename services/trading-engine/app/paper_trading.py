@@ -7,9 +7,14 @@ Enhanced: Database persistence for trades and positions
 import logging
 from decimal import Decimal
 from typing import Optional
-from uuid import UUID
 from app.config import get_settings
-from app.models import Order, OrderCreate, OrderStatus, OrderSide, OrderType, PositionSide
+from app.models import (
+    Order,
+    OrderCreate,
+    OrderStatus,
+    OrderSide,
+    PositionSide,
+)
 from app.position_manager import get_position_manager
 from app.risk_manager import get_risk_manager
 from app.repositories import get_trade_repository, get_portfolio_repository
@@ -33,7 +38,9 @@ class PaperTradingEngine:
         """Initialize paper trading engine with database persistence"""
         self.settings = get_settings()
         self.initial_balance = Decimal(str(self.settings.paper_initial_balance))
-        self.balance = self.initial_balance  # Will be adjusted in sync_balance_with_positions
+        self.balance = (
+            self.initial_balance
+        )  # Will be adjusted in sync_balance_with_positions
         self.commission_pct = Decimal(str(self.settings.paper_commission_pct / 100))
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
@@ -45,7 +52,7 @@ class PaperTradingEngine:
         logger.info("Paper Trading Engine initialized")
         logger.info(f"  Initial balance: ${self.initial_balance}")
         logger.info(f"  Commission: {self.settings.paper_commission_pct}%")
-        logger.info(f"  Database persistence: ENABLED")
+        logger.info("  Database persistence: ENABLED")
 
     def sync_balance_with_positions(self):
         """
@@ -58,7 +65,7 @@ class PaperTradingEngine:
             return
 
         # Calculate total cost of open positions (entry price * quantity + commission)
-        total_position_cost = Decimal('0')
+        total_position_cost = Decimal("0")
         for pos in open_positions:
             position_value = pos.entry_price * pos.quantity
             commission = position_value * self.commission_pct
@@ -75,6 +82,10 @@ class PaperTradingEngine:
         """Get current account balance"""
         return self.balance
 
+    def get_initial_balance(self) -> Decimal:
+        """Starting equity used to compute returns / drawdown."""
+        return self.initial_balance
+
     def get_total_equity(self) -> Decimal:
         """
         Get total equity (balance + unrealized P&L)
@@ -87,9 +98,7 @@ class PaperTradingEngine:
         return order_value * self.commission_pct
 
     async def execute_market_order(
-        self,
-        order: OrderCreate,
-        current_price: Decimal
+        self, order: OrderCreate, current_price: Decimal
     ) -> tuple[Order, Optional[str]]:
         """
         Execute a market order (paper trading simulation)
@@ -101,7 +110,9 @@ class PaperTradingEngine:
         Returns:
             Tuple of (executed_order, error_message)
         """
-        logger.info(f"Executing paper market order: {order.side.value} {order.quantity} {order.symbol} @ {current_price}")
+        logger.info(
+            f"Executing paper market order: {order.side.value} {order.quantity} {order.symbol} @ {current_price}"
+        )
 
         # Calculate order value
         order_value = current_price * order.quantity
@@ -115,14 +126,15 @@ class PaperTradingEngine:
             status=OrderStatus.FILLED,
             filled_price=current_price,
             filled_quantity=order.quantity,
-            bybit_order_id=f"PAPER_{order.symbol}_{order.side.value}"
+            bybit_order_id=f"PAPER_{order.symbol}_{order.side.value}",
         )
 
         # Handle BUY order
         if order.side == OrderSide.BUY:
             # Check if we have an open SHORT position to close (2025-12-03)
             open_short_positions = [
-                pos for pos in self.position_manager.get_open_positions()
+                pos
+                for pos in self.position_manager.get_open_positions()
                 if pos.symbol == order.symbol and pos.side == PositionSide.SHORT
             ]
 
@@ -130,9 +142,7 @@ class PaperTradingEngine:
                 # Close SHORT position
                 position = open_short_positions[0]
                 closed_position = self.position_manager.close_position(
-                    position.id,
-                    current_price,
-                    reason="Market buy order (SHORT close)"
+                    position.id, current_price, reason="Market buy order (SHORT close)"
                 )
 
                 # Add proceeds to balance
@@ -156,14 +166,18 @@ class PaperTradingEngine:
 
             # Check if sufficient balance
             if total_cost > self.balance:
-                error_msg = f"Insufficient balance: need ${total_cost}, have ${self.balance}"
+                error_msg = (
+                    f"Insufficient balance: need ${total_cost}, have ${self.balance}"
+                )
                 logger.warning(error_msg)
                 executed_order.status = OrderStatus.FAILED
                 return executed_order, error_msg
 
             # Deduct margin requirement from balance
             self.balance -= total_cost
-            logger.debug(f"LONG margin calculation: order_value=${order_value}, leverage={leverage}x, margin=${margin_required}, commission=${commission}")
+            logger.debug(
+                f"LONG margin calculation: order_value=${order_value}, leverage={leverage}x, margin=${margin_required}, commission=${commission}"
+            )
 
             # Create LONG position
             position = self.position_manager.create_position(
@@ -173,7 +187,7 @@ class PaperTradingEngine:
                 quantity=order.quantity,
                 strategy=order.strategy,
                 # CRITICAL FIX 2025-12-07: Save entry signal confidence
-                entry_signal_confidence=order.entry_signal_confidence
+                entry_signal_confidence=order.entry_signal_confidence,
             )
 
             executed_order.position_id = position.id
@@ -186,6 +200,7 @@ class PaperTradingEngine:
 
             # Log trade to database (async, non-blocking)
             import asyncio
+
             try:
                 asyncio.create_task(
                     self.trade_repo.log_trade(
@@ -195,7 +210,7 @@ class PaperTradingEngine:
                         side="BUY",
                         quantity=order.quantity,
                         price=current_price,
-                        commission=commission
+                        commission=commission,
                     )
                 )
             except Exception as e:
@@ -205,20 +220,25 @@ class PaperTradingEngine:
         elif order.side == OrderSide.SELL:
             # Check if we have an open LONG position to close
             open_long_positions = [
-                pos for pos in self.position_manager.get_open_positions()
+                pos
+                for pos in self.position_manager.get_open_positions()
                 if pos.symbol == order.symbol and pos.side == PositionSide.LONG
             ]
 
             if not open_long_positions:
                 # No LONG position - open a SHORT position instead (2025-12-03)
-                logger.info(f"No LONG position for {order.symbol}, opening SHORT position")
+                logger.info(
+                    f"No LONG position for {order.symbol}, opening SHORT position"
+                )
 
                 # Deduct margin requirement from balance (2025-12-18 FIX)
                 # For leveraged SHORT positions, only deduct margin (position_value / leverage) not full value
                 leverage = Decimal(str(self.settings.default_leverage))
                 margin_required = order_value / leverage
                 self.balance -= margin_required + commission
-                logger.debug(f"SHORT margin calculation: order_value=${order_value}, leverage={leverage}x, margin=${margin_required}, commission=${commission}")
+                logger.debug(
+                    f"SHORT margin calculation: order_value=${order_value}, leverage={leverage}x, margin=${margin_required}, commission=${commission}"
+                )
 
                 # Open SHORT position (same as LONG but with SHORT side)
                 position = self.position_manager.create_position(
@@ -228,7 +248,7 @@ class PaperTradingEngine:
                     quantity=order.quantity,
                     strategy="research_optimized",
                     # CRITICAL FIX 2025-12-07: Save entry signal confidence
-                    entry_signal_confidence=order.entry_signal_confidence
+                    entry_signal_confidence=order.entry_signal_confidence,
                 )
 
                 executed_order.position_id = position.id
@@ -244,9 +264,7 @@ class PaperTradingEngine:
             # Close the LONG position
             position = open_long_positions[0]
             closed_position = self.position_manager.close_position(
-                position.id,
-                current_price,
-                reason="Market sell order"
+                position.id, current_price, reason="Market sell order"
             )
 
             # Add proceeds to balance (minus commission)
@@ -264,6 +282,7 @@ class PaperTradingEngine:
 
             # Log trade to database (async, non-blocking)
             import asyncio
+
             try:
                 asyncio.create_task(
                     self.trade_repo.log_trade(
@@ -273,7 +292,7 @@ class PaperTradingEngine:
                         side="SELL",
                         quantity=order.quantity,
                         price=current_price,
-                        commission=commission
+                        commission=commission,
                     )
                 )
             except Exception as e:
@@ -281,7 +300,9 @@ class PaperTradingEngine:
 
         return executed_order, None
 
-    def can_open_position(self, symbol: str, quantity: Decimal, price: Decimal) -> tuple[bool, Optional[str]]:
+    def can_open_position(
+        self, symbol: str, quantity: Decimal, price: Decimal
+    ) -> tuple[bool, Optional[str]]:
         """
         Check if we can open a new position
 
@@ -300,13 +321,15 @@ class PaperTradingEngine:
 
         # Check balance
         if total_cost > self.balance:
-            return False, f"Insufficient balance: need ${total_cost}, have ${self.balance}"
+            return (
+                False,
+                f"Insufficient balance: need ${total_cost}, have ${self.balance}",
+            )
 
         # Check position limits
         open_positions = self.position_manager.get_open_positions()
         can_open, reason = self.risk_manager.check_position_limits(
-            open_positions,
-            self.get_total_equity()
+            open_positions, self.get_total_equity()
         )
 
         if not can_open:
@@ -322,7 +345,9 @@ class PaperTradingEngine:
         # Total equity = cash balance + unrealized PnL
         total_equity = self.balance + unrealized_pnl
         total_pnl = total_equity - self.initial_balance
-        roi = (total_pnl / self.initial_balance * 100) if self.initial_balance > 0 else 0
+        roi = (
+            (total_pnl / self.initial_balance * 100) if self.initial_balance > 0 else 0
+        )
 
         # Calculate realized PnL from closed positions
         closed_positions = self.position_manager.get_closed_positions()
@@ -335,8 +360,7 @@ class PaperTradingEngine:
         # Get open positions for exposure calculation
         open_positions = self.position_manager.get_open_positions()
         total_exposure = sum(
-            float(pos.entry_price * pos.quantity)
-            for pos in open_positions
+            float(pos.entry_price * pos.quantity) for pos in open_positions
         )
 
         return {
@@ -352,7 +376,7 @@ class PaperTradingEngine:
             "winning_trades": winning_trades,
             "losing_trades": losing_trades,
             "win_rate": round(win_rate, 2),
-            "open_positions": len(open_positions)
+            "open_positions": len(open_positions),
         }
 
 

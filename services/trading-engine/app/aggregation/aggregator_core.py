@@ -259,6 +259,12 @@ class CoreAggregator:
                 voting_indicators, action, self.min_category_consensus
             )
 
+        # Final defence: re-validate confidence right before the gate so any
+        # gatekeeper/validator/regime-detector that returned a bad value (NaN,
+        # negative, > 1) cannot silently bypass the threshold check below.
+        from app.aggregation.confidence_guard import validate_confidence
+        confidence = validate_confidence(confidence, source="aggregator_core.gate")
+
         meets_requirements = (
             consensus_count >= self.min_consensus and
             confidence >= self.min_confidence and
@@ -380,7 +386,18 @@ class CoreAggregator:
         error_message: str
     ) -> TradingSignal:
         """
-        Build error signal when aggregation cannot proceed
+        Build a failure-sentinel TradingSignal when aggregation cannot proceed.
+
+        IMPORTANT for downstream consumers: the returned signal has
+        ``confidence=0.0`` and ``action=HOLD``, which is INDISTINGUISHABLE
+        from a low-conviction-but-real signal if you only inspect those
+        two fields. Audit-flagged 2026-04-28: confidence=0.0 was a silent
+        sentinel emitted as a regular signal payload.
+
+        To disambiguate, check ``metadata["is_failure_sentinel"]`` (True
+        only here and at any other failure-emit site) before treating
+        confidence=0.0 as actionable. The legacy ``metadata["error"]``
+        key is retained for back-compat with tests and old consumers.
 
         Args:
             symbol: Trading symbol
@@ -388,7 +405,8 @@ class CoreAggregator:
             error_message: Error description
 
         Returns:
-            TradingSignal with HOLD action and error metadata
+            TradingSignal with HOLD action, confidence=0.0, and
+            ``metadata["is_failure_sentinel"]=True``.
         """
         logger.error(f"Error signal: {error_message}")
         return TradingSignal(
@@ -399,7 +417,10 @@ class CoreAggregator:
             indicators={},
             aggregated_score=0.0,
             consensus_count=0,
-            metadata={"error": error_message}
+            metadata={
+                "error": error_message,
+                "is_failure_sentinel": True,
+            },
         )
 
     def _build_rejection_reasons(

@@ -40,34 +40,44 @@
   }
 
   .dark {
-    /* Premium dark mode - Deep space theme */
-    --color-bg-primary: #0a0f1a;
-    --color-bg-secondary: #111827;
-    --color-bg-tertiary: #1f2937;
-    --color-text-primary: #f1f5f9;
-    --color-text-secondary: #9ca3af;
-    --color-text-muted: #6b7280;
-    --color-border: #374151;
+    /* Editorial Trading Floor - warm off-black palette */
+    /* Page bg / surfaces */
+    --color-bg-primary: #0a0a0b;       /* warm off-black */
+    --color-bg-secondary: #121215;     /* elevated surface */
+    --color-bg-tertiary: #18181c;      /* card surface */
+    --color-bg-quaternary: #1f1f24;    /* secondary surface */
 
-    /* Neon accent colors */
-    --color-accent: #06b6d4;
-    --color-accent-glow: rgba(6, 182, 212, 0.4);
-    --color-success: #10b981;
-    --color-success-glow: rgba(16, 185, 129, 0.4);
-    --color-danger: #f43f5e;
-    --color-danger-glow: rgba(244, 63, 94, 0.4);
-    --color-warning: #f59e0b;
-    --color-warning-glow: rgba(245, 158, 11, 0.4);
+    /* Text */
+    --color-text-primary: #f5f3ee;     /* warm white */
+    --color-text-secondary: #a09e98;   /* secondary text (~7:1 on bg) */
+    --color-text-muted: #8a8982;       /* tertiary text (~5.5:1 on bg) */
+    --color-text-decoration: #3d3c38;  /* decoration only */
 
-    /* Gradient colors */
-    --gradient-start: #0a0f1a;
-    --gradient-mid: #111827;
-    --gradient-end: #0f172a;
+    /* Borders */
+    --color-border: #2a2a32;
+    --color-border-strong: #3a3a44;
+
+    /* Accents - viridian / rose / gold (no cyan, no electric blue) */
+    --color-accent: #5eead4;           /* viridian teal */
+    --color-accent-soft: rgba(94, 234, 212, 0.12);
+    --color-accent-glow: rgba(94, 234, 212, 0.25);
+    --color-success: #5eead4;          /* gain reuses viridian */
+    --color-success-glow: rgba(94, 234, 212, 0.25);
+    --color-danger: #fb7185;           /* warm rose */
+    --color-danger-glow: rgba(251, 113, 133, 0.25);
+    --color-danger-soft: rgba(251, 113, 133, 0.12);
+    --color-warning: #d4af6a;          /* warm gold */
+    --color-warning-glow: rgba(212, 175, 106, 0.25);
+
+    /* Gradient colors (kept for legacy callers but warm/editorial) */
+    --gradient-start: #0a0a0b;
+    --gradient-mid: #121215;
+    --gradient-end: #0a0a0b;
 
     /* Scrollbar */
-    --scrollbar-track: #1f2937;
-    --scrollbar-thumb: #4b5563;
-    --scrollbar-thumb-hover: #6b7280;
+    --scrollbar-track: #121215;
+    --scrollbar-thumb: #2a2a32;
+    --scrollbar-thumb-hover: #3a3a44;
 
     color-scheme: dark;
   }
@@ -99,26 +109,32 @@
     @apply bg-slate-50 text-slate-900;
   }
 
-  /* Dark mode - Gradient background */
+  /* Dark mode - Editorial Trading Floor: solid warm off-black */
   html.dark body {
-    background: linear-gradient(135deg, #0a0f1a 0%, #111827 50%, #0f172a 100%);
+    background: #0a0a0b;
     background-attachment: fixed;
-    @apply text-slate-100;
+    color: #f5f3ee;
+    font-family: 'Manrope', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
-  /* Subtle grid pattern overlay for dark mode */
+  /* Editorial display font for top-level headings inside dark mode */
+  html.dark h1,
+  html.dark h2 {
+    font-family: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+    font-variation-settings: 'opsz' 36;
+    letter-spacing: -0.02em;
+  }
+
+  /* Mono digits for tabular numerals */
+  html.dark .tabular-nums,
+  html.dark [data-numeric] {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* No more cyan/violet wash - keep page clean */
   html.dark body::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-image:
-      radial-gradient(circle at 25% 25%, rgba(6, 182, 212, 0.03) 0%, transparent 50%),
-      radial-gradient(circle at 75% 75%, rgba(139, 92, 246, 0.03) 0%, transparent 50%);
-    pointer-events: none;
-    z-index: 0;
+    content: none;
   }
 
   #root {
@@ -128,11 +144,20 @@
 
   /* Links */
   a {
-    @apply text-cyan-500 dark:text-cyan-400 transition-colors duration-200;
+    @apply text-cyan-500 transition-colors duration-200;
   }
 
   a:hover {
-    @apply text-cyan-600 dark:text-cyan-300;
+    @apply text-cyan-600;
+  }
+
+  /* Editorial dark-mode links: viridian on warm off-black */
+  html.dark a {
+    color: #5eead4;
+  }
+
+  html.dark a:hover {
+    color: #99f6e4;
   }
 
   /* Headings */
@@ -176,7 +201,7 @@
   }
 
   .dark ::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #4b5563 0%, #374151 100%);
+    background: #2a2a32;
   }
 
   * {
@@ -195,7 +220,8 @@
   }
 
   html.dark ::selection {
-    @apply bg-cyan-400/30 text-white;
+    background: rgba(94, 234, 212, 0.3);
+    color: #f5f3ee;
   }
 }
 
@@ -204,16 +230,13 @@
    ============================================================================ */
 
 @layer base {
-  *:focus {
-    outline: none;
-  }
-
   *:focus-visible {
-    @apply ring-2 ring-cyan-500/50 ring-offset-2 ring-offset-transparent;
+    @apply outline-none ring-2 ring-cyan-600 ring-offset-2 ring-offset-white;
   }
 
   .dark *:focus-visible {
-    @apply ring-cyan-400/50 ring-offset-slate-900;
+    outline: none;
+    box-shadow: 0 0 0 2px #0a0a0b, 0 0 0 4px #5eead4;
   }
 }
 
@@ -233,11 +256,12 @@
   }
 
   .dark .card {
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.8) 100%);
+    background: #18181c;
+    border-color: #2a2a32;
     box-shadow:
       0 4px 6px -1px rgba(0, 0, 0, 0.3),
       0 2px 4px -1px rgba(0, 0, 0, 0.2),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
   }
 
   .card:hover {
@@ -249,7 +273,7 @@
     box-shadow:
       0 10px 25px -5px rgba(0, 0, 0, 0.4),
       0 8px 10px -6px rgba(0, 0, 0, 0.3),
-      0 0 30px -10px rgba(6, 182, 212, 0.15),
+      0 0 30px -10px rgba(94, 234, 212, 0.15),
       inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
   }
 
@@ -265,7 +289,7 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.5), transparent);
+    background: linear-gradient(90deg, transparent, rgba(94, 234, 212, 0.5), transparent);
   }
 
   /* Card Header */
@@ -291,7 +315,7 @@
   }
 
   .dark .stat-card {
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.6) 100%);
+    background: linear-gradient(135deg, rgba(24, 24, 28, 0.7) 0%, rgba(18, 18, 21, 0.7) 100%);
   }
 }
 
@@ -309,22 +333,22 @@
     @apply transform active:scale-95;
   }
 
-  /* Primary Button - Cyan accent */
+  /* Primary Button - Solid blue (WCAG AA: white on blue-700 = 8.6:1) */
   .btn-primary {
     @apply btn;
-    @apply bg-gradient-to-r from-cyan-500 to-blue-500;
+    @apply bg-blue-700;
     @apply text-white font-semibold;
-    @apply hover:from-cyan-400 hover:to-blue-400;
+    @apply hover:bg-blue-600;
     @apply focus:ring-cyan-500/50;
-    @apply shadow-lg shadow-cyan-500/25;
+    @apply shadow-lg shadow-blue-700/25;
   }
 
   .dark .btn-primary {
-    @apply shadow-lg shadow-cyan-500/20;
+    @apply shadow-lg shadow-blue-700/20;
   }
 
   .btn-primary:hover {
-    @apply shadow-xl shadow-cyan-500/30;
+    @apply shadow-xl shadow-blue-700/30;
     transform: translateY(-1px);
   }
 
@@ -520,35 +544,35 @@
 
   /* Glow effects */
   .glow-cyan {
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+    box-shadow: 0 0 20px rgba(94, 234, 212, 0.35);
   }
 
   .glow-emerald {
-    box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+    box-shadow: 0 0 20px rgba(94, 234, 212, 0.35);
   }
 
   .glow-rose {
-    box-shadow: 0 0 20px rgba(244, 63, 94, 0.4);
+    box-shadow: 0 0 20px rgba(251, 113, 133, 0.35);
   }
 
   .glow-amber {
-    box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+    box-shadow: 0 0 20px rgba(212, 175, 106, 0.35);
   }
 
-  /* Gradient text */
+  /* Gradient text - editorial: viridian on warm-black */
   .gradient-text {
     @apply bg-clip-text text-transparent;
-    @apply bg-gradient-to-r from-cyan-400 to-blue-500;
+    background-image: linear-gradient(90deg, #5eead4, #d4af6a);
   }
 
   .gradient-text-success {
     @apply bg-clip-text text-transparent;
-    @apply bg-gradient-to-r from-emerald-400 to-green-500;
+    background-image: linear-gradient(90deg, #5eead4, #99f6e4);
   }
 
   .gradient-text-danger {
     @apply bg-clip-text text-transparent;
-    @apply bg-gradient-to-r from-rose-400 to-red-500;
+    background-image: linear-gradient(90deg, #fb7185, #f9a8b4);
   }
 
   /* Glass effect */
@@ -558,13 +582,13 @@
     @apply border border-white/20 dark:border-slate-700/50;
   }
 
-  /* Gradient backgrounds */
+  /* Gradient backgrounds - editorial: warm off-black, no wash */
   .gradient-dark {
-    background: linear-gradient(135deg, #0a0f1a 0%, #111827 50%, #0f172a 100%);
+    background: #0a0a0b;
   }
 
   .gradient-card {
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.6) 100%);
+    background: linear-gradient(135deg, rgba(24, 24, 28, 0.7) 0%, rgba(18, 18, 21, 0.7) 100%);
   }
 
   /* Accent line */
@@ -575,7 +599,7 @@
   .accent-line::before {
     content: '';
     @apply absolute top-0 left-0 right-0 h-px;
-    background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.5), transparent);
+    background: linear-gradient(90deg, transparent, rgba(94, 234, 212, 0.5), transparent);
   }
 
   /* Shimmer effect */
@@ -646,10 +670,10 @@
 
   @keyframes glow {
     0% {
-      box-shadow: 0 0 5px rgba(6, 182, 212, 0.3);
+      box-shadow: 0 0 5px rgba(94, 234, 212, 0.3);
     }
     100% {
-      box-shadow: 0 0 25px rgba(6, 182, 212, 0.5);
+      box-shadow: 0 0 25px rgba(94, 234, 212, 0.5);
     }
   }
 
@@ -696,7 +720,7 @@
   }
 
   .dark .nav-link.active {
-    box-shadow: inset 0 0 20px rgba(6, 182, 212, 0.1);
+    box-shadow: inset 0 0 20px rgba(94, 234, 212, 0.1);
   }
 }
 
@@ -711,7 +735,7 @@
   }
 
   .dark .chart-container {
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.4) 100%);
+    background: linear-gradient(135deg, rgba(24, 24, 28, 0.55) 0%, rgba(18, 18, 21, 0.55) 100%);
   }
 }
 
@@ -783,7 +807,7 @@
   }
 
   .dark .sidebar {
-    background: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 15, 26, 0.98) 100%);
+    background: linear-gradient(180deg, rgba(18, 18, 21, 0.98) 0%, rgba(10, 10, 11, 0.98) 100%);
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
   }
 }
@@ -801,7 +825,7 @@
   }
 
   .dark .header {
-    background: rgba(10, 15, 26, 0.9);
+    background: rgba(10, 10, 11, 0.92);
   }
 }
 
@@ -815,7 +839,7 @@
   }
 
   .dark .metric-accent-cyan {
-    box-shadow: inset 4px 0 20px -10px rgba(6, 182, 212, 0.3);
+    box-shadow: inset 4px 0 20px -10px rgba(94, 234, 212, 0.3);
   }
 
   .metric-accent-emerald {
@@ -823,7 +847,7 @@
   }
 
   .dark .metric-accent-emerald {
-    box-shadow: inset 4px 0 20px -10px rgba(16, 185, 129, 0.3);
+    box-shadow: inset 4px 0 20px -10px rgba(94, 234, 212, 0.3);
   }
 
   .metric-accent-rose {
@@ -831,7 +855,7 @@
   }
 
   .dark .metric-accent-rose {
-    box-shadow: inset 4px 0 20px -10px rgba(244, 63, 94, 0.3);
+    box-shadow: inset 4px 0 20px -10px rgba(251, 113, 133, 0.3);
   }
 
   .metric-accent-amber {
@@ -839,7 +863,7 @@
   }
 
   .dark .metric-accent-amber {
-    box-shadow: inset 4px 0 20px -10px rgba(245, 158, 11, 0.3);
+    box-shadow: inset 4px 0 20px -10px rgba(212, 175, 106, 0.3);
   }
 
   .metric-accent-violet {
@@ -849,4 +873,333 @@
   .dark .metric-accent-violet {
     box-shadow: inset 4px 0 20px -10px rgba(139, 92, 246, 0.3);
   }
+}
+
+/* ============================================================================
+   EDITORIAL TRADING FLOOR - DARK MODE PALETTE OVERRIDES
+   ============================================================================
+   Override the most-used Tailwind dark-mode utility classes to swap the
+   generic slate/cyan/blue palette for warm off-black + viridian + warm rose
+   + gold. Uses !important because Tailwind utility specificity is flat and
+   we want these to win over the original utility values regardless of where
+   they appear in the cascade. The Performance page is intentionally NOT
+   affected because its rules live under a `.perf-page` scope with higher
+   specificity.
+   ============================================================================ */
+
+@layer utilities {
+  /* --- Surfaces: warm off-black tiers replace slate-900/800 --- */
+  .dark .bg-slate-900 { background-color: #0a0a0b !important; }
+  .dark .bg-slate-900\/50 { background-color: rgba(10, 10, 11, 0.5) !important; }
+  .dark .bg-slate-900\/70 { background-color: rgba(10, 10, 11, 0.7) !important; }
+  .dark .bg-slate-900\/80 { background-color: rgba(10, 10, 11, 0.8) !important; }
+  .dark .bg-slate-900\/95 { background-color: rgba(10, 10, 11, 0.95) !important; }
+
+  .dark .bg-slate-800 { background-color: #18181c !important; }
+  .dark .bg-slate-800\/30 { background-color: rgba(24, 24, 28, 0.4) !important; }
+  .dark .bg-slate-800\/40 { background-color: rgba(24, 24, 28, 0.5) !important; }
+  .dark .bg-slate-800\/50 { background-color: rgba(24, 24, 28, 0.55) !important; }
+  .dark .bg-slate-800\/60 { background-color: rgba(24, 24, 28, 0.65) !important; }
+  .dark .bg-slate-800\/70 { background-color: rgba(24, 24, 28, 0.75) !important; }
+
+  .dark .bg-slate-700 { background-color: #1f1f24 !important; }
+  .dark .bg-slate-700\/30 { background-color: rgba(31, 31, 36, 0.4) !important; }
+  .dark .bg-slate-700\/50 { background-color: rgba(31, 31, 36, 0.55) !important; }
+
+  /* --- Borders: warm dim line replaces slate-700 --- */
+  .dark .border-slate-700,
+  .dark .border-slate-700\/50,
+  .dark .border-slate-700\/30,
+  .dark .border-slate-600,
+  .dark .border-slate-600\/50 {
+    border-color: #2a2a32 !important;
+  }
+
+  /* --- Text: warm whites + tan greys, never slate --- */
+  .dark .text-slate-100,
+  .dark .text-white { color: #f5f3ee !important; }
+  .dark .text-slate-200,
+  .dark .text-slate-300 { color: #a09e98 !important; }
+  .dark .text-slate-400,
+  .dark .text-slate-500 { color: #8a8982 !important; }
+
+  /* --- Brand cyan/blue text -> viridian teal --- */
+  .dark .text-cyan-300,
+  .dark .text-cyan-400,
+  .dark .text-cyan-500,
+  .dark .text-blue-300,
+  .dark .text-blue-400,
+  .dark .text-blue-500 {
+    color: #5eead4 !important;
+  }
+
+  /* --- Gain green -> viridian (single accent for "up") --- */
+  .dark .text-emerald-300,
+  .dark .text-emerald-400,
+  .dark .text-emerald-500,
+  .dark .text-green-400,
+  .dark .text-green-500 {
+    color: #5eead4 !important;
+  }
+
+  /* --- Loss red -> warm rose --- */
+  .dark .text-rose-300,
+  .dark .text-rose-400,
+  .dark .text-rose-500,
+  .dark .text-red-300,
+  .dark .text-red-400,
+  .dark .text-red-500 {
+    color: #fb7185 !important;
+  }
+
+  /* --- Highlight yellow/amber -> warm gold --- */
+  .dark .text-amber-300,
+  .dark .text-amber-400,
+  .dark .text-amber-500,
+  .dark .text-yellow-300,
+  .dark .text-yellow-400,
+  .dark .text-yellow-500 {
+    color: #d4af6a !important;
+  }
+
+  /* --- Brand-color backgrounds (filled buttons, badges) --- */
+  /* Cyan/blue solid buttons become outlined viridian on surface */
+  .dark .bg-cyan-500,
+  .dark .bg-cyan-600,
+  .dark .bg-blue-500,
+  .dark .bg-blue-600,
+  .dark .bg-blue-700 {
+    background-color: #18181c !important;
+    border: 1px solid #5eead4 !important;
+    color: #5eead4 !important;
+  }
+
+  .dark .hover\:bg-cyan-600:hover,
+  .dark .hover\:bg-cyan-700:hover,
+  .dark .hover\:bg-blue-600:hover,
+  .dark .hover\:bg-blue-700:hover,
+  .dark .hover\:bg-blue-800:hover {
+    background-color: rgba(94, 234, 212, 0.08) !important;
+  }
+
+  /* Tinted brand backgrounds (alpha) - swap to viridian-soft */
+  .dark .bg-cyan-500\/10,
+  .dark .bg-cyan-500\/20,
+  .dark .bg-cyan-900\/20,
+  .dark .bg-cyan-900\/30,
+  .dark .bg-cyan-900\/50,
+  .dark .bg-blue-500\/10,
+  .dark .bg-blue-500\/20,
+  .dark .bg-blue-900\/20,
+  .dark .bg-blue-900\/30,
+  .dark .bg-blue-900\/50 {
+    background-color: rgba(94, 234, 212, 0.12) !important;
+  }
+
+  .dark .bg-emerald-500\/10,
+  .dark .bg-emerald-500\/20,
+  .dark .bg-emerald-900\/20,
+  .dark .bg-emerald-900\/30,
+  .dark .bg-emerald-900\/50,
+  .dark .bg-green-500\/10,
+  .dark .bg-green-500\/20,
+  .dark .bg-green-900\/20 {
+    background-color: rgba(94, 234, 212, 0.12) !important;
+  }
+
+  .dark .bg-rose-500\/10,
+  .dark .bg-rose-500\/20,
+  .dark .bg-rose-900\/20,
+  .dark .bg-rose-900\/30,
+  .dark .bg-rose-900\/50,
+  .dark .bg-red-500\/10,
+  .dark .bg-red-500\/20,
+  .dark .bg-red-900\/20 {
+    background-color: rgba(251, 113, 133, 0.12) !important;
+  }
+
+  .dark .bg-amber-500\/10,
+  .dark .bg-amber-500\/20,
+  .dark .bg-amber-900\/20,
+  .dark .bg-yellow-500\/10,
+  .dark .bg-yellow-500\/20,
+  .dark .bg-yellow-900\/20 {
+    background-color: rgba(212, 175, 106, 0.14) !important;
+  }
+
+  /* Brand-color border tints */
+  .dark .border-cyan-500,
+  .dark .border-cyan-500\/30,
+  .dark .border-cyan-500\/50,
+  .dark .border-blue-500,
+  .dark .border-blue-500\/30,
+  .dark .border-blue-500\/50 {
+    border-color: rgba(94, 234, 212, 0.4) !important;
+  }
+
+  .dark .border-emerald-500,
+  .dark .border-emerald-500\/30,
+  .dark .border-emerald-500\/50,
+  .dark .border-green-500\/30 {
+    border-color: rgba(94, 234, 212, 0.4) !important;
+  }
+
+  .dark .border-rose-500,
+  .dark .border-rose-500\/30,
+  .dark .border-rose-500\/50,
+  .dark .border-red-500\/30,
+  .dark .border-red-500\/50 {
+    border-color: rgba(251, 113, 133, 0.4) !important;
+  }
+
+  /* Solid rose / red destructive buttons stay in the warm-rose family
+     (matches the Editorial palette - replaces Tailwind's cooler rose-600). */
+  .dark .bg-rose-500,
+  .dark .bg-rose-600,
+  .dark .bg-rose-700,
+  .dark .bg-red-500,
+  .dark .bg-red-600,
+  .dark .bg-red-700 {
+    background-color: #fb7185 !important;
+    color: #1a0a0c !important;
+  }
+
+  .dark .hover\:bg-rose-600:hover,
+  .dark .hover\:bg-rose-700:hover,
+  .dark .hover\:bg-rose-800:hover,
+  .dark .active\:bg-rose-800:active,
+  .dark .hover\:bg-red-700:hover {
+    background-color: #f43f5e !important;
+  }
+
+  .dark .text-rose-200,
+  .dark .text-rose-300 {
+    color: #fecdd3 !important;
+  }
+
+  /* --- Gradient kill: cyan/blue gradient stops route to viridian/warm-black ---
+       The cascade still runs but the from/to color custom props are rewritten,
+       so the resulting gradient reads as accent-on-warm-black.            */
+  .dark .from-cyan-400,
+  .dark .from-cyan-500,
+  .dark .from-cyan-600,
+  .dark .from-blue-400,
+  .dark .from-blue-500,
+  .dark .from-blue-600 {
+    --tw-gradient-from: #5eead4 !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(94, 234, 212, 0)) !important;
+  }
+
+  .dark .to-blue-400,
+  .dark .to-blue-500,
+  .dark .to-blue-600,
+  .dark .to-blue-700,
+  .dark .to-cyan-400,
+  .dark .to-cyan-500,
+  .dark .to-cyan-600,
+  .dark .to-purple-500,
+  .dark .to-purple-600,
+  .dark .to-indigo-500,
+  .dark .to-indigo-600,
+  .dark .to-indigo-700 {
+    --tw-gradient-to: #0a0a0b !important;
+  }
+
+  .dark .from-emerald-400,
+  .dark .from-emerald-500,
+  .dark .from-green-400,
+  .dark .from-green-500,
+  .dark .from-green-600 {
+    --tw-gradient-from: #5eead4 !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(94, 234, 212, 0)) !important;
+  }
+
+  .dark .to-emerald-500,
+  .dark .to-emerald-600,
+  .dark .to-emerald-700,
+  .dark .to-green-500,
+  .dark .to-green-600,
+  .dark .to-green-700 {
+    --tw-gradient-to: #0a0a0b !important;
+  }
+
+  .dark .from-rose-400,
+  .dark .from-rose-500,
+  .dark .from-red-400,
+  .dark .from-red-500,
+  .dark .from-red-600 {
+    --tw-gradient-from: #fb7185 !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(251, 113, 133, 0)) !important;
+  }
+
+  .dark .to-rose-500,
+  .dark .to-rose-600,
+  .dark .to-red-500,
+  .dark .to-red-600,
+  .dark .to-red-700 {
+    --tw-gradient-to: #0a0a0b !important;
+  }
+
+  /* Slate gradient backdrops -> flat warm off-black (kill the wash) */
+  .dark .from-slate-900,
+  .dark .from-slate-800,
+  .dark .from-gray-900,
+  .dark .from-gray-800 {
+    --tw-gradient-from: #0a0a0b !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(10, 10, 11, 0)) !important;
+  }
+
+  .dark .via-slate-800,
+  .dark .via-slate-900,
+  .dark .via-gray-800 {
+    --tw-gradient-stops: var(--tw-gradient-from), #121215, var(--tw-gradient-to, rgba(18, 18, 21, 0)) !important;
+  }
+
+  .dark .to-slate-900,
+  .dark .to-slate-800,
+  .dark .to-gray-900,
+  .dark .to-gray-800 {
+    --tw-gradient-to: #0a0a0b !important;
+  }
+
+  /* Ring colors used for focus / active states */
+  .dark .ring-cyan-400,
+  .dark .ring-cyan-500,
+  .dark .ring-blue-400,
+  .dark .ring-blue-500 {
+    --tw-ring-color: #5eead4 !important;
+  }
+
+  /* Shadow tints from cyan/blue glow are left to Tailwind defaults; circular
+     @apply problems prevent re-skinning here. The dropped saturation comes
+     mainly from the surface and accent overrides above. */
+
+  /* --- Bare light-theme classes (no dark: variant) used by older components
+     like PortfolioCard. Without these, those components stay white in dark
+     mode. We rewrite the surface to elevated warm-black, the muted greys to
+     editorial tertiary, and the danger red to warm rose. --- */
+  .dark .bg-white { background-color: #18181c !important; }
+  .dark .bg-gray-50,
+  .dark .bg-gray-100 { background-color: #18181c !important; }
+  .dark .bg-gray-200 { background-color: #1f1f24 !important; }
+  .dark .bg-gray-700,
+  .dark .bg-gray-800,
+  .dark .bg-gray-900 { background-color: #0a0a0b !important; }
+
+  .dark .text-gray-900,
+  .dark .text-black { color: #f5f3ee !important; }
+  .dark .text-gray-800,
+  .dark .text-gray-700 { color: #f5f3ee !important; }
+  .dark .text-gray-600 { color: #a09e98 !important; }
+  .dark .text-gray-500,
+  .dark .text-gray-400 { color: #8a8982 !important; }
+
+  .dark .border-gray-200,
+  .dark .border-gray-300,
+  .dark .border-gray-700 { border-color: #2a2a32 !important; }
+
+  .dark .text-red-600,
+  .dark .text-red-700 { color: #fb7185 !important; }
+  .dark .border-red-200 { border-color: rgba(251, 113, 133, 0.3) !important; }
+  .dark .bg-red-50 { background-color: rgba(251, 113, 133, 0.08) !important; }
 }

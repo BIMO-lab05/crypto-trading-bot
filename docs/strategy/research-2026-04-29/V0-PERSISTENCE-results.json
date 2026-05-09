@@ -1,0 +1,41 @@
+[
+  {
+    "symbol": "SOLUSDT",
+    "n_oos": 3437,
+    "r2_price_gru": 0.9966984365141147,
+    "r2_price_persistence": 0.9975286995457582,
+    "r2_returns_gru": -0.44490761169337545,
+    "r2_returns_persistence": -9.219375327584878e-05,
+    "dir_acc_gru_corrected": 0.5053826011056154,
+    "dir_acc_persistence_corrected": 0.004946173988943846,
+    "dir_acc_gru_BUGGY_for_reference": 0.8155368053535059,
+    "metadata_recorded_r2": 0.9925505128159106,
+    "metadata_recorded_dir_acc": 0.8430969510106201
+  },
+  {
+    "symbol": "BNBUSDT",
+    "n_oos": 3437,
+    "r2_price_gru": 0.9809388800755476,
+    "r2_price_persistence": 0.9974472828278292,
+    "r2_returns_gru": -5.5008142163545415,
+    "r2_returns_persistence": -6.9314087424166e-05,
+    "dir_acc_gru_corrected": 0.47890602269421007,
+    "dir_acc_persistence_corrected": 0.015129473377945884,
+    "dir_acc_gru_BUGGY_for_reference": 0.6662787314518476,
+    "metadata_recorded_r2": 0.9968235877569381,
+    "metadata_recorded_dir_acc": 0.7941075710859884
+  },
+  {
+    "symbol": "ADAUSDT",
+    "n_oos": 3437,
+    "r2_price_gru": 0.9979822783226512,
+    "r2_price_persistence": 0.9983596690871357,
+    "r2_returns_gru": -0.3617710276731523,
+    "r2_returns_persistence": -0.00043874642276997555,
+    "dir_acc_gru_corrected": 0.5138201920279314,
+    "dir_acc_persistence_corrected": 0.0069828338667442535,
+    "dir_acc_gru_BUGGY_for_reference": 0.8152458539423916,
+    "metadata_recorded_r2": 0.994976381843722,
+    "metadata_recorded_dir_acc": 0.8331620417951353
+  }
+]

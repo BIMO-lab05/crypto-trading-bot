@@ -48,14 +48,22 @@ class TestSettings:
         expected = "amqp://admin:pass123@rabbitmq-server:5672/trading"
         assert settings.rabbitmq_url == expected
     
-    def test_default_settings_values(self):
-        """Test default configuration values are set correctly"""
+    def test_default_settings_values(self, monkeypatch):
+        """Test default configuration values are set correctly.
+
+        CI sets ENVIRONMENT=test in the test job env which would otherwise
+        override the default; clear it here so the assertion exercises the
+        actual Settings default.
+        """
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
         settings = Settings()
-        
+
         assert settings.service_name == "technical-analysis"
         assert settings.service_port == 8004
         assert settings.environment == "development"
-        assert settings.default_rsi_period == 14
+        # default_rsi_period was tightened from 14 → 9 in the 2026-04-29
+        # research-driven indicator-tuning pass.
+        assert settings.default_rsi_period == 9
         assert settings.signal_confidence_threshold == 0.6
 
 
