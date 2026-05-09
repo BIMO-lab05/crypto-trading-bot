@@ -49,6 +49,7 @@ from app.core.model_trainer import ModelTrainer  # noqa: E402  (after importorsk
 # Constructor / invariants
 # ---------------------------------------------------------------------------
 
+
 class TestModelTrainerInit:
     def test_default_architecture_matches_production(self):
         trainer = ModelTrainer()
@@ -71,6 +72,7 @@ class TestModelTrainerInit:
 # ---------------------------------------------------------------------------
 # Feature engineering
 # ---------------------------------------------------------------------------
+
 
 class TestPrepareFeatures:
     def test_adds_expected_indicator_columns(self, synthetic_ohlcv):
@@ -116,6 +118,7 @@ class TestPrepareFeatures:
 # Sequence creation
 # ---------------------------------------------------------------------------
 
+
 class TestCreateSequences:
     def test_shapes_match_config(self, synthetic_ohlcv):
         trainer = ModelTrainer()
@@ -138,6 +141,7 @@ class TestCreateSequences:
 # ---------------------------------------------------------------------------
 # save_model — REGRESSION HOOK for commit ecdb29d
 # ---------------------------------------------------------------------------
+
 
 class TestSaveModelArtifactContract:
     """
@@ -244,6 +248,44 @@ class TestSaveModelArtifactContract:
         assert metrics["train_r2"] == 0.9
         assert metrics["val_r2"] == 0.85
         assert metrics["test_r2"] == 0.8
+
+
+# ---------------------------------------------------------------------------
+# CD-01 registry refactor regression
+# ---------------------------------------------------------------------------
+
+
+def test_train_uses_registry_when_architecture_set():
+    """CD-01 regression: trainer.architecture flips the dispatched builder.
+
+    Verifies the post-refactor dispatch path: setting `trainer.architecture
+    = "lstm"` resolves to REGISTRY["lstm"] and the resulting model has at
+    least one LSTM layer. Default `architecture="gru"` keeps legacy behaviour
+    bit-identical (covered by the unchanged TestModelTrainerInit assertions
+    above).
+
+    Plan deviation (Rule 1 - Bug fix): plan had
+    `ModelTrainer(symbol="BTCUSDT", interval="5m")` plus unused
+    `monkeypatch, sample_klines_df` fixtures, but the actual constructor
+    takes no arguments and `sample_klines_df` is not defined in conftest.py.
+    Corrected to a parameter-less call.
+    """
+    from app.core.model_trainer import ModelTrainer
+    from app.core.models import REGISTRY
+
+    trainer = ModelTrainer()
+    # Default preserves legacy: REGISTRY["gru"] is dispatched.
+    assert trainer.architecture == "gru"
+
+    trainer.architecture = "lstm"
+    assert REGISTRY[trainer.architecture] is REGISTRY["lstm"]
+
+    model = REGISTRY[trainer.architecture].build(
+        input_shape=(60, 17),
+        hp={"units": [16], "dropout": 0.1, "lr": 0.001, "horizon": 5},
+    )
+    # LSTM model has at least one LSTM layer
+    assert any("lstm" in layer.name.lower() for layer in model.layers)
 
 
 if __name__ == "__main__":  # pragma: no cover
