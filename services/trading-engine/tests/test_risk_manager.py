@@ -83,28 +83,37 @@ class TestTradingHalt:
     """Test trading halt mechanism"""
 
     def test_should_halt_trading_within_limit(self, risk_manager):
-        """Test that trading not halted when within loss limit"""
-        # Loss of -400 is 4% of 10000 balance (< 5% limit)
-        risk_manager.update_daily_pnl(Decimal("-400.00"))
+        """Test that trading not halted when within loss limit.
+
+        Mock fixture: paper_initial_balance=100, max_daily_loss_pct=5
+        → max_loss = $5. Loss of $-4 is 4% (< 5% limit), should not halt.
+        """
+        risk_manager.update_daily_pnl(Decimal("-4.00"))
         assert risk_manager.should_halt_trading() is False
 
     def test_should_halt_trading_exceeds_limit(self, risk_manager):
-        """Test that trading halted when daily loss limit exceeded"""
-        # Max loss is 5% of 10000 = 500
-        # Loss of -600 exceeds the limit
-        risk_manager.update_daily_pnl(Decimal("-600.00"))
+        """Test that trading halted when daily loss limit exceeded.
+
+        Mock fixture: max_loss = $5. Loss of $-6 exceeds, should halt.
+        """
+        risk_manager.update_daily_pnl(Decimal("-6.00"))
         assert risk_manager.should_halt_trading() is True
         assert risk_manager.trading_halted is True
 
     def test_should_halt_trading_at_exact_limit(self, risk_manager):
-        """Test trading halted at exact loss limit"""
+        """Test trading halted at exact loss limit.
+
+        Mock fixture sets paper_initial_balance=100 and max_daily_loss_pct=5,
+        so max_loss = $5. Test was previously using $499.99 / $500 thresholds
+        from when paper_initial_balance was $10000.
+        """
         # Just under 5% loss (should not halt)
-        risk_manager.update_daily_pnl(Decimal("-499.99"))
+        risk_manager.update_daily_pnl(Decimal("-4.99"))
         assert risk_manager.should_halt_trading() is False
 
         # Exactly at 5% loss (should halt because code uses <=)
         risk_manager.reset_daily_pnl()
-        risk_manager.update_daily_pnl(Decimal("-500.00"))
+        risk_manager.update_daily_pnl(Decimal("-5.00"))
         assert risk_manager.should_halt_trading() is True
 
     def test_halt_trading_logs_critical(self, risk_manager):
