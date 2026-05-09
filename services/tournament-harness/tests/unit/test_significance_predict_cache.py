@@ -101,6 +101,7 @@ def test_log_returns_from_predictions():
 
 
 def test_atomic_npz_write_no_partial(tmp_path):
+    """No half-written cache file ever lingers after a successful write."""
     payload = _make_payload(5)
     get_or_build_predictions(
         harness_root=tmp_path,
@@ -108,8 +109,12 @@ def test_atomic_npz_write_no_partial(tmp_path):
         run_id="r1",
         predict_fn=lambda: payload,
     )
-    leftovers = list((tmp_path / "data" / "cache" / "t1" / "predictions").glob("*.tmp"))
-    assert leftovers == [], f".npz.tmp leftovers: {leftovers}"
+    pred_dir = tmp_path / "data" / "cache" / "t1" / "predictions"
+    # Match both `.npz.tmp` and `.tmp.npz` patterns plus any `pred.*` mkstemp-style
+    # leftover the implementation might use. The directory should contain exactly
+    # one file: r1.npz (the durable cache entry).
+    files = sorted(p.name for p in pred_dir.iterdir())
+    assert files == ["r1.npz"], f"unexpected leftovers in cache dir: {files}"
 
 
 def test_invalid_tournament_id_rejected(tmp_path):
