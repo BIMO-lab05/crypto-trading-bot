@@ -2,19 +2,19 @@
 
 Read-only status / leaderboard inspection API per CD-07. Mutation paths
 (start tournament, export-snapshot) live in app/cli.py — landed in 03-08.
-This skeleton ships the FastAPI surface so the container boots and exposes
-/health for the compose healthcheck. Listing endpoints are stubs at this
-plan boundary; LeaderboardDB wiring lands in 03-08.
 """
 
 import logging
+import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import get_settings
+from app.leaderboard.db import LeaderboardDB
 
 # Configure logging
 logging.basicConfig(
@@ -77,42 +77,60 @@ async def health_check():
 
 
 # ============================================================================
-# TOURNAMENT INSPECTION (read-only stubs; LeaderboardDB wiring lands in 03-08)
+# TOURNAMENT INSPECTION (read-only; LeaderboardDB wired in 03-08)
 # ============================================================================
 
 
 @app.get("/api/v1/tournaments", tags=["Tournament"])
-async def list_tournaments():
-    """List tournaments.
-
-    Stub — returns an empty list at this plan boundary so the surface is
-    honest. Full implementation arrives in 03-08 once the LeaderboardDB
-    layer exists.
-    """
+async def list_tournaments(limit: int = Query(default=100, le=1000)):
+    """List tournaments ordered by start time descending."""
     try:
-        return {"success": True, "count": 0, "tournaments": []}
+        db = LeaderboardDB(settings.leaderboard_db_path)
+        try:
+            cur = db.conn.execute(
+                "SELECT tournament_id, started_at, completed_at, "
+                "n_experiments_total, n_experiments_success, n_experiments_failed "
+                "FROM tournaments ORDER BY started_at DESC LIMIT ?",
+                (limit,),
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+        finally:
+            db.close()
+        return {"success": True, "count": len(rows), "tournaments": rows}
     except HTTPException:
         raise
+    except sqlite3.OperationalError:
+        # DB doesn't yet exist (no tournaments run) — return empty list
+        return {"success": True, "count": 0, "tournaments": []}
     except Exception as e:
-        logger.error(f"Error listing tournaments: {e}", exc_info=True)
+        logger.error(f"list_tournaments failure: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/v1/tournaments/{tournament_id}", tags=["Tournament"])
-async def get_tournament(tournament_id: str):
-    """Get a tournament's runs.
-
-    Stub — returns an empty runs list at this plan boundary. Full
-    implementation arrives in 03-08.
-    """
+@app.get("/api/v1/tournaments/{tournament_id}/runs", tags=["Tournament"])
+async def list_runs(
+    tournament_id: str,
+    architecture: Optional[str] = Query(default=None),
+    symbol: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None, description="success | failed"),
+    limit: int = Query(default=100, le=1000),
+):
+    """List leaderboard rows for a tournament."""
     try:
-        return {
-            "success": True,
-            "tournament_id": tournament_id,
-            "runs": [],
-        }
+        db = LeaderboardDB(settings.leaderboard_db_path)
+        try:
+            rows = db.list_runs(
+                tournament_id=tournament_id,
+                architecture=architecture,
+                symbol=symbol,
+                status=status,
+                limit=limit,
+            )
+        finally:
+            db.close()
+        return {"success": True, "count": len(rows), "runs": rows}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching tournament {tournament_id}: {e}", exc_info=True)
+        logger.error(f"list_runs failure: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
