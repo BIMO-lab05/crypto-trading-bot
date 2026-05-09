@@ -93,7 +93,7 @@ Plans:
 - [x] 03-07-PLAN.md — orchestrator: Docker SDK launcher, failure classifier (D-15 enum), ingest with size-cap + schema validate
 
 **Wave 4** (depends on Wave 3)
-- [ ] 03-08-PLAN.md — operator CLI: run / leaderboard list (safe --where DSL CD-05) / export-snapshot (D-18); wire main.py FastAPI list endpoints
+- [x] 03-08-PLAN.md — operator CLI: run / leaderboard list (safe --where DSL CD-05) / export-snapshot (D-18); wire main.py FastAPI list endpoints
 
 **Wave 5** (final — verification)
 - [ ] 03-09-PLAN.md — tests: TOURN-07 grep gate + fake-docker pipeline + real-stack end-to-end + CI workflow
