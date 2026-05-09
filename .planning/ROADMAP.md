@@ -107,10 +107,25 @@ Plans:
   2. The R² win criterion is gone from the harness — `grep` for `>5%` or "5 percent R²" in the harness returns no matches
   3. When the ensemble wins, a draft PR opens via `gh pr create --draft` containing the leaderboard markdown, ensemble config, significance results, and a reproducer command
   4. No `gh pr merge` call exists anywhere in the harness or its CI; merge requires a human action
-**Plans**: TBD
+**Plans**: 7 plans
 
 Plans:
-- [ ] 04-01: TBD
+**Wave 1** (parallel, no dependencies)
+- [ ] 04-01-PLAN.md — significance package: artifact writers + per-symbol top-3-by-DSR ensemble selection + predict-only re-hydration cache (D-01/02/03/14, CD-11)
+- [ ] 04-05-PLAN.md — CI grep gates: no `>5% R²` win criterion (D-13) + no `gh pr merge` (CD-10)
+
+**Wave 2** (depends on 04-01)
+- [ ] 04-02-PLAN.md — persistence baseline + stationary block bootstrap kernel + per-symbol win gate (D-04/05/06/08, CD-07/08)
+- [ ] 04-07-PLAN.md — production predict_fn wiring (build_predict_fn over canonical klines loader; resolves B1/B3 from checker iter 1)
+
+**Wave 3** (depends on 04-01 + 04-02 + 04-07)
+- [ ] 04-03-PLAN.md — `tournament open-pr` CLI + PR body + gh wrapper + count_tournaments helper (TOURN-06; D-09/10/11/14, CD-01/02/03/09/12)
+
+**Wave 4** (depends on 04-03 + 04-07 — cli.py overlap forces sequential)
+- [ ] 04-04-PLAN.md — `tournament reproduce` CLI + idempotency CI test (D-12, CD-06; output_suffix parameterization for W2)
+
+**Wave 5** (depends on 04-03 + 04-04 + 04-05 + 04-07)
+- [ ] 04-06-PLAN.md — end-to-end open-pr smoke test (verifies all 4 ROADMAP success criteria together)
 
 ### Phase 5: ML Cleanup (post-V0)
 **Goal**: The three Tier-1 opt-in features (vol parity, maker, funding) accumulate forward-paper-test evidence, one T0.1.x experiment ships through the tournament, the parked autonomous monitoring scripts get a binding decision, and the live-vs-backtest signal divergence is no longer silent.
@@ -165,7 +180,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Bootstrap & Recorded Tape | 4/4 | Complete   | 2026-05-06 |
 | 2. Integration Test Suite & RUNBOOK | 0/10 | Not started | - |
 | 3. Tournament Harness Core | 0/9 | Not started | - |
-| 4. Tournament Significance & Auto-PR | 0/TBD | Not started | - |
+| 4. Tournament Significance & Auto-PR | 0/7 | Not started | - |
 | 5. ML Cleanup (post-V0) | 0/TBD | Not started | - |
 | 6. Dashboard Audit & Safety State | 0/TBD | Not started | - |
 | 7. Tournament View & Smoke Test | 0/TBD | Not started | - |
