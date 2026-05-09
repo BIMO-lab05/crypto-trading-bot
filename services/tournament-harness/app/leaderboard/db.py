@@ -69,6 +69,18 @@ def run_migrations(
                 os.chmod(db_path, 0o600)
             except OSError as e:  # filesystem may not support chmod (Windows shares)
                 logger.warning("could not chmod %s to 0600: %s", db_path, e)
+        else:
+            # Drift detection on subsequent opens (T-03-09 second arm).
+            try:
+                actual_mode = os.stat(db_path).st_mode & 0o777
+                if actual_mode != 0o600:
+                    logger.warning(
+                        "leaderboard db perms drifted: %s is %o, expected 0600",
+                        db_path,
+                        actual_mode,
+                    )
+            except OSError as e:
+                logger.warning("could not stat %s for perm check: %s", db_path, e)
         # WAL mode for non-blocking reads while orchestrator writes
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
