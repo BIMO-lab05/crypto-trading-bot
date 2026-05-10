@@ -237,6 +237,12 @@ class LeaderboardDB:
         cur = self.conn.execute(_LIST_SQL, params)
         return [dict(row) for row in cur.fetchall()]
 
+    def count_tournaments(self) -> int:
+        """D-09: tournaments_evaluated_count for the Bonferroni disclosure note."""
+        cur = self.conn.execute("SELECT COUNT(DISTINCT tournament_id) FROM tournaments")
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+
     def get_tournament_config(self, tournament_id: str) -> Optional[Dict[str, Any]]:
         cur = self.conn.execute(
             "SELECT * FROM tournaments WHERE tournament_id = ?", (tournament_id,)

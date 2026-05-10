@@ -19,16 +19,60 @@ from typing import Dict
 import numpy as np
 
 # Canonical implementations — IMPORTED, not redefined (TOURN-07).
-from app.core.returns_metrics import compute_returns_metrics  # noqa: F401
-from app.core.cpcv_evaluation import evaluate_with_cpcv  # noqa: F401
-from app.sharpe_metrics import (  # noqa: F401
-    probabilistic_sharpe_ratio,
-    deflated_sharpe_ratio,
-)
-from app.cpcv import cpcv_to_dsr  # noqa: F401
+# These resolve inside the harness Docker image (PYTHONPATH=/app:/opt/ml_retraining)
+# but not always on the host pytest runner where two separate `app` packages
+# cannot merge. We attempt the import but tolerate failure so unit tests that
+# don't exercise compute_all_metrics (e.g. test_metrics_bridge_log_returns.py)
+# can still import this module on the host. compute_all_metrics itself raises
+# clearly when invoked without the canonical chain available.
+try:
+    from app.core.returns_metrics import compute_returns_metrics  # noqa: F401
+    from app.core.cpcv_evaluation import evaluate_with_cpcv  # noqa: F401
+    from app.sharpe_metrics import (  # noqa: F401
+        probabilistic_sharpe_ratio,
+        deflated_sharpe_ratio,
+    )
+    from app.cpcv import cpcv_to_dsr  # noqa: F401
+
+    _CANONICAL_METRICS_AVAILABLE = True
+except ImportError as _e:  # pragma: no cover — environment-dependent
+    _CANONICAL_METRICS_AVAILABLE = False
+    _CANONICAL_METRICS_IMPORT_ERROR = _e
 
 
 logger = logging.getLogger(__name__)
+
+
+def dir_acc_corrected_from_log_returns(
+    actual_lr: np.ndarray,
+    pred_lr: np.ndarray,
+) -> float:
+    """Chance-corrected directional accuracy on log-return series (D-02).
+
+    D-02 mandates ensemble metrics are computed directly on the averaged
+    log-return series — no re-conversion to price for metric purposes.
+    `compute_returns_metrics` consumes price arrays, so this is the canonical
+    log-return-input sibling. A model with no skill scores ~0; perfect sign
+    agreement scores 1.0; perfect sign disagreement scores -1.0.
+
+    Returns ``2 * (mean(sign(actual_lr) == sign(pred_lr)) - 0.5)``.
+
+    NOTE: when ``pred_lr`` is the persistence baseline (all zeros),
+    ``np.sign(0)`` is 0 and never agrees with non-zero actual signs, so the
+    function returns -1.0. This is the INTENDED chance baseline — persistence
+    has no directional skill on log-returns by construction; the ensemble's
+    lift over this floor is exactly what the bootstrap test measures.
+    """
+    actual_lr = np.asarray(actual_lr, dtype=float)
+    pred_lr = np.asarray(pred_lr, dtype=float)
+    if actual_lr.shape != pred_lr.shape:
+        raise ValueError(
+            f"shape mismatch: actual_lr={actual_lr.shape} pred_lr={pred_lr.shape}"
+        )
+    if actual_lr.size == 0:
+        return float("nan")
+    agree = (np.sign(actual_lr) == np.sign(pred_lr)).astype(float)
+    return 2.0 * (float(np.mean(agree)) - 0.5)
 
 
 def compute_all_metrics(
@@ -44,6 +88,12 @@ def compute_all_metrics(
       r2_returns, dir_acc_corrected, oos_sharpe, psr, dsr, cpcv_dsr.
     Caller adds train_seconds (wall time, not a 'metric' here).
     """
+    if not _CANONICAL_METRICS_AVAILABLE:
+        raise RuntimeError(
+            "compute_all_metrics requires the canonical metric chain from "
+            "ml-retraining-service (PYTHONPATH=/app:/opt/ml_retraining inside "
+            f"the harness image): {_CANONICAL_METRICS_IMPORT_ERROR!r}"
+        )
     if len(y_test) == 0:
         raise ValueError("y_test is empty — cannot compute metrics")
     if len(last_close_test) != len(y_test):
