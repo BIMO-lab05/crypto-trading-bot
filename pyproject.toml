@@ -230,6 +230,9 @@ warn_untyped_fields = true
 minversion = "6.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["services/*/tests", "tests"]
+markers = [
+    "slow: tests that take meaningful wallclock time (e.g. n_resamples=10_000 bootstrap); deselect with '-m \"not slow\"'",
+]
 
 
 [tool.coverage.run]
