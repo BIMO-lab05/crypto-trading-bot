@@ -119,7 +119,7 @@ Plans:
 - [x] 04-07-PLAN.md — production predict_fn wiring (build_predict_fn over canonical klines loader; resolves B1/B3 from checker iter 1)
 
 **Wave 3** (depends on 04-01 + 04-02 + 04-07)
-- [ ] 04-03-PLAN.md — `tournament open-pr` CLI + PR body + gh wrapper + count_tournaments helper (TOURN-06; D-09/10/11/14, CD-01/02/03/09/12)
+- [x] 04-03-PLAN.md — `tournament open-pr` CLI + PR body + gh wrapper + count_tournaments helper (TOURN-06; D-09/10/11/14, CD-01/02/03/09/12)
 
 **Wave 4** (depends on 04-03 + 04-07 — cli.py overlap forces sequential)
 - [ ] 04-04-PLAN.md — `tournament reproduce` CLI + idempotency CI test (D-12, CD-06; output_suffix parameterization for W2)
