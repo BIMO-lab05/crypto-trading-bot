@@ -115,8 +115,8 @@ Plans:
 - [x] 04-05-PLAN.md — CI grep gates: no `>5% R²` win criterion (D-13) + no `gh pr merge` (CD-10)
 
 **Wave 2** (depends on 04-01)
-- [ ] 04-02-PLAN.md — persistence baseline + stationary block bootstrap kernel + per-symbol win gate (D-04/05/06/08, CD-07/08)
-- [ ] 04-07-PLAN.md — production predict_fn wiring (build_predict_fn over canonical klines loader; resolves B1/B3 from checker iter 1)
+- [x] 04-02-PLAN.md — persistence baseline + stationary block bootstrap kernel + per-symbol win gate (D-04/05/06/08, CD-07/08)
+- [x] 04-07-PLAN.md — production predict_fn wiring (build_predict_fn over canonical klines loader; resolves B1/B3 from checker iter 1)
 
 **Wave 3** (depends on 04-01 + 04-02 + 04-07)
 - [ ] 04-03-PLAN.md — `tournament open-pr` CLI + PR body + gh wrapper + count_tournaments helper (TOURN-06; D-09/10/11/14, CD-01/02/03/09/12)
