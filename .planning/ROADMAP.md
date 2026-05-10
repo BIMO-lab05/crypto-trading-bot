@@ -122,7 +122,7 @@ Plans:
 - [x] 04-03-PLAN.md — `tournament open-pr` CLI + PR body + gh wrapper + count_tournaments helper (TOURN-06; D-09/10/11/14, CD-01/02/03/09/12)
 
 **Wave 4** (depends on 04-03 + 04-07 — cli.py overlap forces sequential)
-- [ ] 04-04-PLAN.md — `tournament reproduce` CLI + idempotency CI test (D-12, CD-06; output_suffix parameterization for W2)
+- [x] 04-04-PLAN.md — `tournament reproduce` CLI + idempotency CI test (D-12, CD-06; output_suffix parameterization for W2)
 
 **Wave 5** (depends on 04-03 + 04-04 + 04-05 + 04-07)
 - [ ] 04-06-PLAN.md — end-to-end open-pr smoke test (verifies all 4 ROADMAP success criteria together)
