@@ -125,7 +125,7 @@ Plans:
 - [x] 04-04-PLAN.md — `tournament reproduce` CLI + idempotency CI test (D-12, CD-06; output_suffix parameterization for W2)
 
 **Wave 5** (depends on 04-03 + 04-04 + 04-05 + 04-07)
-- [ ] 04-06-PLAN.md — end-to-end open-pr smoke test (verifies all 4 ROADMAP success criteria together)
+- [x] 04-06-PLAN.md — end-to-end open-pr smoke test (verifies all 4 ROADMAP success criteria together)
 
 ### Phase 5: ML Cleanup (post-V0)
 **Goal**: The three Tier-1 opt-in features (vol parity, maker, funding) accumulate forward-paper-test evidence, one T0.1.x experiment ships through the tournament, the parked autonomous monitoring scripts get a binding decision, and the live-vs-backtest signal divergence is no longer silent.
