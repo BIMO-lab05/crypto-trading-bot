@@ -65,6 +65,17 @@ def cmd_open_pr(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_reproduce(args: argparse.Namespace) -> int:
+    # Lazy import — pulls run_open_pr → numpy/TF chain.
+    from app.pr.reproduce import run_reproduce
+
+    return run_reproduce(
+        args.tournament_id,
+        git_sha_expected=args.git_sha,
+        force=args.force,
+    )
+
+
 def cmd_export_snapshot(args: argparse.Namespace) -> int:
     from app.leaderboard.snapshot import export_snapshot
 
@@ -143,6 +154,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write artifacts but do NOT invoke gh pr create",
     )
     p_pr.set_defaults(func=cmd_open_pr)
+
+    p_repro = sub.add_parser(
+        "reproduce",
+        help="Re-derive significance from snapshot at the same git_sha (D-12)",
+    )
+    p_repro.add_argument("tournament_id")
+    p_repro.add_argument(
+        "--git-sha",
+        required=True,
+        help="Expected HEAD; refuses with exit 3 if HEAD does not match",
+    )
+    p_repro.add_argument(
+        "--force",
+        action="store_true",
+        help="Drop existing temp DB before re-running (CD-06 forensic)",
+    )
+    p_repro.set_defaults(func=cmd_reproduce)
 
     return parser
 

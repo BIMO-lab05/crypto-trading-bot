@@ -97,10 +97,16 @@ def repro_env(tmp_path, monkeypatch):
 def _patch_run_open_pr_writing(
     monkeypatch, harness_root: Path, tid: str, payload: Dict[str, Any]
 ):
-    """Monkeypatch run_open_pr to write `payload` as the dry-run significance file.
+    """Inject a stub `app.pr.open_pr` module so reproduce's lazy import gets a fake.
 
-    This bypasses the heavy ensemble pipeline; we drive only the diff path.
+    `app.pr.open_pr` cannot be imported on the host pytest runner (its
+    `metrics_bridge` chain depends on ml-retraining canonical metrics which
+    don't merge into the same `app` namespace). So we replace the module via
+    `sys.modules` BEFORE `run_reproduce` performs its lazy `from app.pr.open_pr
+    import run_open_pr`.
     """
+    import types
+
     from app.pr import reproduce as rp_mod
 
     snap_dir = harness_root / "data" / "snapshots"
@@ -118,12 +124,9 @@ def _patch_run_open_pr_writing(
         (snap_dir / f"{tournament_id}.{output_suffix}.leaderboard.md").write_text("# x")
         return 0
 
-    # Patch the module-level binding `run_open_pr` if reproduce imports it lazily,
-    # we instead patch via `app.pr.open_pr` so the import inside run_reproduce
-    # picks up the fake.
-    import app.pr.open_pr as op_mod
-
-    monkeypatch.setattr(op_mod, "run_open_pr", fake_run_open_pr)
+    fake_mod = types.ModuleType("app.pr.open_pr")
+    fake_mod.run_open_pr = fake_run_open_pr
+    monkeypatch.setitem(sys.modules, "app.pr.open_pr", fake_mod)
     return rp_mod
 
 
