@@ -54,6 +54,17 @@ def cmd_leaderboard_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_open_pr(args: argparse.Namespace) -> int:
+    # Lazy import: open_pr pulls numpy / TF (via predict_fn → ml-retraining).
+    from app.pr.open_pr import run_open_pr
+
+    return run_open_pr(
+        args.tournament_id,
+        allow_dirty=args.allow_dirty,
+        dry_run=args.dry_run,
+    )
+
+
 def cmd_export_snapshot(args: argparse.Namespace) -> int:
     from app.leaderboard.snapshot import export_snapshot
 
@@ -115,6 +126,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_snap.add_argument("tournament_id")
     p_snap.add_argument("--output", help="Override default snapshot path")
     p_snap.set_defaults(func=cmd_export_snapshot)
+
+    p_pr = sub.add_parser(
+        "open-pr",
+        help="Build ensemble + significance + draft PR for a tournament",
+    )
+    p_pr.add_argument("tournament_id")
+    p_pr.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Allow dirty tree (mirrors `tournament run`)",
+    )
+    p_pr.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write artifacts but do NOT invoke gh pr create",
+    )
+    p_pr.set_defaults(func=cmd_open_pr)
 
     return parser
 
