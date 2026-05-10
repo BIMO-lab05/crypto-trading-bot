@@ -160,9 +160,43 @@ def test_pr_body_reproducer_line_present():
 
 
 def test_pr_body_length_cap_falls_back_to_summary():
-    # Manufacture 200+ rows so leaderboard markdown alone exceeds 60k.
-    big_rows = [_row("BTCUSDT", f"r{i}", dsr=0.9 - i * 0.001) for i in range(300)]
-    body, *_ = _make_body(extra_rows=big_rows)
+    # Manufacture many symbols each with many rows so leaderboard markdown
+    # alone exceeds 60k. Top-5 caps per symbol → need ~100+ symbols.
+    symbols = tuple(f"SYM{i:03d}" for i in range(150))
+    rows = []
+    for sym in symbols:
+        for j in range(10):
+            rows.append(_row(sym, f"{sym}-r{j}", dsr=0.9 - j * 0.01))
+    snap = _snapshot(symbols=symbols, rows=rows)
+    per_symbol = {
+        sym: {
+            "win_gate_passed": False,
+            "gate_failure_reasons": ["sharpe_pvalue>=0.05"],
+            "n_members": 3,
+        }
+        for sym in symbols
+    }
+    sig = _significance(per_symbol, n_winning_symbols=0)
+    ensembles = {
+        sym: [
+            {"run_id": f"{sym}-r{i}", "architecture": "gru", "hp_hash": "h", "dsr": 0.9}
+            for i in range(3)
+        ]
+        for sym in symbols
+    }
+    lb_md = render_leaderboard_markdown(snap, sig, ensembles)
+    assert len(lb_md) > MAX_BODY_CHARS, "test fixture must produce overlong leaderboard"
+    body = render_pr_body(
+        tournament_id="t-test",
+        git_sha="abc1234",
+        snapshot=snap,
+        ensembles=ensembles,
+        significance=sig,
+        leaderboard_markdown=lb_md,
+        leaderboard_md_relative_path="data/snapshots/t-test.leaderboard.md",
+        tournaments_evaluated_count=3,
+        prior_tournament_ids=("t-prev1", "t-prev2"),
+    )
     assert len(body) <= MAX_BODY_CHARS
     assert "data/snapshots/t-test.leaderboard.md" in body
 
