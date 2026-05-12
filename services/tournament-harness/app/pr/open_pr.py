@@ -87,6 +87,40 @@ logger = logging.getLogger(__name__)
 HARNESS_ROOT = Path(__file__).resolve().parents[2]  # services/tournament-harness/
 
 
+def _zero_safe_baseline_sharpe(
+    baseline_log_ret: np.ndarray, *, var_eps: float = 1e-12
+) -> float:
+    """Sharpe of the D-04 persistence baseline, never nan.
+
+    PSR is undefined for a zero-variance series (returns nan per
+    ``sharpe_metrics.probabilistic_sharpe_ratio`` docstring line 171-172).
+    The persistence baseline is exactly that: predict ``last_close`` every
+    step → log-return = 0 every bar → constant zero series. A constant
+    baseline has no risk-adjusted return signal, so we DEFINE its Sharpe
+    to be 0.0. The lift ``ens_sharpe - base_sharpe`` then reduces to the
+    candidate's own PSR, which is the load-bearing comparison anyway.
+
+    Scope is bounded by T-04-10-01: this shortcut applies ONLY to the
+    baseline side. The candidate still flows through the full canonical
+    PSR path at the call site. A genuinely flat candidate yields
+    ``candidate_psr = nan``, ``lift = nan - 0 = nan``, and the win-gate's
+    ``not (lift > 0)`` check (``nan > 0`` is False) records
+    ``sharpe_lift_non_positive`` — the fix never masks a no-edge candidate.
+
+    The ``var_eps`` gate (``1e-12``) catches floating-point drift around
+    strict zero — if an upstream subtraction produces a series of 1e-15
+    instead of strict zeros, the canonical PSR would still return nan
+    (``std == 0.0`` strict equality holds at that magnitude in some
+    representations); ``var_eps`` makes the short-circuit robust.
+    """
+    arr = np.asarray(baseline_log_ret, dtype=float)
+    if arr.size < 2:
+        return 0.0
+    if float(np.std(arr, ddof=1)) < var_eps:
+        return 0.0
+    return float(probabilistic_sharpe_ratio(arr, benchmark_sr=0.0))
+
+
 def _load_snapshot(tournament_id: str) -> Dict[str, Any]:
     path = HARNESS_ROOT / "data" / "snapshots" / f"{tournament_id}.json"
     if not path.exists():
@@ -199,9 +233,11 @@ def run_open_pr(
             dir_acc_corrected_from_log_returns(actual_log_ret, baseline_log_ret)
         )
         ens_sharpe = float(probabilistic_sharpe_ratio(ens_log_ret, benchmark_sr=0.0))
-        base_sharpe = float(
-            probabilistic_sharpe_ratio(baseline_log_ret, benchmark_sr=0.0)
-        )
+        # Plan 04-10 Gap A fix: PSR(zeros) returns nan (std==0 → divide-by-zero
+        # in the canonical formula). The persistence baseline IS all-zero log
+        # returns by D-04 design. Define its Sharpe as 0.0 so the lift below
+        # is finite. The candidate's PSR path is unchanged.
+        base_sharpe = _zero_safe_baseline_sharpe(baseline_log_ret)
         sharpe_lift = ens_sharpe - base_sharpe
         dir_acc_lift = ens_dir_acc - base_dir_acc
 
