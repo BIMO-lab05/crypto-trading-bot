@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-05-09T23:20:47.514Z"
-last_activity: 2026-05-09 -- Phase 04 execution started
+stopped_at: Completed 04-09-PLAN.md (CI wiring)
+last_updated: "2026-05-12T23:04:12.851Z"
+last_activity: 2026-05-12
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 30
-  completed_plans: 23
-  percent: 77
+  completed_phases: 4
+  total_plans: 33
+  completed_plans: 33
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 ## Current Position
 
 Phase: 04 (tournament-significance-auto-pr) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 04
-Last activity: 2026-05-09 -- Phase 04 execution started
+Plan: 2 of 7
+Status: Ready to execute
+Last activity: 2026-05-12
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 04-tournament-significance-auto-pr P09 | 35min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - Init: Win criterion is DSR + bootstrap p<0.05 on OOS Sharpe / corrected Dir.Acc, not >5% R²
 - Init: Bootstrap-tests run against fresh clone in tmp, never against working tree
 - Init: Tournament wins open draft PRs; humans merge
+- [Phase 04]: Used pytest --ignore (cwd-relative) over --deselect (rootdir-relative) in integration-fake-docker CI step — Plan literal --deselect tests/integration/X.py silently matched nothing because pytest rootdir is repo root; --ignore preserves cwd-relative path form and works correctly. Verified 26 passed / 14 ignored vs 40 collected with broken form.
+- [Phase 04]: 0-SKIP grep guard in container-integration CI job is load-bearing — Pairs with Plan 04-08 test_canonical_metrics_importable.py for defence in depth — catches silent namespace-merge regression even if the regression test itself is re-routed to a skip path.
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None yet (use `/gsd-capture` to add).
 
 ## Session Continuity
 
-Last session: 2026-05-09T21:37:15.424Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-tournament-significance-auto-pr/04-CONTEXT.md
+Last session: 2026-05-12T23:04:12.754Z
+Stopped at: Completed 04-09-PLAN.md (CI wiring)
+Resume file: None
