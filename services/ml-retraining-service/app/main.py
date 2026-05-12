@@ -41,7 +41,9 @@ async def lifespan(app: FastAPI):
     """Application lifecycle management"""
     # Startup
     logger.info("=" * 60)
-    logger.info(f"Starting {settings.service_name} v{__import__('app').__version__}")
+    from app._version import __version__ as _service_version
+
+    logger.info(f"Starting {settings.service_name} v{_service_version}")
     logger.info("=" * 60)
 
     try:
@@ -117,10 +119,12 @@ async def health_check():
 
     Returns basic service status
     """
+    from app._version import __version__ as _service_version
+
     return {
         "status": "healthy",
         "service": settings.service_name,
-        "version": __import__("app").__version__,
+        "version": _service_version,
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -147,10 +151,12 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)):
         logger.error(f"Error checking running jobs: {e}")
         running_jobs = -1
 
+    from app._version import __version__ as _service_version
+
     return {
         "status": "healthy" if db_healthy else "degraded",
         "service": settings.service_name,
-        "version": __import__("app").__version__,
+        "version": _service_version,
         "database": "healthy" if db_healthy else "unhealthy",
         "running_jobs": running_jobs,
         "timestamp": datetime.now().isoformat(),
@@ -491,10 +497,12 @@ async def get_service_status(db: AsyncSession = Depends(get_db)):
         )
         last_job = result.scalar_one_or_none()
 
+        from app._version import __version__ as _service_version
+
         return {
             "success": True,
             "service": settings.service_name,
-            "version": __import__("app").__version__,
+            "version": _service_version,
             "job_statistics": job_stats,
             "model_statistics": model_stats,
             "last_job": last_job.to_dict() if last_job else None,
