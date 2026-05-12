@@ -1,27 +1,31 @@
 ---
 phase: 04-tournament-significance-auto-pr
-verified: 2026-05-10T01:31:27Z
-status: human_needed
-score: 4/4 ROADMAP success criteria verified (with one CI-wiring caveat below)
+verified: 2026-05-13T00:00:00Z
+status: verified
+score: 4/4 ROADMAP success criteria verified end-to-end (container-only tests now PASS post-04-08/04-10; CI wired in 04-09)
 re_verification:
-  previous_status: none
-  previous_score: n/a
-human_verification:
-  - test: "Run the Phase 4 e2e test suite inside the harness Docker container (PYTHONPATH=/app:/opt/ml_retraining)"
-    expected: "tests/integration/test_open_pr_e2e.py (7 tests) and tests/integration/test_reproduce_idempotent.py (3 tests) all PASS — they are skipped on host because the canonical metric chain (sharpe_metrics, cpcv) only resolves inside the harness image. Documented skip via the _CANONICAL_METRICS_AVAILABLE gate in test_open_pr_e2e.py:38-49."
-    why_human: "Host pytest cannot merge ml-retraining and tournament-harness into the same `app` namespace; only the container build does this. SUMMARY 04-06 claims these tests passed in the container but that evidence is not visible to host verification."
-  - test: "Wire the four Phase 4 grep-gate integration tests + the e2e + reproduce tests into .github/workflows/tournament-harness.yml"
-    expected: "The integration-fake-docker job currently invokes only test_tourn07_grep_gate.py and test_orchestrator_with_fake_docker.py. Phase 4 added test_no_legacy_r2_criterion.py, test_no_auto_merge.py, test_klines_filter_required.py, test_no_parallel_metric_reimplementations.py, test_open_pr_e2e.py, test_reproduce_idempotent.py — none of these are listed. The 04-05 SUMMARY claims 'will pick up new tests automatically when CI re-runs' which is FALSE for the current pytest invocation form. They run on host pytest but not in CI."
-    why_human: "Decide whether to (a) extend tournament-harness.yml's integration-fake-docker step to include `tests/integration/` directory glob, or (b) accept this as deferred to Phase 5/6. The grep-gate invariants currently rely on the unit-test job running test_pr_gh.py::test_no_gh_pr_merge_in_module (which DOES run in CI), but the integration-layer gates over the full `app/` tree are not enforced in CI."
+  previous_status: human_needed
+  previous_score: "4/4 with caveats (2026-05-10)"
+  closed_by:
+    - "04-08-PLAN.md — PEP 420 namespace-pkg merge (deleted both app/__init__.py; restored ml-retraining __version__ via app/_version.py)"
+    - "04-10-PLAN.md — zero-safe baseline sharpe in open_pr.py (guards PSR(zeros) → nan propagation)"
+    - "04-09-PLAN.md — CI wiring: integration-fake-docker glob + new container-integration job (0-SKIP grep guard)"
+  verified_evidence:
+    container_e2e: "13 passed, 0 skipped, 0 failed (test_open_pr_e2e.py 7/7 + test_reproduce_idempotent.py 3/3 + test_canonical_metrics_importable.py 3/3) — logged at /tmp/04-10-e2e.log"
+    host_grep_gates: "18 passed across 4 Phase 4 integration files (test_no_legacy_r2_criterion 5/5, test_no_auto_merge 4/4, test_klines_filter_required 5/5, test_no_parallel_metric_reimplementations 4/4)"
+    host_integration: "26 passed total under integration-fake-docker glob form (18 grep gates + 8 Phase 3 integration)"
+    unit_significance: "213 passed on host unit suite (was 208 + 5 new zero-variance baseline tests = 213); bootstrap.py and ml-retraining sharpe_metrics.py byte-identical (git diff empty)"
+    ci_wiring: ".github/workflows/tournament-harness.yml — integration-fake-docker switched to `pytest tests/integration/ -v --ignore=...` form; new container-integration job (44 lines) added with rebuild + 0-SKIP guard; integration-real-stack `test_end_to_end_tournament.py` invocation preserved"
+    ci_run: "Blocked by GitHub Actions billing — operator action only (github.com/settings/billing). YAML validated locally with python -c 'import yaml; yaml.safe_load(open(...))'. Workflow not yet visible in `gh workflow list` until first successful run."
 ---
 
 # Phase 4: Tournament Significance & Auto-PR — Verification Report
 
 **Phase Goal:** A tournament run automatically constructs a top-3 ensemble, runs a bootstrap significance test against the production baseline on OOS Sharpe and corrected directional accuracy, and opens a draft PR with the leaderboard and significance results when the ensemble wins — humans always merge.
 
-**Verified:** 2026-05-10T01:31:27Z
-**Status:** human_needed (code complete; container-only tests + CI wiring need operator attention)
-**Re-verification:** No — initial verification
+**Verified:** 2026-05-13T00:00:00Z (re-verified after gap closure)
+**Status:** verified — all 4 ROADMAP SC end-to-end green; CI run blocked only by GH Actions billing (operator action).
+**Re-verification:** Yes — initial 2026-05-10 verification was `human_needed` (4/4 SC met but container e2e + CI gates unverified). Closed by plans 04-08, 04-10, 04-09 (see frontmatter `closed_by`).
 
 ## Goal Achievement
 

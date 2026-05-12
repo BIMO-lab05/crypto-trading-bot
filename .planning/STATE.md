@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 04-09-PLAN.md (CI wiring)
-last_updated: "2026-05-12T23:04:12.851Z"
-last_activity: 2026-05-12
+status: phase_04_verified
+stopped_at: Phase 04 gap closure complete (04-08 + 04-10 + 04-09), pushed to origin
+last_updated: "2026-05-13T00:00:00.000Z"
+last_activity: 2026-05-13 -- Phase 04 verified end-to-end (13/13 in-container e2e PASS, 18 grep gates PASS, CI wired)
 progress:
   total_phases: 7
   completed_phases: 4
@@ -21,16 +21,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-06)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns.
-**Current focus:** Phase 04 — tournament-significance-auto-pr
+**Current focus:** Phase 05 — ML Cleanup (post-V0) (next, not yet planned)
 
 ## Current Position
 
-Phase: 04 (tournament-significance-auto-pr) — EXECUTING
-Plan: 2 of 7
-Status: Ready to execute
-Last activity: 2026-05-12
+Phase: 04 (tournament-significance-auto-pr) — **VERIFIED** ✓
+Plans: 9 of 9 complete (04-01..04-07 original + 04-08, 04-09, 04-10 gap closure)
+Status: Ready to advance to Phase 05
+Verification: 4/4 ROADMAP SC verified end-to-end (in-container 13/13 PASS, host grep gates 26 PASS, no skips). Gaps from `/gsd-verify-work` UAT closed in plans 04-08 (PEP 420 namespace fix), 04-10 (zero-safe baseline sharpe), 04-09 (CI wiring).
+Last activity: 2026-05-13 -- Phase 04 verified + pushed to origin/sync/cherry-picks-2026-05-05 @ d4808e9
 
-Progress: [██████████] 100%
+CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
+
+Progress: [████████░░] 4/7 phases (57%)
 
 ## Performance Metrics
 
@@ -93,6 +96,7 @@ None yet (use `/gsd-capture` to add).
 
 ## Session Continuity
 
-Last session: 2026-05-12T23:04:12.754Z
-Stopped at: Completed 04-09-PLAN.md (CI wiring)
+Last session: 2026-05-13T00:00:00.000Z
+Stopped at: Phase 04 verified + pushed (origin @ d4808e9). CI billing blocked.
 Resume file: None
+Next: `/gsd-plan-phase 05` (ML Cleanup post-V0) — depends on Phase 04 being verified ✓
