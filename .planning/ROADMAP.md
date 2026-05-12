@@ -136,10 +136,13 @@ Plans:
   2. Exactly one T0.1.x experiment from {different horizon, classification head, XGBoost control, cross-sectional features, sentiment-as-filter} runs through the tournament harness and its result (edge or no-edge) is committed to the leaderboard with a written decision note
   3. `scripts/monitoring/*` is either removed or wired with documented blast-radius bounds, no `claude -p` PR-opening from CI without human review, and the decision is committed
   4. `run_extended_backtest.py` either uses the live `CoreAggregator` or its module docstring + runtime warning permanently states the divergence with no further ambiguity
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 05-01: TBD
+- [ ] 05-01-PLAN.md — MLCL-01 forward-paper-test apparatus + PSR-with-bootstrap-CI + default-on pytest gate for the three Tier-1 opt-in flags
+- [ ] 05-02-PLAN.md — MLCL-02 select + ship one T0.1.x experiment through the tournament harness with a binding decision note (EDGE_FOUND / NO_EDGE_FOUND / INSUFFICIENT_DATA)
+- [ ] 05-03-PLAN.md — MLCL-03 binding disposition of scripts/monitoring/* (delete-all / wire-with-bounds / keep-tier1-delete-tier2) + ADR-011 + grep-gate against claude -p in CI
+- [ ] 05-04-PLAN.md — MLCL-04 resolve run_extended_backtest.py divergence (rewrite to CoreAggregator OR document permanently + runtime warning) + ADR-012
 
 ### Phase 6: Dashboard Audit & Safety State
 **Goal**: The React dashboard shows real backend state, surfaces safety posture (PAPER/LIVE, kill-switch, EMERGENCY_STOP, ML predictions toggle) prominently, replaces hardcoded URLs with config-driven values, and renders explicit empty/error states instead of silent zeros.
@@ -181,6 +184,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Integration Test Suite & RUNBOOK | 0/10 | Not started | - |
 | 3. Tournament Harness Core | 0/9 | Not started | - |
 | 4. Tournament Significance & Auto-PR | 0/7 | Not started | - |
-| 5. ML Cleanup (post-V0) | 0/TBD | Not started | - |
+| 5. ML Cleanup (post-V0) | 0/4 | Not started | - |
 | 6. Dashboard Audit & Safety State | 0/TBD | Not started | - |
 | 7. Tournament View & Smoke Test | 0/TBD | Not started | - |
