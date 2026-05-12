@@ -74,12 +74,69 @@ jobs:
           pip install -r services/tournament-harness/requirements.txt
           pip install -r services/ml-retraining-service/requirements.txt || true
       - name: Run grep-gate + fake-docker integration tests
+        # INVARIANT: Phase 4 grep gates must run on every PR. When adding new
+        # integration tests, extend the --ignore list ONLY if the new file is
+        # container-only or real-stack-only. Default policy: NEW grep gates run
+        # automatically via the directory glob — do NOT extend the inclusion list.
+        # See .planning/phases/04-tournament-significance-auto-pr/04-UAT.md Test 7.
+        #
+        # NOTE on flag choice (--ignore vs --deselect): pytest's rootdir is the repo
+        # root via repo-level pytest.ini, so collected node IDs are
+        # `services/tournament-harness/tests/integration/...`. Plain `--deselect
+        # tests/integration/X.py` (cwd-relative) silently matches nothing. We use
+        # `--ignore=tests/integration/X.py` because it interprets paths relative to
+        # cwd at collection time, matching the natural form of the run block.
         env:
           PYTHONPATH: services/tournament-harness:services/ml-retraining-service
         run: |
           cd services/tournament-harness
-          pytest tests/integration/test_tourn07_grep_gate.py -v
-          pytest tests/integration/test_orchestrator_with_fake_docker.py -v
+          pytest tests/integration/ -v \
+            --ignore=tests/integration/test_open_pr_e2e.py \
+            --ignore=tests/integration/test_reproduce_idempotent.py \
+            --ignore=tests/integration/test_canonical_metrics_importable.py \
+            --ignore=tests/integration/test_end_to_end_tournament.py
+
+  container-integration:
+    name: Integration (tournament-harness container)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tournament-harness image (no cache, no BuildKit)
+        env:
+          DOCKER_BUILDKIT: 0
+        run: |
+          docker compose -f docker-compose.unified.yml --profile tournament \
+              build --no-cache tournament-harness
+      - name: Verify canonical metric chain resolves inside container
+        run: |
+          docker compose -f docker-compose.unified.yml --profile tournament run --rm \
+              -e PYTHONPATH=/app:/opt/ml_retraining \
+              tournament-harness \
+              python -c "from app.runner.metrics_bridge import _CANONICAL_METRICS_AVAILABLE; \
+                         assert _CANONICAL_METRICS_AVAILABLE is True, 'namespace-package merge regressed — see 04-UAT.md Test 6 / Plan 04-08'; \
+                         print('CANONICAL_METRICS_AVAILABLE = True')"
+      - name: Run container-only integration tests (Phase 4 e2e + reproduce + namespace regression)
+        run: |
+          set -o pipefail
+          docker compose -f docker-compose.unified.yml --profile tournament run --rm \
+              -v "$(pwd)/services/tournament-harness/tests:/app/tests:ro" \
+              -e PYTHONPATH=/app:/opt/ml_retraining \
+              tournament-harness \
+              pytest tests/integration/test_open_pr_e2e.py \
+                     tests/integration/test_reproduce_idempotent.py \
+                     tests/integration/test_canonical_metrics_importable.py \
+                     -v 2>&1 | tee /tmp/container-integration.log
+          # 04-UAT.md Test 6 + Plan 04-08 invariant: 0 SKIPPED inside the container.
+          # If any of the 3 files SKIPs, the namespace-package fix has regressed.
+          if grep -E '^[0-9]+ skipped' /tmp/container-integration.log; then
+            echo "::error::container-integration job: SKIPPED tests detected — namespace-package fix from Plan 04-08 likely regressed."
+            exit 1
+          fi
+      - name: Tear down (cleanup ephemeral containers/networks)
+        if: always()
+        run: |
+          docker compose -f docker-compose.unified.yml --profile tournament down -v --remove-orphans || true
 
   integration-real-stack:
     name: Integration (real Docker stack - nightly only)
