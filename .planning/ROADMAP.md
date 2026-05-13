@@ -153,11 +153,18 @@ Plans:
   2. The dashboard header shows current TRADING_MODE, `auto_trading_enabled`, kill-switch state, EMERGENCY_STOP file presence, and `ENABLE_ML_PREDICTIONS` — operator sees safety state at first glance
   3. No hardcoded backend URLs remain in frontend source — `grep -rn "http://localhost\|ws://localhost" frontend/src/` returns only documented dev-config defaults
   4. Each tile renders an explicit "no data" or "endpoint failed" message when the backend response is empty or non-200, instead of a blank chart or a default zero
-**Plans**: TBD
+**Plans**: 5 plans
 **UI hint**: yes
 
 Plans:
-- [ ] 06-01: TBD
+**Wave 1** (parallel, no inter-plan dependencies)
+- [ ] 06-01-PLAN.md — DASH-01 tile audit: 06-TILE-AUDIT.md + 06-TILE-AUDIT.json sidecar + scripts/audit_tiles.py runtime probe; operator-reviewed verdicts {FIXED, LABELED_STALE, REMOVED}
+- [ ] 06-02-PLAN.md — DASH-03 backend: extend trading-engine /status with emergency_stop.mtime + new GET /api/config/safety-state on api-gateway (D-08 schema) + in-container pytest
+- [ ] 06-03-PLAN.md — DASH-02 config-driven URLs: migrate useGatewayWebSocket.js:34 to VITE_WS_URL + extend vite.config.js doc block + install grep-gate npm script
+
+**Wave 2** (blocked on Wave 1)
+- [ ] 06-04-PLAN.md — DASH-03 frontend (depends on 06-02): useSafetyState hook + 3 new StatusBar cells (MODE/KILL-SWITCH/ML) + PAPER/LIVE viewport border in App.jsx
+- [ ] 06-05-PLAN.md — DASH-05 (depends on 06-01): shared <TileState/> wrapper + refactor every FIXED/LABELED_STALE tile + delete REMOVED tiles; operator smoke + audit re-run
 
 ### Phase 7: Tournament View & Smoke Test
 **Goal**: The dashboard reads the tournament leaderboard so the operator can see ML evaluation results without leaving the UI, and a Playwright smoke test asserts every major tile renders non-empty against the recorded-tape stack.
@@ -185,5 +192,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Tournament Harness Core | 0/9 | Not started | - |
 | 4. Tournament Significance & Auto-PR | 0/7 | Not started | - |
 | 5. ML Cleanup (post-V0) | 4/4 | Complete | 2026-05-13 |
-| 6. Dashboard Audit & Safety State | 0/TBD | Not started | - |
+| 6. Dashboard Audit & Safety State | 0/5 | Not started | - |
 | 7. Tournament View & Smoke Test | 0/TBD | Not started | - |
