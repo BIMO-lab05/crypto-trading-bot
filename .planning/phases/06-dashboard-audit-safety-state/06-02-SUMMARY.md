@@ -309,19 +309,38 @@ No new security-relevant surface introduced beyond what the plan's threat_model 
 
 Plan 06-02 uses task-level `tdd="true"` (not plan-level `type: tdd`). For Tasks 1, 2, 4: a `test(...)` RED commit was created and the test was confirmed to FAIL before the corresponding `feat(...)` GREEN commit, where the test then PASSES. All three TDD cycles complete.
 
+## Known gotcha — verifier note on container-test invocation
+
+**The plan acceptance criteria say `docker exec crypto-bot-api-gateway pytest /app/tests/test_safety_state.py -x`. On a freshly built image, `/app/tests/` does NOT exist.** Both `services/api-gateway/Dockerfile` and `services/trading-engine/Dockerfile` only `COPY ./app/` — they intentionally exclude the test directory from production images (good security practice).
+
+To reproduce the in-container pytest runs documented above, use the same workaround this plan used:
+
+```bash
+docker exec crypto-bot-api-gateway mkdir -p /tmp/tests
+docker cp services/api-gateway/tests/conftest.py crypto-bot-api-gateway:/tmp/tests/
+docker cp services/api-gateway/tests/__init__.py crypto-bot-api-gateway:/tmp/tests/
+docker cp services/api-gateway/tests/test_safety_state.py crypto-bot-api-gateway:/tmp/tests/
+docker exec -w /app crypto-bot-api-gateway python -m pytest /tmp/tests/test_safety_state.py -x
+```
+
+(Or build a dedicated test image with `--target tests` if the Dockerfile gains a tests stage in a future plan; out of scope here.)
+
+The hot-patch approach (`docker cp` of source + `docker restart`) was used in this session to verify the live endpoint behavior against the running stack without forcing a full image rebuild. The orchestrator's merge-back will rebuild images from worktree source and the route + handler extensions will land cleanly.
+
 ## Self-Check: PASSED
 
 ### Created files verified
-```bash
-[ -f "services/trading-engine/tests/test_health_status.py" ] && echo FOUND
-# FOUND
-[ -f "services/trading-engine/tests/test_risk_budget_daily_pnl_pct.py" ] && echo FOUND
-# FOUND
-[ -f "services/api-gateway/tests/test_safety_state.py" ] && echo FOUND
-# FOUND
-[ -f ".planning/phases/06-dashboard-audit-safety-state/deferred-items.md" ] && echo FOUND
-# FOUND
-```
+- FOUND: services/trading-engine/tests/test_health_status.py
+- FOUND: services/trading-engine/tests/test_risk_budget_daily_pnl_pct.py
+- FOUND: services/api-gateway/tests/test_safety_state.py
+- FOUND: .planning/phases/06-dashboard-audit-safety-state/deferred-items.md
+- FOUND: .planning/phases/06-dashboard-audit-safety-state/06-02-SUMMARY.md
+
+### Modified files verified
+- FOUND: services/trading-engine/app/handlers/health.py
+- FOUND: services/trading-engine/app/risk/dynamic_risk_budget.py
+- FOUND: services/api-gateway/app/main.py
+- FOUND: docker-compose.unified.yml
 
 ### Commits verified
-All 7 commit hashes (003071b, 150f9b2, 5e56781, eb97b5b, 72333d8, 45f2a8d, b33e7ae) appear in `git log --oneline -8`.
+All 8 commit hashes (003071b, 150f9b2, 5e56781, eb97b5b, 72333d8, 45f2a8d, b33e7ae, 06005c3) confirmed present via `git log --oneline --all | grep <hash>`.
