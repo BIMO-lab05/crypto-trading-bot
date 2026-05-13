@@ -208,9 +208,29 @@ async def get_status() -> StatusResponse:
     from app.auto_trader import get_auto_trader
 
     auto_trader = get_auto_trader()
+
+    # mtime: ISO 8601 UTC string if the kill-switch file is a real regular
+    # file; None otherwise (missing, OR a directory thanks to the WSL
+    # bind-mount race — see CLAUDE.md "WSL bind-mount race" gotcha). Used
+    # by the dashboard to display "armed since: <ts>" per DASH-03 / D-08.
+    # Guard with is_file() (NOT exists()) and catch stat() races so the
+    # /status endpoint never raises just because the file vanished.
+    mtime_iso: str | None = None
+    try:
+        p = auto_trader.emergency_stop_file
+        if p.is_file():
+            from datetime import datetime, timezone
+
+            mtime_iso = datetime.fromtimestamp(
+                p.stat().st_mtime, tz=timezone.utc
+            ).isoformat()
+    except Exception:  # pragma: no cover - defensive
+        mtime_iso = None
+
     emergency_stop_state = {
         "file_path": str(auto_trader.emergency_stop_file),
         "active": auto_trader.emergency_stop_active,
+        "mtime": mtime_iso,
         "last_checked": (
             auto_trader.emergency_stop_last_checked.isoformat()
             if auto_trader.emergency_stop_last_checked

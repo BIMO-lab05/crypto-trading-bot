@@ -280,6 +280,12 @@ services:
       # Emergency stop file - admin endpoint writes here, trading-engine reads
       # the same host file via its own bind-mount (see trading-engine block).
       - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
+      # Trading-mode flags — read by /api/config/safety-state (DASH-03 / Plan 06-02).
+      # Defaults match CLAUDE.md project rules: TRADING_MODE starts at PAPER, the
+      # four deliberate steps to LIVE require explicit env override.
+      - TRADING_MODE=${TRADING_MODE:-PAPER}
+      - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
+      - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-false}
     volumes:
       - ./services/api-gateway/logs:/app/logs
       # RW for the gateway: it creates/overwrites the EMERGENCY_STOP file.
