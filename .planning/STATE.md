@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 04 verified + pushed (origin @ d4808e9). CI billing blocked.
-last_updated: "2026-05-13T00:29:36.879Z"
-last_activity: 2026-05-13 -- Phase 5 planning complete
+stopped_at: Phase 05 Plan 01 complete (05-01 MLCL-01 apparatus + gate).
+last_updated: "2026-05-13T00:00:00.000Z"
+last_activity: 2026-05-13 -- Phase 05 Plan 01 complete (MLCL-01)
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 37
-  completed_plans: 33
-  percent: 89
+  completed_plans: 35
+  percent: 95
 ---
 
 # Project State
@@ -25,15 +25,14 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 04 (tournament-significance-auto-pr) — **VERIFIED** ✓
-Plans: 9 of 9 complete (04-01..04-07 original + 04-08, 04-09, 04-10 gap closure)
-Status: Ready to execute
-Verification: 4/4 ROADMAP SC verified end-to-end (in-container 13/13 PASS, host grep gates 26 PASS, no skips). Gaps from `/gsd-verify-work` UAT closed in plans 04-08 (PEP 420 namespace fix), 04-10 (zero-safe baseline sharpe), 04-09 (CI wiring).
-Last activity: 2026-05-13 -- Phase 5 planning complete
+Phase: 05 (ml-cleanup-post-v0) — **EXECUTING** (Plan 01 of 4 complete)
+Plans: 1 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate; 05-02, 05-03, 05-04 pending — each requires human-decision checkpoint at Task 1)
+Status: Executing Phase 05
+Last activity: 2026-05-13 -- Plan 05-01 complete (MLCL-01: forward-paper-test apparatus, PSR-CI kernel, default-on gate for Tier-1 flags)
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 
-Progress: [████████░░] 4/7 phases (57%)
+Progress: [████████░░] 4/7 phases complete + Phase 05 in progress (57% → 95% of total plans)
 
 ## Performance Metrics
 
@@ -97,6 +96,6 @@ None yet (use `/gsd-capture` to add).
 ## Session Continuity
 
 Last session: 2026-05-13T00:00:00.000Z
-Stopped at: Phase 04 verified + pushed (origin @ d4808e9). CI billing blocked.
+Stopped at: Plan 05-01 complete (MLCL-01). Operator action: run ≥7-day evidence loops per Tier-1 flag.
 Resume file: None
-Next: `/gsd-plan-phase 05` (ML Cleanup post-V0) — depends on Phase 04 being verified ✓
+Next: `/gsd-execute-phase 05` plans 05-02, 05-03, 05-04 — each requires human-decision checkpoint at Task 1 (ML retrain scope, autonomous-tier decision, model acceptance gate).
