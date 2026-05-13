@@ -170,6 +170,50 @@ def test_labeled_stale_row_skipped(tmp_path, capsys):
     assert "ASK_OPERATOR" not in captured
 
 
+def test_page_level_composition_row_skipped(tmp_path, capsys):
+    """Page-level rows (endpoint starts with 'n/a') are skipped even when FIXED.
+
+    Auto-fixed during Task 2 integration: probing the running stack tripped
+    on a Phase1Dashboard row whose endpoint is 'n/a (page composes
+    sub-tiles)'. load_inventory now filters these out so page-level
+    composition rows can stay verdict=FIXED in the inventory (operator
+    visibility) without breaking the regression gate.
+    """
+    tiles = [
+        {
+            "tile": "REAL_TILE",
+            "endpoint": "/api/trading/performance",
+            "expected_shape": {"success": "bool"},
+            "verdict": "FIXED",
+            "last_updated_at_emitter": "no",
+        },
+        {
+            "tile": "PAGE_LEVEL",
+            "endpoint": "n/a (page composes sub-tiles)",
+            "expected_shape": {"_composition": "list[object]"},
+            "verdict": "FIXED",
+            "last_updated_at_emitter": "n/a",
+        },
+    ]
+    inv = _write_inventory(tmp_path, tiles)
+
+    calls: list[str] = []
+
+    def fake_get(url, timeout):
+        calls.append(url)
+        return _make_response(200, {"success": True})
+
+    with mock.patch.object(audit_tiles.requests, "get", side_effect=fake_get):
+        with pytest.raises(SystemExit) as exc:
+            audit_tiles.main(["--against", "http://stub-host", "--inventory", str(inv)])
+    assert exc.value.code == 0
+    assert len(calls) == 1
+    assert "performance" in calls[0]
+    captured = capsys.readouterr().out
+    assert "PAGE_LEVEL" not in captured
+    assert "1/1 tiles PASS" in captured
+
+
 def test_shape_matches_accepts_empty_list_for_list_type(tmp_path, capsys):
     """Test 4: expected list[object] is satisfied by empty list payload."""
     tiles = [
