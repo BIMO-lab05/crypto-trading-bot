@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Plan 05-03 complete (MLCL-03). Tier-2 monitoring deleted (ADR-011). Tier-1 retained. Grep gate added. Next: 05-04 (MLCL-04 run_extended_backtest.py divergence)."
+stopped_at: "Plan 05-04 complete (MLCL-04). run_extended_backtest.py SC-4 closed via PERMANENT DIVERGENCE framing + runtime warning + ADR-012. Phase 05 all 4 plans complete."
 last_updated: "2026-05-13T00:00:00.000Z"
-last_activity: "2026-05-13 -- Plan 05-03 complete (MLCL-03: tier-2 deleted per STRIDE, ADR-011 filed, 4-test grep gate passing)"
+last_activity: "2026-05-13 -- Plan 05-04 complete (MLCL-04: SC-4 punt language removed, PERMANENT DIVERGENCE docstring + _emit_divergence_warning() + ADR-012 filed, 5-test pytest invariant passing)"
 progress:
   total_phases: 7
   completed_phases: 4
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 05 (ml-cleanup-post-v0) — **EXECUTING** (Plan 03 of 4 complete)
-Plans: 3 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 pending)
-Status: Executing Phase 05
-Last activity: 2026-05-13 -- Plan 05-03 complete (MLCL-03: tier-2 monitoring deleted per STRIDE analysis, ADR-011 filed, 4-test grep gate passing, tier-1 retained)
+Phase: 05 (ml-cleanup-post-v0) — **COMPLETE** (all 4 plans done)
+Plans: 4 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 MLCL-04 backtest divergence documented DONE)
+Status: Phase 05 complete — ready for verification
+Last activity: 2026-05-13 -- Plan 05-04 complete (MLCL-04: SC-4 punt language removed, PERMANENT DIVERGENCE marker + _emit_divergence_warning() + ADR-012, 5-test pytest gate passing)
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 
@@ -58,6 +58,7 @@ Progress: [████████░░] 4/7 phases complete + Phase 05 in pro
 | Phase 04-tournament-significance-auto-pr P09 | 35min | 3 tasks | 1 files |
 | Phase 05-ml-cleanup-post-v0 P02 | ~25min | 3 tasks | 7 files |
 | Phase 05-ml-cleanup-post-v0 P03 | ~25min | 3 tasks | 8 files |
+| Phase 05-ml-cleanup-post-v0 P04 | ~30min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,7 @@ Recent decisions affecting current work:
 - [Phase 04]: Used pytest --ignore (cwd-relative) over --deselect (rootdir-relative) in integration-fake-docker CI step — Plan literal --deselect tests/integration/X.py silently matched nothing because pytest rootdir is repo root; --ignore preserves cwd-relative path form and works correctly. Verified 26 passed / 14 ignored vs 40 collected with broken form.
 - [Phase 04]: 0-SKIP grep guard in container-integration CI job is load-bearing — Pairs with Plan 04-08 test_canonical_metrics_importable.py for defence in depth — catches silent namespace-merge regression even if the regression test itself is re-routed to a skip path.
 - [Phase 05 MLCL-02]: different_horizon selected as T0.1.x experiment — sweep horizon [3,5,7,10] on GRU-only grid (12 experiments); pure YAML edit, zero new Python; INSUFFICIENT_DATA verdict due to TIMESCALE_PASSWORD not propagated into container env (operator action required before re-run).
+- [Phase 05 MLCL-04]: document_divergence_permanently chosen over rewrite_to_core_aggregator — tournament harness is the honest-evaluation path; run_extended_backtest.py designated as strategy regime characterisation tool only with PERMANENT DIVERGENCE framing + ADR-012.
 
 ### Pending Todos
 
@@ -99,6 +101,6 @@ None yet (use `/gsd-capture` to add).
 ## Session Continuity
 
 Last session: 2026-05-13T00:00:00.000Z
-Stopped at: Plan 05-03 complete (MLCL-03). Tier-2 monitoring deleted, ADR-011 filed, grep gate in place. Next: 05-04 MLCL-04 (run_extended_backtest.py divergence).
+Stopped at: Plan 05-04 complete (MLCL-04). SC-4 closed. Phase 05 all 4 plans complete.
 Resume file: None
-Next: `/gsd-execute-phase 05` for plan 05-04 (MLCL-04). Separately: TIMESCALE_PASSWORD still needed for re-running t0_1_x_horizon_sweep tournament.
+Next: Phase 05 verification. Separately: TIMESCALE_PASSWORD still needed for re-running t0_1_x_horizon_sweep tournament (MLCL-02 INSUFFICIENT_DATA).

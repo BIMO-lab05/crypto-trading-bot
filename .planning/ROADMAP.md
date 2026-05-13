@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Integration Test Suite & RUNBOOK** - Fresh-clone pytest+testcontainers suite + checkpointed iteration + ops runbook
 - [ ] **Phase 3: Tournament Harness Core** - Docker+SQLite orchestrator with leaderboard schema, search-space config, and per-experiment isolation
 - [ ] **Phase 4: Tournament Significance & Auto-PR** - DSR/bootstrap significance gating + draft-PR automation when ensemble wins
-- [ ] **Phase 5: ML Cleanup (post-V0)** - Forward-paper-test the three opt-in features, ship a T0.1.x experiment, and resolve parked items
+- [x] **Phase 5: ML Cleanup (post-V0)** - Forward-paper-test the three opt-in features, ship a T0.1.x experiment, and resolve parked items (completed 2026-05-13)
 - [ ] **Phase 6: Dashboard Audit & Safety State** - End-to-end tile audit, config-driven URLs, safety-state header, explicit empty/error states
 - [ ] **Phase 7: Tournament View & Smoke Test** - Frontend tournament leaderboard view + Playwright smoke against the recorded-tape stack
 
@@ -142,7 +142,7 @@ Plans:
 - [x] 05-01-PLAN.md — MLCL-01 forward-paper-test apparatus + PSR-with-bootstrap-CI + default-on pytest gate for the three Tier-1 opt-in flags (complete 2026-05-13; 37 tests pass; operator evidence loops pending)
 - [x] 05-02-PLAN.md — MLCL-02 select + ship one T0.1.x experiment through the tournament harness with a binding decision note (EDGE_FOUND / NO_EDGE_FOUND / INSUFFICIENT_DATA) (complete 2026-05-13; different_horizon selected; t0_1_x_horizon_sweep YAML shipped; INSUFFICIENT_DATA verdict — TIMESCALE_PASSWORD blocker; 5/5 integration tests pass)
 - [x] 05-03-PLAN.md — MLCL-03 binding disposition of scripts/monitoring/* (delete-all / wire-with-bounds / keep-tier1-delete-tier2) + ADR-011 + grep-gate against claude -p in CI (complete 2026-05-13; tier-2 deleted per STRIDE analysis; ADR-011 filed; 4-test grep gate; tier-1 retained)
-- [ ] 05-04-PLAN.md — MLCL-04 resolve run_extended_backtest.py divergence (rewrite to CoreAggregator OR document permanently + runtime warning) + ADR-012
+- [x] 05-04-PLAN.md — MLCL-04 resolve run_extended_backtest.py divergence (rewrite to CoreAggregator OR document permanently + runtime warning) + ADR-012 (complete 2026-05-13; document_divergence_permanently chosen; PERMANENT DIVERGENCE docstring + _emit_divergence_warning() + ADR-012 filed; SC-4 closed; 5/5 pytest invariants pass)
 
 ### Phase 6: Dashboard Audit & Safety State
 **Goal**: The React dashboard shows real backend state, surfaces safety posture (PAPER/LIVE, kill-switch, EMERGENCY_STOP, ML predictions toggle) prominently, replaces hardcoded URLs with config-driven values, and renders explicit empty/error states instead of silent zeros.
@@ -184,6 +184,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Integration Test Suite & RUNBOOK | 0/10 | Not started | - |
 | 3. Tournament Harness Core | 0/9 | Not started | - |
 | 4. Tournament Significance & Auto-PR | 0/7 | Not started | - |
-| 5. ML Cleanup (post-V0) | 0/4 | Not started | - |
+| 5. ML Cleanup (post-V0) | 4/4 | Complete | 2026-05-13 |
 | 6. Dashboard Audit & Safety State | 0/TBD | Not started | - |
 | 7. Tournament View & Smoke Test | 0/TBD | Not started | - |
