@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: "Plan 05-04 complete (MLCL-04). run_extended_backtest.py SC-4 closed via PERMANENT DIVERGENCE framing + runtime warning + ADR-012. Phase 05 all 4 plans complete."
-last_updated: "2026-05-13T00:00:00.000Z"
-last_activity: "2026-05-13 -- Plan 05-04 complete (MLCL-04: SC-4 punt language removed, PERMANENT DIVERGENCE docstring + _emit_divergence_warning() + ADR-012 filed, 5-test pytest invariant passing)"
+status: verifying
+stopped_at: Phase 6 context gathered
+last_updated: "2026-05-13T13:03:01.962Z"
+last_activity: "2026-05-13 -- Plan 05-04 complete (MLCL-04: SC-4 punt language removed, PERMANENT DIVERGENCE marker + _emit_divergence_warning() + ADR-012, 5-test pytest gate passing)"
 progress:
   total_phases: 7
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 37
   completed_plans: 37
   percent: 100
@@ -100,7 +100,7 @@ None yet (use `/gsd-capture` to add).
 
 ## Session Continuity
 
-Last session: 2026-05-13T00:00:00.000Z
-Stopped at: Plan 05-04 complete (MLCL-04). SC-4 closed. Phase 05 all 4 plans complete.
-Resume file: None
+Last session: 2026-05-13T13:03:01.901Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-dashboard-audit-safety-state/06-CONTEXT.md
 Next: Phase 05 verification. Separately: TIMESCALE_PASSWORD still needed for re-running t0_1_x_horizon_sweep tournament (MLCL-02 INSUFFICIENT_DATA).
