@@ -1,0 +1,58 @@
+# T0.1.x experiment: different_horizon sweep
+# MLCL-02 deliverable — Phase 5 Plan 02
+#
+# Decision: different_horizon (see .planning/phases/05-ml-cleanup-post-v0/05-02-DECISION.md)
+# Rationale: Pure YAML edit. Sweeps horizon in [3, 5, 7, 10] on GRU-only grid to determine
+# whether prediction horizon is a tunable lever for the V0-corrected GRU model.
+# V0 finding: model scores at chance-level on log-returns at horizon=5.
+# This experiment asks: does the finding generalise across horizons?
+#
+# SECURITY: no secrets, API keys, or passwords in this file (T-03-13).
+# This file is committed to git; only non-sensitive config here.
+#
+# Grid math: 4 horizons x 3 symbols x 1 target_mode x 1 unit x 1 dropout x 1 lr x 1 batch = 12 experiments.
+# Well within max_experiments: 100 hard cap.
+
+tournament_id: "t0_1_x_horizon_sweep"
+seed: 42
+
+# v1 validated symbols per PROJECT.md — SOLUSDT, BNBUSDT, ADAUSDT.
+# XRP/DOGE excluded per CLAUDE.md project rules.
+symbols:
+  - SOLUSDT
+  - BNBUSDT
+  - ADAUSDT
+
+intervals:
+  - "5m"
+
+# log_returns only: V0 used price-level R² (leakage vector, commit c56765c fix).
+# Post-fix world: log_returns is the honest evaluation target.
+# Dropping "price" target_mode keeps the grid clean and the results interpretable.
+target_modes:
+  - "log_returns"
+
+# Default per-experiment resource caps.
+default_resource_caps:
+  mem_limit: "4g"
+  cpus: 2.0
+  wallclock_timeout_seconds: 1800   # 30 min per experiment
+
+# Hard cap: 12 experiments total — well within limit.
+# Loader raises if Cartesian product exceeds this value.
+max_experiments: 100
+
+architectures:
+  gru:
+    # Minimal HP grid — only horizon is swept. All other params fixed.
+    # GRU-only: choosing the V0 architecture directly tests whether
+    # horizon is a tunable lever for the existing model class.
+    units:
+      - [64]
+    dropout: [0.2]
+    lr: [0.001]
+    batch: [32]
+    lookback: [60]
+    # The swept dimension: 4 horizon values.
+    # horizon=5 is the V0 baseline. [3,7,10] are the new probes.
+    horizon: [3, 5, 7, 10]
