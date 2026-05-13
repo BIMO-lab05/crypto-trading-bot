@@ -81,10 +81,14 @@ If missing or empty, set it to the TimescaleDB password configured in
 `docker-compose.unified.yml` under the `timescaledb` service (look for
 `POSTGRES_PASSWORD` on the timescaledb service; tournament_reader uses the same DB).
 
-Step 2 — Recreate the tournament-harness container to pick up the new env:
+Step 2 — Rebuild and recreate the tournament-harness container to pick up the new env:
 ```bash
-docker compose -f docker-compose.unified.yml --profile tournament up -d --force-recreate tournament-harness
+DOCKER_BUILDKIT=0 docker compose -f docker-compose.unified.yml --profile tournament up -d --force-recreate --build tournament-harness
 ```
+Note: `--build` is required so the Dockerfile re-copies `app/config/` (including the experiment YAML)
+into the image. Without `--build`, `--force-recreate` wipes any files placed via `docker cp`,
+and Step 4 will fail with `FileNotFoundError` on `/app/app/config/t0_1_x_experiment.yaml`.
+`DOCKER_BUILDKIT=0` avoids WSL2 BuildKit hangs (see CLAUDE.md gotchas).
 
 Step 3 — Confirm the password is now set:
 ```bash
