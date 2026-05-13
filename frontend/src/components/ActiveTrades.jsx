@@ -1,5 +1,6 @@
 import React from 'react'
 import { usePositions } from '../hooks/usePositions'
+import TileState from './TileState'
 
 /**
  * ActiveTrades - Displays all executed trades and their real-time status
@@ -8,6 +9,9 @@ import { usePositions } from '../hooks/usePositions'
  * - Now uses shared usePositions hook instead of direct axios call
  * - Eliminates duplicate /api/trading/positions requests
  * - Shares cache with KeyMetricsStrip for better performance
+ *
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/> per
+ * audit verdict FIXED. Replaces inline isLoading/error early-returns.
  *
  * Shows:
  * - Open positions with entry price, current price, P&L
@@ -59,44 +63,24 @@ const formatTimeAgo = (dateStr) => {
 }
 
 export default function ActiveTrades() {
-  // Use shared positions hook - eliminates duplicate API calls
-  const { data: positionsData, isLoading, error, refetch } = usePositions()
+  // Use shared positions hook - eliminates duplicate API calls.
+  // Inline isLoading/error early-returns removed in favor of <TileState/>
+  // (Plan 06-05, DASH-05).
+  const q = usePositions()
 
   // Extract positions array from the response
-  const positions = positionsData?.positions || []
-
-  if (isLoading) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-6 border border-slate-700/50 backdrop-blur-sm">
-        <h3 className="text-lg font-semibold text-slate-100 mb-4">Active Trades</h3>
-        <div className="animate-pulse space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-24 bg-slate-700/50 rounded-lg"></div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-6 border border-rose-500/30 backdrop-blur-sm">
-        <h3 className="text-lg font-semibold text-slate-100 mb-2">Active Trades</h3>
-        <p className="text-rose-400 text-sm">Failed to load trades: {error.message}</p>
-        <button
-          onClick={() => refetch()}
-          className="mt-2 px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-sm text-slate-300"
-        >
-          Retry
-        </button>
-      </div>
-    )
-  }
-
+  const positions = q.data?.positions || []
   const openPositions = positions?.filter(p => p.status === 'OPEN') || []
   const totalUnrealizedPnL = openPositions.reduce((sum, p) => sum + parseFloat(p.unrealized_pnl || 0), 0)
 
   return (
+    <TileState
+      query={q}
+      title="Active Trades"
+      thresholdKey="positions"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || ((d.positions ?? []).filter(p => p.status === 'OPEN')).length === 0}
+    >
     <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm">
       {/* Header */}
       <div className="p-4 border-b border-slate-700/50">
@@ -316,5 +300,6 @@ export default function ActiveTrades() {
         </p>
       </div>
     </div>
+    </TileState>
   )
 }

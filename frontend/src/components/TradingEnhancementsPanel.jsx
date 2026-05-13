@@ -1,5 +1,6 @@
 import React from 'react'
 import { useAutoTraderStatus, extractTradingEnhancements } from '../hooks/useAutoTrader'
+import TileState from './TileState'
 
 /**
  * TradingEnhancementsPanel - Display Trading Enhancements Status
@@ -107,7 +108,11 @@ const MetricRow = ({ label, value, subValue, trend }) => {
 }
 
 export default function TradingEnhancementsPanel() {
-  const { data: statusData, isLoading, isError } = useAutoTraderStatus()
+  // Plan 06-05 DASH-05: wrapped in <TileState/>. Inline isError early-return
+  // removed; isLoading still consumed by per-card EnhancementCard skeletons
+  // for the partial-data path.
+  const q = useAutoTraderStatus()
+  const { data: statusData, isLoading } = q
 
   const enhancements = extractTradingEnhancements(statusData)
 
@@ -154,17 +159,14 @@ export default function TradingEnhancementsPanel() {
     </svg>
   )
 
-  if (isError) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-6 border border-slate-700/50">
-        <div className="text-center text-rose-400">
-          Failed to load trading enhancements status
-        </div>
-      </div>
-    )
-  }
-
   return (
+    <TileState
+      query={q}
+      title="Trading Enhancements"
+      thresholdKey="signals"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || !d.status}
+    >
     <div className="bg-slate-800/30 rounded-lg border border-slate-700/50 overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-700/50 bg-slate-800/50">
         <div className="flex items-center justify-between">
@@ -302,5 +304,6 @@ export default function TradingEnhancementsPanel() {
         </p>
       </div>
     </div>
+    </TileState>
   )
 }
