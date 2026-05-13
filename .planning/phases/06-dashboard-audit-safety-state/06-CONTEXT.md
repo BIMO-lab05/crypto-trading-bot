@@ -14,7 +14,7 @@ The React dashboard reflects real backend state for every tile, prominently surf
 - Extension of existing `StatusBar.jsx` with three new safety cells + PAPER/LIVE viewport border
 - Shared `<TileState/>` empty/error/stale/loading wrapper applied to every audited tile
 - Migrate the single remaining hardcoded `ws://localhost:8000/ws` to `VITE_WS_URL`; document `VITE_API_BASE_URL` convention in `vite.config.js`
-- Stale-data badge driven by backend `last_updated_at` (per-tile threshold)
+- Stale-data badge driven by backend `last_updated_at` (per-tile threshold) — limited to safety-state + LABELED_STALE tiles in Phase 6 (see deferred)
 
 **Out of scope (Phase 7 or beyond):**
 - Tournament leaderboard view (DASH-04)
@@ -63,7 +63,7 @@ The React dashboard reflects real backend state for every tile, prominently surf
 - **D-12:** New shared component `frontend/src/components/TileState.jsx` wraps every audited tile body. Tiles refactored to: `<TileState status={...}>{render body}</TileState>` (or a `useTileState({query, dataIsEmpty, lastUpdatedAt})` hook returning a status object the component consumes).
 - **D-13:** `<TileState/>` distinguishes four signals: `loading` (skeleton, React Query `isFetching && !data`), `empty` (`isSuccess && (data == null || data.length === 0)`), `error` (`isError`), `stale` (`backend last_updated_at` past per-tile threshold). Renders skeleton, "No data yet", "Failed (HTTP code): short message [Retry]", or a corner stale badge respectively.
 - **D-14:** Error rendering shows **HTTP status code + short message + Retry button**. Retry calls React Query `refetch()`. No stack traces, no raw axios `error.message` text. Example: `"Failed (503): service unavailable. [Retry]"`.
-- **D-15:** Stale-data detection is **backend-driven**. Endpoints serving tile data add `last_updated_at` to their response (or set `X-Data-Age` header). `<TileState/>` compares to `Date.now()` and renders the badge when delta exceeds the per-tile threshold (e.g., ticker 60s, performance 5min). Threshold map lives in `frontend/src/components/TileState.jsx` constants. Backend changes added per tile **only where the audit verdict requires it**.
+- **D-15:** Stale-data detection is **backend-driven**. Endpoints serving tile data add `last_updated_at` to their response (or set `X-Data-Age` header). `<TileState/>` compares to `Date.now()` and renders the badge when delta exceeds the per-tile threshold (e.g., ticker 60s, performance 5min). Threshold map lives in `frontend/src/components/TileState.jsx` constants. Backend changes added per tile **only where the audit verdict requires it**. **Phase 6 scope-down (per W-02 checker feedback):** real backend `last_updated_at` is emitted by ONLY `/api/config/safety-state` (Plan 6-02). Other tile endpoints get `last_updated_at` in Phase 7 (tracked via 06-TILE-AUDIT.md `last_updated_at?` column rows where value=`no`). Phase 6 LABELED_STALE tiles use `forceStale={true}` prop instead of real backend signal.
 
 ### Config-driven URLs (DASH-02)
 - **D-16:** Migrate the single remaining `ws://localhost:8000/ws` literal in `frontend/src/hooks/useGatewayWebSocket.js:34` to `import.meta.env.VITE_WS_URL` with the current dev value kept as fallback. Document the `VITE_API_BASE_URL` + `VITE_WS_URL` convention in the `vite.config.js` comment block alongside the existing dev/prod proxy doc. Grep gate (per ROADMAP success criterion 3): `grep -rn "http://localhost\|ws://localhost" frontend/src/` must return only documented dev-config defaults.
@@ -167,6 +167,7 @@ The React dashboard reflects real backend state for every tile, prominently surf
 - **Modal-on-LIVE-flip** — proposed but rejected for friction in PAPER → LIVE smoke tests; the persistent red border is sufficient affordance.
 - **Per-trade-cap + daily-P&L in safety strip** — out of D-03. Belongs in a risk tile in the dashboard body.
 - **Auth on `/api/config/safety-state`** — keeping it open in this phase as read-only config disclosure for the local dashboard. If gateway grows public exposure later, reconsider.
+- **Per-tile `last_updated_at` on non-safety-state endpoints** — Phase 7 (W-02 scope-down per checker B-01/W-02). Phase 6 ships real `last_updated_at` ONLY on `/api/config/safety-state`. Other tile endpoints get the field in Phase 7, tracked via the `last_updated_at?` column in `06-TILE-AUDIT.md` (rows with value=`no` are the Phase 7 work-list). Phase 6 LABELED_STALE tiles get the stale badge from the `forceStale={true}` prop in `<TileState/>` (verdict-driven), not from a real backend timestamp.
 
 </deferred>
 
@@ -174,3 +175,5 @@ The React dashboard reflects real backend state for every tile, prominently surf
 
 *Phase: 06-dashboard-audit-safety-state*
 *Context gathered: 2026-05-13*
+*Revised: 2026-05-13 (B-01 + W-02 scope-down per checker feedback)*
+</content>
