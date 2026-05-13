@@ -38,6 +38,40 @@ import react from '@vitejs/plugin-react'
  * exercise in prod. Test gateway-mediated paths against a running
  * gateway (`docker compose up api-gateway` and proxy `/api` →
  * `localhost:8000`) before declaring a feature done.
+ *
+ * --- ENV VAR CONVENTION (Phase 6, DASH-02) ---
+ *
+ * Frontend reads two `import.meta.env.*` vars; both are optional with
+ * sensible dev defaults so the unconfigured dev path keeps working:
+ *
+ *   VITE_API_BASE_URL  — overrides the axios `baseURL` for REST calls.
+ *                        Defaults to '/api' (relative; works behind the
+ *                        Vite proxy in dev and behind nginx in prod).
+ *
+ *   VITE_WS_URL        — overrides the WebSocket URL used by
+ *                        useGatewayWebSocket. Defaults to
+ *                        'ws://localhost:8000/ws' in dev, and
+ *                        `${ws/wss}://${window.location.host}/ws` in
+ *                        production (same-origin enforced by the
+ *                        non-DEV branch regardless of env var).
+ *
+ * Threat note (T-06-03-01): VITE_* vars are bundled into client JS at
+ * build time. VITE_WS_URL is consulted ONLY inside the
+ * `import.meta.env.DEV` branch of useGatewayWebSocket.resolveUrl();
+ * the production branch always derives the WS URL from
+ * `window.location.host` so a build-time-injected hostile env var
+ * cannot redirect the prod client at an attacker host. Operators MUST
+ * still verify the build target before shipping (the env var would
+ * affect dev tooling).
+ *
+ * Grep gate: no `http://localhost` / `ws://localhost` literal should
+ * appear anywhere under frontend/src/ outside:
+ *   - the doc comment in frontend/src/services/api.js (documentation
+ *     about the Vite proxy target), and
+ *   - the documented dev fallback inside
+ *     frontend/src/hooks/useGatewayWebSocket.js after `||`.
+ * The script `frontend/scripts/check-no-hardcoded-urls.sh` (wired into
+ * the `check-no-hardcoded-urls` npm task) is the regression gate.
  */
 export default defineConfig({
   plugins: [react()],
