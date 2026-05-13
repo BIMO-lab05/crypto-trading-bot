@@ -13,20 +13,22 @@ Features:
 - Validates against research claims (65-70% win rate target)
 
 ============================================================================
-!!! KNOWN LIMITATION — READ BEFORE TRUSTING ANY PnL OUTPUT !!!
+!!! PERMANENT DIVERGENCE — READ BEFORE TRUSTING ANY PnL OUTPUT !!!
 ============================================================================
 
-**Signal logic does not match live trading.** The live auto-trader uses a
-9-indicator voting aggregator (CoreAggregator + SignalVoter in
-app/orchestration/, with TREND_FILTER + VOLUME_CONFIRMATION gates and
-weighted votes). This script uses HybridStrategyRouter (trend-follow +
-mean-reversion fallback), which is a different decision surface. So a
-backtest "win rate" here does NOT predict live win rate. Fixing requires
-importing the live aggregator into the backtest path (high effort,
-separate change).
+This script intentionally uses HybridStrategyRouter (trend-follow +
+mean-reversion fallback), NOT the live CoreAggregator
+(app/aggregation/aggregator_core.py). The live auto-trader routes signals
+through CoreAggregator with TrendGatekeeper, VolumeValidator, SignalVoter,
+and ADX-based MarketRegimeDetector. The two decision surfaces diverge by
+design. PERMANENT DIVERGENCE — this will not be fixed. See ADR-012 for
+rationale: docs/decisions/ADR-012-extended-backtest-disposition.md
 
-Until aligned, treat this script's output as "strategy regime
-characterisation" rather than "expected live PnL".
+Use this script for: strategy regime characterisation only (how does
+HybridStrategyRouter behave across trending vs ranging markets?).
+Do NOT use this script for: live-PnL forecasting, edge-claim validation,
+or pre-deploy sanity checks. Use the tournament harness
+(scripts/tournament/) for authoritative edge measurement.
 
 Resolved 2026-04-29 (the testnet contamination half): market-data-service
 GET /api/v1/klines now defaults to `mainnet_only=true`, filtering rows
@@ -53,22 +55,36 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.strategies.hybrid_strategy_router import HybridStrategyRouter, MarketRegime
-from app.strategies.research_optimized_strategy import ResearchOptimizedStrategy
-from app.strategies.mean_reversion_strategy import MeanReversionStrategy
 from app.models import IndicatorSignal, SignalAction
 import httpx
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _emit_divergence_warning() -> None:
+    """
+    Emit the mandatory PERMANENT DIVERGENCE warning at script entry.
+
+    This helper exists as a standalone function so tests can assert the warning
+    fires without invoking the full HTTP-heavy main() loop. It is called as the
+    first statement in main() — before any expensive setup or backtest loops.
+
+    See docs/decisions/ADR-012-extended-backtest-disposition.md for rationale.
+    """
+    logger.warning(
+        "RUN_EXTENDED_BACKTEST: signal logic diverges from live CoreAggregator "
+        "— do NOT treat output as live-PnL forecast. See ADR-012."
+    )
 
 
 @dataclass
 class BacktestTrade:
     """Backtested trade record"""
+
     symbol: str
     entry_time: datetime
     exit_time: datetime
@@ -95,6 +111,7 @@ class BacktestTrade:
 @dataclass
 class BacktestMetrics:
     """Comprehensive backtest metrics"""
+
     symbol: str
     days: int
     start_date: datetime
@@ -136,38 +153,38 @@ class BacktestMetrics:
             "period": {
                 "days": self.days,
                 "start_date": self.start_date.isoformat(),
-                "end_date": self.end_date.isoformat()
+                "end_date": self.end_date.isoformat(),
             },
             "performance": {
                 "total_return_pct": round(self.total_return_pct, 2),
                 "total_trades": self.total_trades,
                 "winning_trades": self.winning_trades,
                 "losing_trades": self.losing_trades,
-                "win_rate": round(self.win_rate, 2)
+                "win_rate": round(self.win_rate, 2),
             },
             "risk_metrics": {
                 "sharpe_ratio": round(self.sharpe_ratio, 2),
                 "sortino_ratio": round(self.sortino_ratio, 2),
                 "max_drawdown_pct": round(self.max_drawdown_pct, 2),
-                "max_drawdown_duration_days": round(self.max_drawdown_duration_days, 1)
+                "max_drawdown_duration_days": round(self.max_drawdown_duration_days, 1),
             },
             "trade_analysis": {
                 "avg_win_pct": round(self.avg_win_pct, 2),
                 "avg_loss_pct": round(self.avg_loss_pct, 2),
                 "largest_win_pct": round(self.largest_win_pct, 2),
                 "largest_loss_pct": round(self.largest_loss_pct, 2),
-                "profit_factor": round(self.profit_factor, 2)
+                "profit_factor": round(self.profit_factor, 2),
             },
             "strategy_breakdown": {
                 "trend_trades": self.trend_trades,
                 "mean_reversion_trades": self.mean_reversion_trades,
                 "trend_win_rate": round(self.trend_win_rate, 2),
-                "mean_reversion_win_rate": round(self.mean_reversion_win_rate, 2)
+                "mean_reversion_win_rate": round(self.mean_reversion_win_rate, 2),
             },
             "market_regime": {
                 "trending_market_pct": round(self.trending_market_pct, 2),
-                "ranging_market_pct": round(self.ranging_market_pct, 2)
-            }
+                "ranging_market_pct": round(self.ranging_market_pct, 2),
+            },
         }
 
 
@@ -186,7 +203,7 @@ class ExtendedBacktester:
         self,
         initial_capital: float = 10000.0,
         commission_pct: float = 0.1,  # 0.1% per trade
-        slippage_pct: float = 0.05  # 0.05% slippage
+        slippage_pct: float = 0.05,  # 0.05% slippage
     ):
         self.initial_capital = initial_capital
         self.commission_pct = commission_pct
@@ -199,13 +216,12 @@ class ExtendedBacktester:
         self.market_data_url = "http://localhost:8002"
         self.technical_analysis_url = "http://localhost:8003"
 
-        logger.info(f"ExtendedBacktester initialized with ${initial_capital:,.2f} capital")
+        logger.info(
+            f"ExtendedBacktester initialized with ${initial_capital:,.2f} capital"
+        )
 
     async def fetch_historical_klines(
-        self,
-        symbol: str,
-        interval: int,
-        days: int
+        self, symbol: str, interval: int, days: int
     ) -> List[Dict[str, Any]]:
         """Fetch historical klines from market-data-service"""
 
@@ -221,9 +237,11 @@ class ExtendedBacktester:
                 url = f"{self.market_data_url}/api/v1/klines/{symbol}"
                 params = {
                     "interval": interval,
-                    "limit": days * 24 * (60 // interval),  # Calculate number of candles
+                    "limit": days
+                    * 24
+                    * (60 // interval),  # Calculate number of candles
                     "start_time": int(start_time.timestamp() * 1000),
-                    "end_time": int(end_time.timestamp() * 1000)
+                    "end_time": int(end_time.timestamp() * 1000),
                 }
 
                 response = await client.get(url, params=params)
@@ -243,74 +261,52 @@ class ExtendedBacktester:
                 return []
 
     async def fetch_indicators(
-        self,
-        symbol: str,
-        interval: int,
-        kline_data: Dict[str, Any]
+        self, symbol: str, interval: int, kline_data: Dict[str, Any]
     ) -> Dict[str, IndicatorSignal]:
         """Fetch technical indicators for a kline"""
 
         # This is a simplified version - in production, you'd call technical-analysis service
         # For now, we'll create mock indicators based on price data
 
-        close = float(kline_data.get('c', kline_data.get('close', 0)))
+        close = float(kline_data.get("c", kline_data.get("close", 0)))
 
         # Mock indicators (in production, fetch from technical-analysis service)
         indicators = {
-            'RSI': IndicatorSignal(
-                action=SignalAction.HOLD,
-                confidence=0.5,
-                metadata={'value': 50.0}
+            "RSI": IndicatorSignal(
+                action=SignalAction.HOLD, confidence=0.5, metadata={"value": 50.0}
             ),
-            'MACD': IndicatorSignal(
-                action=SignalAction.HOLD,
-                confidence=0.5,
-                metadata={}
+            "MACD": IndicatorSignal(
+                action=SignalAction.HOLD, confidence=0.5, metadata={}
             ),
-            'EMA': IndicatorSignal(
-                action=SignalAction.HOLD,
-                confidence=0.5,
-                metadata={}
+            "EMA": IndicatorSignal(
+                action=SignalAction.HOLD, confidence=0.5, metadata={}
             ),
-            'SMA': IndicatorSignal(
-                action=SignalAction.HOLD,
-                confidence=0.5,
-                metadata={'value': close}
+            "SMA": IndicatorSignal(
+                action=SignalAction.HOLD, confidence=0.5, metadata={"value": close}
             ),
-            'BOLLINGER_BANDS': IndicatorSignal(
-                action=SignalAction.HOLD,
-                confidence=0.5,
-                metadata={'position': 0.5}
+            "BOLLINGER_BANDS": IndicatorSignal(
+                action=SignalAction.HOLD, confidence=0.5, metadata={"position": 0.5}
             ),
-            'STOCHASTIC': IndicatorSignal(
-                action=SignalAction.HOLD,
-                confidence=0.5,
-                metadata={}
+            "STOCHASTIC": IndicatorSignal(
+                action=SignalAction.HOLD, confidence=0.5, metadata={}
             ),
-            'ATR': IndicatorSignal(
+            "ATR": IndicatorSignal(
                 action=SignalAction.HOLD,
                 confidence=0.5,
-                metadata={'value': close * 0.02, 'adx': 20.0}
+                metadata={"value": close * 0.02, "adx": 20.0},
             ),
-            'VOLUME_CONFIRMATION': IndicatorSignal(
-                action=SignalAction.HOLD,
-                confidence=0.5,
-                metadata={}
+            "VOLUME_CONFIRMATION": IndicatorSignal(
+                action=SignalAction.HOLD, confidence=0.5, metadata={}
             ),
-            'ICHIMOKU': IndicatorSignal(
-                action=SignalAction.HOLD,
-                confidence=0.5,
-                metadata={}
-            )
+            "ICHIMOKU": IndicatorSignal(
+                action=SignalAction.HOLD, confidence=0.5, metadata={}
+            ),
         }
 
         return indicators
 
     async def run_symbol_backtest(
-        self,
-        symbol: str,
-        interval: int = 60,
-        days: int = 90
+        self, symbol: str, interval: int = 60, days: int = 90
     ) -> Optional[BacktestMetrics]:
         """
         Run backtest for a single symbol
@@ -324,9 +320,9 @@ class ExtendedBacktester:
             BacktestMetrics or None if failed
         """
 
-        logger.info(f"{'='*70}")
+        logger.info(f"{'=' * 70}")
         logger.info(f"BACKTESTING: {symbol} ({days} days, {interval}m interval)")
-        logger.info(f"{'='*70}")
+        logger.info(f"{'=' * 70}")
 
         # Fetch historical data
         klines = await self.fetch_historical_klines(symbol, interval, days)
@@ -348,19 +344,17 @@ class ExtendedBacktester:
         # Process each kline
         for i, kline in enumerate(klines):
             if i % 100 == 0:
-                logger.info(f"  Processing kline {i+1}/{len(klines)}...")
+                logger.info(f"  Processing kline {i + 1}/{len(klines)}...")
 
-            timestamp = datetime.fromtimestamp(kline['timestamp'] / 1000)
-            close_price = float(kline.get('c', kline.get('close', 0)))
+            timestamp = datetime.fromtimestamp(kline["timestamp"] / 1000)
+            close_price = float(kline.get("c", kline.get("close", 0)))
 
             # Fetch indicators (simplified - in production use real indicators)
             indicators = await self.fetch_indicators(symbol, interval, kline)
 
             # Get hybrid strategy signal
             trade_setup = self.hybrid_strategy.generate_signal(
-                indicators=indicators,
-                current_price=close_price,
-                capital=capital
+                indicators=indicators, current_price=close_price, capital=capital
             )
 
             # Track regime
@@ -374,16 +368,18 @@ class ExtendedBacktester:
             if trade_setup and not position:
                 # Open position
                 position = {
-                    'symbol': symbol,
-                    'entry_time': timestamp,
-                    'side': trade_setup.action.value,
-                    'entry_price': close_price,
-                    'quantity': trade_setup.quantity,
-                    'stop_loss': trade_setup.stop_loss,
-                    'take_profit': trade_setup.take_profit,
-                    'strategy_type': trade_setup.metadata.get('strategy_type', 'unknown'),
-                    'market_regime': regime.value,
-                    'confidence': trade_setup.confidence
+                    "symbol": symbol,
+                    "entry_time": timestamp,
+                    "side": trade_setup.action.value,
+                    "entry_price": close_price,
+                    "quantity": trade_setup.quantity,
+                    "stop_loss": trade_setup.stop_loss,
+                    "take_profit": trade_setup.take_profit,
+                    "strategy_type": trade_setup.metadata.get(
+                        "strategy_type", "unknown"
+                    ),
+                    "market_regime": regime.value,
+                    "confidence": trade_setup.confidence,
                 }
                 logger.debug(f"  📈 OPEN {position['side']} @ ${close_price:.2f}")
 
@@ -392,39 +388,49 @@ class ExtendedBacktester:
                 exit_reason = None
                 exit_price = close_price
 
-                if position['side'] == 'BUY':
+                if position["side"] == "BUY":
                     # Check stop loss
-                    if close_price <= position['stop_loss']:
-                        exit_reason = 'stop_loss'
-                        exit_price = position['stop_loss']
+                    if close_price <= position["stop_loss"]:
+                        exit_reason = "stop_loss"
+                        exit_price = position["stop_loss"]
                     # Check take profit
-                    elif close_price >= position['take_profit']:
-                        exit_reason = 'take_profit'
-                        exit_price = position['take_profit']
+                    elif close_price >= position["take_profit"]:
+                        exit_reason = "take_profit"
+                        exit_price = position["take_profit"]
 
-                elif position['side'] == 'SELL':
+                elif position["side"] == "SELL":
                     # Check stop loss
-                    if close_price >= position['stop_loss']:
-                        exit_reason = 'stop_loss'
-                        exit_price = position['stop_loss']
+                    if close_price >= position["stop_loss"]:
+                        exit_reason = "stop_loss"
+                        exit_price = position["stop_loss"]
                     # Check take profit
-                    elif close_price <= position['take_profit']:
-                        exit_reason = 'take_profit'
-                        exit_price = position['take_profit']
+                    elif close_price <= position["take_profit"]:
+                        exit_reason = "take_profit"
+                        exit_price = position["take_profit"]
 
                 # Close position if exit triggered
                 if exit_reason:
                     # Calculate P&L
-                    if position['side'] == 'BUY':
-                        pnl = (exit_price - position['entry_price']) * position['quantity']
+                    if position["side"] == "BUY":
+                        pnl = (exit_price - position["entry_price"]) * position[
+                            "quantity"
+                        ]
                     else:
-                        pnl = (position['entry_price'] - exit_price) * position['quantity']
+                        pnl = (position["entry_price"] - exit_price) * position[
+                            "quantity"
+                        ]
 
                     # Apply commission and slippage
-                    commission = (position['entry_price'] + exit_price) * position['quantity'] * (self.commission_pct / 100)
+                    commission = (
+                        (position["entry_price"] + exit_price)
+                        * position["quantity"]
+                        * (self.commission_pct / 100)
+                    )
                     pnl -= commission
 
-                    pnl_pct = (pnl / (position['entry_price'] * position['quantity'])) * 100
+                    pnl_pct = (
+                        pnl / (position["entry_price"] * position["quantity"])
+                    ) * 100
 
                     # Update capital
                     capital += pnl
@@ -432,23 +438,25 @@ class ExtendedBacktester:
 
                     # Record trade
                     trade = BacktestTrade(
-                        symbol=position['symbol'],
-                        entry_time=position['entry_time'],
+                        symbol=position["symbol"],
+                        entry_time=position["entry_time"],
                         exit_time=timestamp,
-                        side=position['side'],
-                        entry_price=position['entry_price'],
+                        side=position["side"],
+                        entry_price=position["entry_price"],
                         exit_price=exit_price,
-                        quantity=position['quantity'],
+                        quantity=position["quantity"],
                         pnl=pnl,
                         pnl_pct=pnl_pct,
-                        strategy_type=position['strategy_type'],
-                        market_regime=position['market_regime'],
+                        strategy_type=position["strategy_type"],
+                        market_regime=position["market_regime"],
                         exit_reason=exit_reason,
-                        confidence=position['confidence']
+                        confidence=position["confidence"],
                     )
                     trades.append(trade)
 
-                    logger.debug(f"  📉 CLOSE @ ${exit_price:.2f} | P&L: ${pnl:.2f} ({pnl_pct:+.2f}%) | Reason: {exit_reason}")
+                    logger.debug(
+                        f"  📉 CLOSE @ ${exit_price:.2f} | P&L: ${pnl:.2f} ({pnl_pct:+.2f}%) | Reason: {exit_reason}"
+                    )
 
                     position = None
 
@@ -460,23 +468,29 @@ class ExtendedBacktester:
         metrics = self._calculate_metrics(
             symbol=symbol,
             days=days,
-            start_date=datetime.fromtimestamp(klines[0]['timestamp'] / 1000),
-            end_date=datetime.fromtimestamp(klines[-1]['timestamp'] / 1000),
+            start_date=datetime.fromtimestamp(klines[0]["timestamp"] / 1000),
+            end_date=datetime.fromtimestamp(klines[-1]["timestamp"] / 1000),
             trades=trades,
             equity_curve=equity_curve,
             trending_count=trending_count,
-            ranging_count=ranging_count
+            ranging_count=ranging_count,
         )
 
-        logger.info(f"{'='*70}")
+        logger.info(f"{'=' * 70}")
         logger.info(f"RESULTS: {symbol}")
         logger.info(f"  Total Return: {metrics.total_return_pct:+.2f}%")
-        logger.info(f"  Win Rate: {metrics.win_rate:.1f}% ({metrics.winning_trades}/{metrics.total_trades})")
+        logger.info(
+            f"  Win Rate: {metrics.win_rate:.1f}% ({metrics.winning_trades}/{metrics.total_trades})"
+        )
         logger.info(f"  Sharpe Ratio: {metrics.sharpe_ratio:.2f}")
         logger.info(f"  Max Drawdown: {metrics.max_drawdown_pct:.2f}%")
-        logger.info(f"  Trend Trades: {metrics.trend_trades} ({metrics.trend_win_rate:.1f}% WR)")
-        logger.info(f"  Mean Reversion Trades: {metrics.mean_reversion_trades} ({metrics.mean_reversion_win_rate:.1f}% WR)")
-        logger.info(f"{'='*70}")
+        logger.info(
+            f"  Trend Trades: {metrics.trend_trades} ({metrics.trend_win_rate:.1f}% WR)"
+        )
+        logger.info(
+            f"  Mean Reversion Trades: {metrics.mean_reversion_trades} ({metrics.mean_reversion_win_rate:.1f}% WR)"
+        )
+        logger.info(f"{'=' * 70}")
 
         return metrics
 
@@ -489,7 +503,7 @@ class ExtendedBacktester:
         trades: List[BacktestTrade],
         equity_curve: List[float],
         trending_count: int,
-        ranging_count: int
+        ranging_count: int,
     ) -> BacktestMetrics:
         """Calculate comprehensive backtest metrics"""
 
@@ -516,15 +530,28 @@ class ExtendedBacktester:
         profit_factor = total_wins / total_losses if total_losses > 0 else 0
 
         # Risk metrics
-        returns = [equity_curve[i] / equity_curve[i-1] - 1 for i in range(1, len(equity_curve))]
+        returns = [
+            equity_curve[i] / equity_curve[i - 1] - 1
+            for i in range(1, len(equity_curve))
+        ]
         avg_return = sum(returns) / len(returns) if returns else 0
-        std_return = (sum((r - avg_return) ** 2 for r in returns) / len(returns)) ** 0.5 if returns else 0
+        std_return = (
+            (sum((r - avg_return) ** 2 for r in returns) / len(returns)) ** 0.5
+            if returns
+            else 0
+        )
 
-        sharpe_ratio = (avg_return / std_return * (252 ** 0.5)) if std_return > 0 else 0
+        sharpe_ratio = (avg_return / std_return * (252**0.5)) if std_return > 0 else 0
 
         downside_returns = [r for r in returns if r < 0]
-        downside_std = (sum(r ** 2 for r in downside_returns) / len(downside_returns)) ** 0.5 if downside_returns else 0
-        sortino_ratio = (avg_return / downside_std * (252 ** 0.5)) if downside_std > 0 else 0
+        downside_std = (
+            (sum(r**2 for r in downside_returns) / len(downside_returns)) ** 0.5
+            if downside_returns
+            else 0
+        )
+        sortino_ratio = (
+            (avg_return / downside_std * (252**0.5)) if downside_std > 0 else 0
+        )
 
         # Max drawdown
         peak = equity_curve[0]
@@ -545,14 +572,26 @@ class ExtendedBacktester:
         max_dd_duration_days = max_dd_duration / (24 * 60 // 60)  # Convert bars to days
 
         # Strategy breakdown
-        trend_trades_list = [t for t in trades if t.strategy_type == 'trend_following']
-        mr_trades_list = [t for t in trades if t.strategy_type == 'mean_reversion']
+        trend_trades_list = [t for t in trades if t.strategy_type == "trend_following"]
+        mr_trades_list = [t for t in trades if t.strategy_type == "mean_reversion"]
 
         trend_trades = len(trend_trades_list)
         mean_reversion_trades = len(mr_trades_list)
 
-        trend_win_rate = (sum(1 for t in trend_trades_list if t.is_winner) / trend_trades * 100) if trend_trades > 0 else 0
-        mr_win_rate = (sum(1 for t in mr_trades_list if t.is_winner) / mean_reversion_trades * 100) if mean_reversion_trades > 0 else 0
+        trend_win_rate = (
+            (sum(1 for t in trend_trades_list if t.is_winner) / trend_trades * 100)
+            if trend_trades > 0
+            else 0
+        )
+        mr_win_rate = (
+            (
+                sum(1 for t in mr_trades_list if t.is_winner)
+                / mean_reversion_trades
+                * 100
+            )
+            if mean_reversion_trades > 0
+            else 0
+        )
 
         # Market regime
         total_bars = trending_count + ranging_count
@@ -583,21 +622,20 @@ class ExtendedBacktester:
             trend_win_rate=trend_win_rate,
             mean_reversion_win_rate=mr_win_rate,
             trending_market_pct=trending_pct,
-            ranging_market_pct=ranging_pct
+            ranging_market_pct=ranging_pct,
         )
 
 
 async def main():
     """Run extended backtests on all symbols"""
 
+    # Emit mandatory PERMANENT DIVERGENCE warning — fires before any setup.
+    # See docs/decisions/ADR-012-extended-backtest-disposition.md
+    _emit_divergence_warning()
+
     logger.info("=" * 70)
     logger.info("EXTENDED BACKTEST - HYBRID STRATEGY VALIDATION")
     logger.info("=" * 70)
-    logger.warning(
-        "PnL output is SUSPECT: backtest uses HybridStrategyRouter, "
-        "not the live 9-indicator voting aggregator. Testnet contamination "
-        "is now filtered server-side by default. See module docstring."
-    )
     logger.info("=" * 70)
     logger.info("")
 
@@ -608,9 +646,7 @@ async def main():
 
     # Initialize backtester
     backtester = ExtendedBacktester(
-        initial_capital=10000.0,
-        commission_pct=0.1,
-        slippage_pct=0.05
+        initial_capital=10000.0, commission_pct=0.1, slippage_pct=0.05
     )
 
     # Run backtests
@@ -619,9 +655,7 @@ async def main():
     for symbol in symbols:
         try:
             metrics = await backtester.run_symbol_backtest(
-                symbol=symbol,
-                interval=interval,
-                days=days
+                symbol=symbol, interval=interval, days=days
             )
 
             if metrics:
@@ -633,7 +667,7 @@ async def main():
     # Save results
     if all_metrics:
         results_file = Path("/tmp/backtest_results.json")
-        with open(results_file, 'w') as f:
+        with open(results_file, "w") as f:
             json.dump(
                 {
                     "timestamp": datetime.now().isoformat(),
@@ -642,12 +676,12 @@ async def main():
                         "commission_pct": backtester.commission_pct,
                         "slippage_pct": backtester.slippage_pct,
                         "interval": interval,
-                        "days": days
+                        "days": days,
                     },
-                    "results": [m.to_dict() for m in all_metrics]
+                    "results": [m.to_dict() for m in all_metrics],
                 },
                 f,
-                indent=2
+                indent=2,
             )
 
         logger.info("")
