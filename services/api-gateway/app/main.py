@@ -1034,6 +1034,125 @@ async def get_trading_status():
     )
 
 
+@app.get("/api/config/safety-state")
+async def get_safety_state():
+    """
+    Aggregated safety posture for the dashboard StatusBar (DASH-03 / Plan 06-02).
+
+    Returns the D-08 schema in a single fan-out call so the frontend does
+    NOT have to stitch multiple endpoints. The dashboard polls this every
+    5s (per D-04 + the polling cadence in Plan 06-04).
+
+    Ownership split (D-09 / D-10):
+    - api-gateway reads its own env for trading_mode / paper_trading_mode /
+      ml_predictions_enabled (F-04 wired these into the compose env block).
+    - Proxies to trading-engine for auto_trading_enabled + emergency_stop
+      (D-10: only trading-engine reads the EMERGENCY_STOP bind-mount file).
+    - Proxies to trading-engine for kill_switch state (D-04: 5% daily-loss
+      circuit-breaker state lives in the risk-budget manager).
+
+    Unauthenticated (D-09): read-only config disclosure. No secrets, no
+    balances, no positions. Threat T-06-02-01 explicitly accepted.
+
+    Graceful degradation: if trading-engine is unreachable, the response is
+    still 200 with safe defaults (auto_trading_enabled=False,
+    emergency_stop={active:False, mtime:None}, kill_switch fields zeroed
+    and daily_loss_armed=False). The dashboard surfaces "trading-engine
+    down" via these defaults; we never 500.
+
+    F-01 fix: kill_switch.tripped reads the FLAT bool te_budget["emergency_mode"]
+    (handler at services/trading-engine/app/handlers/risk_budget.py:50
+    declares `emergency_mode: bool`). daily_loss_armed is sourced from
+    te_budget reachability (bool(te_budget)). PATTERNS.md line 379 had the
+    WRONG dict-walk on emergency_mode.armed — superseded here.
+
+    F-03 fix: proxy_request returns a fastapi.responses.JSONResponse, NOT
+    a dict. Calling .get() on it raises AttributeError. We decode the body
+    via json.loads(resp.body.decode()) — same pattern as portfolio_resp at
+    main.py:271.
+
+    Deferred (Phase 7): live_trading_acknowledged flag tracking
+    LIVE_TRADING_ACK env var. Not in D-08 schema; without it an operator
+    could see TRADING_MODE=LIVE pill while trading-engine refuses to boot.
+    """
+    proxy = get_proxy()
+
+    # --- Proxy to trading-engine /status ----------------------------------
+    te_status: dict = {}
+    try:
+        te_status_resp = await proxy.proxy_request(
+            service_name="trading-engine", path="/status", method="GET"
+        )
+        if getattr(te_status_resp, "status_code", 500) == 200:
+            te_status = json.loads(te_status_resp.body.decode())
+    except Exception as e:
+        logger.warning(
+            f"/api/config/safety-state: trading-engine /status proxy failed: {e}"
+        )
+        te_status = {}
+
+    # --- Proxy to trading-engine /api/v1/risk/budget/current --------------
+    te_budget: dict = {}
+    try:
+        te_budget_resp = await proxy.proxy_request(
+            service_name="trading-engine",
+            path="/api/v1/risk/budget/current",
+            method="GET",
+        )
+        if getattr(te_budget_resp, "status_code", 500) == 200:
+            te_budget = json.loads(te_budget_resp.body.decode())
+    except Exception as e:
+        logger.warning(
+            f"/api/config/safety-state: trading-engine /api/v1/risk/budget/current proxy failed: {e}"
+        )
+        te_budget = {}
+
+    # --- Local env reads (F-04 wired these into compose) ------------------
+    trading_mode = os.getenv("TRADING_MODE", "PAPER").upper()
+    paper_trading_mode = os.getenv("PAPER_TRADING_MODE", "true").lower() == "true"
+    ml_predictions_enabled = (
+        os.getenv("ENABLE_ML_PREDICTIONS", "false").lower() == "true"
+    )
+
+    # --- emergency_stop sub-dict from te_status ---------------------------
+    es_raw = te_status.get("emergency_stop") or {}
+    emergency_stop = {
+        "active": bool(es_raw.get("active", False)),
+        "mtime": es_raw.get("mtime"),  # ISO string or None (Plan 06-02 Task 1)
+    }
+
+    # --- kill_switch derivation (F-01 fix) --------------------------------
+    # daily_loss_armed = bool(te_budget) — True iff te_budget is a non-empty
+    # dict (proxy reachable AND backend returned a populated payload).
+    # When trading-engine is unreachable or returns {}, this is False — the
+    # dashboard renders a "kill-switch state unknown" pill.
+    # tripped = bool(te_budget["emergency_mode"]) — flat bool read; this is
+    # the canonical wire shape (handler at risk_budget.py:50).
+    kill_switch = {
+        "daily_loss_armed": bool(te_budget),
+        "daily_pnl_pct": float(
+            te_budget.get("utilization", {}).get("daily_pnl_pct", 0.0)
+        ),
+        "tripped": bool(te_budget.get("emergency_mode", False)),
+    }
+
+    # Local import: autoflake removes unused top-level imports across
+    # api-gateway/main.py refactors. Importing inside the function pins
+    # the use site and survives the autoflake pass (project memory:
+    # feedback_main_imports_autoflake.md).
+    from datetime import timezone as _tz
+
+    return {
+        "trading_mode": trading_mode,
+        "paper_trading_mode": paper_trading_mode,
+        "auto_trading_enabled": bool(te_status.get("auto_trading_enabled", False)),
+        "emergency_stop": emergency_stop,
+        "ml_predictions_enabled": ml_predictions_enabled,
+        "kill_switch": kill_switch,
+        "last_updated_at": datetime.now(_tz.utc).isoformat(),
+    }
+
+
 @app.get("/api/trading/performance")
 # @rate_limiter.general_limit  # Rate limited via middleware
 async def get_trading_performance():
