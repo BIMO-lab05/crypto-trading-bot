@@ -163,7 +163,7 @@ Plans:
 - [x] 06-03-PLAN.md — DASH-02 config-driven URLs: migrate useGatewayWebSocket.js:34 to VITE_WS_URL + extend vite.config.js doc block + install grep-gate npm script
 
 **Wave 2** (blocked on Wave 1)
-- [ ] 06-04-PLAN.md — DASH-03 frontend (depends on 06-02): useSafetyState hook + 3 new StatusBar cells (MODE/KILL-SWITCH/ML) + PAPER/LIVE viewport border in App.jsx
+- [x] 06-04-PLAN.md — DASH-03 frontend (depends on 06-02): useSafetyState hook + 3 new StatusBar cells (MODE/KILL-SWITCH/ML) + PAPER/LIVE viewport border in App.jsx
 - [ ] 06-05-PLAN.md — DASH-05 (depends on 06-01): shared <TileState/> wrapper + refactor every FIXED/LABELED_STALE tile + delete REMOVED tiles; operator smoke + audit re-run
 
 ### Phase 7: Tournament View & Smoke Test
