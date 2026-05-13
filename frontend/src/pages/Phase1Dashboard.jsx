@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
+import TileState from '../components/TileState'
 
 /**
  * Phase1Dashboard - Monitoring dashboard for Phase 1 signal processing
@@ -8,6 +9,13 @@ import axios from 'axios'
  *
  * UPDATED 2025-11-28: Added full dark mode support with Tailwind dark: variants
  * FIXED 2025-11-27: Updated field names to match actual API response structure
+ *
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/> per
+ * audit verdict FIXED. This is a page-level wrapper (no own endpoint —
+ * the audit note says "Verdict reflects 'page composition is correct';
+ * child tiles carry their own verdicts"). The wrap uses `phase1Health`
+ * as the load-bearing query so the operator gets the standard
+ * Failed (...) UI if the Phase 1 health endpoint goes 503.
  */
 
 const api = axios.create({
@@ -29,7 +37,8 @@ const usePhase1Metrics = (hours = 24) => {
   })
 }
 
-// Fetch Phase 1 system health
+// Fetch Phase 1 system health (also drives the page-level <TileState/>
+// wrapper — DASH-05 Plan 06-05).
 const usePhase1Health = () => {
   return useQuery({
     queryKey: ['phase1', 'health'],
@@ -60,7 +69,8 @@ const useLatestPhase1Signal = () => {
 export default function Phase1Dashboard() {
   const [hoursFilter, setHoursFilter] = React.useState(24)
   const { data: metricsData, isLoading: metricsLoading, error: metricsError } = usePhase1Metrics(hoursFilter)
-  const { data: healthData, isLoading: healthLoading, error: healthError } = usePhase1Health()
+  const healthQuery = usePhase1Health()
+  const { data: healthData, isLoading: healthLoading, error: healthError } = healthQuery
   const { data: latestData, isLoading: latestLoading, error: latestError } = useLatestPhase1Signal()
 
   // Debug logging - raw data from hooks
@@ -110,6 +120,13 @@ export default function Phase1Dashboard() {
   const consensusRate = signalsTotal > 0 ? (actionSignals / signalsTotal) : 0
 
   return (
+    <TileState
+      query={healthQuery}
+      title="Phase 1 Signal Processing"
+      thresholdKey="signals"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || (d.data == null && d.success == null)}
+    >
     <div className="min-h-screen bg-gray-100 dark:bg-slate-900 py-8 transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
@@ -746,5 +763,6 @@ export default function Phase1Dashboard() {
         </div>
       </div>
     </div>
+    </TileState>
   )
 }

@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
+import TileState from './TileState'
 
 /**
  * TradeHistory - Displays closed trades with win/loss statistics
@@ -12,6 +13,9 @@ import axios from 'axios'
  * - Best/worst trade highlights
  *
  * Date: 2025-11-29
+ *
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/> per
+ * audit verdict FIXED. Inline isLoading/error early-returns removed.
  */
 
 // Fetch trade history from trading engine
@@ -70,44 +74,23 @@ const StatCard = ({ label, value, subValue, isPositive, isNegative }) => {
 }
 
 export default function TradeHistory() {
-  const { data, isLoading, error, refetch } = useQuery({
+  const q = useQuery({
     queryKey: ['tradeHistory'],
     queryFn: fetchTradeHistory,
     refetchInterval: 30000, // Refresh every 30 seconds
   })
 
-  if (isLoading) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-6 border border-slate-700/50 backdrop-blur-sm">
-        <h3 className="text-lg font-semibold text-slate-100 mb-4">Trade History</h3>
-        <div className="animate-pulse space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-20 bg-slate-700/50 rounded-lg"></div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-6 border border-rose-500/30 backdrop-blur-sm">
-        <h3 className="text-lg font-semibold text-slate-100 mb-2">Trade History</h3>
-        <p className="text-rose-400 text-sm">Failed to load trade history: {error.message}</p>
-        <button
-          onClick={() => refetch()}
-          className="mt-2 px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-sm text-slate-300"
-        >
-          Retry
-        </button>
-      </div>
-    )
-  }
-
-  const trades = data?.trades || []
-  const stats = data?.stats || {}
+  const trades = q.data?.trades || []
+  const stats = q.data?.stats || {}
 
   return (
+    <TileState
+      query={q}
+      title="Trade History"
+      thresholdKey="positions"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || (d.trades ?? []).length === 0}
+    >
     <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm">
       {/* Header */}
       <div className="p-4 border-b border-slate-700/50">
@@ -288,5 +271,6 @@ export default function TradeHistory() {
         </p>
       </div>
     </div>
+    </TileState>
   )
 }

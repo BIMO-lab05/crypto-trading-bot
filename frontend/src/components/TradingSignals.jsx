@@ -1,5 +1,6 @@
 import React from 'react'
 import { useMultipleSignals } from '../hooks/useSignals'
+import TileState from './TileState'
 
 /**
  * TradingSignals - Research-Backed Signal Display Component
@@ -17,13 +18,17 @@ import { useMultipleSignals } from '../hooks/useSignals'
  * - symbols: Array of trading pairs to display
  * - interval: Timeframe in minutes
  * - compact: Boolean for compact sidebar mode
+ *
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/> per
+ * audit verdict FIXED.
  */
 export default function TradingSignals({
   symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'],
   interval = 60,
   compact = false
 }) {
-  const { data: signals, isLoading, error } = useMultipleSignals(symbols, interval)
+  const q = useMultipleSignals(symbols, interval)
+  const signals = q.data
 
   // Helper function to get action style for dark theme
   const getActionStyle = (action) => {
@@ -62,42 +67,17 @@ export default function TradingSignals({
     return 'bg-rose-500'
   }
 
-  if (isLoading) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 h-full">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-slate-300">Trading Signals</h2>
-          <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-pulse"></div>
-        </div>
-        <div className="space-y-3">
-          {symbols.slice(0, compact ? 4 : symbols.length).map((symbol) => (
-            <div key={symbol} className="animate-pulse bg-slate-700/50 rounded-lg p-3">
-              <div className="h-3 bg-slate-600 rounded w-16 mb-2"></div>
-              <div className="h-5 bg-slate-600 rounded w-20"></div>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-4 border border-rose-500/30">
-        <div className="flex items-center gap-2 text-rose-400">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="text-sm">Signal error: {error.message}</span>
-        </div>
-      </div>
-    )
-  }
-
-  // Compact mode: Vertical list for sidebar
+  // Loading and error states are now handled by <TileState/> below.
+  // Compact mode: Vertical list for sidebar.
   if (compact) {
     return (
+      <TileState
+        query={q}
+        title="Trading Signals"
+        thresholdKey="signals"
+        lastUpdatedAt={undefined}
+        isEmpty={(d) => !d || Object.keys(d).length === 0}
+      >
       <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 backdrop-blur-sm h-full">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-slate-300">Trading Signals</h2>
@@ -166,11 +146,19 @@ export default function TradingSignals({
           Research-optimized: MACD(5-35-5) RSI(9)
         </div>
       </div>
+      </TileState>
     )
   }
 
   // Full mode: Grid display
   return (
+    <TileState
+      query={q}
+      title="Trading Signals"
+      thresholdKey="signals"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || Object.keys(d).length === 0}
+    >
     <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 backdrop-blur-sm">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-slate-300">Trading Signals</h2>
@@ -268,6 +256,7 @@ export default function TradingSignals({
         Auto-refresh: 5s • Research-optimized: MACD(5-35-5), RSI(9), BB(2.5σ)
       </div>
     </div>
+    </TileState>
   )
 }
 

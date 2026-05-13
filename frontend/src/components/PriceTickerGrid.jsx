@@ -1,6 +1,7 @@
 import React from 'react'
 import { useMultipleTickers } from '../hooks/useTicker'
 import Sparkline from './Sparkline'
+import TileState from './TileState'
 
 /**
  * PriceTickerGrid - Research-Backed Price Display Component
@@ -17,51 +18,30 @@ import Sparkline from './Sparkline'
  * Props:
  * - symbols: Array of trading pairs to display
  * - onSymbolClick: Callback when user clicks a ticker
+ *
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in
+ * <TileState forceStale/> per audit verdict LABELED_STALE
+ * (market-data-service unhealthy at audit time, 2026-05-13). Corner
+ * stale badge fires while the source endpoint is fixed in a later phase.
+ * Per F-05 precedence: a real error (HTTP 503/etc.) still surfaces as
+ * the Failed (...) + Retry UI; forceStale does NOT silence the error.
  */
 export default function PriceTickerGrid({
   symbols = ['SOLUSDT', 'BNBUSDT', 'ADAUSDT', 'AVAXUSDT', 'LINKUSDT'],
   onSymbolClick
 }) {
-  const { data: tickers, isLoading, error } = useMultipleTickers(symbols)
-
-  if (isLoading) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-slate-300">Live Prices</h2>
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-pulse"></div>
-            <span className="text-xs text-slate-500">Loading...</span>
-          </div>
-        </div>
-        <div className="flex gap-3 overflow-x-auto pb-2">
-          {symbols.map((symbol) => (
-            <div key={symbol} className="animate-pulse flex-shrink-0 w-36 bg-slate-700/50 rounded-lg p-3">
-              <div className="h-3 bg-slate-600 rounded w-12 mb-2"></div>
-              <div className="h-5 bg-slate-600 rounded w-20 mb-1"></div>
-              <div className="h-3 bg-slate-600 rounded w-14"></div>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-4 border border-rose-500/30">
-        <div className="flex items-center gap-2 text-rose-400">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="text-sm">Unable to load prices: {error.message}</span>
-        </div>
-      </div>
-    )
-  }
+  const q = useMultipleTickers(symbols)
+  const tickers = q.data
 
   return (
+    <TileState
+      query={q}
+      title="Live Prices"
+      thresholdKey="ticker"
+      lastUpdatedAt={undefined}
+      forceStale
+      isEmpty={(d) => !d || Object.keys(d).length === 0}
+    >
     <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 backdrop-blur-sm">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-slate-300">Live Prices</h2>
@@ -167,5 +147,6 @@ export default function PriceTickerGrid({
         Auto-refresh: 5s • Click ticker to view chart
       </div>
     </div>
+    </TileState>
   )
 }
