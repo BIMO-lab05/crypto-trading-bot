@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 05 (ml-cleanup-post-v0) — **EXECUTING** (Plan 02 of 4 complete)
-Plans: 2 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03, 05-04 pending)
+Phase: 05 (ml-cleanup-post-v0) — **EXECUTING** (Plan 03 of 4 complete)
+Plans: 3 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 pending)
 Status: Executing Phase 05
 Last activity: 2026-05-13 -- Plan 05-02 complete (MLCL-02: t0_1_x_horizon_sweep YAML shipped, INSUFFICIENT_DATA verdict, 5/5 integration tests)
 
@@ -82,7 +82,7 @@ None yet (use `/gsd-capture` to add).
 
 - Local main is 60+ commits ahead of origin/main as of 2026-05-01 — push pending; verify CI green before opening tournament PRs
 - Working tree dirty at init time (15+ modified files including service code + frontend); mods are unrelated to GSD setup and stay outside GSD commits
-- `scripts/monitoring/*` autonomous tier-2 system parked since 2026-04-27; binding decision lives in Phase 5 (MLCL-03)
+- `scripts/monitoring/` tier-2 deleted per ADR-011 (Phase 5 MLCL-03); tier-1 retained as cheap health monitor
 
 ## Deferred Items
 
