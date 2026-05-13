@@ -31,7 +31,7 @@ const MAX_RECONNECT_ATTEMPTS = 10
 function resolveUrl() {
   if (typeof window === 'undefined') return null
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  if (import.meta.env.DEV) return 'ws://localhost:8000/ws'
+  if (import.meta.env.DEV) return import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws'
   return `${protocol}//${window.location.host}/ws`
 }
 
