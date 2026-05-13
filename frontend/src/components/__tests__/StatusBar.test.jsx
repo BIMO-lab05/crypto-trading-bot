@@ -41,6 +41,28 @@ function withSafety(payload) {
   useSafetyState.mockReturnValue({ data: payload })
 }
 
+// jsdom normalizes the inline `style="color: #abcdef"` declaration to
+// `color: rgb(r, g, b)`. Map each Editorial palette hex to its decimal
+// triplet so the assertions can accept both shapes. Hardcoded — no
+// dynamic RegExp construction (avoids CWE-1333 / ReDoS surface).
+const HEX_TO_RGB = {
+  '#5eead4': 'rgb(94, 234, 212)',
+  '#fb7185': 'rgb(251, 113, 133)',
+  '#a09e98': 'rgb(160, 158, 152)',
+  '#d4af6a': 'rgb(212, 175, 106)',
+  '#65645e': 'rgb(101, 100, 94)',
+}
+
+function expectColor(el, hex) {
+  const style = (el.getAttribute('style') || '').toLowerCase()
+  const rgb = HEX_TO_RGB[hex.toLowerCase()]
+  // String-based match (no RegExp) — Editorial palette colors are
+  // hardcoded above; both the literal hex and the jsdom-normalized rgb()
+  // form are acceptable.
+  const ok = style.includes(hex.toLowerCase()) || style.includes(rgb)
+  expect(ok).toBe(true)
+}
+
 const BASE_SAFETY = {
   trading_mode: 'PAPER',
   paper_trading_mode: true,
@@ -64,7 +86,7 @@ describe('StatusBar — safety cells', () => {
     // eyebrow label is present
     expect(screen.getByText('MODE')).toBeInTheDocument()
     // gain color (mint)
-    expect(value.getAttribute('style') || '').toMatch(/#5eead4/i)
+    expectColor(value, '#5eead4')
   })
 
   it('renders MODE cell with LIVE value and loss (#fb7185) color when trading_mode=LIVE', () => {
@@ -72,7 +94,7 @@ describe('StatusBar — safety cells', () => {
     render(<StatusBar />)
     const value = screen.getByText('LIVE')
     expect(value).toBeInTheDocument()
-    expect(value.getAttribute('style') || '').toMatch(/#fb7185/i)
+    expectColor(value, '#fb7185')
   })
 
   it('renders KILL-SWITCH cell with TRIPPED + loss color when kill_switch.tripped=true', () => {
@@ -84,7 +106,7 @@ describe('StatusBar — safety cells', () => {
     expect(screen.getByText('KILL-SWITCH')).toBeInTheDocument()
     const value = screen.getByText('TRIPPED')
     expect(value).toBeInTheDocument()
-    expect(value.getAttribute('style') || '').toMatch(/#fb7185/i)
+    expectColor(value, '#fb7185')
   })
 
   it('renders KILL-SWITCH cell with ARMED + neutral (#a09e98) color when tripped=false', () => {
@@ -92,7 +114,7 @@ describe('StatusBar — safety cells', () => {
     render(<StatusBar />)
     const value = screen.getByText('ARMED')
     expect(value).toBeInTheDocument()
-    expect(value.getAttribute('style') || '').toMatch(/#a09e98/i)
+    expectColor(value, '#a09e98')
   })
 
   it('renders ML cell with ON + gold (#d4af6a) color when ml_predictions_enabled=true', () => {
@@ -101,7 +123,7 @@ describe('StatusBar — safety cells', () => {
     expect(screen.getByText('ML')).toBeInTheDocument()
     const value = screen.getByText('ON')
     expect(value).toBeInTheDocument()
-    expect(value.getAttribute('style') || '').toMatch(/#d4af6a/i)
+    expectColor(value, '#d4af6a')
   })
 
   it('renders ML cell with OFF + muted (#65645e) color when ml_predictions_enabled=false', () => {
@@ -109,7 +131,7 @@ describe('StatusBar — safety cells', () => {
     render(<StatusBar />)
     const value = screen.getByText('OFF')
     expect(value).toBeInTheDocument()
-    expect(value.getAttribute('style') || '').toMatch(/#65645e/i)
+    expectColor(value, '#65645e')
   })
 
   it('renders EMERGENCY cell as "ACTIVE — since HH:MM:SS" when emergency_stop.active=true with mtime', () => {
