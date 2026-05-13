@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
+status: executing
 stopped_at: Phase 6 context gathered
-last_updated: "2026-05-13T13:03:01.962Z"
-last_activity: "2026-05-13 -- Plan 05-04 complete (MLCL-04: SC-4 punt language removed, PERMANENT DIVERGENCE marker + _emit_divergence_warning() + ADR-012, 5-test pytest gate passing)"
+last_updated: "2026-05-13T14:04:55.576Z"
+last_activity: 2026-05-13 -- Phase 06 planning complete
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 37
+  total_plans: 42
   completed_plans: 37
-  percent: 100
+  percent: 88
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 Phase: 05 (ml-cleanup-post-v0) — **COMPLETE** (all 4 plans done)
 Plans: 4 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 MLCL-04 backtest divergence documented DONE)
-Status: Phase 05 complete — ready for verification
-Last activity: 2026-05-13 -- Plan 05-04 complete (MLCL-04: SC-4 punt language removed, PERMANENT DIVERGENCE marker + _emit_divergence_warning() + ADR-012, 5-test pytest gate passing)
+Status: Ready to execute
+Last activity: 2026-05-13 -- Phase 06 planning complete
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 
