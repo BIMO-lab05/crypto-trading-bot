@@ -9,7 +9,11 @@
       "tile": "KeyMetricsStrip",
       "page": "Performance",
       "component_file": "frontend/src/components/KeyMetricsStrip.jsx",
-      "hooks": ["usePositions", "useTradingStatus", "usePerformance"],
+      "hooks": [
+        "usePositions",
+        "useTradingStatus",
+        "usePerformance"
+      ],
       "endpoint": "/api/trading/performance",
       "expected_shape": {
         "success": "bool",
@@ -24,7 +28,9 @@
       "tile": "TradingSignals",
       "page": "Performance",
       "component_file": "frontend/src/components/TradingSignals.jsx",
-      "hooks": ["useMultipleSignals"],
+      "hooks": [
+        "useMultipleSignals"
+      ],
       "endpoint": "/api/trading/signals/BTCUSDT?interval=60",
       "expected_shape": {
         "success": "bool",
@@ -39,7 +45,9 @@
       "tile": "HybridStrategyPanel",
       "page": "Performance",
       "component_file": "frontend/src/components/HybridStrategyPanel.jsx",
-      "hooks": ["tradingAPI.getStatus (inline)"],
+      "hooks": [
+        "tradingAPI.getStatus (inline)"
+      ],
       "endpoint": "/api/trading/status",
       "expected_shape": {
         "success": "bool",
@@ -54,7 +62,9 @@
       "tile": "RegimeIndicator",
       "page": "Performance",
       "component_file": "frontend/src/components/RegimeIndicator.jsx",
-      "hooks": ["tradingAPI.getStatus (inline)"],
+      "hooks": [
+        "tradingAPI.getStatus (inline)"
+      ],
       "endpoint": "/api/trading/status",
       "expected_shape": {
         "success": "bool",
@@ -69,7 +79,9 @@
       "tile": "TradingEnhancementsPanel",
       "page": "Performance",
       "component_file": "frontend/src/components/TradingEnhancementsPanel.jsx",
-      "hooks": ["useAutoTraderStatus"],
+      "hooks": [
+        "useAutoTraderStatus"
+      ],
       "endpoint": "/api/trading/status",
       "expected_shape": {
         "success": "bool",
@@ -84,7 +96,10 @@
       "tile": "PerformanceAnalyticsPanel",
       "page": "Performance",
       "component_file": "frontend/src/components/PerformanceAnalyticsPanel.jsx",
-      "hooks": ["usePerformanceAnalytics", "useQuery(/api/trading/trades/history)"],
+      "hooks": [
+        "usePerformanceAnalytics",
+        "useQuery(/api/trading/trades/history)"
+      ],
       "endpoint": "/api/trading/performance",
       "expected_shape": {
         "success": "bool",
@@ -99,7 +114,9 @@
       "tile": "ActiveTrades",
       "page": "Portfolio",
       "component_file": "frontend/src/components/ActiveTrades.jsx",
-      "hooks": ["usePositions"],
+      "hooks": [
+        "usePositions"
+      ],
       "endpoint": "/api/trading/positions?status=open",
       "expected_shape": {
         "success": "bool",
@@ -115,7 +132,9 @@
       "tile": "TradeHistory",
       "page": "Portfolio",
       "component_file": "frontend/src/components/TradeHistory.jsx",
-      "hooks": ["useQuery(/api/trading/trades/history) inline"],
+      "hooks": [
+        "useQuery(/api/trading/trades/history) inline"
+      ],
       "endpoint": "/api/trading/trades/history?limit=50",
       "expected_shape": {
         "success": "bool",
@@ -132,7 +151,11 @@
       "tile": "PortfolioCard",
       "page": "Portfolio",
       "component_file": "frontend/src/components/PortfolioCard.jsx",
-      "hooks": ["usePerformance", "usePositions", "useTradingStatus"],
+      "hooks": [
+        "usePerformance",
+        "usePositions",
+        "useTradingStatus"
+      ],
       "endpoint": "/api/trading/performance",
       "expected_shape": {
         "success": "bool",
@@ -147,62 +170,77 @@
       "tile": "PriceTickerGrid",
       "page": "Phase1",
       "component_file": "frontend/src/components/PriceTickerGrid.jsx",
-      "hooks": ["useMultipleTickers"],
+      "hooks": [
+        "useMultipleTickers"
+      ],
       "endpoint": "/api/market/ticker/BTCUSDT",
       "expected_shape": {
         "success": "bool",
         "data": "object"
       },
-      "verdict": "PENDING-OPERATOR",
+      "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
-      "notes": "503 Service Unavailable from /api/market/ticker/{symbol} despite market-data container being up (status 'unhealthy'). Operator decision: restore market-data ticker endpoint (FIXED) vs. label STALE pending Phase 7 market-data refactor."
+      "notes": "503 Service Unavailable from /api/market/ticker/{symbol} despite market-data container being up (status 'unhealthy'). Operator decision: restore market-data ticker endpoint (FIXED) vs. label STALE pending Phase 7 market-data refactor.",
+      "operator_resolved": "2026-05-13"
     },
     {
       "tile": "PriceChart",
       "page": "Phase1",
       "component_file": "frontend/src/components/PriceChart.jsx",
-      "hooks": ["useKlines"],
+      "hooks": [
+        "useKlines"
+      ],
       "endpoint": "/api/market/klines/BTCUSDT?interval=60&limit=24",
       "expected_shape": {
         "success": "bool",
         "data": "list[object]"
       },
-      "verdict": "PENDING-OPERATOR",
+      "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
-      "notes": "503 from /api/market/klines/{symbol}. Same root cause as PriceTickerGrid (market-data unhealthy). Operator decision pairs with PriceTickerGrid."
+      "notes": "503 from /api/market/klines/{symbol}. Same root cause as PriceTickerGrid (market-data unhealthy). Operator decision pairs with PriceTickerGrid.",
+      "operator_resolved": "2026-05-13"
     },
     {
       "tile": "Sparkline",
       "page": "Phase1",
       "component_file": "frontend/src/components/Sparkline.jsx",
-      "hooks": ["useKlines"],
+      "hooks": [
+        "useKlines"
+      ],
       "endpoint": "/api/market/klines/BTCUSDT?interval=60&limit=24",
       "expected_shape": {
         "success": "bool",
         "data": "list[object]"
       },
-      "verdict": "PENDING-OPERATOR",
+      "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
-      "notes": "Identical endpoint + 503 to PriceChart. Resolves with same operator decision."
+      "notes": "Identical endpoint + 503 to PriceChart. Resolves with same operator decision.",
+      "operator_resolved": "2026-05-13"
     },
     {
       "tile": "Phase1Dashboard",
       "page": "Phase1",
       "component_file": "frontend/src/pages/Phase1Dashboard.jsx",
-      "hooks": ["page-level composition"],
+      "hooks": [
+        "page-level composition"
+      ],
       "endpoint": "n/a (page composes sub-tiles)",
       "expected_shape": {
         "_composition": "list[object]"
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "n/a",
-      "notes": "Page-level wrapper; renders KeyMetricsStrip + PriceTickerGrid + PriceChart + TradingSignals child tiles. No own endpoint; not probed by audit_tiles.py. Verdict reflects 'page composition is correct' — child tiles carry their own verdicts."
+      "notes": "Page-level wrapper; renders KeyMetricsStrip + PriceTickerGrid + PriceChart + TradingSignals child tiles. No own endpoint; not probed by audit_tiles.py. Verdict reflects 'page composition is correct' \u2014 child tiles carry their own verdicts."
     },
     {
       "tile": "Phase3Dashboard",
       "page": "Phase3",
       "component_file": "frontend/src/pages/Phase3Dashboard.jsx",
-      "hooks": ["useMLPrediction", "useSentiment", "useMTFAnalysis (et al.)"],
+      "hooks": [
+        "useMLPrediction",
+        "useSentiment",
+        "useMTFAnalysis (et al.)"
+      ],
       "endpoint": "/api/ml/predict/price/BTCUSDT?interval=60",
       "expected_shape": {
         "_composition": "list[object]"
@@ -215,16 +253,23 @@
       "tile": "Portfolio",
       "page": "Portfolio",
       "component_file": "frontend/src/pages/Portfolio.jsx",
-      "hooks": ["usePortfolio", "usePortfolioPerformance", "useTradeHistory", "usePositions", "useTradingStatus"],
+      "hooks": [
+        "usePortfolio",
+        "usePortfolioPerformance",
+        "useTradeHistory",
+        "usePositions",
+        "useTradingStatus"
+      ],
       "endpoint": "/api/portfolio",
       "expected_shape": {
         "balance": "number",
         "positions": "list[object]",
         "total_value": "number"
       },
-      "verdict": "PENDING-OPERATOR",
+      "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
-      "notes": "Page-level tile fans out to /api/portfolio which returns 503 (portfolio-manager container 'unhealthy'). Other hooks (positions/status/perf) are 200. Operator decision: restore /api/portfolio endpoint (FIXED) or migrate page to compose-from-trading-engine-aggregations only (REMOVED + replacement)."
+      "notes": "Page-level tile fans out to /api/portfolio which returns 503 (portfolio-manager container 'unhealthy'). Other hooks (positions/status/perf) are 200. Operator decision: restore /api/portfolio endpoint (FIXED) or migrate page to compose-from-trading-engine-aggregations only (REMOVED + replacement).",
+      "operator_resolved": "2026-05-13"
     }
   ]
 }

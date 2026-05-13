@@ -12,7 +12,7 @@
 | `FIXED` | Endpoint returns 200 with the documented shape. Plan 6-05 wires `<TileState/>` and the tile renders real data. Read by `scripts/audit_tiles.py` as a regression gate. |
 | `LABELED_STALE` | Backing capability is intentionally off this phase. Plan 6-05 sets `<TileState forceStale={true}/>` so the badge is visible without faking data. Rolls to Phase 7 backlog. |
 | `REMOVED` | Endpoint is dead code (404 with a "NOT IMPLEMENTED" note in `api.js` or analog). Plan 6-05 deletes the tile from the dashboard. |
-| `PENDING-OPERATOR` | Operator must decide between FIX / STALE / REMOVE at the Task 3 checkpoint before this table is committed. |
+| `PENDING-OPERATOR` | (Resolved 2026-05-13 — see audit log below.) Was used pre-checkpoint for rows where the operator decided between FIX / STALE / REMOVE at Task 3 before this table was committed. |
 
 ## `last_updated_at?` column
 
@@ -43,9 +43,9 @@ Per W-02 scope-down: only `/api/config/safety-state` (Plan 6-02) will emit `last
 
 | Tile | Component File | Backing Endpoint | Expected Shape | Observed Shape | Verdict | last_updated_at? | Notes |
 |---|---|---|---|---|---|---|---|
-| PriceTickerGrid | `frontend/src/components/PriceTickerGrid.jsx` | `GET /api/market/ticker/{symbol}` | `{success: bool, data: object}` | `{"detail": "..."}` (HTTP 503) | PENDING-OPERATOR | n/a | market-data container is up but `unhealthy`. Operator decides: restore ticker endpoint (-> FIXED), or label STALE pending Phase 7 market-data refactor. |
-| PriceChart | `frontend/src/components/PriceChart.jsx` | `GET /api/market/klines/{symbol}?interval=60&limit=24` | `{success: bool, data: list[object]}` | `{"detail": "..."}` (HTTP 503) | PENDING-OPERATOR | n/a | Same root cause as PriceTickerGrid (market-data unhealthy). Resolves with same operator decision. |
-| Sparkline | `frontend/src/components/Sparkline.jsx` | `GET /api/market/klines/{symbol}?interval=60&limit=24` | `{success: bool, data: list[object]}` | `{"detail": "..."}` (HTTP 503) | PENDING-OPERATOR | n/a | Identical endpoint to PriceChart; resolves identically. |
+| PriceTickerGrid | `frontend/src/components/PriceTickerGrid.jsx` | `GET /api/market/ticker/{symbol}` | `{success: bool, data: object}` | `{"detail": "..."}` (HTTP 503) | LABELED_STALE | n/a | market-data container is up but `unhealthy`. Operator approved 2026-05-13: LABELED_STALE — market-data container unhealth is an ops fix tracked separately; Phase 6 ships the stale-badge affordance via forceStale={true}. |
+| PriceChart | `frontend/src/components/PriceChart.jsx` | `GET /api/market/klines/{symbol}?interval=60&limit=24` | `{success: bool, data: list[object]}` | `{"detail": "..."}` (HTTP 503) | LABELED_STALE | n/a | Same operator decision: LABELED_STALE pending Phase 7 market-data refactor. |
+| Sparkline | `frontend/src/components/Sparkline.jsx` | `GET /api/market/klines/{symbol}?interval=60&limit=24` | `{success: bool, data: list[object]}` | `{"detail": "..."}` (HTTP 503) | LABELED_STALE | n/a | Same operator decision: LABELED_STALE pending Phase 7 market-data refactor. |
 | Phase1Dashboard | `frontend/src/pages/Phase1Dashboard.jsx` | n/a (page composes child tiles) | n/a (composition) | n/a | FIXED | n/a | Page-level wrapper. Composes KeyMetricsStrip + PriceTickerGrid + PriceChart + TradingSignals. Carries its own page verdict; child tiles carry endpoint verdicts. Not probed by audit_tiles.py. |
 
 ## Phase3 page tiles
@@ -58,17 +58,20 @@ Per W-02 scope-down: only `/api/config/safety-state` (Plan 6-02) will emit `last
 
 | Tile | Component File | Backing Endpoint | Expected Shape | Observed Shape | Verdict | last_updated_at? | Notes |
 |---|---|---|---|---|---|---|---|
-| Portfolio | `frontend/src/pages/Portfolio.jsx` | `GET /api/portfolio` (primary) | `{balance: number, positions: list[object], total_value: number}` | `{"detail": "..."}` (HTTP 503) | PENDING-OPERATOR | n/a | Page calls `usePortfolio` which hits `/api/portfolio` (portfolio-manager container `unhealthy`). Other hooks on this page (positions/status/performance from trading-engine) are 200. Operator decides: restore `/api/portfolio` (-> FIXED) or migrate page to trading-engine aggregations only (-> REMOVE `usePortfolio`, replace via existing 200-OK endpoints). |
+| Portfolio | `frontend/src/pages/Portfolio.jsx` | `GET /api/portfolio` (primary) | `{balance: number, positions: list[object], total_value: number}` | `{"detail": "..."}` (HTTP 503) | LABELED_STALE | n/a | Operator approved 2026-05-13: LABELED_STALE — portfolio-manager container unhealth is an ops fix tracked separately; Phase 6 ships the stale-badge affordance via forceStale={true}. usePortfolio hook stays as-is; ops fix restores backing endpoint. |
 
 ---
 
 ## Summary
 
 - **15 tiles audited** (matches `06-PATTERNS.md` line 640 inventory exactly).
-- **Verdicts (pre-checkpoint):** FIXED=10, PENDING-OPERATOR=4, LABELED_STALE=1.
+- **Verdicts (post-checkpoint, resolved 2026-05-13):** FIXED=10, LABELED_STALE=5, REMOVED=0. Operator decided all 4 PENDING-OPERATOR rows → LABELED_STALE (market-data + portfolio-manager container unhealth is an ops fix tracked outside Phase 6 scope; stale-badge affordance ships via `<TileState forceStale={true}/>` in Plan 6-05).
 - **last_updated_at emitters today:** `no` for 9 FIXED body-tile rows; `n/a` for 6 page-level/labeled-stale/pending rows. Zero `yes` (safety-state endpoint ships in Plan 6-02 and lives in StatusBar, not a body tile).
 - **Endpoints already healthy (will pass `audit_tiles.py`):** `/api/trading/performance`, `/api/trading/status`, `/api/trading/positions`, `/api/trading/trades/history`, `/api/trading/signals/{symbol}`.
-- **Endpoints broken at audit time (need operator decision):** `/api/market/ticker/{symbol}` (503), `/api/market/klines/{symbol}` (503), `/api/portfolio` (503).
+- **Endpoints broken at audit time (now LABELED_STALE):** `/api/market/ticker/{symbol}` (503), `/api/market/klines/{symbol}` (503), `/api/portfolio` (503). Backing containers are up but unhealthy; ops fix tracked separately; Phase 6 surfaces the stale state via `<TileState forceStale={true}/>`.
 - **Endpoints intentionally off (LABELED_STALE):** all `/api/ml/*` and `/api/sentiment/*` per feature flags.
 
-PENDING-OPERATOR rows resolve at the Task 3 checkpoint; this table is committed only after those four verdicts are finalized.
+### Operator audit log (Task 3 checkpoint)
+
+- **Decided 2026-05-13:** all 4 PENDING-OPERATOR rows (PriceTickerGrid, PriceChart, Sparkline, Portfolio page) → `LABELED_STALE`. Rationale: market-data and portfolio-manager containers are healthy enough to serve health probes but their data endpoints return 503; restoring those endpoints is an ops/infra fix tracked outside Phase 6's DASH-01/05 scope. Plan 6-05 wraps these tiles with `forceStale={true}` so the operator sees the stale state instead of silent zeros or blank charts. Re-audit after Phase 7 market-data refactor lands.
+- **Confirmed 2026-05-13:** Phase3Dashboard `LABELED_STALE` verdict stands — ML and sentiment services are intentionally off (`ENABLE_ML_PREDICTIONS=false`, `ENABLE_SENTIMENT_ANALYSIS=false`).
