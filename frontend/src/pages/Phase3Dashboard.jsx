@@ -1,10 +1,20 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { mlAPI, sentimentAPI, multiTimeframeAPI, enhancedTradingAPI } from '../services/api'
+import TileState from '../components/TileState'
 
 /**
  * Phase3Dashboard - AI-Enhanced Trading Dashboard
  * Displays ML predictions, sentiment analysis, and multi-timeframe confirmation
+ *
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in
+ * <TileState forceStale/> per audit verdict LABELED_STALE. Phase 3
+ * services (ml-prediction-service + sentiment-analysis-service) are
+ * feature-flagged OFF by default (ENABLE_ML_PREDICTIONS=false,
+ * ENABLE_SENTIMENT_ANALYSIS=false). The ML query drives the wrapper:
+ * if /api/ml/* returns 503 the Failed (...) UI surfaces (F-05 precedence);
+ * otherwise the page renders with a corner stale badge until Phase 7+
+ * re-enables ML on a returns-target rebuild.
  *
  * UPDATED 2025-11-28: Added dark mode support throughout the component
  * - All backgrounds now support both light and dark themes
@@ -103,7 +113,9 @@ export default function Phase3Dashboard() {
         await mlAPI.trainModel(selectedSymbol, interval.value, 90)
         completedIntervals.push(interval.label)
       } catch (error) {
-        console.error(`Failed to train ${interval.label}:`, error)
+        // Use a constant format string to avoid CWE-134 (semgrep), with
+        // the interval label and error passed as separate console args.
+        console.error('Failed to train interval:', interval.label, error)
         // Continue with next interval even if one fails
         completedIntervals.push(`${interval.label} (failed)`)
       }
@@ -132,13 +144,12 @@ export default function Phase3Dashboard() {
     { value: 240, label: '4h' },
   ]
 
-  // Fetch ML prediction with error handling and retry logic
-  const {
-    data: mlData,
-    isLoading: mlLoading,
-    isError: mlError,
-    error: mlErrorDetails
-  } = useQuery({
+  // Fetch ML prediction with error handling and retry logic.
+  // Plan 06-05 DASH-05: this query also drives the page-level
+  // <TileState forceStale/> banner (LABELED_STALE verdict). When the ML
+  // endpoint is 503 the wrapper's Failed (...) UI takes precedence over
+  // the page body (F-05).
+  const mlQuery = useQuery({
     queryKey: ['ml', 'prediction', selectedSymbol, selectedInterval],
     queryFn: () => mlAPI.getPricePrediction(selectedSymbol, selectedInterval),
     refetchInterval: 60000,
@@ -146,6 +157,12 @@ export default function Phase3Dashboard() {
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
     staleTime: 30000,
   })
+  const {
+    data: mlData,
+    isLoading: mlLoading,
+    isError: mlError,
+    error: mlErrorDetails
+  } = mlQuery
 
   // Fetch sentiment analysis with error handling
   const {
@@ -310,6 +327,14 @@ export default function Phase3Dashboard() {
   } : { label: 'NEUTRAL', score: 0, tradingSignal: 'HOLD', signalStrength: 0, dataQuality: 'UNKNOWN', confidence: 0 }
 
   return (
+    <TileState
+      query={mlQuery}
+      title="Phase 3: AI-Enhanced Trading"
+      thresholdKey="default"
+      lastUpdatedAt={undefined}
+      forceStale
+      isEmpty={() => false}
+    >
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 py-8 transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
@@ -1160,5 +1185,6 @@ export default function Phase3Dashboard() {
         </div>
       </div>
     </div>
+    </TileState>
   )
 }

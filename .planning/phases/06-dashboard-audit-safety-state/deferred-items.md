@@ -15,3 +15,12 @@ Out of scope for Plan 06-02 (DASH-03 surface only). Defer to a separate
 container-hardening plan; require explicit operator sign-off before adding
 read_only flags to stateful DB services (postgres/redis write paths break
 without a tmpfs).
+
+- 2026-05-14 (Plan 06-05): semgrep CWE-134 pre-existing finding at
+  `frontend/src/pages/Phase3Dashboard.jsx:116` — `console.error` with
+  template-literal includes externally-controlled `interval.label`. Not
+  introduced by this plan (pre-existing in the codebase since Phase 3).
+  Scope-boundary: out of scope; ticketing for a later cleanup phase. The
+  finding is INFO severity, not exploitable as a forged-log primitive in
+  this frontend context (no log shipper consuming console.* into a
+  parser).
