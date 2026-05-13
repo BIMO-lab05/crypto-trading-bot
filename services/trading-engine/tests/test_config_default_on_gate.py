@@ -66,9 +66,25 @@ def _check_default_on_gate(
 
     Returns a list of violation messages.  Empty list means the gate passes.
     """
-    # RED stub — always returns empty (gate never fires).
-    # GREEN: implement regex scan + marker check.
-    raise NotImplementedError("RED stub — implement in GREEN phase")
+    text = config_path.read_text()
+    matches = _FLAG_DEFAULT_PATTERN.findall(text)
+
+    violations: list[str] = []
+    for flag_name, default_val in matches:
+        if default_val != "True":
+            continue
+        marker = evidence_base / flag_name / MARKER_FILENAME
+        if not marker.exists():
+            violations.append(
+                f"Flag '{flag_name}' has default=True in {config_path} "
+                f"but no published evidence marker exists at {marker}. "
+                f"Run the ≥7-day forward-paper-test for '{flag_name}', "
+                f"compute PSR CI, and publish via "
+                f"'python -m scripts.forward_paper_test.run_isolation "
+                f"publish-evidence <evidence_dir>', then copy or symlink "
+                f"the PSR_CI_PUBLISHED marker to {evidence_base / flag_name}."
+            )
+    return violations
 
 
 # -------------------------------------------------------------------------
