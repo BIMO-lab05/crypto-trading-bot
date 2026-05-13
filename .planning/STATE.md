@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Plan 05-02 complete (MLCL-02). Operator action: configure TIMESCALE_PASSWORD, recreate container with --build, re-run t0_1_x_horizon_sweep tournament (12 experiments ~20-60 min), update decision_note.md with actual verdict."
+stopped_at: "Plan 05-03 complete (MLCL-03). Tier-2 monitoring deleted (ADR-011). Tier-1 retained. Grep gate added. Next: 05-04 (MLCL-04 run_extended_backtest.py divergence)."
 last_updated: "2026-05-13T00:00:00.000Z"
-last_activity: "2026-05-13 -- Plan 05-02 complete (MLCL-02: t0_1_x_horizon_sweep YAML shipped, INSUFFICIENT_DATA verdict documented, integration test 5/5 passing)"
+last_activity: "2026-05-13 -- Plan 05-03 complete (MLCL-03: tier-2 deleted per STRIDE, ADR-011 filed, 4-test grep gate passing)"
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 37
-  completed_plans: 36
-  percent: 97
+  completed_plans: 37
+  percent: 100
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 Phase: 05 (ml-cleanup-post-v0) — **EXECUTING** (Plan 03 of 4 complete)
 Plans: 3 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 pending)
 Status: Executing Phase 05
-Last activity: 2026-05-13 -- Plan 05-02 complete (MLCL-02: t0_1_x_horizon_sweep YAML shipped, INSUFFICIENT_DATA verdict, 5/5 integration tests)
+Last activity: 2026-05-13 -- Plan 05-03 complete (MLCL-03: tier-2 monitoring deleted per STRIDE analysis, ADR-011 filed, 4-test grep gate passing, tier-1 retained)
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 
@@ -57,6 +57,7 @@ Progress: [████████░░] 4/7 phases complete + Phase 05 in pro
 *Updated after each plan completion*
 | Phase 04-tournament-significance-auto-pr P09 | 35min | 3 tasks | 1 files |
 | Phase 05-ml-cleanup-post-v0 P02 | ~25min | 3 tasks | 7 files |
+| Phase 05-ml-cleanup-post-v0 P03 | ~25min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,6 @@ None yet (use `/gsd-capture` to add).
 ## Session Continuity
 
 Last session: 2026-05-13T00:00:00.000Z
-Stopped at: Plan 05-02 complete (MLCL-02). Operator action: configure TIMESCALE_PASSWORD, rebuild tournament-harness container, re-run horizon sweep.
+Stopped at: Plan 05-03 complete (MLCL-03). Tier-2 monitoring deleted, ADR-011 filed, grep gate in place. Next: 05-04 MLCL-04 (run_extended_backtest.py divergence).
 Resume file: None
-Next: Operator resolves TIMESCALE_PASSWORD blocker + runs tournament. After verdict updated in decision_note.md, `/gsd-execute-phase 05` for plans 05-03 and 05-04.
+Next: `/gsd-execute-phase 05` for plan 05-04 (MLCL-04). Separately: TIMESCALE_PASSWORD still needed for re-running t0_1_x_horizon_sweep tournament.

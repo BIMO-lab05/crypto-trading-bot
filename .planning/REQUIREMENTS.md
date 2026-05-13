@@ -30,7 +30,7 @@ Active requirements for this milestone. Each maps to roadmap phases. Validated r
 
 - [x] **MLCL-01**: Forward-paper-test harness for the three Tier-1 opt-in features (vol parity, maker, funding) — runs each in isolation for ≥7 days against the baseline, compares PSR with bootstrap CI; per-feature default-on flip blocked until evidence *(apparatus + gate delivered 2026-05-13; evidence loops are operator action)*
 - [x] **MLCL-02**: T0.1.x next-attempt experiment chosen and shipped through the tournament harness — picks one of {different horizon, classification head, XGBoost control, cross-sectional features, sentiment-as-filter}; result is allowed to be "no edge" and that's a valid outcome *(different_horizon selected, YAML shipped, INSUFFICIENT_DATA pending operator credential fix 2026-05-13)*
-- [ ] **MLCL-03**: `scripts/monitoring/*` parked autonomous tier-2 system either removed or wired with a documented blast-radius bound (no `claude -p` PR-opening from CI without human review); decision committed
+- [x] **MLCL-03**: `scripts/monitoring/*` parked autonomous tier-2 system either removed or wired with a documented blast-radius bound (no `claude -p` PR-opening from CI without human review); decision committed *(tier-2 deleted per STRIDE analysis, ADR-011 filed, 4-test grep gate added 2026-05-13)*
 - [ ] **MLCL-04**: Backtest signal logic alignment — either rewrite `run_extended_backtest.py` to use live `CoreAggregator` (high-effort) or document the divergence permanently and freeze backtest claims; no silent drift
 
 ### Dashboard
@@ -105,7 +105,7 @@ Each requirement maps to exactly one phase.
 | TOURN-06 | Phase 4 | Pending |
 | MLCL-01 | Phase 5 | Complete (2026-05-13) |
 | MLCL-02 | Phase 5 | Complete (2026-05-13) |
-| MLCL-03 | Phase 5 | Pending |
+| MLCL-03 | Phase 5 | Complete (2026-05-13) |
 | MLCL-04 | Phase 5 | Pending |
 | DASH-01 | Phase 6 | Pending |
 | DASH-02 | Phase 6 | Pending |
