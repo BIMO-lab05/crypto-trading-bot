@@ -164,7 +164,7 @@ Plans:
 
 **Wave 2** (blocked on Wave 1)
 - [x] 06-04-PLAN.md — DASH-03 frontend (depends on 06-02): useSafetyState hook + 3 new StatusBar cells (MODE/KILL-SWITCH/ML) + PAPER/LIVE viewport border in App.jsx
-- [ ] 06-05-PLAN.md — DASH-05 (depends on 06-01): shared <TileState/> wrapper + refactor every FIXED/LABELED_STALE tile + delete REMOVED tiles; operator smoke + audit re-run
+- [x] 06-05-PLAN.md — DASH-05 (depends on 06-01): shared <TileState/> wrapper + refactor every FIXED/LABELED_STALE tile + delete REMOVED tiles; operator smoke + audit re-run
 
 ### Phase 7: Tournament View & Smoke Test
 **Goal**: The dashboard reads the tournament leaderboard so the operator can see ML evaluation results without leaving the UI, and a Playwright smoke test asserts every major tile renders non-empty against the recorded-tape stack.
