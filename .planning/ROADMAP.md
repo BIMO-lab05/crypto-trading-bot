@@ -140,7 +140,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md — MLCL-01 forward-paper-test apparatus + PSR-with-bootstrap-CI + default-on pytest gate for the three Tier-1 opt-in flags (complete 2026-05-13; 37 tests pass; operator evidence loops pending)
-- [ ] 05-02-PLAN.md — MLCL-02 select + ship one T0.1.x experiment through the tournament harness with a binding decision note (EDGE_FOUND / NO_EDGE_FOUND / INSUFFICIENT_DATA)
+- [x] 05-02-PLAN.md — MLCL-02 select + ship one T0.1.x experiment through the tournament harness with a binding decision note (EDGE_FOUND / NO_EDGE_FOUND / INSUFFICIENT_DATA) (complete 2026-05-13; different_horizon selected; t0_1_x_horizon_sweep YAML shipped; INSUFFICIENT_DATA verdict — TIMESCALE_PASSWORD blocker; 5/5 integration tests pass)
 - [ ] 05-03-PLAN.md — MLCL-03 binding disposition of scripts/monitoring/* (delete-all / wire-with-bounds / keep-tier1-delete-tier2) + ADR-011 + grep-gate against claude -p in CI
 - [ ] 05-04-PLAN.md — MLCL-04 resolve run_extended_backtest.py divergence (rewrite to CoreAggregator OR document permanently + runtime warning) + ADR-012
 

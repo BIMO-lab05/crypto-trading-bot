@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 05 Plan 01 complete (05-01 MLCL-01 apparatus + gate).
+stopped_at: "Plan 05-02 complete (MLCL-02). Operator action: configure TIMESCALE_PASSWORD, recreate container with --build, re-run t0_1_x_horizon_sweep tournament (12 experiments ~20-60 min), update decision_note.md with actual verdict."
 last_updated: "2026-05-13T00:00:00.000Z"
-last_activity: 2026-05-13 -- Phase 05 Plan 01 complete (MLCL-01)
+last_activity: "2026-05-13 -- Plan 05-02 complete (MLCL-02: t0_1_x_horizon_sweep YAML shipped, INSUFFICIENT_DATA verdict documented, integration test 5/5 passing)"
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 37
-  completed_plans: 35
-  percent: 95
+  completed_plans: 36
+  percent: 97
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 05 (ml-cleanup-post-v0) — **EXECUTING** (Plan 01 of 4 complete)
-Plans: 1 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate; 05-02, 05-03, 05-04 pending — each requires human-decision checkpoint at Task 1)
+Phase: 05 (ml-cleanup-post-v0) — **EXECUTING** (Plan 02 of 4 complete)
+Plans: 2 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03, 05-04 pending)
 Status: Executing Phase 05
-Last activity: 2026-05-13 -- Plan 05-01 complete (MLCL-01: forward-paper-test apparatus, PSR-CI kernel, default-on gate for Tier-1 flags)
+Last activity: 2026-05-13 -- Plan 05-02 complete (MLCL-02: t0_1_x_horizon_sweep YAML shipped, INSUFFICIENT_DATA verdict, 5/5 integration tests)
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 
@@ -56,6 +56,7 @@ Progress: [████████░░] 4/7 phases complete + Phase 05 in pro
 
 *Updated after each plan completion*
 | Phase 04-tournament-significance-auto-pr P09 | 35min | 3 tasks | 1 files |
+| Phase 05-ml-cleanup-post-v0 P02 | ~25min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,7 @@ Recent decisions affecting current work:
 - Init: Tournament wins open draft PRs; humans merge
 - [Phase 04]: Used pytest --ignore (cwd-relative) over --deselect (rootdir-relative) in integration-fake-docker CI step — Plan literal --deselect tests/integration/X.py silently matched nothing because pytest rootdir is repo root; --ignore preserves cwd-relative path form and works correctly. Verified 26 passed / 14 ignored vs 40 collected with broken form.
 - [Phase 04]: 0-SKIP grep guard in container-integration CI job is load-bearing — Pairs with Plan 04-08 test_canonical_metrics_importable.py for defence in depth — catches silent namespace-merge regression even if the regression test itself is re-routed to a skip path.
+- [Phase 05 MLCL-02]: different_horizon selected as T0.1.x experiment — sweep horizon [3,5,7,10] on GRU-only grid (12 experiments); pure YAML edit, zero new Python; INSUFFICIENT_DATA verdict due to TIMESCALE_PASSWORD not propagated into container env (operator action required before re-run).
 
 ### Pending Todos
 
@@ -96,6 +98,6 @@ None yet (use `/gsd-capture` to add).
 ## Session Continuity
 
 Last session: 2026-05-13T00:00:00.000Z
-Stopped at: Plan 05-01 complete (MLCL-01). Operator action: run ≥7-day evidence loops per Tier-1 flag.
+Stopped at: Plan 05-02 complete (MLCL-02). Operator action: configure TIMESCALE_PASSWORD, rebuild tournament-harness container, re-run horizon sweep.
 Resume file: None
-Next: `/gsd-execute-phase 05` plans 05-02, 05-03, 05-04 — each requires human-decision checkpoint at Task 1 (ML retrain scope, autonomous-tier decision, model acceptance gate).
+Next: Operator resolves TIMESCALE_PASSWORD blocker + runs tournament. After verdict updated in decision_note.md, `/gsd-execute-phase 05` for plans 05-03 and 05-04.
