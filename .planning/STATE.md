@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 6 context gathered
-last_updated: "2026-05-13T14:04:55.576Z"
-last_activity: 2026-05-13 -- Phase 06 planning complete
+last_updated: "2026-05-13T21:55:29.749Z"
+last_activity: 2026-05-13 -- Phase 06 execution started
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 42
-  completed_plans: 37
-  percent: 88
+  completed_plans: 40
+  percent: 95
 ---
 
 # Project State
@@ -21,14 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-06)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns.
-**Current focus:** Phase 05 — ML Cleanup (post-V0) (next, not yet planned)
+**Current focus:** Phase 06 — dashboard-audit-safety-state
 
 ## Current Position
 
-Phase: 05 (ml-cleanup-post-v0) — **COMPLETE** (all 4 plans done)
+Phase: 06 (dashboard-audit-safety-state) — EXECUTING
+Plan: 1 of 5
 Plans: 4 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 MLCL-04 backtest divergence documented DONE)
-Status: Ready to execute
-Last activity: 2026-05-13 -- Phase 06 planning complete
+Status: Executing Phase 06
+Last activity: 2026-05-13 -- Phase 06 execution started
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 

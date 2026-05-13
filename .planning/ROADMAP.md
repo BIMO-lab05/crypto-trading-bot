@@ -158,9 +158,9 @@ Plans:
 
 Plans:
 **Wave 1** (parallel, no inter-plan dependencies)
-- [ ] 06-01-PLAN.md — DASH-01 tile audit: 06-TILE-AUDIT.md + 06-TILE-AUDIT.json sidecar + scripts/audit_tiles.py runtime probe; operator-reviewed verdicts {FIXED, LABELED_STALE, REMOVED}
-- [ ] 06-02-PLAN.md — DASH-03 backend: extend trading-engine /status with emergency_stop.mtime + new GET /api/config/safety-state on api-gateway (D-08 schema) + in-container pytest
-- [ ] 06-03-PLAN.md — DASH-02 config-driven URLs: migrate useGatewayWebSocket.js:34 to VITE_WS_URL + extend vite.config.js doc block + install grep-gate npm script
+- [x] 06-01-PLAN.md — DASH-01 tile audit: 06-TILE-AUDIT.md + 06-TILE-AUDIT.json sidecar + scripts/audit_tiles.py runtime probe; operator-reviewed verdicts {FIXED, LABELED_STALE, REMOVED}
+- [x] 06-02-PLAN.md — DASH-03 backend: extend trading-engine /status with emergency_stop.mtime + new GET /api/config/safety-state on api-gateway (D-08 schema) + in-container pytest
+- [x] 06-03-PLAN.md — DASH-02 config-driven URLs: migrate useGatewayWebSocket.js:34 to VITE_WS_URL + extend vite.config.js doc block + install grep-gate npm script
 
 **Wave 2** (blocked on Wave 1)
 - [ ] 06-04-PLAN.md — DASH-03 frontend (depends on 06-02): useSafetyState hook + 3 new StatusBar cells (MODE/KILL-SWITCH/ML) + PAPER/LIVE viewport border in App.jsx
