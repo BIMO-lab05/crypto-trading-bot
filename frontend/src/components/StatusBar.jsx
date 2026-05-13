@@ -1,20 +1,25 @@
 import React from 'react'
 import { useTradingStatus, usePositions } from '../hooks/usePositions'
 import { usePortfolio } from '../hooks/usePortfolio'
+import { useSafetyState } from '../hooks/useSafetyState'
 
 /**
  * StatusBar — fixed-bottom live state strip.
  *
- * Editorial Trading Floor aesthetic. Six live cells:
+ * Editorial Trading Floor aesthetic. Live cells:
  *   1. Trading-loop state (running / idle, with breath pulse)
  *   2. Signals checked (lifetime)
  *   3. Trades executed (lifetime)
  *   4. Open positions
  *   5. Cash balance + total P&L
- *   6. Emergency state
+ *   6. MODE pill (PAPER green / LIVE red) — D-05/D-06
+ *   7. KILL-SWITCH ARMED / TRIPPED — D-04/D-05
+ *   8. ML toggle ON / OFF — D-05
+ *   9. EMERGENCY active+mtime / inactive — D-07
  *
  * The breath dot uses a CSS animation so we get pulse without re-render.
- * Refreshes follow the underlying hook polling cadence (5–10s).
+ * Refreshes follow the underlying hook polling cadence (5–10s);
+ * useSafetyState polls /api/config/safety-state every 5s per D-11.
  */
 
 const fmt = (n, d = 2) => {
@@ -45,14 +50,44 @@ const Cell = ({ eyebrow, value, valueStyle, accent, mono = true }) => (
   </div>
 )
 
+// Format an ISO timestamp as "HH:MM:SS" in UTC, or return null if invalid.
+const fmtMtime = (iso) => {
+  if (!iso) return null
+  try {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return null
+    return d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'UTC' })
+  } catch {
+    return null
+  }
+}
+
 export default function StatusBar() {
   const { data: tradingStatus } = useTradingStatus()
   const { data: positions } = usePositions()
   const { data: portfolio } = usePortfolio()
+  const { data: safety } = useSafetyState()
+
+  // Safety state derivations (D-05 / D-06 / D-07).
+  // Defaults match the safe PAPER posture when safety-state is loading or unreachable.
+  const tradingMode = safety?.trading_mode || 'PAPER'
+  const killSwitchTripped = !!safety?.kill_switch?.tripped
+  const mlOn = !!safety?.ml_predictions_enabled
+  const emergencyActive = !!safety?.emergency_stop?.active
+  const emergencyMtime = fmtMtime(safety?.emergency_stop?.mtime)
+  const emergencyValue = emergencyActive
+    ? emergencyMtime
+      ? `ACTIVE — since ${emergencyMtime}`
+      : 'ACTIVE'
+    : 'INACTIVE'
+  const emergencyAccent = emergencyActive ? '#fb7185' : '#a09e98'
+  const modeAccent = tradingMode === 'LIVE' ? '#fb7185' : '#5eead4'
+  const killSwitchAccent = killSwitchTripped ? '#fb7185' : '#a09e98'
+  const mlAccent = mlOn ? '#d4af6a' : '#65645e'
 
   const status = tradingStatus?.status
   const isRunning = !!status?.is_running
-  const emergency = !!status?.emergency_stop?.active
+  const emergency = emergencyActive || !!status?.emergency_stop?.active
   const signalsChecked = status?.total_signals_checked ?? 0
   const tradesExec = status?.total_trades_executed ?? 0
 
@@ -126,6 +161,36 @@ export default function StatusBar() {
           eyebrow="P&L"
           value={`${pnlSign} $${fmt(pnlAbs, 2)}`}
           accent={pnlAccent}
+        />
+
+        {/* D-05/D-06: trading mode pill (PAPER green / LIVE red) */}
+        <Cell
+          eyebrow="MODE"
+          value={tradingMode}
+          accent={modeAccent}
+          mono={false}
+        />
+
+        {/* D-04/D-05: 5%-daily-loss kill-switch state */}
+        <Cell
+          eyebrow="KILL-SWITCH"
+          value={killSwitchTripped ? 'TRIPPED' : 'ARMED'}
+          accent={killSwitchAccent}
+        />
+
+        {/* D-05: ML predictions feature flag */}
+        <Cell
+          eyebrow="ML"
+          value={mlOn ? 'ON' : 'OFF'}
+          accent={mlAccent}
+        />
+
+        {/* D-07: EMERGENCY_STOP file Active/Inactive + mtime (HH:MM:SS UTC) */}
+        <Cell
+          eyebrow="EMERGENCY"
+          value={emergencyValue}
+          accent={emergencyAccent}
+          mono={false}
         />
 
         <div className="flex-1" />
