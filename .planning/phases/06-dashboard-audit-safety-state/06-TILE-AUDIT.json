@@ -1,0 +1,275 @@
+{
+  "generated_at": "2026-05-13T20:43:20Z",
+  "phase": "06-dashboard-audit-safety-state",
+  "plan": "06-01",
+  "requirement": "DASH-01",
+  "notes": "Walked tiles per 06-PATTERNS.md line 640 inventory. Probed every documented endpoint against running stack at http://localhost:8000 on 2026-05-13. Verdict defaults: 200+sensible shape -> FIXED; 503 from feature-flagged-off service (ml/sentiment) -> LABELED_STALE; 404 on NOT-IMPLEMENTED endpoints noted in api.js -> REMOVED; 500/503 with ambiguous intent -> PENDING-OPERATOR (resolved at checkpoint Task 3). Phase 6 W-02 scope-down: every body-tile endpoint emits last_updated_at_emitter=no today; safety-state (Plan 6-02) is the only `yes` in Phase 6, and it lives in StatusBar not a body tile. Non-FIXED rows are inert per audit_tiles.py D-02 contract.",
+  "tiles": [
+    {
+      "tile": "KeyMetricsStrip",
+      "page": "Performance",
+      "component_file": "frontend/src/components/KeyMetricsStrip.jsx",
+      "hooks": [
+        "usePositions",
+        "useTradingStatus",
+        "usePerformance"
+      ],
+      "endpoint": "/api/trading/performance",
+      "expected_shape": {
+        "success": "bool",
+        "metrics": "object",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "200 OK with metrics{} top-level. Reads three hooks; the load-bearing tile-shape gate is the performance summary."
+    },
+    {
+      "tile": "TradingSignals",
+      "page": "Performance",
+      "component_file": "frontend/src/components/TradingSignals.jsx",
+      "hooks": [
+        "useMultipleSignals"
+      ],
+      "endpoint": "/api/trading/signals/BTCUSDT?interval=60",
+      "expected_shape": {
+        "success": "bool",
+        "signal": "object",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "Per-symbol probe returns signal{symbol,timestamp,action,confidence,indicators,aggregated_score}. useMultipleSignals fans out one call per symbol."
+    },
+    {
+      "tile": "HybridStrategyPanel",
+      "page": "Performance",
+      "component_file": "frontend/src/components/HybridStrategyPanel.jsx",
+      "hooks": [
+        "tradingAPI.getStatus (inline)"
+      ],
+      "endpoint": "/api/trading/status",
+      "expected_shape": {
+        "success": "bool",
+        "status": "object",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "Reads data.status.hybrid_strategy_stats subdict. /api/trading/status returns 200 with full status payload."
+    },
+    {
+      "tile": "RegimeIndicator",
+      "page": "Performance",
+      "component_file": "frontend/src/components/RegimeIndicator.jsx",
+      "hooks": [
+        "tradingAPI.getStatus (inline)"
+      ],
+      "endpoint": "/api/trading/status",
+      "expected_shape": {
+        "success": "bool",
+        "status": "object",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "Reads same /api/trading/status as HybridStrategyPanel; reads data.status.hybrid_strategy_stats.trend_pct + mean_reversion_pct."
+    },
+    {
+      "tile": "TradingEnhancementsPanel",
+      "page": "Performance",
+      "component_file": "frontend/src/components/TradingEnhancementsPanel.jsx",
+      "hooks": [
+        "useAutoTraderStatus"
+      ],
+      "endpoint": "/api/trading/status",
+      "expected_shape": {
+        "success": "bool",
+        "status": "object",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "useAutoTraderStatus calls /api/trading/status; extractTradingEnhancements decomposes status into circuit-breaker/kill-switch/etc. cells."
+    },
+    {
+      "tile": "PerformanceAnalyticsPanel",
+      "page": "Performance",
+      "component_file": "frontend/src/components/PerformanceAnalyticsPanel.jsx",
+      "hooks": [
+        "usePerformanceAnalytics",
+        "useQuery(/api/trading/trades/history)"
+      ],
+      "endpoint": "/api/trading/performance",
+      "expected_shape": {
+        "success": "bool",
+        "metrics": "object",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "Primary read is /api/trading/performance (200); also fans out to /api/trading/trades/history (also 200) for advanced metric calc. Both work."
+    },
+    {
+      "tile": "ActiveTrades",
+      "page": "Portfolio",
+      "component_file": "frontend/src/components/ActiveTrades.jsx",
+      "hooks": [
+        "usePositions"
+      ],
+      "endpoint": "/api/trading/positions?status=open",
+      "expected_shape": {
+        "success": "bool",
+        "positions": "list[object]",
+        "count": "number",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "200 OK. positions list may be empty when no open trades; tile must render empty-state via <TileState/> per Plan 6-05."
+    },
+    {
+      "tile": "TradeHistory",
+      "page": "Portfolio",
+      "component_file": "frontend/src/components/TradeHistory.jsx",
+      "hooks": [
+        "useQuery(/api/trading/trades/history) inline"
+      ],
+      "endpoint": "/api/trading/trades/history?limit=50",
+      "expected_shape": {
+        "success": "bool",
+        "trades": "list[object]",
+        "stats": "object",
+        "count": "number",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "200 OK with trades + stats top-level keys. Component currently uses raw axios import; OK for audit purposes (same endpoint)."
+    },
+    {
+      "tile": "PortfolioCard",
+      "page": "Portfolio",
+      "component_file": "frontend/src/components/PortfolioCard.jsx",
+      "hooks": [
+        "usePerformance",
+        "usePositions",
+        "useTradingStatus"
+      ],
+      "endpoint": "/api/trading/performance",
+      "expected_shape": {
+        "success": "bool",
+        "metrics": "object",
+        "timestamp": "number"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "notes": "Reads /api/trading/performance (200) + /api/trading/positions (200) + /api/trading/status (200). Does NOT call usePortfolio so the broken /api/portfolio 503 does not affect this tile."
+    },
+    {
+      "tile": "PriceTickerGrid",
+      "page": "Phase1",
+      "component_file": "frontend/src/components/PriceTickerGrid.jsx",
+      "hooks": [
+        "useMultipleTickers"
+      ],
+      "endpoint": "/api/market/ticker/BTCUSDT",
+      "expected_shape": {
+        "success": "bool",
+        "data": "object"
+      },
+      "verdict": "LABELED_STALE",
+      "last_updated_at_emitter": "n/a",
+      "notes": "503 Service Unavailable from /api/market/ticker/{symbol} despite market-data container being up (status 'unhealthy'). Operator decision: restore market-data ticker endpoint (FIXED) vs. label STALE pending Phase 7 market-data refactor.",
+      "operator_resolved": "2026-05-13"
+    },
+    {
+      "tile": "PriceChart",
+      "page": "Phase1",
+      "component_file": "frontend/src/components/PriceChart.jsx",
+      "hooks": [
+        "useKlines"
+      ],
+      "endpoint": "/api/market/klines/BTCUSDT?interval=60&limit=24",
+      "expected_shape": {
+        "success": "bool",
+        "data": "list[object]"
+      },
+      "verdict": "LABELED_STALE",
+      "last_updated_at_emitter": "n/a",
+      "notes": "503 from /api/market/klines/{symbol}. Same root cause as PriceTickerGrid (market-data unhealthy). Operator decision pairs with PriceTickerGrid.",
+      "operator_resolved": "2026-05-13"
+    },
+    {
+      "tile": "Sparkline",
+      "page": "Phase1",
+      "component_file": "frontend/src/components/Sparkline.jsx",
+      "hooks": [
+        "useKlines"
+      ],
+      "endpoint": "/api/market/klines/BTCUSDT?interval=60&limit=24",
+      "expected_shape": {
+        "success": "bool",
+        "data": "list[object]"
+      },
+      "verdict": "LABELED_STALE",
+      "last_updated_at_emitter": "n/a",
+      "notes": "Identical endpoint + 503 to PriceChart. Resolves with same operator decision.",
+      "operator_resolved": "2026-05-13"
+    },
+    {
+      "tile": "Phase1Dashboard",
+      "page": "Phase1",
+      "component_file": "frontend/src/pages/Phase1Dashboard.jsx",
+      "hooks": [
+        "page-level composition"
+      ],
+      "endpoint": "n/a (page composes sub-tiles)",
+      "expected_shape": {
+        "_composition": "list[object]"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "n/a",
+      "notes": "Page-level wrapper; renders KeyMetricsStrip + PriceTickerGrid + PriceChart + TradingSignals child tiles. No own endpoint; not probed by audit_tiles.py. Verdict reflects 'page composition is correct' \u2014 child tiles carry their own verdicts."
+    },
+    {
+      "tile": "Phase3Dashboard",
+      "page": "Phase3",
+      "component_file": "frontend/src/pages/Phase3Dashboard.jsx",
+      "hooks": [
+        "useMLPrediction",
+        "useSentiment",
+        "useMTFAnalysis (et al.)"
+      ],
+      "endpoint": "/api/ml/predict/price/BTCUSDT?interval=60",
+      "expected_shape": {
+        "_composition": "list[object]"
+      },
+      "verdict": "LABELED_STALE",
+      "last_updated_at_emitter": "n/a",
+      "notes": "All Phase3 endpoints return 503 (ml-prediction-service + sentiment-analysis-service feature-flagged OFF per ENABLE_ML_PREDICTIONS=false / ENABLE_SENTIMENT_ANALYSIS=false in CLAUDE.md). Wire <TileState forceStale={true}/> in Plan 6-05; backing services come back online in Phase 7+ after GRU rebuild on returns target."
+    },
+    {
+      "tile": "Portfolio",
+      "page": "Portfolio",
+      "component_file": "frontend/src/pages/Portfolio.jsx",
+      "hooks": [
+        "usePortfolio",
+        "usePortfolioPerformance",
+        "useTradeHistory",
+        "usePositions",
+        "useTradingStatus"
+      ],
+      "endpoint": "/api/portfolio",
+      "expected_shape": {
+        "balance": "number",
+        "positions": "list[object]",
+        "total_value": "number"
+      },
+      "verdict": "LABELED_STALE",
+      "last_updated_at_emitter": "n/a",
+      "notes": "Page-level tile fans out to /api/portfolio which returns 503 (portfolio-manager container 'unhealthy'). Other hooks (positions/status/perf) are 200. Operator decision: restore /api/portfolio endpoint (FIXED) or migrate page to compose-from-trading-engine-aggregations only (REMOVED + replacement).",
+      "operator_resolved": "2026-05-13"
+    }
+  ]
+}
