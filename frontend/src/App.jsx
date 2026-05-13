@@ -43,6 +43,10 @@ import StatusBar from './components/StatusBar'
 import KeyboardShortcuts from './components/KeyboardShortcuts'
 import { ToastProvider } from './contexts/ToastContext'
 
+// Safety-state polling hook + viewport border (DASH-03, D-06)
+import { useSafetyState } from './hooks/useSafetyState'
+import './styles/safety-border.css'
+
 // ============================================================================
 // NAVIGATION LINK COMPONENT
 // ============================================================================
@@ -264,11 +268,16 @@ const Header = () => {
  * @returns JSX element containing the complete application
  */
 function App() {
+  // DASH-03 / D-06: viewport-edge safety border. Class flips PAPER↔LIVE on
+  // every 5s safety-state poll. Defaults to PAPER while data is loading so
+  // the first render is not LIVE-coloured by accident.
+  const { data: safety } = useSafetyState()
+  const mode = (safety?.trading_mode || 'PAPER').toLowerCase()
   return (
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ToastProvider>
-      {/* Main application container with dark mode support */}
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200">
+      {/* Main application container with dark mode support + safety border */}
+      <div className={`min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200 safety-border safety-border--${mode}`}>
         {/* Skip to main content link (visible on focus) */}
         <a
           href="#main-content"

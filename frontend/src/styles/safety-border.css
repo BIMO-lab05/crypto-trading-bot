@@ -1,0 +1,24 @@
+/*
+ * safety-border.css — PAPER/LIVE viewport outline (DASH-03, D-06).
+ *
+ * Uses CSS `outline` (NOT `border`) so the rule contributes zero to box-model
+ * layout. The dashboard root container has class `safety-border` always; the
+ * variant class `safety-border--{paper,live}` flips the outline color when
+ * safety-state hydrates without causing a layout shift on first render.
+ *
+ * Operator cannot miss LIVE during scroll (rose tint persists at viewport
+ * edge); PAPER gets a muted mint tint for parity affordance.
+ */
+
+.safety-border {
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+}
+
+.safety-border--paper {
+  outline-color: #5eead4; /* mint — gain palette token */
+}
+
+.safety-border--live {
+  outline-color: #fb7185; /* rose — loss palette token; operator cannot miss */
+}
