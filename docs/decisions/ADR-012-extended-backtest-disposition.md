@@ -41,6 +41,8 @@ Two options were analysed in `.planning/phases/05-ml-cleanup-post-v0/05-04-DECIS
 
 ## Decision
 
+**Chosen disposition: `document_divergence_permanently`**
+
 **Option B is chosen: document the divergence permanently.**
 
 The divergence between `run_extended_backtest.py` and the live `CoreAggregator` is accepted
