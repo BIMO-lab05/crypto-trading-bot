@@ -1,0 +1,42 @@
+{
+  "tournament_id": "smoke-tape-fixture",
+  "exported_at": "2026-05-14T12:00:00Z",
+  "per_symbol": {
+    "SOL": {
+      "sharpe_lift": 0.0142,
+      "sharpe_pvalue": 0.018,
+      "dir_acc_lift": 0.024,
+      "dir_acc_pvalue": 0.041,
+      "n_oos_bars": 240,
+      "block_size": 24,
+      "n_resamples": 2000,
+      "win_gate_passed": true,
+      "n_members": 1,
+      "bootstrap_seed": 42
+    },
+    "BNB": {
+      "sharpe_lift": -0.0021,
+      "sharpe_pvalue": 0.612,
+      "dir_acc_lift": 0.003,
+      "dir_acc_pvalue": 0.483,
+      "n_oos_bars": 240,
+      "block_size": 24,
+      "n_resamples": 2000,
+      "win_gate_passed": false,
+      "n_members": 0,
+      "bootstrap_seed": 42
+    },
+    "ADA": {
+      "sharpe_lift": 0.0008,
+      "sharpe_pvalue": 0.351,
+      "dir_acc_lift": -0.011,
+      "dir_acc_pvalue": 0.722,
+      "n_oos_bars": 240,
+      "block_size": 24,
+      "n_resamples": 2000,
+      "win_gate_passed": false,
+      "n_members": 0,
+      "bootstrap_seed": 42
+    }
+  }
+}
