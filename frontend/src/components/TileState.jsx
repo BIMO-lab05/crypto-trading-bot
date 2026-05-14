@@ -256,9 +256,20 @@ export default function TileState({
   }
 
   // ---- Branches 4 + 5: success non-empty (stale-overlay vs steady) -------
+  // WR-03: gate the stale badge on `!isFetching`. React Query sets
+  // isFetching=true during background refetches while keeping
+  // isLoading=false (only the FIRST fetch sets isLoading). Without this
+  // gate, LABELED_STALE tiles (forceStale=true) show the stale badge
+  // permanently — even during an in-flight refetch that may clear
+  // staleness. With this gate, the badge transiently disappears while a
+  // refetch is in flight and re-asserts after success if forceStale or
+  // the timestamp threshold still applies.
   const showStale =
-    Boolean(forceStale) ||
-    isStaleByTimestamp(lastUpdatedAt, effectiveStaleAfterMs)
+    !query?.isFetching &&
+    (
+      Boolean(forceStale) ||
+      isStaleByTimestamp(lastUpdatedAt, effectiveStaleAfterMs)
+    )
 
   if (showStale && query?.isSuccess && !isEmptyFn(query.data)) {
     return (
