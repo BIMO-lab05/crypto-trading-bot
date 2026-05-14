@@ -296,3 +296,51 @@ async def notification_received():
         return False
 
     yield _wait_for
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 Plan 05: tournament smoke snapshot seed (D-08, W-3 Path A).
+#
+# Copies tests/fixtures/tournament/smoke-fixture{,.ensemble,.significance}.json
+# into services/tournament-harness/data/snapshots/smoke-tape-fixture{,.ensemble,
+# .significance}.json so the api-gateway RO bind-mount (/app/snapshots) sees a
+# deterministic tournament. The committed smoke fixture is the source of truth
+# in git; this fixture only stages it at the path the gateway reads from.
+#
+# Teardown deletes all 3 staged files; if any test fails, the host directory is
+# gitignored so leftover dummy data is harmless. Per project memory
+# (feedback_pathlib_mocking.md), pathlib.Path.read_text / write_text bypass
+# builtins.open — the route uses Path.read_text, so a mock on open() in tests
+# would silently no-op. This fixture does real filesystem I/O for that reason.
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="function")
+def tournament_snapshot_seeded():
+    """Seed smoke-tape-fixture (primary + 2 Phase 4 sidecars) into the
+    api-gateway RO bind-mount source dir; clean up all 3 files on teardown.
+
+    Yields the absolute Path to the primary snapshot file so callers can
+    sanity-check existence; most tests only need the side effect (the
+    gateway sees the files at /app/snapshots/ via the bind mount declared
+    in docker-compose.unified.yml).
+    """
+    src_dir = _repo_root() / "tests" / "fixtures" / "tournament"
+    dst_dir = _repo_root() / "services" / "tournament-harness" / "data" / "snapshots"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    mapping = {
+        "smoke-fixture.json": "smoke-tape-fixture.json",
+        "smoke-fixture.ensemble.json": "smoke-tape-fixture.ensemble.json",
+        "smoke-fixture.significance.json": "smoke-tape-fixture.significance.json",
+    }
+    dst_paths: list[Path] = []
+    for src_name, dst_name in mapping.items():
+        src = src_dir / src_name
+        dst = dst_dir / dst_name
+        dst.write_text(src.read_text())
+        dst_paths.append(dst)
+    try:
+        # Primary snapshot path — Playwright tests get this even if they
+        # only need the side effect.
+        yield dst_paths[0]
+    finally:
+        for p in dst_paths:
+            p.unlink(missing_ok=True)
