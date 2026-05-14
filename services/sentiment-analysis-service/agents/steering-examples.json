@@ -1,0 +1,18 @@
+[
+  {
+    "event": "Analyze sentiment: BTCUSDT 24h",
+    "description": "Single symbol, single window. Reader fetches last 24h of news + social, aggregator produces signal, digest-writer writes ./out/digest-BTCUSDT-<ts>.md."
+  },
+  {
+    "event": "Analyze sentiment: coverage-list majors, lookback 24h",
+    "description": "Fan-out across BTC/ETH/SOL/BNB/ADA. Orchestration layer (the parent FastAPI service or a cron job) iterates and steers one session per symbol — same shape as earnings-reviewer's per-ticker fan-out."
+  },
+  {
+    "event": "Analyze sentiment: ETHUSDT 4h, skip digest",
+    "description": "Compute signal only. Orchestrator stops after the aggregator returns; digest-writer is not invoked. Useful when the trading-engine wants the raw signal without the markdown ceremony."
+  },
+  {
+    "event": "Analyze sentiment: SOLUSDT 168h, tier-1 only",
+    "description": "Constrain reader to tier-1 sources only (major outlets, exchange announcements). Useful for a weekly editorial digest where social noise would dominate."
+  }
+]

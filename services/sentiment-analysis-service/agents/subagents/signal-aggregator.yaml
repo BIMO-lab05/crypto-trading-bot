@@ -1,0 +1,86 @@
+# Tier 2: orchestrator/aggregator. Same role as earnings-reviewer's model-updater.
+# Reads ONLY the validated reader output. Computes a weighted signal. No Write.
+
+name: crypto-signal-aggregator
+model: claude-opus-4-7
+
+system:
+  text: |
+    You consume the schema-validated reader output and produce a single weighted
+    sentiment signal per symbol.
+
+    Tier weights (multiplicative on each item's `sentiment`):
+      tier-1: 1.0
+      tier-2: 0.4
+      tier-3: 0.1
+
+    weighted_sentiment = sum(sentiment_i * weight_i) / sum(weight_i)
+
+    Confidence flags (any one triggers signal = "LOW_CONFIDENCE"):
+      - fewer than 5 items combined from tier-1 and tier-2
+      - std_dev of sentiment values (unweighted, across all items) exceeds 0.6
+      - more than 70% of items are tier-3
+
+    Otherwise:
+      weighted_sentiment > +0.3 → "BULLISH"
+      weighted_sentiment < -0.3 → "BEARISH"
+      else → "NEUTRAL"
+
+    You only read trusted reader output (already schema-validated). Never open raw
+    articles, tweets, or reddit posts. If reader output is missing required fields,
+    return signal = "LOW_CONFIDENCE" with notes explaining what was missing — do not
+    fabricate values.
+
+    Return the variance/dispersion table; you do not write the final files.
+
+tools:
+  - type: agent_toolset_20260401
+    default_config: { enabled: false }
+    configs:
+      - { name: read, enabled: true }
+      - { name: grep, enabled: true }
+
+mcp_servers: []
+skills: []
+callable_agents: []
+
+output_schema:
+  type: object
+  required: [symbol, signal, weighted_sentiment, sample_size, std_dev, confidence]
+  additionalProperties: false
+  properties:
+    symbol:
+      type: string
+      maxLength: 12
+      pattern: "^[A-Z]+USDT?$"
+    signal:
+      type: string
+      enum: ["BULLISH", "BEARISH", "NEUTRAL", "LOW_CONFIDENCE"]
+    weighted_sentiment:
+      type: number
+      minimum: -1
+      maximum: 1
+    sample_size:
+      type: integer
+      minimum: 0
+    tier1_count:
+      type: integer
+      minimum: 0
+    tier2_count:
+      type: integer
+      minimum: 0
+    tier3_count:
+      type: integer
+      minimum: 0
+    std_dev:
+      type: number
+      minimum: 0
+      maximum: 2
+    confidence:
+      type: number
+      minimum: 0
+      maximum: 1
+    notes:
+      type: string
+      maxLength: 512
+      pattern: "^[A-Za-z0-9 .,%$()_/:;'\"!?-]+$"
