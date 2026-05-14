@@ -22,7 +22,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "200 OK with metrics{} top-level. Reads three hooks; the load-bearing tile-shape gate is the performance summary."
+      "notes": "200 OK with metrics{} top-level. Reads three hooks; the load-bearing tile-shape gate is the performance summary.",
+      "data_testid": "key-metrics-strip"
     },
     {
       "tile": "TradingSignals",
@@ -39,7 +40,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "Per-symbol probe returns signal{symbol,timestamp,action,confidence,indicators,aggregated_score}. useMultipleSignals fans out one call per symbol."
+      "notes": "Per-symbol probe returns signal{symbol,timestamp,action,confidence,indicators,aggregated_score}. useMultipleSignals fans out one call per symbol.",
+      "data_testid": "trading-signals"
     },
     {
       "tile": "HybridStrategyPanel",
@@ -56,7 +58,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "Reads data.status.hybrid_strategy_stats subdict. /api/trading/status returns 200 with full status payload."
+      "notes": "Reads data.status.hybrid_strategy_stats subdict. /api/trading/status returns 200 with full status payload.",
+      "data_testid": "hybrid-strategy-panel"
     },
     {
       "tile": "RegimeIndicator",
@@ -73,7 +76,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "Reads same /api/trading/status as HybridStrategyPanel; reads data.status.hybrid_strategy_stats.trend_pct + mean_reversion_pct."
+      "notes": "Reads same /api/trading/status as HybridStrategyPanel; reads data.status.hybrid_strategy_stats.trend_pct + mean_reversion_pct.",
+      "data_testid": "regime-indicator"
     },
     {
       "tile": "TradingEnhancementsPanel",
@@ -90,7 +94,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "useAutoTraderStatus calls /api/trading/status; extractTradingEnhancements decomposes status into circuit-breaker/kill-switch/etc. cells."
+      "notes": "useAutoTraderStatus calls /api/trading/status; extractTradingEnhancements decomposes status into circuit-breaker/kill-switch/etc. cells.",
+      "data_testid": "trading-enhancements-panel"
     },
     {
       "tile": "PerformanceAnalyticsPanel",
@@ -108,7 +113,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "Primary read is /api/trading/performance (200); also fans out to /api/trading/trades/history (also 200) for advanced metric calc. Both work."
+      "notes": "Primary read is /api/trading/performance (200); also fans out to /api/trading/trades/history (also 200) for advanced metric calc. Both work.",
+      "data_testid": "performance-analytics-panel"
     },
     {
       "tile": "ActiveTrades",
@@ -126,7 +132,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "200 OK. positions list may be empty when no open trades; tile must render empty-state via <TileState/> per Plan 6-05."
+      "notes": "200 OK. positions list may be empty when no open trades; tile must render empty-state via <TileState/> per Plan 6-05.",
+      "data_testid": "active-trades"
     },
     {
       "tile": "TradeHistory",
@@ -145,7 +152,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "200 OK with trades + stats top-level keys. Component currently uses raw axios import; OK for audit purposes (same endpoint)."
+      "notes": "200 OK with trades + stats top-level keys. Component currently uses raw axios import; OK for audit purposes (same endpoint).",
+      "data_testid": "trade-history"
     },
     {
       "tile": "PortfolioCard",
@@ -164,7 +172,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "no",
-      "notes": "Reads /api/trading/performance (200) + /api/trading/positions (200) + /api/trading/status (200). Does NOT call usePortfolio so the broken /api/portfolio 503 does not affect this tile."
+      "notes": "Reads /api/trading/performance (200) + /api/trading/positions (200) + /api/trading/status (200). Does NOT call usePortfolio so the broken /api/portfolio 503 does not affect this tile.",
+      "data_testid": "portfolio-card"
     },
     {
       "tile": "PriceTickerGrid",
@@ -181,7 +190,8 @@
       "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
       "notes": "503 Service Unavailable from /api/market/ticker/{symbol} despite market-data container being up (status 'unhealthy'). Operator decision: restore market-data ticker endpoint (FIXED) vs. label STALE pending Phase 7 market-data refactor.",
-      "operator_resolved": "2026-05-13"
+      "operator_resolved": "2026-05-13",
+      "data_testid": "price-ticker-grid"
     },
     {
       "tile": "PriceChart",
@@ -198,7 +208,8 @@
       "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
       "notes": "503 from /api/market/klines/{symbol}. Same root cause as PriceTickerGrid (market-data unhealthy). Operator decision pairs with PriceTickerGrid.",
-      "operator_resolved": "2026-05-13"
+      "operator_resolved": "2026-05-13",
+      "data_testid": "price-chart"
     },
     {
       "tile": "Sparkline",
@@ -215,7 +226,8 @@
       "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
       "notes": "Identical endpoint + 503 to PriceChart. Resolves with same operator decision.",
-      "operator_resolved": "2026-05-13"
+      "operator_resolved": "2026-05-13",
+      "data_testid": "sparkline"
     },
     {
       "tile": "Phase1Dashboard",
@@ -230,7 +242,8 @@
       },
       "verdict": "FIXED",
       "last_updated_at_emitter": "n/a",
-      "notes": "Page-level wrapper; renders KeyMetricsStrip + PriceTickerGrid + PriceChart + TradingSignals child tiles. No own endpoint; not probed by audit_tiles.py. Verdict reflects 'page composition is correct' \u2014 child tiles carry their own verdicts."
+      "notes": "Page-level wrapper; renders KeyMetricsStrip + PriceTickerGrid + PriceChart + TradingSignals child tiles. No own endpoint; not probed by audit_tiles.py. Verdict reflects 'page composition is correct' \u2014 child tiles carry their own verdicts.",
+      "data_testid": "phase1-dashboard"
     },
     {
       "tile": "Phase3Dashboard",
@@ -247,7 +260,8 @@
       },
       "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
-      "notes": "All Phase3 endpoints return 503 (ml-prediction-service + sentiment-analysis-service feature-flagged OFF per ENABLE_ML_PREDICTIONS=false / ENABLE_SENTIMENT_ANALYSIS=false in CLAUDE.md). Wire <TileState forceStale={true}/> in Plan 6-05; backing services come back online in Phase 7+ after GRU rebuild on returns target."
+      "notes": "All Phase3 endpoints return 503 (ml-prediction-service + sentiment-analysis-service feature-flagged OFF per ENABLE_ML_PREDICTIONS=false / ENABLE_SENTIMENT_ANALYSIS=false in CLAUDE.md). Wire <TileState forceStale={true}/> in Plan 6-05; backing services come back online in Phase 7+ after GRU rebuild on returns target.",
+      "data_testid": "phase3-dashboard"
     },
     {
       "tile": "Portfolio",
@@ -269,7 +283,27 @@
       "verdict": "LABELED_STALE",
       "last_updated_at_emitter": "n/a",
       "notes": "Page-level tile fans out to /api/portfolio which returns 503 (portfolio-manager container 'unhealthy'). Other hooks (positions/status/perf) are 200. Operator decision: restore /api/portfolio endpoint (FIXED) or migrate page to compose-from-trading-engine-aggregations only (REMOVED + replacement).",
-      "operator_resolved": "2026-05-13"
+      "operator_resolved": "2026-05-13",
+      "data_testid": "portfolio-page"
+    },
+    {
+      "tile": "TournamentLeaderboard",
+      "page": "Tournament",
+      "component_file": "frontend/src/components/TournamentLeaderboard.jsx",
+      "hooks": [
+        "useTournamentList",
+        "useTournamentSnapshot"
+      ],
+      "endpoint": "/api/tournament/snapshots/{tournament_id}",
+      "expected_shape": {
+        "snapshot": "object",
+        "ensemble": "object|null",
+        "significance": "object|null"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "yes",
+      "data_testid": "tournament-leaderboard",
+      "notes": "Phase 7 tile. Seeded by tests/fixtures/tournament/smoke-fixture.json + 2 sidecars via tournament_snapshot_seeded pytest fixture (D-08). exported_at drives <TileState/> last_updated_at but staleAfterMs=Infinity per D-23. Component file is created by Plan 04 (Tournament page)."
     }
   ]
 }

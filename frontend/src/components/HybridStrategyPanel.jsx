@@ -56,6 +56,7 @@ export default function HybridStrategyPanel() {
   const activeStrategyColor = trendPct > meanRevPct ? 'text-blue-400' : 'text-emerald-400'
 
   return (
+    <div data-testid="hybrid-strategy-panel" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title="Hybrid Strategy Routing"
@@ -153,5 +154,6 @@ export default function HybridStrategyPanel() {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

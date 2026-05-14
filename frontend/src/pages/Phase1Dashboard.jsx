@@ -120,6 +120,7 @@ export default function Phase1Dashboard() {
   const consensusRate = signalsTotal > 0 ? (actionSignals / signalsTotal) : 0
 
   return (
+    <div data-testid="phase1-dashboard" style={{ display: 'contents' }}>
     <TileState
       query={healthQuery}
       title="Phase 1 Signal Processing"
@@ -764,5 +765,6 @@ export default function Phase1Dashboard() {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

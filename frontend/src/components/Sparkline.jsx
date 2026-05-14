@@ -63,6 +63,7 @@ export default function Sparkline({ symbol, intent }) {
   // computed inside useMemo, may yield '' if closes.length < 2).
   const gradId = `spark-${symbol}`
   return (
+    <div data-testid="sparkline" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title="Sparkline"
@@ -102,5 +103,6 @@ export default function Sparkline({ symbol, intent }) {
         </svg>
       )}
     </TileState>
+    </div>
   )
 }

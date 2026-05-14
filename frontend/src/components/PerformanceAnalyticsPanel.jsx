@@ -269,6 +269,7 @@ export default function PerformanceAnalyticsPanel() {
   const hasData = performanceSummary && performanceSummary.totalTrades > 0
 
   return (
+    <div data-testid="performance-analytics-panel" style={{ display: 'contents' }}>
     <TileState
       query={perfQuery}
       title="Performance Analytics"
@@ -411,5 +412,6 @@ export default function PerformanceAnalyticsPanel() {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

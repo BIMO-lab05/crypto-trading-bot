@@ -136,6 +136,7 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
   const priceChangePercent = previousPrice !== 0 ? (priceChange / previousPrice) * 100 : 0
 
   return (
+    <div data-testid="price-chart" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title={`${symbol} Price Chart`}
@@ -325,5 +326,6 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

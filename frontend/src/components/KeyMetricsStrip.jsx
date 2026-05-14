@@ -199,6 +199,7 @@ export default function KeyMetricsStrip() {
   else if (isRunning) { stateLabel = 'live'; stateColor = C.gain }
 
   return (
+    <div data-testid="key-metrics-strip" style={{ display: 'contents' }}>
     <TileState
       query={perfQuery}
       title="Key Metrics"
@@ -335,5 +336,6 @@ export default function KeyMetricsStrip() {
       `}</style>
     </div>
     </TileState>
+    </div>
   )
 }

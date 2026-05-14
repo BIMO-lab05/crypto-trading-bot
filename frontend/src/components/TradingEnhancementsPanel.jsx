@@ -160,6 +160,7 @@ export default function TradingEnhancementsPanel() {
   )
 
   return (
+    <div data-testid="trading-enhancements-panel" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title="Trading Enhancements"
@@ -305,5 +306,6 @@ export default function TradingEnhancementsPanel() {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

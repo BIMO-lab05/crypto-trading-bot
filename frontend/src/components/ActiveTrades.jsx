@@ -74,6 +74,7 @@ export default function ActiveTrades() {
   const totalUnrealizedPnL = openPositions.reduce((sum, p) => sum + parseFloat(p.unrealized_pnl || 0), 0)
 
   return (
+    <div data-testid="active-trades" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title="Active Trades"
@@ -301,5 +302,6 @@ export default function ActiveTrades() {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

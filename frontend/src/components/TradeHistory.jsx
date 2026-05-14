@@ -91,6 +91,7 @@ export default function TradeHistory() {
   const stats = q.data?.stats || {}
 
   return (
+    <div data-testid="trade-history" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title="Trade History"
@@ -279,5 +280,6 @@ export default function TradeHistory() {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

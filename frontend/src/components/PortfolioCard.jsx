@@ -78,6 +78,7 @@ export default function PortfolioCard() {
   const totalPnlPct = roi
 
   return (
+    <div data-testid="portfolio-card" style={{ display: 'contents' }}>
     <TileState
       query={perfQuery}
       title="Portfolio"
@@ -308,5 +309,6 @@ export default function PortfolioCard() {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }
