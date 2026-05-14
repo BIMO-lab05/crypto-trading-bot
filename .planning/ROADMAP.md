@@ -19,6 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: ML Cleanup (post-V0)** - Forward-paper-test the three opt-in features, ship a T0.1.x experiment, and resolve parked items (completed 2026-05-13)
 - [ ] **Phase 6: Dashboard Audit & Safety State** - End-to-end tile audit, config-driven URLs, safety-state header, explicit empty/error states
 - [x] **Phase 7: Tournament View & Smoke Test** - Frontend tournament leaderboard view + Playwright smoke against the recorded-tape stack (completed 2026-05-14)
+- [ ] **Phase 7.1: Smoke Test Bugfixes** - Close the 3 real bugs surfaced during Phase 7 local verification (strict-mode locator, page-level LABELED_STALE assertion, gateway origin proxy)
 
 ## Phase Details
 
@@ -194,17 +195,33 @@ Plans:
 **Wave 5** *(blocked on Wave 4)*
 - [x] 07-06-PLAN.md — pytest-playwright dep + Chromium install step + failure-artifact upload in integration.yml and integration-ml-on.yml (DASH-06)
 
+### Phase 7.1: Smoke Test Bugfixes
+**Goal**: Close the three real bugs surfaced during the 2026-05-14 local re-verification of the Phase 7 audit-driven smoke so the exact CI command (`pytest tests/integration/test_dashboard_smoke.py --browser=chromium`) runs green against the recorded-tape stack.
+**Depends on**: Phase 7
+**Requirements**: DASH-06
+**Success Criteria** (what must be TRUE):
+  1. BUG-1 fixed: LABELED_STALE locator handles tiles with multiple `<StaleBadge/>` children (`.first` qualifier) — PriceTickerGrid passes.
+  2. BUG-2 fixed: page-level LABELED_STALE rows (Phase3Dashboard, page-level Portfolio) use a nested-descendant locator strategy, opted in via new audit field `data_testid_scope: descendant`.
+  3. BUG-3 fixed: api-gateway acts as a true reverse-proxy for non-`/api` paths, forwarding to the frontend nginx container — `GATEWAY_ORIGIN = http://localhost:8000` actually serves the React app, matching the smoke's hardcoded assumption.
+  4. End-to-end: the smoke runs green against the live local stack with NO sandbox patches, NO `.first` shims at the call site, NO origin overrides.
+**Plans**: 1 plan
+**UI hint**: no
+
+Plans:
+- [ ] 07.1-PLAN.md — scope-aware stale assertion + descendant audit rows + api-gateway frontend reverse-proxy (DASH-06)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 7.1
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Bootstrap & Recorded Tape | 4/4 | Complete   | 2026-05-06 |
-| 2. Integration Test Suite & RUNBOOK | 0/10 | Not started | - |
-| 3. Tournament Harness Core | 0/9 | Not started | - |
-| 4. Tournament Significance & Auto-PR | 0/7 | Not started | - |
+| 2. Integration Test Suite & RUNBOOK | 10/10 | Complete | - |
+| 3. Tournament Harness Core | 9/9 | Complete | - |
+| 4. Tournament Significance & Auto-PR | 9/9 | Complete | - |
 | 5. ML Cleanup (post-V0) | 4/4 | Complete | 2026-05-13 |
-| 6. Dashboard Audit & Safety State | 0/5 | Not started | - |
-| 7. Tournament View & Smoke Test | 0/5 | Not started | - |
+| 6. Dashboard Audit & Safety State | 5/5 | Complete | - |
+| 7. Tournament View & Smoke Test | 6/6 | Complete | 2026-05-14 |
+| 7.1. Smoke Test Bugfixes | 0/1 | Not started | - |
