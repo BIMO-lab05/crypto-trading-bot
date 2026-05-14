@@ -156,11 +156,36 @@ def test_every_audited_tile_renders_per_verdict(page, tile_audit):
             # / empty under recorded tape. forceStale precondition is
             # asserted at smoke-construction time (acceptance bash loop in
             # 07-05-PLAN.md), NOT at smoke-run time.
-            expect(
-                page.locator(
-                    f'[data-testid="{testid}"] [data-testid="tile-stale-badge"]'
+            #
+            # Plan 07.1-01 BUG-1 + BUG-2 fix:
+            #   BUG-1: bare CSS descendant locator triggers Playwright
+            #          strict-mode violation on multi-child stale tiles —
+            #          PriceTickerGrid renders 6 ticker children, each with
+            #          its own StaleBadge, so the bare locator matches 6
+            #          elements. Append `.first` to both branches so the
+            #          assertion only requires the *first* badge inside the
+            #          tile to be visible.
+            #   BUG-2: page-level audit rows (Phase3Dashboard, page-level
+            #          Portfolio) wrap many tiles — the stale-badge lives
+            #          deep inside an individual child tile, not as a
+            #          direct descendant of the page-root testid. The
+            #          audit gains an optional `data_testid_scope` field
+            #          (default "root"). When `scope == "descendant"` the
+            #          smoke does a nested locator scan via
+            #          `.locator(...).locator(...)` so the badge can sit
+            #          anywhere inside the page-root subtree.
+            scope = row.get("data_testid_scope", "root")
+            if scope == "descendant":
+                locator = (
+                    page.locator(f'[data-testid="{testid}"]')
+                    .locator('[data-testid="tile-stale-badge"]')
+                    .first
                 )
-            ).to_be_visible()
+            else:
+                locator = page.locator(
+                    f'[data-testid="{testid}"] [data-testid="tile-stale-badge"]'
+                ).first
+            expect(locator).to_be_visible()
         else:
             pytest.fail(f"unknown verdict {verdict!r} for tile {row['tile']}")
 
