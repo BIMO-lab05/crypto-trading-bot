@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 6: Dashboard Audit & Safety State** - End-to-end tile audit, config-driven URLs, safety-state header, explicit empty/error states
 - [x] **Phase 7: Tournament View & Smoke Test** - Frontend tournament leaderboard view + Playwright smoke against the recorded-tape stack (completed 2026-05-14)
 - [x] **Phase 7.1: Smoke Test Bugfixes** - Close the 3 real bugs surfaced during Phase 7 local verification (strict-mode locator, page-level LABELED_STALE assertion, gateway origin proxy) (completed 2026-05-15)
-- [ ] **Phase 7.2: Phase3Dashboard Skeleton-Loader Fix** - Phase3Dashboard renders `<div class="animate-pulse">` forever when ml-prediction-service returns 503; needs explicit empty/stale state transition. Audit row re-added after fix.
+- [x] **Phase 7.2: Phase3Dashboard Skeleton-Loader Fix** - Short-circuit 503 retry surfaces `<ErrorState/>` instead of skeleton-forever; audit row re-added with verdict=FIXED (completed 2026-05-15)
 
 ## Phase Details
 
@@ -219,8 +219,11 @@ Plans:
   1. With `ENABLE_ML_PREDICTIONS=false`, `/phase3` renders a non-skeleton state within 10 seconds — either explicit "ML predictions disabled" copy, a `<TileState forceStale={true}/>` at page root with a visible `tile-stale-badge`, or REMOVED (component returns null when feature off).
   2. `phase3-dashboard` testid behavior is consistent with the chosen state (present with stale badge → verdict LABELED_STALE; present with copy → verdict FIXED; absent → verdict REMOVED).
   3. Phase 7 audit-driven smoke test passes against the live stack with Phase3Dashboard row re-added to `06-TILE-AUDIT.json`.
-**Plans**: TBD (1 plan expected)
+**Plans**: 1 plan
 **UI hint**: yes
+
+Plans:
+- [x] 07.2-01-PLAN.md — short-circuit 503 retry on 4 useQuery hooks in Phase3Dashboard + re-add audit row (DASH-05; smoke green 2026-05-15)
 
 ## Progress
 
@@ -237,4 +240,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 7.1 �
 | 6. Dashboard Audit & Safety State | 5/5 | Complete | - |
 | 7. Tournament View & Smoke Test | 6/6 | Complete | 2026-05-14 |
 | 7.1. Smoke Test Bugfixes | 1/1 | Complete | 2026-05-15 |
-| 7.2. Phase3Dashboard Skeleton-Loader Fix | 0/0 | Not started | - |
+| 7.2. Phase3Dashboard Skeleton-Loader Fix | 1/1 | Complete | 2026-05-15 |
