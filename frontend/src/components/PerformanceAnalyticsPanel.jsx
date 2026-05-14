@@ -1,7 +1,7 @@
 import React from 'react'
 import { usePerformanceAnalytics } from '../hooks/useAutoTrader'
 import { useQuery } from '@tanstack/react-query'
-import axios from 'axios'
+import api from '../services/api'
 import TileState from './TileState'
 
 /**
@@ -226,12 +226,15 @@ export default function PerformanceAnalyticsPanel() {
   const perfQuery = usePerformanceAnalytics()
   const { data: performanceData } = perfQuery
 
-  // Fetch trade history for advanced metric calculation
+  // Fetch trade history for advanced metric calculation.
+  // WR-04: route through the shared api client (services/api.js) so
+  // baseURL ('/api', overridable via VITE_API_BASE_URL) and the
+  // response interceptor that unwraps .data both apply. The shared
+  // client returns the unwrapped body, so no .data access here.
   const { data: tradesData } = useQuery({
     queryKey: ['trades', 'history'],
     queryFn: async () => {
-      const response = await axios.get('/api/trading/trades/history', { params: { limit: 1000 } })
-      return response.data
+      return await api.get('/trading/trades/history', { params: { limit: 1000 } })
     },
     refetchInterval: 30000,
     staleTime: 25000,

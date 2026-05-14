@@ -1,6 +1,6 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import axios from 'axios'
+import api from '../services/api'
 import TileState from './TileState'
 
 /**
@@ -18,10 +18,17 @@ import TileState from './TileState'
  * audit verdict FIXED. Inline isLoading/error early-returns removed.
  */
 
-// Fetch trade history from trading engine
+// Fetch trade history from trading engine.
+// WR-04: route through the shared api client (services/api.js) so the
+// configured baseURL ('/api', overridable via VITE_API_BASE_URL), the
+// response interceptor that unwraps .data, and any future auth
+// plumbing all apply. The shared client already returns the unwrapped
+// body, so no .data access here.
 const fetchTradeHistory = async () => {
-  const response = await axios.get('/api/trading/trades/history?limit=50', { timeout: 5000 })
-  return response.data
+  return await api.get('/trading/trades/history', {
+    params: { limit: 50 },
+    timeout: 5000,
+  })
 }
 
 // Format currency
