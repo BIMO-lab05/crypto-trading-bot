@@ -287,6 +287,22 @@
       "last_updated_at_emitter": "yes",
       "data_testid": "tournament-leaderboard",
       "notes": "Phase 7 tile. Seeded by tests/fixtures/tournament/smoke-fixture.json + 2 sidecars via tournament_snapshot_seeded pytest fixture (D-08). exported_at drives <TileState/> last_updated_at but staleAfterMs=Infinity per D-23. Component file is created by Plan 04 (Tournament page)."
+    },
+    {
+      "tile": "Phase3Dashboard",
+      "page": "Phase3",
+      "component_file": "frontend/src/pages/Phase3Dashboard.jsx",
+      "hooks": [
+        "mlAPI.getPricePrediction (TileState wrapper)"
+      ],
+      "endpoint": "/api/ml/predict/price/{symbol}",
+      "expected_shape": {
+        "prediction": "object"
+      },
+      "verdict": "FIXED",
+      "last_updated_at_emitter": "no",
+      "data_testid": "phase3-dashboard",
+      "notes": "2026-05-15 Phase 7.2: short-circuited 503 retry on the 4 useQuery hooks \u2192 TileState branch 1 (ErrorState) renders tile-error testid with non-empty inner_text when ml-prediction-service feature-flagged off. Smoke validates FIXED via testid present + non-empty content. Re-added after Phase 7.1 temporary removal (skeleton-loader-forever defect)."
     }
   ]
 }
