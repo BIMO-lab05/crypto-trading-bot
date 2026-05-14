@@ -291,6 +291,11 @@ services:
       # RW for the gateway: it creates/overwrites the EMERGENCY_STOP file.
       # trading-engine mounts the same host file read-only.
       - ./EMERGENCY_STOP:/app/EMERGENCY_STOP
+      # Phase 7 D-01: RO bind-mount of committed tournament snapshots.
+      # Gateway reads /app/snapshots/*.json for /api/tournament/snapshots[/{id}].
+      # tournament-harness service writes here under profile=tournament; gateway
+      # never writes. RO ensures the gateway can't corrupt the committed artifact.
+      - ./services/tournament-harness/data/snapshots:/app/snapshots:ro
     networks:
       - crypto-bot-network
     depends_on:
