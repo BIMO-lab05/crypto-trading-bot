@@ -32,8 +32,16 @@ import pytest
 
 
 def _run(coro):
-    """Run an async coroutine synchronously for sync test bodies."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    """Run an async coroutine synchronously for sync test bodies.
+
+    WR-02: asyncio.get_event_loop() emits DeprecationWarning on Python
+    3.12 (the project's pinned runtime) when there is no running loop
+    and no policy has been set; future Python versions will remove
+    implicit loop creation entirely. asyncio.run() is the documented
+    replacement and is safe here because _run is called once per test
+    from sync test bodies — no loop reuse to preserve.
+    """
+    return asyncio.run(coro)
 
 
 def _build_fake_auto_trader(tmp_path):
