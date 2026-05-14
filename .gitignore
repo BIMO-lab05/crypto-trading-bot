@@ -263,3 +263,6 @@ services/tournament-harness/logs/
 # Snapshots ARE committed (per-tournament JSON in data/snapshots/{tournament_id}.json),
 # so do NOT add data/snapshots/ here. Only ignore stray SQLite copies inside it.
 services/tournament-harness/data/snapshots/*.db
+
+# Claude scheduled tasks lock (runtime)
+.claude/scheduled_tasks.lock
