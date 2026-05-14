@@ -1,0 +1,8 @@
+# Phase 7 DASH-06 — integration suite Python deps.
+# Phase 2 baseline (was inline in .github/workflows/integration.yml):
+httpx
+asyncpg
+pytest
+pytest-asyncio
+# Phase 7 addition (D-18: pytest-playwright plugin, Chromium only — Plan 06):
+pytest-playwright>=0.5,<1.0

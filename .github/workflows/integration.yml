@@ -29,7 +29,13 @@ jobs:
       - name: Install pytest dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install httpx asyncpg pytest pytest-asyncio
+          pip install -r tests/integration/requirements.txt
+
+      - name: Install Playwright browsers (Chromium only, D-18)
+        run: |
+          # Phase 7 DASH-06 -- install Chromium for the audit-driven dashboard smoke.
+          # Chromium only per CONTEXT.md D-18; Firefox/WebKit deferred to v2.
+          playwright install --with-deps chromium
 
       - name: Boot stack via bootstrap.sh in tape mode
         env:
@@ -53,7 +59,9 @@ jobs:
           TEST_TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN }}
           TEST_TELEGRAM_CHAT_ID: ${{ secrets.TEST_TELEGRAM_CHAT_ID }}
         run: |
-          pytest tests/integration -v --tb=short
+          # D-22: capture screenshot + video + trace on failure for the Playwright smoke
+          # (pytest-playwright plugin flags; no-ops for non-Playwright tests in the suite).
+          pytest tests/integration -v --tb=short --screenshot=only-on-failure --video=retain-on-failure --tracing=retain-on-failure
 
       - name: Anti-mock guard (D-12)
         if: github.event_name == 'pull_request'
@@ -77,6 +85,21 @@ jobs:
         with:
           name: integration-logs
           path: logs/integration-logs.txt
+          retention-days: 14
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          # D-22: pytest-playwright drops outputs in any of these locations depending on
+          # plugin version + project layout. `if-no-files-found: ignore` keeps the step
+          # green when the smoke didn't run (e.g. failure before reaching the smoke).
+          path: |
+            test-results/
+            playwright-report/
+            tests/integration/.playwright/
+          if-no-files-found: ignore
           retention-days: 14
 
       - name: Tear down
