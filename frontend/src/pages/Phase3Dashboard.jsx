@@ -485,8 +485,8 @@ export default function Phase3Dashboard() {
                     <p className="font-semibold">
                       {(enhancedSignal.metadata?.multi_timeframe?.alignment_score ??
                         enhancedSignal.components?.mtf?.alignment_score) != null
-                        ? `${(enhancedSignal.metadata?.multi_timeframe?.alignment_score ??
-                             enhancedSignal.components?.mtf?.alignment_score * 100).toFixed(0)}%`
+                        ? `${(((enhancedSignal.metadata?.multi_timeframe?.alignment_score ??
+                               enhancedSignal.components?.mtf?.alignment_score)) * 100).toFixed(0)}%`
                         : 'N/A'}
                     </p>
                     <p className="text-xs text-white/80">
