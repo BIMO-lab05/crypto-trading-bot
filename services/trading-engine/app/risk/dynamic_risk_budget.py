@@ -400,7 +400,14 @@ class DynamicRiskBudget:
         # History
         self._budget_history: deque = deque(maxlen=self.MAX_HISTORY_ENTRIES)
         self._adjustment_history: List[RiskAdjustment] = []
-        self._alerts: List[RiskBudgetAlert] = []
+        # WR-01: bounded deque (max 500). Phase 6's 5s /api/config/safety-state
+        # poll cadence drives calculate_risk_budget() -> _check_and_generate_alerts
+        # every 5s; under emergency-mode + risk-near-minimum the appender at
+        # line ~1351 fires once per poll (~17.3k entries/day) — unbounded
+        # before this cap. .append() and .clear() are deque-native; the
+        # only slice site (get_alerts line ~1383) is wrapped in list(...)
+        # because deque does not support slice indexing.
+        self._alerts: deque = deque(maxlen=500)
 
         # Kelly integration reference
         self._kelly_data: Dict[str, Dict[str, float]] = {}
@@ -1378,9 +1385,12 @@ class DynamicRiskBudget:
             ]
             min_idx = severity_order.index(min_severity)
 
+            # WR-01: list(...) wrap — self._alerts is a bounded deque
+            # and deque does NOT support slice indexing ([-limit:] raises
+            # TypeError on a raw deque). The list copy is small (<=500).
             filtered = [
                 alert.to_dict()
-                for alert in self._alerts[-limit:]
+                for alert in list(self._alerts)[-limit:]
                 if severity_order.index(alert.severity) >= min_idx
             ]
             return filtered
