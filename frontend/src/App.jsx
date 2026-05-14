@@ -33,6 +33,7 @@ import Phase3Dashboard from './pages/Phase3Dashboard'
 import PerformanceDashboard from './pages/PerformanceDashboard'
 import Portfolio from './pages/Portfolio'
 import Settings from './pages/Settings'
+import TournamentDashboard from './pages/TournamentDashboard'
 
 // Import theme toggle component
 import ThemeToggle from './components/ThemeToggle'
@@ -116,6 +117,7 @@ const MobileMenu = ({ isOpen, onClose }) => {
     { to: '/', label: 'Main Dashboard' },
     { to: '/phase1', label: 'Phase 1 Monitoring' },
     { to: '/phase3', label: 'Phase 3: AI Enhanced' },
+    { to: '/tournament', label: 'Tournament' },
     { to: '/portfolio', label: 'Portfolio' },
     { to: '/performance', label: 'Performance' },
     { to: '/settings', label: 'Settings' },
@@ -191,6 +193,9 @@ const Header = () => {
               </NavLink>
               <NavLink to="/phase3">
                 Phase 3: AI Enhanced
+              </NavLink>
+              <NavLink to="/tournament">
+                Tournament
               </NavLink>
               <NavLink to="/portfolio">
                 Portfolio
@@ -304,6 +309,9 @@ function App() {
 
             {/* Phase 5.3: Performance Analytics Dashboard */}
             <Route path="/performance" element={<PerformanceDashboard />} />
+
+            {/* Phase 7: Tournament leaderboard view (DASH-04) */}
+            <Route path="/tournament" element={<TournamentDashboard />} />
 
             {/* Portfolio overview */}
             <Route path="/portfolio" element={<Portfolio />} />
