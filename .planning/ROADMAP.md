@@ -174,11 +174,25 @@ Plans:
   1. The dashboard exposes a Tournament view showing leaderboard rows from Phase 3's SQLite store, filterable by symbol and architecture, with significance markers from Phase 4
   2. A Playwright smoke test boots the recorded-tape stack from Phase 1, opens the dashboard, and asserts each major tile (Performance, Portfolio, Safety State, Tournament) renders non-empty
   3. The smoke test is wired into the Phase 2 integration suite so the dashboard regressions surface alongside backend regressions
-**Plans**: TBD
+**Plans**: 6 plans
 **UI hint**: yes
 
 Plans:
-- [ ] 07-01: TBD
+**Wave 1** *(parallel; no file overlap)*
+- [ ] 07-01-PLAN.md — Gateway tournament endpoints (/api/tournament/snapshots[/{id}]) + RO bind-mount + in-container tests (DASH-04)
+- [ ] 07-03-PLAN.md — data-testid wiring on TileState (stale/error/empty), StatusBar (root + 5 D-17 cells), 15 audit-referenced tile components + audit JSON/MD updates (Tournament row appended) (DASH-06)
+
+**Wave 2** *(blocked on 07-01)*
+- [ ] 07-02-PLAN.md — Frontend tournamentAPI extension + useTournamentList/useTournamentSnapshot React Query hooks (staleTime=Infinity, no polling per D-23) (DASH-04)
+
+**Wave 3** *(blocked on 07-02)*
+- [ ] 07-04-PLAN.md — TournamentDashboard page + leaderboard table + filter chips + significance badge + contaminated-window warning + route registration honoring UI-SPEC (DASH-04)
+
+**Wave 4** *(blocked on 07-03 + 07-04)*
+- [ ] 07-05-PLAN.md — Smoke fixture JSON (primary + 2 Phase 4 sidecars) + tournament_snapshot_seeded conftest fixture + audit-driven pytest-playwright smoke with hard data_testid gate + named StatusBar substrings (DASH-06)
+
+**Wave 5** *(blocked on Wave 4)*
+- [ ] 07-06-PLAN.md — pytest-playwright dep + Chromium install step + failure-artifact upload in integration.yml and integration-ml-on.yml (DASH-06)
 
 ## Progress
 
@@ -193,4 +207,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Tournament Significance & Auto-PR | 0/7 | Not started | - |
 | 5. ML Cleanup (post-V0) | 4/4 | Complete | 2026-05-13 |
 | 6. Dashboard Audit & Safety State | 0/5 | Not started | - |
-| 7. Tournament View & Smoke Test | 0/TBD | Not started | - |
+| 7. Tournament View & Smoke Test | 0/5 | Not started | - |

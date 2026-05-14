@@ -215,9 +215,9 @@ The Playwright smoke test (`tests/integration/test_dashboard_smoke.py`) is audit
 
 | `data-testid` | Where it lives | Asserted by smoke test |
 |---------------|----------------|------------------------|
-| `tile-stale-badge` | `<TileState/>` (Phase 6 carry-forward; already wired) | LABELED_STALE rows: present |
-| `tile-error` | `<TileState/>` error branch (Phase 6 carry-forward) | never expected during a healthy smoke |
-| `tile-empty` | `<TileState/>` empty branch (Phase 6 carry-forward) | never expected during a healthy smoke (fixture seeds rows) |
+| `tile-stale-badge` | `<TileState/>` StaleBadge branch (Wired by Plan 03 as part of Phase 7 — NOT a Phase 6 carry-forward despite earlier UI-SPEC wording; Phase 6 shipped `aria-label="stale"` only on the StaleBadge component) | LABELED_STALE rows: present |
+| `tile-error` | `<TileState/>` ErrorState branch (Wired by Plan 03 as part of Phase 7) | never expected during a healthy smoke |
+| `tile-empty` | `<TileState/>` EmptyState branch (Wired by Plan 03 as part of Phase 7) | never expected during a healthy smoke (fixture seeds rows) |
 | `tournament-leaderboard` | `<table>` root in `TournamentLeaderboard.jsx` | FIXED verdict for new Tournament tile: present + has `<tbody>` with ≥1 `<tr>` |
 | `tournament-row-{run_id}` | each `<tr>` in `<tbody>` | per-row presence assertion (smoke iterates fixture's 6-9 deterministic rows) |
 | `tournament-selector` | `<TournamentSelector/>` root `<select>` | dropdown present and contains the seeded `smoke-tape-fixture` option |
