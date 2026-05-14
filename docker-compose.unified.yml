@@ -599,6 +599,14 @@ services:
       # AUTO_TRADING_ENABLED=false in .env or `touch EMERGENCY_STOP` (file
       # present = halt). PAPER_TRADING_MODE=true ensures orders simulated.
       - AUTO_TRADING_ENABLED=${AUTO_TRADING_ENABLED:-true}
+      # Leverage configuration (2026-05-09): 10x default, paper-trading only.
+      # Effective notional per trade = MAX_RISK_PER_TRADE × balance × DEFAULT_LEVERAGE.
+      # At 10% × $100 × 10x = $100 notional — clears Bybit min-notional comfortably.
+      # WARNING: must drop DEFAULT_LEVERAGE back to 1.0 before flipping to LIVE.
+      - LEVERAGE_ENABLED=${LEVERAGE_ENABLED:-true}
+      - DEFAULT_LEVERAGE=${DEFAULT_LEVERAGE:-10.0}
+      - MAX_LEVERAGE=${MAX_LEVERAGE:-20.0}
+      - MIN_LEVERAGE=${MIN_LEVERAGE:-1.0}
     volumes:
       - ./services/trading-engine/logs:/app/logs
       # File-based emergency stop kill switch (read-only).
