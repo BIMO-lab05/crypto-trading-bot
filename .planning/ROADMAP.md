@@ -186,7 +186,7 @@ Plans:
 - [x] 07-02-PLAN.md — Frontend tournamentAPI extension + useTournamentList/useTournamentSnapshot React Query hooks (staleTime=Infinity, no polling per D-23) (DASH-04)
 
 **Wave 3** *(blocked on 07-02)*
-- [ ] 07-04-PLAN.md — TournamentDashboard page + leaderboard table + filter chips + significance badge + contaminated-window warning + route registration honoring UI-SPEC (DASH-04)
+- [x] 07-04-PLAN.md — TournamentDashboard page + leaderboard table + filter chips + significance badge + contaminated-window warning + route registration honoring UI-SPEC (DASH-04)
 
 **Wave 4** *(blocked on 07-03 + 07-04)*
 - [ ] 07-05-PLAN.md — Smoke fixture JSON (primary + 2 Phase 4 sidecars) + tournament_snapshot_seeded conftest fixture + audit-driven pytest-playwright smoke with hard data_testid gate + named StatusBar substrings (DASH-06)
