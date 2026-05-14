@@ -2452,6 +2452,9 @@ async def reverse_proxy_to_frontend(full_path: str, request: Request):
         ) from e
 
     # Strip hop-by-hop headers from upstream response before relaying.
+    # Also drop content-encoding: httpx auto-decompresses upstream_resp.content,
+    # so the body bytes here are plaintext; keeping the upstream Content-Encoding
+    # header (e.g. gzip) would cause browser ERR_CONTENT_DECODING_FAILED.
     relay_headers = {
         k: v
         for k, v in upstream_resp.headers.items()
@@ -2459,6 +2462,8 @@ async def reverse_proxy_to_frontend(full_path: str, request: Request):
         # Content-Length recomputed by Starlette; drop to avoid mismatch
         # if body bytes differ from upstream-reported length.
         and k.lower() != "content-length"
+        # Content-Encoding stripped because httpx already decompressed.
+        and k.lower() != "content-encoding"
     }
     return Response(
         content=upstream_resp.content,
