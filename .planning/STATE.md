@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
+status: completed
 stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-05-14T20:53:45.552Z"
-last_activity: 2026-05-14
+last_updated: "2026-05-14T21:05:03.782Z"
+last_activity: 2026-05-14 -- Phase 07 marked complete
 progress:
   total_phases: 7
   completed_phases: 7
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 07 (tournament-view-smoke-test) — EXECUTING
+Phase: 07 — COMPLETE
 Plan: 6 of 6
 Plans: 4 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 MLCL-04 backtest divergence documented DONE)
-Status: Phase complete — ready for verification
-Last activity: 2026-05-14
+Status: Phase 07 complete
+Last activity: 2026-05-14 -- Phase 07 marked complete
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 
