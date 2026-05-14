@@ -179,8 +179,8 @@ Plans:
 
 Plans:
 **Wave 1** *(parallel; no file overlap)*
-- [ ] 07-01-PLAN.md — Gateway tournament endpoints (/api/tournament/snapshots[/{id}]) + RO bind-mount + in-container tests (DASH-04)
-- [ ] 07-03-PLAN.md — data-testid wiring on TileState (stale/error/empty), StatusBar (root + 5 D-17 cells), 15 audit-referenced tile components + audit JSON/MD updates (Tournament row appended) (DASH-06)
+- [x] 07-01-PLAN.md — Gateway tournament endpoints (/api/tournament/snapshots[/{id}]) + RO bind-mount + in-container tests (DASH-04)
+- [x] 07-03-PLAN.md — data-testid wiring on TileState (stale/error/empty), StatusBar (root + 5 D-17 cells), 15 audit-referenced tile components + audit JSON/MD updates (Tournament row appended) (DASH-06)
 
 **Wave 2** *(blocked on 07-01)*
 - [ ] 07-02-PLAN.md — Frontend tournamentAPI extension + useTournamentList/useTournamentSnapshot React Query hooks (staleTime=Infinity, no polling per D-23) (DASH-04)

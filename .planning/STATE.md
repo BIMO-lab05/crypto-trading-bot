@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-05-14T13:58:58.972Z"
-last_activity: 2026-05-14 -- Phase 07 planning complete
+last_updated: "2026-05-14T15:02:13.497Z"
+last_activity: 2026-05-14
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 48
-  completed_plans: 42
-  percent: 88
+  completed_plans: 44
+  percent: 92
 ---
 
 # Project State
@@ -21,19 +21,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-06)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns.
-**Current focus:** Phase 06 — dashboard-audit-safety-state
+**Current focus:** Phase 07 — tournament-view-smoke-test
 
 ## Current Position
 
-Phase: 06 (dashboard-audit-safety-state) — EXECUTING
-Plan: 1 of 5
+Phase: 07 (tournament-view-smoke-test) — EXECUTING
+Plan: 3 of 6
 Plans: 4 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 MLCL-04 backtest divergence documented DONE)
 Status: Ready to execute
-Last activity: 2026-05-14 -- Phase 07 planning complete
+Last activity: 2026-05-14
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 
-Progress: [████████░░] 4/7 phases complete + Phase 05 in progress (57% → 95% of total plans)
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
