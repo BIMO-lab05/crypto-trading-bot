@@ -50,14 +50,71 @@ fi
 
 # Filter out the two allowed defaults.
 #
-# Allowlist rules — applied per line:
+# Allowlist rules — applied per match:
 #   - File is src/hooks/useGatewayWebSocket.js AND the matched line
 #     contains `||` (env-var-with-fallback pattern).
-#   - File is src/services/api.js AND the matched line appears to be
-#     inside a comment: either contains `//` before the match or has
-#     a leading `*` (block-comment continuation line).
+#   - File is src/services/api.js AND the match is inside a comment:
+#       * line contains `//` before the match (single-line comment), OR
+#       * line number is inside a `/* ... */` block-comment range.
 #
-# Anything else falls through to the violation list.
+# WR-07: the original heuristic accepted any line containing `//` OR
+# starting with `*` (after whitespace). That allowed false positives
+# (a code line with `//` embedded as an inline comment after a string
+# literal got silently allowlisted) and false negatives (a URL on a
+# line of a `/* ... */` block that does NOT start with `*` tripped the
+# gate). Replace the leading-`*` heuristic with a real block-comment
+# state pass (awk) that records the set of line numbers inside
+# `/* ... */` ranges. The `//` rule is preserved because it is exact.
+#
+# The block-comment pass runs once over api.js up-front and exports
+# BLOCK_LINES as a space-separated list of line numbers.
+
+api_js_block_lines() {
+  # Emit one line number per output line for each source line that lies
+  # inside a /* ... */ block in src/services/api.js. Handles nested
+  # tokens within a single line correctly: e.g.
+  #     /* opens */ code() /* opens again
+  # toggles state twice on the line, ending with `inblk=1`. The line on
+  # which the open/close tokens appear is also considered inside the
+  # block (operator-friendly: a closing `*/` line is part of the
+  # comment).
+  awk '
+    {
+      line = $0
+      lineno = NR
+      had_block_token = 0
+      while (1) {
+        if (inblk) {
+          # Looking for end token.
+          p = index(line, "*/")
+          if (p == 0) {
+            # Whole line is inside the block.
+            print lineno
+            had_block_token = 1
+            break
+          }
+          # Block ends mid-line; consume and continue scanning.
+          print lineno
+          had_block_token = 1
+          line = substr(line, p + 2)
+          inblk = 0
+        } else {
+          # Looking for open token.
+          p = index(line, "/*")
+          if (p == 0) break
+          # Block opens on this line.
+          print lineno
+          had_block_token = 1
+          line = substr(line, p + 2)
+          inblk = 1
+        }
+      }
+    }
+  ' "src/services/api.js"
+}
+
+BLOCK_LINES=" $(api_js_block_lines | sort -u | tr '\n' ' ')"
+
 VIOLATIONS=""
 while IFS= read -r line; do
   # `line` is in `grep -rn` format: `<path>:<lineno>:<content>`.
@@ -74,13 +131,21 @@ while IFS= read -r line; do
       fi
       ;;
     src/services/api.js)
-      # Allow only if the line is inside a comment. JSDoc lines start
-      # with `*` after optional leading whitespace; line comments
-      # contain `//` before the URL.
-      if printf '%s' "${content}" | grep -Eq '^[[:space:]]*\*' \
-         || printf '%s' "${content}" | grep -q '//'; then
+      # Allow only if (a) the line begins with a `//` single-line
+      # comment BEFORE the URL (so the URL is inside a comment, not just
+      # part of the URL's scheme), or (b) the line number is inside a
+      # `/* ... */` block-comment range computed by the awk pre-pass.
+      #
+      # The `//` check uses an anchored regex (line starts with
+      # optional whitespace then `//`) to avoid the false positive where
+      # `grep -q '//'` matched the `//` of `http://localhost:...` and
+      # silently allowlisted any code line containing the URL literal.
+      if printf '%s' "${content}" | grep -Eq '^[[:space:]]*//'; then
         continue
       fi
+      case "${BLOCK_LINES}" in
+        *" ${lineno} "*) continue ;;
+      esac
       ;;
   esac
 
