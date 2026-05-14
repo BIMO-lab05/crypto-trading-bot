@@ -50,15 +50,17 @@ Per W-02 scope-down: only `/api/config/safety-state` (Plan 6-02) will emit `last
 
 ## Phase3 page tiles
 
-| Tile | Component File | Backing Endpoint | Expected Shape | Observed Shape | Verdict | data-testid | last_updated_at? | Notes |
-|---|---|---|---|---|---|---|---|---|
-| Phase3Dashboard | `frontend/src/pages/Phase3Dashboard.jsx` | `GET /api/ml/predict/price/{symbol}` (+ sentiment + MTF) | `{prediction: object}` (varies per sub-tile) | `{"detail": "..."}` (HTTP 503 across all ml/sentiment paths) | LABELED_STALE | `phase3-dashboard` | n/a | ml-prediction-service + sentiment-analysis-service feature-flagged OFF (`ENABLE_ML_PREDICTIONS=false`, `ENABLE_SENTIMENT_ANALYSIS=false`). Plan 6-05 wires `<TileState forceStale={true}/>`. Real data returns in Phase 7+ after GRU rebuild on returns target. |
+> **`data_testid_scope` column (Plan 07.1-01 addition, 2026-05-14):** page-level rows that wrap many child tiles set `data_testid_scope: descendant` so the audit-driven smoke loop knows to do a nested-locator scan for `tile-stale-badge` — the badge lives deep in a child component, not as a direct CSS descendant of the page-root testid. Default scope is `root` and is omitted for component-level rows. See `tests/integration/test_dashboard_smoke.py` LABELED_STALE branch.
+
+| Tile | Component File | Backing Endpoint | Expected Shape | Observed Shape | Verdict | data-testid | data_testid_scope | last_updated_at? | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| Phase3Dashboard | `frontend/src/pages/Phase3Dashboard.jsx` | `GET /api/ml/predict/price/{symbol}` (+ sentiment + MTF) | `{prediction: object}` (varies per sub-tile) | `{"detail": "..."}` (HTTP 503 across all ml/sentiment paths) | LABELED_STALE | `phase3-dashboard` | descendant | n/a | ml-prediction-service + sentiment-analysis-service feature-flagged OFF (`ENABLE_ML_PREDICTIONS=false`, `ENABLE_SENTIMENT_ANALYSIS=false`). Plan 6-05 wires `<TileState forceStale={true}/>`. Real data returns in Phase 7+ after GRU rebuild on returns target. |
 
 ## Portfolio page (page-level tile)
 
-| Tile | Component File | Backing Endpoint | Expected Shape | Observed Shape | Verdict | data-testid | last_updated_at? | Notes |
-|---|---|---|---|---|---|---|---|---|
-| Portfolio | `frontend/src/pages/Portfolio.jsx` | `GET /api/portfolio` (primary) | `{balance: number, positions: list[object], total_value: number}` | `{"detail": "..."}` (HTTP 503) | LABELED_STALE | `portfolio-page` | n/a | Operator approved 2026-05-13: LABELED_STALE — portfolio-manager container unhealth is an ops fix tracked separately; Phase 6 ships the stale-badge affordance via forceStale={true}. usePortfolio hook stays as-is; ops fix restores backing endpoint. |
+| Tile | Component File | Backing Endpoint | Expected Shape | Observed Shape | Verdict | data-testid | data_testid_scope | last_updated_at? | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| Portfolio | `frontend/src/pages/Portfolio.jsx` | `GET /api/portfolio` (primary) | `{balance: number, positions: list[object], total_value: number}` | `{"detail": "..."}` (HTTP 503) | LABELED_STALE | `portfolio-page` | descendant | n/a | Operator approved 2026-05-13: LABELED_STALE — portfolio-manager container unhealth is an ops fix tracked separately; Phase 6 ships the stale-badge affordance via forceStale={true}. usePortfolio hook stays as-is; ops fix restores backing endpoint. |
 
 ## Tournament page tiles
 

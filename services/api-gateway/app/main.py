@@ -46,6 +46,8 @@ import os
 from pathlib import Path
 import tempfile
 
+import httpx
+
 from app.config import settings
 from app.services.service_proxy import ServiceProxy
 from app.auth_models import (
@@ -493,11 +495,21 @@ async def metrics():
 # ============================================================================
 # ROOT & HEALTH ENDPOINTS
 # ============================================================================
+#
+# Plan 07.1-01 BUG-3 fix: `/` no longer returns gateway JSON service-info.
+# Instead, a catch-all GET handler registered at the end of this file
+# reverse-proxies non-/api paths (including `/`) to the frontend nginx
+# container so the smoke test at GATEWAY_ORIGIN can fetch the React app
+# through the gateway origin. The JSON service-info shape that historically
+# lived at `/` is now served from `/gateway-info` — tests in
+# services/api-gateway/tests that previously hit `/` were updated to hit
+# `/gateway-info`.
 
 
-@app.get("/")
-async def root():
-    """Root endpoint with API information"""
+@app.get("/gateway-info")
+async def gateway_info():
+    """Gateway service info (formerly served at `/`, relocated by Plan
+    07.1-01 BUG-3 so `/` can reverse-proxy to the frontend container)."""
     return {
         "service": settings.service_name,
         "version": settings.api_version,
@@ -2333,6 +2345,127 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         websocket_manager.disconnect(websocket)
+
+
+# ============================================================================
+# CATCH-ALL REVERSE PROXY (Plan 07.1-01 BUG-3)
+# ============================================================================
+#
+# api-gateway acts as the host-edge ingress on port 8000. The Phase 7
+# Playwright smoke (tests/integration/test_dashboard_smoke.py) drives
+# GATEWAY_ORIGIN = "http://localhost:8000" and expects `/` to serve the
+# React app's index.html — but every other route in this file returns JSON.
+# This catch-all is registered LAST so all exact-match `/api/*`, `/health`,
+# `/metrics`, `/docs`, `/openapi.json`, `/redoc`, `/ws`, `/gateway-info`
+# routes resolve first. Only non-matching GET paths (including `/`,
+# `/assets/*`, `/tournament`, `/phase3`, etc.) fall through here and get
+# proxied to the frontend nginx container at FRONTEND_UPSTREAM.
+#
+# A defense-in-depth bypass list also rejects any inbound path that LOOKS
+# like a gateway-owned route, so if a typo or new route is added without
+# updating this comment, the proxy fails closed (404) rather than silently
+# shadowing.
+#
+# Hop-by-hop headers per RFC 7230 §6.1 are stripped on both ingress (don't
+# forward to upstream) and egress (don't echo back) — these connection-
+# level headers MUST NOT be forwarded end-to-end. CSP, Cache-Control, and
+# Content-Security-Policy are NOT hop-by-hop and pass through unmodified
+# so the upstream nginx's CSP policy reaches the browser intact.
+
+# Hop-by-hop headers, lowercased, per RFC 7230 §6.1.
+_HOP_BY_HOP_HEADERS = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
+
+# Gateway-owned path prefixes/exact-matches that must NEVER be proxied to
+# the frontend. Registration order already prevents this in normal cases;
+# this list is a belt-and-suspenders guard for `/{full_path:path}` matching.
+_GATEWAY_OWNED_PREFIXES = ("api/",)
+_GATEWAY_OWNED_EXACT = frozenset(
+    {
+        "health",
+        "ready",
+        "metrics",
+        "docs",
+        "redoc",
+        "openapi.json",
+        "ws",
+        "gateway-info",
+    }
+)
+
+
+@app.api_route("/{full_path:path}", methods=["GET"], include_in_schema=False)
+async def reverse_proxy_to_frontend(full_path: str, request: Request):
+    """Reverse-proxy non-/api GET requests to the frontend nginx container.
+
+    Plan 07.1-01 Task 3: serves the React SPA's index.html (and static
+    assets) through the gateway origin so the Phase 7 audit-driven
+    Playwright smoke can target http://localhost:8000 as a single ingress.
+    """
+    # Defense-in-depth: refuse to proxy gateway-owned paths even though
+    # FastAPI route ordering should never let us reach this handler for
+    # them. Strip any leading slash already removed by `{full_path:path}`.
+    normalized = full_path.lstrip("/")
+    if normalized in _GATEWAY_OWNED_EXACT or any(
+        normalized.startswith(p) for p in _GATEWAY_OWNED_PREFIXES
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    upstream = os.environ.get("FRONTEND_UPSTREAM", "http://frontend:80")
+    # Empty path -> root index.html.
+    target = f"{upstream}/{normalized}" if normalized else f"{upstream}/"
+
+    # Strip hop-by-hop headers from inbound request before forwarding.
+    forward_headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower() not in _HOP_BY_HOP_HEADERS
+        # Drop the Host header too — let httpx set it to the upstream host
+        # so nginx routes correctly via virtual-host matching.
+        and k.lower() != "host"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            upstream_resp = await client.get(
+                target,
+                params=request.query_params,
+                headers=forward_headers,
+                follow_redirects=False,
+            )
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError) as e:
+        logger.warning(
+            f"Frontend upstream unreachable for /{normalized!r}: {type(e).__name__}: {e}"
+        )
+        raise HTTPException(
+            status_code=502, detail="Frontend upstream unreachable"
+        ) from e
+
+    # Strip hop-by-hop headers from upstream response before relaying.
+    relay_headers = {
+        k: v
+        for k, v in upstream_resp.headers.items()
+        if k.lower() not in _HOP_BY_HOP_HEADERS
+        # Content-Length recomputed by Starlette; drop to avoid mismatch
+        # if body bytes differ from upstream-reported length.
+        and k.lower() != "content-length"
+    }
+    return Response(
+        content=upstream_resp.content,
+        status_code=upstream_resp.status_code,
+        headers=relay_headers,
+        media_type=upstream_resp.headers.get("content-type"),
+    )
 
 
 if __name__ == "__main__":

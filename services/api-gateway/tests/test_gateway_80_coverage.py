@@ -497,11 +497,15 @@ class TestHealthAndMonitoring:
 
 
 class TestGatewayConfiguration:
-    """Test API Gateway configuration"""
+    """Test API Gateway configuration.
 
-    def test_root_endpoint_lists_all_services(self, test_client):
-        """Test root endpoint includes all configured services"""
-        response = test_client.get("/")
+    Plan 07.1-01 BUG-3: the gateway service-info JSON was relocated from
+    `/` to `/gateway-info` so `/` can reverse-proxy to the frontend.
+    """
+
+    def test_gateway_info_endpoint_lists_all_services(self, test_client):
+        """Test /gateway-info endpoint includes all configured services"""
+        response = test_client.get("/gateway-info")
         assert response.status_code == 200
         data = response.json()
 
@@ -516,9 +520,9 @@ class TestGatewayConfiguration:
         assert "ml_prediction" in services
         assert "sentiment_analysis" in services
 
-    def test_root_endpoint_api_info(self, test_client):
-        """Test root endpoint provides API information"""
-        response = test_client.get("/")
+    def test_gateway_info_endpoint_api_info(self, test_client):
+        """Test /gateway-info endpoint provides API information"""
+        response = test_client.get("/gateway-info")
         assert response.status_code == 200
         data = response.json()
 
