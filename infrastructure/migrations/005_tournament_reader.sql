@@ -25,7 +25,10 @@ END
 $$;
 
 -- Grants (SELECT-only path)
-GRANT CONNECT ON DATABASE trading_bot TO tournament_reader;
+-- Canonical DB is market_data (live klines store); historical name trading_bot
+-- never existed in this stack — the original migration was authored against an
+-- earlier naming assumption. Aligning with docker-compose.unified.yml ${TIMESCALE_DB:-market_data}.
+GRANT CONNECT ON DATABASE market_data TO tournament_reader;
 GRANT USAGE ON SCHEMA public TO tournament_reader;
 GRANT SELECT ON klines TO tournament_reader;
 

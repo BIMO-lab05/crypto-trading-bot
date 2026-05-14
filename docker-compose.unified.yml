@@ -760,7 +760,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TIMESCALE_HOST=timescaledb
       - TIMESCALE_PORT=5432
-      - TIMESCALE_DB=${TIMESCALE_DB:-trading_bot}
+      - TIMESCALE_DB=${TIMESCALE_DB:-market_data}
       - TIMESCALE_USER=tournament_reader
       - TIMESCALE_PASSWORD=${TOURNAMENT_READER_PASSWORD:-}
       - DOCKER_NETWORK=crypto-bot-network
