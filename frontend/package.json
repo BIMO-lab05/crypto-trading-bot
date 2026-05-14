@@ -11,7 +11,8 @@
     "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "check-no-hardcoded-urls": "bash scripts/check-no-hardcoded-urls.sh"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.12.2",

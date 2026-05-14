@@ -33,6 +33,7 @@ import Phase3Dashboard from './pages/Phase3Dashboard'
 import PerformanceDashboard from './pages/PerformanceDashboard'
 import Portfolio from './pages/Portfolio'
 import Settings from './pages/Settings'
+import TournamentDashboard from './pages/TournamentDashboard'
 
 // Import theme toggle component
 import ThemeToggle from './components/ThemeToggle'
@@ -42,6 +43,10 @@ import CommandPalette from './components/CommandPalette'
 import StatusBar from './components/StatusBar'
 import KeyboardShortcuts from './components/KeyboardShortcuts'
 import { ToastProvider } from './contexts/ToastContext'
+
+// Safety-state polling hook + viewport border (DASH-03, D-06)
+import { useSafetyState } from './hooks/useSafetyState'
+import './styles/safety-border.css'
 
 // ============================================================================
 // NAVIGATION LINK COMPONENT
@@ -112,6 +117,7 @@ const MobileMenu = ({ isOpen, onClose }) => {
     { to: '/', label: 'Main Dashboard' },
     { to: '/phase1', label: 'Phase 1 Monitoring' },
     { to: '/phase3', label: 'Phase 3: AI Enhanced' },
+    { to: '/tournament', label: 'Tournament' },
     { to: '/portfolio', label: 'Portfolio' },
     { to: '/performance', label: 'Performance' },
     { to: '/settings', label: 'Settings' },
@@ -187,6 +193,9 @@ const Header = () => {
               </NavLink>
               <NavLink to="/phase3">
                 Phase 3: AI Enhanced
+              </NavLink>
+              <NavLink to="/tournament">
+                Tournament
               </NavLink>
               <NavLink to="/portfolio">
                 Portfolio
@@ -264,11 +273,16 @@ const Header = () => {
  * @returns JSX element containing the complete application
  */
 function App() {
+  // DASH-03 / D-06: viewport-edge safety border. Class flips PAPER↔LIVE on
+  // every 5s safety-state poll. Defaults to PAPER while data is loading so
+  // the first render is not LIVE-coloured by accident.
+  const { data: safety } = useSafetyState()
+  const mode = (safety?.trading_mode || 'PAPER').toLowerCase()
   return (
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ToastProvider>
-      {/* Main application container with dark mode support */}
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200">
+      {/* Main application container with dark mode support + safety border */}
+      <div className={`min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200 safety-border safety-border--${mode}`}>
         {/* Skip to main content link (visible on focus) */}
         <a
           href="#main-content"
@@ -295,6 +309,9 @@ function App() {
 
             {/* Phase 5.3: Performance Analytics Dashboard */}
             <Route path="/performance" element={<PerformanceDashboard />} />
+
+            {/* Phase 7: Tournament leaderboard view (DASH-04) */}
+            <Route path="/tournament" element={<TournamentDashboard />} />
 
             {/* Portfolio overview */}
             <Route path="/portfolio" element={<Portfolio />} />

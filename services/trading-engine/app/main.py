@@ -60,6 +60,7 @@ from app.handlers import (
     health_check,
     get_status,
     get_detailed_health,
+    readiness_check,  # noqa: F401  # used by /ready route — autoflake mis-strips
     get_trading_signal,
     get_enhanced_trading_signal,  # NEW: Enhanced ML prediction integration
     analyze_and_trade,
@@ -128,6 +129,10 @@ from app.handlers.grid_trading import router as grid_trading_router
 # under /api/v1/orchestrator/* (incl. emergency-stop, risk/utilization,
 # strategies/*) was dead. Wired up 2026-04-29.
 from app.handlers.orchestration import router as orchestration_router
+from app.handlers.orchestration import (  # noqa: F401 — router mounted below
+    admin_indicator_router,
+    admin_force_signal_router,  # CD-04 — Phase 2 INFRA-01 force-signal endpoint
+)
 
 # Import Correlation Manager (Phase 3.1)
 
@@ -153,6 +158,7 @@ from app.database.connection import db_manager  # noqa: F401
 from app.signal_aggregator import get_aggregator  # noqa: F401
 from app.repositories import get_portfolio_repository  # noqa: F401
 from app.paper_trading import get_paper_engine  # noqa: F401
+from app.services.instruments_cache import get_instruments_cache  # noqa: F401
 
 # Fixed: Create logs directory to prevent startup crashes (Critical Issue #1)
 LOG_DIR = Path("logs")
@@ -405,6 +411,15 @@ app.include_router(grid_trading_router)
 # Include Multi-Strategy Orchestration router (Phase 9)
 app.include_router(orchestration_router)
 
+# Include Indicator Rolling-Confidence Gate (2026-05-06).
+# Defined in handlers/orchestration.py alongside the orchestrator router.
+app.include_router(admin_indicator_router)
+
+# Include Force-Signal admin endpoint (CD-04, Phase 2 INFRA-01, 2026-05-07).
+# Test-only entry point for the integration suite — refuses in TRADING_MODE=LIVE.
+# Plan 02-04's <60s round-trip test calls POST /api/v1/admin/force-signal.
+app.include_router(admin_force_signal_router)
+
 # Include Kelly Position Sizing router (Phase 3.2)
 app.include_router(kelly_router)
 
@@ -452,6 +467,19 @@ async def metrics():
 async def health():
     """Health check endpoint"""
     return await health_check()
+
+
+@app.get("/ready", tags=["Health"])
+async def ready():
+    """
+    Kubernetes-style readiness probe.
+
+    200 only when postgres + technical-analysis + bybit-connector are healthy
+    AND the in-process signal aggregator is initialized. Returns 503 with a
+    `failures` array otherwise. Distinct from /health (liveness) — /ready
+    answers "can this instance accept traffic right now".
+    """
+    return await readiness_check()
 
 
 @app.get("/status", response_model=StatusResponse, tags=["Status"])

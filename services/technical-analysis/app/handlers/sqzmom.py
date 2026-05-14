@@ -23,7 +23,7 @@ async def get_sqzmom(
     kc_length: int = 20,
     kc_mult: float = 1.5,
     use_true_range: bool = True,
-    limit: int = 200
+    limit: int = 200,
 ) -> Dict[str, Any]:
     """
     Calculate Squeeze Momentum Indicator
@@ -59,9 +59,11 @@ async def get_sqzmom(
             raise Exception(f"Failed to fetch candles for {symbol}")
 
         # Validate required columns
-        required_cols = ['open', 'high', 'low', 'close', 'volume']
+        required_cols = ["open", "high", "low", "close", "volume"]
         if not all(col in df.columns for col in required_cols):
-            logger.error(f"Missing required columns in candle data. Got: {df.columns.tolist()}")
+            logger.error(
+                f"Missing required columns in candle data. Got: {df.columns.tolist()}"
+            )
             raise Exception("Invalid candle data structure")
 
         # Initialize indicator
@@ -70,7 +72,7 @@ async def get_sqzmom(
             bb_mult=bb_mult,
             kc_length=kc_length,
             kc_mult=kc_mult,
-            use_true_range=use_true_range
+            use_true_range=use_true_range,
         )
 
         # Calculate indicator
@@ -88,56 +90,54 @@ async def get_sqzmom(
 
         # Build response
         response = {
-            'symbol': symbol.upper(),
-            'interval': interval,
-            'timestamp': int(latest.get('timestamp', df['timestamp'].iloc[-1] if 'timestamp' in df.columns else 0)),
-
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "timestamp": int(
+                latest.get(
+                    "timestamp",
+                    df["timestamp"].iloc[-1] if "timestamp" in df.columns else 0,
+                )
+            ),
             # Current state
-            'squeeze_state': {
-                'squeeze_on': bool(latest['squeeze_on']),
-                'squeeze_off': bool(latest['squeeze_off']),
-                'no_squeeze': bool(latest['no_squeeze'])
+            "squeeze_state": {
+                "squeeze_on": bool(latest["squeeze_on"]),
+                "squeeze_off": bool(latest["squeeze_off"]),
+                "no_squeeze": bool(latest["no_squeeze"]),
             },
-
             # Momentum
-            'momentum': {
-                'value': round(float(latest['sqz_momentum']), 4),
-                'color': latest['sqz_color'],
-                'direction': 'bullish' if latest['sqz_momentum'] > 0 else 'bearish'
+            "momentum": {
+                "value": round(float(latest["sqz_momentum"]), 4),
+                "color": latest["sqz_color"],
+                "direction": "bullish" if latest["sqz_momentum"] > 0 else "bearish",
             },
-
             # Bollinger Bands
-            'bollinger_bands': {
-                'upper': round(float(latest['bb_upper']), 2),
-                'basis': round(float(latest['bb_basis']), 2),
-                'lower': round(float(latest['bb_lower']), 2)
+            "bollinger_bands": {
+                "upper": float(latest["bb_upper"]),
+                "basis": float(latest["bb_basis"]),
+                "lower": float(latest["bb_lower"]),
             },
-
             # Keltner Channels
-            'keltner_channels': {
-                'upper': round(float(latest['kc_upper']), 2),
-                'basis': round(float(latest['kc_basis']), 2),
-                'lower': round(float(latest['kc_lower']), 2)
+            "keltner_channels": {
+                "upper": float(latest["kc_upper"]),
+                "basis": float(latest["kc_basis"]),
+                "lower": float(latest["kc_lower"]),
             },
-
             # Signal
-            'signal': {
-                'action': latest['sqz_signal'],
-                'confidence': round(float(latest['sqz_confidence']), 2),
-                'strength': signal_data.get('strength', 0.0)
+            "signal": {
+                "action": latest["sqz_signal"],
+                "confidence": round(float(latest["sqz_confidence"]), 2),
+                "strength": signal_data.get("strength", 0.0),
             },
-
             # Current price
-            'current_price': round(float(latest['close']), 2),
-
+            "current_price": float(latest["close"]),
             # Parameters used
-            'parameters': {
-                'bb_length': bb_length,
-                'bb_mult': bb_mult,
-                'kc_length': kc_length,
-                'kc_mult': kc_mult,
-                'use_true_range': use_true_range
-            }
+            "parameters": {
+                "bb_length": bb_length,
+                "bb_mult": bb_mult,
+                "kc_length": kc_length,
+                "kc_mult": kc_mult,
+                "use_true_range": use_true_range,
+            },
         }
 
         logger.info(
@@ -161,7 +161,7 @@ async def get_sqzmom_strategy_signal(
     stop_loss_pct: float = 2.0,
     take_profit_pct: float = 4.0,
     require_squeeze_release: bool = True,
-    require_volume: bool = False
+    require_volume: bool = False,
 ) -> Dict[str, Any]:
     """
     Get trading signal from Squeeze Momentum Strategy
@@ -203,7 +203,7 @@ async def get_sqzmom_strategy_signal(
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
             require_squeeze_release=require_squeeze_release,
-            require_volume_confirmation=require_volume
+            require_volume_confirmation=require_volume,
         )
 
         # Analyze
@@ -211,38 +211,35 @@ async def get_sqzmom_strategy_signal(
 
         # Build response - Convert all numpy types to Python native types
         response = {
-            'symbol': symbol.upper(),
-            'interval': interval,
-            'timestamp': int(df['timestamp'].iloc[-1]) if 'timestamp' in df.columns else 0,
-
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "timestamp": int(df["timestamp"].iloc[-1])
+            if "timestamp" in df.columns
+            else 0,
             # Strategy signal
-            'action': str(analysis['action']),
-            'confidence': float(analysis['confidence']),
-            'reason': str(analysis['reason']),
-
+            "action": str(analysis["action"]),
+            "confidence": float(analysis["confidence"]),
+            "reason": str(analysis["reason"]),
             # Position details
-            'entry_price': float(analysis.get('entry_price', 0.0)),
-            'stop_loss': float(analysis.get('stop_loss', 0.0)),
-            'take_profit': float(analysis.get('take_profit', 0.0)),
-
+            "entry_price": float(analysis.get("entry_price", 0.0)),
+            "stop_loss": float(analysis.get("stop_loss", 0.0)),
+            "take_profit": float(analysis.get("take_profit", 0.0)),
             # Risk/Reward
-            'risk_reward_ratio': 2.0,  # Fixed 1:2 ratio
-            'risk_pct': float(stop_loss_pct),
-            'reward_pct': float(take_profit_pct),
-
+            "risk_reward_ratio": 2.0,  # Fixed 1:2 ratio
+            "risk_pct": float(stop_loss_pct),
+            "reward_pct": float(take_profit_pct),
             # Market context
-            'momentum': float(analysis.get('momentum', 0.0)),
-            'squeeze_state': str(analysis.get('squeeze_state', 'UNKNOWN')),
-            'momentum_color': str(analysis.get('color', 'gray')),
-
+            "momentum": float(analysis.get("momentum", 0.0)),
+            "squeeze_state": str(analysis.get("squeeze_state", "UNKNOWN")),
+            "momentum_color": str(analysis.get("color", "gray")),
             # Strategy parameters
-            'strategy_config': {
-                'min_momentum_threshold': min_momentum,
-                'stop_loss_pct': stop_loss_pct,
-                'take_profit_pct': take_profit_pct,
-                'require_squeeze_release': require_squeeze_release,
-                'require_volume_confirmation': require_volume
-            }
+            "strategy_config": {
+                "min_momentum_threshold": min_momentum,
+                "stop_loss_pct": stop_loss_pct,
+                "take_profit_pct": take_profit_pct,
+                "require_squeeze_release": require_squeeze_release,
+                "require_volume_confirmation": require_volume,
+            },
         }
 
         logger.info(
@@ -258,9 +255,7 @@ async def get_sqzmom_strategy_signal(
 
 
 async def get_sqzmom_backtest_data(
-    symbol: str,
-    interval: str = "60",
-    limit: int = 500
+    symbol: str, interval: str = "60", limit: int = 500
 ) -> Dict[str, Any]:
     """
     Get historical SQZMOM data for backtesting
@@ -277,7 +272,9 @@ async def get_sqzmom_backtest_data(
         Exception if data fetch or calculation fails
     """
     try:
-        logger.info(f"Fetching SQZMOM backtest data for {symbol} {interval}m, {limit} candles")
+        logger.info(
+            f"Fetching SQZMOM backtest data for {symbol} {interval}m, {limit} candles"
+        )
 
         # Fetch market data
         fetcher = get_fetcher()
@@ -296,16 +293,30 @@ async def get_sqzmom_backtest_data(
         # Convert to list of records for JSON response
         # Select key columns only to reduce response size
         backtest_columns = [
-            'timestamp', 'open', 'high', 'low', 'close', 'volume',
-            'bb_upper', 'bb_basis', 'bb_lower',
-            'kc_upper', 'kc_basis', 'kc_lower',
-            'squeeze_on', 'squeeze_off', 'no_squeeze',
-            'sqz_momentum', 'sqz_color', 'sqz_signal', 'sqz_confidence'
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "bb_upper",
+            "bb_basis",
+            "bb_lower",
+            "kc_upper",
+            "kc_basis",
+            "kc_lower",
+            "squeeze_on",
+            "squeeze_off",
+            "no_squeeze",
+            "sqz_momentum",
+            "sqz_color",
+            "sqz_signal",
+            "sqz_confidence",
         ]
 
         # Ensure timestamp is included
-        if 'timestamp' not in result_df.columns:
-            result_df['timestamp'] = pd.to_datetime(result_df.index)
+        if "timestamp" not in result_df.columns:
+            result_df["timestamp"] = pd.to_datetime(result_df.index)
 
         # Filter to available columns
         available_cols = [col for col in backtest_columns if col in result_df.columns]
@@ -332,30 +343,36 @@ async def get_sqzmom_backtest_data(
 
         # Calculate summary statistics
         total_bars = len(records)
-        squeeze_on_count = sum(1 for r in records if r.get('squeeze_on', False))
-        buy_signals = sum(1 for r in records if r.get('sqz_signal') == 'BUY')
-        sell_signals = sum(1 for r in records if r.get('sqz_signal') == 'SELL')
+        squeeze_on_count = sum(1 for r in records if r.get("squeeze_on", False))
+        buy_signals = sum(1 for r in records if r.get("sqz_signal") == "BUY")
+        sell_signals = sum(1 for r in records if r.get("sqz_signal") == "SELL")
 
         response = {
-            'symbol': symbol.upper(),
-            'interval': interval,
-            'data_points': total_bars,
-
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "data_points": total_bars,
             # Summary statistics
-            'statistics': {
-                'total_bars': total_bars,
-                'squeeze_on_count': squeeze_on_count,
-                'squeeze_on_pct': round(squeeze_on_count / total_bars * 100, 2) if total_bars > 0 else 0,
-                'buy_signals': buy_signals,
-                'sell_signals': sell_signals,
-                'hold_signals': total_bars - buy_signals - sell_signals,
-                'avg_momentum': round(float(backtest_df['sqz_momentum'].mean()), 4) if 'sqz_momentum' in backtest_df else 0,
-                'max_momentum': round(float(backtest_df['sqz_momentum'].max()), 4) if 'sqz_momentum' in backtest_df else 0,
-                'min_momentum': round(float(backtest_df['sqz_momentum'].min()), 4) if 'sqz_momentum' in backtest_df else 0
+            "statistics": {
+                "total_bars": total_bars,
+                "squeeze_on_count": squeeze_on_count,
+                "squeeze_on_pct": round(squeeze_on_count / total_bars * 100, 2)
+                if total_bars > 0
+                else 0,
+                "buy_signals": buy_signals,
+                "sell_signals": sell_signals,
+                "hold_signals": total_bars - buy_signals - sell_signals,
+                "avg_momentum": round(float(backtest_df["sqz_momentum"].mean()), 4)
+                if "sqz_momentum" in backtest_df
+                else 0,
+                "max_momentum": round(float(backtest_df["sqz_momentum"].max()), 4)
+                if "sqz_momentum" in backtest_df
+                else 0,
+                "min_momentum": round(float(backtest_df["sqz_momentum"].min()), 4)
+                if "sqz_momentum" in backtest_df
+                else 0,
             },
-
             # Historical data
-            'data': records
+            "data": records,
         }
 
         logger.info(

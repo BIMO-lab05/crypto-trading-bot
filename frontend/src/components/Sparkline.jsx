@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react'
 import { useKlines } from '../hooks/useTicker'
+import TileState from './TileState'
 
 /**
  * Sparkline — tiny SVG-rendered close-price line for a ticker.
@@ -10,13 +11,19 @@ import { useKlines } from '../hooks/useTicker'
  *
  * Direction colour is derived from first→last close so it matches the
  * 24h-change badge above it.
+ *
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in
+ * <TileState forceStale/> per audit verdict LABELED_STALE (shares
+ * /api/market/klines/* endpoint with PriceChart; market-data unhealthy
+ * at audit time 2026-05-13). F-05 precedence preserves real errors.
  */
 
 const W = 120
 const H = 32
 
 export default function Sparkline({ symbol, intent }) {
-  const { data: klines } = useKlines(symbol, '60', { limit: 24 })
+  const q = useKlines(symbol, '60', { limit: 24 })
+  const klines = q.data
 
   const { path, area, colour } = useMemo(() => {
     const closes = (klines || [])
@@ -51,40 +58,51 @@ export default function Sparkline({ symbol, intent }) {
     return { path: pathStr, area: areaStr, colour: c }
   }, [klines, intent])
 
-  if (!path) {
-    // Skeleton placeholder
-    return (
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        width="100%"
-        height={H}
-        className="block opacity-30"
-        aria-hidden="true"
-        preserveAspectRatio="none"
-      >
-        <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#3d3c38" strokeDasharray="2 4" strokeWidth="1" />
-      </svg>
-    )
-  }
-
+  // TileState handles loading/error/empty/stale; the existing skeleton path
+  // is retained as a defensive in-success-with-thin-data fallback (path is
+  // computed inside useMemo, may yield '' if closes.length < 2).
   const gradId = `spark-${symbol}`
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      width="100%"
-      height={H}
-      className="block"
-      aria-hidden="true"
-      preserveAspectRatio="none"
+    <div data-testid="sparkline" style={{ display: 'contents' }}>
+    <TileState
+      query={q}
+      title="Sparkline"
+      thresholdKey="ticker"
+      lastUpdatedAt={undefined}
+      forceStale
+      isEmpty={(d) => !d || !Array.isArray(d) || d.length === 0}
     >
-      <defs>
-        <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={colour} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={colour} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill={`url(#${gradId})`} stroke="none" />
-      <path d={path} fill="none" stroke={colour} strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+      {!path ? (
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          width="100%"
+          height={H}
+          className="block opacity-30"
+          aria-hidden="true"
+          preserveAspectRatio="none"
+        >
+          <line x1="0" y1={H / 2} x2={W} y2={H / 2} stroke="#3d3c38" strokeDasharray="2 4" strokeWidth="1" />
+        </svg>
+      ) : (
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          width="100%"
+          height={H}
+          className="block"
+          aria-hidden="true"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={colour} stopOpacity="0.28" />
+              <stop offset="100%" stopColor={colour} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path d={area} fill={`url(#${gradId})`} stroke="none" />
+          <path d={path} fill="none" stroke={colour} strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </TileState>
+    </div>
   )
 }

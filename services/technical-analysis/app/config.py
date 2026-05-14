@@ -47,13 +47,6 @@ class Settings(BaseSettings):
     redis_password: Optional[str] = Field(default=None)
     redis_db: int = Field(default=0)
 
-    # RabbitMQ (messaging)
-    rabbitmq_host: str = Field(default="localhost")
-    rabbitmq_port: int = Field(default=5672)
-    rabbitmq_user: str = Field(default="cryptobot")
-    rabbitmq_password: str = Field(default="change_this_secure_password")
-    rabbitmq_vhost: str = Field(default="cryptobot")
-
     # ==========================================================================
     # TECHNICAL ANALYSIS SETTINGS - RESEARCH-OPTIMIZED (2025-11-28)
     # ==========================================================================
@@ -66,8 +59,7 @@ class Settings(BaseSettings):
     # Previous: period=14 (traditional markets)
     # New: period=9 (crypto-optimized, more responsive)
     default_rsi_period: int = Field(
-        default=9,
-        description="RSI period - optimized for crypto (prev: 14)"
+        default=9, description="RSI period - optimized for crypto (prev: 14)"
     )
 
     # MACD Settings (RESEARCH-OPTIMIZED 2025-11-29)
@@ -78,22 +70,24 @@ class Settings(BaseSettings):
     # Current: 5/35/5 (research-backed optimal for crypto)
     default_macd_fast: int = Field(
         default=5,
-        description="MACD fast EMA - research-optimized 5-35-5 (prev: 8, std: 12)"
+        description="MACD fast EMA - research-optimized 5-35-5 (prev: 8, std: 12)",
     )
     default_macd_slow: int = Field(
         default=35,
-        description="MACD slow EMA - research-optimized 5-35-5 (prev: 17, std: 26)"
+        description="MACD slow EMA - research-optimized 5-35-5 (prev: 17, std: 26)",
     )
     default_macd_signal: int = Field(
-        default=5,
-        description="MACD signal line - research-optimized 5-35-5 (prev: 9)"
+        default=5, description="MACD signal line - research-optimized 5-35-5 (prev: 9)"
     )
 
     # Bollinger Bands (RESEARCH-OPTIMIZED 2025-11-29)
     # Research shows wider bands (2.5-3.0 SD) work better for crypto volatility
     # Reduces false breakout signals in volatile crypto markets
     default_bb_period: int = Field(default=20)
-    default_bb_std: float = Field(default=2.5, description="BB std dev - widened for crypto volatility (prev: 2.0)")
+    default_bb_std: float = Field(
+        default=2.5,
+        description="BB std dev - widened for crypto volatility (prev: 2.0)",
+    )
 
     # Moving Averages (unchanged)
     default_sma_period: int = Field(default=20)
@@ -102,18 +96,6 @@ class Settings(BaseSettings):
     # Signal Generation
     # RESEARCH NOTE: 0.6 confidence threshold works well with crypto-optimized indicators
     signal_confidence_threshold: float = Field(default=0.6)
-    # NOT YET IMPLEMENTED — kept as a config knob so .env files don't fail
-    # validation, but no code path actually publishes signals to RabbitMQ
-    # today. Default flipped from `True` (which was a lie) to `False` on
-    # 2026-04-29 (audit finding). To wire this up: build an aio_pika
-    # publisher module, declare a `signals` topic exchange with routing
-    # key `signals.{symbol}`, and call it from the three handlers that
-    # build signal responses (handlers/analysis.py:get_aggregated_signal,
-    # handlers/analysis.py:get_multi_timeframe_analysis,
-    # handlers/sqzmom.py:get_sqzmom_strategy_signal). trading-engine
-    # would also need a consumer — none exists today, so today's
-    # downstream is HTTP-only via the aggregator service.
-    enable_signal_publishing: bool = Field(default=False)
 
     # Caching TTL
     cache_ttl_indicator: int = Field(default=300)  # 5 minutes
@@ -126,15 +108,10 @@ class Settings(BaseSettings):
             return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
-    @property
-    def rabbitmq_url(self) -> str:
-        """Construct RabbitMQ connection URL"""
-        return f"amqp://{self.rabbitmq_user}:{self.rabbitmq_password}@{self.rabbitmq_host}:{self.rabbitmq_port}/{self.rabbitmq_vhost}"
-
     model_config = {
         "env_file": ".env",
         "case_sensitive": False,
-        "extra": "ignore"  # Ignore extra environment variables (like DB_* from other services)
+        "extra": "ignore",  # Ignore extra environment variables (like DB_* from other services)
     }
 
 

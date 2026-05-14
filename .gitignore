@@ -51,6 +51,8 @@ venv.bak/
 .env.development
 .env.staging
 .env.production
+# Test-mode environment override (gitignored — may contain real test bot creds)
+.env.test
 *.secret
 *.secrets
 secrets/
@@ -240,3 +242,27 @@ graphify-out/
 /enh-snapshot.yml
 .playwright-mcp/
 .claudian/
+
+# ============================================================================
+# Tournament harness — Phase 3
+# Leaderboard SQLite is gitignored (binary churn); committed artifact is the
+# JSON snapshot created by `tournament export-snapshot` (D-18).
+# ============================================================================
+# Override the generic `data/` rule (line 120) so committable snapshot JSON
+# under services/tournament-harness/data/snapshots/ is reachable. Without
+# these un-ignore lines, `data/` shadows the entire tournament data tree
+# and D-18 (snapshots ARE committed) cannot be honored.
+!services/tournament-harness/data/
+!services/tournament-harness/data/snapshots/
+services/tournament-harness/data/leaderboard/*.db
+services/tournament-harness/data/leaderboard/*.db-journal
+services/tournament-harness/data/leaderboard/*.db-wal
+services/tournament-harness/data/leaderboard/*.db-shm
+services/tournament-harness/data/results/
+services/tournament-harness/logs/
+# Snapshots ARE committed (per-tournament JSON in data/snapshots/{tournament_id}.json),
+# so do NOT add data/snapshots/ here. Only ignore stray SQLite copies inside it.
+services/tournament-harness/data/snapshots/*.db
+
+# Claude scheduled tasks lock (runtime)
+.claude/scheduled_tasks.lock

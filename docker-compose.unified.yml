@@ -267,10 +267,6 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=${RABBITMQ_USER:-cryptobot}
-      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-rabbitmq_dev_password}
       # Service URLs
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
       - MARKET_DATA_URL=http://market-data:8002
@@ -284,11 +280,33 @@ services:
       # Emergency stop file - admin endpoint writes here, trading-engine reads
       # the same host file via its own bind-mount (see trading-engine block).
       - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
+      # Trading-mode flags — read by /api/config/safety-state (DASH-03 / Plan 06-02).
+      # Defaults match CLAUDE.md project rules: TRADING_MODE starts at PAPER, the
+      # four deliberate steps to LIVE require explicit env override.
+      - TRADING_MODE=${TRADING_MODE:-PAPER}
+      - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
+      - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-false}
+      # Plan 07.1-01 BUG-3: catch-all reverse-proxy target. api-gateway
+      # forwards non-/api GET requests (including `/`) to the frontend
+      # nginx container so http://localhost:8000 (gateway origin) can
+      # serve the React SPA. NOTE: we deliberately do NOT add
+      # `frontend` to api-gateway's `depends_on` because the frontend
+      # block already declares `depends_on: api-gateway: service_healthy`
+      # — adding the reverse edge would create a circular dependency
+      # that docker-compose refuses to resolve. The catch-all tolerates
+      # a brief 502 window while frontend boots (returns Bad Gateway,
+      # no startup blocker on api-gateway itself).
+      - FRONTEND_UPSTREAM=${FRONTEND_UPSTREAM:-http://frontend:80}
     volumes:
       - ./services/api-gateway/logs:/app/logs
       # RW for the gateway: it creates/overwrites the EMERGENCY_STOP file.
       # trading-engine mounts the same host file read-only.
       - ./EMERGENCY_STOP:/app/EMERGENCY_STOP
+      # Phase 7 D-01: RO bind-mount of committed tournament snapshots.
+      # Gateway reads /app/snapshots/*.json for /api/tournament/snapshots[/{id}].
+      # tournament-harness service writes here under profile=tournament; gateway
+      # never writes. RO ensures the gateway can't corrupt the committed artifact.
+      - ./services/tournament-harness/data/snapshots:/app/snapshots:ro
     networks:
       - crypto-bot-network
     depends_on:
@@ -359,8 +377,12 @@ services:
       - BYBIT_API_KEY=${BYBIT_API_KEY:-}
       - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
       - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
+      - MARKET_DATA_SOURCE=${MARKET_DATA_SOURCE:-tape}
+      - TAPE_FIXTURES_PATH=/app/tests/fixtures/tape
     volumes:
       - ./services/bybit-connector/logs:/app/logs
+      # Tape fixtures for MARKET_DATA_SOURCE=tape mode (D-15). Read-only — never mutated by the connector.
+      - ./tests/fixtures/tape:/app/tests/fixtures/tape:ro
     networks:
       - crypto-bot-network
     healthcheck:
@@ -400,14 +422,6 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      # Without these 4, market-data falls back to its config defaults
-      # (port 5672 ok, but user='cryptobot'/password='change_this_secure_password'
-      # don't match the live RabbitMQ — silent connection failures.)
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=${RABBITMQ_USER:-cryptobot}
-      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-rabbitmq_dev_password}
-      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-cryptobot}
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
     volumes:
       - ./services/market-data-service/logs:/app/logs
@@ -546,9 +560,11 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      - RABBITMQ_HOST=rabbitmq
       # Risk management
-      - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.02}
+      # 2026-05-06: bumped default 0.02 → 0.10 to align with $100 paper balance × 10%/trade target.
+      # service-local .env was being overridden by this compose-level block.
+      - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.10}
+      - MAX_POSITION_SIZE_PCT=${MAX_POSITION_SIZE_PCT:-10.0}
       - EMERGENCY_STOP_LOSS=${EMERGENCY_STOP_LOSS:-0.05}
       - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
@@ -583,6 +599,14 @@ services:
       # AUTO_TRADING_ENABLED=false in .env or `touch EMERGENCY_STOP` (file
       # present = halt). PAPER_TRADING_MODE=true ensures orders simulated.
       - AUTO_TRADING_ENABLED=${AUTO_TRADING_ENABLED:-true}
+      # Leverage configuration (2026-05-09): 10x default, paper-trading only.
+      # Effective notional per trade = MAX_RISK_PER_TRADE × balance × DEFAULT_LEVERAGE.
+      # At 10% × $100 × 10x = $100 notional — clears Bybit min-notional comfortably.
+      # WARNING: must drop DEFAULT_LEVERAGE back to 1.0 before flipping to LIVE.
+      - LEVERAGE_ENABLED=${LEVERAGE_ENABLED:-true}
+      - DEFAULT_LEVERAGE=${DEFAULT_LEVERAGE:-10.0}
+      - MAX_LEVERAGE=${MAX_LEVERAGE:-20.0}
+      - MIN_LEVERAGE=${MIN_LEVERAGE:-1.0}
     volumes:
       - ./services/trading-engine/logs:/app/logs
       # File-based emergency stop kill switch (read-only).
@@ -636,10 +660,29 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
-      - RABBITMQ_HOST=rabbitmq
+      # CD-01 / Plan 02-05 — Phase 2 notification test mode passthrough.
+      # Without these explicit `${VAR:-}` lines, env from workspace-level .env or
+      # CI `env:` blocks never reaches the container process; record mode never engages
+      # and Plan 02-04's notification assertion fails. The env_file above points at
+      # services/notification-service/.env (gitignored host-only) which cannot carry
+      # per-test variables. (Blocker #1, revision 2.)
+      # WR-05 (Phase 2): default to "record" so out-of-the-box `pytest tests/integration`
+      # on a developer's local stack matches the host conftest fixture
+      # (tests/integration/conftest.py:230, which defaults to "record" and
+      # tails tests/.notifications.log). Empty string fell through to the
+      # production POST path while the host watched a log the container
+      # never wrote; the test then hung until timeout. CI workflows
+      # explicitly export NOTIFICATION_TEST_MODE=live and unaffected.
+      - NOTIFICATION_TEST_MODE=${NOTIFICATION_TEST_MODE:-record}
+      - NOTIFICATION_RECORD_PATH=${NOTIFICATION_RECORD_PATH:-tests/.notifications.log}
+      - TEST_TELEGRAM_BOT_TOKEN=${TEST_TELEGRAM_BOT_TOKEN:-}
+      - TEST_TELEGRAM_CHAT_ID=${TEST_TELEGRAM_CHAT_ID:-}
     volumes:
       - ./services/notification-service/logs:/app/logs
       - ./services/notification-service/data:/app/data
+      # CD-01 — record-mode writes through to host so the host pytest fixture can read
+      # tests/.notifications.log. RW because the fixture also truncates between tests.
+      - ./tests:/app/tests:rw
     networks:
       - crypto-bot-network
     depends_on:
@@ -713,6 +756,61 @@ services:
           # 2G covers steady state + headroom; raise if loading more
           # models concurrently.
           memory: 2G
+
+  # ---------------------------------------------------------------------------
+  # Tournament Harness - Docker-isolated ML candidate evaluation (Phase 3)
+  # Profile: opt-in only. Default `bootstrap.sh up` does not start it (D-01).
+  # Bring up with:
+  #   docker compose -f docker-compose.unified.yml --profile tournament up tournament-harness
+  #
+  # PRIVILEGE BOUNDARY: This container bind-mounts /var/run/docker.sock so the
+  # orchestrator can launch experiment containers via the Docker SDK (D-02).
+  # That is effectively root on the host. Mitigations: (a) profile-gated above,
+  # (b) single-image runner pattern (D-05) — orchestrator only launches
+  # crypto-bot-tournament-harness:latest, never user-supplied images.
+  # ---------------------------------------------------------------------------
+  tournament-harness:
+    build:
+      context: .
+      dockerfile: services/tournament-harness/Dockerfile
+    container_name: crypto-bot-tournament-harness
+    hostname: tournament-harness
+    ports:
+      - "${TOURNAMENT_PORT:-8010}:8010"
+    environment:
+      - SERVICE_NAME=tournament-harness
+      - SERVICE_PORT=8010
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TIMESCALE_HOST=timescaledb
+      - TIMESCALE_PORT=5432
+      - TIMESCALE_DB=${TIMESCALE_DB:-market_data}
+      - TIMESCALE_USER=tournament_reader
+      - TIMESCALE_PASSWORD=${TOURNAMENT_READER_PASSWORD:-}
+      - DOCKER_NETWORK=crypto-bot-network
+      - RUNNER_IMAGE=crypto-bot-tournament-harness:latest
+    volumes:
+      - ./services/tournament-harness/data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - crypto-bot-network
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    profiles:
+      - tournament
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
 
   # ---------------------------------------------------------------------------
   # Sentiment Analysis Service - News and social sentiment

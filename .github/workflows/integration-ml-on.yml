@@ -1,0 +1,92 @@
+name: Integration Suite — ML-on Variant (Phase 2 CD-05)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'    # 06:00 UTC nightly
+  workflow_dispatch:        # manual trigger
+
+concurrency:
+  group: integration-ml-on-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  integration-ml-on:
+    name: pytest tests/integration -m ml_on (ENABLE_ML_PREDICTIONS=true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pytest dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/integration/requirements.txt
+
+      - name: Install Playwright browsers (Chromium only, D-18)
+        run: |
+          # Phase 7 DASH-06 -- install Chromium for the audit-driven dashboard smoke.
+          # Chromium only per CONTEXT.md D-18; Firefox/WebKit deferred to v2.
+          playwright install --with-deps chromium
+
+      - name: Boot stack with ML enabled
+        env:
+          MARKET_DATA_SOURCE: tape
+          PAPER_TRADING_MODE: 'true'
+          TRADING_MODE: PAPER
+          AUTO_TRADING_ENABLED: 'true'
+          ENABLE_ML_PREDICTIONS: 'true'    # CD-05 -- variant flips this
+          ENABLE_SENTIMENT_ANALYSIS: 'false'
+          NOTIFICATION_TEST_MODE: live
+          TEST_TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN }}
+          TEST_TELEGRAM_CHAT_ID: ${{ secrets.TEST_TELEGRAM_CHAT_ID }}
+        run: |
+          : > .env
+          bash bootstrap.sh
+
+      - name: Run ML-on suite
+        env:
+          ENABLE_ML_PREDICTIONS: 'true'
+          MARKET_DATA_SOURCE: tape
+        run: |
+          # D-22: capture screenshot + video + trace on failure for the Playwright smoke
+          # (pytest-playwright plugin flags; no-ops for non-Playwright tests in the suite).
+          pytest tests/integration -m ml_on -v --tb=short --screenshot=only-on-failure --video=retain-on-failure --tracing=retain-on-failure
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          mkdir -p logs
+          docker compose -f docker-compose.unified.yml logs > logs/ml-on-logs.txt 2>&1 || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-ml-on-logs
+          path: logs/ml-on-logs.txt
+          retention-days: 14
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-ml-on
+          # D-22: pytest-playwright drops outputs in any of these locations depending on
+          # plugin version + project layout. `if-no-files-found: ignore` keeps the step
+          # green when the smoke didn't run (e.g. failure before reaching the smoke).
+          path: |
+            test-results/
+            playwright-report/
+            tests/integration/.playwright/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.unified.yml down -v || true

@@ -14,6 +14,7 @@ starlette==0.35.1         # ASGI framework (security headers middleware)
 
 # Authentication & Security
 pyjwt[crypto]>=2.10.1     # JWT token handling (replaces unmaintained python-jose; cp314 compatible)
+python-jose[cryptography]>=3.3.0  # Temporary pin — auth_models.py still imports `from jose`; remove after migration to pyjwt API
 cryptography>=46.0.0      # Pinned for cp314 wheels; pyjwt[crypto] extra also depends on it
 libpass[bcrypt]==1.9.3    # passlib successor (drop-in `passlib` namespace); fixes bcrypt 5.0 ValueError on detect_wrap_bug check
 python-multipart==0.0.6   # Form data support

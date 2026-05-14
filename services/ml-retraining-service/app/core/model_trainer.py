@@ -12,15 +12,15 @@ import pickle
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers, callbacks
+from tensorflow.keras import callbacks
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 
 from app.config.settings import get_settings
 from app.core.cpcv_evaluation import evaluate_with_cpcv
+from app.core.models import REGISTRY
 from app.core.returns_metrics import compute_returns_metrics
 from app.core.stationary_features import (
     STATIONARY_FEATURE_COLS,
@@ -68,6 +68,11 @@ class ModelTrainer:
         # app/core/stationary_features.py.
         self.feature_set = self.settings.retrain_feature_set
 
+        # CD-01: which architecture to build. Defaults to "gru" so existing
+        # retrain jobs are bit-identical post-refactor. Tournament harness
+        # (Phase 3) flips this to lstm/transformer/tcn per experiment.
+        self.architecture = getattr(self, "architecture", "gru")
+
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculate technical indicators from OHLCV data.
@@ -86,9 +91,7 @@ class ModelTrainer:
             DataFrame with technical indicators as features
         """
         if self.feature_set == "stationary":
-            logger.info(
-                f"Preparing stationary features from {len(df)} data points"
-            )
+            logger.info(f"Preparing stationary features from {len(df)} data points")
             return compute_stationary_features(df)
 
         logger.info(f"Preparing features from {len(df)} data points")
@@ -97,51 +100,53 @@ class ModelTrainer:
         data = df.copy()
 
         # Price-based features
-        data['returns'] = data['close'].pct_change()
-        data['log_returns'] = np.log(data['close'] / data['close'].shift(1))
+        data["returns"] = data["close"].pct_change()
+        data["log_returns"] = np.log(data["close"] / data["close"].shift(1))
 
         # Moving averages
-        data['sma_7'] = data['close'].rolling(window=7).mean()
-        data['sma_14'] = data['close'].rolling(window=14).mean()
-        data['sma_30'] = data['close'].rolling(window=30).mean()
-        data['ema_7'] = data['close'].ewm(span=7, adjust=False).mean()
-        data['ema_14'] = data['close'].ewm(span=14, adjust=False).mean()
+        data["sma_7"] = data["close"].rolling(window=7).mean()
+        data["sma_14"] = data["close"].rolling(window=14).mean()
+        data["sma_30"] = data["close"].rolling(window=30).mean()
+        data["ema_7"] = data["close"].ewm(span=7, adjust=False).mean()
+        data["ema_14"] = data["close"].ewm(span=14, adjust=False).mean()
 
         # Volatility
-        data['volatility_7'] = data['returns'].rolling(window=7).std()
-        data['volatility_14'] = data['returns'].rolling(window=14).std()
+        data["volatility_7"] = data["returns"].rolling(window=7).std()
+        data["volatility_14"] = data["returns"].rolling(window=14).std()
 
         # RSI (Relative Strength Index)
-        delta = data['close'].diff()
+        delta = data["close"].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
-        data['rsi'] = 100 - (100 / (1 + rs))
+        data["rsi"] = 100 - (100 / (1 + rs))
 
         # MACD
-        ema_12 = data['close'].ewm(span=12, adjust=False).mean()
-        ema_26 = data['close'].ewm(span=26, adjust=False).mean()
-        data['macd'] = ema_12 - ema_26
-        data['macd_signal'] = data['macd'].ewm(span=9, adjust=False).mean()
-        data['macd_hist'] = data['macd'] - data['macd_signal']
+        ema_12 = data["close"].ewm(span=12, adjust=False).mean()
+        ema_26 = data["close"].ewm(span=26, adjust=False).mean()
+        data["macd"] = ema_12 - ema_26
+        data["macd_signal"] = data["macd"].ewm(span=9, adjust=False).mean()
+        data["macd_hist"] = data["macd"] - data["macd_signal"]
 
         # Bollinger Bands
-        data['bb_middle'] = data['close'].rolling(window=20).mean()
-        bb_std = data['close'].rolling(window=20).std()
-        data['bb_upper'] = data['bb_middle'] + (2 * bb_std)
-        data['bb_lower'] = data['bb_middle'] - (2 * bb_std)
-        data['bb_width'] = (data['bb_upper'] - data['bb_lower']) / data['bb_middle']
+        data["bb_middle"] = data["close"].rolling(window=20).mean()
+        bb_std = data["close"].rolling(window=20).std()
+        data["bb_upper"] = data["bb_middle"] + (2 * bb_std)
+        data["bb_lower"] = data["bb_middle"] - (2 * bb_std)
+        data["bb_width"] = (data["bb_upper"] - data["bb_lower"]) / data["bb_middle"]
 
         # Volume indicators
-        data['volume_sma'] = data['volume'].rolling(window=20).mean()
-        data['volume_ratio'] = data['volume'] / data['volume_sma']
+        data["volume_sma"] = data["volume"].rolling(window=20).mean()
+        data["volume_ratio"] = data["volume"] / data["volume_sma"]
 
         # Price position in range
-        data['high_low_ratio'] = (data['close'] - data['low']) / (data['high'] - data['low'])
+        data["high_low_ratio"] = (data["close"] - data["low"]) / (
+            data["high"] - data["low"]
+        )
 
         # Momentum
-        data['momentum_7'] = data['close'] / data['close'].shift(7) - 1
-        data['momentum_14'] = data['close'] / data['close'].shift(14) - 1
+        data["momentum_7"] = data["close"] / data["close"].shift(7) - 1
+        data["momentum_14"] = data["close"] / data["close"].shift(14) - 1
 
         # Drop rows with NaN values (from indicators calculation)
         data_clean = data.dropna()
@@ -156,7 +161,7 @@ class ModelTrainer:
     def create_sequences(
         self,
         data: pd.DataFrame,
-        target_col: str = 'close',
+        target_col: str = "close",
         feature_cols: Optional[List[str]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -178,14 +183,15 @@ class ModelTrainer:
                 X: shape (samples, sequence_length, features)
                 y: shape (samples, prediction_horizon)
         """
-        logger.info(f"Creating sequences: length={self.sequence_length}, horizon={self.prediction_horizon}")
+        logger.info(
+            f"Creating sequences: length={self.sequence_length}, horizon={self.prediction_horizon}"
+        )
 
         # Select feature columns: explicit list wins, else exclude
         # timestamp + target_col as legacy callers expect.
         if feature_cols is None:
             feature_cols = [
-                col for col in data.columns
-                if col not in ['timestamp', target_col]
+                col for col in data.columns if col not in ["timestamp", target_col]
             ]
 
         # Extract features and target
@@ -201,10 +207,16 @@ class ModelTrainer:
         # Create sequences
         for i in range(len(data) - self.sequence_length - self.prediction_horizon):
             # Input: sequence of features
-            X.append(features_scaled[i:i + self.sequence_length])
+            X.append(features_scaled[i : i + self.sequence_length])
 
             # Output: future prices (prediction_horizon steps ahead)
-            y.append(target_scaled[i + self.sequence_length:i + self.sequence_length + self.prediction_horizon])
+            y.append(
+                target_scaled[
+                    i + self.sequence_length : i
+                    + self.sequence_length
+                    + self.prediction_horizon
+                ]
+            )
 
         X = np.array(X)
         y = np.array(y)
@@ -214,58 +226,32 @@ class ModelTrainer:
         return X, y
 
     def build_gru_model(self, input_shape: Tuple[int, int]) -> keras.Model:
-        """
-        Build GRU model architecture from ``self.gru_units``.
+        """Legacy entry point — delegates to app.core.models.gru.build (CD-01).
 
-        Stacks ``len(self.gru_units)`` GRU layers in order. All layers
-        except the last set ``return_sequences=True``; the last sets
-        ``return_sequences=False`` so it feeds a Dense head. Dropout is
-        applied after every GRU layer. Default ``[128, 64]`` is the
-        legacy 2-layer architecture; ``[32]`` is the T0.1 rebuild's
-        single-layer pick (smaller nets generalise better on low-SNR
-        log-return targets).
+        Preserved for backward compat with any caller that imported this method
+        directly. Behavior is identical to the pre-refactor implementation:
+        the registry's gru.build is the verbatim port of the previous body.
 
         Args:
             input_shape: (sequence_length, num_features)
 
         Returns:
-            Compiled Keras model
+            Compiled Keras model.
         """
         logger.info(
-            f"Building GRU model with input shape: {input_shape}, "
+            f"Building GRU model (via REGISTRY['gru']) with input shape: {input_shape}, "
             f"layers={self.gru_units}"
         )
-
-        n_layers = len(self.gru_units)
-        model = keras.Sequential()
-        for i, units in enumerate(self.gru_units):
-            return_sequences = (i < n_layers - 1)
-            if i == 0:
-                model.add(
-                    layers.GRU(
-                        units,
-                        return_sequences=return_sequences,
-                        input_shape=input_shape,
-                    )
-                )
-            else:
-                model.add(
-                    layers.GRU(units, return_sequences=return_sequences)
-                )
-            model.add(layers.Dropout(self.dropout_rate))
-
-        # Dense output layer (prediction_horizon outputs)
-        model.add(layers.Dense(self.prediction_horizon))
-
-        # Compile model
-        model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=0.001),
-            loss='mse',
-            metrics=['mae'],
+        model = REGISTRY["gru"].build(
+            input_shape=input_shape,
+            hp={
+                "units": list(self.gru_units),
+                "dropout": float(self.dropout_rate),
+                "lr": 0.001,
+                "horizon": int(self.prediction_horizon),
+            },
         )
-
         logger.info(f"Model built: {model.count_params():,} parameters")
-
         return model
 
     def train_model(
@@ -274,7 +260,7 @@ class ModelTrainer:
         symbol: str,
         interval: str = "60",
         test_size: float = 0.2,
-        validation_split: float = 0.2
+        validation_split: float = 0.2,
     ) -> Dict[str, Any]:
         """
         Train GRU model with given data
@@ -304,7 +290,10 @@ class ModelTrainer:
             # Step 1: Prepare features
             data_with_features = self.prepare_features(data)
 
-            if len(data_with_features) < self.sequence_length + self.prediction_horizon + 100:
+            if (
+                len(data_with_features)
+                < self.sequence_length + self.prediction_horizon + 100
+            ):
                 raise ValueError(
                     f"Insufficient data after feature preparation: {len(data_with_features)} rows. "
                     f"Need at least {self.sequence_length + self.prediction_horizon + 100}"
@@ -326,53 +315,61 @@ class ModelTrainer:
 
             # Step 3: Split data (train/test)
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y,
+                X,
+                y,
                 test_size=test_size,
-                shuffle=False  # Don't shuffle time series data
+                shuffle=False,  # Don't shuffle time series data
             )
 
             logger.info(
                 f"Data split: train={len(X_train)}, test={len(X_test)} "
-                f"({test_size*100:.0f}% test)"
+                f"({test_size * 100:.0f}% test)"
             )
 
-            # Step 4: Build model
-            model = self.build_gru_model(input_shape=(X_train.shape[1], X_train.shape[2]))
+            # Step 4: Build model via the registry (CD-01).
+            # Default self.architecture="gru" preserves legacy behaviour;
+            # tournament harness flips this to lstm/transformer/tcn.
+            builder = REGISTRY[self.architecture]
+            model = builder.build(
+                input_shape=(X_train.shape[1], X_train.shape[2]),
+                hp={
+                    "units": list(self.gru_units),
+                    "dropout": float(self.dropout_rate),
+                    "lr": 0.001,
+                    "horizon": int(self.prediction_horizon),
+                },
+            )
 
             # Step 5: Setup callbacks
             early_stopping = callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=10,
-                restore_best_weights=True,
-                verbose=1
+                monitor="val_loss", patience=10, restore_best_weights=True, verbose=1
             )
 
             reduce_lr = callbacks.ReduceLROnPlateau(
-                monitor='val_loss',
-                factor=0.5,
-                patience=5,
-                min_lr=0.00001,
-                verbose=1
+                monitor="val_loss", factor=0.5, patience=5, min_lr=0.00001, verbose=1
             )
 
             # Step 6: Train model
-            logger.info(f"Training model (max {self.settings.retrain_max_epochs} epochs)...")
+            logger.info(
+                f"Training model (max {self.settings.retrain_max_epochs} epochs)..."
+            )
 
             history = model.fit(
-                X_train, y_train,
+                X_train,
+                y_train,
                 epochs=self.settings.retrain_max_epochs,
                 batch_size=self.settings.retrain_batch_size,
                 validation_split=validation_split,
                 callbacks=[early_stopping, reduce_lr],
-                verbose=1
+                verbose=1,
             )
 
             training_time = (datetime.now() - start_time).total_seconds()
-            epochs_trained = len(history.history['loss'])
+            epochs_trained = len(history.history["loss"])
 
             logger.info(
                 f"Training complete: {epochs_trained} epochs in {training_time:.1f}s "
-                f"({training_time/epochs_trained:.1f}s/epoch)"
+                f"({training_time / epochs_trained:.1f}s/epoch)"
             )
 
             # Step 7: Calculate metrics
@@ -382,14 +379,15 @@ class ModelTrainer:
             # Honest skill-on-returns metrics. References are the close of the
             # last bar of each input sequence (sample i in X uses index
             # i + sequence_length - 1 in data_with_features).
-            close_unscaled = data_with_features['close'].values
+            close_unscaled = data_with_features["close"].values
             last_close_train = close_unscaled[
-                self.sequence_length - 1 :
-                self.sequence_length - 1 + len(X_train)
+                self.sequence_length - 1 : self.sequence_length - 1 + len(X_train)
             ]
             last_close_test = close_unscaled[
-                self.sequence_length - 1 + len(X_train) :
-                self.sequence_length - 1 + len(X_train) + len(X_test)
+                self.sequence_length - 1 + len(X_train) : self.sequence_length
+                - 1
+                + len(X_train)
+                + len(X_test)
             ]
             train_metrics.update(
                 self._calculate_returns_metrics(
@@ -414,8 +412,8 @@ class ModelTrainer:
 
             # Validation metrics (last epoch from history)
             val_metrics = {
-                "val_loss": float(history.history['val_loss'][-1]),
-                "val_mae": float(history.history['val_mae'][-1]),
+                "val_loss": float(history.history["val_loss"][-1]),
+                "val_mae": float(history.history["val_mae"][-1]),
             }
 
             # Add R² for validation set (predict on validation portion)
@@ -462,14 +460,17 @@ class ModelTrainer:
                         feature_cols_used
                         if feature_cols_used is not None
                         else [
-                            col for col in data_with_features.columns
-                            if col not in ['timestamp', self.target_col]
+                            col
+                            for col in data_with_features.columns
+                            if col not in ["timestamp", self.target_col]
                         ]
                     ),
                 },
             }
 
-            logger.info(f"✅ Training successful: R²={train_metrics['train_r2']:.4f}, Val R²={val_r2:.4f}")
+            logger.info(
+                f"✅ Training successful: R²={train_metrics['train_r2']:.4f}, Val R²={val_r2:.4f}"
+            )
 
             return {
                 "success": True,
@@ -492,8 +493,10 @@ class ModelTrainer:
                 "metadata": {
                     "symbol": symbol,
                     "interval": interval,
-                    "training_time_seconds": (datetime.now() - start_time).total_seconds(),
-                }
+                    "training_time_seconds": (
+                        datetime.now() - start_time
+                    ).total_seconds(),
+                },
             }
 
     def _recover_prices(
@@ -592,11 +595,7 @@ class ModelTrainer:
         )
 
     def _calculate_metrics(
-        self,
-        model: keras.Model,
-        X: np.ndarray,
-        y: np.ndarray,
-        dataset_name: str
+        self, model: keras.Model, X: np.ndarray, y: np.ndarray, dataset_name: str
     ) -> Dict[str, float]:
         """
         Calculate comprehensive metrics for a dataset
@@ -692,7 +691,7 @@ class ModelTrainer:
         logger.info(f"Model saved: {model_path}")
 
         # Save metadata
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2, default=str)
         logger.info(f"Metadata saved: {metadata_path}")
 
@@ -702,7 +701,7 @@ class ModelTrainer:
             **val_metrics,
             **test_metrics,
         }
-        with open(metrics_path, 'w') as f:
+        with open(metrics_path, "w") as f:
             json.dump(all_metrics, f, indent=2)
         logger.info(f"Metrics saved: {metrics_path}")
 
@@ -711,11 +710,14 @@ class ModelTrainer:
         # (price_scaler); scaler_x is fit on the feature columns (feature_scaler).
         # Storing the full sklearn objects (not just attribute arrays) so the
         # prediction service can use them directly via pickle.load.
-        with open(scalers_path, 'wb') as f:
-            pickle.dump({
-                'price_scaler': scaler_y,
-                'feature_scaler': scaler_x,
-            }, f)
+        with open(scalers_path, "wb") as f:
+            pickle.dump(
+                {
+                    "price_scaler": scaler_y,
+                    "feature_scaler": scaler_x,
+                },
+                f,
+            )
         logger.info(f"Scalers saved: {scalers_path}")
 
         result = {

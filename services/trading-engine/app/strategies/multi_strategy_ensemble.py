@@ -20,10 +20,12 @@ import os
 import threading
 import time
 
-from app.models.signal import IndicatorSignal, TradingSignal
+from app.models.signal import TradingSignal
 from app.models.enums import SignalAction
-from app.strategies.simple_rsi_strategy import SimpleRSIStrategy, SimpleRSISignal
-from app.strategies.mean_reversion_strategy import MeanReversionStrategy, MeanReversionSignal
+from app.strategies.simple_rsi_strategy import SimpleRSIStrategy
+from app.strategies.mean_reversion_strategy import (
+    MeanReversionStrategy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +38,15 @@ LEG_MEAN_REV = "mean_reversion"
 @dataclass
 class EnsembleSignal:
     action: SignalAction
-    confidence: float                # weighted score magnitude, [0, 1]
+    confidence: float  # weighted score magnitude, [0, 1]
     entry_price: float
     stop_loss: float
     take_profit: float
-    position_size_pct: float         # ensemble-recommended size as % of capital
+    position_size_pct: float  # ensemble-recommended size as % of capital
     reasoning: List[str] = field(default_factory=list)
-    leg_contributions: Dict[str, float] = field(default_factory=dict)  # leg_id → signed contribution
+    leg_contributions: Dict[str, float] = field(
+        default_factory=dict
+    )  # leg_id → signed contribution
     leg_actions: Dict[str, str] = field(default_factory=dict)
     weights_snapshot: Dict[str, float] = field(default_factory=dict)
 
@@ -87,7 +91,11 @@ class StrategyPerformanceWeights:
             os.makedirs(os.path.dirname(self.STATE_PATH), exist_ok=True)
             with open(self.STATE_PATH, "w") as f:
                 json.dump(
-                    {"win_rates": self._win_rates, "trade_counts": self._trade_counts, "ts": time.time()},
+                    {
+                        "win_rates": self._win_rates,
+                        "trade_counts": self._trade_counts,
+                        "ts": time.time(),
+                    },
                     f,
                 )
         except Exception as e:
@@ -106,7 +114,9 @@ class StrategyPerformanceWeights:
             if leg_id not in self._win_rates:
                 return
             outcome = 1.0 if won else 0.0
-            self._win_rates[leg_id] = (1 - self.ALPHA) * self._win_rates[leg_id] + self.ALPHA * outcome
+            self._win_rates[leg_id] = (1 - self.ALPHA) * self._win_rates[
+                leg_id
+            ] + self.ALPHA * outcome
             self._trade_counts[leg_id] += 1
             self._persist()
         logger.info(
@@ -136,9 +146,12 @@ def get_ensemble_weights() -> StrategyPerformanceWeights:
 class MultiStrategyEnsemble:
     """Combines three strategies with performance-weighted voting."""
 
-    AGGREGATION_THRESHOLD = 0.10   # |weighted_score| ≥ this → fire trade (lowered for active markets)
-    MIN_AGREEING_LEGS = 1          # at least 1 leg must fire (ensemble still applies aggregation_threshold)
-    MAX_POSITION_PCT = 0.10        # ceiling — ensemble never sizes above 10% of capital
+    AGGREGATION_THRESHOLD = (
+        0.10  # |weighted_score| ≥ this → fire trade (lowered for active markets)
+    )
+    MIN_AGREEING_LEGS = (
+        1  # at least 1 leg must fire (ensemble still applies aggregation_threshold)
+    )
 
     def __init__(self, mean_reversion: Optional[MeanReversionStrategy] = None):
         self.simple_rsi = SimpleRSIStrategy()
@@ -149,6 +162,17 @@ class MultiStrategyEnsemble:
             f"threshold={self.AGGREGATION_THRESHOLD}, min_agreeing={self.MIN_AGREEING_LEGS}, "
             f"weights={self.weights.normalized_weights()}"
         )
+
+    @property
+    def MAX_POSITION_PCT(self) -> float:
+        """Ceiling for ensemble sizing. Bound to settings.max_risk_per_trade
+        so operator-set caps (ADR-010 paper bump, LIVE 2% reset) actually
+        propagate into ensemble decisions instead of being shadowed by a
+        hard-coded class constant.
+        """
+        from app.config import get_settings
+
+        return get_settings().max_risk_per_trade
 
     def generate_signal(
         self,
@@ -169,11 +193,18 @@ class MultiStrategyEnsemble:
         rsi_sig = self.simple_rsi.generate_signal(indicators, current_price, capital)
         if rsi_sig:
             leg_signals[LEG_RSI] = (
-                rsi_sig.action, rsi_sig.confidence, rsi_sig.stop_loss, rsi_sig.take_profit, rsi_sig.reasoning
+                rsi_sig.action,
+                rsi_sig.confidence,
+                rsi_sig.stop_loss,
+                rsi_sig.take_profit,
+                rsi_sig.reasoning,
             )
 
         # Leg 2: Multi-indicator (the existing CoreAggregator output)
-        if aggregator_signal.action != SignalAction.HOLD and aggregator_signal.confidence > 0:
+        if (
+            aggregator_signal.action != SignalAction.HOLD
+            and aggregator_signal.confidence > 0
+        ):
             atr_sl = aggregator_signal.metadata.get("atr_stop_loss", current_price)
             atr_tp = aggregator_signal.metadata.get("atr_take_profit", current_price)
             leg_signals[LEG_MULTI] = (
@@ -181,14 +212,20 @@ class MultiStrategyEnsemble:
                 aggregator_signal.confidence,
                 float(atr_sl) if atr_sl else current_price,
                 float(atr_tp) if atr_tp else current_price,
-                [f"Aggregator score={aggregator_signal.aggregated_score:.3f}, consensus={aggregator_signal.consensus_count}"],
+                [
+                    f"Aggregator score={aggregator_signal.aggregated_score:.3f}, consensus={aggregator_signal.consensus_count}"
+                ],
             )
 
         # Leg 3: Mean reversion
         mr_sig = self.mean_reversion.generate_signal(indicators, current_price, capital)
         if mr_sig and mr_sig.action != SignalAction.HOLD:
             leg_signals[LEG_MEAN_REV] = (
-                mr_sig.action, mr_sig.confidence, mr_sig.stop_loss, mr_sig.target, mr_sig.reasoning
+                mr_sig.action,
+                mr_sig.confidence,
+                mr_sig.stop_loss,
+                mr_sig.target,
+                mr_sig.reasoning,
             )
 
         if not leg_signals:
@@ -204,14 +241,19 @@ class MultiStrategyEnsemble:
         leg_actions: Dict[str, str] = {}
 
         for leg_id, (action, conf, _sl, _tp, _reason) in leg_signals.items():
-            sign = 1.0 if action == SignalAction.BUY else (-1.0 if action == SignalAction.SELL else 0.0)
+            sign = (
+                1.0
+                if action == SignalAction.BUY
+                else (-1.0 if action == SignalAction.SELL else 0.0)
+            )
             contribution = sign * conf * weights.get(leg_id, 0.0)
             weighted_score += contribution
             leg_contributions[leg_id] = contribution
             leg_actions[leg_id] = action.value
 
         agreeing_legs = sum(
-            1 for (a, _c, _sl, _tp, _r) in leg_signals.values()
+            1
+            for (a, _c, _sl, _tp, _r) in leg_signals.values()
             if (a == SignalAction.BUY and weighted_score > 0)
             or (a == SignalAction.SELL and weighted_score < 0)
         )
@@ -235,17 +277,31 @@ class MultiStrategyEnsemble:
         # Take SL/TP from the leg with the largest absolute contribution in the chosen direction
         dominant_leg = max(
             leg_contributions.items(),
-            key=lambda kv: abs(kv[1]) if (kv[1] > 0) == (action == SignalAction.BUY) else -1.0,
+            key=lambda kv: (
+                abs(kv[1]) if (kv[1] > 0) == (action == SignalAction.BUY) else -1.0
+            ),
         )[0]
         _, _, sl, tp, dominant_reason = leg_signals[dominant_leg]
 
-        # Position sizing: confidence × capital × MAX_POSITION_PCT, with 1% floor for $100 accounts.
-        position_size_pct = max(0.01, min(self.MAX_POSITION_PCT, confidence * self.MAX_POSITION_PCT * 1.5))
+        # Position sizing cascade (ADR-015):
+        #   floor   = settings.ensemble_min_position_pct
+        #   cap     = settings.max_risk_per_trade  (via self.MAX_POSITION_PCT property)
+        #   scaled  = confidence × cap × settings.ensemble_confidence_size_multiplier
+        #   size    = max(floor, min(cap, scaled))
+        # Defaults (5% floor, 3.7x mult, 10% cap) put typical-confidence
+        # ensemble fires at ≥5% notional and reach the cap by conf ≈ 0.27.
+        from app.config import get_settings
+
+        _settings = get_settings()
+        cap = self.MAX_POSITION_PCT
+        floor = _settings.ensemble_min_position_pct
+        scaled = confidence * cap * _settings.ensemble_confidence_size_multiplier
+        position_size_pct = max(floor, min(cap, scaled))
 
         reasoning = [
             f"Ensemble {action.value}: score={weighted_score:+.3f}, conf={confidence:.2%}",
             f"Legs: {leg_actions}",
-            f"Weights: " + ", ".join(f"{k}={v:.2f}" for k, v in weights.items()),
+            "Weights: " + ", ".join(f"{k}={v:.2f}" for k, v in weights.items()),
             f"Dominant: {dominant_leg}",
         ] + [f"  └ {r}" for r in dominant_reason]
 
@@ -262,7 +318,9 @@ class MultiStrategyEnsemble:
             weights_snapshot=weights,
         )
 
-    def record_trade_outcome(self, leg_contributions: Dict[str, float], pnl: float) -> None:
+    def record_trade_outcome(
+        self, leg_contributions: Dict[str, float], pnl: float
+    ) -> None:
         """Update each contributing leg's win-rate based on trade P&L.
 
         A leg whose contribution had the *same sign* as PnL is credited with a win.
@@ -273,7 +331,9 @@ class MultiStrategyEnsemble:
         for leg_id, contrib in leg_contributions.items():
             if contrib == 0:
                 continue
-            leg_was_directionally_right = (contrib > 0 and won_overall) or (contrib < 0 and not won_overall)
+            leg_was_directionally_right = (contrib > 0 and won_overall) or (
+                contrib < 0 and not won_overall
+            )
             self.weights.record_outcome(leg_id, leg_was_directionally_right)
 
 

@@ -46,6 +46,8 @@ import os
 from pathlib import Path
 import tempfile
 
+import httpx
+
 from app.config import settings
 from app.services.service_proxy import ServiceProxy
 from app.auth_models import (
@@ -493,11 +495,21 @@ async def metrics():
 # ============================================================================
 # ROOT & HEALTH ENDPOINTS
 # ============================================================================
+#
+# Plan 07.1-01 BUG-3 fix: `/` no longer returns gateway JSON service-info.
+# Instead, a catch-all GET handler registered at the end of this file
+# reverse-proxies non-/api paths (including `/`) to the frontend nginx
+# container so the smoke test at GATEWAY_ORIGIN can fetch the React app
+# through the gateway origin. The JSON service-info shape that historically
+# lived at `/` is now served from `/gateway-info` — tests in
+# services/api-gateway/tests that previously hit `/` were updated to hit
+# `/gateway-info`.
 
 
-@app.get("/")
-async def root():
-    """Root endpoint with API information"""
+@app.get("/gateway-info")
+async def gateway_info():
+    """Gateway service info (formerly served at `/`, relocated by Plan
+    07.1-01 BUG-3 so `/` can reverse-proxy to the frontend container)."""
     return {
         "service": settings.service_name,
         "version": settings.api_version,
@@ -1032,6 +1044,272 @@ async def get_trading_status():
     return await proxy.proxy_request(
         service_name="trading-engine", path="/api/v1/trading/status", method="GET"
     )
+
+
+@app.get("/api/config/safety-state")
+async def get_safety_state():
+    """
+    Aggregated safety posture for the dashboard StatusBar (DASH-03 / Plan 06-02).
+
+    Returns the D-08 schema in a single fan-out call so the frontend does
+    NOT have to stitch multiple endpoints. The dashboard polls this every
+    5s (per D-04 + the polling cadence in Plan 06-04).
+
+    Ownership split (D-09 / D-10):
+    - api-gateway reads its own env for trading_mode / paper_trading_mode /
+      ml_predictions_enabled (F-04 wired these into the compose env block).
+    - Proxies to trading-engine for auto_trading_enabled + emergency_stop
+      (D-10: only trading-engine reads the EMERGENCY_STOP bind-mount file).
+    - Proxies to trading-engine for kill_switch state (D-04: 5% daily-loss
+      circuit-breaker state lives in the risk-budget manager).
+
+    Unauthenticated (D-09): read-only config disclosure. No secrets, no
+    balances, no positions. Threat T-06-02-01 explicitly accepted.
+
+    Graceful degradation: if trading-engine is unreachable, the response is
+    still 200 with safe defaults (auto_trading_enabled=False,
+    emergency_stop={active:False, mtime:None}, kill_switch fields zeroed
+    and daily_loss_armed=False). The dashboard surfaces "trading-engine
+    down" via these defaults; we never 500.
+
+    F-01 fix: kill_switch.tripped reads the FLAT bool te_budget["emergency_mode"]
+    (handler at services/trading-engine/app/handlers/risk_budget.py:50
+    declares `emergency_mode: bool`). daily_loss_armed is sourced from
+    te_budget reachability (bool(te_budget)). PATTERNS.md line 379 had the
+    WRONG dict-walk on emergency_mode.armed — superseded here.
+
+    F-03 fix: proxy_request returns a fastapi.responses.JSONResponse, NOT
+    a dict. Calling .get() on it raises AttributeError. We decode the body
+    via json.loads(resp.body.decode()) — same pattern as portfolio_resp at
+    main.py:271.
+
+    Deferred (Phase 7): live_trading_acknowledged flag tracking
+    LIVE_TRADING_ACK env var. Not in D-08 schema; without it an operator
+    could see TRADING_MODE=LIVE pill while trading-engine refuses to boot.
+    """
+    proxy = get_proxy()
+
+    # --- Proxy to trading-engine /status ----------------------------------
+    te_status: dict = {}
+    try:
+        te_status_resp = await proxy.proxy_request(
+            service_name="trading-engine", path="/status", method="GET"
+        )
+        if getattr(te_status_resp, "status_code", 500) == 200:
+            te_status = json.loads(te_status_resp.body.decode())
+    except Exception as e:
+        logger.warning(
+            f"/api/config/safety-state: trading-engine /status proxy failed: {e}"
+        )
+        te_status = {}
+
+    # --- Proxy to trading-engine /api/v1/risk/budget/current --------------
+    te_budget: dict = {}
+    try:
+        te_budget_resp = await proxy.proxy_request(
+            service_name="trading-engine",
+            path="/api/v1/risk/budget/current",
+            method="GET",
+        )
+        if getattr(te_budget_resp, "status_code", 500) == 200:
+            te_budget = json.loads(te_budget_resp.body.decode())
+    except Exception as e:
+        logger.warning(
+            f"/api/config/safety-state: trading-engine /api/v1/risk/budget/current proxy failed: {e}"
+        )
+        te_budget = {}
+
+    # --- Local env reads (F-04 wired these into compose) ------------------
+    trading_mode = os.getenv("TRADING_MODE", "PAPER").upper()
+    paper_trading_mode = os.getenv("PAPER_TRADING_MODE", "true").lower() == "true"
+    ml_predictions_enabled = (
+        os.getenv("ENABLE_ML_PREDICTIONS", "false").lower() == "true"
+    )
+
+    # --- emergency_stop sub-dict from te_status ---------------------------
+    es_raw = te_status.get("emergency_stop") or {}
+    emergency_stop = {
+        "active": bool(es_raw.get("active", False)),
+        "mtime": es_raw.get("mtime"),  # ISO string or None (Plan 06-02 Task 1)
+    }
+
+    # --- kill_switch derivation (F-01 fix) --------------------------------
+    # daily_loss_armed = bool(te_budget) — True iff te_budget is a non-empty
+    # dict (proxy reachable AND backend returned a populated payload).
+    # When trading-engine is unreachable or returns {}, this is False — the
+    # dashboard renders a "kill-switch state unknown" pill.
+    # tripped = bool(te_budget["emergency_mode"]) — flat bool read; this is
+    # the canonical wire shape (handler at risk_budget.py:50).
+    kill_switch = {
+        "daily_loss_armed": bool(te_budget),
+        "daily_pnl_pct": float(
+            te_budget.get("utilization", {}).get("daily_pnl_pct", 0.0)
+        ),
+        "tripped": bool(te_budget.get("emergency_mode", False)),
+    }
+
+    # Local import: autoflake removes unused top-level imports across
+    # api-gateway/main.py refactors. Importing inside the function pins
+    # the use site and survives the autoflake pass (project memory:
+    # feedback_main_imports_autoflake.md).
+    from datetime import timezone as _tz
+
+    return {
+        "trading_mode": trading_mode,
+        "paper_trading_mode": paper_trading_mode,
+        "auto_trading_enabled": bool(te_status.get("auto_trading_enabled", False)),
+        "emergency_stop": emergency_stop,
+        "ml_predictions_enabled": ml_predictions_enabled,
+        "kill_switch": kill_switch,
+        "last_updated_at": datetime.now(_tz.utc).isoformat(),
+    }
+
+
+# Phase 7 D-01: gateway reads committed tournament snapshots from a RO bind-mount.
+# Intentional duplication of the live tournament-harness:8010 /api/v1/tournaments
+# path — frontend reads files (no --profile tournament dependency) per CONTEXT.md
+# D-01/D-02. Do not "fix" by proxying. The constant below is a module-level seam
+# tests monkeypatch to swap in a tmp_path; production resolves to /app/snapshots
+# (RO mount declared in docker-compose.unified.yml api-gateway.volumes block).
+_TOURNAMENT_SNAPSHOTS_DIR = Path("/app/snapshots")
+# 50 MiB DoS guardrail — refuse to read a snapshot larger than this; we never
+# materialize the file body before this check. Mitigates T-07-04.
+_TOURNAMENT_MAX_FILE_BYTES = 50 * 1024 * 1024
+
+
+@app.get("/api/tournament/snapshots")
+async def list_tournament_snapshots() -> dict:
+    """List committed tournament snapshots from the RO bind-mount.
+
+    Reads /app/snapshots/*.json (mounted from
+    ./services/tournament-harness/data/snapshots:/app/snapshots:ro per
+    Phase 7 D-01). Returns each file's `summary` block + `tournament_id`
+    + `exported_at` so the dashboard can populate the selector dropdown.
+
+    Unauthenticated (D-09 carryforward from Phase 6): read-only config-
+    style disclosure, no secrets, no balances, no positions.
+
+    Graceful degradation: returns 200 with `tournaments: []` when the
+    snapshots directory is absent OR empty (fresh clone path, smoke
+    fixture not yet seeded). Never 500. A per-file decode failure logs
+    a warning and is skipped — one bad file cannot poison the listing.
+
+    Skips Phase 4 sidecars (`*.ensemble.json`, `*.significance.json`) so
+    the listing only enumerates primary snapshots.
+
+    Does NOT depend on `tournament-harness` service running (profile=
+    tournament stays opt-in per D-02). The disk read happens entirely
+    inside the gateway.
+    """
+    # Local imports — autoflake removes unused top-level imports across
+    # api-gateway/main.py refactors. Pin use site here. (Project memory:
+    # feedback_main_imports_autoflake.md.) `Path` is also imported at
+    # module top (line 46) so the constant resolution works; the local
+    # alias below is a use-site pin for future refactors.
+    from pathlib import Path as _Path  # noqa: F401
+    import json
+
+    snapshots_dir = _TOURNAMENT_SNAPSHOTS_DIR
+    tournaments: list = []
+    if not snapshots_dir.exists():
+        return {"success": True, "count": 0, "tournaments": []}
+    for p in sorted(snapshots_dir.glob("*.json")):
+        # Skip Phase 4 sidecars (*.ensemble.json, *.significance.json).
+        if p.stem.endswith((".ensemble", ".significance")):
+            continue
+        try:
+            data = json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"/api/tournament/snapshots: skipping {p.name}: {e}")
+            continue
+        tournaments.append(
+            {
+                "tournament_id": data.get("tournament_id"),
+                "exported_at": data.get("exported_at"),
+                **(data.get("summary") or {}),
+            }
+        )
+    return {"success": True, "count": len(tournaments), "tournaments": tournaments}
+
+
+@app.get("/api/tournament/snapshots/{tournament_id}")
+async def get_tournament_snapshot(tournament_id: str) -> dict:
+    """Return merged {snapshot, ensemble|null, significance|null}.
+
+    Filename convention (Phase 3 D-18 + Phase 4 atomic-write):
+      - {tournament_id}.json              (snapshot — required)
+      - {tournament_id}.ensemble.json     (Phase 4; null when Phase 4 not run)
+      - {tournament_id}.significance.json (Phase 4; null when Phase 4 not run)
+
+    Path-traversal mitigation (T-07-03):
+      1. regex gate `^[A-Za-z0-9_\\-]+$` — rejects `.`, `/`, `\\`, `..`,
+         URL-encoded variants. 400 on mismatch.
+      2. resolve + is_relative_to check — defense-in-depth so the file
+         path never escapes the bind-mount root.
+
+    Size guardrail (T-07-04): refuse to read snapshot files larger than
+    50 MiB; the cap is checked via Path.stat() BEFORE the body is read,
+    so a poisoned file cannot blow gateway memory.
+
+    Returns 404 only when the snapshot file is absent. Sidecars (D-05)
+    are tolerated as missing — `ensemble` / `significance` are returned
+    as null when the corresponding file does not exist.
+
+    Unauthenticated (D-09 carryforward).
+    """
+    # Local imports — pin use site (autoflake-safe). `Path` is at module
+    # top (line 46); aliased here so the use-site is visible.
+    from pathlib import Path as _Path  # noqa: F401
+    import json
+    import re
+
+    if not re.match(r"^[A-Za-z0-9_\-]+$", tournament_id):
+        raise HTTPException(status_code=400, detail="invalid tournament_id")
+
+    base = _TOURNAMENT_SNAPSHOTS_DIR.resolve()
+    snap_path = (base / f"{tournament_id}.json").resolve()
+    # Defense-in-depth: even though the regex blocks `/` `\\` `.` `..`, this
+    # guards against any future regex regression. is_relative_to is Python
+    # 3.9+; api-gateway pins 3.12 (project rule).
+    if not snap_path.is_relative_to(base):
+        raise HTTPException(status_code=400, detail="invalid tournament_id")
+
+    if not snap_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"snapshot {tournament_id} not found",
+        )
+
+    if snap_path.stat().st_size > _TOURNAMENT_MAX_FILE_BYTES:
+        raise HTTPException(status_code=500, detail="snapshot file too large")
+
+    snapshot = json.loads(snap_path.read_text())
+
+    ensemble = None
+    significance = None
+    ens_path = base / f"{tournament_id}.ensemble.json"
+    sig_path = base / f"{tournament_id}.significance.json"
+    if ens_path.exists():
+        try:
+            ensemble = json.loads(ens_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(
+                f"/api/tournament/snapshots/{tournament_id}: ensemble decode failed: {e}"
+            )
+    if sig_path.exists():
+        try:
+            significance = json.loads(sig_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(
+                f"/api/tournament/snapshots/{tournament_id}: significance decode failed: {e}"
+            )
+
+    return {
+        "success": True,
+        "snapshot": snapshot,
+        "ensemble": ensemble,
+        "significance": significance,
+    }
 
 
 @app.get("/api/trading/performance")
@@ -2067,6 +2345,132 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         websocket_manager.disconnect(websocket)
+
+
+# ============================================================================
+# CATCH-ALL REVERSE PROXY (Plan 07.1-01 BUG-3)
+# ============================================================================
+#
+# api-gateway acts as the host-edge ingress on port 8000. The Phase 7
+# Playwright smoke (tests/integration/test_dashboard_smoke.py) drives
+# GATEWAY_ORIGIN = "http://localhost:8000" and expects `/` to serve the
+# React app's index.html — but every other route in this file returns JSON.
+# This catch-all is registered LAST so all exact-match `/api/*`, `/health`,
+# `/metrics`, `/docs`, `/openapi.json`, `/redoc`, `/ws`, `/gateway-info`
+# routes resolve first. Only non-matching GET paths (including `/`,
+# `/assets/*`, `/tournament`, `/phase3`, etc.) fall through here and get
+# proxied to the frontend nginx container at FRONTEND_UPSTREAM.
+#
+# A defense-in-depth bypass list also rejects any inbound path that LOOKS
+# like a gateway-owned route, so if a typo or new route is added without
+# updating this comment, the proxy fails closed (404) rather than silently
+# shadowing.
+#
+# Hop-by-hop headers per RFC 7230 §6.1 are stripped on both ingress (don't
+# forward to upstream) and egress (don't echo back) — these connection-
+# level headers MUST NOT be forwarded end-to-end. CSP, Cache-Control, and
+# Content-Security-Policy are NOT hop-by-hop and pass through unmodified
+# so the upstream nginx's CSP policy reaches the browser intact.
+
+# Hop-by-hop headers, lowercased, per RFC 7230 §6.1.
+_HOP_BY_HOP_HEADERS = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
+
+# Gateway-owned path prefixes/exact-matches that must NEVER be proxied to
+# the frontend. Registration order already prevents this in normal cases;
+# this list is a belt-and-suspenders guard for `/{full_path:path}` matching.
+_GATEWAY_OWNED_PREFIXES = ("api/",)
+_GATEWAY_OWNED_EXACT = frozenset(
+    {
+        "health",
+        "ready",
+        "metrics",
+        "docs",
+        "redoc",
+        "openapi.json",
+        "ws",
+        "gateway-info",
+    }
+)
+
+
+@app.api_route("/{full_path:path}", methods=["GET"], include_in_schema=False)
+async def reverse_proxy_to_frontend(full_path: str, request: Request):
+    """Reverse-proxy non-/api GET requests to the frontend nginx container.
+
+    Plan 07.1-01 Task 3: serves the React SPA's index.html (and static
+    assets) through the gateway origin so the Phase 7 audit-driven
+    Playwright smoke can target http://localhost:8000 as a single ingress.
+    """
+    # Defense-in-depth: refuse to proxy gateway-owned paths even though
+    # FastAPI route ordering should never let us reach this handler for
+    # them. Strip any leading slash already removed by `{full_path:path}`.
+    normalized = full_path.lstrip("/")
+    if normalized in _GATEWAY_OWNED_EXACT or any(
+        normalized.startswith(p) for p in _GATEWAY_OWNED_PREFIXES
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    upstream = os.environ.get("FRONTEND_UPSTREAM", "http://frontend:80")
+    # Empty path -> root index.html.
+    target = f"{upstream}/{normalized}" if normalized else f"{upstream}/"
+
+    # Strip hop-by-hop headers from inbound request before forwarding.
+    forward_headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower() not in _HOP_BY_HOP_HEADERS
+        # Drop the Host header too — let httpx set it to the upstream host
+        # so nginx routes correctly via virtual-host matching.
+        and k.lower() != "host"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            upstream_resp = await client.get(
+                target,
+                params=request.query_params,
+                headers=forward_headers,
+                follow_redirects=False,
+            )
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError) as e:
+        logger.warning(
+            f"Frontend upstream unreachable for /{normalized!r}: {type(e).__name__}: {e}"
+        )
+        raise HTTPException(
+            status_code=502, detail="Frontend upstream unreachable"
+        ) from e
+
+    # Strip hop-by-hop headers from upstream response before relaying.
+    # Also drop content-encoding: httpx auto-decompresses upstream_resp.content,
+    # so the body bytes here are plaintext; keeping the upstream Content-Encoding
+    # header (e.g. gzip) would cause browser ERR_CONTENT_DECODING_FAILED.
+    relay_headers = {
+        k: v
+        for k, v in upstream_resp.headers.items()
+        if k.lower() not in _HOP_BY_HOP_HEADERS
+        # Content-Length recomputed by Starlette; drop to avoid mismatch
+        # if body bytes differ from upstream-reported length.
+        and k.lower() != "content-length"
+        # Content-Encoding stripped because httpx already decompressed.
+        and k.lower() != "content-encoding"
+    }
+    return Response(
+        content=upstream_resp.content,
+        status_code=upstream_resp.status_code,
+        headers=relay_headers,
+        media_type=upstream_resp.headers.get("content-type"),
+    )
 
 
 if __name__ == "__main__":

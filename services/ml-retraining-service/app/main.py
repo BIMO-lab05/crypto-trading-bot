@@ -6,9 +6,9 @@ Purpose: Automated GRU model retraining with validation and deployment
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,15 +16,19 @@ import uvicorn
 
 from app.config.settings import get_settings
 from app.database.database import init_db, close_db, get_db, check_db_connection
-from app.database.models import ModelVersion, RetrainingJob, ModelStatus, RetrainingStatus
+from app.database.models import (
+    ModelVersion,
+    RetrainingJob,
+    ModelStatus,
+    RetrainingStatus,
+)
 from app.core.data_collector import DataCollector
 from app.core.scheduler import start_scheduler, stop_scheduler, get_scheduler
 from app.core.model_deployer import ModelDeployer
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -37,7 +41,9 @@ async def lifespan(app: FastAPI):
     """Application lifecycle management"""
     # Startup
     logger.info("=" * 60)
-    logger.info(f"Starting {settings.service_name} v{__import__('app').__version__}")
+    from app._version import __version__ as _service_version
+
+    logger.info(f"Starting {settings.service_name} v{_service_version}")
     logger.info("=" * 60)
 
     try:
@@ -57,9 +63,13 @@ async def lifespan(app: FastAPI):
             await start_scheduler()
             logger.info("✅ Retraining scheduler started")
         else:
-            logger.info("⚠️  Retraining scheduler disabled (RETRAIN_SCHEDULE_ENABLED=false)")
+            logger.info(
+                "⚠️  Retraining scheduler disabled (RETRAIN_SCHEDULE_ENABLED=false)"
+            )
 
-        logger.info(f"🚀 Service ready on {settings.service_host}:{settings.service_port}")
+        logger.info(
+            f"🚀 Service ready on {settings.service_host}:{settings.service_port}"
+        )
 
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
@@ -84,7 +94,7 @@ app = FastAPI(
     title="ML Model Retraining Service",
     description="Automated GRU model retraining with validation and deployment",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -101,6 +111,7 @@ app.add_middleware(
 # HEALTH CHECK ENDPOINTS
 # ============================================================================
 
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     """
@@ -108,11 +119,13 @@ async def health_check():
 
     Returns basic service status
     """
+    from app._version import __version__ as _service_version
+
     return {
         "status": "healthy",
         "service": settings.service_name,
-        "version": __import__('app').__version__,
-        "timestamp": datetime.now().isoformat()
+        "version": _service_version,
+        "timestamp": datetime.now().isoformat(),
     }
 
 
@@ -129,21 +142,24 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)):
     # Get recent jobs count
     try:
         result = await db.execute(
-            select(RetrainingJob)
-            .filter(RetrainingJob.status == RetrainingStatus.RUNNING)
+            select(RetrainingJob).filter(
+                RetrainingJob.status == RetrainingStatus.RUNNING
+            )
         )
         running_jobs = len(result.scalars().all())
     except Exception as e:
         logger.error(f"Error checking running jobs: {e}")
         running_jobs = -1
 
+    from app._version import __version__ as _service_version
+
     return {
         "status": "healthy" if db_healthy else "degraded",
         "service": settings.service_name,
-        "version": __import__('app').__version__,
+        "version": _service_version,
         "database": "healthy" if db_healthy else "unhealthy",
         "running_jobs": running_jobs,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 
@@ -151,12 +167,13 @@ async def detailed_health_check(db: AsyncSession = Depends(get_db)):
 # DATA COLLECTION ENDPOINTS
 # ============================================================================
 
+
 @app.post("/api/v1/data/collect/{symbol}", tags=["Data Collection"])
 async def collect_symbol_data(
     symbol: str,
     interval: str = Query(default="60", description="Kline interval in minutes"),
     days: Optional[int] = Query(default=None, description="Days of data to collect"),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
 ):
     """
     Collect historical data for a specific symbol
@@ -176,9 +193,7 @@ async def collect_symbol_data(
 
         try:
             result = await collector.collect_training_data(
-                symbol=symbol,
-                interval=interval,
-                days=days
+                symbol=symbol, interval=interval, days=days
             )
 
             # Don't return the full DataFrame, just metrics
@@ -189,7 +204,7 @@ async def collect_symbol_data(
                 "metrics": result["metrics"],
                 "errors": result["errors"],
                 "data_points": len(result["data"]) if result["data"] is not None else 0,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         finally:
@@ -203,7 +218,9 @@ async def collect_symbol_data(
 @app.post("/api/v1/data/collect-all", tags=["Data Collection"])
 async def collect_all_data(
     interval: str = Query(default="60", description="Kline interval in minutes"),
-    symbols: Optional[List[str]] = Query(default=None, description="Symbols to collect")
+    symbols: Optional[List[str]] = Query(
+        default=None, description="Symbols to collect"
+    ),
 ):
     """
     Collect historical data for all configured symbols
@@ -224,8 +241,7 @@ async def collect_all_data(
 
         try:
             results = await collector.collect_all_symbols(
-                symbols=symbols,
-                interval=interval
+                symbols=symbols, interval=interval
             )
 
             # Format response
@@ -234,16 +250,18 @@ async def collect_all_data(
                 "symbols_requested": len(symbols),
                 "symbols_successful": sum(1 for r in results.values() if r["success"]),
                 "symbols_failed": sum(1 for r in results.values() if not r["success"]),
-                "results": {}
+                "results": {},
             }
 
             # Add summary for each symbol
             for symbol, result in results.items():
                 response["results"][symbol] = {
                     "success": result["success"],
-                    "data_points": len(result["data"]) if result["data"] is not None else 0,
+                    "data_points": len(result["data"])
+                    if result["data"] is not None
+                    else 0,
                     "metrics": result["metrics"],
-                    "errors": result["errors"]
+                    "errors": result["errors"],
                 }
 
             return response
@@ -260,12 +278,13 @@ async def collect_all_data(
 # MODEL VERSION ENDPOINTS
 # ============================================================================
 
+
 @app.get("/api/v1/models/versions", tags=["Models"])
 async def list_model_versions(
     symbol: Optional[str] = Query(default=None, description="Filter by symbol"),
     status: Optional[str] = Query(default=None, description="Filter by status"),
     limit: int = Query(default=50, le=500, description="Max results"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     List model versions with optional filters
@@ -297,7 +316,7 @@ async def list_model_versions(
         return {
             "success": True,
             "count": len(versions),
-            "versions": [v.to_dict() for v in versions]
+            "versions": [v.to_dict() for v in versions],
         }
 
     except Exception as e:
@@ -306,10 +325,7 @@ async def list_model_versions(
 
 
 @app.get("/api/v1/models/versions/{version_id}", tags=["Models"])
-async def get_model_version(
-    version_id: int,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_model_version(version_id: int, db: AsyncSession = Depends(get_db)):
     """
     Get details of a specific model version
 
@@ -328,10 +344,7 @@ async def get_model_version(
         if not version:
             raise HTTPException(status_code=404, detail="Model version not found")
 
-        return {
-            "success": True,
-            "version": version.to_dict()
-        }
+        return {"success": True, "version": version.to_dict()}
 
     except HTTPException:
         raise
@@ -359,7 +372,7 @@ async def list_production_models(db: AsyncSession = Depends(get_db)):
         return {
             "success": True,
             "count": len(models),
-            "models": [m.to_dict() for m in models]
+            "models": [m.to_dict() for m in models],
         }
 
     except Exception as e:
@@ -371,11 +384,12 @@ async def list_production_models(db: AsyncSession = Depends(get_db)):
 # RETRAINING JOB ENDPOINTS
 # ============================================================================
 
+
 @app.get("/api/v1/jobs", tags=["Retraining Jobs"])
 async def list_retraining_jobs(
     status: Optional[str] = Query(default=None, description="Filter by status"),
     limit: int = Query(default=50, le=500, description="Max results"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     List retraining jobs with optional filters
@@ -401,7 +415,7 @@ async def list_retraining_jobs(
         return {
             "success": True,
             "count": len(jobs),
-            "jobs": [j.to_dict() for j in jobs]
+            "jobs": [j.to_dict() for j in jobs],
         }
 
     except Exception as e:
@@ -410,10 +424,7 @@ async def list_retraining_jobs(
 
 
 @app.get("/api/v1/jobs/{job_id}", tags=["Retraining Jobs"])
-async def get_retraining_job(
-    job_id: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_retraining_job(job_id: str, db: AsyncSession = Depends(get_db)):
     """
     Get details of a specific retraining job
 
@@ -432,10 +443,7 @@ async def get_retraining_job(
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        return {
-            "success": True,
-            "job": job.to_dict()
-        }
+        return {"success": True, "job": job.to_dict()}
 
     except HTTPException:
         raise
@@ -447,6 +455,7 @@ async def get_retraining_job(
 # ============================================================================
 # STATUS ENDPOINTS
 # ============================================================================
+
 
 @app.get("/api/v1/status", tags=["Status"])
 async def get_service_status(db: AsyncSession = Depends(get_db)):
@@ -465,7 +474,9 @@ async def get_service_status(db: AsyncSession = Depends(get_db)):
             "total": len(all_jobs),
             "pending": sum(1 for j in all_jobs if j.status == RetrainingStatus.PENDING),
             "running": sum(1 for j in all_jobs if j.status == RetrainingStatus.RUNNING),
-            "completed": sum(1 for j in all_jobs if j.status == RetrainingStatus.COMPLETED),
+            "completed": sum(
+                1 for j in all_jobs if j.status == RetrainingStatus.COMPLETED
+            ),
             "failed": sum(1 for j in all_jobs if j.status == RetrainingStatus.FAILED),
         }
 
@@ -482,16 +493,16 @@ async def get_service_status(db: AsyncSession = Depends(get_db)):
 
         # Get last job
         result = await db.execute(
-            select(RetrainingJob)
-            .order_by(RetrainingJob.created_at.desc())
-            .limit(1)
+            select(RetrainingJob).order_by(RetrainingJob.created_at.desc()).limit(1)
         )
         last_job = result.scalar_one_or_none()
+
+        from app._version import __version__ as _service_version
 
         return {
             "success": True,
             "service": settings.service_name,
-            "version": __import__('app').__version__,
+            "version": _service_version,
             "job_statistics": job_stats,
             "model_statistics": model_stats,
             "last_job": last_job.to_dict() if last_job else None,
@@ -501,7 +512,7 @@ async def get_service_status(db: AsyncSession = Depends(get_db)):
                 "schedule_cron": settings.retrain_schedule_cron,
                 "symbols": settings.retrain_data_symbols,
             },
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
@@ -513,13 +524,16 @@ async def get_service_status(db: AsyncSession = Depends(get_db)):
 # TRAINING & VALIDATION ENDPOINTS
 # ============================================================================
 
+
 @app.post("/api/v1/train/{symbol}", tags=["Training"])
 async def train_model(
     symbol: str,
     interval: str = Query(default="60", description="Kline interval in minutes"),
-    test_size: float = Query(default=0.2, ge=0.1, le=0.5, description="Test set fraction"),
+    test_size: float = Query(
+        default=0.2, ge=0.1, le=0.5, description="Test set fraction"
+    ),
     save_model: bool = Query(default=True, description="Save trained model"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Train a new GRU model for a symbol
@@ -545,14 +559,13 @@ async def train_model(
 
         try:
             data_result = await collector.collect_training_data(
-                symbol=symbol,
-                interval=interval
+                symbol=symbol, interval=interval
             )
 
             if not data_result["success"]:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Data collection failed: {data_result['errors']}"
+                    detail=f"Data collection failed: {data_result['errors']}",
                 )
 
             logger.info(f"Data collected: {len(data_result['data'])} points")
@@ -567,24 +580,20 @@ async def train_model(
             data=data_result["data"],
             symbol=symbol,
             interval=interval,
-            test_size=test_size
+            test_size=test_size,
         )
 
         if not training_result["success"]:
             raise HTTPException(
                 status_code=500,
-                detail=f"Training failed: {training_result.get('error', 'Unknown error')}"
+                detail=f"Training failed: {training_result.get('error', 'Unknown error')}",
             )
 
         # Step 3: Save model if requested
         saved_paths = {}
         if save_model:
             version = training_result["metadata"]["version"]
-            output_dir = os.path.join(
-                settings.models_versions_dir,
-                symbol,
-                version
-            )
+            output_dir = os.path.join(settings.models_versions_dir, symbol, version)
 
             saved_paths = trainer.save_model(
                 model=training_result["model"],
@@ -638,7 +647,7 @@ async def train_model(
             },
             "metadata": training_result["metadata"],
             "saved_paths": saved_paths if save_model else None,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except HTTPException:
@@ -651,8 +660,10 @@ async def train_model(
 @app.post("/api/v1/validate/{version_id}", tags=["Validation"])
 async def validate_model(
     version_id: int,
-    current_version_id: Optional[int] = Query(default=None, description="Current production model ID"),
-    db: AsyncSession = Depends(get_db)
+    current_version_id: Optional[int] = Query(
+        default=None, description="Current production model ID"
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Validate a trained model
@@ -703,14 +714,14 @@ async def validate_model(
         validation_result = validator.validate_model(
             new_metrics=new_metrics,
             current_metrics=current_metrics,
-            symbol=new_model.symbol
+            symbol=new_model.symbol,
         )
 
         # Generate report
         report = validator.generate_validation_report(
             validation_result=validation_result,
             symbol=new_model.symbol,
-            version=new_model.version
+            version=new_model.version,
         )
 
         # Update model status based on validation
@@ -737,7 +748,7 @@ async def validate_model(
             "validation_result": validation_result,
             "report": report,
             "model_status": new_model.status.value,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except HTTPException:
@@ -751,9 +762,14 @@ async def validate_model(
 async def retrain_model(
     symbol: str,
     interval: str = Query(default="60", description="Kline interval"),
-    auto_validate: bool = Query(default=True, description="Automatically validate after training"),
-    auto_deploy: bool = Query(default=None, description="Auto-deploy if validated (uses config default if None)"),
-    db: AsyncSession = Depends(get_db)
+    auto_validate: bool = Query(
+        default=True, description="Automatically validate after training"
+    ),
+    auto_deploy: bool = Query(
+        default=None,
+        description="Auto-deploy if validated (uses config default if None)",
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Complete retraining workflow: collect data → train → validate → (optionally deploy)
@@ -793,7 +809,7 @@ async def retrain_model(
             "auto_deploy": auto_deploy,
         },
         status=RetrainingStatus.RUNNING,
-        started_at=datetime.now()
+        started_at=datetime.now(),
     )
     db.add(job)
     await db.commit()
@@ -806,10 +822,14 @@ async def retrain_model(
         collector = DataCollector()
 
         try:
-            data_result = await collector.collect_training_data(symbol=symbol, interval=interval)
+            data_result = await collector.collect_training_data(
+                symbol=symbol, interval=interval
+            )
             results["data_collection"] = {
                 "success": data_result["success"],
-                "data_points": len(data_result["data"]) if data_result["data"] is not None else 0,
+                "data_points": len(data_result["data"])
+                if data_result["data"] is not None
+                else 0,
                 "metrics": data_result["metrics"],
             }
 
@@ -824,9 +844,7 @@ async def retrain_model(
         trainer = ModelTrainer()
 
         training_result = trainer.train_model(
-            data=data_result["data"],
-            symbol=symbol,
-            interval=interval
+            data=data_result["data"], symbol=symbol, interval=interval
         )
 
         if not training_result["success"]:
@@ -891,15 +909,16 @@ async def retrain_model(
 
             current_metrics = None
             if current_model:
-                current_metrics = {**current_model.val_metrics, **current_model.train_metrics}
+                current_metrics = {
+                    **current_model.val_metrics,
+                    **current_model.train_metrics,
+                }
 
             validator = ModelValidator()
             new_metrics = {**model_version.val_metrics, **model_version.train_metrics}
 
             validation_result = validator.validate_model(
-                new_metrics=new_metrics,
-                current_metrics=current_metrics,
-                symbol=symbol
+                new_metrics=new_metrics, current_metrics=current_metrics, symbol=symbol
             )
 
             # Update model status
@@ -910,7 +929,11 @@ async def retrain_model(
                 if current_model:
                     model_version.replaced_version = current_model.version
             else:
-                model_version.status = ModelStatus.REJECTED if not validation_result["is_valid"] else ModelStatus.VALIDATION
+                model_version.status = (
+                    ModelStatus.REJECTED
+                    if not validation_result["is_valid"]
+                    else ModelStatus.VALIDATION
+                )
                 model_version.is_better = False
 
             await db.commit()
@@ -927,7 +950,12 @@ async def retrain_model(
         deployed = False
         deployment_result = None
 
-        if auto_validate and validation_result and validation_result["should_deploy"] and auto_deploy:
+        if (
+            auto_validate
+            and validation_result
+            and validation_result["should_deploy"]
+            and auto_deploy
+        ):
             logger.info("Step 4/4: Deploying model to production...")
 
             try:
@@ -940,7 +968,7 @@ async def retrain_model(
                     scalers_path=saved_paths["scalers_path"],
                     version=version,
                     backup_current=settings.retrain_backup_before_deploy,
-                    verify_deployment=True
+                    verify_deployment=True,
                 )
 
                 if deployment_result["success"]:
@@ -956,14 +984,18 @@ async def retrain_model(
                         "deployed_at": model_version.deployed_at.isoformat(),
                         "backup_created": deployment_result.get("backup_created"),
                         "files_deployed": deployment_result.get("files_deployed"),
-                        "verification_passed": deployment_result.get("verification_passed"),
+                        "verification_passed": deployment_result.get(
+                            "verification_passed"
+                        ),
                     }
                 else:
                     logger.error(f"Deployment failed: {deployment_result.get('error')}")
                     results["deployment"] = {
                         "success": False,
                         "error": deployment_result.get("error"),
-                        "rollback_performed": deployment_result.get("rollback_performed", False),
+                        "rollback_performed": deployment_result.get(
+                            "rollback_performed", False
+                        ),
                     }
 
             except Exception as e:
@@ -975,7 +1007,9 @@ async def retrain_model(
         else:
             results["deployment"] = {
                 "success": False,
-                "reason": "Deployment not triggered" if not auto_deploy else "Model not approved for deployment",
+                "reason": "Deployment not triggered"
+                if not auto_deploy
+                else "Model not approved for deployment",
             }
 
         # Update job
@@ -985,7 +1019,9 @@ async def retrain_model(
         job.results = results
         job.metrics_summary = {
             "val_r2": training_result["val_metrics"]["val_r2"],
-            "improvement_pct": validation_result["improvement_pct"] if validation_result else 0,
+            "improvement_pct": validation_result["improvement_pct"]
+            if validation_result
+            else 0,
             "deployed": deployed,
         }
         await db.commit()
@@ -997,7 +1033,7 @@ async def retrain_model(
             "job_id": job_id,
             "results": results,
             "model_version_id": model_version.id,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
@@ -1017,12 +1053,37 @@ async def retrain_model(
 # DEPLOYMENT MANAGEMENT ENDPOINTS
 # ============================================================================
 
+
 @app.post("/api/v1/deploy/{version_id}", tags=["Deployment"])
 async def deploy_model_version(
     version_id: int,
-    backup_current: bool = Query(default=True, description="Backup current production model"),
-    verify_deployment: bool = Query(default=True, description="Verify after deployment"),
-    db: AsyncSession = Depends(get_db)
+    request: Request,
+    backup_current: bool = Query(
+        default=True, description="Backup current production model"
+    ),
+    verify_deployment: bool = Query(
+        default=True, description="Verify after deployment"
+    ),
+    force: bool = Query(
+        default=False,
+        description=(
+            "Allow deploying a model whose status is VALIDATION (validator "
+            "did not yet approve, e.g. metrics didn't clear gates but "
+            "operator wants to override). Has no effect on REJECTED models — "
+            "those remain blocked unconditionally so the validator's "
+            "DSR/R²-returns/dir-acc gates cannot be silently bypassed."
+        ),
+    ),
+    operator: Optional[str] = Query(
+        default=None,
+        description=(
+            "Operator identity for the audit trail (e.g. 'alice@example.com'). "
+            "Falls back to the X-Operator request header. REQUIRED when "
+            "force=true so override events are attributable. Recorded into "
+            "model_versions.deployed_by."
+        ),
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Manually deploy a specific model version to production
@@ -1031,6 +1092,8 @@ async def deploy_model_version(
         version_id: Model version ID from database
         backup_current: Whether to backup current production model
         verify_deployment: Whether to verify deployment
+        force: Required to deploy a VALIDATION-status model. Cannot bypass
+            REJECTED — that requires a fresh retrain that clears the gates.
 
     Returns:
         Deployment results
@@ -1043,12 +1106,96 @@ async def deploy_model_version(
         model_version = result.scalar_one_or_none()
 
         if not model_version:
-            raise HTTPException(status_code=404, detail=f"Model version {version_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Model version {version_id} not found"
+            )
 
-        # Check if model is approved
-        if model_version.status not in [ModelStatus.APPROVED, ModelStatus.VALIDATION]:
-            logger.warning(
-                f"Deploying model with status {model_version.status} (not APPROVED)"
+        # Validator-gate enforcement on the manual deploy path.
+        # The auto path (POST /api/v1/retrain/{symbol}) already gates on
+        # validation_result["should_deploy"] before calling the deployer
+        # (main.py ~930). This endpoint is the operator override; without
+        # the checks below it can publish a REJECTED model with a single
+        # curl call, which makes the DSR / R²-returns / dir-acc gates
+        # ceremonial. Hard-refuse REJECTED unconditionally; require
+        # explicit ?force=true for VALIDATION (validator hasn't approved
+        # yet but operator is opting in knowingly). APPROVED and DEPLOYED
+        # proceed normally — APPROVED is the validator-blessed state and
+        # re-deploying DEPLOYED is idempotent.
+        if model_version.status == ModelStatus.REJECTED:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Refusing to deploy REJECTED model version {version_id} "
+                    f"({model_version.symbol} v{model_version.version}). "
+                    "Validator gates blocked this artifact — re-train and "
+                    "clear the gates rather than overriding."
+                ),
+            )
+        if model_version.status == ModelStatus.VALIDATION and not force:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Model version {version_id} is in VALIDATION status "
+                    "(validator has not approved). Pass ?force=true to "
+                    "deploy anyway, or wait for validation to complete."
+                ),
+            )
+
+        # Resolve operator identity for the audit trail.
+        # Priority: ?operator query > X-Operator header > anonymous.
+        # When force=true, identity is REQUIRED — override events must be
+        # attributable. Without this, "manual_deployment" was a literal
+        # string that hid who triggered the bypass.
+        #
+        # Sanitize the candidate string before accepting it as identity:
+        # - strip whitespace so `?operator=%20` (space) doesn't satisfy
+        #   the non-empty check with whitespace alone
+        # - strip ASCII control chars (0x00-0x1F, 0x7F) — null bytes and
+        #   line breaks corrupt log scrapes and trigger SQL/NUL handling
+        #   edge cases
+        # - cap at 100 chars to match the deployed_by column width and
+        #   prevent log-flooding via giant identities
+        # - require at least 2 chars after sanitize so single chars
+        #   like "?operator=." cannot satisfy the audit gate
+        def _sanitize_operator(raw: Optional[str]) -> Optional[str]:
+            if raw is None:
+                return None
+            cleaned = "".join(
+                c for c in raw if c.isprintable() and c not in ("\x7f",)
+            ).strip()
+            if len(cleaned) < 2 or len(cleaned) > 100:
+                return None
+            return cleaned
+
+        candidate = _sanitize_operator(operator) or _sanitize_operator(
+            request.headers.get("X-Operator")
+        )
+        deployer_identity = candidate or "manual_deployment_anonymous"
+
+        if force and deployer_identity == "manual_deployment_anonymous":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "force=true requires operator identity (≥2 printable "
+                    "non-control chars, ≤100 chars). Pass ?operator=<id> "
+                    "or X-Operator header so the override is attributable "
+                    "in the audit trail."
+                ),
+            )
+        if model_version.status not in (
+            ModelStatus.APPROVED,
+            ModelStatus.DEPLOYED,
+            ModelStatus.VALIDATION,
+        ):
+            # TRAINING / ROLLED_BACK fall through here. Surface explicitly
+            # rather than silently logging a warning.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot deploy model version {version_id} with status "
+                    f"{model_version.status}. Expected APPROVED, DEPLOYED, "
+                    "or VALIDATION (with force=true)."
+                ),
             )
 
         logger.info(f"Deploying model version {version_id} for {model_version.symbol}")
@@ -1059,6 +1206,7 @@ async def deploy_model_version(
         # Extract file paths from model_version
         # Assuming paths are stored in metadata or we reconstruct them
         import os
+
         model_dir = os.path.dirname(model_version.model_path)
 
         deployment_result = await deployer.deploy_model(
@@ -1068,14 +1216,16 @@ async def deploy_model_version(
             scalers_path=os.path.join(model_dir, "scalers.pkl"),
             version=model_version.version,
             backup_current=backup_current,
-            verify_deployment=verify_deployment
+            verify_deployment=verify_deployment,
         )
 
         if deployment_result["success"]:
             # Update model status
             model_version.status = ModelStatus.DEPLOYED
             model_version.deployed_at = datetime.now()
-            model_version.deployed_by = "manual_deployment"
+            model_version.deployed_by = f"manual_deployment:{deployer_identity}" + (
+                ":forced" if force else ""
+            )
             await db.commit()
 
             return {
@@ -1084,13 +1234,13 @@ async def deploy_model_version(
                 "symbol": model_version.symbol,
                 "version": model_version.version,
                 "deployment_result": deployment_result,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
         else:
             return {
                 "success": False,
                 "error": deployment_result.get("error"),
-                "deployment_result": deployment_result
+                "deployment_result": deployment_result,
             }
 
     except HTTPException:
@@ -1101,10 +1251,7 @@ async def deploy_model_version(
 
 
 @app.post("/api/v1/deploy/rollback/{symbol}", tags=["Deployment"])
-async def rollback_deployment(
-    symbol: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def rollback_deployment(symbol: str, db: AsyncSession = Depends(get_db)):
     """
     Rollback to previous production model
 
@@ -1139,13 +1286,10 @@ async def rollback_deployment(
                 "success": True,
                 "symbol": symbol,
                 "rollback_result": rollback_result,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
         else:
-            return {
-                "success": False,
-                "error": rollback_result.get("error")
-            }
+            return {"success": False, "error": rollback_result.get("error")}
 
     except Exception as e:
         logger.error(f"Error rolling back deployment for {symbol}: {e}", exc_info=True)
@@ -1154,7 +1298,7 @@ async def rollback_deployment(
 
 @app.get("/api/v1/deploy/backups", tags=["Deployment"])
 async def list_backups(
-    symbol: Optional[str] = Query(default=None, description="Filter by symbol")
+    symbol: Optional[str] = Query(default=None, description="Filter by symbol"),
 ):
     """
     List available model backups
@@ -1173,7 +1317,7 @@ async def list_backups(
             "success": True,
             "count": len(backups),
             "backups": backups,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
@@ -1182,10 +1326,7 @@ async def list_backups(
 
 
 @app.get("/api/v1/deploy/status/{symbol}", tags=["Deployment"])
-async def get_deployment_status(
-    symbol: str,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_deployment_status(symbol: str, db: AsyncSession = Depends(get_db)):
     """
     Get current deployment status for a symbol
 
@@ -1211,7 +1352,7 @@ async def get_deployment_status(
                 "success": True,
                 "symbol": symbol,
                 "deployed": False,
-                "message": f"No deployed model found for {symbol}"
+                "message": f"No deployed model found for {symbol}",
             }
 
         # Check if files exist in production
@@ -1220,7 +1361,7 @@ async def get_deployment_status(
         production_files = [
             deployer.production_dir / f"{symbol}_{interval}m_gru.keras",
             deployer.production_dir / f"{symbol}_{interval}m_gru_metadata.json",
-            deployer.production_dir / f"{symbol}_{interval}m_gru_scalers.pkl"
+            deployer.production_dir / f"{symbol}_{interval}m_gru_scalers.pkl",
         ]
 
         files_exist = all(f.exists() for f in production_files)
@@ -1232,22 +1373,27 @@ async def get_deployment_status(
             "current_version": {
                 "id": deployed_model.id,
                 "version": deployed_model.version,
-                "deployed_at": deployed_model.deployed_at.isoformat() if deployed_model.deployed_at else None,
+                "deployed_at": deployed_model.deployed_at.isoformat()
+                if deployed_model.deployed_at
+                else None,
                 "deployed_by": deployed_model.deployed_by,
                 "metrics": deployed_model.val_metrics,
             },
             "files_in_production": files_exist,
-            "production_files": [str(f) for f in production_files]
+            "production_files": [str(f) for f in production_files],
         }
 
     except Exception as e:
-        logger.error(f"Error getting deployment status for {symbol}: {e}", exc_info=True)
+        logger.error(
+            f"Error getting deployment status for {symbol}: {e}", exc_info=True
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
 # SCHEDULER MANAGEMENT ENDPOINTS
 # ============================================================================
+
 
 @app.get("/api/v1/scheduler/status", tags=["Scheduler"])
 async def get_scheduler_status():
@@ -1294,25 +1440,26 @@ async def trigger_manual_retraining(
 
         # Validate symbols if provided
         if symbols:
-            invalid_symbols = [s for s in symbols if s not in settings.retrain_data_symbols]
+            invalid_symbols = [
+                s for s in symbols if s not in settings.retrain_data_symbols
+            ]
             if invalid_symbols:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Invalid symbols: {invalid_symbols}. "
-                           f"Configured symbols: {settings.retrain_data_symbols}"
+                    f"Configured symbols: {settings.retrain_data_symbols}",
                 )
 
         # Trigger retraining
         results = await scheduler.trigger_manual_retrain(
-            symbols=symbols,
-            triggered_by=triggered_by
+            symbols=symbols, triggered_by=triggered_by
         )
 
         return {
             "success": True,
             "triggered_at": datetime.now().isoformat(),
             "triggered_by": triggered_by,
-            **results
+            **results,
         }
 
     except HTTPException:
@@ -1336,7 +1483,7 @@ async def pause_scheduler():
         return {
             "success": True,
             "message": "Scheduled jobs paused",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
@@ -1356,7 +1503,7 @@ async def resume_scheduler():
         return {
             "success": True,
             "message": "Scheduled jobs resumed",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
@@ -1377,14 +1524,14 @@ async def get_next_scheduled_runs():
 
         # Sort by next run time
         scheduled_jobs.sort(
-            key=lambda x: x['next_run'] if x['next_run'] else '9999-12-31'
+            key=lambda x: x["next_run"] if x["next_run"] else "9999-12-31"
         )
 
         return {
             "success": True,
             "total_jobs": len(scheduled_jobs),
             "jobs": scheduled_jobs,
-            "current_time": datetime.now().isoformat()
+            "current_time": datetime.now().isoformat(),
         }
 
     except Exception as e:
@@ -1402,5 +1549,5 @@ if __name__ == "__main__":
         host=settings.service_host,
         port=settings.service_port,
         reload=settings.debug,
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
     )

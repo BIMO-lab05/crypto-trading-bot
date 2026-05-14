@@ -36,4 +36,5 @@ LIVE mode (`PAPER_TRADING_MODE=false`) routes orders through [[../modules/bybit-
 
 - [[../flows/Order-Lifecycle]]
 - [[Trading-Mode-Flags]]
-- [[../decisions/ADR-010-paper-deterministic-execution]]
+- [[../decisions/ADR-011-paper-deterministic-execution]]
+- [[../decisions/ADR-010-max-risk-per-trade-paper-bump]]

@@ -21,6 +21,17 @@ import React, { useMemo } from 'react';
 import { useTheme } from '../contexts/ThemeContext.tsx';
 import { usePortfolio, usePortfolioPerformance, useTradeHistory } from '../hooks/usePortfolio';
 import { usePositions, useTradingStatus } from '../hooks/usePositions';
+import TileState from '../components/TileState';
+
+/**
+ * Plan 06-05 DASH-05: this page is audit-verdict LABELED_STALE because
+ * /api/portfolio returns 503 (portfolio-manager container 'unhealthy'
+ * at audit time, 2026-05-13). Other hooks (positions/status/perf) are
+ * 200. The portfolioQuery drives the <TileState forceStale/> wrapper
+ * below — if /api/portfolio is 503 the Failed (...) UI takes precedence
+ * (F-05). When portfolio-manager is restored, the page renders normally
+ * with a corner stale badge until Phase 7+ removes the forceStale flag.
+ */
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -543,25 +554,19 @@ const Portfolio = () => {
   // Access theme context for conditional styling
   const { theme, isDarkMode } = useTheme();
 
-  // Fetch portfolio data from various hooks
-  const { data: portfolioData, isLoading: portfolioLoading, error: portfolioError } = usePortfolio();
+  // Fetch portfolio data from various hooks.
+  // Plan 06-05 DASH-05: portfolioQuery is the load-bearing query for the
+  // page-level <TileState forceStale/> wrapper (LABELED_STALE verdict).
+  const portfolioQuery = usePortfolio();
+  const { data: portfolioData } = portfolioQuery;
   const { data: performanceData, isLoading: performanceLoading } = usePortfolioPerformance();
   const { data: positionsData, isLoading: positionsLoading, error: positionsError } = usePositions();
   const { data: statusData } = useTradingStatus();
   const { data: tradesData, isLoading: tradesLoading } = useTradeHistory({ limit: 10 });
 
-  // Combined loading state
-  const isLoading = portfolioLoading || positionsLoading;
-
-  // Show loading state
-  if (isLoading) {
-    return <LoadingState />;
-  }
-
-  // Show error state if both main data sources fail
-  if (portfolioError && positionsError) {
-    return <ErrorState message={portfolioError?.message || positionsError?.message} />;
-  }
+  // Loading and combined-error states are now surfaced by the page-level
+  // <TileState forceStale/> wrapper below; inline LoadingState/ErrorState
+  // early-returns removed.
 
   // Extract and process data
   const portfolio = portfolioData?.portfolio || {};
@@ -595,6 +600,15 @@ const Portfolio = () => {
   const availableMargin = cashBalance;
 
   return (
+    <div data-testid="portfolio-page" style={{ display: 'contents' }}>
+    <TileState
+      query={portfolioQuery}
+      title="Portfolio"
+      thresholdKey="portfolio"
+      lastUpdatedAt={undefined}
+      forceStale
+      isEmpty={(d) => !d || !d.portfolio}
+    >
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200">
       <div className="max-w-7xl mx-auto p-6">
         {/* Page Header */}
@@ -758,6 +772,8 @@ const Portfolio = () => {
           </div>
         )}
       </div>
+    </div>
+    </TileState>
     </div>
   );
 };

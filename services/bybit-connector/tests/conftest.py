@@ -16,6 +16,9 @@ os.environ["BYBIT_API_SECRET"] = "test_api_secret_67890"
 os.environ["BYBIT_TESTNET"] = "true"
 os.environ["ENVIRONMENT"] = "development"
 os.environ["DEBUG"] = "true"
+# Force live mode so existing tests use the live branch (BybitRestClient patched via conftest).
+# New tape-mode tests use TapeReplayClient directly with tmp_path fixtures — no env needed.
+os.environ["MARKET_DATA_SOURCE"] = "live"
 
 from app.main import app
 from app.config import Settings, get_settings

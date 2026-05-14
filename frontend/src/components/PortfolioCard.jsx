@@ -1,5 +1,6 @@
 import React from 'react'
 import { usePositions, useTradingStatus, usePerformance } from '../hooks/usePositions'
+import TileState from './TileState'
 
 /**
  * PortfolioCard component displays current portfolio status
@@ -11,10 +12,13 @@ import { usePositions, useTradingStatus, usePerformance } from '../hooks/usePosi
  * - Trading status: /api/trading/status (trading-engine service) - for bot status
  *
  * UPDATED 2025-11-28: Now uses trading-engine performance for correct balance tracking
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/> per
+ * audit verdict FIXED. Load-bearing query is `usePerformance`.
  */
 export default function PortfolioCard() {
-  // Fetch performance data from trading-engine (correct balance!)
-  const { data: performanceData, isLoading: performanceLoading, error: performanceError } = usePerformance()
+  // Performance is the load-bearing query (06-TILE-AUDIT).
+  const perfQuery = usePerformance()
+  const { data: performanceData, isLoading: performanceLoading, error: performanceError } = perfQuery
 
   // Fetch trading positions from trading-engine
   const { data: positionsData, isLoading: positionsLoading, error: positionsError } = usePositions()
@@ -33,33 +37,8 @@ export default function PortfolioCard() {
     positionsError: positionsError?.message
   })
 
-  // Combined loading state
-  const isLoading = performanceLoading || positionsLoading
-
-  if (isLoading) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="space-y-3">
-            <div className="h-4 bg-gray-200 rounded"></div>
-            <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (performanceError && positionsError) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="text-red-600">
-          <h3 className="font-semibold mb-2">Error Loading Portfolio</h3>
-          <p className="text-sm">{performanceError?.message || positionsError?.message}</p>
-        </div>
-      </div>
-    )
-  }
+  // Loading and error states are now surfaced by <TileState/> below
+  // (Plan 06-05, DASH-05).
 
   // Extract performance metrics from trading-engine (correct balance source!)
   const metrics = performanceData?.metrics || {}
@@ -99,6 +78,14 @@ export default function PortfolioCard() {
   const totalPnlPct = roi
 
   return (
+    <div data-testid="portfolio-card" style={{ display: 'contents' }}>
+    <TileState
+      query={perfQuery}
+      title="Portfolio"
+      thresholdKey="portfolio"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || !d.metrics || Object.keys(d.metrics).length === 0}
+    >
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Portfolio</h2>
@@ -320,6 +307,8 @@ export default function PortfolioCard() {
           </div>
         )}
       </div>
+    </div>
+    </TileState>
     </div>
   )
 }

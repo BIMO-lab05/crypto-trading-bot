@@ -9,12 +9,17 @@ from fastapi.responses import JSONResponse
 import json
 
 
-class TestRootEndpoint:
-    """Test root endpoint"""
+class TestGatewayInfoEndpoint:
+    """Test gateway-info endpoint.
 
-    def test_root_returns_service_info(self, test_client):
-        """Test that root endpoint returns service information"""
-        response = test_client.get("/")
+    Plan 07.1-01 BUG-3: the JSON service-info response that historically
+    lived at `/` was relocated to `/gateway-info` so the catch-all
+    reverse-proxy can serve the React SPA from `/`.
+    """
+
+    def test_gateway_info_returns_service_info(self, test_client):
+        """Test that /gateway-info endpoint returns service information"""
+        response = test_client.get("/gateway-info")
 
         assert response.status_code == 200
         data = response.json()
@@ -23,9 +28,9 @@ class TestRootEndpoint:
         assert "services" in data
         assert "endpoints" in data
 
-    def test_root_includes_all_services(self, test_client):
-        """Test that root endpoint lists all backend services"""
-        response = test_client.get("/")
+    def test_gateway_info_includes_all_services(self, test_client):
+        """Test that /gateway-info endpoint lists all backend services"""
+        response = test_client.get("/gateway-info")
         data = response.json()
 
         services = data["services"]

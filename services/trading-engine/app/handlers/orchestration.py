@@ -20,16 +20,11 @@ from pydantic import BaseModel, Field
 import uuid
 
 from app.orchestration import (
-    StrategyOrchestrator,
     get_strategy_orchestrator,
     StrategySignal,
     SignalDirection,
     ConflictResolutionMethod,
-    AllocationMethod,
-    RegisterStrategyRequest,
-    UpdateAllocationRequest,
 )
-from app.orchestration.metrics import MetricsTrade
 from app.orchestration.signal_aggregator import get_signal_aggregator
 from app.orchestration.performance_tracker import get_performance_tracker
 from app.orchestration.risk_coordinator import get_risk_coordinator
@@ -38,37 +33,44 @@ from app.orchestration.risk_coordinator import get_risk_coordinator
 logger = logging.getLogger(__name__)
 
 # Create router
-router = APIRouter(
-    prefix="/api/v1/orchestrator",
-    tags=["Multi-Strategy Orchestration"]
-)
+router = APIRouter(prefix="/api/v1/orchestrator", tags=["Multi-Strategy Orchestration"])
 
 
 # =============================================================================
 # PYDANTIC MODELS FOR API
 # =============================================================================
 
+
 class StrategyRegistrationRequest(BaseModel):
     """Request to register a new strategy"""
+
     strategy_id: str = Field(..., description="Unique strategy identifier")
     name: str = Field(..., description="Human-readable strategy name")
     strategy_type: str = Field("trend_following", description="Strategy type")
     risk_profile: str = Field("moderate", description="Risk profile")
     symbols: List[str] = Field(default_factory=list, description="Supported symbols")
     timeframe: str = Field("1h", description="Primary timeframe")
-    allocation_pct: float = Field(10.0, ge=0.0, le=100.0, description="Target allocation %")
-    priority: int = Field(50, ge=1, le=100, description="Priority for conflict resolution")
+    allocation_pct: float = Field(
+        10.0, ge=0.0, le=100.0, description="Target allocation %"
+    )
+    priority: int = Field(
+        50, ge=1, le=100, description="Priority for conflict resolution"
+    )
     description: str = Field("", description="Strategy description")
     auto_activate: bool = Field(False, description="Auto-activate after registration")
 
 
 class AllocationUpdateRequest(BaseModel):
     """Request to update strategy allocation"""
-    allocations: Dict[str, float] = Field(..., description="Strategy ID to allocation % mapping")
+
+    allocations: Dict[str, float] = Field(
+        ..., description="Strategy ID to allocation % mapping"
+    )
 
 
 class SignalSubmissionRequest(BaseModel):
     """Request to submit a trading signal"""
+
     strategy_id: str = Field(..., description="Strategy generating the signal")
     symbol: str = Field(..., description="Trading symbol")
     direction: str = Field(..., description="Signal direction: long, short, flat")
@@ -78,25 +80,30 @@ class SignalSubmissionRequest(BaseModel):
     entry_price: Optional[float] = Field(None, description="Suggested entry price")
     stop_loss_pct: Optional[float] = Field(None, description="Stop loss percentage")
     take_profit_pct: Optional[float] = Field(None, description="Take profit percentage")
-    position_size_pct: Optional[float] = Field(None, description="Suggested position size %")
+    position_size_pct: Optional[float] = Field(
+        None, description="Suggested position size %"
+    )
     urgency: str = Field("MEDIUM", description="Signal urgency")
     reasoning: str = Field("", description="Signal reasoning")
 
 
 class ConflictResolutionRequest(BaseModel):
     """Request to resolve signal conflicts"""
+
     symbol: str = Field(..., description="Symbol with conflicts")
     method: str = Field("weighted_voting", description="Resolution method to use")
 
 
 class RebalanceRequest(BaseModel):
     """Request to trigger rebalancing"""
+
     force: bool = Field(False, description="Force rebalance even if not needed")
 
 
 # =============================================================================
 # STRATEGY MANAGEMENT ENDPOINTS
 # =============================================================================
+
 
 @router.get("/strategies", summary="List registered strategies")
 async def list_strategies():
@@ -114,7 +121,7 @@ async def list_strategies():
             "success": True,
             "total": len(strategies),
             "strategies": strategies,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
         logger.error(f"Error listing strategies: {e}")
@@ -142,7 +149,7 @@ async def register_strategy(request: StrategyRegistrationRequest):
             allocation_pct=request.allocation_pct,
             priority=request.priority,
             description=request.description,
-            auto_activate=request.auto_activate
+            auto_activate=request.auto_activate,
         )
 
         if result.get("success"):
@@ -150,10 +157,12 @@ async def register_strategy(request: StrategyRegistrationRequest):
             return {
                 "success": True,
                 "message": f"Strategy {request.strategy_id} registered successfully",
-                **result
+                **result,
             }
         else:
-            raise HTTPException(status_code=400, detail=result.get("error", "Registration failed"))
+            raise HTTPException(
+                status_code=400, detail=result.get("error", "Registration failed")
+            )
 
     except HTTPException:
         raise
@@ -165,7 +174,7 @@ async def register_strategy(request: StrategyRegistrationRequest):
 @router.put("/strategy/{strategy_id}/enable", summary="Enable strategy")
 async def enable_strategy(
     strategy_id: str,
-    warmup_minutes: int = Query(0, description="Warmup period in minutes")
+    warmup_minutes: int = Query(0, description="Warmup period in minutes"),
 ):
     """
     Enable/activate a registered strategy
@@ -181,10 +190,12 @@ async def enable_strategy(
             return {
                 "success": True,
                 "message": f"Strategy {strategy_id} enabled",
-                **result
+                **result,
             }
         else:
-            raise HTTPException(status_code=400, detail=result.get("error", "Enable failed"))
+            raise HTTPException(
+                status_code=400, detail=result.get("error", "Enable failed")
+            )
 
     except HTTPException:
         raise
@@ -196,7 +207,7 @@ async def enable_strategy(
 @router.put("/strategy/{strategy_id}/disable", summary="Disable strategy")
 async def disable_strategy(
     strategy_id: str,
-    reason: str = Query("Manual disable", description="Reason for disabling")
+    reason: str = Query("Manual disable", description="Reason for disabling"),
 ):
     """
     Disable/deactivate a strategy
@@ -212,10 +223,12 @@ async def disable_strategy(
             return {
                 "success": True,
                 "message": f"Strategy {strategy_id} disabled",
-                **result
+                **result,
             }
         else:
-            raise HTTPException(status_code=400, detail=result.get("error", "Disable failed"))
+            raise HTTPException(
+                status_code=400, detail=result.get("error", "Disable failed")
+            )
 
     except HTTPException:
         raise
@@ -227,6 +240,7 @@ async def disable_strategy(
 # =============================================================================
 # ALLOCATION ENDPOINTS
 # =============================================================================
+
 
 @router.get("/allocation", summary="Get current allocation")
 async def get_allocation():
@@ -242,6 +256,7 @@ async def get_allocation():
 
         # Get allocation details from internal allocator
         from app.orchestration.allocation import get_allocation_manager
+
         allocator = get_allocation_manager()
         allocations = allocator.get_all_allocations()
 
@@ -253,7 +268,7 @@ async def get_allocation():
                 "allocated_capital": alloc.allocated_capital,
                 "available_capital": alloc.available_capital,
                 "used_capital": alloc.used_capital,
-                "risk_budget_pct": alloc.risk_budget_pct
+                "risk_budget_pct": alloc.risk_budget_pct,
             }
 
         return {
@@ -263,7 +278,7 @@ async def get_allocation():
             "total_used_pct": status["total_used_pct"],
             "cash_reserve_pct": status.get("cash_reserve_pct", 0),
             "allocations": allocation_details,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -285,13 +300,9 @@ async def update_allocation(request: AllocationUpdateRequest):
 
         for strategy_id, target_pct in request.allocations.items():
             result = orchestrator.update_allocation(
-                strategy_id=strategy_id,
-                target_pct=target_pct
+                strategy_id=strategy_id, target_pct=target_pct
             )
-            results.append({
-                "strategy_id": strategy_id,
-                **result
-            })
+            results.append({"strategy_id": strategy_id, **result})
 
         success_count = sum(1 for r in results if r.get("success"))
 
@@ -300,7 +311,7 @@ async def update_allocation(request: AllocationUpdateRequest):
             "updated": success_count,
             "total": len(request.allocations),
             "results": results,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -311,6 +322,7 @@ async def update_allocation(request: AllocationUpdateRequest):
 # =============================================================================
 # SIGNAL ENDPOINTS
 # =============================================================================
+
 
 @router.get("/signals/active", summary="Get active signals")
 async def get_active_signals():
@@ -337,7 +349,7 @@ async def get_active_signals():
                     "strength": s.strength,
                     "confidence": s.confidence,
                     "urgency": s.urgency,
-                    "timestamp": s.timestamp.isoformat()
+                    "timestamp": s.timestamp.isoformat(),
                 }
                 for s in signals
             ]
@@ -348,7 +360,7 @@ async def get_active_signals():
             "total_signals": sum(len(s) for s in signals_by_symbol.values()),
             "signals": signals_by_symbol,
             "stats": aggregator.get_stats(),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -377,7 +389,7 @@ async def get_conflicting_signals():
             "conflict_count": len(conflicts),
             "conflicts": conflict_details,
             "history": aggregator.get_conflict_history(limit=10),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -410,14 +422,14 @@ async def resolve_conflicts(request: ConflictResolutionRequest):
                 "symbol": request.symbol,
                 "method_used": method.value,
                 "result": aggregated.to_dict(),
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         else:
             return {
                 "success": False,
                 "symbol": request.symbol,
                 "message": "No signals to resolve",
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     except Exception as e:
@@ -428,6 +440,7 @@ async def resolve_conflicts(request: ConflictResolutionRequest):
 # =============================================================================
 # PERFORMANCE ENDPOINTS
 # =============================================================================
+
 
 @router.get("/performance/by-strategy", summary="Get performance by strategy")
 async def get_performance_by_strategy():
@@ -453,14 +466,14 @@ async def get_performance_by_strategy():
                 "allocation_pct": status["current_allocation_pct"],
                 "metrics": metrics,
                 "trend": tracker._performance_trends.get(strategy_id, "unknown"),
-                "is_underperforming": strategy_id in tracker._underperformer_records
+                "is_underperforming": strategy_id in tracker._underperformer_records,
             }
 
         return {
             "success": True,
             "strategy_count": len(performance_data),
             "strategies": performance_data,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -492,7 +505,7 @@ async def compare_strategies():
             "comparison": comparison,
             "correlations": correlations,
             "diversification": diversification,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -504,8 +517,11 @@ async def compare_strategies():
 # REBALANCING ENDPOINTS
 # =============================================================================
 
+
 @router.post("/rebalance", summary="Trigger rebalancing")
-async def trigger_rebalance(request: RebalanceRequest = Body(default=RebalanceRequest())):
+async def trigger_rebalance(
+    request: RebalanceRequest = Body(default=RebalanceRequest()),
+):
     """
     Trigger portfolio rebalancing
 
@@ -517,6 +533,7 @@ async def trigger_rebalance(request: RebalanceRequest = Body(default=RebalanceRe
 
         # Check if rebalancing is needed
         from app.orchestration.allocation import get_allocation_manager
+
         allocator = get_allocation_manager()
 
         if not request.force and not allocator.needs_rebalancing():
@@ -524,7 +541,7 @@ async def trigger_rebalance(request: RebalanceRequest = Body(default=RebalanceRe
                 "success": True,
                 "message": "Rebalancing not needed",
                 "rebalanced": False,
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
         result = orchestrator.trigger_rebalance()
@@ -533,7 +550,7 @@ async def trigger_rebalance(request: RebalanceRequest = Body(default=RebalanceRe
             "success": True,
             "rebalanced": True,
             **result,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -544,6 +561,7 @@ async def trigger_rebalance(request: RebalanceRequest = Body(default=RebalanceRe
 # =============================================================================
 # RISK ENDPOINTS
 # =============================================================================
+
 
 @router.get("/risk/utilization", summary="Get risk utilization")
 async def get_risk_utilization():
@@ -562,7 +580,7 @@ async def get_risk_utilization():
             "utilization": utilization.to_dict(),
             "is_emergency_stopped": coordinator.is_emergency_stopped(),
             "status": coordinator.get_status(),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -572,7 +590,7 @@ async def get_risk_utilization():
 
 @router.post("/emergency-stop", summary="Emergency stop all strategies")
 async def emergency_stop(
-    reason: str = Query("Manual emergency stop", description="Reason for stop")
+    reason: str = Query("Manual emergency stop", description="Reason for stop"),
 ):
     """
     Trigger emergency stop for all trading
@@ -596,7 +614,7 @@ async def emergency_stop(
             "message": "Emergency stop activated",
             "reason": reason,
             **result,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -607,6 +625,7 @@ async def emergency_stop(
 # =============================================================================
 # STATUS ENDPOINT
 # =============================================================================
+
 
 @router.get("/status", summary="Get orchestrator status")
 async def get_orchestrator_status():
@@ -631,7 +650,7 @@ async def get_orchestrator_status():
             "signals": aggregator.get_stats(),
             "performance": tracker.get_status(),
             "risk": coordinator.get_status(),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -642,6 +661,7 @@ async def get_orchestrator_status():
 # =============================================================================
 # HELPER FUNCTION FOR SIGNAL SUBMISSION
 # =============================================================================
+
 
 @router.post("/signals/submit", summary="Submit trading signal")
 async def submit_signal(request: SignalSubmissionRequest):
@@ -670,12 +690,14 @@ async def submit_signal(request: SignalSubmissionRequest):
             action=request.action,
             strength=request.strength,
             confidence=request.confidence,
-            entry_price=Decimal(str(request.entry_price)) if request.entry_price else None,
+            entry_price=Decimal(str(request.entry_price))
+            if request.entry_price
+            else None,
             stop_loss_pct=request.stop_loss_pct,
             take_profit_pct=request.take_profit_pct,
             position_size_pct=request.position_size_pct,
             urgency=request.urgency,
-            reasoning=request.reasoning
+            reasoning=request.reasoning,
         )
 
         result = orchestrator.submit_signal(signal)
@@ -684,9 +706,204 @@ async def submit_signal(request: SignalSubmissionRequest):
             "success": result.get("accepted", False),
             "signal_id": signal.signal_id,
             **result,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Error submitting signal: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# INDICATOR ROLLING-CONFIDENCE GATE (2026-05-06)
+# =============================================================================
+# A previously-disabled indicator may not be re-enabled until its rolling-mean
+# confidence over the last 200 calls clears `settings.min_indicator_confidence`.
+# This is the *gate* — the persistence flag (master switch lookup) is left to a
+# follow-up; the point is the gate sits in the path.
+#
+# Auth note: trading-engine has no auth middleware; all admin routes are
+# protected upstream at the api-gateway. We name the prefix `/admin/...` for
+# routing convention, but enforce nothing at this layer.
+
+from app.config import get_settings
+from app.services.indicator_registry import (
+    IndicatorBelowThresholdError,
+    get_indicator_registry,
+)
+
+admin_indicator_router = APIRouter(
+    prefix="/api/v1/admin/indicators",
+    tags=["Admin: Indicator Gate"],
+)
+
+
+@admin_indicator_router.post(
+    "/{name}/enable",
+    summary="Enable a TA indicator (gated by rolling-confidence)",
+)
+async def enable_indicator(name: str) -> Dict[str, Any]:
+    """Enable an indicator after it clears the rolling-confidence gate.
+
+    Flow:
+        1. Query the IndicatorRegistry for the rolling-mean confidence
+           over the last 200 calls.
+        2. If < ``settings.min_indicator_confidence`` (or fewer than 30
+           samples), raise 409 Conflict.
+        3. Otherwise: would flip the indicator's master switch — left as
+           a TODO since the persistence layer for indicator enablement
+           does not exist today.
+
+    This endpoint is the *gate*. It does not by itself re-enable the
+    two known stuck indicators (RSI_DIVERGENCE, SQZMOM_ENHANCED) — they
+    stay commented out in ``signal_aggregator.py`` until they
+    accumulate enough shadow-mode samples to clear the gate.
+    """
+    settings = get_settings()
+    registry = get_indicator_registry()
+    try:
+        await registry.assert_eligible(
+            name=name,
+            threshold=settings.min_indicator_confidence,
+        )
+    except IndicatorBelowThresholdError as exc:
+        logger.warning(
+            "Refusing to enable indicator %s: avg=%s threshold=%s",
+            exc.name,
+            exc.current_avg,
+            exc.threshold,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "indicator_below_threshold",
+                "indicator": exc.name,
+                "current_avg": exc.current_avg,
+                "threshold": exc.threshold,
+                "message": str(exc),
+            },
+        )
+
+    # TODO: indicator master switch lookup
+    # Persistence for the per-indicator enable flag does not exist yet.
+    # When it lands, this is where the flip happens. For now we surface
+    # that the gate passed so an operator can take the next step manually.
+    stats = await registry.stats(name)
+    logger.info("Indicator %s passed rolling-confidence gate", name)
+    return {
+        "success": True,
+        "gated": True,
+        "persisted": False,
+        "indicator": name,
+        "stats": stats,
+        "note": (
+            "Gate passed; persistence layer for indicator master-switch is "
+            "not yet implemented. Re-enablement still requires a code change "
+            "(uncomment in signal_aggregator.py)."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@admin_indicator_router.get(
+    "/{name}/stats",
+    summary="Read rolling-confidence stats for an indicator",
+)
+async def get_indicator_stats(name: str) -> Dict[str, Any]:
+    """Return rolling-confidence stats for ``name``. Read-only."""
+    stats = await get_indicator_registry().stats(name)
+    return {
+        "success": True,
+        **stats,
+        "threshold": get_settings().min_indicator_confidence,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# =============================================================================
+# FORCE-SIGNAL ADMIN ENDPOINT (CD-04, Phase 2 INFRA-01)
+# =============================================================================
+# Test-only entry point for the integration suite. Inject a deterministic
+# synthetic signal that emits the same RabbitMQ event a real strategy would.
+# Plan 02-04's <60s round-trip test calls this to start the
+# signal -> strategy_orchestrator -> portfolio-manager DB row chain.
+#
+# Security boundary: refuses with HTTP 403 when ``settings.trading_mode == "LIVE"``.
+# This is the HIGH severity threat for this surface (T-02-02-01) — must never
+# inject in real-money mode. The gate runs BEFORE any orchestrator call.
+#
+# Auth note: trading-engine has no auth middleware; admin routes are protected
+# upstream at the api-gateway. Phase 2 host-side suite talks directly to :8005,
+# but the TRADING_MODE gate prevents any non-test invocation in real-money mode.
+
+admin_force_signal_router = APIRouter(
+    prefix="/api/v1/admin/force-signal",
+    tags=["Admin: Force Signal"],
+)
+
+
+@admin_force_signal_router.post(
+    "",
+    summary="Force a synthetic signal for integration tests",
+)
+async def force_signal(request: SignalSubmissionRequest) -> Dict[str, Any]:
+    """Inject a synthetic signal — used by Phase 2 integration suite per CD-04.
+
+    Refuses in LIVE mode (HIGH severity threat — must never inject in real-money mode).
+
+    The endpoint reuses the EXACT signal-construction sequence from
+    :func:`submit_signal` (line 646). Intentional duplication, not refactor —
+    Phase 2 does not introduce a shared helper to keep this contained.
+    """
+    settings = get_settings()
+    if settings.trading_mode == "LIVE":
+        raise HTTPException(
+            status_code=403,
+            detail="force-signal disabled when TRADING_MODE=LIVE",
+        )
+
+    orchestrator = get_strategy_orchestrator()
+
+    # Parse direction
+    try:
+        direction = SignalDirection(request.direction)
+    except ValueError:
+        direction = SignalDirection.FLAT
+
+    # Create synthetic signal
+    signal = StrategySignal(
+        signal_id=f"sig_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}",
+        strategy_id=request.strategy_id,
+        symbol=request.symbol,
+        timestamp=datetime.now(timezone.utc),
+        direction=direction,
+        action=request.action,
+        strength=request.strength,
+        confidence=request.confidence,
+        entry_price=Decimal(str(request.entry_price)) if request.entry_price else None,
+        stop_loss_pct=request.stop_loss_pct,
+        take_profit_pct=request.take_profit_pct,
+        position_size_pct=request.position_size_pct,
+        urgency=request.urgency,
+        reasoning=request.reasoning,
+    )
+
+    # Loud, grep-able state-transition log line for CI audits and 02-09
+    # anti-mock guard. Sanitization (T-02-02-03): log only the safe scalar
+    # fields. Free-form ``request.reasoning`` is NEVER logged — log injection
+    # vector. Only controlled scalars: strategy_id, symbol, action, direction.
+    logger.warning(
+        "FORCE_SIGNAL: strategy_id=%s symbol=%s action=%s direction=%s",
+        request.strategy_id,
+        request.symbol,
+        request.action,
+        request.direction,
+    )
+
+    result = orchestrator.submit_signal(signal)
+    return {
+        "success": result.get("accepted", False),
+        "signal_id": signal.signal_id,
+        **result,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

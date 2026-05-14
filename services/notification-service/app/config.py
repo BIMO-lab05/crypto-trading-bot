@@ -5,31 +5,34 @@ Enhanced with multi-channel routing and alert management
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field, model_validator
-from typing import Optional, List, Dict
+from pydantic import AliasChoices, Field, model_validator
+from typing import List, Literal
 from enum import Enum
 
 
 class AlertSeverity(str, Enum):
     """Alert severity levels for routing decisions"""
+
     CRITICAL = "CRITICAL"  # System failures, large losses, emergency stops
-    HIGH = "HIGH"          # Risk limit breaches, significant events
-    MEDIUM = "MEDIUM"      # Trade completions, position changes
-    LOW = "LOW"            # Daily summaries, informational
-    INFO = "INFO"          # Routine operations
+    HIGH = "HIGH"  # Risk limit breaches, significant events
+    MEDIUM = "MEDIUM"  # Trade completions, position changes
+    LOW = "LOW"  # Daily summaries, informational
+    INFO = "INFO"  # Routine operations
 
 
 class AlertType(str, Enum):
     """Types of alerts for categorization"""
-    TRADE = "TRADE"              # Trade entry, exit, position size change
-    RISK = "RISK"                # Limit breach, high correlation, drawdown
-    SYSTEM = "SYSTEM"            # Service down, API error, connection loss
+
+    TRADE = "TRADE"  # Trade entry, exit, position size change
+    RISK = "RISK"  # Limit breach, high correlation, drawdown
+    SYSTEM = "SYSTEM"  # Service down, API error, connection loss
     PERFORMANCE = "PERFORMANCE"  # Profit target hit, loss limit, summary
-    MARKET = "MARKET"            # Volatility spike, price movement, news
+    MARKET = "MARKET"  # Volatility spike, price movement, news
 
 
 class NotificationChannel(str, Enum):
     """Available notification channels"""
+
     TELEGRAM = "telegram"
     EMAIL = "email"
     SLACK = "slack"
@@ -52,13 +55,13 @@ class NotificationConfig(BaseSettings):
     # If the env var is missing the service must fail at first DB use, not silently succeed.
     database_url: str = Field(
         default="",
-        description="PostgreSQL connection string for alert storage. REQUIRED via DATABASE_URL env var."
+        description="PostgreSQL connection string for alert storage. REQUIRED via DATABASE_URL env var.",
     )
 
     # Redis settings for rate limiting and caching
     redis_url: str = Field(
         default="",
-        description="Redis connection string. REQUIRED via REDIS_URL env var."
+        description="Redis connection string. REQUIRED via REDIS_URL env var.",
     )
 
     # ========================================
@@ -72,52 +75,72 @@ class NotificationConfig(BaseSettings):
     email_from: str = ""
     email_to: str = ""  # Comma-separated list
     email_batch_interval: int = Field(
-        default=300,
-        description="Batch email interval in seconds for LOW priority"
+        default=300, description="Batch email interval in seconds for LOW priority"
     )
 
     # ========================================
     # Telegram settings
     # ========================================
     telegram_enabled: bool = False
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
-    telegram_rate_limit: int = Field(
-        default=20,
-        description="Max messages per minute"
+    # BL-03 follow-up (Phase 2): AliasChoices lets the field accept either
+    # TELEGRAM_BOT_TOKEN (production / dev .env file) OR TEST_TELEGRAM_BOT_TOKEN
+    # (CI workflow secret + integration suite). Without this, the BL-03 compose
+    # rename (TELEGRAM_TEST_* → TEST_TELEGRAM_*) only delivered the env var to
+    # the container — Pydantic still read TELEGRAM_BOT_TOKEN, so CI saw an
+    # empty token and the test still failed identically. AliasChoices preserves
+    # the primary TELEGRAM_BOT_TOKEN lookup so `services/notification-service/.env`
+    # in dev is unaffected.
+    telegram_bot_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("TELEGRAM_BOT_TOKEN", "TEST_TELEGRAM_BOT_TOKEN"),
     )
+    telegram_chat_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("TELEGRAM_CHAT_ID", "TEST_TELEGRAM_CHAT_ID"),
+    )
+    telegram_rate_limit: int = Field(default=20, description="Max messages per minute")
     telegram_retry_attempts: int = Field(
-        default=3,
-        description="Number of retry attempts"
+        default=3, description="Number of retry attempts"
     )
     telegram_retry_delay: float = Field(
-        default=1.0,
-        description="Initial retry delay in seconds"
+        default=1.0, description="Initial retry delay in seconds"
+    )
+
+    # CD-01 — Phase 2 INFRA-01 notification verification
+    # - "" (default, production): live API behavior preserved
+    # - "record": write would-be sends to tests/.notifications.log instead of POSTing
+    # - "live":   force live POST even in test contexts (CI uses this with TEST_TELEGRAM_*)
+    # WR-08 (Phase 2): Literal[] surfaces typos at startup. Previously the str
+    # accepted any value — `RECORD` or `Record` (typos) would silently fall
+    # through the case-sensitive `== "record"` check at telegram_notifier.py
+    # and drop into the production POST path with whatever creds were
+    # configured. Literal makes the bad value a startup ValueError.
+    notification_test_mode: Literal["", "record", "live"] = Field(
+        default="",
+        description="record|live; empty string = default production behavior",
+    )
+    notification_record_path: str = Field(
+        default="tests/.notifications.log",
+        description="Path the record-mode writer appends JSON lines to",
     )
 
     # ========================================
     # Slack settings (NEW)
     # ========================================
     slack_enabled: bool = False
-    slack_webhook_url: str = Field(
-        default="",
-        description="Slack webhook URL"
-    )
+    slack_webhook_url: str = Field(default="", description="Slack webhook URL")
     slack_channel_critical: str = Field(
-        default="#trading-critical",
-        description="Channel for critical alerts"
+        default="#trading-critical", description="Channel for critical alerts"
     )
     slack_channel_alerts: str = Field(
-        default="#trading-alerts",
-        description="Channel for general alerts"
+        default="#trading-alerts", description="Channel for general alerts"
     )
     slack_channel_performance: str = Field(
         default="#bimo-performance",
-        description="Channel for daily/weekly performance digests"
+        description="Channel for daily/weekly performance digests",
     )
     slack_bot_token: str = Field(
-        default="",
-        description="Slack bot token for interactive features"
+        default="", description="Slack bot token for interactive features"
     )
 
     # ========================================
@@ -128,8 +151,7 @@ class NotificationConfig(BaseSettings):
     twilio_auth_token: str = ""
     twilio_phone_number: str = ""
     sms_recipient_numbers: str = Field(
-        default="",
-        description="Comma-separated list of phone numbers"
+        default="", description="Comma-separated list of phone numbers"
     )
 
     # ========================================
@@ -137,65 +159,52 @@ class NotificationConfig(BaseSettings):
     # ========================================
     # Default channel preferences by severity
     critical_channels: str = Field(
-        default="telegram,email,slack",
-        description="Channels for CRITICAL alerts"
+        default="telegram,email,slack", description="Channels for CRITICAL alerts"
     )
     high_channels: str = Field(
-        default="telegram,email",
-        description="Channels for HIGH alerts"
+        default="telegram,email", description="Channels for HIGH alerts"
     )
     medium_channels: str = Field(
-        default="telegram",
-        description="Channels for MEDIUM alerts"
+        default="telegram", description="Channels for MEDIUM alerts"
     )
     low_channels: str = Field(
-        default="email",
-        description="Channels for LOW alerts (batched)"
+        default="email", description="Channels for LOW alerts (batched)"
     )
     info_channels: str = Field(
-        default="dashboard",
-        description="Channels for INFO alerts"
+        default="dashboard", description="Channels for INFO alerts"
     )
 
     # ========================================
     # Alert suppression rules
     # ========================================
     dedup_window_seconds: int = Field(
-        default=300,
-        description="Deduplicate identical alerts within this window"
+        default=300, description="Deduplicate identical alerts within this window"
     )
     throttle_max_per_hour: int = Field(
-        default=3,
-        description="Max alerts of same type per hour"
+        default=3, description="Max alerts of same type per hour"
     )
     quiet_hours_enabled: bool = False
     quiet_hours_start: str = Field(
-        default="22:00",
-        description="Start of quiet hours (24h format)"
+        default="22:00", description="Start of quiet hours (24h format)"
     )
     quiet_hours_end: str = Field(
-        default="08:00",
-        description="End of quiet hours (24h format)"
+        default="08:00", description="End of quiet hours (24h format)"
     )
     quiet_hours_timezone: str = Field(
-        default="UTC",
-        description="Timezone for quiet hours"
+        default="UTC", description="Timezone for quiet hours"
     )
 
     # ========================================
     # Escalation rules
     # ========================================
     critical_ack_timeout: int = Field(
-        default=300,
-        description="Seconds to wait for CRITICAL ack before SMS"
+        default=300, description="Seconds to wait for CRITICAL ack before SMS"
     )
     system_down_escalation: int = Field(
-        default=600,
-        description="Seconds of downtime before emergency escalation"
+        default=600, description="Seconds of downtime before emergency escalation"
     )
     emergency_contact: str = Field(
-        default="",
-        description="Emergency contact phone number"
+        default="", description="Emergency contact phone number"
     )
 
     # ========================================
@@ -210,7 +219,7 @@ class NotificationConfig(BaseSettings):
 
     # Alert thresholds
     min_profit_alert: float = 10.0  # Alert on profit > $10
-    min_loss_alert: float = 10.0    # Alert on loss > $10
+    min_loss_alert: float = 10.0  # Alert on loss > $10
 
     class Config:
         env_file = ".env"
@@ -226,7 +235,9 @@ class NotificationConfig(BaseSettings):
         returning HTTP 200.
         """
         problems = []
-        if self.telegram_enabled and not (self.telegram_bot_token and self.telegram_chat_id):
+        if self.telegram_enabled and not (
+            self.telegram_bot_token and self.telegram_chat_id
+        ):
             problems.append(
                 "telegram_enabled=True but TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is empty"
             )
@@ -239,7 +250,9 @@ class NotificationConfig(BaseSettings):
         if self.slack_enabled and not self.slack_webhook_url:
             problems.append("slack_enabled=True but SLACK_WEBHOOK_URL is empty")
         if self.sms_enabled and not (
-            self.twilio_account_sid and self.twilio_auth_token and self.twilio_phone_number
+            self.twilio_account_sid
+            and self.twilio_auth_token
+            and self.twilio_phone_number
         ):
             problems.append("sms_enabled=True but Twilio credentials are incomplete")
         if problems:

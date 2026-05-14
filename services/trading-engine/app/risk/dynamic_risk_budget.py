@@ -35,16 +35,12 @@ Date: 2025-12-12
 
 import logging
 import os
-from datetime import datetime, timezone, timedelta, time
-from decimal import Decimal
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Dict, List, Tuple, Any, Union
+from typing import Optional, Dict, List, Tuple, Any
 from enum import Enum
 from collections import deque
-import json
-import asyncio
 from threading import RLock
-import statistics
 
 logger = logging.getLogger(__name__)
 
@@ -53,41 +49,45 @@ logger = logging.getLogger(__name__)
 # ENUMS AND CONSTANTS
 # =============================================================================
 
+
 class MarketRegime(str, Enum):
     """Market regime classification for risk adjustment"""
-    LOW_VOLATILITY = "LOW_VOLATILITY"        # Calm markets - can increase risk
-    NORMAL = "NORMAL"                         # Standard conditions
+
+    LOW_VOLATILITY = "LOW_VOLATILITY"  # Calm markets - can increase risk
+    NORMAL = "NORMAL"  # Standard conditions
     ELEVATED_VOLATILITY = "ELEVATED_VOLATILITY"  # Caution warranted
-    HIGH_VOLATILITY = "HIGH_VOLATILITY"       # Reduce risk significantly
-    EXTREME_VOLATILITY = "EXTREME_VOLATILITY" # Emergency risk reduction
+    HIGH_VOLATILITY = "HIGH_VOLATILITY"  # Reduce risk significantly
+    EXTREME_VOLATILITY = "EXTREME_VOLATILITY"  # Emergency risk reduction
 
 
 class RiskBudgetAlertSeverity(str, Enum):
     """Alert severity levels for risk budget alerts"""
-    INFO = "INFO"           # Informational, no action needed
-    WARNING = "WARNING"     # Attention recommended
-    HIGH = "HIGH"           # Action recommended
-    CRITICAL = "CRITICAL"   # Immediate action required
-    EMERGENCY = "EMERGENCY" # Emergency stop triggered
+
+    INFO = "INFO"  # Informational, no action needed
+    WARNING = "WARNING"  # Attention recommended
+    HIGH = "HIGH"  # Action recommended
+    CRITICAL = "CRITICAL"  # Immediate action required
+    EMERGENCY = "EMERGENCY"  # Emergency stop triggered
 
 
 class EmergencyTrigger(str, Enum):
     """Reasons for emergency risk reduction"""
-    DAILY_LOSS_LIMIT = "DAILY_LOSS_LIMIT"       # Daily loss exceeded threshold
-    MAX_DRAWDOWN = "MAX_DRAWDOWN"                # Portfolio drawdown too high
-    EXTREME_VOLATILITY = "EXTREME_VOLATILITY"   # Market volatility spiked
-    CORRELATION_SPIKE = "CORRELATION_SPIKE"     # Correlation increased suddenly
-    MANUAL_TRIGGER = "MANUAL_TRIGGER"           # Manually triggered
-    SYSTEM_ERROR = "SYSTEM_ERROR"               # System detected anomaly
+
+    DAILY_LOSS_LIMIT = "DAILY_LOSS_LIMIT"  # Daily loss exceeded threshold
+    MAX_DRAWDOWN = "MAX_DRAWDOWN"  # Portfolio drawdown too high
+    EXTREME_VOLATILITY = "EXTREME_VOLATILITY"  # Market volatility spiked
+    CORRELATION_SPIKE = "CORRELATION_SPIKE"  # Correlation increased suddenly
+    MANUAL_TRIGGER = "MANUAL_TRIGGER"  # Manually triggered
+    SYSTEM_ERROR = "SYSTEM_ERROR"  # System detected anomaly
 
 
 # Risk ladder levels (defensive to aggressive)
 RISK_LADDER = {
-    "ultra_defensive": 0.5,   # 0.5% max risk per trade
-    "defensive": 1.0,          # 1.0% max risk per trade
-    "conservative": 1.5,       # 1.5% max risk per trade
-    "normal": 2.0,             # 2.0% max risk per trade (standard)
-    "aggressive": 2.5,         # 2.5% max risk per trade
+    "ultra_defensive": 0.5,  # 0.5% max risk per trade
+    "defensive": 1.0,  # 1.0% max risk per trade
+    "conservative": 1.5,  # 1.5% max risk per trade
+    "normal": 2.0,  # 2.0% max risk per trade (standard)
+    "aggressive": 2.5,  # 2.5% max risk per trade
 }
 
 # Low liquidity hours (UTC) - typically Asian session end / European pre-market
@@ -97,6 +97,7 @@ LOW_LIQUIDITY_HOURS = [(4, 7), (20, 22)]  # 4-7 UTC and 20-22 UTC
 # =============================================================================
 # PYDANTIC-STYLE MODELS (using dataclasses for compatibility)
 # =============================================================================
+
 
 @dataclass
 class RiskBudgetConfig:
@@ -120,7 +121,10 @@ class RiskBudgetConfig:
         streak_penalty_per_loss: Risk decrease per consecutive loss
         max_streak_adjustment: Maximum adjustment from streaks
     """
-    base_equity: float = field(default_factory=lambda: float(os.getenv('RISK_BUDGET_INITIAL', '100.0')))
+
+    base_equity: float = field(
+        default_factory=lambda: float(os.getenv("RISK_BUDGET_INITIAL", "100.0"))
+    )
     base_risk_pct: float = 2.0
     max_risk_pct: float = 2.5
     min_risk_pct: float = 0.5
@@ -141,11 +145,13 @@ class RiskBudgetConfig:
         if self.base_equity <= 0:
             raise ValueError(f"base_equity must be positive, got {self.base_equity}")
         if not (0 < self.base_risk_pct <= 100):
-            raise ValueError(f"base_risk_pct must be between 0 and 100, got {self.base_risk_pct}")
+            raise ValueError(
+                f"base_risk_pct must be between 0 and 100, got {self.base_risk_pct}"
+            )
         if self.min_risk_pct >= self.max_risk_pct:
-            raise ValueError(f"min_risk_pct must be less than max_risk_pct")
+            raise ValueError("min_risk_pct must be less than max_risk_pct")
         if not (0 < self.emergency_reduction_factor <= 1):
-            raise ValueError(f"emergency_reduction_factor must be between 0 and 1")
+            raise ValueError("emergency_reduction_factor must be between 0 and 1")
 
         logger.info(
             f"RiskBudgetConfig initialized: equity=${self.base_equity:,.0f}, "
@@ -160,6 +166,7 @@ class RiskBudgetConfig:
 @dataclass
 class RiskBudgetRequest:
     """Request model for risk budget calculation"""
+
     equity: float
     volatility_percentile: Optional[float] = None
     current_drawdown: Optional[float] = None
@@ -175,6 +182,7 @@ class RiskBudgetRequest:
 @dataclass
 class RiskBudgetResponse:
     """Response model for risk budget calculation"""
+
     base_budget_pct: float
     base_budget_usd: float
     adjusted_budget_pct: float
@@ -198,6 +206,7 @@ class RiskBudgetResponse:
 @dataclass
 class RiskAllocation:
     """Model for strategy risk allocation"""
+
     strategy_name: str
     allocation_pct: float
     allocated_budget_usd: float
@@ -214,6 +223,7 @@ class RiskAllocation:
 @dataclass
 class RiskUtilization:
     """Model for overall risk utilization"""
+
     total_budget_usd: float
     used_budget_usd: float
     available_budget_usd: float
@@ -231,6 +241,7 @@ class RiskUtilization:
 @dataclass
 class RiskAdjustment:
     """Model for manual risk adjustment"""
+
     adjustment_type: str  # 'increase', 'decrease', 'set_level', 'emergency_stop'
     previous_risk_pct: float
     new_risk_pct: float
@@ -245,6 +256,7 @@ class RiskAdjustment:
 @dataclass
 class RiskBudgetAlert:
     """Alert generated by risk budget system"""
+
     severity: RiskBudgetAlertSeverity
     message: str
     timestamp: datetime
@@ -258,7 +270,9 @@ class RiskBudgetAlert:
         return {
             "severity": self.severity.value,
             "message": self.message,
-            "timestamp": self.timestamp.isoformat() if isinstance(self.timestamp, datetime) else self.timestamp,
+            "timestamp": self.timestamp.isoformat()
+            if isinstance(self.timestamp, datetime)
+            else self.timestamp,
             "trigger": self.trigger,
             "current_value": self.current_value,
             "threshold": self.threshold,
@@ -270,6 +284,7 @@ class RiskBudgetAlert:
 @dataclass
 class RiskBudgetHistoryEntry:
     """Historical risk budget record"""
+
     timestamp: datetime
     equity: float
     risk_budget_pct: float
@@ -283,13 +298,16 @@ class RiskBudgetHistoryEntry:
     def to_dict(self) -> Dict[str, Any]:
         return {
             **asdict(self),
-            "timestamp": self.timestamp.isoformat() if isinstance(self.timestamp, datetime) else self.timestamp
+            "timestamp": self.timestamp.isoformat()
+            if isinstance(self.timestamp, datetime)
+            else self.timestamp,
         }
 
 
 # =============================================================================
 # MAIN CLASS: DynamicRiskBudget
 # =============================================================================
+
 
 class DynamicRiskBudget:
     """
@@ -372,7 +390,9 @@ class DynamicRiskBudget:
         # Strategy allocations
         self._strategy_allocations: Dict[str, float] = {}  # strategy -> allocation_pct
         self._strategy_usage: Dict[str, float] = {}  # strategy -> current_usage_usd
-        self._strategy_performance: Dict[str, Dict[str, float]] = {}  # strategy -> metrics
+        self._strategy_performance: Dict[
+            str, Dict[str, float]
+        ] = {}  # strategy -> metrics
 
         # Asset tracking
         self._asset_usage: Dict[str, float] = {}  # symbol -> usage_usd
@@ -380,7 +400,14 @@ class DynamicRiskBudget:
         # History
         self._budget_history: deque = deque(maxlen=self.MAX_HISTORY_ENTRIES)
         self._adjustment_history: List[RiskAdjustment] = []
-        self._alerts: List[RiskBudgetAlert] = []
+        # WR-01: bounded deque (max 500). Phase 6's 5s /api/config/safety-state
+        # poll cadence drives calculate_risk_budget() -> _check_and_generate_alerts
+        # every 5s; under emergency-mode + risk-near-minimum the appender at
+        # line ~1351 fires once per poll (~17.3k entries/day) — unbounded
+        # before this cap. .append() and .clear() are deque-native; the
+        # only slice site (get_alerts line ~1383) is wrapped in list(...)
+        # because deque does not support slice indexing.
+        self._alerts: deque = deque(maxlen=500)
 
         # Kelly integration reference
         self._kelly_data: Dict[str, Dict[str, float]] = {}
@@ -475,7 +502,9 @@ class DynamicRiskBudget:
             dd_mult = self._calculate_drawdown_multiplier()
             streak_mult = self._calculate_streak_multiplier()
             corr_mult = self._calculate_correlation_multiplier()
-            liq_mult = self._calculate_liquidity_multiplier() if check_liquidity else 1.0
+            liq_mult = (
+                self._calculate_liquidity_multiplier() if check_liquidity else 1.0
+            )
 
             # Combined multiplier with bounds
             combined_mult = vol_mult * dd_mult * streak_mult * corr_mult * liq_mult
@@ -486,7 +515,7 @@ class DynamicRiskBudget:
             # Apply min/max limits
             adjusted_budget_pct = max(
                 self.config.min_risk_pct,
-                min(self.config.max_risk_pct, adjusted_budget_pct)
+                min(self.config.max_risk_pct, adjusted_budget_pct),
             )
             adjusted_budget_usd = self._current_equity * (adjusted_budget_pct / 100)
 
@@ -599,14 +628,14 @@ class DynamicRiskBudget:
             # Positive adjustment for win streak
             adjustment = min(
                 self.config.max_streak_adjustment,
-                self._win_streak * self.config.streak_bonus_per_win
+                self._win_streak * self.config.streak_bonus_per_win,
             )
             return 1.0 + adjustment
         elif self._loss_streak > 0:
             # Negative adjustment for loss streak
             adjustment = min(
                 self.config.max_streak_adjustment,
-                self._loss_streak * self.config.streak_penalty_per_loss
+                self._loss_streak * self.config.streak_penalty_per_loss,
             )
             return 1.0 - adjustment
         else:
@@ -727,7 +756,9 @@ class DynamicRiskBudget:
             )
 
         if not recommendations:
-            recommendations.append("Market conditions normal. Standard risk budget applies.")
+            recommendations.append(
+                "Market conditions normal. Standard risk budget applies."
+            )
 
         return recommendations
 
@@ -790,8 +821,7 @@ class DynamicRiskBudget:
 
         adjusted_pct = budget.adjusted_budget_pct * multiplier
         adjusted_pct = max(
-            self.config.min_risk_pct,
-            min(self.config.max_risk_pct, adjusted_pct)
+            self.config.min_risk_pct, min(self.config.max_risk_pct, adjusted_pct)
         )
 
         adjusted_usd = self._current_equity * (adjusted_pct / 100)
@@ -810,9 +840,8 @@ class DynamicRiskBudget:
             market_regime=regime.value,
             risk_level=self._get_risk_level_name(adjusted_pct),
             max_position_size=adjusted_usd,
-            recommendations=budget.recommendations + [
-                f"Regime adjustment applied: {regime.value} -> {multiplier:.0%}"
-            ],
+            recommendations=budget.recommendations
+            + [f"Regime adjustment applied: {regime.value} -> {multiplier:.0%}"],
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -839,9 +868,7 @@ class DynamicRiskBudget:
             # Validate allocations sum to <= 100%
             total_allocation = sum(strategies.values())
             if total_allocation > 100:
-                raise ValueError(
-                    f"Total allocation ({total_allocation}%) exceeds 100%"
-                )
+                raise ValueError(f"Total allocation ({total_allocation}%) exceeds 100%")
 
             # Store allocations
             self._strategy_allocations = dict(strategies)
@@ -876,9 +903,14 @@ class DynamicRiskBudget:
                     allocation_pct=allocation_pct,
                     allocated_budget_usd=round(allocated_usd, 2),
                     current_usage_usd=round(current_usage, 2),
-                    available_budget_usd=round(max(0, allocated_usd - current_usage), 2),
+                    available_budget_usd=round(
+                        max(0, allocated_usd - current_usage), 2
+                    ),
                     utilization_pct=round(
-                        (current_usage / allocated_usd * 100) if allocated_usd > 0 else 0, 2
+                        (current_usage / allocated_usd * 100)
+                        if allocated_usd > 0
+                        else 0,
+                        2,
                     ),
                     performance_multiplier=round(perf_mult, 4),
                     effective_budget_usd=round(effective_usd, 2),
@@ -970,7 +1002,8 @@ class DynamicRiskBudget:
                     "used": round(usage, 2),
                     "available": round(max(0, allocated_budget - usage), 2),
                     "utilization_pct": round(
-                        (usage / allocated_budget * 100) if allocated_budget > 0 else 0, 2
+                        (usage / allocated_budget * 100) if allocated_budget > 0 else 0,
+                        2,
                     ),
                 }
 
@@ -1009,13 +1042,9 @@ class DynamicRiskBudget:
             self._strategy_usage[strategy_name] = (
                 self._strategy_usage.get(strategy_name, 0.0) + risk_amount
             )
-            self._asset_usage[symbol] = (
-                self._asset_usage.get(symbol, 0.0) + risk_amount
-            )
+            self._asset_usage[symbol] = self._asset_usage.get(symbol, 0.0) + risk_amount
 
-            logger.debug(
-                f"Updated usage: {strategy_name}/{symbol} +${risk_amount:.2f}"
-            )
+            logger.debug(f"Updated usage: {strategy_name}/{symbol} +${risk_amount:.2f}")
 
     def release_usage(
         self,
@@ -1026,12 +1055,10 @@ class DynamicRiskBudget:
         """Release risk usage when position closed"""
         with self._lock:
             self._strategy_usage[strategy_name] = max(
-                0,
-                self._strategy_usage.get(strategy_name, 0.0) - risk_amount
+                0, self._strategy_usage.get(strategy_name, 0.0) - risk_amount
             )
             self._asset_usage[symbol] = max(
-                0,
-                self._asset_usage.get(symbol, 0.0) - risk_amount
+                0, self._asset_usage.get(symbol, 0.0) - risk_amount
             )
 
             logger.debug(
@@ -1058,7 +1085,10 @@ class DynamicRiskBudget:
         with self._lock:
             # Emergency mode check
             if self._emergency_mode:
-                return False, f"Emergency mode active: {self._emergency_trigger.value if self._emergency_trigger else 'unknown'}"
+                return (
+                    False,
+                    f"Emergency mode active: {self._emergency_trigger.value if self._emergency_trigger else 'unknown'}",
+                )
 
             # Get current budget
             budget = self.calculate_risk_budget()
@@ -1067,7 +1097,10 @@ class DynamicRiskBudget:
             # Check total budget
             total_used = sum(self._strategy_usage.values())
             if total_used + risk_amount > total_budget:
-                return False, f"Would exceed total budget (used: ${total_used:.0f}, limit: ${total_budget:.0f})"
+                return (
+                    False,
+                    f"Would exceed total budget (used: ${total_used:.0f}, limit: ${total_budget:.0f})",
+                )
 
             # Check strategy allocation
             if strategy_name in self._strategy_allocations:
@@ -1076,7 +1109,10 @@ class DynamicRiskBudget:
                 strategy_used = self._strategy_usage.get(strategy_name, 0.0)
 
                 if strategy_used + risk_amount > strategy_budget:
-                    return False, f"Would exceed {strategy_name} budget (used: ${strategy_used:.0f}, limit: ${strategy_budget:.0f})"
+                    return (
+                        False,
+                        f"Would exceed {strategy_name} budget (used: ${strategy_used:.0f}, limit: ${strategy_budget:.0f})",
+                    )
 
             return True, "Trade approved within risk limits"
 
@@ -1154,7 +1190,9 @@ class DynamicRiskBudget:
         """Check if any emergency conditions are met"""
         with self._lock:
             # Check daily loss limit
-            if abs(self._daily_pnl) >= self._current_equity * (self.config.max_daily_loss_pct / 100):
+            if abs(self._daily_pnl) >= self._current_equity * (
+                self.config.max_daily_loss_pct / 100
+            ):
                 return EmergencyTrigger.DAILY_LOSS_LIMIT
 
             # Check max drawdown
@@ -1198,21 +1236,14 @@ class DynamicRiskBudget:
             previous_risk = self._current_risk_pct
 
             if adjustment_type == "increase":
-                new_risk = min(
-                    self.config.max_risk_pct,
-                    previous_risk + (value or 0.5)
-                )
+                new_risk = min(self.config.max_risk_pct, previous_risk + (value or 0.5))
             elif adjustment_type == "decrease":
-                new_risk = max(
-                    self.config.min_risk_pct,
-                    previous_risk - (value or 0.5)
-                )
+                new_risk = max(self.config.min_risk_pct, previous_risk - (value or 0.5))
             elif adjustment_type == "set_level":
                 if value is None:
                     raise ValueError("set_level requires a value")
                 new_risk = max(
-                    self.config.min_risk_pct,
-                    min(self.config.max_risk_pct, value)
+                    self.config.min_risk_pct, min(self.config.max_risk_pct, value)
                 )
             elif adjustment_type == "emergency_stop":
                 new_risk = self.config.min_risk_pct
@@ -1286,10 +1317,7 @@ class DynamicRiskBudget:
     ) -> List[Dict[str, Any]]:
         """Get recent manual adjustments"""
         with self._lock:
-            return [
-                adj.to_dict()
-                for adj in self._adjustment_history[-limit:]
-            ]
+            return [adj.to_dict() for adj in self._adjustment_history[-limit:]]
 
     # =========================================================================
     # ALERTS
@@ -1300,37 +1328,46 @@ class DynamicRiskBudget:
         # Calculate utilization directly to avoid recursion
         total_used = sum(self._strategy_usage.values())
         utilization_pct = (total_used / budget_usd * 100) if budget_usd > 0 else 0
-        
+
         # High utilization alert
         if utilization_pct >= 90:
-            self._alerts.append(RiskBudgetAlert(
-                severity=RiskBudgetAlertSeverity.CRITICAL,
-                message=f"Risk budget {utilization_pct:.0f}% utilized - near limit",
-                timestamp=datetime.now(timezone.utc),
-                current_value=utilization_pct,
-                threshold=90,
-                recommendations=["Reduce position sizes", "Close losing positions"],
-            ))
+            self._alerts.append(
+                RiskBudgetAlert(
+                    severity=RiskBudgetAlertSeverity.CRITICAL,
+                    message=f"Risk budget {utilization_pct:.0f}% utilized - near limit",
+                    timestamp=datetime.now(timezone.utc),
+                    current_value=utilization_pct,
+                    threshold=90,
+                    recommendations=["Reduce position sizes", "Close losing positions"],
+                )
+            )
         elif utilization_pct >= 80:
-            self._alerts.append(RiskBudgetAlert(
-                severity=RiskBudgetAlertSeverity.WARNING,
-                message=f"Risk budget {utilization_pct:.0f}% utilized",
-                timestamp=datetime.now(timezone.utc),
-                current_value=utilization_pct,
-                threshold=80,
-                recommendations=["Monitor positions closely"],
-            ))
+            self._alerts.append(
+                RiskBudgetAlert(
+                    severity=RiskBudgetAlertSeverity.WARNING,
+                    message=f"Risk budget {utilization_pct:.0f}% utilized",
+                    timestamp=datetime.now(timezone.utc),
+                    current_value=utilization_pct,
+                    threshold=80,
+                    recommendations=["Monitor positions closely"],
+                )
+            )
 
         # Low risk level alert
         if risk_pct <= self.config.min_risk_pct * 1.2:
-            self._alerts.append(RiskBudgetAlert(
-                severity=RiskBudgetAlertSeverity.HIGH,
-                message=f"Risk budget at minimum levels ({risk_pct:.2f}%)",
-                timestamp=datetime.now(timezone.utc),
-                current_value=risk_pct,
-                threshold=self.config.min_risk_pct,
-                recommendations=["Review market conditions", "Evaluate portfolio health"],
-            ))
+            self._alerts.append(
+                RiskBudgetAlert(
+                    severity=RiskBudgetAlertSeverity.HIGH,
+                    message=f"Risk budget at minimum levels ({risk_pct:.2f}%)",
+                    timestamp=datetime.now(timezone.utc),
+                    current_value=risk_pct,
+                    threshold=self.config.min_risk_pct,
+                    recommendations=[
+                        "Review market conditions",
+                        "Evaluate portfolio health",
+                    ],
+                )
+            )
 
     def get_alerts(
         self,
@@ -1348,9 +1385,12 @@ class DynamicRiskBudget:
             ]
             min_idx = severity_order.index(min_severity)
 
+            # WR-01: list(...) wrap — self._alerts is a bounded deque
+            # and deque does NOT support slice indexing ([-limit:] raises
+            # TypeError on a raw deque). The list copy is small (<=500).
             filtered = [
                 alert.to_dict()
-                for alert in self._alerts[-limit:]
+                for alert in list(self._alerts)[-limit:]
                 if severity_order.index(alert.severity) >= min_idx
             ]
             return filtered
@@ -1422,14 +1462,36 @@ class DynamicRiskBudget:
     # =========================================================================
 
     def get_current_budget(self) -> Dict[str, Any]:
-        """Get current risk budget state"""
+        """Get current risk budget state.
+
+        The utilization sub-dict is extended with `daily_pnl_pct` for the
+        dashboard kill-switch panel (DASH-03 / Plan 06-02 Task 2 / F-02).
+
+        Sign convention: PRESERVED. The kill-switch trip check at line ~1157
+        uses abs(); the UI display reads the signed value so the operator
+        can see whether they are losing or winning. Display semantics differ
+        from threshold semantics — do NOT abs() this number here.
+
+        Zero-equity guard prevents a ZeroDivisionError before the manager
+        has been seeded with equity (rare edge case during early boot).
+        """
         with self._lock:
             budget = self.calculate_risk_budget()
             utilization = self.get_risk_utilization()
+            utilization_dict = utilization.to_dict()
+            # F-02 fix: the dashboard reads this value directly via the
+            # api-gateway /api/config/safety-state proxy fan-out. Keep it
+            # here so the gateway never recomputes the math (single source
+            # of truth lives in the risk module).
+            utilization_dict["daily_pnl_pct"] = (
+                (self._daily_pnl / self._current_equity) * 100.0
+                if self._current_equity > 0
+                else 0.0
+            )
 
             return {
                 "budget": budget.to_dict(),
-                "utilization": utilization.to_dict(),
+                "utilization": utilization_dict,
                 "emergency_mode": self._emergency_mode,
                 "config": self.config.to_dict(),
             }
@@ -1539,7 +1601,9 @@ class DynamicRiskBudget:
             # Check emergency triggers
             trigger = self.check_emergency_triggers()
             if trigger and not self._emergency_mode:
-                self.emergency_risk_reduction(trigger, f"Auto-triggered after trade: P&L=${pnl:.2f}")
+                self.emergency_risk_reduction(
+                    trigger, f"Auto-triggered after trade: P&L=${pnl:.2f}"
+                )
 
             logger.debug(
                 f"Trade recorded: {'WIN' if is_win else 'LOSS'} ${pnl:.2f}, "

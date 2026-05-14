@@ -1,8 +1,16 @@
 import React from 'react'
 import { usePositions, useTradingStatus, usePerformance } from '../hooks/usePositions'
+import TileState from './TileState'
 
 /**
  * KeyMetricsStrip — Editorial Trading Floor metric strip.
+ *
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/> per
+ * audit verdict FIXED. The load-bearing query is `usePerformance` (per
+ * 06-TILE-AUDIT.md). Loading/error/empty states surface through the
+ * shared wrapper; the existing per-cell `isLoading` skeleton is kept as
+ * a fallback for the partial-data path (positions hydrate before
+ * performance metrics on a cold cache).
  *
  * Replaces the prior cyan-slate gradient with the warm off-black /
  * viridian-teal / warm-rose palette already used by the Performance
@@ -155,9 +163,13 @@ const StatusDot = ({ tone: t }) => (
 )
 
 export default function KeyMetricsStrip() {
+  // Performance is the load-bearing tile-shape gate per 06-TILE-AUDIT.md
+  // (DASH-01). Treat it as the TileState `query`; the secondary hooks
+  // (positions/status) carry their own caches and partial-data UX.
+  const perfQuery = usePerformance()
   const { data: positionsData, isLoading: positionsLoading, isError: positionsError } = usePositions()
   const { data: statusData } = useTradingStatus()
-  const { data: performanceData, isLoading: performanceLoading, isError: performanceError } = usePerformance()
+  const { data: performanceData, isLoading: performanceLoading, isError: performanceError } = perfQuery
 
   const isApiDegraded = positionsError || performanceError
   const positions = positionsData?.positions || []
@@ -187,6 +199,14 @@ export default function KeyMetricsStrip() {
   else if (isRunning) { stateLabel = 'live'; stateColor = C.gain }
 
   return (
+    <div data-testid="key-metrics-strip" style={{ display: 'contents' }}>
+    <TileState
+      query={perfQuery}
+      title="Key Metrics"
+      thresholdKey="performance"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || !d.metrics || Object.keys(d.metrics).length === 0}
+    >
     <div
       style={{
         background: C.bg,
@@ -314,6 +334,8 @@ export default function KeyMetricsStrip() {
           50%      { opacity: 0.55; transform: scale(0.9); }
         }
       `}</style>
+    </div>
+    </TileState>
     </div>
   )
 }

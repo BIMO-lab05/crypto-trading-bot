@@ -14,6 +14,7 @@ import {
 import { useKlines } from '../hooks/useTicker'
 import { formatDistanceToNow } from 'date-fns'
 import ChartFigure from './a11y/ChartFigure'
+import TileState from './TileState'
 
 /**
  * PriceChart component displays historical price data for a cryptocurrency
@@ -31,8 +32,12 @@ import ChartFigure from './a11y/ChartFigure'
  * @param {string} interval - Kline interval in minutes (default: '60' for hourly)
  */
 export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
-  // Fetch kline data using custom hook
-  const { data, isLoading, error } = useKlines(symbol, interval, { limit: 24 })
+  // Fetch kline data using custom hook.
+  // Plan 06-05 DASH-05: audit verdict LABELED_STALE (market-data unhealthy
+  // at audit time 2026-05-13). Wrapped in <TileState forceStale/> below;
+  // F-05 precedence ensures real errors still surface as Failed (...) UI.
+  const q = useKlines(symbol, interval, { limit: 24 })
+  const { data, isLoading, error } = q
 
   // Transform API data into recharts-compatible format
   // Handles data normalization and price band calculations
@@ -120,58 +125,9 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
     )
   }
 
-  // Loading state - show skeleton loader
-  if (isLoading) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm p-6">
-        <div className="animate-pulse">
-          <div className="h-6 bg-slate-700 rounded w-1/3 mb-4"></div>
-          <div className="w-full h-80 bg-slate-700 rounded mb-4"></div>
-          <div className="flex justify-between">
-            <div className="h-4 bg-slate-700 rounded w-1/4"></div>
-            <div className="h-4 bg-slate-700 rounded w-1/4"></div>
-            <div className="h-4 bg-slate-700 rounded w-1/4"></div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Error state - show error message
-  if (error) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg border border-rose-500/50 backdrop-blur-sm p-6">
-        <h3 className="text-lg font-semibold text-rose-400 mb-2">
-          Error Loading Price Chart
-        </h3>
-        <p className="text-sm text-slate-300 mb-3">
-          {error?.message || 'Failed to fetch price data'}
-        </p>
-        <p className="text-xs text-slate-400">
-          Make sure the backend API is running and accessible at /api/market/kline/{symbol}
-        </p>
-      </div>
-    )
-  }
-
-  // Empty data state
-  if (chartData.length === 0) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm p-6">
-        <h3 className="text-lg font-semibold text-slate-200 mb-4">
-          {symbol} Price Chart
-        </h3>
-        <div className="flex items-center justify-center h-80 bg-slate-700/30 rounded border-2 border-dashed border-slate-600">
-          <div className="text-center">
-            <p className="text-slate-300 mb-2">No price data available</p>
-            <p className="text-sm text-slate-400">
-              Data will appear once the API starts collecting klines
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Loading and error states are now handled by <TileState/> below.
+  // Empty-data state is also handled by TileState (default isEmpty
+  // predicate: array length 0).
 
   // Calculate current price and change
   const currentPrice = chartData[chartData.length - 1]?.close || 0
@@ -180,6 +136,15 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
   const priceChangePercent = previousPrice !== 0 ? (priceChange / previousPrice) * 100 : 0
 
   return (
+    <div data-testid="price-chart" style={{ display: 'contents' }}>
+    <TileState
+      query={q}
+      title={`${symbol} Price Chart`}
+      thresholdKey="ticker"
+      lastUpdatedAt={undefined}
+      forceStale
+      isEmpty={(d) => !d || !Array.isArray(d) || d.length === 0}
+    >
     <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm p-6">
       {/* Header with title and current price */}
       <div className="flex items-center justify-between mb-6">
@@ -359,6 +324,8 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
           </p>
         </div>
       </div>
+    </div>
+    </TileState>
     </div>
   )
 }

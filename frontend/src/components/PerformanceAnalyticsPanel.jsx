@@ -1,7 +1,8 @@
 import React from 'react'
 import { usePerformanceAnalytics } from '../hooks/useAutoTrader'
 import { useQuery } from '@tanstack/react-query'
-import axios from 'axios'
+import api from '../services/api'
+import TileState from './TileState'
 
 /**
  * Calculate advanced performance metrics from trade history
@@ -220,21 +221,24 @@ const TradeStatsCard = ({ totalTrades, winningTrades, losingTrades, winRate }) =
 )
 
 export default function PerformanceAnalyticsPanel() {
-  const { data: performanceData, isLoading: perfLoading, isError: perfError } = usePerformanceAnalytics()
+  // Load-bearing query is performance (06-TILE-AUDIT). Plan 06-05 DASH-05:
+  // wrapped in <TileState/>; inline isLoading/isError early-returns removed.
+  const perfQuery = usePerformanceAnalytics()
+  const { data: performanceData } = perfQuery
 
-  // Fetch trade history for advanced metric calculation
-  const { data: tradesData, isLoading: tradesLoading } = useQuery({
+  // Fetch trade history for advanced metric calculation.
+  // WR-04: route through the shared api client (services/api.js) so
+  // baseURL ('/api', overridable via VITE_API_BASE_URL) and the
+  // response interceptor that unwraps .data both apply. The shared
+  // client returns the unwrapped body, so no .data access here.
+  const { data: tradesData } = useQuery({
     queryKey: ['trades', 'history'],
     queryFn: async () => {
-      const response = await axios.get('/api/trading/trades/history', { params: { limit: 1000 } })
-      return response.data
+      return await api.get('/trading/trades/history', { params: { limit: 1000 } })
     },
     refetchInterval: 30000,
     staleTime: 25000,
   })
-
-  const isLoading = perfLoading || tradesLoading
-  const isError = perfError
 
   // Calculate advanced metrics from trade history
   const trades = tradesData?.trades || []
@@ -262,37 +266,17 @@ export default function PerformanceAnalyticsPanel() {
     </svg>
   )
 
-  if (isError) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-6 border border-slate-700/50">
-        <div className="text-center text-rose-400">
-          Failed to load performance analytics
-        </div>
-      </div>
-    )
-  }
-
-  if (isLoading) {
-    return (
-      <div className="bg-slate-800/30 rounded-lg border border-slate-700/50 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-700/50 bg-slate-800/50">
-          <h3 className="text-base font-semibold text-slate-100">Performance Analytics</h3>
-        </div>
-        <div className="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="animate-pulse bg-slate-800/50 rounded-lg p-4 h-32">
-              <div className="h-4 bg-slate-700 rounded w-1/2 mb-4"></div>
-              <div className="h-8 bg-slate-700 rounded w-3/4"></div>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
   const hasData = performanceSummary && performanceSummary.totalTrades > 0
 
   return (
+    <div data-testid="performance-analytics-panel" style={{ display: 'contents' }}>
+    <TileState
+      query={perfQuery}
+      title="Performance Analytics"
+      thresholdKey="performance"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || !d.metrics || Object.keys(d.metrics).length === 0}
+    >
     <div className="bg-slate-800/30 rounded-lg border border-slate-700/50 overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-700/50 bg-slate-800/50">
         <div className="flex items-center justify-between">
@@ -426,6 +410,8 @@ export default function PerformanceAnalyticsPanel() {
           Auto-refresh every 30s | Metrics: Sharpe, Sortino, VaR, CVaR (Monte Carlo method)
         </p>
       </div>
+    </div>
+    </TileState>
     </div>
   )
 }

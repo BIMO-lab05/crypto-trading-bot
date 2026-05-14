@@ -28,7 +28,7 @@ UPDATED 2025-11-30 v2: Advanced trading enhancements
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Set
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -54,131 +54,111 @@ from app.position_sizing import get_position_sizer, SizingMethod
 from app.performance_tracker import get_performance_tracker
 from app.models import OrderSide, OrderType, OrderCreate, OrderStatus
 from app.models.enums import SignalAction
-from app.aggregation.market_regime import (
-    get_market_regime_detector,
-    MarketRegime
-)
+from app.aggregation.market_regime import get_market_regime_detector, MarketRegime
+
 # Import hybrid strategy router (combines trend-following + mean reversion)
-from app.strategies import ResearchOptimizedStrategy, TradeSetup
+from app.strategies import TradeSetup
 from app.strategies.hybrid_strategy_router import HybridStrategyRouter
+
 # Phase 2.3: Grid Trading Integration (2025-12-08)
 from app.strategies.grid_trading_strategy import GridTradingStrategy
 
 # Research-backed trading enhancements (2025-11-30)
 from app.trading_enhancements.circuit_breaker import (
     get_circuit_breaker,
-    CircuitBreakerOpenError,
-    CircuitBreakerConfig
+    CircuitBreakerConfig,
 )
 from app.trading_enhancements.kill_switch import (
     get_kill_switch,
     KillSwitchConfig,
-    KillSwitchReason
 )
 from app.services.notification_client import get_notification_client
 from app.trading_enhancements.slippage_manager import (
     get_slippage_manager,
     SlippageConfig,
-    MarketCondition
 )
 from app.trading_enhancements.execution_timer import (
     get_execution_timer,
     TimingConfig,
-    TimingMode
+    TimingMode,
 )
 from app.trading_enhancements.order_state_machine import (
     get_order_state_machine,
-    OrderState,
-    OrderEvent
 )
 
 # Advanced Trading Enhancements (2025-11-30 v2)
 from app.trading_enhancements.advanced_position_sizing import (
     AdvancedPositionSizer,
-    AdvancedSizingMethod,
-    AdvancedSizingConfig
+    AdvancedSizingConfig,
 )
 from app.trading_enhancements.smart_order_execution import (
     SmartOrderExecutor,
-    ExecutionAlgorithm,
-    ExecutionPlan
 )
 from app.trading_enhancements.performance_analytics import (
     PerformanceAnalytics,
-    RiskMetricMethod
 )
+
 # DCA Manager for averaging down on losing positions (2025-12-02)
-from app.trading_enhancements.dca_manager import (
-    get_dca_manager,
-    DCAConfig,
-    DCAManager
-)
+from app.trading_enhancements.dca_manager import get_dca_manager, DCAConfig
+
 # Portfolio Heat Manager for total exposure control (2025-12-02)
 from app.trading_enhancements.portfolio_heat import (
     get_portfolio_heat_manager,
     PortfolioHeatConfig,
-    PortfolioHeatManager,
-    HeatLevel
 )
+
 # Adaptive RSI with dynamic thresholds (2025-12-02)
 from app.trading_enhancements.adaptive_rsi import (
     get_adaptive_rsi,
-    AdaptiveRSI,
     AdaptiveRSIConfig,
-    VolatilityRegime as RSIVolatilityRegime
 )
+
 # Hurst Exponent for regime detection (2025-12-02)
 from app.trading_enhancements.hurst_exponent import (
     create_hurst_calculator,
-    HurstExponentCalculator,
-    HurstConfig,
-    MarketRegimeType,
-    StrategyType
 )
+
 # Limit Order Executor for better execution (2025-12-02)
 from app.trading_enhancements.limit_order_executor import (
     get_limit_order_executor,
-    LimitOrderExecutor,
     LimitOrderConfig,
-    LimitOrderType
 )
+
 # Walk Forward Efficiency tester (2025-12-02)
 from app.trading_enhancements.walk_forward_tester import (
     get_walk_forward_tester,
-    WalkForwardTester,
     WFEConfig,
-    TradeData
 )
+
 # Regime-Based Strategy Selection (2025-12-02)
 from app.trading_enhancements.regime_strategy_selector import (
     get_regime_strategy_selector,
-    RegimeStrategySelector,
-    RegimeStrategyConfig
 )
+
 # ATR-Based Trailing Stops (2025-12-02)
 from app.trading_enhancements.atr_trailing_stop import (
     get_atr_trailing_stop,
-    ATRTrailingStop,
     ATRTrailingStopConfig,
-    PositionSide,
-    VolatilityRegime as TrailingStopVolatilityRegime
+    VolatilityRegime as TrailingStopVolatilityRegime,
 )
+
 # Partial Profit Taking (2025-12-02)
 from app.trading_enhancements.partial_profit_taker import (
     get_partial_profit_taker,
-    PartialProfitTaker,
-    PartialProfitConfig
+    PartialProfitConfig,
 )
 # Phase1MetricsProvider recording is now handled by CoreAggregator
 
 
 class StrategyMode(Enum):
     """Trading strategy mode selection"""
-    STANDARD = "standard"       # Original multi-timeframe signal aggregation
-    RESEARCH = "research"       # Research-optimized strategy (2025-11-28)
-    HYBRID = "hybrid"          # Combine both for confirmation
+
+    STANDARD = "standard"  # Original multi-timeframe signal aggregation
+    RESEARCH = "research"  # Research-optimized strategy (2025-11-28)
+    HYBRID = "hybrid"  # Combine both for confirmation
     GRID_TRADING = "grid_trading"  # Grid Trading strategy (Phase 2.3 - 2025-12-08)
-    ENSEMBLE = "ensemble"      # SimpleRSI + multi-indicator + mean-reversion, performance-weighted (2026-04-25)
+    ENSEMBLE = "ensemble"  # SimpleRSI + multi-indicator + mean-reversion, performance-weighted (2026-04-25)
+
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -204,11 +184,13 @@ class AutoTrader:
         interval: str = "60",
         check_frequency_seconds: Optional[int] = None,  # Use config default
         enable_volume_profile: bool = False,  # Enable VP analysis (Phase 3)
-        position_sizing_method: SizingMethod = SizingMethod.CONFIDENCE_ADJUSTED,  # Dynamic sizing
+        position_sizing_method: SizingMethod = SizingMethod.FIXED,  # 2026-05-06: predictable 10%-per-trade sizing on $100 paper balance
         use_performance_data: bool = True,  # Use performance tracker for Kelly
         enable_market_regime: bool = True,  # Enable ADX-based market regime detection
         strategy_mode: StrategyMode = StrategyMode.HYBRID,  # Default to hybrid strategy - mixes research + standard for dual confirmation (2026-02-17)
-        enable_ml_predictions: Optional[bool] = None,  # Phase 3 ML Integration (2025-12-01)
+        enable_ml_predictions: Optional[
+            bool
+        ] = None,  # Phase 3 ML Integration (2025-12-01)
     ):
         """
         Initialize the automated trader
@@ -232,17 +214,25 @@ class AutoTrader:
         self.symbols = symbols or settings.trading_symbols
         # FIXED: Warn if no symbols configured (code review 2025-11-28)
         if not self.symbols:
-            logger.warning("No trading symbols configured - AutoTrader will not trade any pairs")
+            logger.warning(
+                "No trading symbols configured - AutoTrader will not trade any pairs"
+            )
         self.interval = interval
         # Use config value if not specified
-        self.check_frequency = check_frequency_seconds or getattr(settings, 'check_frequency_seconds', 30)
+        self.check_frequency = check_frequency_seconds or getattr(
+            settings, "check_frequency_seconds", 30
+        )
         self.enable_vp = enable_volume_profile
         self.position_sizing_method = position_sizing_method
         self.use_performance_data = use_performance_data
         self.enable_market_regime = enable_market_regime
         self.strategy_mode = strategy_mode
         # Phase 3 ML Integration: Use config setting if not explicitly provided
-        self.enable_ml = enable_ml_predictions if enable_ml_predictions is not None else settings.enable_ml_predictions
+        self.enable_ml = (
+            enable_ml_predictions
+            if enable_ml_predictions is not None
+            else settings.enable_ml_predictions
+        )
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
 
@@ -251,6 +241,20 @@ class AutoTrader:
         self.emergency_stop_file = Path(self.settings.emergency_stop_file)
         self.emergency_stop_active = False
         self.emergency_stop_last_checked: Optional[datetime] = None
+
+        # Concurrent-open dedup (2026-05-06).
+        # Multiple signal paths can race past the has_position check before
+        # either commits its position row, producing twin positions for the
+        # same (symbol, side) at near-identical entry. Claim per-symbol slot
+        # atomically before the existence check; release after persist or
+        # rejection. Pair with a short cooldown to absorb stale-cache reads
+        # from position_mgr.get_open_positions() right after a close.
+        self._opening_symbols: Set[str] = set()
+        self._opening_lock = asyncio.Lock()
+        self._last_open_at: Dict[str, datetime] = {}
+        self.open_cooldown_seconds: int = int(
+            getattr(self.settings, "open_cooldown_seconds", 60)
+        )
 
         # Get the regime detector
         self.regime_detector = get_market_regime_detector(enabled=enable_market_regime)
@@ -268,7 +272,9 @@ class AutoTrader:
         # NOTE: Grid Trading showed poor walk-forward validation results:
         #   - Avg Return: -0.00%, Avg Sharpe: -0.49, Avg Win Rate: 32.6%
         #   - Use with caution in live trading
-        self.grid_strategies: Dict[str, GridTradingStrategy] = {}  # One strategy per symbol
+        self.grid_strategies: Dict[
+            str, GridTradingStrategy
+        ] = {}  # One strategy per symbol
 
         # Statistics
         self.total_signals_checked = 0
@@ -286,10 +292,14 @@ class AutoTrader:
         # Daily trade tracking (2025-11-29)
         self.daily_trades_count = 0
         self.daily_trades_date = datetime.now().date()
-        self.max_daily_trades = getattr(settings, 'max_daily_trades', 20)
+        self.max_daily_trades = getattr(settings, "max_daily_trades", 20)
         self.last_trade_time_per_symbol: dict = {}  # Track last trade time per symbol
-        self.min_time_between_trades = getattr(settings, 'min_time_between_trades_same_symbol', 60)
-        self.allow_same_symbol_reentry = getattr(settings, 'allow_same_symbol_reentry', True)
+        self.min_time_between_trades = getattr(
+            settings, "min_time_between_trades_same_symbol", 60
+        )
+        self.allow_same_symbol_reentry = getattr(
+            settings, "allow_same_symbol_reentry", True
+        )
 
         # ============================================================================
         # RESEARCH-BACKED TRADING ENHANCEMENTS (2025-11-30)
@@ -300,11 +310,11 @@ class AutoTrader:
         self.circuit_breaker = get_circuit_breaker(
             "aggregator_api",
             CircuitBreakerConfig(
-                failure_threshold=5,       # Open after 5 consecutive failures
-                success_threshold=3,       # Close after 3 successes in half-open
-                timeout_seconds=60.0,      # Wait 60s before attempting recovery
-                half_open_max_calls=3      # Allow 3 test calls in half-open state
-            )
+                failure_threshold=5,  # Open after 5 consecutive failures
+                success_threshold=3,  # Close after 3 successes in half-open
+                timeout_seconds=60.0,  # Wait 60s before attempting recovery
+                half_open_max_calls=3,  # Allow 3 test calls in half-open state
+            ),
         )
 
         # Kill Switch: Multi-threshold emergency stop.
@@ -343,7 +353,9 @@ class AutoTrader:
             )
         else:
             self.vol_estimator = None
-            logger.info("[VOL_PARITY] disabled (set ENABLE_VOL_TARGETING=true to opt in)")
+            logger.info(
+                "[VOL_PARITY] disabled (set ENABLE_VOL_TARGETING=true to opt in)"
+            )
 
         # Funding-Rate Gate (T2.3, 2026-04-30) — perp-only entry filter.
         # Lazy-built (None until first signal-check call site that needs it)
@@ -360,18 +372,20 @@ class AutoTrader:
                 f"ttl={self.settings.funding_cache_ttl_seconds}s"
             )
         else:
-            logger.info("[FUNDING_GATE] disabled (set ENABLE_FUNDING_GATE=true to opt in)")
+            logger.info(
+                "[FUNDING_GATE] disabled (set ENABLE_FUNDING_GATE=true to opt in)"
+            )
 
         # Slippage Manager: Execution quality control
         # Research: LuxAlgo Trading Slippage Analysis
         self.slippage_manager = get_slippage_manager(
             SlippageConfig(
-                base_tolerance_pct=0.15,       # 0.15% normal slippage tolerance
-                volatile_tolerance_pct=0.30,   # 0.30% during volatile markets
+                base_tolerance_pct=0.15,  # 0.15% normal slippage tolerance
+                volatile_tolerance_pct=0.30,  # 0.30% during volatile markets
                 rejection_threshold_pct=0.50,  # Reject trades with > 0.5% slippage
-                use_limit_orders=True,         # Prefer limit orders
+                use_limit_orders=True,  # Prefer limit orders
                 order_splitting_enabled=True,  # Split large orders
-                max_order_value_for_market=1000.0  # Use limit for orders > $1000
+                max_order_value_for_market=1000.0,  # Use limit for orders > $1000
             )
         )
 
@@ -382,13 +396,13 @@ class AutoTrader:
         # Research: Low-Latency Trading Systems best practices
         self.execution_timer = get_execution_timer(
             TimingConfig(
-                position_check_interval=15.0,   # 15s between position checks
-                price_update_interval=10.0,     # 10s between price updates
-                trailing_stop_interval=15.0,    # 15s for trailing stop updates
-                signal_check_interval=30.0,     # 30s between signal checks
-                min_interval=5.0,               # Min 5s between any operations
-                max_interval=300.0,             # Max 5 min interval
-                adaptive_factor=1.5             # Adaptive multiplier
+                position_check_interval=15.0,  # 15s between position checks
+                price_update_interval=10.0,  # 10s between price updates
+                trailing_stop_interval=15.0,  # 15s for trailing stop updates
+                signal_check_interval=30.0,  # 30s between signal checks
+                min_interval=5.0,  # Min 5s between any operations
+                max_interval=300.0,  # Max 5 min interval
+                adaptive_factor=1.5,  # Adaptive multiplier
             )
         )
 
@@ -403,34 +417,35 @@ class AutoTrader:
         # Research: Professional trading position sizing algorithms
         self.advanced_position_sizer = AdvancedPositionSizer(
             AdvancedSizingConfig(
-                max_position_pct=0.25,         # Max 25% per position
-                kelly_fraction=0.25,           # Use Quarter Kelly (safer)
-                min_win_rate=0.35,             # Min 35% win rate for Kelly
-                min_profit_factor=1.2,         # Min 1.2 profit factor
-                atr_risk_multiplier=2.0,       # 2x ATR for volatility sizing
-                anti_martingale_factor=1.5,    # 50% increase after wins
-                max_consecutive_increases=3,   # Cap consecutive increases
-                use_drawdown_adjustment=True   # Reduce during drawdown
+                max_position_pct=0.25,  # Max 25% per position
+                kelly_fraction=0.25,  # Use Quarter Kelly (safer)
+                min_win_rate=0.35,  # Min 35% win rate for Kelly
+                min_profit_factor=1.2,  # Min 1.2 profit factor
+                atr_risk_multiplier=2.0,  # 2x ATR for volatility sizing
+                anti_martingale_factor=1.5,  # 50% increase after wins
+                max_consecutive_increases=3,  # Cap consecutive increases
+                use_drawdown_adjustment=True,  # Reduce during drawdown
             )
         )
 
         # Smart Order Executor: TWAP, VWAP, Iceberg algorithms
         # Research: Institutional order execution strategies
         from app.trading_enhancements.smart_order_execution import ExecutionConfig
+
         self.smart_order_executor = SmartOrderExecutor(
             config=ExecutionConfig(
-                twap_duration_minutes=5,           # 5-minute TWAP default
-                vwap_participation_rate=0.15,      # 15% of volume
-                iceberg_visible_pct=0.20,          # Show 20% of order
-                twap_max_slices=10                 # Max 10 order slices
+                twap_duration_minutes=5,  # 5-minute TWAP default
+                vwap_participation_rate=0.15,  # 15% of volume
+                iceberg_visible_pct=0.20,  # Show 20% of order
+                twap_max_slices=10,  # Max 10 order slices
             )
         )
 
         # Performance Analytics: Sharpe, Sortino, VaR, CVaR
         # Research: Professional risk metrics
         self.performance_analytics = PerformanceAnalytics(
-            risk_free_rate=0.05,               # 5% risk-free rate (annualized)
-            trading_days_per_year=365          # Crypto markets are 24/7
+            risk_free_rate=0.05,  # 5% risk-free rate (annualized)
+            trading_days_per_year=365,  # Crypto markets are 24/7
         )
 
         # ============================================================================
@@ -441,15 +456,21 @@ class AutoTrader:
         # Reconfigure DCA with research-backed defaults
         self.dca_manager.config = DCAConfig(
             enabled=True,
-            safety_order_deviation_pct=[5.0, 10.0, 15.0, 20.0, 25.0],  # Trigger at 5%, 10%, etc.
-            safety_order_volume_scale=[1.0, 1.5, 2.0, 2.5, 3.0],      # Scale up each layer
-            max_safety_orders=5,                                       # Max 5 DCA orders
-            min_time_between_orders=300,                               # 5 minutes between orders
-            base_safety_order_pct=100.0,                               # Same size as original
-            recalculate_tp_on_dca=True,                                # Update TP after DCA
-            tp_after_dca_pct=2.0,                                      # 2% TP after averaging
-            max_total_position_pct=10.0,                               # Max 10% of capital
-            stop_loss_after_max_dca_pct=10.0                           # 10% SL after max DCA
+            safety_order_deviation_pct=[
+                5.0,
+                10.0,
+                15.0,
+                20.0,
+                25.0,
+            ],  # Trigger at 5%, 10%, etc.
+            safety_order_volume_scale=[1.0, 1.5, 2.0, 2.5, 3.0],  # Scale up each layer
+            max_safety_orders=5,  # Max 5 DCA orders
+            min_time_between_orders=300,  # 5 minutes between orders
+            base_safety_order_pct=100.0,  # Same size as original
+            recalculate_tp_on_dca=True,  # Update TP after DCA
+            tp_after_dca_pct=2.0,  # 2% TP after averaging
+            max_total_position_pct=10.0,  # Max 10% of capital
+            stop_loss_after_max_dca_pct=10.0,  # 10% SL after max DCA
         )
         self.dca_orders_executed = 0  # Track DCA executions
 
@@ -459,14 +480,14 @@ class AutoTrader:
         # ============================================================================
         self.portfolio_heat_manager = get_portfolio_heat_manager(
             PortfolioHeatConfig(
-                max_portfolio_heat_pct=8.0,        # Max 8% total risk exposure
-                max_per_trade_pct=2.0,             # Max 2% risk per trade
-                max_correlated_exposure_pct=5.0,   # Max 5% in correlated assets
-                max_single_asset_pct=10.0,         # Max 10% in single asset
-                low_heat_threshold=4.0,            # Below = low heat
-                moderate_heat_threshold=6.0,       # Below = moderate
-                elevated_heat_threshold=8.0,       # Below = elevated
-                critical_heat_threshold=10.0       # Above = critical
+                max_portfolio_heat_pct=8.0,  # Max 8% total risk exposure
+                max_per_trade_pct=2.0,  # Max 2% risk per trade
+                max_correlated_exposure_pct=5.0,  # Max 5% in correlated assets
+                max_single_asset_pct=10.0,  # Max 10% in single asset
+                low_heat_threshold=4.0,  # Below = low heat
+                moderate_heat_threshold=6.0,  # Below = moderate
+                elevated_heat_threshold=8.0,  # Below = elevated
+                critical_heat_threshold=10.0,  # Above = critical
             )
         )
 
@@ -476,17 +497,17 @@ class AutoTrader:
         # ============================================================================
         self.adaptive_rsi = get_adaptive_rsi(
             AdaptiveRSIConfig(
-                rsi_period=6,                    # Short period for crypto
-                high_vol_oversold=15,            # Extreme oversold threshold
-                high_vol_overbought=85,          # Extreme overbought threshold
-                normal_vol_oversold=25,          # Standard oversold threshold
-                normal_vol_overbought=75,        # Standard overbought threshold
-                low_vol_oversold=30,             # Conservative oversold threshold
-                low_vol_overbought=70,           # Conservative overbought threshold
-                high_volatility_threshold=3.0,   # ATR > 3% = high volatility
-                low_volatility_threshold=1.0,    # ATR < 1% = low volatility
-                use_trend_filter=True,           # Filter signals with trend
-                trend_ema_period=50              # 50-period EMA for trend
+                rsi_period=6,  # Short period for crypto
+                high_vol_oversold=15,  # Extreme oversold threshold
+                high_vol_overbought=85,  # Extreme overbought threshold
+                normal_vol_oversold=25,  # Standard oversold threshold
+                normal_vol_overbought=75,  # Standard overbought threshold
+                low_vol_oversold=30,  # Conservative oversold threshold
+                low_vol_overbought=70,  # Conservative overbought threshold
+                high_volatility_threshold=3.0,  # ATR > 3% = high volatility
+                low_volatility_threshold=1.0,  # ATR < 1% = low volatility
+                use_trend_filter=True,  # Filter signals with trend
+                trend_ema_period=50,  # 50-period EMA for trend
             )
         )
 
@@ -497,7 +518,7 @@ class AutoTrader:
         self.hurst_calculator = create_hurst_calculator(
             trending_threshold=0.55,
             mean_reversion_threshold=0.45,
-            lookback_periods=[20, 50, 100]
+            lookback_periods=[20, 50, 100],
         )
 
         # ============================================================================
@@ -506,13 +527,13 @@ class AutoTrader:
         # ============================================================================
         self.limit_order_executor = get_limit_order_executor(
             LimitOrderConfig(
-                default_offset_pct=0.05,         # 0.05% inside spread
-                timeout_seconds=30,              # 30s before fallback
-                use_post_only=False,             # Allow taker orders
-                max_retries=2,                   # Retry twice
-                fallback_to_market=True,         # Fallback to market order
-                aggressive_offset_pct=0.02,      # Near price for fast fill
-                passive_offset_pct=0.10          # Further for better price
+                default_offset_pct=0.05,  # 0.05% inside spread
+                timeout_seconds=30,  # 30s before fallback
+                use_post_only=False,  # Allow taker orders
+                max_retries=2,  # Retry twice
+                fallback_to_market=True,  # Fallback to market order
+                aggressive_offset_pct=0.02,  # Near price for fast fill
+                passive_offset_pct=0.10,  # Further for better price
             )
         )
 
@@ -522,13 +543,13 @@ class AutoTrader:
         # ============================================================================
         self.wfe_tester = get_walk_forward_tester(
             WFEConfig(
-                in_sample_pct=0.70,              # 70% training
-                out_of_sample_pct=0.30,          # 30% testing
-                min_trades_for_confidence=385,   # 95% confidence
-                min_wfe_threshold=0.50,          # 50% minimum WFE
-                rolling_windows=5                # 5 walk-forward periods
+                in_sample_pct=0.70,  # 70% training
+                out_of_sample_pct=0.30,  # 30% testing
+                min_trades_for_confidence=385,  # 95% confidence
+                min_wfe_threshold=0.50,  # 50% minimum WFE
+                rolling_windows=5,  # 5 walk-forward periods
             ),
-            strategy_name="research_optimized"
+            strategy_name="research_optimized",
         )
 
         # ============================================================================
@@ -544,12 +565,12 @@ class AutoTrader:
         # ============================================================================
         self.atr_trailing_stop = get_atr_trailing_stop(
             ATRTrailingStopConfig(
-                base_atr_multiplier=2.5,         # 2.5x ATR distance
-                min_atr_multiplier=1.5,          # Minimum 1.5x for tight markets
-                max_atr_multiplier=4.0,          # Maximum 4x for extreme volatility
-                activation_profit_pct=1.0,       # Activate after 1% profit
-                step_pct=0.5,                    # Update when price moves 0.5%
-                use_chandelier_exit=True         # Trail from highest/lowest
+                base_atr_multiplier=2.5,  # 2.5x ATR distance
+                min_atr_multiplier=1.5,  # Minimum 1.5x for tight markets
+                max_atr_multiplier=4.0,  # Maximum 4x for extreme volatility
+                activation_profit_pct=1.0,  # Activate after 1% profit
+                step_pct=0.5,  # Update when price moves 0.5%
+                use_chandelier_exit=True,  # Trail from highest/lowest
             )
         )
 
@@ -559,11 +580,11 @@ class AutoTrader:
         # ============================================================================
         self.partial_profit_taker = get_partial_profit_taker(
             PartialProfitConfig(
-                profit_levels=[1.0, 2.0, 3.0],          # 1%, 2%, 3% profit targets
-                exit_percentages=[25.0, 25.0, 25.0],   # Exit 25% at each level
-                move_stop_to_breakeven_after=1,        # Breakeven after first partial
-                min_position_value=10.0,               # Don't split below $10
-                enabled=True
+                profit_levels=[1.0, 2.0, 3.0],  # 1%, 2%, 3% profit targets
+                exit_percentages=[25.0, 25.0, 25.0],  # Exit 25% at each level
+                move_stop_to_breakeven_after=1,  # Breakeven after first partial
+                min_position_value=10.0,  # Don't split below $10
+                enabled=True,
             )
         )
 
@@ -586,93 +607,163 @@ class AutoTrader:
             f"MarketRegime={'ENABLED' if self.enable_market_regime else 'DISABLED'}, "
             f"StrategyMode={self.strategy_mode.value}"
         )
-        logger.info(f"Trade Limits: max_daily={self.max_daily_trades}, reentry_cooldown={self.min_time_between_trades}s")
+        logger.info(
+            f"Trade Limits: max_daily={self.max_daily_trades}, reentry_cooldown={self.min_time_between_trades}s"
+        )
         logger.info(f"Trading symbols: {self.symbols}")
-        logger.info(f"Hybrid Strategy: TREND-FOLLOWING + MEAN REVERSION (ADX threshold: 25.0)")
-        logger.info(f"Trend Strategy Parameters: {self.research_strategy.get_strategy_params()}")
+        logger.info(
+            "Hybrid Strategy: TREND-FOLLOWING + MEAN REVERSION (ADX threshold: 25.0)"
+        )
+        logger.info(
+            f"Trend Strategy Parameters: {self.research_strategy.get_strategy_params()}"
+        )
 
         # Log enhancement configuration
         logger.info("=" * 70)
         logger.info("RESEARCH-BACKED TRADING ENHANCEMENTS ENABLED (2025-11-30)")
         logger.info("=" * 70)
-        logger.info(f"  Circuit Breaker: failure_threshold=5, timeout=60s")
+        logger.info("  Circuit Breaker: failure_threshold=5, timeout=60s")
         ks_cfg = self.kill_switch.config
         logger.info(
             f"  Kill Switch: daily_loss={ks_cfg.max_daily_loss_pct}%, "
             f"drawdown={ks_cfg.max_drawdown_pct}%, "
             f"consecutive_losses={ks_cfg.max_consecutive_losses}"
         )
-        logger.info(f"  Slippage Manager: base=0.15%, volatile=0.30%, reject=0.50%")
-        logger.info(f"  Execution Timer: position=15s, price=10s, trailing=15s")
-        logger.info(f"  Order State Machine: FIX protocol style tracking")
+        logger.info("  Slippage Manager: base=0.15%, volatile=0.30%, reject=0.50%")
+        logger.info("  Execution Timer: position=15s, price=10s, trailing=15s")
+        logger.info("  Order State Machine: FIX protocol style tracking")
         logger.info("=" * 70)
         logger.info("ADVANCED TRADING ENHANCEMENTS ENABLED (2025-11-30 v2)")
         logger.info("=" * 70)
-        logger.info(f"  Advanced Position Sizer: Quarter Kelly, max=25%, ATR-based")
-        logger.info(f"  Smart Order Executor: TWAP/VWAP/Iceberg, 5-min duration")
-        logger.info(f"  Performance Analytics: Sharpe, Sortino, VaR@95%, CVaR")
+        logger.info("  Advanced Position Sizer: Quarter Kelly, max=25%, ATR-based")
+        logger.info("  Smart Order Executor: TWAP/VWAP/Iceberg, 5-min duration")
+        logger.info("  Performance Analytics: Sharpe, Sortino, VaR@95%, CVaR")
         logger.info("=" * 70)
         logger.info("DCA MANAGER ENABLED (2025-12-02) - Research: Pionex/3Commas")
         logger.info("=" * 70)
         logger.info(f"  DCA Layers: {self.dca_manager.config.max_safety_orders}")
-        logger.info(f"  DCA Triggers: {self.dca_manager.config.safety_order_deviation_pct}")
-        logger.info(f"  DCA Volume Scale: {self.dca_manager.config.safety_order_volume_scale}")
+        logger.info(
+            f"  DCA Triggers: {self.dca_manager.config.safety_order_deviation_pct}"
+        )
+        logger.info(
+            f"  DCA Volume Scale: {self.dca_manager.config.safety_order_volume_scale}"
+        )
         logger.info(f"  TP After DCA: {self.dca_manager.config.tp_after_dca_pct}%")
         logger.info("=" * 70)
-        logger.info("PORTFOLIO HEAT MANAGER ENABLED (2025-12-02) - Research: Hedge Fund Best Practices")
+        logger.info(
+            "PORTFOLIO HEAT MANAGER ENABLED (2025-12-02) - Research: Hedge Fund Best Practices"
+        )
         logger.info("=" * 70)
-        logger.info(f"  Max Portfolio Heat: {self.portfolio_heat_manager.config.max_portfolio_heat_pct}%")
-        logger.info(f"  Max Per Trade Risk: {self.portfolio_heat_manager.config.max_per_trade_pct}%")
-        logger.info(f"  Max Correlated Exposure: {self.portfolio_heat_manager.config.max_correlated_exposure_pct}%")
-        logger.info(f"  Heat Levels: LOW(<4%) MODERATE(<6%) ELEVATED(<8%) HIGH(>8%) CRITICAL(>10%)")
+        logger.info(
+            f"  Max Portfolio Heat: {self.portfolio_heat_manager.config.max_portfolio_heat_pct}%"
+        )
+        logger.info(
+            f"  Max Per Trade Risk: {self.portfolio_heat_manager.config.max_per_trade_pct}%"
+        )
+        logger.info(
+            f"  Max Correlated Exposure: {self.portfolio_heat_manager.config.max_correlated_exposure_pct}%"
+        )
+        logger.info(
+            "  Heat Levels: LOW(<4%) MODERATE(<6%) ELEVATED(<8%) HIGH(>8%) CRITICAL(>10%)"
+        )
         logger.info("=" * 70)
-        logger.info("ADAPTIVE RSI ENABLED (2025-12-02) - Research: 6-period with dynamic thresholds")
+        logger.info(
+            "ADAPTIVE RSI ENABLED (2025-12-02) - Research: 6-period with dynamic thresholds"
+        )
         logger.info("=" * 70)
         logger.info(f"  RSI Period: {self.adaptive_rsi.config.rsi_period}")
-        logger.info(f"  High Vol Thresholds: ({self.adaptive_rsi.config.high_vol_oversold}, {self.adaptive_rsi.config.high_vol_overbought})")
-        logger.info(f"  Normal Thresholds: ({self.adaptive_rsi.config.normal_vol_oversold}, {self.adaptive_rsi.config.normal_vol_overbought})")
-        logger.info(f"  Low Vol Thresholds: ({self.adaptive_rsi.config.low_vol_oversold}, {self.adaptive_rsi.config.low_vol_overbought})")
+        logger.info(
+            f"  High Vol Thresholds: ({self.adaptive_rsi.config.high_vol_oversold}, {self.adaptive_rsi.config.high_vol_overbought})"
+        )
+        logger.info(
+            f"  Normal Thresholds: ({self.adaptive_rsi.config.normal_vol_oversold}, {self.adaptive_rsi.config.normal_vol_overbought})"
+        )
+        logger.info(
+            f"  Low Vol Thresholds: ({self.adaptive_rsi.config.low_vol_oversold}, {self.adaptive_rsi.config.low_vol_overbought})"
+        )
         logger.info(f"  Trend Filter: {self.adaptive_rsi.config.use_trend_filter}")
         logger.info("=" * 70)
-        logger.info("HURST EXPONENT ENABLED (2025-12-02) - Research: Market Regime Detection")
+        logger.info(
+            "HURST EXPONENT ENABLED (2025-12-02) - Research: Market Regime Detection"
+        )
         logger.info("=" * 70)
-        logger.info(f"  Trending Threshold: > {self.hurst_calculator.config.trending_threshold}")
-        logger.info(f"  Mean Reversion Threshold: < {self.hurst_calculator.config.mean_reversion_threshold}")
-        logger.info(f"  Lookback Periods: {self.hurst_calculator.config.lookback_periods}")
+        logger.info(
+            f"  Trending Threshold: > {self.hurst_calculator.config.trending_threshold}"
+        )
+        logger.info(
+            f"  Mean Reversion Threshold: < {self.hurst_calculator.config.mean_reversion_threshold}"
+        )
+        logger.info(
+            f"  Lookback Periods: {self.hurst_calculator.config.lookback_periods}"
+        )
         logger.info("=" * 70)
-        logger.info("LIMIT ORDER EXECUTOR ENABLED (2025-12-02) - Research: 2-10 bps slippage savings")
+        logger.info(
+            "LIMIT ORDER EXECUTOR ENABLED (2025-12-02) - Research: 2-10 bps slippage savings"
+        )
         logger.info("=" * 70)
-        logger.info(f"  Default Offset: {self.limit_order_executor.config.default_offset_pct}%")
+        logger.info(
+            f"  Default Offset: {self.limit_order_executor.config.default_offset_pct}%"
+        )
         logger.info(f"  Timeout: {self.limit_order_executor.config.timeout_seconds}s")
-        logger.info(f"  Fallback to Market: {self.limit_order_executor.config.fallback_to_market}")
+        logger.info(
+            f"  Fallback to Market: {self.limit_order_executor.config.fallback_to_market}"
+        )
         logger.info("=" * 70)
-        logger.info("WALK FORWARD TESTER ENABLED (2025-12-02) - Research: Strategy Validation")
+        logger.info(
+            "WALK FORWARD TESTER ENABLED (2025-12-02) - Research: Strategy Validation"
+        )
         logger.info("=" * 70)
         logger.info(f"  In-Sample: {self.wfe_tester.config.in_sample_pct:.0%}")
         logger.info(f"  Out-of-Sample: {self.wfe_tester.config.out_of_sample_pct:.0%}")
-        logger.info(f"  Min WFE Threshold: {self.wfe_tester.config.min_wfe_threshold:.0%}")
-        logger.info(f"  Min Trades for Confidence: {self.wfe_tester.config.min_trades_for_confidence}")
+        logger.info(
+            f"  Min WFE Threshold: {self.wfe_tester.config.min_wfe_threshold:.0%}"
+        )
+        logger.info(
+            f"  Min Trades for Confidence: {self.wfe_tester.config.min_trades_for_confidence}"
+        )
         logger.info("=" * 70)
-        logger.info("REGIME STRATEGY SELECTOR ENABLED (2025-12-02) - Research: Mandelbrot's FMH")
+        logger.info(
+            "REGIME STRATEGY SELECTOR ENABLED (2025-12-02) - Research: Mandelbrot's FMH"
+        )
         logger.info("=" * 70)
-        logger.info(f"  TRENDING: SL mult=1.5x, TP mult=2.0x, pos mult=1.0x")
-        logger.info(f"  MEAN_REVERTING: SL mult=0.8x, TP mult=1.2x, pos mult=0.9x")
-        logger.info(f"  RANDOM_WALK: SL mult=1.0x, TP mult=1.0x, pos mult=0.5x")
+        logger.info("  TRENDING: SL mult=1.5x, TP mult=2.0x, pos mult=1.0x")
+        logger.info("  MEAN_REVERTING: SL mult=0.8x, TP mult=1.2x, pos mult=0.9x")
+        logger.info("  RANDOM_WALK: SL mult=1.0x, TP mult=1.0x, pos mult=0.5x")
         logger.info("=" * 70)
-        logger.info("ATR TRAILING STOP ENABLED (2025-12-02) - Research: Chandelier Exit")
+        logger.info(
+            "ATR TRAILING STOP ENABLED (2025-12-02) - Research: Chandelier Exit"
+        )
         logger.info("=" * 70)
-        logger.info(f"  Base ATR Multiplier: {self.atr_trailing_stop.config.base_atr_multiplier}x")
-        logger.info(f"  Min/Max Multipliers: {self.atr_trailing_stop.config.min_atr_multiplier}x - {self.atr_trailing_stop.config.max_atr_multiplier}x")
-        logger.info(f"  Activation Profit: {self.atr_trailing_stop.config.activation_profit_pct}%")
+        logger.info(
+            f"  Base ATR Multiplier: {self.atr_trailing_stop.config.base_atr_multiplier}x"
+        )
+        logger.info(
+            f"  Min/Max Multipliers: {self.atr_trailing_stop.config.min_atr_multiplier}x - {self.atr_trailing_stop.config.max_atr_multiplier}x"
+        )
+        logger.info(
+            f"  Activation Profit: {self.atr_trailing_stop.config.activation_profit_pct}%"
+        )
         logger.info(f"  Step Update: {self.atr_trailing_stop.config.step_pct}%")
-        logger.info(f"  Chandelier Exit: {self.atr_trailing_stop.config.use_chandelier_exit}")
+        logger.info(
+            f"  Chandelier Exit: {self.atr_trailing_stop.config.use_chandelier_exit}"
+        )
         logger.info("=" * 70)
-        logger.info("PARTIAL PROFIT TAKER ENABLED (2025-12-02) - Research: Scale-Out Strategy")
+        logger.info(
+            "PARTIAL PROFIT TAKER ENABLED (2025-12-02) - Research: Scale-Out Strategy"
+        )
         logger.info("=" * 70)
-        logger.info(f"  Profit Levels: {self.partial_profit_taker.config.profit_levels}%")
-        logger.info(f"  Exit Percentages: {self.partial_profit_taker.config.exit_percentages}%")
-        logger.info(f"  Breakeven After: {self.partial_profit_taker.config.move_stop_to_breakeven_after} partial(s)")
-        logger.info(f"  Min Position Value: ${self.partial_profit_taker.config.min_position_value}")
+        logger.info(
+            f"  Profit Levels: {self.partial_profit_taker.config.profit_levels}%"
+        )
+        logger.info(
+            f"  Exit Percentages: {self.partial_profit_taker.config.exit_percentages}%"
+        )
+        logger.info(
+            f"  Breakeven After: {self.partial_profit_taker.config.move_stop_to_breakeven_after} partial(s)"
+        )
+        logger.info(
+            f"  Min Position Value: ${self.partial_profit_taker.config.min_position_value}"
+        )
         logger.info("=" * 70)
 
     async def start(self):
@@ -681,15 +772,19 @@ class AutoTrader:
             logger.warning("AutoTrader is already running")
             return False
 
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("STARTING AUTOMATED TRADING LOOP")
         logger.info(f"  Symbols: {self.symbols}")
         logger.info(f"  Interval: {self.interval}m")
         logger.info(f"  Strategy Mode: {self.strategy_mode.value}")
-        logger.info(f"  ML Predictions: {'ENABLED (Phase 3)' if self.enable_ml else 'DISABLED'}")
+        logger.info(
+            f"  ML Predictions: {'ENABLED (Phase 3)' if self.enable_ml else 'DISABLED'}"
+        )
         logger.info(f"  Volume Profile: {'ENABLED' if self.enable_vp else 'DISABLED'}")
-        logger.info(f"  Market Regime: {'ENABLED' if self.enable_market_regime else 'DISABLED'}")
-        logger.info("="*60)
+        logger.info(
+            f"  Market Regime: {'ENABLED' if self.enable_market_regime else 'DISABLED'}"
+        )
+        logger.info("=" * 60)
         self.is_running = True
         self.task = asyncio.create_task(self._trading_loop())
         return True
@@ -735,12 +830,36 @@ class AutoTrader:
         logger.info("Automated trading loop started")
         logger.info(f"Strategy Mode: {self.strategy_mode.value}")
         logger.info("Position monitoring enabled: trailing stops + partial exits")
-        logger.info("Research-backed enhancements: Circuit Breaker, Kill Switch, Slippage Manager")
+        logger.info(
+            "Research-backed enhancements: Circuit Breaker, Kill Switch, Slippage Manager"
+        )
 
         # Initialize kill switch with starting balance
         paper_engine = get_paper_engine()
         starting_balance = paper_engine.get_balance()
         self.kill_switch.initialize_balance(float(starting_balance))
+
+        # Detect broken EMERGENCY_STOP bind-mount at loop start.
+        # Docker auto-creates a *directory* at the mount point if the host file
+        # was missing at compose-up time. Path.is_file() then returns False
+        # forever, silently disabling the operator kill switch. Surface this
+        # state loudly so the operator can fix the mount before relying on it.
+        if self.emergency_stop_file.exists() and not self.emergency_stop_file.is_file():
+            try:
+                from app.core.metrics import risk_limit_breaches_total
+
+                risk_limit_breaches_total.labels(
+                    breach_type="emergency_stop_mount_broken"
+                ).inc()
+            except Exception:
+                pass
+            logger.critical(
+                f"EMERGENCY_STOP mount is broken: {self.emergency_stop_file} exists but "
+                f"is not a regular file (likely a directory created by Docker when the host "
+                f"file was missing at compose-up). Kill switch is non-functional. To fix: "
+                f"stop trading-engine, on host run `rmdir EMERGENCY_STOP && touch EMERGENCY_STOP`, "
+                f"then `docker compose up -d --force-recreate trading-engine api-gateway`."
+            )
 
         while self.is_running:
             try:
@@ -866,7 +985,9 @@ class AutoTrader:
             # Get risk manager
             risk_mgr = get_risk_manager()
             if risk_mgr.should_halt_trading():
-                logger.warning(f"[HYBRID] Trading halted due to risk limits for {symbol}")
+                logger.warning(
+                    f"[HYBRID] Trading halted due to risk limits for {symbol}"
+                )
                 return
 
             # Get aggregated signal for standard strategy
@@ -889,9 +1010,11 @@ class AutoTrader:
             # Get current price from indicators
             current_price = None
             for indicator_name, indicator_signal in signal.indicators.items():
-                if hasattr(indicator_signal, 'metadata') and indicator_signal.metadata:
+                if hasattr(indicator_signal, "metadata") and indicator_signal.metadata:
                     if "current_price" in indicator_signal.metadata:
-                        current_price = float(indicator_signal.metadata["current_price"])
+                        current_price = float(
+                            indicator_signal.metadata["current_price"]
+                        )
                         break
 
             if not current_price:
@@ -908,32 +1031,47 @@ class AutoTrader:
             trade_setup = self.hybrid_strategy.generate_signal(
                 indicators=signal.indicators,
                 current_price=current_price,
-                capital=float(balance)
+                capital=float(balance),
             )
 
             research_action = trade_setup.action.value if trade_setup else "HOLD"
             research_confidence = trade_setup.confidence if trade_setup else 0.0
 
             # Log both signals
-            logger.info(f"[HYBRID] Standard: {standard_action} ({standard_confidence:.2%})")
-            logger.info(f"[HYBRID] Research: {research_action} ({research_confidence:.2%})")
+            logger.info(
+                f"[HYBRID] Standard: {standard_action} ({standard_confidence:.2%})"
+            )
+            logger.info(
+                f"[HYBRID] Research: {research_action} ({research_confidence:.2%})"
+            )
 
             # Check for agreement
-            if standard_action == research_action and standard_action in ["BUY", "SELL"]:
+            if standard_action == research_action and standard_action in [
+                "BUY",
+                "SELL",
+            ]:
                 if meets_requirements and trade_setup:
-                    logger.info(f"[HYBRID] AGREEMENT: Both strategies say {standard_action}")
+                    logger.info(
+                        f"[HYBRID] AGREEMENT: Both strategies say {standard_action}"
+                    )
                     await self._execute_trade_with_setup(symbol, trade_setup)
                     self.research_trades += 1
                     self.standard_trades += 1
                 else:
-                    logger.info(f"[HYBRID] Agreement on {standard_action} but requirements not met")
+                    logger.info(
+                        f"[HYBRID] Agreement on {standard_action} but requirements not met"
+                    )
                     self.total_trades_rejected += 1
             else:
-                logger.info(f"[HYBRID] DISAGREEMENT: Standard={standard_action}, Research={research_action}")
+                logger.info(
+                    f"[HYBRID] DISAGREEMENT: Standard={standard_action}, Research={research_action}"
+                )
                 logger.info(f"[HYBRID] Holding position for {symbol}")
 
         except Exception as e:
-            logger.error(f"[HYBRID] Error checking signal for {symbol}: {e}", exc_info=True)
+            logger.error(
+                f"[HYBRID] Error checking signal for {symbol}: {e}", exc_info=True
+            )
 
     async def _check_and_trade(self, symbol: str):
         """
@@ -958,8 +1096,7 @@ class AutoTrader:
             regime_analysis = None
             if self.enable_market_regime:
                 regime_analysis = await self.regime_detector.detect_regime(
-                    symbol=symbol,
-                    interval=self.interval
+                    symbol=symbol, interval=self.interval
                 )
                 # Track regime counts
                 self.regime_counts[regime_analysis.regime] += 1
@@ -975,9 +1112,7 @@ class AutoTrader:
                 # Phase 3: Use ML-enhanced signals (Technical 40% + ML 30% + Sentiment 15% + MTF 15%)
                 logger.info(f"Using ML-ENHANCED signal aggregation for {symbol}")
                 signal = await aggregator.get_trading_signal_enhanced(
-                    symbol=symbol,
-                    interval=self.interval,
-                    use_phase3=True
+                    symbol=symbol, interval=self.interval, use_phase3=True
                 )
             elif self.enable_vp:
                 # Use VP-enhanced signals (Phase 3 - VP only)
@@ -987,7 +1122,7 @@ class AutoTrader:
                     timeframes=["15", self.interval, "240"],
                     enable_vp=True,
                     vp_lookback=100,
-                    regime_analysis=regime_analysis
+                    regime_analysis=regime_analysis,
                 )
             else:
                 # Use multi-timeframe only (Phase 2)
@@ -995,7 +1130,7 @@ class AutoTrader:
                     symbol=symbol,
                     primary_interval=self.interval,
                     timeframes=["15", self.interval, "240"],  # Short, medium, long-term
-                    regime_analysis=regime_analysis
+                    regime_analysis=regime_analysis,
                 )
 
             if not signal:
@@ -1053,7 +1188,9 @@ class AutoTrader:
                     f"Direction: {regime_data.get('direction', 'N/A')} | "
                     f"Modifier: {regime_data.get('confidence_modifier', 1.0):.2f}x"
                 )
-                logger.info(f"   Strategy: {regime_data.get('strategy_recommendation', 'N/A')}")
+                logger.info(
+                    f"   Strategy: {regime_data.get('strategy_recommendation', 'N/A')}"
+                )
 
             # Check if signal meets requirements
             meets_requirements = signal.metadata.get("meets_requirements", False)
@@ -1095,18 +1232,20 @@ class AutoTrader:
 
             # Check if trading is halted
             if risk_mgr.should_halt_trading():
-                logger.warning(f"[RESEARCH] Trading halted due to risk limits for {symbol}")
+                logger.warning(
+                    f"[RESEARCH] Trading halted due to risk limits for {symbol}"
+                )
                 return
 
             # Get aggregated signal with ML enhancement if enabled
             aggregator = await get_aggregator()
             if self.enable_ml:
                 # Phase 3: Use ML-enhanced signals (Technical 40% + ML 30% + Sentiment 15% + MTF 15%)
-                logger.info(f"[RESEARCH] Using ML-ENHANCED signal aggregation for {symbol}")
+                logger.info(
+                    f"[RESEARCH] Using ML-ENHANCED signal aggregation for {symbol}"
+                )
                 signal = await aggregator.get_trading_signal_enhanced(
-                    symbol=symbol,
-                    interval=self.interval,
-                    use_phase3=True
+                    symbol=symbol, interval=self.interval, use_phase3=True
                 )
             else:
                 signal = await aggregator.get_trading_signal_multi_timeframe(
@@ -1122,9 +1261,11 @@ class AutoTrader:
             # Get current price from indicators
             current_price = None
             for indicator_name, indicator_signal in signal.indicators.items():
-                if hasattr(indicator_signal, 'metadata') and indicator_signal.metadata:
+                if hasattr(indicator_signal, "metadata") and indicator_signal.metadata:
                     if "current_price" in indicator_signal.metadata:
-                        current_price = float(indicator_signal.metadata["current_price"])
+                        current_price = float(
+                            indicator_signal.metadata["current_price"]
+                        )
                         break
 
             if not current_price:
@@ -1141,11 +1282,13 @@ class AutoTrader:
             trade_setup = self.hybrid_strategy.generate_signal(
                 indicators=signal.indicators,
                 current_price=current_price,
-                capital=float(balance)
+                capital=float(balance),
             )
 
             if not trade_setup:
-                logger.info(f"[RESEARCH] No valid trade setup for {symbol} (insufficient indicator alignment)")
+                logger.info(
+                    f"[RESEARCH] No valid trade setup for {symbol} (insufficient indicator alignment)"
+                )
                 return
 
             # Log research signal details
@@ -1174,26 +1317,35 @@ class AutoTrader:
 
             # Get settings for MTF configuration
             from app.config import get_settings
+
             settings = get_settings()
 
             if settings.enable_multi_timeframe and settings.mtf_require_alignment:
                 # Check for MTF metadata in signal
-                mtf_data = signal.metadata.get('multi_timeframe', {}) if signal.metadata else {}
+                mtf_data = (
+                    signal.metadata.get("multi_timeframe", {})
+                    if signal.metadata
+                    else {}
+                )
 
                 if mtf_data:
-                    mtf_alignment_score = mtf_data.get('alignment_score', 0) or 0
-                    mtf_consensus = mtf_data.get('consensus_signal', 'N/A')
+                    mtf_alignment_score = mtf_data.get("alignment_score", 0) or 0
+                    mtf_consensus = mtf_data.get("consensus_signal", "N/A")
                     min_alignment = settings.mtf_min_alignment_score
 
-                    logger.info(f"  [MTF] Alignment Score: {mtf_alignment_score:.1f}% (min: {min_alignment}%)")
+                    logger.info(
+                        f"  [MTF] Alignment Score: {mtf_alignment_score:.1f}% (min: {min_alignment}%)"
+                    )
                     logger.info(f"  [MTF] Consensus: {mtf_consensus}")
-                    logger.info(f"  [MTF] Timeframes: 15m={mtf_data.get('short_term', 'N/A')}, "
-                               f"60m={mtf_data.get('medium_term', 'N/A')}, 4h={mtf_data.get('long_term', 'N/A')}")
+                    logger.info(
+                        f"  [MTF] Timeframes: 15m={mtf_data.get('short_term', 'N/A')}, "
+                        f"60m={mtf_data.get('medium_term', 'N/A')}, 4h={mtf_data.get('long_term', 'N/A')}"
+                    )
 
                     # Check if signal action matches MTF consensus
                     action_matches_consensus = (
-                        mtf_consensus == trade_setup.action.value or
-                        mtf_consensus == "HOLD"  # HOLD is neutral, allow trade
+                        mtf_consensus == trade_setup.action.value
+                        or mtf_consensus == "HOLD"  # HOLD is neutral, allow trade
                     )
 
                     if mtf_alignment_score < min_alignment:
@@ -1207,9 +1359,13 @@ class AutoTrader:
                         )
                         mtf_passed = False
                     else:
-                        logger.info(f"  [MTF PASSED] Timeframes aligned for {trade_setup.action.value}")
+                        logger.info(
+                            f"  [MTF PASSED] Timeframes aligned for {trade_setup.action.value}"
+                        )
                 else:
-                    logger.info(f"  [MTF] No MTF data available - proceeding without MTF filter")
+                    logger.info(
+                        "  [MTF] No MTF data available - proceeding without MTF filter"
+                    )
 
             logger.info("=" * 70)
 
@@ -1219,12 +1375,16 @@ class AutoTrader:
                 self.research_trades += 1
             elif trade_setup.action.value in ["BUY", "SELL"] and not mtf_passed:
                 self.total_trades_rejected += 1
-                logger.info(f"[RESEARCH] Trade REJECTED for {symbol} - MTF alignment failed")
+                logger.info(
+                    f"[RESEARCH] Trade REJECTED for {symbol} - MTF alignment failed"
+                )
             else:
                 logger.info(f"[RESEARCH] Holding position for {symbol}")
 
         except Exception as e:
-            logger.error(f"[RESEARCH] Error checking signal for {symbol}: {e}", exc_info=True)
+            logger.error(
+                f"[RESEARCH] Error checking signal for {symbol}: {e}", exc_info=True
+            )
 
     def _check_daily_trade_limit(self) -> bool:
         """
@@ -1236,12 +1396,16 @@ class AutoTrader:
         # Reset counter if new day
         today = datetime.now().date()
         if today != self.daily_trades_date:
-            logger.info(f"New trading day - resetting daily trade count from {self.daily_trades_count}")
+            logger.info(
+                f"New trading day - resetting daily trade count from {self.daily_trades_count}"
+            )
             self.daily_trades_count = 0
             self.daily_trades_date = today
 
         if self.daily_trades_count >= self.max_daily_trades:
-            logger.info(f"Daily trade limit reached: {self.daily_trades_count}/{self.max_daily_trades}")
+            logger.info(
+                f"Daily trade limit reached: {self.daily_trades_count}/{self.max_daily_trades}"
+            )
             return False
         return True
 
@@ -1262,7 +1426,9 @@ class AutoTrader:
         if last_trade_time:
             elapsed = (datetime.now() - last_trade_time).total_seconds()
             if elapsed < self.min_time_between_trades:
-                logger.debug(f"{symbol} in cooldown: {elapsed:.0f}s < {self.min_time_between_trades}s")
+                logger.debug(
+                    f"{symbol} in cooldown: {elapsed:.0f}s < {self.min_time_between_trades}s"
+                )
                 return False
         return True
 
@@ -1270,7 +1436,164 @@ class AutoTrader:
         """Record a trade for daily limit and cooldown tracking"""
         self.daily_trades_count += 1
         self.last_trade_time_per_symbol[symbol] = datetime.now()
-        logger.info(f"Trade recorded: {symbol} | Daily count: {self.daily_trades_count}/{self.max_daily_trades}")
+        logger.info(
+            f"Trade recorded: {symbol} | Daily count: {self.daily_trades_count}/{self.max_daily_trades}"
+        )
+
+    async def _passes_min_notional(
+        self,
+        symbol: str,
+        quantity,
+        price,
+        balance,
+    ):
+        """Pre-submit gate: reject orders below the exchange's min-notional.
+
+        Returns ``(True, None)`` to proceed, ``(False, reason)`` to reject.
+        ``reason`` is one of ``"min_qty"`` / ``"min_notional"`` and matches
+        the Prometheus counter label.
+
+        Fail-open: if the instruments cache has no entry for the symbol
+        (connector outage at boot, symbol not yet refreshed), this returns
+        ``(True, None)`` with a WARN log — refusing to trade because the
+        metadata service is down would be a worse failure mode than letting
+        the order through. Paper engine fills any quantity; LIVE mode would
+        surface Bybit's own rejection.
+
+        We deliberately do NOT auto-upround the quantity here. On a $100
+        balance × 2% per-trade cap, forcing a $5 alt min-notional would
+        silently breach the risk cap (5% notional). Surface the reject so
+        the operator sees the cap configuration is incompatible with
+        live-mode minimums.
+
+        PAPER mode short-circuit: paper-engine fills any quantity
+        deterministically — exchange minimums don't apply. Enforcing the
+        gate in PAPER would zero out trading on small paper balances
+        ($100 × 2% = $2 cap, all crypto mins above). Gate's purpose is
+        LIVE-mode protection; in PAPER we let the order through and rely
+        on the paper-engine to fill it.
+        """
+        from decimal import Decimal as _Decimal
+
+        try:
+            from app.config import get_settings
+
+            if get_settings().trading_mode != "LIVE":
+                return True, None
+        except Exception as e:
+            logger.warning(
+                f"min-notional gate: could not read trading_mode ({e!r}), enforcing gate"
+            )
+
+        # Normalise call-site types (Decimal vs float vs int) to Decimal once.
+        try:
+            qty_d = _Decimal(str(quantity))
+            price_d = _Decimal(str(price))
+            balance_d = _Decimal(str(balance))
+        except Exception:
+            # Defensive — bad inputs shouldn't crash the gate.
+            logger.warning(
+                f"min-notional gate: could not parse qty/price/balance for {symbol}, allowing"
+            )
+            return True, None
+
+        # Deferred import: avoids a circular at module load and lets tests
+        # monkeypatch app.main.get_instruments_cache cleanly.
+        try:
+            from app.main import get_instruments_cache
+        except Exception as e:
+            logger.warning(
+                f"min-notional gate: instruments cache import failed for {symbol} ({e!r}), allowing"
+            )
+            return True, None
+
+        try:
+            spec = await get_instruments_cache().get(symbol)
+        except Exception as e:
+            logger.warning(
+                f"min-notional gate: cache.get({symbol}) raised {e!r}, allowing"
+            )
+            return True, None
+
+        if spec is None:
+            logger.warning(
+                f"min-notional cache miss for {symbol}, allowing trade "
+                f"(connector outage or symbol unlisted)"
+            )
+            return True, None
+
+        notional = qty_d * price_d
+        cap = balance_d * _Decimal("0.02")
+
+        if qty_d < spec.min_order_qty:
+            try:
+                from app.core.metrics import trades_rejected_min_notional_total
+
+                trades_rejected_min_notional_total.labels(
+                    symbol=symbol, reason="min_qty"
+                ).inc()
+            except Exception:
+                pass
+            logger.info(
+                f"rejecting {symbol}: qty {qty_d} below min {spec.min_order_qty} "
+                f"(notional ${notional:.2f}, balance ${balance_d:.2f}, "
+                f"cap 2% = ${cap:.2f})"
+            )
+            return False, "min_qty"
+
+        if spec.min_notional is not None and notional < spec.min_notional:
+            try:
+                from app.core.metrics import trades_rejected_min_notional_total
+
+                trades_rejected_min_notional_total.labels(
+                    symbol=symbol, reason="min_notional"
+                ).inc()
+            except Exception:
+                pass
+            logger.info(
+                f"rejecting {symbol}: notional ${notional:.2f} below min "
+                f"${spec.min_notional} (qty {qty_d}, balance ${balance_d:.2f}, "
+                f"cap 2% = ${cap:.2f})"
+            )
+            return False, "min_notional"
+
+        return True, None
+
+    async def _claim_open_slot(self, symbol: str) -> bool:
+        """
+        Atomically claim a per-symbol open slot. Prevents twin positions when
+        two signal paths race past the position_mgr.get_open_positions()
+        existence check before either commits its row.
+
+        Returns False if (a) another open is already in flight for this symbol
+        or (b) we just opened one within the cooldown window.
+        """
+        async with self._opening_lock:
+            if symbol in self._opening_symbols:
+                logger.info(
+                    f"[DEDUP] {symbol}: open already in flight, skipping duplicate"
+                )
+                self.total_trades_rejected += 1
+                return False
+            last = self._last_open_at.get(symbol)
+            if last is not None:
+                elapsed = (datetime.now() - last).total_seconds()
+                if elapsed < self.open_cooldown_seconds:
+                    logger.info(
+                        f"[DEDUP] {symbol}: open cooldown "
+                        f"{elapsed:.1f}s/{self.open_cooldown_seconds}s, "
+                        f"skipping duplicate"
+                    )
+                    self.total_trades_rejected += 1
+                    return False
+            self._opening_symbols.add(symbol)
+            return True
+
+    def _release_open_slot(self, symbol: str, *, opened: bool) -> None:
+        """Release the slot. Stamp last_open_at iff a position was opened."""
+        self._opening_symbols.discard(symbol)
+        if opened:
+            self._last_open_at[symbol] = datetime.now()
 
     async def _execute_trade_with_setup(self, symbol: str, trade_setup: TradeSetup):
         """
@@ -1288,6 +1611,11 @@ class AutoTrader:
             symbol: Trading symbol
             trade_setup: Complete trade setup from ResearchOptimizedStrategy
         """
+        # Concurrent-open dedup gate (2026-05-06). MUST be first — otherwise
+        # twin signals race past has_position before either persists.
+        if not await self._claim_open_slot(symbol):
+            return
+        opened = False
         try:
             # ================================================================
             # PRE-TRADE CHECKS (Enhanced 2025-11-30)
@@ -1295,7 +1623,9 @@ class AutoTrader:
 
             # Check kill switch first
             if self.kill_switch.should_halt_trading():
-                logger.warning(f"[RESEARCH] Kill switch active, rejecting trade for {symbol}")
+                logger.warning(
+                    f"[RESEARCH] Kill switch active, rejecting trade for {symbol}"
+                )
                 self.total_trades_rejected += 1
                 return
 
@@ -1307,14 +1637,18 @@ class AutoTrader:
             current_equity = float(paper_engine.get_balance())
 
             # Calculate proposed risk for this trade
-            proposed_risk_pct = trade_setup.position_size_pct * 100 * (
-                settings.default_stop_loss_pct / 100
+            proposed_risk_pct = (
+                trade_setup.position_size_pct
+                * 100
+                * (settings.default_stop_loss_pct / 100)
             )  # Risk = position size * stop distance
 
-            can_trade, heat_reason, heat_multiplier = self.portfolio_heat_manager.can_open_trade(
-                symbol=symbol,
-                proposed_risk_pct=proposed_risk_pct,
-                equity=current_equity
+            can_trade, heat_reason, heat_multiplier = (
+                self.portfolio_heat_manager.can_open_trade(
+                    symbol=symbol,
+                    proposed_risk_pct=proposed_risk_pct,
+                    equity=current_equity,
+                )
             )
 
             if not can_trade:
@@ -1326,9 +1660,10 @@ class AutoTrader:
             # CORRELATION-BASED POSITION SIZING (2025-12-02)
             # Get combined multiplier: heat + correlation adjustments
             # ================================================================
-            combined_multiplier, size_breakdown = self.portfolio_heat_manager.get_combined_size_multiplier(
-                symbol=symbol,
-                equity=current_equity
+            combined_multiplier, size_breakdown = (
+                self.portfolio_heat_manager.get_combined_size_multiplier(
+                    symbol=symbol, equity=current_equity
+                )
             )
 
             # Log heat and correlation status
@@ -1400,10 +1735,7 @@ class AutoTrader:
             # quantities for trades that won't survive the gate. Fail-open
             # on any fetch error; gate disabled in PAPER mode.
             # ================================================================
-            if (
-                self._funding_gate_config is not None
-                and trading_mode == "LIVE"
-            ):
+            if self._funding_gate_config is not None and trading_mode == "LIVE":
                 if self._funding_client is None:
                     self._funding_client = FundingRateClient(
                         connector_base_url=self.settings.bybit_connector_url,
@@ -1429,9 +1761,13 @@ class AutoTrader:
             # SLIPPAGE CHECK (Enhanced 2025-11-30)
             # ================================================================
             # Check if limit order should be used based on order value
-            position_value_estimate = trade_setup.entry_price * trade_setup.position_size_pct * 10000  # Rough estimate
-            should_use_limit, limit_reason = self.slippage_manager.should_use_limit_order(
-                position_value_estimate, symbol
+            position_value_estimate = (
+                trade_setup.entry_price * trade_setup.position_size_pct * 10000
+            )  # Rough estimate
+            should_use_limit, limit_reason = (
+                self.slippage_manager.should_use_limit_order(
+                    position_value_estimate, symbol
+                )
             )
             if should_use_limit:
                 logger.info(f"[RESEARCH] Limit order recommended: {limit_reason}")
@@ -1455,7 +1791,9 @@ class AutoTrader:
             has_position = any(p.symbol == symbol for p in open_positions)
 
             if has_position:
-                logger.info(f"[RESEARCH] Already have open position for {symbol}, skipping")
+                logger.info(
+                    f"[RESEARCH] Already have open position for {symbol}, skipping"
+                )
                 self.total_trades_rejected += 1
                 return
 
@@ -1470,10 +1808,16 @@ class AutoTrader:
             # instead of current balance so all symbols get consistent allocation
             # regardless of how many positions have been opened
             # =================================================================
-            symbol_allocation = self.settings.symbol_allocations.get(symbol, 1.0 / len(self.settings.trading_symbols))
+            symbol_allocation = self.settings.symbol_allocations.get(
+                symbol, 1.0 / len(self.settings.trading_symbols)
+            )
 
             # Use initial balance for paper trading allocations, current balance for live trading
-            allocation_base = self.settings.paper_initial_balance if trading_mode == "PAPER" else balance
+            allocation_base = (
+                self.settings.paper_initial_balance
+                if trading_mode == "PAPER"
+                else balance
+            )
             allocated_capital = float(allocation_base) * symbol_allocation
 
             # =================================================================
@@ -1490,7 +1834,7 @@ class AutoTrader:
             if self.settings.leverage_enabled:
                 leverage = max(
                     self.settings.min_leverage,
-                    min(self.settings.default_leverage, self.settings.max_leverage)
+                    min(self.settings.default_leverage, self.settings.max_leverage),
                 )
 
             # Calculate leveraged position size
@@ -1544,7 +1888,11 @@ class AutoTrader:
                     )
                 )
                 if abs(position_value - pre_parity_value) > 1e-6:
-                    rv_str = f"{realized_vol:.2%}" if realized_vol is not None else "warming-up"
+                    rv_str = (
+                        f"{realized_vol:.2%}"
+                        if realized_vol is not None
+                        else "warming-up"
+                    )
                     logger.info(
                         f"[VOL_PARITY] {symbol}: realised_vol={rv_str}, "
                         f"baseline=${pre_parity_value:.2f} → post=${position_value:.2f} "
@@ -1567,6 +1915,7 @@ class AutoTrader:
             cap_value = float(balance) * cap_fraction
             if position_value > cap_value:
                 from app.core.metrics import risk_limit_breaches_total
+
                 risk_limit_breaches_total.labels(breach_type="position_size").inc()
                 logger.critical(
                     f"[RISK_GATE] PER_TRADE_CAP BREACH | symbol={symbol} "
@@ -1575,6 +1924,21 @@ class AutoTrader:
                     f"leverage={leverage:.1f}x allocation={symbol_allocation:.0%} "
                     f"- REJECTING. Reduce symbol_allocations[{symbol}] or leverage."
                 )
+                self.total_trades_rejected += 1
+                return
+
+            # Min-notional / min-qty gate (added 2026-05-06).
+            # Sub-cap sizing on small balances often produces qty < exchange min;
+            # paper engine fills any quantity, but LIVE Bybit will reject.
+            # We REJECT (not upround) — auto-upround would silently breach
+            # max_risk_per_trade.
+            ok, _reason = await self._passes_min_notional(
+                symbol=symbol,
+                quantity=quantity,
+                price=trade_setup.entry_price,
+                balance=balance,
+            )
+            if not ok:
                 self.total_trades_rejected += 1
                 return
 
@@ -1588,7 +1952,7 @@ class AutoTrader:
                 quantity=Decimal(str(quantity)),
                 strategy="research_optimized",
                 # CRITICAL FIX 2025-12-07: Pass confidence for position analysis
-                entry_signal_confidence=trade_setup.confidence
+                entry_signal_confidence=trade_setup.confidence,
             )
 
             # Execute through appropriate engine (paper or live).
@@ -1601,7 +1965,10 @@ class AutoTrader:
                 and hasattr(trading_engine, "execute_maker_order_with_fallback")
             )
             if use_maker:
-                executed_order, error = await trading_engine.execute_maker_order_with_fallback(
+                (
+                    executed_order,
+                    error,
+                ) = await trading_engine.execute_maker_order_with_fallback(
                     order, Decimal(str(trade_setup.entry_price))
                 )
             else:
@@ -1612,35 +1979,46 @@ class AutoTrader:
             # FIXED: Null check for executed_order (code review 2025-11-28)
             if executed_order is None:
                 self.total_trades_rejected += 1
-                logger.warning(f"[{trading_mode}] Trade execution returned None for {symbol}: {error}")
+                logger.warning(
+                    f"[{trading_mode}] Trade execution returned None for {symbol}: {error}"
+                )
                 return
 
             if executed_order.status == OrderStatus.FILLED:
                 self.total_trades_executed += 1
+                opened = True  # arm cooldown so a duplicate signal in the next 60s short-circuits
                 self._record_trade(symbol)  # Track for daily limit and cooldown
 
                 # ================================================================
                 # POST-TRADE: Update Kill Switch Metrics (2025-11-30)
                 # ================================================================
                 # Get updated balance for kill switch tracking
-                current_balance = trading_engine.get_balance() if trading_mode == "PAPER" else await trading_engine.get_balance()
+                current_balance = (
+                    trading_engine.get_balance()
+                    if trading_mode == "PAPER"
+                    else await trading_engine.get_balance()
+                )
                 triggered = self.kill_switch.update_metrics(
                     current_balance=float(current_balance),
                     trade_pnl=0.0,  # Will be updated on position close
                     was_loss=False,  # New position, not a loss yet
-                    position_value=float(position_value)
+                    position_value=float(position_value),
                 )
                 if triggered:
-                    logger.warning(f"[RESEARCH] Kill switch thresholds triggered: {triggered}")
+                    logger.warning(
+                        f"[RESEARCH] Kill switch thresholds triggered: {triggered}"
+                    )
 
                 # Record expected vs actual for slippage tracking
                 # (Actual price is same as expected for market orders in simulation)
                 self.slippage_manager.record_execution(
                     symbol=symbol,
                     expected_price=Decimal(str(trade_setup.entry_price)),
-                    actual_price=Decimal(str(trade_setup.entry_price)),  # Same for simulated market orders
+                    actual_price=Decimal(
+                        str(trade_setup.entry_price)
+                    ),  # Same for simulated market orders
                     side=action,
-                    quantity=Decimal(str(quantity))
+                    quantity=Decimal(str(quantity)),
                 )
 
                 # ================================================================
@@ -1660,24 +2038,40 @@ class AutoTrader:
                     signal = await aggregator.get_trading_signal_multi_timeframe(
                         symbol=symbol,
                         primary_interval=self.interval,
-                        timeframes=[self.interval]
+                        timeframes=[self.interval],
                     )
 
                     # Extract price history from signal metadata if available
-                    if signal and signal.metadata and "price_history" in signal.metadata:
+                    if (
+                        signal
+                        and signal.metadata
+                        and "price_history" in signal.metadata
+                    ):
                         prices = signal.metadata["price_history"]
                         if len(prices) >= 50:  # Need minimum 50 prices for Hurst
                             hurst_result = self.hurst_calculator.calculate(prices)
                             regime = hurst_result.regime
 
                             # Get regime-specific multipliers
-                            sl_multiplier = self.regime_strategy_selector.get_stop_loss_multiplier(regime)
-                            tp_multiplier = self.regime_strategy_selector.get_take_profit_multiplier(regime)
-                            regime_multiplier = self.regime_strategy_selector.get_position_size_multiplier(regime)
+                            sl_multiplier = (
+                                self.regime_strategy_selector.get_stop_loss_multiplier(
+                                    regime
+                                )
+                            )
+                            tp_multiplier = self.regime_strategy_selector.get_take_profit_multiplier(
+                                regime
+                            )
+                            regime_multiplier = self.regime_strategy_selector.get_position_size_multiplier(
+                                regime
+                            )
 
                             # Calculate SL/TP distances from entry
-                            sl_distance = abs(trade_setup.entry_price - trade_setup.stop_loss)
-                            tp_distance = abs(trade_setup.take_profit - trade_setup.entry_price)
+                            sl_distance = abs(
+                                trade_setup.entry_price - trade_setup.stop_loss
+                            )
+                            tp_distance = abs(
+                                trade_setup.take_profit - trade_setup.entry_price
+                            )
 
                             # Adjust distances based on regime
                             adjusted_sl_distance = sl_distance * sl_multiplier
@@ -1685,11 +2079,19 @@ class AutoTrader:
 
                             # Apply adjustments based on trade direction
                             if action == "BUY":
-                                adjusted_sl = trade_setup.entry_price - adjusted_sl_distance
-                                adjusted_tp = trade_setup.entry_price + adjusted_tp_distance
+                                adjusted_sl = (
+                                    trade_setup.entry_price - adjusted_sl_distance
+                                )
+                                adjusted_tp = (
+                                    trade_setup.entry_price + adjusted_tp_distance
+                                )
                             else:  # SELL
-                                adjusted_sl = trade_setup.entry_price + adjusted_sl_distance
-                                adjusted_tp = trade_setup.entry_price - adjusted_tp_distance
+                                adjusted_sl = (
+                                    trade_setup.entry_price + adjusted_sl_distance
+                                )
+                                adjusted_tp = (
+                                    trade_setup.entry_price - adjusted_tp_distance
+                                )
 
                             logger.info(
                                 f"[REGIME] Hurst={hurst_result.hurst_exponent:.3f} ({regime.value}) | "
@@ -1698,7 +2100,9 @@ class AutoTrader:
                             )
 
                 except Exception as regime_err:
-                    logger.debug(f"[REGIME] Could not calculate Hurst regime: {regime_err}")
+                    logger.debug(
+                        f"[REGIME] Could not calculate Hurst regime: {regime_err}"
+                    )
                     # Use original values if Hurst calculation fails
 
                 # ================================================================
@@ -1711,7 +2115,7 @@ class AutoTrader:
                         entry_price=float(trade_setup.entry_price),
                         quantity=float(quantity),
                         side="LONG" if action == "BUY" else "SHORT",
-                        stop_loss=float(adjusted_sl)
+                        stop_loss=float(adjusted_sl),
                     )
                     logger.info(
                         f"[PARTIAL] Profit taking initialized: {symbol} | "
@@ -1719,7 +2123,9 @@ class AutoTrader:
                         f"Exit: {self.partial_profit_taker.config.exit_percentages}%"
                     )
                 except Exception as partial_err:
-                    logger.debug(f"[PARTIAL] Could not create partial profit state: {partial_err}")
+                    logger.debug(
+                        f"[PARTIAL] Could not create partial profit state: {partial_err}"
+                    )
 
                 # ================================================================
                 # POST-TRADE: Apply ATR-Based Stops from TradeSetup (2025-12-01)
@@ -1746,7 +2152,7 @@ class AutoTrader:
                             tp1=tp1,
                             tp2=tp2,
                             tp3=tp3,
-                            enable_trailing=False  # Enabled automatically after TP1 hit
+                            enable_trailing=False,  # Enabled automatically after TP1 hit
                         )
 
                         logger.info(
@@ -1762,9 +2168,13 @@ class AutoTrader:
                         )
 
                     except Exception as stop_error:
-                        logger.warning(f"[{trading_mode}] Failed to apply ATR stops: {stop_error}")
+                        logger.warning(
+                            f"[{trading_mode}] Failed to apply ATR stops: {stop_error}"
+                        )
 
-                logger.info(f"[{trading_mode}] Trade executed successfully for {symbol}")
+                logger.info(
+                    f"[{trading_mode}] Trade executed successfully for {symbol}"
+                )
                 logger.info(
                     f"[{trading_mode}] Stops (regime-adjusted): SL=${adjusted_sl:.2f}, "
                     f"TP=${adjusted_tp:.2f}"
@@ -1781,7 +2191,7 @@ class AutoTrader:
                         entry_price=float(trade_setup.entry_price),
                         quantity=float(quantity),
                         take_profit=float(adjusted_tp),
-                        stop_loss=float(adjusted_sl)
+                        stop_loss=float(adjusted_sl),
                     )
                     logger.info(
                         f"[DCA] Position created for {symbol}: "
@@ -1802,7 +2212,7 @@ class AutoTrader:
                         quantity=float(quantity),
                         stop_loss=float(adjusted_sl),
                         current_price=float(trade_setup.entry_price),
-                        equity=float(balance)
+                        equity=float(balance),
                     )
                     self.portfolio_heat_manager.add_position(position_risk)
                     new_heat = self.portfolio_heat_manager.get_summary_dict()
@@ -1812,7 +2222,9 @@ class AutoTrader:
                         f"New total heat: {new_heat['total_heat_pct']:.2f}%"
                     )
                 except Exception as heat_err:
-                    logger.warning(f"[HEAT] Failed to add position to heat manager: {heat_err}")
+                    logger.warning(
+                        f"[HEAT] Failed to add position to heat manager: {heat_err}"
+                    )
 
                 logger.info(
                     f"[{trading_mode}] Stats: Checked={self.total_signals_checked}, "
@@ -1835,23 +2247,37 @@ class AutoTrader:
                         stop_loss=adjusted_sl,
                         take_profit=adjusted_tp,
                     )
-                    if not (isinstance(notify_result, dict) and notify_result.get("success")):
+                    if not (
+                        isinstance(notify_result, dict) and notify_result.get("success")
+                    ):
                         logger.warning(
                             "Trade-open notification NOT DELIVERED for %s: %s",
-                            symbol, notify_result,
+                            symbol,
+                            notify_result,
                         )
                 except Exception as notify_err:
                     logger.warning(
                         "Trade-open notification raised for %s: %s",
-                        symbol, notify_err,
+                        symbol,
+                        notify_err,
                     )
             else:
                 self.total_trades_rejected += 1
-                logger.warning(f"[{trading_mode}] Trade execution failed for {symbol}: {error}")
+                logger.warning(
+                    f"[{trading_mode}] Trade execution failed for {symbol}: {error}"
+                )
 
         except Exception as e:
-            logger.error(f"[RESEARCH] Error executing trade for {symbol}: {e}", exc_info=True)
+            logger.error(
+                f"[RESEARCH] Error executing trade for {symbol}: {e}", exc_info=True
+            )
             self.total_trades_rejected += 1
+        finally:
+            # Release per-symbol open slot. `opened` is True only on the path
+            # that actually persisted a fill above; every other return / raise
+            # falls through with opened=False, releasing the claim without
+            # arming the cooldown.
+            self._release_open_slot(symbol, opened=opened)
 
     def _log_market_regime(self, symbol: str, regime_analysis) -> None:
         """
@@ -1871,7 +2297,9 @@ class AutoTrader:
             f"+DI: {regime_analysis.plus_di:.1f} | "
             f"-DI: {regime_analysis.minus_di:.1f}"
         )
-        logger.info(f"  Confidence Modifier: {regime_analysis.confidence_modifier:.2f}x")
+        logger.info(
+            f"  Confidence Modifier: {regime_analysis.confidence_modifier:.2f}x"
+        )
         logger.info(f"  Description: {regime_analysis.description}")
         logger.info(f"  Strategy: {regime_analysis.strategy_recommendation}")
         logger.info("=" * 60)
@@ -1950,7 +2378,9 @@ class AutoTrader:
                 exit_order, Decimal(str(current_price))
             )
             if exec_err:
-                logger.warning(f"[MAX_HOLD] execute error for {position.symbol}: {exec_err}")
+                logger.warning(
+                    f"[MAX_HOLD] execute error for {position.symbol}: {exec_err}"
+                )
 
             if executed_order and executed_order.status == OrderStatus.FILLED:
                 # Update position manager
@@ -1958,7 +2388,7 @@ class AutoTrader:
                 position_mgr.close_position(
                     position_id=position.id,
                     exit_price=Decimal(str(current_price)),
-                    exit_reason=f"MAX_HOLD_TIME_EXCEEDED ({hours_held:.1f}h > {max_hours}h)"
+                    exit_reason=f"MAX_HOLD_TIME_EXCEEDED ({hours_held:.1f}h > {max_hours}h)",
                 )
 
                 logger.info(
@@ -1970,13 +2400,13 @@ class AutoTrader:
                 try:
                     notification_client = get_notification_client()
                     await notification_client.send_notification(
-                        title=f"⏱️ MAX HOLD TIME - Position Force Closed",
+                        title="⏱️ MAX HOLD TIME - Position Force Closed",
                         message=f"Closed {position.symbol} {position.side} after {hours_held:.1f}h\n"
-                                f"Max allowed: {max_hours}h\n"
-                                f"Entry: ${position.entry_price}\n"
-                                f"Exit: ${current_price:.2f}\n"
-                                f"P&L: ${position.unrealized_pnl:.2f}",
-                        severity="high"
+                        f"Max allowed: {max_hours}h\n"
+                        f"Entry: ${position.entry_price}\n"
+                        f"Exit: ${current_price:.2f}\n"
+                        f"P&L: ${position.unrealized_pnl:.2f}",
+                        severity="high",
                     )
                 except Exception as notif_err:
                     logger.debug(f"[MAX_HOLD] Notification note: {notif_err}")
@@ -1992,18 +2422,18 @@ class AutoTrader:
         except Exception as e:
             logger.error(
                 f"[MAX_HOLD] ❌ Exception closing {position.symbol} after {hours_held:.1f}h: {e}",
-                exc_info=True
+                exc_info=True,
             )
 
             # Send critical alert about failure
             try:
                 notification_client = get_notification_client()
                 await notification_client.send_notification(
-                    title=f"🚨 CRITICAL - Failed to Force Close Position",
+                    title="🚨 CRITICAL - Failed to Force Close Position",
                     message=f"Failed to close {position.symbol} after {hours_held:.1f}h\n"
-                            f"Error: {str(e)}\n"
-                            f"MANUAL INTERVENTION REQUIRED",
-                    severity="critical"
+                    f"Error: {str(e)}\n"
+                    f"MANUAL INTERVENTION REQUIRED",
+                    severity="critical",
                 )
             except:
                 pass
@@ -2038,7 +2468,9 @@ class AutoTrader:
             # ================================================================
             try:
                 current_equity = float(paper_engine.get_balance())
-                self.portfolio_heat_manager.sync_with_positions(open_positions, current_equity)
+                self.portfolio_heat_manager.sync_with_positions(
+                    open_positions, current_equity
+                )
             except Exception as sync_err:
                 logger.debug(f"[HEAT] Sync note: {sync_err}")
 
@@ -2058,7 +2490,9 @@ class AutoTrader:
                     # Prevents catastrophic losses from positions held too long
                     # Example: SOLUSDT SHORT held 185h instead of 48h max -> -$14.33 loss
                     # ================================================================
-                    was_closed = await self._check_position_hold_time(position, current_price)
+                    was_closed = await self._check_position_hold_time(
+                        position, current_price
+                    )
                     if was_closed:
                         # Position was force closed due to max hold time
                         # Skip remaining monitoring for this position
@@ -2074,12 +2508,16 @@ class AutoTrader:
                     if atr_value and position.stop_loss:
                         try:
                             # Build position dict for ATR trailing stop
-                            position_side = "LONG" if str(position.side).upper() in ["LONG", "BUY"] else "SHORT"
+                            position_side = (
+                                "LONG"
+                                if str(position.side).upper() in ["LONG", "BUY"]
+                                else "SHORT"
+                            )
                             pos_dict = {
                                 "symbol": position.symbol,
                                 "entry_price": float(position.entry_price),
                                 "side": position_side,
-                                "current_stop": float(position.stop_loss)
+                                "current_stop": float(position.stop_loss),
                             }
 
                             # Calculate new trailing stop using ATR-based methodology
@@ -2087,10 +2525,12 @@ class AutoTrader:
                                 position=pos_dict,
                                 current_price=current_price,
                                 atr_value=atr_value,
-                                volatility_regime=TrailingStopVolatilityRegime.NORMAL
+                                volatility_regime=TrailingStopVolatilityRegime.NORMAL,
                             )
 
-                            if new_atr_stop and new_atr_stop != float(position.stop_loss):
+                            if new_atr_stop and new_atr_stop != float(
+                                position.stop_loss
+                            ):
                                 logger.info(
                                     f"[ATR_TRAIL] {position.symbol}: Stop updated "
                                     f"${float(position.stop_loss):.2f} -> ${new_atr_stop:.2f} "
@@ -2100,22 +2540,28 @@ class AutoTrader:
                                 position_mgr.set_position_stops(
                                     position_id=position.id,
                                     stop_loss=Decimal(str(new_atr_stop)),
-                                    take_profit=position.take_profit
+                                    take_profit=position.take_profit,
                                 )
 
                         except Exception as atr_trail_err:
-                            logger.debug(f"[ATR_TRAIL] Update note for {position.symbol}: {atr_trail_err}")
+                            logger.debug(
+                                f"[ATR_TRAIL] Update note for {position.symbol}: {atr_trail_err}"
+                            )
 
                     # ================================================================
                     # PARTIAL PROFIT TAKER CHECK (2025-12-02)
                     # Scale out at 1%, 2%, 3% profit levels
                     # ================================================================
                     try:
-                        partial_state = self.partial_profit_taker.positions.get(position.symbol)
+                        partial_state = self.partial_profit_taker.positions.get(
+                            position.symbol
+                        )
                         if partial_state:
                             # Check for partial exits
-                            exits_to_execute = self.partial_profit_taker.check_partial_exits(
-                                partial_state, current_price
+                            exits_to_execute = (
+                                self.partial_profit_taker.check_partial_exits(
+                                    partial_state, current_price
+                                )
                             )
 
                             for partial_exit_order in exits_to_execute:
@@ -2134,16 +2580,22 @@ class AutoTrader:
                                 self.partial_profit_taker.execute_partial_exit(
                                     partial_state,
                                     partial_exit_order.level_number,
-                                    current_price
+                                    current_price,
                                 )
 
                                 # Check if should move stop to breakeven
-                                if self.partial_profit_taker.should_move_to_breakeven(partial_state):
-                                    breakeven_price = self.partial_profit_taker.get_breakeven_stop(partial_state)
+                                if self.partial_profit_taker.should_move_to_breakeven(
+                                    partial_state
+                                ):
+                                    breakeven_price = (
+                                        self.partial_profit_taker.get_breakeven_stop(
+                                            partial_state
+                                        )
+                                    )
                                     position_mgr.set_position_stops(
                                         position_id=position.id,
                                         stop_loss=Decimal(str(breakeven_price)),
-                                        take_profit=position.take_profit
+                                        take_profit=position.take_profit,
                                     )
                                     logger.info(
                                         f"[PARTIAL] Breakeven stop activated for {position.symbol}: "
@@ -2151,24 +2603,27 @@ class AutoTrader:
                                     )
 
                     except Exception as partial_err:
-                        logger.debug(f"[PARTIAL] Check note for {position.symbol}: {partial_err}")
+                        logger.debug(
+                            f"[PARTIAL] Check note for {position.symbol}: {partial_err}"
+                        )
 
                     # Update position with trailing and check exits
                     position, partial_exit = position_mgr.update_position_with_trailing(
-                        position.id,
-                        Decimal(str(current_price)),
-                        atr_value
+                        position.id, Decimal(str(current_price)), atr_value
                     )
 
                     # Check all exit conditions
-                    should_exit, reason, exit_info = position_mgr.check_all_exit_conditions(
-                        position.id,
-                        Decimal(str(current_price))
+                    should_exit, reason, exit_info = (
+                        position_mgr.check_all_exit_conditions(
+                            position.id, Decimal(str(current_price))
+                        )
                     )
 
                     if should_exit:
                         # Full exit - also clean up partial profit state
-                        logger.info(f"[MONITOR] Exit triggered for {position.symbol}: {reason}")
+                        logger.info(
+                            f"[MONITOR] Exit triggered for {position.symbol}: {reason}"
+                        )
                         self.partial_profit_taker.remove_position(position.symbol)
                         self.atr_trailing_stop.remove_position_state(position.symbol)
 
@@ -2180,14 +2635,18 @@ class AutoTrader:
                         # Solution: Use limit order with 0.5% buffer, fallback to market if not filled
                         # ================================================================
                         if "stop" in reason.lower() or "loss" in reason.lower():
-                            await self._close_position_with_limit_order(position, current_price, reason)
+                            await self._close_position_with_limit_order(
+                                position, current_price, reason
+                            )
                         else:
                             await self._close_position(position, current_price, reason)
 
                     # ================================================================
                     # DCA CHECK - Add safety order if price dropped enough (2025-12-02)
                     # ================================================================
-                    elif self.dca_manager.should_add_safety_order(position.symbol, current_price):
+                    elif self.dca_manager.should_add_safety_order(
+                        position.symbol, current_price
+                    ):
                         await self._execute_dca_order(position, current_price)
 
                     elif exit_info:
@@ -2196,12 +2655,14 @@ class AutoTrader:
                             f"[MONITOR] Partial exit for {position.symbol}: "
                             f"{exit_info['level']} - {exit_info['exit_percentage']:.0f}%"
                         )
-                        await self._execute_partial_exit(position, exit_info, current_price)
+                        await self._execute_partial_exit(
+                            position, exit_info, current_price
+                        )
 
                 except Exception as e:
                     logger.error(
                         f"[MONITOR] Error processing position {position.symbol}: {e}",
-                        exc_info=True
+                        exc_info=True,
                     )
 
         except Exception as e:
@@ -2222,12 +2683,12 @@ class AutoTrader:
             signal = await aggregator.get_trading_signal_multi_timeframe(
                 symbol=symbol,
                 primary_interval=self.interval,
-                timeframes=[self.interval]
+                timeframes=[self.interval],
             )
 
             if signal and signal.indicators:
                 for ind in signal.indicators.values():
-                    if hasattr(ind, 'metadata') and ind.metadata:
+                    if hasattr(ind, "metadata") and ind.metadata:
                         if "current_price" in ind.metadata:
                             return float(ind.metadata["current_price"])
 
@@ -2251,7 +2712,7 @@ class AutoTrader:
             signal = await aggregator.get_trading_signal_multi_timeframe(
                 symbol=symbol,
                 primary_interval=self.interval,
-                timeframes=[self.interval]
+                timeframes=[self.interval],
             )
 
             if signal and signal.metadata:
@@ -2282,9 +2743,7 @@ class AutoTrader:
 
             # Close the position
             closed = position_mgr.close_position(
-                position.id,
-                Decimal(str(current_price)),
-                reason
+                position.id, Decimal(str(current_price)), reason
             )
 
             # ================================================================
@@ -2298,15 +2757,19 @@ class AutoTrader:
                 current_balance=float(current_balance),
                 trade_pnl=trade_pnl,
                 was_loss=was_loss,
-                position_value=0.0  # Position is closed
+                position_value=0.0,  # Position is closed
             )
 
             if triggered:
-                logger.warning(f"[MONITOR] Kill switch thresholds triggered after close: {triggered}")
+                logger.warning(
+                    f"[MONITOR] Kill switch thresholds triggered after close: {triggered}"
+                )
 
             # Record trade return for performance analytics (2025-11-30 v2)
             if closed.pnl_percentage is not None:
-                self._record_trade_return(closed.pnl_percentage / 100)  # Convert to decimal
+                self._record_trade_return(
+                    closed.pnl_percentage / 100
+                )  # Convert to decimal
 
             logger.info(
                 f"[MONITOR] Position closed: {position.symbol} | "
@@ -2352,7 +2815,8 @@ class AutoTrader:
                 # imports a *different* PositionSide from atr_trailing_stop
                 # (lowercase values) at the top, shadowing the right one.
                 _pos_side_str = (
-                    position.side.value if hasattr(position.side, "value")
+                    position.side.value
+                    if hasattr(position.side, "value")
                     else str(position.side)
                 ).upper()
                 side = "SELL" if _pos_side_str == "LONG" else "BUY"
@@ -2363,7 +2827,9 @@ class AutoTrader:
                     entry_price=float(position.entry_price),
                     exit_price=float(current_price),
                     pnl=float(closed.realized_pnl) if closed.realized_pnl else 0.0,
-                    pnl_pct=float(closed.pnl_percentage) if closed.pnl_percentage else 0.0
+                    pnl_pct=float(closed.pnl_percentage)
+                    if closed.pnl_percentage
+                    else 0.0,
                 )
             except Exception as notify_err:
                 logger.debug(f"Notification failed (non-critical): {notify_err}")
@@ -2377,7 +2843,7 @@ class AutoTrader:
         current_price: float,
         reason: str,
         limit_buffer_pct: float = 0.005,  # 0.5% buffer
-        timeout_seconds: int = 10
+        timeout_seconds: int = 10,
     ):
         """
         Close a position using a limit order to minimize slippage
@@ -2420,13 +2886,20 @@ class AutoTrader:
                 "app/auto_trader.py:_close_position_with_limit_order."
             )
         try:
-            import asyncio
-            from app.models import OrderCreate, OrderSide, OrderType, OrderStatus, TimeInForce
+            from app.models import (
+                OrderCreate,
+                OrderSide,
+                OrderType,
+                OrderStatus,
+                TimeInForce,
+            )
 
             position_mgr = get_position_manager()
 
             # Determine exit side (opposite of position)
-            exit_side = OrderSide.SELL if position.side.value == "LONG" else OrderSide.BUY
+            exit_side = (
+                OrderSide.SELL if position.side.value == "LONG" else OrderSide.BUY
+            )
 
             # ================================================================
             # STEP 1: Calculate limit price with buffer
@@ -2438,15 +2911,23 @@ class AutoTrader:
             if position.side.value == "LONG":
                 # LONG stop loss: Sell at limit slightly below stop loss
                 # Buffer allows faster fill while preventing excessive slippage
-                limit_price = float(position.stop_loss) * (1 - limit_buffer_pct) if position.stop_loss else current_price * (1 - limit_buffer_pct)
+                limit_price = (
+                    float(position.stop_loss) * (1 - limit_buffer_pct)
+                    if position.stop_loss
+                    else current_price * (1 - limit_buffer_pct)
+                )
             else:  # SHORT
                 # SHORT stop loss: Buy at limit slightly above stop loss
-                limit_price = float(position.stop_loss) * (1 + limit_buffer_pct) if position.stop_loss else current_price * (1 + limit_buffer_pct)
+                limit_price = (
+                    float(position.stop_loss) * (1 + limit_buffer_pct)
+                    if position.stop_loss
+                    else current_price * (1 + limit_buffer_pct)
+                )
 
             logger.info(
                 f"[LIMIT_STOP] {position.symbol} {position.side.value} | "
                 f"Stop: ${position.stop_loss} | Current: ${current_price:.2f} | "
-                f"Limit: ${limit_price:.2f} (buffer: {limit_buffer_pct*100:.1f}%)"
+                f"Limit: ${limit_price:.2f} (buffer: {limit_buffer_pct * 100:.1f}%)"
             )
 
             # ================================================================
@@ -2498,50 +2979,56 @@ class AutoTrader:
                     type=OrderType.LIMIT,
                     price=Decimal(str(limit_price)),
                     quantity=position.quantity,
-                    time_in_force=TimeInForce.IOC if hasattr(TimeInForce, 'IOC') else None,
+                    time_in_force=TimeInForce.IOC
+                    if hasattr(TimeInForce, "IOC")
+                    else None,
                     reduce_only=True,
-                    position_id=position.id
+                    position_id=position.id,
                 )
 
                 # Execute limit order
-                logger.info(f"[LIMIT_STOP] Placing limit order: {exit_side.value} {position.quantity} {position.symbol} @ ${limit_price:.2f}")
+                logger.info(
+                    f"[LIMIT_STOP] Placing limit order: {exit_side.value} {position.quantity} {position.symbol} @ ${limit_price:.2f}"
+                )
 
                 # For paper trading, simulate limit order execution
                 # In real trading, this would use the exchange's limit order API
                 limit_result = await trading_engine.execute_market_order(
                     limit_order,
-                    Decimal(str(limit_price))  # Paper trading: use limit price
+                    Decimal(str(limit_price)),  # Paper trading: use limit price
                 )
 
                 if limit_result and limit_result[0].status == OrderStatus.FILLED:
                     # Limit order filled successfully
                     actual_fill_price = float(limit_result[0].filled_price)
-                    slippage_pct = abs((actual_fill_price - limit_price) / limit_price * 100)
+                    slippage_pct = abs(
+                        (actual_fill_price - limit_price) / limit_price * 100
+                    )
 
                     logger.info(
                         f"[LIMIT_STOP] ✅ Limit order FILLED | "
                         f"{position.symbol} @ ${actual_fill_price:.2f} | "
                         f"Slippage: {slippage_pct:.2f}% | "
-                        f"Saved vs market order: ~{0.005*100 - slippage_pct:.2f}%"
+                        f"Saved vs market order: ~{0.005 * 100 - slippage_pct:.2f}%"
                     )
 
                     # Update position manager
                     closed_position = position_mgr.close_position(
                         position_id=position.id,
                         close_price=Decimal(str(actual_fill_price)),
-                        reason=f"{reason} (limit order @ ${actual_fill_price:.2f})"
+                        reason=f"{reason} (limit order @ ${actual_fill_price:.2f})",
                     )
 
                     # Send notification
                     try:
                         await self.notification_client.send_notification(
-                            title=f"🎯 Stop Loss Limit Order Filled",
+                            title="🎯 Stop Loss Limit Order Filled",
                             message=f"Closed {position.symbol} {position.side.value}\n"
-                                    f"Limit: ${limit_price:.2f}\n"
-                                    f"Filled: ${actual_fill_price:.2f}\n"
-                                    f"Slippage: {slippage_pct:.2f}%\n"
-                                    f"P&L: ${closed_position.realized_pnl:.2f}",
-                            severity="medium"
+                            f"Limit: ${limit_price:.2f}\n"
+                            f"Filled: ${actual_fill_price:.2f}\n"
+                            f"Slippage: {slippage_pct:.2f}%\n"
+                            f"P&L: ${closed_position.realized_pnl:.2f}",
+                            severity="medium",
                         )
                     except Exception as notif_err:
                         logger.debug(f"[LIMIT_STOP] Notification note: {notif_err}")
@@ -2567,19 +3054,30 @@ class AutoTrader:
                 type=OrderType.MARKET,
                 quantity=position.quantity,
                 reduce_only=True,
-                position_id=position.id
+                position_id=position.id,
             )
 
             # Execute market order
-            trading_engine = get_paper_engine() if self.settings.trading_mode != "LIVE" else get_live_engine()
+            trading_engine = (
+                get_paper_engine()
+                if self.settings.trading_mode != "LIVE"
+                else get_live_engine()
+            )
             market_result = await trading_engine.execute_market_order(
-                market_order,
-                Decimal(str(current_price))
+                market_order, Decimal(str(current_price))
             )
 
             if market_result and market_result[0].status == OrderStatus.FILLED:
                 actual_fill_price = float(market_result[0].filled_price)
-                slippage_pct = abs((actual_fill_price - float(position.stop_loss)) / float(position.stop_loss) * 100) if position.stop_loss else 0
+                slippage_pct = (
+                    abs(
+                        (actual_fill_price - float(position.stop_loss))
+                        / float(position.stop_loss)
+                        * 100
+                    )
+                    if position.stop_loss
+                    else 0
+                )
 
                 logger.info(
                     f"[LIMIT_STOP] ⚡ Market order FILLED (fallback) | "
@@ -2591,32 +3089,34 @@ class AutoTrader:
                 closed_position = position_mgr.close_position(
                     position_id=position.id,
                     close_price=Decimal(str(actual_fill_price)),
-                    reason=f"{reason} (market fallback @ ${actual_fill_price:.2f})"
+                    reason=f"{reason} (market fallback @ ${actual_fill_price:.2f})",
                 )
 
                 # Send alert about fallback
                 try:
                     await self.notification_client.send_notification(
-                        title=f"⚠️ Stop Loss Market Fallback",
+                        title="⚠️ Stop Loss Market Fallback",
                         message=f"Limit order failed, used market order\n"
-                                f"{position.symbol} {position.side.value}\n"
-                                f"Filled: ${actual_fill_price:.2f}\n"
-                                f"Slippage: {slippage_pct:.2f}%\n"
-                                f"P&L: ${closed_position.realized_pnl:.2f}",
-                        severity="high"
+                        f"{position.symbol} {position.side.value}\n"
+                        f"Filled: ${actual_fill_price:.2f}\n"
+                        f"Slippage: {slippage_pct:.2f}%\n"
+                        f"P&L: ${closed_position.realized_pnl:.2f}",
+                        severity="high",
                     )
                 except Exception as notif_err:
                     logger.debug(f"[LIMIT_STOP] Notification note: {notif_err}")
             else:
-                logger.error(f"[LIMIT_STOP] ❌ Both limit and market orders failed for {position.symbol}")
+                logger.error(
+                    f"[LIMIT_STOP] ❌ Both limit and market orders failed for {position.symbol}"
+                )
                 # Send critical alert
                 try:
                     await self.notification_client.send_notification(
-                        title=f"🚨 CRITICAL - Stop Loss Failed to Execute",
+                        title="🚨 CRITICAL - Stop Loss Failed to Execute",
                         message=f"Failed to close {position.symbol}\n"
-                                f"Both limit and market orders failed\n"
-                                f"MANUAL INTERVENTION REQUIRED",
-                        severity="critical"
+                        f"Both limit and market orders failed\n"
+                        f"MANUAL INTERVENTION REQUIRED",
+                        severity="critical",
                     )
                 except:
                     pass
@@ -2624,12 +3124,14 @@ class AutoTrader:
         except Exception as e:
             logger.error(
                 f"[LIMIT_STOP] ❌ Exception in limit order close for {position.symbol}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             # Last resort: call regular close_position
             await self._close_position(position, current_price, reason)
 
-    async def _execute_partial_exit(self, position, exit_info: dict, current_price: float):
+    async def _execute_partial_exit(
+        self, position, exit_info: dict, current_price: float
+    ):
         """
         Execute a partial exit for a position
 
@@ -2644,9 +3146,7 @@ class AutoTrader:
 
             # Execute the partial exit
             updated_pos, partial_pnl = position_mgr.execute_partial_exit(
-                position.id,
-                exit_info,
-                Decimal(str(current_price))
+                position.id, exit_info, Decimal(str(current_price))
             )
 
             level = exit_info["level"]
@@ -2659,7 +3159,15 @@ class AutoTrader:
             # Send notification for partial exit (2025-12-16 FIX)
             try:
                 exit_action = "SELL" if position.side.value == "LONG" else "BUY"
-                pnl_pct = (float(partial_pnl) / (float(position.entry_price) * exit_info["exit_quantity"])) * 100 if position.entry_price else 0.0
+                pnl_pct = (
+                    (
+                        float(partial_pnl)
+                        / (float(position.entry_price) * exit_info["exit_quantity"])
+                    )
+                    * 100
+                    if position.entry_price
+                    else 0.0
+                )
                 await self.notification_client.notify_trade_close(
                     symbol=position.symbol,
                     action=f"{exit_action} ({level})",
@@ -2667,19 +3175,25 @@ class AutoTrader:
                     entry_price=float(position.entry_price),
                     exit_price=current_price,
                     pnl=float(partial_pnl),
-                    pnl_pct=pnl_pct
+                    pnl_pct=pnl_pct,
                 )
             except Exception as notify_err:
-                logger.debug(f"Notification failed for partial exit (non-critical): {notify_err}")
+                logger.debug(
+                    f"Notification failed for partial exit (non-critical): {notify_err}"
+                )
 
             # Enable trailing stop after TP1
             if exit_info.get("enable_trailing", False):
                 logger.info(f"[MONITOR] Trailing stop enabled for {position.symbol}")
 
         except Exception as e:
-            logger.error(f"[MONITOR] Failed to execute partial exit: {e}", exc_info=True)
+            logger.error(
+                f"[MONITOR] Failed to execute partial exit: {e}", exc_info=True
+            )
 
-    async def _execute_partial_profit_exit(self, position, partial_exit, current_price: float):
+    async def _execute_partial_profit_exit(
+        self, position, partial_exit, current_price: float
+    ):
         """
         Execute a partial profit exit from the PartialProfitTaker (2025-12-02)
 
@@ -2703,7 +3217,7 @@ class AutoTrader:
                 side=exit_side,
                 type=OrderType.MARKET,
                 quantity=Decimal(str(partial_exit.quantity_to_exit)),
-                strategy="partial_profit_taker"
+                strategy="partial_profit_taker",
             )
 
             # Execute through paper engine
@@ -2736,10 +3250,12 @@ class AutoTrader:
                         entry_price=entry_price,
                         exit_price=current_price,
                         pnl=float(pnl),
-                        pnl_pct=float(partial_exit.profit_pct)
+                        pnl_pct=float(partial_exit.profit_pct),
                     )
                 except Exception as notify_err:
-                    logger.debug(f"Notification failed for partial exit (non-critical): {notify_err}")
+                    logger.debug(
+                        f"Notification failed for partial exit (non-critical): {notify_err}"
+                    )
 
                 # Record trade return for analytics
                 if entry_price > 0:
@@ -2753,7 +3269,9 @@ class AutoTrader:
                 )
 
         except Exception as e:
-            logger.error(f"[MONITOR] Failed to execute partial profit exit: {e}", exc_info=True)
+            logger.error(
+                f"[MONITOR] Failed to execute partial profit exit: {e}", exc_info=True
+            )
 
     async def _execute_dca_order(self, position, current_price: float):
         """
@@ -2777,11 +3295,13 @@ class AutoTrader:
             safety_order = self.dca_manager.create_safety_order(
                 symbol=position.symbol,
                 current_price=current_price,
-                capital=float(balance)
+                capital=float(balance),
             )
 
             if not safety_order:
-                logger.warning(f"[DCA] Could not create safety order for {position.symbol}")
+                logger.warning(
+                    f"[DCA] Could not create safety order for {position.symbol}"
+                )
                 return
 
             logger.info("=" * 70)
@@ -2799,7 +3319,8 @@ class AutoTrader:
             # safety order would always SELL — adding to a SHORT averages
             # correctly but inverts the LONG case. Compare on LONG/SHORT.
             _pos_side_str = (
-                position.side.value if hasattr(position.side, "value")
+                position.side.value
+                if hasattr(position.side, "value")
                 else str(position.side)
             ).upper()
             side = OrderSide.BUY if _pos_side_str == "LONG" else OrderSide.SELL
@@ -2809,7 +3330,7 @@ class AutoTrader:
                 side=side,
                 type=OrderType.MARKET,
                 quantity=Decimal(str(safety_order.quantity)),
-                strategy="dca_safety_order"
+                strategy="dca_safety_order",
             )
 
             executed_order, error = await paper_engine.execute_market_order(
@@ -2819,9 +3340,7 @@ class AutoTrader:
             if executed_order and executed_order.status == OrderStatus.FILLED:
                 # Process the filled order with DCA manager
                 result = self.dca_manager.process_filled_order(
-                    symbol=position.symbol,
-                    order=safety_order,
-                    fill_price=current_price
+                    symbol=position.symbol, order=safety_order, fill_price=current_price
                 )
 
                 self.dca_orders_executed += 1
@@ -2833,38 +3352,45 @@ class AutoTrader:
                         f"new avg=${result['average_entry']:.4f}, "
                         f"total qty={result['total_quantity']:.6f}"
                     )
-                    if 'new_take_profit' in result:
+                    if "new_take_profit" in result:
                         logger.info(f"[DCA] New TP: ${result['new_take_profit']:.4f}")
-                    if 'new_stop_loss' in result:
-                        logger.warning(f"[DCA] Max layers reached - new SL: ${result['new_stop_loss']:.4f}")
+                    if "new_stop_loss" in result:
+                        logger.warning(
+                            f"[DCA] Max layers reached - new SL: ${result['new_stop_loss']:.4f}"
+                        )
 
                 # Update position manager with new TP/SL if applicable
-                if result and 'new_take_profit' in result:
+                if result and "new_take_profit" in result:
                     try:
                         position_mgr = get_position_manager()
                         position_mgr.set_position_stops(
                             position_id=position.id,
-                            stop_loss=Decimal(str(result.get('new_stop_loss', position.stop_loss))),
-                            take_profit=Decimal(str(result['new_take_profit']))
+                            stop_loss=Decimal(
+                                str(result.get("new_stop_loss", position.stop_loss))
+                            ),
+                            take_profit=Decimal(str(result["new_take_profit"])),
                         )
                     except Exception as update_err:
-                        logger.warning(f"[DCA] Failed to update position stops: {update_err}")
+                        logger.warning(
+                            f"[DCA] Failed to update position stops: {update_err}"
+                        )
 
-                logger.info(f"[DCA] Safety order executed successfully for {position.symbol}")
+                logger.info(
+                    f"[DCA] Safety order executed successfully for {position.symbol}"
+                )
 
             else:
-                logger.warning(f"[DCA] Safety order execution failed for {position.symbol}: {error}")
+                logger.warning(
+                    f"[DCA] Safety order execution failed for {position.symbol}: {error}"
+                )
 
         except Exception as e:
-            logger.error(f"[DCA] Error executing safety order for {position.symbol}: {e}", exc_info=True)
+            logger.error(
+                f"[DCA] Error executing safety order for {position.symbol}: {e}",
+                exc_info=True,
+            )
 
-    async def _execute_trade(
-        self,
-        symbol: str,
-        action: str,
-        confidence: float,
-        signal
-    ):
+    async def _execute_trade(self, symbol: str, action: str, confidence: float, signal):
         """
         Execute a trade based on the signal
 
@@ -2874,8 +3400,15 @@ class AutoTrader:
             confidence: Signal confidence score
             signal: TradingSignal object
         """
+        # Concurrent-open dedup gate (2026-05-06). Race-safe per-symbol claim
+        # so two signal paths can't both pass has_position before either commits.
+        if not await self._claim_open_slot(symbol):
+            return
+        opened = False
         try:
-            logger.info(f"Executing {action} trade for {symbol} (confidence: {confidence:.2f})")
+            logger.info(
+                f"Executing {action} trade for {symbol} (confidence: {confidence:.2f})"
+            )
 
             # Get paper trading engine
             paper_engine = get_paper_engine()
@@ -2892,9 +3425,11 @@ class AutoTrader:
 
             # Try to get price from indicators (dict of IndicatorSignal objects)
             for indicator_name, indicator_signal in signal.indicators.items():
-                if hasattr(indicator_signal, 'metadata') and indicator_signal.metadata:
+                if hasattr(indicator_signal, "metadata") and indicator_signal.metadata:
                     if "current_price" in indicator_signal.metadata:
-                        current_price = float(indicator_signal.metadata["current_price"])
+                        current_price = float(
+                            indicator_signal.metadata["current_price"]
+                        )
                         break
 
             if not current_price:
@@ -2909,7 +3444,9 @@ class AutoTrader:
             if self.use_performance_data:
                 try:
                     perf_tracker = get_performance_tracker()
-                    performance_stats = position_sizer.get_performance_stats_from_tracker(perf_tracker)
+                    performance_stats = (
+                        position_sizer.get_performance_stats_from_tracker(perf_tracker)
+                    )
                     logger.debug(
                         f"Performance stats: win_rate={performance_stats.get('win_rate', 0):.2%}, "
                         f"trades={performance_stats.get('total_trades', 0)}"
@@ -2923,7 +3460,9 @@ class AutoTrader:
             if vp_data and vp_data.get("stop_loss"):
                 stop_loss_price = vp_data.get("stop_loss", 0)
                 stop_loss_pct = abs(current_price - stop_loss_price) / current_price
-                logger.debug(f"VP Stop Loss: ${stop_loss_price:.2f} ({stop_loss_pct:.2%})")
+                logger.debug(
+                    f"VP Stop Loss: ${stop_loss_price:.2f} ({stop_loss_pct:.2%})"
+                )
 
             # Calculate dynamic position size
             size_result = position_sizer.calculate_position_size(
@@ -2932,7 +3471,7 @@ class AutoTrader:
                 current_price=Decimal(str(current_price)),
                 signal_confidence=confidence,
                 performance_stats=performance_stats,
-                stop_loss_pct=stop_loss_pct
+                stop_loss_pct=stop_loss_pct,
             )
 
             # Use calculated position size
@@ -2948,11 +3487,26 @@ class AutoTrader:
             logger.info(f"Reasoning: {size_result.reasoning}")
 
             # Check if we already have an open position
-            open_positions = position_mgr.get_open_positions()  # Fixed: get_open_positions() is synchronous
+            open_positions = (
+                position_mgr.get_open_positions()
+            )  # Fixed: get_open_positions() is synchronous
             has_position = any(p.symbol == symbol for p in open_positions)
 
             if has_position:
                 logger.info(f"Already have open position for {symbol}, skipping")
+                self.total_trades_rejected += 1
+                return
+
+            # Min-notional / min-qty gate (added 2026-05-06).
+            # See _passes_min_notional docstring; reject-not-upround keeps
+            # the 2% per-trade cap intact.
+            ok, _reason = await self._passes_min_notional(
+                symbol=symbol,
+                quantity=quantity,
+                price=current_price,
+                balance=balance,
+            )
+            if not ok:
                 self.total_trades_rejected += 1
                 return
 
@@ -2965,10 +3519,12 @@ class AutoTrader:
                 side=side,
                 type=OrderType.MARKET,  # Field name is 'type', not 'order_type'
                 quantity=Decimal(str(quantity)),
-                strategy="auto_trader"
+                strategy="auto_trader",
             )
 
-            executed_order, error = await paper_engine.execute_market_order(order, Decimal(str(current_price)))
+            executed_order, error = await paper_engine.execute_market_order(
+                order, Decimal(str(current_price))
+            )
 
             # HIGH FIX 2025-12-11: Add null check before accessing status
             if executed_order is None:
@@ -2978,15 +3534,22 @@ class AutoTrader:
 
             if executed_order.status == OrderStatus.FILLED:
                 self.total_trades_executed += 1
+                opened = True  # arm dedup cooldown for this symbol
                 logger.info(f"Trade executed successfully for {symbol}")
-                logger.info(f"Stats: Checked={self.total_signals_checked}, "
-                          f"Executed={self.total_trades_executed}, "
-                          f"Rejected={self.total_trades_rejected}")
+                logger.info(
+                    f"Stats: Checked={self.total_signals_checked}, "
+                    f"Executed={self.total_trades_executed}, "
+                    f"Rejected={self.total_trades_rejected}"
+                )
 
                 # Pass through the signal confidence (and any SL/TP from signal metadata).
                 # 2026-04-25: was hardcoded to 0.0 with stale comment "standard mode doesn't have
                 # confidence score" — but _execute_trade receives confidence as a parameter.
-                vp = signal.metadata.get("volume_profile", {}) if hasattr(signal, "metadata") else {}
+                vp = (
+                    signal.metadata.get("volume_profile", {})
+                    if hasattr(signal, "metadata")
+                    else {}
+                )
                 try:
                     await self.notification_client.notify_trade_open(
                         symbol=symbol,
@@ -2995,7 +3558,7 @@ class AutoTrader:
                         price=float(current_price),
                         confidence=float(confidence),
                         stop_loss=float(vp.get("stop_loss") or 0.0),
-                        take_profit=float(vp.get("take_profit") or 0.0)
+                        take_profit=float(vp.get("take_profit") or 0.0),
                     )
                 except Exception as notify_err:
                     logger.warning(f"Notification failed (non-critical): {notify_err}")
@@ -3006,6 +3569,9 @@ class AutoTrader:
         except Exception as e:
             logger.error(f"Error executing trade for {symbol}: {e}", exc_info=True)
             self.total_trades_rejected += 1
+        finally:
+            # Release per-symbol open slot. Arms cooldown only on `opened=True`.
+            self._release_open_slot(symbol, opened=opened)
 
     def _get_performance_summary(self) -> dict:
         """
@@ -3018,7 +3584,7 @@ class AutoTrader:
             if not self.trade_returns:
                 return {
                     "status": "insufficient_data",
-                    "message": "Need at least 2 trade returns for analytics"
+                    "message": "Need at least 2 trade returns for analytics",
                 }
 
             report = self.performance_analytics.generate_report(self.trade_returns)
@@ -3036,8 +3602,8 @@ class AutoTrader:
                     "win_rate": report.trade_statistics.win_rate,
                     "profit_factor": report.trade_statistics.profit_factor,
                     "expectancy": report.trade_statistics.expectancy,
-                    "avg_r_multiple": report.trade_statistics.avg_r_multiple
-                }
+                    "avg_r_multiple": report.trade_statistics.avg_r_multiple,
+                },
             }
         except Exception as e:
             logger.warning(f"Error generating performance summary: {e}")
@@ -3051,7 +3617,9 @@ class AutoTrader:
             pnl_pct: Trade P&L percentage (e.g., 0.05 for 5% profit)
         """
         self.trade_returns.append(pnl_pct)
-        logger.debug(f"Trade return recorded: {pnl_pct:.2%} | Total: {len(self.trade_returns)}")
+        logger.debug(
+            f"Trade return recorded: {pnl_pct:.2%} | Total: {len(self.trade_returns)}"
+        )
 
     def _record_equity(self, balance: float) -> None:
         """
@@ -3075,7 +3643,8 @@ class AutoTrader:
                 "active": self.emergency_stop_active,
                 "last_checked": (
                     self.emergency_stop_last_checked.isoformat()
-                    if self.emergency_stop_last_checked else None
+                    if self.emergency_stop_last_checked
+                    else None
                 ),
             },
             "symbols": self.symbols,
@@ -3085,7 +3654,9 @@ class AutoTrader:
             "total_signals_checked": self.total_signals_checked,
             "total_trades_executed": self.total_trades_executed,
             "total_trades_rejected": self.total_trades_rejected,
-            "last_check_time": self.last_check_time.isoformat() if self.last_check_time else None,
+            "last_check_time": self.last_check_time.isoformat()
+            if self.last_check_time
+            else None,
             "market_regime_enabled": self.enable_market_regime,
             # Research strategy status (2025-11-28)
             "strategy_mode": self.strategy_mode.value,
@@ -3097,14 +3668,16 @@ class AutoTrader:
                 "limit": self.max_daily_trades,
                 "remaining": self.max_daily_trades - self.daily_trades_count,
                 "date": str(self.daily_trades_date),
-                "reentry_cooldown_seconds": self.min_time_between_trades
+                "reentry_cooldown_seconds": self.min_time_between_trades,
             },
             # Position monitoring status (2025-11-29)
             "position_monitoring": {
                 "enabled": True,
                 "open_positions": len(open_positions),
-                "trailing_stops_active": sum(1 for p in open_positions if p.trailing_stop_enabled),
-                "partial_exits_enabled": True
+                "trailing_stops_active": sum(
+                    1 for p in open_positions if p.trailing_stop_enabled
+                ),
+                "partial_exits_enabled": True,
             },
             # ================================================================
             # RESEARCH-BACKED ENHANCEMENTS STATUS (2025-11-30)
@@ -3118,26 +3691,28 @@ class AutoTrader:
                 "enhancement_triggers": {
                     "circuit_breaker_triggers": self.circuit_breaker_triggers,
                     "kill_switch_triggers": self.kill_switch_triggers,
-                    "slippage_rejections": self.slippage_rejections
-                }
+                    "slippage_rejections": self.slippage_rejections,
+                },
             },
             # ================================================================
             # ADVANCED ENHANCEMENTS STATUS (2025-11-30 v2)
             # ================================================================
             "advanced_enhancements": {
                 "position_sizer": {
-                    "method": self.advanced_position_sizer.config.default_method.value if hasattr(self.advanced_position_sizer.config, 'default_method') else "half_kelly",
+                    "method": self.advanced_position_sizer.config.default_method.value
+                    if hasattr(self.advanced_position_sizer.config, "default_method")
+                    else "half_kelly",
                     "max_position_pct": self.advanced_position_sizer.config.max_position_pct,
                     "kelly_fraction": self.advanced_position_sizer.config.kelly_fraction,
-                    "sizing_adjustments": self.position_sizing_adjustments
+                    "sizing_adjustments": self.position_sizing_adjustments,
                 },
                 "smart_executor": {
                     "default_algorithm": "TWAP",  # Default algorithm
                     "execution_count": self.smart_execution_count,
                     "twap_duration_minutes": self.smart_order_executor.config.twap_duration_minutes,
-                    "max_slices": self.smart_order_executor.config.twap_max_slices
+                    "max_slices": self.smart_order_executor.config.twap_max_slices,
                 },
-                "performance_analytics": self._get_performance_summary()
+                "performance_analytics": self._get_performance_summary(),
             },
             # ================================================================
             # DCA MANAGER STATUS (2025-12-02)
@@ -3153,7 +3728,7 @@ class AutoTrader:
                 "positions": {
                     symbol: self.dca_manager.get_position_status(symbol)
                     for symbol in self.dca_manager.positions.keys()
-                }
+                },
             },
             # ================================================================
             # PORTFOLIO HEAT MANAGER STATUS (2025-12-02)
@@ -3167,10 +3742,19 @@ class AutoTrader:
                 "rsi_period": self.adaptive_rsi.config.rsi_period,
                 "trend_filter": self.adaptive_rsi.config.use_trend_filter,
                 "thresholds": {
-                    "high_volatility": (self.adaptive_rsi.config.high_vol_oversold, self.adaptive_rsi.config.high_vol_overbought),
-                    "normal": (self.adaptive_rsi.config.normal_vol_oversold, self.adaptive_rsi.config.normal_vol_overbought),
-                    "low_volatility": (self.adaptive_rsi.config.low_vol_oversold, self.adaptive_rsi.config.low_vol_overbought)
-                }
+                    "high_volatility": (
+                        self.adaptive_rsi.config.high_vol_oversold,
+                        self.adaptive_rsi.config.high_vol_overbought,
+                    ),
+                    "normal": (
+                        self.adaptive_rsi.config.normal_vol_oversold,
+                        self.adaptive_rsi.config.normal_vol_overbought,
+                    ),
+                    "low_volatility": (
+                        self.adaptive_rsi.config.low_vol_oversold,
+                        self.adaptive_rsi.config.low_vol_overbought,
+                    ),
+                },
             },
             # ================================================================
             # HURST EXPONENT STATUS (2025-12-02)
@@ -3179,7 +3763,7 @@ class AutoTrader:
                 "enabled": True,
                 "trending_threshold": self.hurst_calculator.config.trending_threshold,
                 "mean_reversion_threshold": self.hurst_calculator.config.mean_reversion_threshold,
-                "lookback_periods": self.hurst_calculator.config.lookback_periods
+                "lookback_periods": self.hurst_calculator.config.lookback_periods,
             },
             # ================================================================
             # LIMIT ORDER EXECUTOR STATUS (2025-12-02)
@@ -3195,22 +3779,20 @@ class AutoTrader:
                 "out_of_sample_pct": self.wfe_tester.config.out_of_sample_pct,
                 "min_wfe_threshold": self.wfe_tester.config.min_wfe_threshold,
                 "min_trades_for_confidence": self.wfe_tester.config.min_trades_for_confidence,
-                "trades_recorded": len(self.wfe_tester._trades)
+                "trades_recorded": len(self.wfe_tester._trades),
             },
             # ================================================================
             # REGIME STRATEGY SELECTOR STATUS (2025-12-02)
             # ================================================================
             "regime_strategy_selector": {
                 "enabled": True,
-                "trending_params": {
-                    "sl_mult": 1.5, "tp_mult": 2.0, "pos_mult": 1.0
-                },
+                "trending_params": {"sl_mult": 1.5, "tp_mult": 2.0, "pos_mult": 1.0},
                 "mean_reverting_params": {
-                    "sl_mult": 0.8, "tp_mult": 1.2, "pos_mult": 0.9
+                    "sl_mult": 0.8,
+                    "tp_mult": 1.2,
+                    "pos_mult": 0.9,
                 },
-                "random_walk_params": {
-                    "sl_mult": 1.0, "tp_mult": 1.0, "pos_mult": 0.5
-                }
+                "random_walk_params": {"sl_mult": 1.0, "tp_mult": 1.0, "pos_mult": 0.5},
             },
             # ================================================================
             # ATR TRAILING STOP STATUS (2025-12-02)
@@ -3223,7 +3805,7 @@ class AutoTrader:
                 "activation_profit_pct": self.atr_trailing_stop.config.activation_profit_pct,
                 "step_pct": self.atr_trailing_stop.config.step_pct,
                 "use_chandelier_exit": self.atr_trailing_stop.config.use_chandelier_exit,
-                "positions_tracked": len(self.atr_trailing_stop._position_states)
+                "positions_tracked": len(self.atr_trailing_stop._position_states),
             },
             # ================================================================
             # PARTIAL PROFIT TAKER STATUS (2025-12-02)
@@ -3238,8 +3820,8 @@ class AutoTrader:
                 "positions": {
                     symbol: self.partial_profit_taker.get_position_summary(symbol)
                     for symbol in self.partial_profit_taker.positions.keys()
-                }
-            }
+                },
+            },
         }
 
         # Add regime distribution if market regime is enabled
@@ -3254,7 +3836,9 @@ class AutoTrader:
         # Add hybrid strategy statistics
         if self.strategy_mode in [StrategyMode.RESEARCH, StrategyMode.HYBRID]:
             status["hybrid_strategy_stats"] = self.hybrid_strategy.get_stats()
-            status["research_strategy_params"] = self.research_strategy.get_strategy_params()
+            status["research_strategy_params"] = (
+                self.research_strategy.get_strategy_params()
+            )
 
         return status
 
@@ -3286,7 +3870,11 @@ class AutoTrader:
 
             current_price = None
             for _, ind in base_signal.indicators.items():
-                if hasattr(ind, "metadata") and ind.metadata and "current_price" in ind.metadata:
+                if (
+                    hasattr(ind, "metadata")
+                    and ind.metadata
+                    and "current_price" in ind.metadata
+                ):
                     current_price = float(ind.metadata["current_price"])
                     break
             if not current_price:
@@ -3297,13 +3885,17 @@ class AutoTrader:
             balance = paper_engine.get_balance()
 
             ensemble = get_ensemble()
-            ens_signal = ensemble.generate_signal(base_signal, current_price, capital=float(balance))
+            ens_signal = ensemble.generate_signal(
+                base_signal, current_price, capital=float(balance)
+            )
             if not ens_signal:
                 self.total_trades_rejected += 1
                 return
 
-            logger.info(f"[ENSEMBLE] {symbol}: {ens_signal.action.value} conf={ens_signal.confidence:.2%} "
-                        f"size={ens_signal.position_size_pct*100:.2f}% legs={ens_signal.leg_actions}")
+            logger.info(
+                f"[ENSEMBLE] {symbol}: {ens_signal.action.value} conf={ens_signal.confidence:.2%} "
+                f"size={ens_signal.position_size_pct * 100:.2f}% legs={ens_signal.leg_actions}"
+            )
 
             position_mgr = get_position_manager()
             if any(p.symbol == symbol for p in position_mgr.get_open_positions()):
@@ -3318,26 +3910,38 @@ class AutoTrader:
 
             order = OrderCreate(
                 symbol=symbol,
-                side=OrderSide.BUY if ens_signal.action == SignalAction.BUY else OrderSide.SELL,
+                side=OrderSide.BUY
+                if ens_signal.action == SignalAction.BUY
+                else OrderSide.SELL,
                 type=OrderType.MARKET,
                 quantity=Decimal(str(quantity)),
                 strategy="ensemble",
             )
-            executed_order, error = await paper_engine.execute_market_order(order, Decimal(str(current_price)))
+            executed_order, error = await paper_engine.execute_market_order(
+                order, Decimal(str(current_price))
+            )
             if executed_order is None or executed_order.status != OrderStatus.FILLED:
                 self.total_trades_rejected += 1
                 logger.warning(f"[ENSEMBLE] Execution failed for {symbol}: {error}")
                 return
 
             self.total_trades_executed += 1
-            logger.info(f"[ENSEMBLE] Trade executed for {symbol}: ${position_value:.2f} ({quantity:.6f} units)")
+            logger.info(
+                f"[ENSEMBLE] Trade executed for {symbol}: ${position_value:.2f} ({quantity:.6f} units)"
+            )
 
             # Tag latest position with leg contributions so we can attribute outcome at close.
             try:
-                latest_positions = [p for p in position_mgr.get_open_positions() if p.symbol == symbol]
+                latest_positions = [
+                    p for p in position_mgr.get_open_positions() if p.symbol == symbol
+                ]
                 if latest_positions:
-                    latest_positions[-1].metadata = getattr(latest_positions[-1], "metadata", {}) or {}
-                    latest_positions[-1].metadata["ensemble_attribution"] = ens_signal.leg_contributions
+                    latest_positions[-1].metadata = (
+                        getattr(latest_positions[-1], "metadata", {}) or {}
+                    )
+                    latest_positions[-1].metadata["ensemble_attribution"] = (
+                        ens_signal.leg_contributions
+                    )
             except Exception as attr_err:
                 logger.debug(f"[ENSEMBLE] Could not tag attribution: {attr_err}")
 
@@ -3352,7 +3956,9 @@ class AutoTrader:
                     take_profit=float(ens_signal.take_profit),
                 )
             except Exception as notify_err:
-                logger.warning(f"[ENSEMBLE] Notification failed (non-critical): {notify_err}")
+                logger.warning(
+                    f"[ENSEMBLE] Notification failed (non-critical): {notify_err}"
+                )
 
         except Exception as e:
             logger.error(f"[ENSEMBLE] Error for {symbol}: {e}", exc_info=True)
@@ -3414,10 +4020,10 @@ class AutoTrader:
             mode: One of 'aggressive', 'normal', 'conservative', 'adaptive'
         """
         mode_map = {
-            'aggressive': TimingMode.AGGRESSIVE,
-            'normal': TimingMode.NORMAL,
-            'conservative': TimingMode.CONSERVATIVE,
-            'adaptive': TimingMode.ADAPTIVE
+            "aggressive": TimingMode.AGGRESSIVE,
+            "normal": TimingMode.NORMAL,
+            "conservative": TimingMode.CONSERVATIVE,
+            "adaptive": TimingMode.ADAPTIVE,
         }
         if mode.lower() in mode_map:
             self.execution_timer.set_mode(mode_map[mode.lower()])
@@ -3443,7 +4049,9 @@ class AutoTrader:
         """
         self.slippage_manager.config.base_tolerance_pct = base_pct
         self.slippage_manager.config.volatile_tolerance_pct = volatile_pct
-        logger.info(f"Slippage tolerance updated: base={base_pct}%, volatile={volatile_pct}%")
+        logger.info(
+            f"Slippage tolerance updated: base={base_pct}%, volatile={volatile_pct}%"
+        )
 
     def reset_daily_metrics(self) -> None:
         """Reset daily trading metrics including kill switch"""
@@ -3474,7 +4082,9 @@ def get_auto_trader() -> AutoTrader:
             "grid_trading": StrategyMode.GRID_TRADING,
             "ensemble": StrategyMode.ENSEMBLE,
         }
-        strategy_mode = mode_map.get(settings.strategy_mode.lower(), StrategyMode.HYBRID)
+        strategy_mode = mode_map.get(
+            settings.strategy_mode.lower(), StrategyMode.HYBRID
+        )
         _auto_trader = AutoTrader(strategy_mode=strategy_mode)
     return _auto_trader
 

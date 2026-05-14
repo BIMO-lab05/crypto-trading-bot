@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { tradingAPI } from '../services/api'
+import TileState from './TileState'
 
 /**
  * Hybrid Strategy Panel Component
@@ -13,49 +14,21 @@ import { tradingAPI } from '../services/api'
  *
  * Created: 2026-01-06
  * Purpose: Provide visibility into hybrid strategy decision-making
+ *
+ * UPDATED 2026-05-13 (Plan 06-05, DASH-05): wrapped in <TileState/> per
+ * audit verdict FIXED. Loading/error/empty/stale states surface through
+ * the shared wrapper (D-12, D-13, D-14, D-15, F-05).
  */
 export default function HybridStrategyPanel() {
   // Fetch trading status every 5 seconds
-  const { data, isLoading, error } = useQuery({
+  const q = useQuery({
     queryKey: ['trading-status'],
     queryFn: () => tradingAPI.getStatus(),
     refetchInterval: 5000,
     staleTime: 4000,
   })
 
-  if (isLoading) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-6 border border-slate-700/50 backdrop-blur-sm">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-200">Hybrid Strategy Routing</h2>
-          <div className="animate-pulse flex items-center gap-1.5">
-            <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
-            <span className="text-xs text-slate-500">Loading...</span>
-          </div>
-        </div>
-        <div className="animate-pulse space-y-4">
-          <div className="h-16 bg-slate-700/50 rounded-lg"></div>
-          <div className="h-24 bg-slate-700/50 rounded-lg"></div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="bg-slate-800/50 rounded-lg p-6 border border-rose-500/30">
-        <div className="flex items-center gap-2 text-rose-400">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="text-sm">Unable to load strategy data</span>
-        </div>
-      </div>
-    )
-  }
-
-  const status = data?.status || {}
+  const status = q.data?.status || {}
   const hybrid = status.hybrid_strategy_stats || {}
 
   // Calculate metrics
@@ -83,6 +56,14 @@ export default function HybridStrategyPanel() {
   const activeStrategyColor = trendPct > meanRevPct ? 'text-blue-400' : 'text-emerald-400'
 
   return (
+    <div data-testid="hybrid-strategy-panel" style={{ display: 'contents' }}>
+    <TileState
+      query={q}
+      title="Hybrid Strategy Routing"
+      thresholdKey="signals"
+      lastUpdatedAt={undefined}
+      isEmpty={(d) => !d || !d.status}
+    >
     <div className="bg-slate-800/50 rounded-lg p-6 border border-slate-700/50 backdrop-blur-sm">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -171,6 +152,8 @@ export default function HybridStrategyPanel() {
           </div>
         </div>
       </div>
+    </div>
+    </TileState>
     </div>
   )
 }

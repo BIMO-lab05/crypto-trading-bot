@@ -22,6 +22,17 @@ async def init_data():
     """
     logger.info("init_data: enter")
     settings = get_settings()
+
+    # Validate symbol_allocations sum to 1.0 and cover every trading symbol.
+    # Misconfigured allocations silently corrupt position sizing — fail fast
+    # at boot rather than letting the auto-trader divide a depleted pool
+    # mid-session. fail-loud: raise to abort startup so the operator sees it.
+    try:
+        settings.validate_allocations()
+    except ValueError as e:
+        logger.error(f"symbol_allocations invalid: {e}")
+        raise
+
     from app.main import database_health  # deferred: avoid circular import
 
     try:
@@ -60,6 +71,21 @@ async def init_data():
             logger.error(f"Database initialization error: {e}")
             logger.warning("Continuing without database persistence")
             database_health.set(0)
+
+        # Pre-warm the instruments cache so the min-notional gate has spec
+        # available on the first auto-trader cycle. Fail-open: connector
+        # outage at boot logs WARN; gate will return None per-symbol until
+        # the next get() succeeds.
+        try:
+            from app.main import get_instruments_cache  # deferred: circular
+
+            cache = get_instruments_cache()
+            await cache.refresh(list(settings.trading_symbols))
+        except Exception as e:
+            logger.warning(
+                f"InstrumentsCache pre-warm failed ({e}); min-notional gate "
+                f"fails open until first successful refresh"
+            )
 
         yield
     finally:

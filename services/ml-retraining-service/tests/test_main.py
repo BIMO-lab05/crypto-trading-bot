@@ -26,6 +26,7 @@ import pytest
 # Health
 # ---------------------------------------------------------------------------
 
+
 class TestHealthEndpoints:
     def test_health(self, test_client):
         response = test_client.get("/health")
@@ -49,6 +50,7 @@ class TestHealthEndpoints:
 # Data collection
 # ---------------------------------------------------------------------------
 
+
 class TestDataCollectionEndpoints:
     def test_collect_symbol_data(self, test_client):
         fake_collector = MagicMock()
@@ -63,7 +65,9 @@ class TestDataCollectionEndpoints:
         fake_collector.close = AsyncMock(return_value=None)
 
         with patch("app.main.DataCollector", return_value=fake_collector):
-            response = test_client.post("/api/v1/data/collect/SOLUSDT?interval=60&days=30")
+            response = test_client.post(
+                "/api/v1/data/collect/SOLUSDT?interval=60&days=30"
+            )
 
         assert response.status_code == 200
         body = response.json()
@@ -99,6 +103,7 @@ class TestDataCollectionEndpoints:
 # ---------------------------------------------------------------------------
 # Model versions / jobs / status
 # ---------------------------------------------------------------------------
+
 
 class TestModelVersionEndpoints:
     def test_list_versions_empty(self, test_client):
@@ -147,6 +152,7 @@ class TestStatusEndpoint:
 # Deployment management
 # ---------------------------------------------------------------------------
 
+
 class TestDeploymentEndpoints:
     def test_deploy_version_not_found(self, test_client):
         # default fake DB returns scalar_one_or_none() == None
@@ -186,6 +192,7 @@ class TestDeploymentEndpoints:
 # Scheduler management (scheduler module is stubbed in conftest.py)
 # ---------------------------------------------------------------------------
 
+
 class TestSchedulerEndpoints:
     def test_scheduler_status(self, test_client):
         response = test_client.get("/api/v1/scheduler/status")
@@ -213,15 +220,14 @@ class TestSchedulerEndpoints:
 
     def test_scheduler_trigger_invalid_symbol(self, test_client):
         # Non-configured symbol → 400 from the validate-symbols branch
-        response = test_client.post(
-            "/api/v1/scheduler/trigger?symbols=NOTASYMBOL"
-        )
+        response = test_client.post("/api/v1/scheduler/trigger?symbols=NOTASYMBOL")
         assert response.status_code == 400
 
 
 # ---------------------------------------------------------------------------
 # CORS / 404
 # ---------------------------------------------------------------------------
+
 
 class TestRoutingBasics:
     def test_unknown_route_returns_404(self, test_client):
@@ -238,6 +244,221 @@ class TestRoutingBasics:
         )
         # CORSMiddleware accepts the preflight
         assert response.status_code in {200, 204}
+
+
+# ---------------------------------------------------------------------------
+# Manual deploy gate enforcement (regression for the validator-bypass
+# defect found 2026-05-06: ``/api/v1/deploy/{version_id}`` previously
+# only logged a warning when the model status was REJECTED, so a
+# REJECTED artifact whose validator gates (DSR / R²-returns / dir-acc)
+# had failed could be published with a single curl call. The patch
+# hard-refuses REJECTED unconditionally and requires explicit
+# ``?force=true`` for VALIDATION-status models.
+# ---------------------------------------------------------------------------
+
+
+class TestManualDeployGate:
+    """Lock the deploy-gate enforcement on the manual deploy endpoint."""
+
+    def _model_version_with_status(self, status):
+        """Build a fake ModelVersion stub with the requested status."""
+        from app.database.models import ModelStatus  # noqa: F401  (uses by caller)
+
+        mv = MagicMock()
+        mv.id = 7
+        mv.symbol = "SOLUSDT"
+        mv.version = "v-test"
+        mv.status = status
+        mv.model_path = "/tmp/fake/model.h5"
+        mv.metadata_path = "/tmp/fake/metadata.json"
+        return mv
+
+    def _override_db_to_return(self, fake_db_session, model_version):
+        """Wire fake_db.execute(...).scalar_one_or_none() → model_version."""
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = model_version
+        fake_db_session.execute.return_value = result
+
+    def test_rejected_model_is_hard_blocked(self, test_client, fake_db_session):
+        """REJECTED model returns 400 — no force flag can override it."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.REJECTED)
+        self._override_db_to_return(fake_db_session, mv)
+
+        # Even with force=true, REJECTED stays blocked.
+        response = test_client.post("/api/v1/deploy/7?force=true&backup_current=false")
+        assert response.status_code == 400
+        assert "REJECTED" in response.json()["detail"]
+
+    def test_validation_status_requires_force(self, test_client, fake_db_session):
+        """VALIDATION model without ?force=true returns 400."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post("/api/v1/deploy/7?backup_current=false")
+        assert response.status_code == 400
+        assert "force=true" in response.json()["detail"]
+
+    def test_validation_status_with_force_proceeds(self, test_client, fake_db_session):
+        """VALIDATION + force=true + operator identity reaches the deployer."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        fake_deployer = MagicMock()
+        fake_deployer.deploy_model = AsyncMock(
+            return_value={"success": True, "files_deployed": ["x.keras"]}
+        )
+        with patch("app.main.ModelDeployer", return_value=fake_deployer):
+            response = test_client.post(
+                "/api/v1/deploy/7?force=true&backup_current=false&operator=alice@example.com"
+            )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+        fake_deployer.deploy_model.assert_awaited_once()
+        # deployed_by recorded with attribution + forced flag
+        assert mv.deployed_by == "manual_deployment:alice@example.com:forced"
+
+    def test_force_without_operator_identity_rejected(
+        self, test_client, fake_db_session
+    ):
+        """force=true without ?operator or X-Operator returns 400 — non-bypassable audit."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post("/api/v1/deploy/7?force=true&backup_current=false")
+        assert response.status_code == 400
+        assert "operator identity" in response.json()["detail"].lower()
+
+    def test_force_with_x_operator_header_proceeds(self, test_client, fake_db_session):
+        """Header X-Operator is an alternative to ?operator query param."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        fake_deployer = MagicMock()
+        fake_deployer.deploy_model = AsyncMock(
+            return_value={"success": True, "files_deployed": ["x.keras"]}
+        )
+        with patch("app.main.ModelDeployer", return_value=fake_deployer):
+            response = test_client.post(
+                "/api/v1/deploy/7?force=true&backup_current=false",
+                headers={"X-Operator": "bob@example.com"},
+            )
+        assert response.status_code == 200
+        assert mv.deployed_by == "manual_deployment:bob@example.com:forced"
+
+    def test_approved_no_force_records_anonymous_attribution(
+        self, test_client, fake_db_session
+    ):
+        """APPROVED without force does not require identity but records anonymous tag."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.APPROVED)
+        self._override_db_to_return(fake_db_session, mv)
+
+        fake_deployer = MagicMock()
+        fake_deployer.deploy_model = AsyncMock(
+            return_value={"success": True, "files_deployed": ["x.keras"]}
+        )
+        with patch("app.main.ModelDeployer", return_value=fake_deployer):
+            response = test_client.post("/api/v1/deploy/7?backup_current=false")
+        assert response.status_code == 200
+        # Non-forced deploys may proceed anonymously but the audit string still
+        # records that the identity was missing.
+        assert mv.deployed_by == "manual_deployment:manual_deployment_anonymous"
+
+    def test_approved_status_proceeds_without_force(self, test_client, fake_db_session):
+        """APPROVED is the validator-blessed state; deploy proceeds."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.APPROVED)
+        self._override_db_to_return(fake_db_session, mv)
+
+        fake_deployer = MagicMock()
+        fake_deployer.deploy_model = AsyncMock(
+            return_value={"success": True, "files_deployed": ["x.keras"]}
+        )
+        with patch("app.main.ModelDeployer", return_value=fake_deployer):
+            response = test_client.post("/api/v1/deploy/7?backup_current=false")
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+    def test_training_status_blocked(self, test_client, fake_db_session):
+        """TRAINING / ROLLED_BACK fall through to the explicit-reject branch."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.TRAINING)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post("/api/v1/deploy/7?backup_current=false")
+        assert response.status_code == 400
+        body = response.json()
+        assert "TRAINING" in body["detail"] or "training" in body["detail"]
+
+    def test_force_with_whitespace_only_operator_rejected(
+        self, test_client, fake_db_session
+    ):
+        """?operator=%20%20 (whitespace only) does not satisfy the audit gate."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post(
+            "/api/v1/deploy/7?force=true&backup_current=false&operator=%20%20"
+        )
+        assert response.status_code == 400
+        assert "operator identity" in response.json()["detail"].lower()
+
+    def test_force_with_single_char_operator_rejected(
+        self, test_client, fake_db_session
+    ):
+        """Single-char operator (e.g. '.') does not clear the 2-char minimum."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        response = test_client.post(
+            "/api/v1/deploy/7?force=true&backup_current=false&operator=."
+        )
+        assert response.status_code == 400
+
+    def test_force_with_control_char_operator_sanitized(
+        self, test_client, fake_db_session
+    ):
+        """Control chars stripped — if remainder is too short, gate rejects."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        # \x00\x01a → after sanitize → "a" (1 char) → fails 2-char min
+        response = test_client.post(
+            "/api/v1/deploy/7?force=true&backup_current=false&operator=%00%01a"
+        )
+        assert response.status_code == 400
+
+    def test_force_with_oversized_operator_rejected(self, test_client, fake_db_session):
+        """Operator string >100 chars rejected (matches DB column width)."""
+        from app.database.models import ModelStatus
+
+        mv = self._model_version_with_status(ModelStatus.VALIDATION)
+        self._override_db_to_return(fake_db_session, mv)
+
+        long_op = "a" * 101
+        response = test_client.post(
+            f"/api/v1/deploy/7?force=true&backup_current=false&operator={long_op}"
+        )
+        assert response.status_code == 400
 
 
 if __name__ == "__main__":  # pragma: no cover

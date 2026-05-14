@@ -5,7 +5,7 @@
 # ============================================================================
 # Stage 1: Builder - Compile dependencies
 # ============================================================================
-FROM python:3.14-slim as builder
+FROM python:3.14-slim AS builder
 
 # Set build-time environment variables
 ENV PYTHONUNBUFFERED=1 \

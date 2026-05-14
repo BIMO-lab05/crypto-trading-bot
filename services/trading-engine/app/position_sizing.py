@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 class SizingMethod(str, Enum):
     """Position sizing methods"""
+
     FIXED = "FIXED"  # Fixed percentage of capital
     KELLY = "KELLY"  # Kelly Criterion
     FRACTIONAL_KELLY = "FRACTIONAL_KELLY"  # Conservative Kelly (0.25x to 0.5x)
@@ -49,6 +50,7 @@ class SizingMethod(str, Enum):
 @dataclass
 class PositionSizeResult:
     """Position sizing calculation result"""
+
     position_size_pct: float  # % of capital to allocate
     position_value: Decimal  # Dollar value of position
     quantity: Decimal  # Number of units to buy
@@ -76,7 +78,12 @@ class PositionSizer:
         self,
         min_position_pct: float = 1.0,  # Minimum 1% of capital
         max_position_pct: float = 10.0,  # Maximum 10% of capital
-        default_position_pct: float = 3.0,  # Default 3% for fixed sizing
+        # 2026-05-06: default == max so FIXED sizing always emits 10%.
+        # CONFIDENCE_ADJUSTED's high-confidence boost (1.2-1.5x) computes
+        # 12-15% then clamps back to max_position_pct=10% at line 219 — the
+        # dual-cap is intentional. AutoTrader default is now FIXED so the
+        # clamp rarely triggers.
+        default_position_pct: float = 10.0,
         kelly_fraction: float = 0.25,  # Use 25% of full Kelly (conservative)
         confidence_scaling: bool = True,  # Scale size by signal confidence
         max_risk_per_trade_pct: float = 2.0,  # RESEARCH-OPTIMIZED: Max 2% risk per trade
@@ -160,13 +167,17 @@ class PositionSizer:
             reasoning = f"Full Kelly: {kelly_frac:.2%} -> {position_pct:.2f}%"
 
         elif method == SizingMethod.FRACTIONAL_KELLY:
-            position_pct, kelly_frac = self._calculate_fractional_kelly_size(performance_stats)
+            position_pct, kelly_frac = self._calculate_fractional_kelly_size(
+                performance_stats
+            )
             conf_mod = None
             reasoning = f"Fractional Kelly ({self.kelly_fraction}x): {kelly_frac:.2%} -> {position_pct:.2f}%"
 
         elif method == SizingMethod.CONFIDENCE_ADJUSTED:
-            position_pct, kelly_frac, conf_mod = self._calculate_confidence_adjusted_size(
-                signal_confidence, performance_stats
+            position_pct, kelly_frac, conf_mod = (
+                self._calculate_confidence_adjusted_size(
+                    signal_confidence, performance_stats
+                )
             )
             reasoning = (
                 f"Confidence-adjusted Kelly: "
@@ -183,7 +194,9 @@ class PositionSizer:
         # Apply daily P&L adjustment if provided
         daily_pnl_adjustment = 1.0
         if daily_pnl is not None and total_capital is not None and total_capital > 0:
-            daily_pnl_pct = float(daily_pnl) / total_capital * 100  # Convert to percentage
+            daily_pnl_pct = (
+                float(daily_pnl) / total_capital * 100
+            )  # Convert to percentage
 
             # Performance-based scaling based on daily P&L
             if daily_pnl_pct > 0.5:  # Daily gain > 0.5%
@@ -207,7 +220,9 @@ class PositionSizer:
                 reasoning += f" | Risk-limited (2% max): {original_pct:.2f}% -> {position_pct:.2f}%"
 
         # Apply min/max limits
-        position_pct = max(self.min_position_pct, min(position_pct, self.max_position_pct))
+        position_pct = max(
+            self.min_position_pct, min(position_pct, self.max_position_pct)
+        )
 
         # Calculate position value and quantity
         position_value = current_balance * Decimal(str(position_pct / 100))
@@ -220,7 +235,7 @@ class PositionSizer:
             method=method,
             kelly_fraction=kelly_frac,
             confidence_modifier=conf_mod,
-            reasoning=reasoning
+            reasoning=reasoning,
         )
 
     def _calculate_fixed_size(self) -> float:
@@ -228,8 +243,7 @@ class PositionSizer:
         return self.default_position_pct
 
     def _calculate_kelly_size(
-        self,
-        performance_stats: Optional[Dict] = None
+        self, performance_stats: Optional[Dict] = None
     ) -> Tuple[float, float]:
         """
         Calculate full Kelly Criterion position size
@@ -245,9 +259,9 @@ class PositionSizer:
             logger.warning("No performance stats, using default sizing")
             return self.default_position_pct, 0.0
 
-        win_rate = performance_stats.get('win_rate', 0.5)
-        avg_win = performance_stats.get('avg_win', 0.0)
-        avg_loss = abs(performance_stats.get('avg_loss', 0.0))
+        win_rate = performance_stats.get("win_rate", 0.5)
+        avg_win = performance_stats.get("avg_win", 0.0)
+        avg_loss = abs(performance_stats.get("avg_loss", 0.0))
 
         # Validate inputs
         if win_rate <= 0 or win_rate >= 1:
@@ -282,8 +296,7 @@ class PositionSizer:
         return kelly_pct, kelly
 
     def _calculate_fractional_kelly_size(
-        self,
-        performance_stats: Optional[Dict] = None
+        self, performance_stats: Optional[Dict] = None
     ) -> Tuple[float, float]:
         """
         Calculate fractional Kelly (conservative)
@@ -299,9 +312,7 @@ class PositionSizer:
         return fractional_kelly_pct, kelly
 
     def _calculate_confidence_adjusted_size(
-        self,
-        signal_confidence: float,
-        performance_stats: Optional[Dict] = None
+        self, signal_confidence: float, performance_stats: Optional[Dict] = None
     ) -> Tuple[float, float, float]:
         """
         Calculate position size with confidence adjustments
@@ -346,9 +357,7 @@ class PositionSizer:
         return adjusted_pct, kelly, conf_modifier
 
     def calculate_stop_loss_distance(
-        self,
-        position_size_pct: float,
-        max_risk_pct: Optional[float] = None
+        self, position_size_pct: float, max_risk_pct: Optional[float] = None
     ) -> float:
         """
         Calculate stop loss distance based on position size and max risk
@@ -375,10 +384,7 @@ class PositionSizer:
 
         return stop_loss_pct
 
-    def get_performance_stats_from_tracker(
-        self,
-        performance_tracker
-    ) -> Dict:
+    def get_performance_stats_from_tracker(self, performance_tracker) -> Dict:
         """
         Extract performance stats from PerformanceTracker
 
@@ -398,27 +404,29 @@ class PositionSizer:
             # Calculate averages
             avg_win = (
                 sum([float(t.pnl_pct) for t in winning_trades]) / len(winning_trades)
-                if winning_trades else 0.0
+                if winning_trades
+                else 0.0
             )
             avg_loss = (
                 sum([float(t.pnl_pct) for t in losing_trades]) / len(losing_trades)
-                if losing_trades else 0.0
+                if losing_trades
+                else 0.0
             )
 
             return {
-                'win_rate': metrics.win_rate,
-                'avg_win': avg_win / 100,  # Convert to decimal (5% -> 0.05)
-                'avg_loss': avg_loss / 100,
-                'total_trades': metrics.total_trades
+                "win_rate": metrics.win_rate,
+                "avg_win": avg_win / 100,  # Convert to decimal (5% -> 0.05)
+                "avg_loss": avg_loss / 100,
+                "total_trades": metrics.total_trades,
             }
 
         except Exception as e:
             logger.error(f"Error extracting performance stats: {e}")
             return {
-                'win_rate': 0.5,
-                'avg_win': 0.02,
-                'avg_loss': -0.01,
-                'total_trades': 0
+                "win_rate": 0.5,
+                "avg_win": 0.02,
+                "avg_loss": -0.01,
+                "total_trades": 0,
             }
 
 
@@ -427,10 +435,25 @@ _position_sizer: Optional[PositionSizer] = None
 
 
 def get_position_sizer() -> PositionSizer:
-    """Get or create global position sizer instance"""
+    """Get or create global position sizer instance.
+
+    Reads from settings so MAX_RISK_PER_TRADE / MAX_POSITION_SIZE_PCT env
+    overrides take effect at boot. Falls back to PositionSizer defaults
+    if settings unavailable (test contexts without app.config).
+    """
     global _position_sizer
     if _position_sizer is None:
-        _position_sizer = PositionSizer()
+        try:
+            from app.config import get_settings
+
+            s = get_settings()
+            _position_sizer = PositionSizer(
+                max_position_pct=s.max_position_size_pct,
+                default_position_pct=s.max_position_size_pct,
+                max_risk_per_trade_pct=s.max_risk_per_trade * 100.0,
+            )
+        except Exception:
+            _position_sizer = PositionSizer()
     return _position_sizer
 
 

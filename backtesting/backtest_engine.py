@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class OrderType(Enum):
     """Order types for backtesting"""
+
     BUY = "BUY"
     SELL = "SELL"
 
@@ -25,13 +26,14 @@ class OrderType(Enum):
 @dataclass
 class Trade:
     """Represents a completed trade"""
+
     entry_time: datetime  # When the trade was opened
-    exit_time: datetime   # When the trade was closed
-    entry_price: float    # Entry price
-    exit_price: float     # Exit price
-    order_type: OrderType # BUY or SELL
+    exit_time: datetime  # When the trade was closed
+    entry_price: float  # Entry price
+    exit_price: float  # Exit price
+    order_type: OrderType  # BUY or SELL
     position_size: float  # Position size (in base currency)
-    profit_loss: float    # Profit/Loss in USD
+    profit_loss: float  # Profit/Loss in USD
     profit_loss_pct: float  # Profit/Loss percentage
     stop_loss: Optional[float] = None  # Stop loss price
     take_profit: Optional[float] = None  # Take profit price
@@ -42,6 +44,7 @@ class Trade:
 @dataclass
 class Position:
     """Represents an open position"""
+
     entry_time: datetime
     entry_price: float
     order_type: OrderType
@@ -54,6 +57,7 @@ class Position:
 @dataclass
 class BacktestResult:
     """Results from a backtest run"""
+
     # Performance metrics
     total_trades: int
     winning_trades: int
@@ -99,8 +103,22 @@ class BacktestEngine:
         self,
         initial_capital: float = 10000.0,
         position_size_pct: float = 0.02,  # 2% per trade
-        commission: float = 0.001,  # 0.1% commission
-        slippage: float = 0.0005,  # 0.05% slippage
+        commission: float = 0.001,  # 0.1% commission (LEGACY symmetric mode)
+        slippage: float = 0.0005,  # 0.05% slippage (LEGACY fixed mode)
+        # ===================== Realistic-sim knobs (ADR-013 phase B-4) =====================
+        # All defaults are backward-compatible with the legacy single-rate
+        # commission + fixed slippage model. Pass a non-default `fee_mode` /
+        # `slippage_mode` / `funding_enabled` to engage the realistic models.
+        fee_mode: str = "fixed",  # 'fixed' | 'bybit_perp'
+        bybit_taker_fee: float = 0.00055,  # +0.055% taker (Bybit USDT perp, 2026 schedule)
+        bybit_maker_fee: float = -0.0001,  # -0.01% maker rebate
+        slippage_mode: str = "fixed",  # 'fixed' | 'atr_aware'
+        atr_slippage_factor: float = 0.05,  # 5% of ATR/price as slippage in atr_aware mode
+        atr_slippage_floor: float = 0.0005,  # never below 5 bps even in calm regime
+        funding_enabled: bool = False,
+        funding_rate_per_8h: float = 0.0001,  # 0.01% per 8h ≈ 0.03% per day baseline; user can pass historical
+        funding_long_pays: bool = True,  # longs pay funding when positive (most common in bull)
+        partial_fill_volume_pct: float = 0.0,  # 0 = disabled. Cap fill at this fraction of bar volume.
     ):
         """
         Initialize backtesting engine
@@ -108,21 +126,80 @@ class BacktestEngine:
         Args:
             initial_capital: Starting capital in USD
             position_size_pct: Percentage of capital to risk per trade
-            commission: Trading commission percentage
-            slippage: Slippage percentage
+            commission: Legacy symmetric commission (used when fee_mode='fixed')
+            slippage: Legacy fixed slippage (used when slippage_mode='fixed')
+            fee_mode: 'fixed' (legacy) or 'bybit_perp' (asymmetric maker/taker)
+            bybit_taker_fee, bybit_maker_fee: rates used in 'bybit_perp' mode
+            slippage_mode: 'fixed' (legacy) or 'atr_aware' (scales with ATR/price)
+            atr_slippage_factor: multiplier on ATR/price ratio
+            atr_slippage_floor: minimum slippage even in calm regime
+            funding_enabled: deduct funding cost every 8 hourly bars on open longs
+            funding_rate_per_8h: positive rate => longs pay
+            funding_long_pays: if True, longs pay when rate > 0 (default)
+            partial_fill_volume_pct: cap fill at this fraction of bar volume (0 = disabled)
         """
         self.initial_capital = initial_capital
         self.position_size_pct = position_size_pct
         self.commission = commission
         self.slippage = slippage
+        self.fee_mode = fee_mode
+        self.bybit_taker_fee = bybit_taker_fee
+        self.bybit_maker_fee = bybit_maker_fee
+        self.slippage_mode = slippage_mode
+        self.atr_slippage_factor = atr_slippage_factor
+        self.atr_slippage_floor = atr_slippage_floor
+        self.funding_enabled = funding_enabled
+        self.funding_rate_per_8h = funding_rate_per_8h
+        self.funding_long_pays = funding_long_pays
+        self.partial_fill_volume_pct = partial_fill_volume_pct
 
         # State variables
         self.capital = initial_capital
         self.equity_curve = [initial_capital]
         self.trades: List[Trade] = []
         self.current_position: Optional[Position] = None
+        self._bar_count = 0  # for 8h funding cadence
 
-        logger.info(f"BacktestEngine initialized with ${initial_capital:,.2f}")
+        logger.info(
+            f"BacktestEngine initialized with ${initial_capital:,.2f} "
+            f"(fee_mode={fee_mode}, slippage_mode={slippage_mode}, "
+            f"funding_enabled={funding_enabled})"
+        )
+
+    def _effective_fee_rate(self, order_type_str: str = "MARKET") -> float:
+        """
+        Per-side fee rate. order_type_str hint lets the strategy pass
+        'MARKET' (taker) or 'LIMIT' (maker, may rebate).
+        """
+        if self.fee_mode == "bybit_perp":
+            if order_type_str.upper() == "LIMIT":
+                return self.bybit_maker_fee
+            return self.bybit_taker_fee
+        return self.commission
+
+    def _effective_slippage(self, atr_value: Optional[float], price: float) -> float:
+        """ATR-aware slippage when enabled, else legacy fixed."""
+        if self.slippage_mode == "atr_aware" and atr_value and price > 0:
+            atr_pct = atr_value / price
+            slip = self.atr_slippage_factor * atr_pct
+            return max(slip, self.atr_slippage_floor)
+        return self.slippage
+
+    def _apply_funding(self, current_price: float, current_time: datetime) -> None:
+        """Deduct funding cost on open long every 8h (8 hourly bars)."""
+        if not self.funding_enabled or not self.current_position:
+            return
+        if self._bar_count == 0 or self._bar_count % 8 != 0:
+            return
+        if self.current_position.order_type == OrderType.BUY and self.funding_long_pays:
+            position_value = self.current_position.position_size * current_price
+            funding_cost = position_value * self.funding_rate_per_8h
+            self.capital -= funding_cost
+            logger.debug(
+                f"funding deducted: ${funding_cost:.4f} on long "
+                f"(rate={self.funding_rate_per_8h * 100:.4f}%/8h, "
+                f"value=${position_value:.2f}) at {current_time}"
+            )
 
     def reset(self):
         """Reset backtest state"""
@@ -132,10 +209,7 @@ class BacktestEngine:
         self.current_position = None
 
     def run_backtest(
-        self,
-        data: pd.DataFrame,
-        strategy_func,
-        strategy_name: str = "Unknown Strategy"
+        self, data: pd.DataFrame, strategy_func, strategy_name: str = "Unknown Strategy"
     ) -> BacktestResult:
         """
         Run backtest on historical data using a strategy function
@@ -152,8 +226,10 @@ class BacktestEngine:
         # Handle both datetime index and timestamp column for logging
         if isinstance(data.index[0], (pd.Timestamp, datetime)):
             logger.info(f"Data range: {data.index[0]} to {data.index[-1]}")
-        elif 'timestamp' in data.columns:
-            logger.info(f"Data range: {data.iloc[0]['timestamp']} to {data.iloc[-1]['timestamp']}")
+        elif "timestamp" in data.columns:
+            logger.info(
+                f"Data range: {data.iloc[0]['timestamp']} to {data.iloc[-1]['timestamp']}"
+            )
         logger.info(f"Total candles: {len(data)}")
 
         self.reset()
@@ -161,14 +237,19 @@ class BacktestEngine:
         # Iterate through historical data
         row_position = 0  # Integer position counter for strategy function
         for idx, row in data.iterrows():
-            current_price = row['close']
+            current_price = row["close"]
             # Handle both datetime index and timestamp column
             if isinstance(idx, (pd.Timestamp, datetime)):
                 current_time = idx
-            elif 'timestamp' in row:
-                current_time = pd.to_datetime(row['timestamp'])
+            elif "timestamp" in row:
+                current_time = pd.to_datetime(row["timestamp"])
             else:
                 current_time = datetime.now()  # Fallback
+
+            # Apply funding before exit checks so a long that flipped past
+            # an 8h boundary pays funding before stop-loss / take-profit
+            # decides whether to close on this bar.
+            self._apply_funding(current_price, current_time)
 
             # Check stop loss and take profit for open position
             if self.current_position:
@@ -187,15 +268,16 @@ class BacktestEngine:
             # Update equity curve
             current_equity = self._calculate_equity(current_price)
             self.equity_curve.append(current_equity)
+            self._bar_count += 1
 
         # Close any open position at the end
         if self.current_position:
-            final_price = data.iloc[-1]['close']
+            final_price = data.iloc[-1]["close"]
             # Handle both datetime index and timestamp column
             if isinstance(data.index[-1], (pd.Timestamp, datetime)):
                 final_time = data.index[-1]
-            elif 'timestamp' in data.columns:
-                final_time = pd.to_datetime(data.iloc[-1]['timestamp'])
+            elif "timestamp" in data.columns:
+                final_time = pd.to_datetime(data.iloc[-1]["timestamp"])
             else:
                 final_time = datetime.now()
             self._close_position(final_price, final_time, "end_of_data")
@@ -205,71 +287,113 @@ class BacktestEngine:
 
         logger.info(f"Backtest complete: {len(self.trades)} trades")
         logger.info(f"Win rate: {result.win_rate:.2f}%")
-        logger.info(f"Total P&L: ${result.total_profit_loss:,.2f} ({result.total_profit_loss_pct:.2f}%)")
+        logger.info(
+            f"Total P&L: ${result.total_profit_loss:,.2f} ({result.total_profit_loss_pct:.2f}%)"
+        )
 
         return result
 
-    def _check_exit_conditions(self, row: pd.Series, current_time: datetime) -> Optional[str]:
+    def _check_exit_conditions(
+        self, row: pd.Series, current_time: datetime
+    ) -> Optional[str]:
         """Check if stop loss or take profit is hit"""
         if not self.current_position:
             return None
 
-        high = row['high']
-        low = row['low']
+        high = row["high"]
+        low = row["low"]
 
         if self.current_position.order_type == OrderType.BUY:
             # Check stop loss (below entry)
-            if self.current_position.stop_loss and low <= self.current_position.stop_loss:
+            if (
+                self.current_position.stop_loss
+                and low <= self.current_position.stop_loss
+            ):
                 return "stop_loss"
 
             # Check take profit (above entry)
-            if self.current_position.take_profit and high >= self.current_position.take_profit:
+            if (
+                self.current_position.take_profit
+                and high >= self.current_position.take_profit
+            ):
                 return "take_profit"
 
         elif self.current_position.order_type == OrderType.SELL:
             # Check stop loss (above entry)
-            if self.current_position.stop_loss and high >= self.current_position.stop_loss:
+            if (
+                self.current_position.stop_loss
+                and high >= self.current_position.stop_loss
+            ):
                 return "stop_loss"
 
             # Check take profit (below entry)
-            if self.current_position.take_profit and low <= self.current_position.take_profit:
+            if (
+                self.current_position.take_profit
+                and low <= self.current_position.take_profit
+            ):
                 return "take_profit"
 
         return None
 
-    def _execute_signal(self, signal: Dict, price: float, time: datetime, row: pd.Series):
+    def _execute_signal(
+        self, signal: Dict, price: float, time: datetime, row: pd.Series
+    ):
         """Execute a trading signal"""
-        action = signal.get('action')
+        action = signal.get("action")
 
-        if action == 'BUY' and not self.current_position:
+        if action == "BUY" and not self.current_position:
             self._open_position(OrderType.BUY, price, time, signal)
 
-        elif action == 'SELL' and not self.current_position:
+        elif action == "SELL" and not self.current_position:
             self._open_position(OrderType.SELL, price, time, signal)
 
-        elif action == 'HOLD' and self.current_position:
+        elif action == "HOLD" and self.current_position:
             # Close position on HOLD signal
             self._close_position(price, time, "signal")
 
-    def _open_position(self, order_type: OrderType, price: float, time: datetime, signal: Dict):
+    def _open_position(
+        self, order_type: OrderType, price: float, time: datetime, signal: Dict
+    ):
         """Open a new position"""
         # Calculate position size
         risk_amount = self.capital * self.position_size_pct
         position_size = risk_amount / price
 
-        # Apply slippage
-        if order_type == OrderType.BUY:
-            entry_price = price * (1 + self.slippage)
-        else:
-            entry_price = price * (1 - self.slippage)
+        # Optional partial-fill cap (B-4): respect bar volume so the backtest
+        # doesn't assume infinite liquidity at the close price.
+        if self.partial_fill_volume_pct > 0:
+            try:
+                bar_volume = float(signal.get("_bar_volume") or 0.0)
+            except (TypeError, ValueError):
+                bar_volume = 0.0
+            if bar_volume > 0:
+                cap_qty = bar_volume * self.partial_fill_volume_pct
+                if position_size > cap_qty:
+                    logger.debug(
+                        f"partial fill cap: requested {position_size:.6f} -> {cap_qty:.6f} "
+                        f"(bar_volume={bar_volume:.2f}, pct={self.partial_fill_volume_pct})"
+                    )
+                    position_size = cap_qty
 
-        # Deduct commission
-        commission_cost = position_size * entry_price * self.commission
+        # Apply slippage (ATR-aware when configured; legacy fixed otherwise)
+        atr_value = signal.get("atr") if isinstance(signal, dict) else None
+        slip = self._effective_slippage(atr_value, price)
+        if order_type == OrderType.BUY:
+            entry_price = price * (1 + slip)
+        else:
+            entry_price = price * (1 - slip)
+
+        # Asymmetric fee model (B-4): MARKET => taker, LIMIT => maker (rebate).
+        order_type_str = (
+            signal.get("order_type") if isinstance(signal, dict) else None
+        ) or "MARKET"
+        fee_rate = self._effective_fee_rate(order_type_str)
+        commission_cost = position_size * entry_price * fee_rate
         self.capital -= commission_cost
 
         # Get stop loss and take profit from signal
-        stop_loss = signal.get('stop_loss')
-        take_profit = signal.get('take_profit')
+        stop_loss = signal.get("stop_loss")
+        take_profit = signal.get("take_profit")
 
         self.current_position = Position(
             entry_time=time,
@@ -278,10 +402,12 @@ class BacktestEngine:
             position_size=position_size,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            metadata=signal.get('metadata', {})
+            metadata=signal.get("metadata", {}),
         )
 
-        logger.debug(f"Opened {order_type.value} position at ${entry_price:.2f}, size: {position_size:.4f}")
+        logger.debug(
+            f"Opened {order_type.value} position at ${entry_price:.2f}, size: {position_size:.4f}"
+        )
 
     def _close_position(self, price: float, time: datetime, reason: str):
         """Close current position"""
@@ -294,27 +420,44 @@ class BacktestEngine:
         elif reason == "take_profit":
             exit_price = self.current_position.take_profit
         else:
-            # Apply slippage
+            # Apply slippage on time/signal-driven exits. Use ATR-aware mode
+            # when configured; legacy fixed slippage otherwise. Stop/TP exits
+            # use their pre-set price (no extra slippage applied beyond
+            # whatever the strategy already baked into the level).
+            atr_value = (self.current_position.metadata or {}).get("atr")
+            slip = self._effective_slippage(atr_value, price)
             if self.current_position.order_type == OrderType.BUY:
-                exit_price = price * (1 - self.slippage)
+                exit_price = price * (1 - slip)
             else:
-                exit_price = price * (1 + self.slippage)
+                exit_price = price * (1 + slip)
 
         # Calculate P&L
         if self.current_position.order_type == OrderType.BUY:
-            profit_loss = (exit_price - self.current_position.entry_price) * self.current_position.position_size
+            profit_loss = (
+                exit_price - self.current_position.entry_price
+            ) * self.current_position.position_size
         else:  # SELL
-            profit_loss = (self.current_position.entry_price - exit_price) * self.current_position.position_size
+            profit_loss = (
+                self.current_position.entry_price - exit_price
+            ) * self.current_position.position_size
 
-        # Deduct commission
-        commission_cost = self.current_position.position_size * exit_price * self.commission
+        # Asymmetric exit fee. Stop/TP exits hit at maker (resting limit)
+        # in the realistic Bybit model — they were placed in the book; the
+        # signal-driven exit goes taker. Legacy fee_mode='fixed' preserves
+        # the prior single-rate behavior.
+        order_type_str = "LIMIT" if reason in ("stop_loss", "take_profit") else "MARKET"
+        fee_rate = self._effective_fee_rate(order_type_str)
+        commission_cost = self.current_position.position_size * exit_price * fee_rate
         profit_loss -= commission_cost
 
         # Update capital
         self.capital += profit_loss
 
         # Calculate profit/loss percentage
-        profit_loss_pct = (profit_loss / (self.current_position.entry_price * self.current_position.position_size)) * 100
+        profit_loss_pct = (
+            profit_loss
+            / (self.current_position.entry_price * self.current_position.position_size)
+        ) * 100
 
         # Create trade record
         trade = Trade(
@@ -329,13 +472,15 @@ class BacktestEngine:
             stop_loss=self.current_position.stop_loss,
             take_profit=self.current_position.take_profit,
             exit_reason=reason,
-            metadata=self.current_position.metadata
+            metadata=self.current_position.metadata,
         )
 
         self.trades.append(trade)
         self.current_position = None
 
-        logger.debug(f"Closed position: P&L ${profit_loss:.2f} ({profit_loss_pct:.2f}%), reason: {reason}")
+        logger.debug(
+            f"Closed position: P&L ${profit_loss:.2f} ({profit_loss_pct:.2f}%), reason: {reason}"
+        )
 
     def _calculate_equity(self, current_price: float) -> float:
         """Calculate current equity including open position"""
@@ -344,15 +489,21 @@ class BacktestEngine:
         if self.current_position:
             # Add unrealized P&L
             if self.current_position.order_type == OrderType.BUY:
-                unrealized_pl = (current_price - self.current_position.entry_price) * self.current_position.position_size
+                unrealized_pl = (
+                    current_price - self.current_position.entry_price
+                ) * self.current_position.position_size
             else:
-                unrealized_pl = (self.current_position.entry_price - current_price) * self.current_position.position_size
+                unrealized_pl = (
+                    self.current_position.entry_price - current_price
+                ) * self.current_position.position_size
 
             equity += unrealized_pl
 
         return equity
 
-    def _calculate_results(self, strategy_name: str, data: pd.DataFrame) -> BacktestResult:
+    def _calculate_results(
+        self, strategy_name: str, data: pd.DataFrame
+    ) -> BacktestResult:
         """Calculate backtest performance metrics"""
         if not self.trades:
             logger.warning("No trades executed during backtest")
@@ -376,10 +527,14 @@ class BacktestEngine:
                 trades=[],
                 equity_curve=self.equity_curve,
                 strategy_name=strategy_name,
-                start_date=data.index[0] if isinstance(data.index[0], (pd.Timestamp, datetime)) else pd.to_datetime(data.iloc[0]['timestamp']),
-                end_date=data.index[-1] if isinstance(data.index[-1], (pd.Timestamp, datetime)) else pd.to_datetime(data.iloc[-1]['timestamp']),
+                start_date=data.index[0]
+                if isinstance(data.index[0], (pd.Timestamp, datetime))
+                else pd.to_datetime(data.iloc[0]["timestamp"]),
+                end_date=data.index[-1]
+                if isinstance(data.index[-1], (pd.Timestamp, datetime))
+                else pd.to_datetime(data.iloc[-1]["timestamp"]),
                 initial_capital=self.initial_capital,
-                final_capital=self.capital
+                final_capital=self.capital,
             )
 
         # Basic metrics
@@ -393,11 +548,21 @@ class BacktestEngine:
 
         # P&L metrics
         total_pl = sum(t.profit_loss for t in self.trades)
-        total_pl_pct = ((self.capital - self.initial_capital) / self.initial_capital) * 100
+        total_pl_pct = (
+            (self.capital - self.initial_capital) / self.initial_capital
+        ) * 100
         avg_profit = total_pl / total_trades if total_trades > 0 else 0
 
-        avg_win = sum(t.profit_loss for t in winning_trades) / num_winning if num_winning > 0 else 0
-        avg_loss = sum(t.profit_loss for t in losing_trades) / num_losing if num_losing > 0 else 0
+        avg_win = (
+            sum(t.profit_loss for t in winning_trades) / num_winning
+            if num_winning > 0
+            else 0
+        )
+        avg_loss = (
+            sum(t.profit_loss for t in losing_trades) / num_losing
+            if num_losing > 0
+            else 0
+        )
 
         best_trade = max(t.profit_loss for t in self.trades) if self.trades else 0
         worst_trade = min(t.profit_loss for t in self.trades) if self.trades else 0
@@ -412,7 +577,9 @@ class BacktestEngine:
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
 
         # Trade duration
-        durations = [(t.exit_time - t.entry_time).total_seconds() / 3600 for t in self.trades]
+        durations = [
+            (t.exit_time - t.entry_time).total_seconds() / 3600 for t in self.trades
+        ]
         avg_duration = sum(durations) / len(durations) if durations else 0
 
         return BacktestResult(
@@ -435,10 +602,14 @@ class BacktestEngine:
             trades=self.trades,
             equity_curve=self.equity_curve,
             strategy_name=strategy_name,
-            start_date=data.index[0] if isinstance(data.index[0], (pd.Timestamp, datetime)) else pd.to_datetime(data.iloc[0]['timestamp']),
-            end_date=data.index[-1] if isinstance(data.index[-1], (pd.Timestamp, datetime)) else pd.to_datetime(data.iloc[-1]['timestamp']),
+            start_date=data.index[0]
+            if isinstance(data.index[0], (pd.Timestamp, datetime))
+            else pd.to_datetime(data.iloc[0]["timestamp"]),
+            end_date=data.index[-1]
+            if isinstance(data.index[-1], (pd.Timestamp, datetime))
+            else pd.to_datetime(data.iloc[-1]["timestamp"]),
             initial_capital=self.initial_capital,
-            final_capital=self.capital
+            final_capital=self.capital,
         )
 
     def _calculate_max_drawdown(self) -> Tuple[float, float]:

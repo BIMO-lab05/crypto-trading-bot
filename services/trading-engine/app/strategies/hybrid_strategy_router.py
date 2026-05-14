@@ -15,14 +15,14 @@ import logging
 from typing import Dict, Optional
 from enum import Enum
 
-from app.models import IndicatorSignal, SignalAction
+from app.models import IndicatorSignal
 from app.strategies.research_optimized_strategy import (
     ResearchOptimizedStrategy,
-    TradeSetup
+    TradeSetup,
 )
 from app.strategies.mean_reversion_strategy import (
     MeanReversionStrategy,
-    MeanReversionSignal
+    MeanReversionSignal,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,9 +30,10 @@ logger = logging.getLogger(__name__)
 
 class MarketRegime(Enum):
     """Market regime classification"""
-    TRENDING = "TRENDING"      # ADX >= 25
-    RANGING = "RANGING"        # ADX < 25
-    UNKNOWN = "UNKNOWN"        # Cannot determine
+
+    TRENDING = "TRENDING"  # ADX >= 25
+    RANGING = "RANGING"  # ADX < 25
+    UNKNOWN = "UNKNOWN"  # Cannot determine
 
 
 class HybridStrategyRouter:
@@ -61,8 +62,8 @@ class HybridStrategyRouter:
 
         logger.info("HybridStrategyRouter initialized")
         logger.info(f"  ADX threshold: {self.ADX_TRENDING_THRESHOLD}")
-        logger.info(f"  Trend strategy: ResearchOptimizedStrategy")
-        logger.info(f"  Mean reversion strategy: MeanReversionStrategy")
+        logger.info("  Trend strategy: ResearchOptimizedStrategy")
+        logger.info("  Mean reversion strategy: MeanReversionStrategy")
 
     def detect_regime(self, indicators: Dict[str, IndicatorSignal]) -> MarketRegime:
         """
@@ -74,39 +75,70 @@ class HybridStrategyRouter:
         Returns:
             MarketRegime (TRENDING, RANGING, or UNKNOWN)
         """
-        # Try to get ADX from indicators
-        # ADX could be in ATR signal metadata or separate
-        atr_signal = indicators.get('ATR')
-        if atr_signal and atr_signal.metadata:
-            adx_value = atr_signal.metadata.get('adx')
-            if adx_value is not None:
-                if adx_value >= self.ADX_TRENDING_THRESHOLD:
-                    return MarketRegime.TRENDING
-                else:
-                    return MarketRegime.RANGING
+        # Primary path (2026-05-06): read the ADX leg the aggregator now
+        # supplies. ADX is its own indicator, NOT nested in ATR.metadata.
+        # Old code looked at atr_signal.metadata['adx'] which never existed,
+        # so the router silently defaulted to RANGING every cycle regardless
+        # of regime — a load-bearing bug for trend-following profitability.
+        adx_signal = indicators.get("ADX")
+        adx_value = None
+        if adx_signal is not None:
+            # Prefer the value field (ADX numeric), fall back to metadata.
+            adx_value = getattr(adx_signal, "value", None)
+            if adx_value is None and getattr(adx_signal, "metadata", None):
+                adx_value = adx_signal.metadata.get("adx")
+        # Legacy fallback only if the primary lookup truly missed.
+        if adx_value is None:
+            atr_signal = indicators.get("ATR")
+            if atr_signal and getattr(atr_signal, "metadata", None):
+                adx_value = atr_signal.metadata.get("adx")
 
-        # Fallback: Check if we have explicit trend strength
-        # If multiple trend indicators (EMA, SMA, ICHIMOKU) agree strongly, assume trending
-        trend_indicators = ['EMA', 'SMA', 'ICHIMOKU', 'TREND_FILTER']
-        strong_trend_count = 0
+        if adx_value is not None:
+            try:
+                adx_value = float(adx_value)
+            except (TypeError, ValueError):
+                adx_value = None
 
-        for indicator_name in trend_indicators:
-            signal = indicators.get(indicator_name)
-            if signal and signal.confidence > 0.7:  # Strong confidence
-                strong_trend_count += 1
-
-        if strong_trend_count >= 2:
-            # Multiple strong trend indicators = likely trending
-            return MarketRegime.TRENDING
-        else:
-            # Weak or mixed trend indicators = likely ranging
+        if adx_value is not None:
+            if adx_value >= self.ADX_TRENDING_THRESHOLD:
+                logger.info(
+                    f"[HYBRID] ADX={adx_value:.2f} >= "
+                    f"{self.ADX_TRENDING_THRESHOLD} → TRENDING"
+                )
+                return MarketRegime.TRENDING
+            logger.info(
+                f"[HYBRID] ADX={adx_value:.2f} < "
+                f"{self.ADX_TRENDING_THRESHOLD} → RANGING"
+            )
             return MarketRegime.RANGING
+
+        # Fallback only when ADX is genuinely unavailable (e.g. TA service
+        # transient down). Treat conf > 0.5 instead of 0.7 so the fallback
+        # has a non-zero chance of firing — old 0.7 floor never triggered
+        # with current aggregator confidence regime (~0.16-0.30).
+        trend_indicators = ["EMA", "SMA", "ICHIMOKU", "TREND_FILTER"]
+        strong_trend_count = sum(
+            1
+            for name in trend_indicators
+            if (sig := indicators.get(name)) and sig.confidence > 0.5
+        )
+        if strong_trend_count >= 2:
+            logger.warning(
+                f"[HYBRID] ADX unavailable; fallback says TRENDING "
+                f"({strong_trend_count}/{len(trend_indicators)} legs strong)"
+            )
+            return MarketRegime.TRENDING
+        logger.warning(
+            f"[HYBRID] ADX unavailable; fallback says RANGING "
+            f"({strong_trend_count}/{len(trend_indicators)} legs strong)"
+        )
+        return MarketRegime.RANGING
 
     def generate_signal(
         self,
         indicators: Dict[str, IndicatorSignal],
         current_price: float,
-        capital: float = 10000.0
+        capital: float = 10000.0,
     ) -> Optional[TradeSetup]:
         """
         Generate trading signal using appropriate strategy
@@ -133,14 +165,14 @@ class HybridStrategyRouter:
             self.trend_signals += 1
 
             signal = self.trend_strategy.generate_signal(
-                indicators=indicators,
-                current_price=current_price,
-                capital=capital
+                indicators=indicators, current_price=current_price, capital=capital
             )
 
             if signal:
                 # Add regime info to reasoning
-                signal.reasoning.insert(0, f"Market regime: TRENDING (using trend-following)")
+                signal.reasoning.insert(
+                    0, "Market regime: TRENDING (using trend-following)"
+                )
 
             return signal
 
@@ -150,17 +182,13 @@ class HybridStrategyRouter:
             self.mean_reversion_signals += 1
 
             mr_signal = self.mean_reversion_strategy.generate_signal(
-                indicators=indicators,
-                current_price=current_price,
-                capital=capital
+                indicators=indicators, current_price=current_price, capital=capital
             )
 
             if mr_signal:
                 # Convert MeanReversionSignal to TradeSetup format
                 return self._convert_mean_reversion_to_trade_setup(
-                    mr_signal=mr_signal,
-                    current_price=current_price,
-                    capital=capital
+                    mr_signal=mr_signal, current_price=current_price, capital=capital
                 )
             else:
                 return None
@@ -169,21 +197,16 @@ class HybridStrategyRouter:
             # Unknown regime - default to trend-following (safer)
             logger.warning("[HYBRID] Unknown regime, defaulting to trend-following")
             return self.trend_strategy.generate_signal(
-                indicators=indicators,
-                current_price=current_price,
-                capital=capital
+                indicators=indicators, current_price=current_price, capital=capital
             )
 
     def _convert_mean_reversion_to_trade_setup(
-        self,
-        mr_signal: MeanReversionSignal,
-        current_price: float,
-        capital: float
+        self, mr_signal: MeanReversionSignal, current_price: float, capital: float
     ) -> TradeSetup:
         """Convert MeanReversionSignal to TradeSetup format"""
         from app.strategies.research_optimized_strategy import (
             SignalStrength,
-            MarketCondition
+            MarketCondition,
         )
 
         # Map mean reversion strength to signal strength
@@ -191,12 +214,11 @@ class HybridStrategyRouter:
             "VERY_STRONG": SignalStrength.VERY_STRONG,
             "STRONG": SignalStrength.STRONG,
             "MODERATE": SignalStrength.MODERATE,
-            "WEAK": SignalStrength.WEAK
+            "WEAK": SignalStrength.WEAK,
         }
 
         signal_strength = strength_mapping.get(
-            mr_signal.strength.value,
-            SignalStrength.MODERATE
+            mr_signal.strength.value, SignalStrength.MODERATE
         )
 
         # Calculate position size (10-20% of capital based on confidence)
@@ -220,8 +242,8 @@ class HybridStrategyRouter:
             metadata={
                 "strategy_type": "mean_reversion",
                 "indicators_triggered": mr_signal.indicators_aligned,
-                "target_mean": mr_signal.target
-            }
+                "target_mean": mr_signal.target,
+            },
         )
 
     def get_stats(self) -> Dict[str, any]:
@@ -232,7 +254,7 @@ class HybridStrategyRouter:
                 "trend_signals": 0,
                 "mean_reversion_signals": 0,
                 "trend_pct": 0.0,
-                "mean_reversion_pct": 0.0
+                "mean_reversion_pct": 0.0,
             }
 
         return {
@@ -240,5 +262,6 @@ class HybridStrategyRouter:
             "trend_signals": self.trend_signals,
             "mean_reversion_signals": self.mean_reversion_signals,
             "trend_pct": (self.trend_signals / self.total_signals) * 100,
-            "mean_reversion_pct": (self.mean_reversion_signals / self.total_signals) * 100
+            "mean_reversion_pct": (self.mean_reversion_signals / self.total_signals)
+            * 100,
         }

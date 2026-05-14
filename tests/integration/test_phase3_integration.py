@@ -10,7 +10,6 @@ import pytest
 import httpx
 import asyncio
 import time
-from typing import Dict, Any
 
 
 # ============================================================================
@@ -29,77 +28,35 @@ REQUEST_TIMEOUT = 30.0
 
 
 # ============================================================================
-# FIXTURES
+# FIXTURES (D-12 REFACTOR — Plan 02-04)
 # ============================================================================
-
-@pytest.fixture
-async def async_client():
-    """Create async HTTP client for integration tests"""
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        yield client
-
-
-@pytest.fixture
-async def check_services_available(async_client):
-    """
-    Check if required backend services are running
-    Skip tests if services are not available
-    """
-    services_status = {}
-
-    # Check API Gateway
-    try:
-        response = await async_client.get(f"{API_GATEWAY_URL}/health")
-        services_status["api-gateway"] = response.status_code == 200
-    except Exception:
-        services_status["api-gateway"] = False
-
-    # Check Sentiment Analysis Service
-    try:
-        response = await async_client.get(f"{SENTIMENT_SERVICE_URL}/health")
-        services_status["sentiment-analysis"] = response.status_code == 200
-    except Exception:
-        services_status["sentiment-analysis"] = False
-
-    # Check Technical Analysis Service
-    try:
-        response = await async_client.get(f"{TECHNICAL_ANALYSIS_URL}/health")
-        services_status["technical-analysis"] = response.status_code == 200
-    except Exception:
-        services_status["technical-analysis"] = False
-
-    # Skip tests if any service is down
-    if not all(services_status.values()):
-        pytest.skip(
-            f"Required services not available: {services_status}. "
-            "Start services with docker-compose up before running integration tests."
-        )
-
-    return services_status
+# The local async_client fixture (duplicate of conftest http_client) and the
+# silent-skip availability fixture have been deleted. Tests now depend on
+# bootstrap_stack (conftest, session-scoped) which hard-fails when services
+# are unhealthy — no silent-green path exists.
 
 
 # ============================================================================
 # SENTIMENT ANALYSIS INTEGRATION TESTS
 # ============================================================================
 
+
 class TestSentimentAnalysisIntegration:
     """Integration tests for sentiment analysis endpoints"""
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_news_sentiment_end_to_end(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_news_sentiment_end_to_end(self, http_client, bootstrap_stack):
         """Test complete flow: Gateway -> Sentiment Service for news sentiment"""
         symbol = "BTCUSDT"
         url = f"{API_GATEWAY_URL}/api/sentiment/news/{symbol}"
 
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         # Verify response
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
 
         data = response.json()
 
@@ -118,16 +75,12 @@ class TestSentimentAnalysisIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_social_sentiment_end_to_end(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_social_sentiment_end_to_end(self, http_client, bootstrap_stack):
         """Test complete flow: Gateway -> Sentiment Service for social sentiment"""
         symbol = "ETHUSDT"
         url = f"{API_GATEWAY_URL}/api/sentiment/social/{symbol}"
 
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         assert response.status_code == 200
         data = response.json()
@@ -142,16 +95,12 @@ class TestSentimentAnalysisIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_combined_sentiment_end_to_end(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_combined_sentiment_end_to_end(self, http_client, bootstrap_stack):
         """Test complete flow: Gateway -> Sentiment Service for combined sentiment"""
         symbol = "BTCUSDT"
         url = f"{API_GATEWAY_URL}/api/sentiment/combined/{symbol}"
 
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         assert response.status_code == 200
         data = response.json()
@@ -175,26 +124,24 @@ class TestSentimentAnalysisIntegration:
 
         # Weights should sum to 1.0 (or close to it)
         total_weight = (
-            data["news_sentiment"]["weight"] +
-            data["social_sentiment"]["weight"] +
-            data["market_sentiment"]["weight"]
+            data["news_sentiment"]["weight"]
+            + data["social_sentiment"]["weight"]
+            + data["market_sentiment"]["weight"]
         )
-        assert 0.95 <= total_weight <= 1.05, f"Weights sum to {total_weight}, expected ~1.0"
+        assert 0.95 <= total_weight <= 1.05, (
+            f"Weights sum to {total_weight}, expected ~1.0"
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_sentiment_trend_end_to_end(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_sentiment_trend_end_to_end(self, http_client, bootstrap_stack):
         """Test complete flow: Gateway -> Sentiment Service for sentiment trend"""
         symbol = "BTCUSDT"
         hours = 24
 
         url = f"{API_GATEWAY_URL}/api/sentiment/trend/{symbol}?hours={hours}"
 
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         assert response.status_code == 200
         data = response.json()
@@ -220,11 +167,7 @@ class TestSentimentAnalysisIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_sentiment_trend_custom_timeframe(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_sentiment_trend_custom_timeframe(self, http_client, bootstrap_stack):
         """Test sentiment trend with different timeframe parameters"""
         symbol = "ETHUSDT"
 
@@ -233,7 +176,7 @@ class TestSentimentAnalysisIntegration:
 
         for hours in timeframes:
             url = f"{API_GATEWAY_URL}/api/sentiment/trend/{symbol}?hours={hours}"
-            response = await async_client.get(url)
+            response = await http_client.get(url)
 
             assert response.status_code == 200
             data = response.json()
@@ -244,21 +187,20 @@ class TestSentimentAnalysisIntegration:
 # MULTI-TIMEFRAME ANALYSIS INTEGRATION TESTS
 # ============================================================================
 
+
 class TestMultiTimeframeAnalysisIntegration:
     """Integration tests for multi-timeframe analysis endpoints"""
 
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_multi_timeframe_analysis_end_to_end(
-        self,
-        async_client,
-        check_services_available
+        self, http_client, bootstrap_stack
     ):
         """Test complete flow: Gateway -> Technical Analysis for multi-timeframe"""
         symbol = "BTCUSDT"
         url = f"{API_GATEWAY_URL}/api/analysis/multi-timeframe/{symbol}"
 
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         assert response.status_code == 200
         data = response.json()
@@ -293,15 +235,13 @@ class TestMultiTimeframeAnalysisIntegration:
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_indicator_signal_end_to_end_default_interval(
-        self,
-        async_client,
-        check_services_available
+        self, http_client, bootstrap_stack
     ):
         """Test complete flow: Gateway -> Technical Analysis for indicator signals"""
         symbol = "BTCUSDT"
         url = f"{API_GATEWAY_URL}/api/analysis/indicators/signal/{symbol}"
 
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         assert response.status_code == 200
         data = response.json()
@@ -335,18 +275,16 @@ class TestMultiTimeframeAnalysisIntegration:
         assert "neutral_indicators" in data
 
         total_indicators = (
-            data["buy_indicators"] +
-            data["sell_indicators"] +
-            data["neutral_indicators"]
+            data["buy_indicators"]
+            + data["sell_indicators"]
+            + data["neutral_indicators"]
         )
         assert total_indicators == len(expected_indicators)
 
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_indicator_signal_custom_intervals(
-        self,
-        async_client,
-        check_services_available
+        self, http_client, bootstrap_stack
     ):
         """Test indicator signal with various interval parameters"""
         symbol = "ETHUSDT"
@@ -356,7 +294,7 @@ class TestMultiTimeframeAnalysisIntegration:
 
         for interval in intervals:
             url = f"{API_GATEWAY_URL}/api/analysis/indicators/signal/{symbol}?interval={interval}"
-            response = await async_client.get(url)
+            response = await http_client.get(url)
 
             assert response.status_code == 200
             data = response.json()
@@ -368,15 +306,14 @@ class TestMultiTimeframeAnalysisIntegration:
 # CROSS-ENDPOINT INTEGRATION TESTS
 # ============================================================================
 
+
 class TestCrossEndpointIntegration:
     """Test integration between different Phase 3 endpoints"""
 
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_sentiment_and_technical_alignment(
-        self,
-        async_client,
-        check_services_available
+        self, http_client, bootstrap_stack
     ):
         """
         Test that sentiment and technical analysis can be retrieved together
@@ -386,11 +323,11 @@ class TestCrossEndpointIntegration:
 
         # Get sentiment signal
         sentiment_url = f"{API_GATEWAY_URL}/api/sentiment/combined/{symbol}"
-        sentiment_response = await async_client.get(sentiment_url)
+        sentiment_response = await http_client.get(sentiment_url)
 
         # Get technical signal
         technical_url = f"{API_GATEWAY_URL}/api/analysis/multi-timeframe/{symbol}"
-        technical_response = await async_client.get(technical_url)
+        technical_response = await http_client.get(technical_url)
 
         # Both should succeed
         assert sentiment_response.status_code == 200
@@ -409,18 +346,18 @@ class TestCrossEndpointIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_parallel_sentiment_requests(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_parallel_sentiment_requests(self, http_client, bootstrap_stack):
         """Test making parallel requests to different sentiment endpoints"""
         symbol = "BTCUSDT"
 
         # Make parallel requests
-        news_task = async_client.get(f"{API_GATEWAY_URL}/api/sentiment/news/{symbol}")
-        social_task = async_client.get(f"{API_GATEWAY_URL}/api/sentiment/social/{symbol}")
-        combined_task = async_client.get(f"{API_GATEWAY_URL}/api/sentiment/combined/{symbol}")
+        news_task = http_client.get(f"{API_GATEWAY_URL}/api/sentiment/news/{symbol}")
+        social_task = http_client.get(
+            f"{API_GATEWAY_URL}/api/sentiment/social/{symbol}"
+        )
+        combined_task = http_client.get(
+            f"{API_GATEWAY_URL}/api/sentiment/combined/{symbol}"
+        )
 
         # Wait for all responses
         responses = await asyncio.gather(news_task, social_task, combined_task)
@@ -433,22 +370,18 @@ class TestCrossEndpointIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_multiple_symbols_sequential(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_multiple_symbols_sequential(self, http_client, bootstrap_stack):
         """Test requesting data for multiple symbols sequentially"""
         for symbol in TEST_SYMBOLS:
             # Test news sentiment
-            response = await async_client.get(
+            response = await http_client.get(
                 f"{API_GATEWAY_URL}/api/sentiment/news/{symbol}"
             )
             assert response.status_code == 200
             assert response.json()["symbol"] == symbol
 
             # Test multi-timeframe
-            response = await async_client.get(
+            response = await http_client.get(
                 f"{API_GATEWAY_URL}/api/analysis/multi-timeframe/{symbol}"
             )
             assert response.status_code == 200
@@ -459,38 +392,31 @@ class TestCrossEndpointIntegration:
 # ERROR HANDLING INTEGRATION TESTS
 # ============================================================================
 
+
 class TestErrorHandlingIntegration:
     """Test error handling in end-to-end scenarios"""
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_invalid_symbol_propagation(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_invalid_symbol_propagation(self, http_client, bootstrap_stack):
         """Test that invalid symbol errors propagate correctly"""
         invalid_symbol = "INVALID_SYMBOL_XYZ"
 
         url = f"{API_GATEWAY_URL}/api/sentiment/news/{invalid_symbol}"
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         # Should return error (400 or 404)
         assert response.status_code in [400, 404, 500]
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_invalid_interval_parameter(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_invalid_interval_parameter(self, http_client, bootstrap_stack):
         """Test handling of invalid interval parameter"""
         symbol = "BTCUSDT"
         invalid_interval = "invalid"
 
         url = f"{API_GATEWAY_URL}/api/analysis/indicators/signal/{symbol}?interval={invalid_interval}"
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         # Should return error or handle gracefully
         # Status code depends on backend service validation
@@ -498,17 +424,13 @@ class TestErrorHandlingIntegration:
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_negative_hours_parameter(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_negative_hours_parameter(self, http_client, bootstrap_stack):
         """Test handling of negative hours parameter in sentiment trend"""
         symbol = "BTCUSDT"
         invalid_hours = -5
 
         url = f"{API_GATEWAY_URL}/api/sentiment/trend/{symbol}?hours={invalid_hours}"
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         # Should return error or handle gracefully
         assert response.status_code in [200, 400, 422]
@@ -518,67 +440,60 @@ class TestErrorHandlingIntegration:
 # PERFORMANCE INTEGRATION TESTS
 # ============================================================================
 
+
 class TestPerformanceIntegration:
     """Test performance characteristics in real environment"""
 
     @pytest.mark.asyncio
     @pytest.mark.integration
     @pytest.mark.slow
-    async def test_sentiment_endpoint_response_time(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_sentiment_endpoint_response_time(self, http_client, bootstrap_stack):
         """Test that sentiment endpoints respond within acceptable time"""
         symbol = "BTCUSDT"
         url = f"{API_GATEWAY_URL}/api/sentiment/news/{symbol}"
 
         start_time = time.time()
-        response = await async_client.get(url)
+        response = await http_client.get(url)
         end_time = time.time()
 
         response_time = end_time - start_time
 
         assert response.status_code == 200
         # Should respond within 5 seconds (including network + processing)
-        assert response_time < 5.0, f"Response time {response_time}s exceeded 5s threshold"
+        assert response_time < 5.0, (
+            f"Response time {response_time}s exceeded 5s threshold"
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.integration
     @pytest.mark.slow
-    async def test_multi_timeframe_response_time(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_multi_timeframe_response_time(self, http_client, bootstrap_stack):
         """Test that multi-timeframe analysis responds within acceptable time"""
         symbol = "BTCUSDT"
         url = f"{API_GATEWAY_URL}/api/analysis/multi-timeframe/{symbol}"
 
         start_time = time.time()
-        response = await async_client.get(url)
+        response = await http_client.get(url)
         end_time = time.time()
 
         response_time = end_time - start_time
 
         assert response.status_code == 200
         # Multi-timeframe analysis may take longer (analyzing multiple timeframes)
-        assert response_time < 10.0, f"Response time {response_time}s exceeded 10s threshold"
+        assert response_time < 10.0, (
+            f"Response time {response_time}s exceeded 10s threshold"
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.integration
     @pytest.mark.slow
-    async def test_concurrent_load(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_concurrent_load(self, http_client, bootstrap_stack):
         """Test system behavior under concurrent load"""
         symbol = "BTCUSDT"
 
         # Create 10 concurrent requests
         tasks = [
-            async_client.get(f"{API_GATEWAY_URL}/api/sentiment/news/{symbol}")
+            http_client.get(f"{API_GATEWAY_URL}/api/sentiment/news/{symbol}")
             for _ in range(10)
         ]
 
@@ -589,7 +504,11 @@ class TestPerformanceIntegration:
         total_time = end_time - start_time
 
         # Count successful responses
-        successful = sum(1 for r in responses if isinstance(r, httpx.Response) and r.status_code == 200)
+        successful = sum(
+            1
+            for r in responses
+            if isinstance(r, httpx.Response) and r.status_code == 200
+        )
 
         # At least 80% should succeed
         assert successful >= 8, f"Only {successful}/10 requests succeeded"
@@ -602,16 +521,13 @@ class TestPerformanceIntegration:
 # DATA CONSISTENCY INTEGRATION TESTS
 # ============================================================================
 
+
 class TestDataConsistencyIntegration:
     """Test data consistency across multiple requests"""
 
     @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_sentiment_trend_consistency(
-        self,
-        async_client,
-        check_services_available
-    ):
+    async def test_sentiment_trend_consistency(self, http_client, bootstrap_stack):
         """Test that sentiment trend data is consistent across requests"""
         symbol = "BTCUSDT"
         hours = 24
@@ -619,9 +535,9 @@ class TestDataConsistencyIntegration:
         url = f"{API_GATEWAY_URL}/api/sentiment/trend/{symbol}?hours={hours}"
 
         # Make two requests
-        response1 = await async_client.get(url)
+        response1 = await http_client.get(url)
         await asyncio.sleep(1)  # Small delay
-        response2 = await async_client.get(url)
+        response2 = await http_client.get(url)
 
         assert response1.status_code == 200
         assert response2.status_code == 200
@@ -639,9 +555,7 @@ class TestDataConsistencyIntegration:
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_combined_sentiment_components_match(
-        self,
-        async_client,
-        check_services_available
+        self, http_client, bootstrap_stack
     ):
         """
         Test that combined sentiment components match individual endpoints
@@ -650,15 +564,15 @@ class TestDataConsistencyIntegration:
         symbol = "BTCUSDT"
 
         # Get individual sentiments
-        news_response = await async_client.get(
+        news_response = await http_client.get(
             f"{API_GATEWAY_URL}/api/sentiment/news/{symbol}"
         )
-        social_response = await async_client.get(
+        social_response = await http_client.get(
             f"{API_GATEWAY_URL}/api/sentiment/social/{symbol}"
         )
 
         # Get combined sentiment
-        combined_response = await async_client.get(
+        combined_response = await http_client.get(
             f"{API_GATEWAY_URL}/api/sentiment/combined/{symbol}"
         )
 
@@ -681,19 +595,18 @@ class TestDataConsistencyIntegration:
 # HEALTH CHECK INTEGRATION
 # ============================================================================
 
+
 class TestHealthCheckIntegration:
     """Test health check integration with Phase 3 services"""
 
     @pytest.mark.asyncio
     @pytest.mark.integration
     async def test_health_check_includes_phase3_services(
-        self,
-        async_client,
-        check_services_available
+        self, http_client, bootstrap_stack
     ):
         """Test that health check endpoint includes Phase 3 services"""
         url = f"{API_GATEWAY_URL}/health"
-        response = await async_client.get(url)
+        response = await http_client.get(url)
 
         assert response.status_code == 200
         data = response.json()

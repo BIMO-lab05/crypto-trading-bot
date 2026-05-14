@@ -1,0 +1,12 @@
+node_modules
+.git
+.vscode
+.idea
+coverage
+.env.local
+.env.development
+.env.test
+__tests__/__snapshots__
+*.log
+.DS_Store
+Thumbs.db

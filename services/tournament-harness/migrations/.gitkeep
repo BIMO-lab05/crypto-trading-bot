@@ -1,0 +1,3 @@
+# Placeholder so Dockerfile `COPY migrations/ ./migrations/` succeeds at the
+# skeleton stage (Phase 3, plan 03-01). Numbered SQL files (0001_initial.sql,
+# etc.) land here in plan 03-03.

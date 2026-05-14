@@ -4,6 +4,7 @@ Purpose: Simulate trading without real money
 Enhanced: Database persistence for trades and positions
 """
 
+import asyncio
 import logging
 from decimal import Decimal
 from typing import Optional
@@ -20,6 +21,27 @@ from app.risk_manager import get_risk_manager
 from app.repositories import get_trade_repository, get_portfolio_repository
 
 logger = logging.getLogger(__name__)
+
+
+def _trade_log_done(task: "asyncio.Task") -> None:
+    """asyncio.Task done-callback: surface log_trade exceptions LOUDLY.
+
+    Without this, fire-and-forget create_task() swallows coroutine errors —
+    the GIGO chain that left `trades` empty for weeks despite a working
+    log_trade() function.
+    """
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, asyncio.InvalidStateError):
+        return
+    if exc is not None:
+        logger.error("log_trade task failed: %s", exc, exc_info=exc)
+
+
+def _spawn_trade_log(coro) -> None:
+    """Schedule log_trade coro with error-visible done-callback."""
+    task = asyncio.create_task(coro)
+    task.add_done_callback(_trade_log_done)
 
 
 class PaperTradingEngine:
@@ -156,6 +178,20 @@ class PaperTradingEngine:
                     f"Proceeds: ${proceeds} | P&L: ${closed_position.realized_pnl} | Balance: ${self.balance}"
                 )
 
+                _spawn_trade_log(
+                    self.trade_repo.log_trade(
+                        position_id=closed_position.id,
+                        portfolio_id="paper_trading",
+                        symbol=order.symbol,
+                        side="BUY",
+                        quantity=order.quantity,
+                        price=current_price,
+                        commission=commission,
+                        strategy=order.strategy,
+                        signal_confidence=order.entry_signal_confidence,
+                    )
+                )
+
                 return executed_order, None
 
             # No SHORT position - open a LONG position (2025-12-18 FIX)
@@ -198,23 +234,20 @@ class PaperTradingEngine:
                 f"Balance: ${self.balance}"
             )
 
-            # Log trade to database (async, non-blocking)
-            import asyncio
-
-            try:
-                asyncio.create_task(
-                    self.trade_repo.log_trade(
-                        position_id=position.id,
-                        portfolio_id="paper_trading",
-                        symbol=order.symbol,
-                        side="BUY",
-                        quantity=order.quantity,
-                        price=current_price,
-                        commission=commission,
-                    )
+            # Log trade to database (async, errors surfaced via done-callback)
+            _spawn_trade_log(
+                self.trade_repo.log_trade(
+                    position_id=position.id,
+                    portfolio_id="paper_trading",
+                    symbol=order.symbol,
+                    side="BUY",
+                    quantity=order.quantity,
+                    price=current_price,
+                    commission=commission,
+                    strategy=order.strategy,
+                    signal_confidence=order.entry_signal_confidence,
                 )
-            except Exception as e:
-                logger.warning(f"Failed to log BUY trade to database: {e}")
+            )
 
         # Handle SELL order
         elif order.side == OrderSide.SELL:
@@ -259,6 +292,20 @@ class PaperTradingEngine:
                     f"Balance: ${self.balance}"
                 )
 
+                _spawn_trade_log(
+                    self.trade_repo.log_trade(
+                        position_id=position.id,
+                        portfolio_id="paper_trading",
+                        symbol=order.symbol,
+                        side="SELL",
+                        quantity=order.quantity,
+                        price=current_price,
+                        commission=commission,
+                        strategy=order.strategy,
+                        signal_confidence=order.entry_signal_confidence,
+                    )
+                )
+
                 return executed_order, None
 
             # Close the LONG position
@@ -280,23 +327,20 @@ class PaperTradingEngine:
                 f"Balance: ${self.balance}"
             )
 
-            # Log trade to database (async, non-blocking)
-            import asyncio
-
-            try:
-                asyncio.create_task(
-                    self.trade_repo.log_trade(
-                        position_id=closed_position.id,
-                        portfolio_id="paper_trading",
-                        symbol=order.symbol,
-                        side="SELL",
-                        quantity=order.quantity,
-                        price=current_price,
-                        commission=commission,
-                    )
+            # Log trade to database (async, errors surfaced via done-callback)
+            _spawn_trade_log(
+                self.trade_repo.log_trade(
+                    position_id=closed_position.id,
+                    portfolio_id="paper_trading",
+                    symbol=order.symbol,
+                    side="SELL",
+                    quantity=order.quantity,
+                    price=current_price,
+                    commission=commission,
+                    strategy=order.strategy,
+                    signal_confidence=order.entry_signal_confidence,
                 )
-            except Exception as e:
-                logger.warning(f"Failed to log SELL trade to database: {e}")
+            )
 
         return executed_order, None
 
