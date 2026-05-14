@@ -189,7 +189,7 @@ Plans:
 - [x] 07-04-PLAN.md — TournamentDashboard page + leaderboard table + filter chips + significance badge + contaminated-window warning + route registration honoring UI-SPEC (DASH-04)
 
 **Wave 4** *(blocked on 07-03 + 07-04)*
-- [ ] 07-05-PLAN.md — Smoke fixture JSON (primary + 2 Phase 4 sidecars) + tournament_snapshot_seeded conftest fixture + audit-driven pytest-playwright smoke with hard data_testid gate + named StatusBar substrings (DASH-06)
+- [x] 07-05-PLAN.md — Smoke fixture JSON (primary + 2 Phase 4 sidecars) + tournament_snapshot_seeded conftest fixture + audit-driven pytest-playwright smoke with hard data_testid gate + named StatusBar substrings (DASH-06)
 
 **Wave 5** *(blocked on Wave 4)*
 - [ ] 07-06-PLAN.md — pytest-playwright dep + Chromium install step + failure-artifact upload in integration.yml and integration-ml-on.yml (DASH-06)
