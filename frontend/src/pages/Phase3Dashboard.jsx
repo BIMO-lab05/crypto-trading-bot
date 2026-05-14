@@ -153,7 +153,10 @@ export default function Phase3Dashboard() {
     queryKey: ['ml', 'prediction', selectedSymbol, selectedInterval],
     queryFn: () => mlAPI.getPricePrediction(selectedSymbol, selectedInterval),
     refetchInterval: 60000,
-    retry: 2,
+    // Phase 7.2: 503 = feature flag off (ENABLE_ML_PREDICTIONS=false); retry pointless.
+    // Settles to isError within one round-trip so TileState renders ErrorState
+    // (tile-error testid) instead of skeleton-forever.
+    retry: (failureCount, error) => error?.response?.status !== 503 && failureCount < 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
     staleTime: 30000,
   })
@@ -174,7 +177,8 @@ export default function Phase3Dashboard() {
     queryKey: ['sentiment', 'combined', selectedSymbol],
     queryFn: () => sentimentAPI.getCombinedSentiment(selectedSymbol, 24),
     refetchInterval: 900000,
-    retry: 2,
+    // Phase 7.2: short-circuit 503 retry (ENABLE_SENTIMENT_ANALYSIS=false).
+    retry: (failureCount, error) => error?.response?.status !== 503 && failureCount < 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
     staleTime: 300000,
   })
@@ -189,7 +193,8 @@ export default function Phase3Dashboard() {
     queryKey: ['mtf', 'analysis', selectedSymbol],
     queryFn: () => multiTimeframeAPI.getAnalysis(selectedSymbol),
     refetchInterval: 60000,
-    retry: 2,
+    // Phase 7.2: short-circuit 503 retry (mtf backed by ml-prediction-service).
+    retry: (failureCount, error) => error?.response?.status !== 503 && failureCount < 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
     staleTime: 30000,
   })
@@ -204,7 +209,8 @@ export default function Phase3Dashboard() {
     queryKey: ['enhanced', 'signal', selectedSymbol, selectedInterval],
     queryFn: () => enhancedTradingAPI.getEnhancedSignal(selectedSymbol, selectedInterval),
     refetchInterval: 30000,
-    retry: 2,
+    // Phase 7.2: short-circuit 503 retry (enhanced signal depends on ml-prediction-service).
+    retry: (failureCount, error) => error?.response?.status !== 503 && failureCount < 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
     staleTime: 15000,
   })
