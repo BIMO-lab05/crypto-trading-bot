@@ -1153,6 +1153,153 @@ async def get_safety_state():
     }
 
 
+# Phase 7 D-01: gateway reads committed tournament snapshots from a RO bind-mount.
+# Intentional duplication of the live tournament-harness:8010 /api/v1/tournaments
+# path — frontend reads files (no --profile tournament dependency) per CONTEXT.md
+# D-01/D-02. Do not "fix" by proxying. The constant below is a module-level seam
+# tests monkeypatch to swap in a tmp_path; production resolves to /app/snapshots
+# (RO mount declared in docker-compose.unified.yml api-gateway.volumes block).
+_TOURNAMENT_SNAPSHOTS_DIR = Path("/app/snapshots")
+# 50 MiB DoS guardrail — refuse to read a snapshot larger than this; we never
+# materialize the file body before this check. Mitigates T-07-04.
+_TOURNAMENT_MAX_FILE_BYTES = 50 * 1024 * 1024
+
+
+@app.get("/api/tournament/snapshots")
+async def list_tournament_snapshots() -> dict:
+    """List committed tournament snapshots from the RO bind-mount.
+
+    Reads /app/snapshots/*.json (mounted from
+    ./services/tournament-harness/data/snapshots:/app/snapshots:ro per
+    Phase 7 D-01). Returns each file's `summary` block + `tournament_id`
+    + `exported_at` so the dashboard can populate the selector dropdown.
+
+    Unauthenticated (D-09 carryforward from Phase 6): read-only config-
+    style disclosure, no secrets, no balances, no positions.
+
+    Graceful degradation: returns 200 with `tournaments: []` when the
+    snapshots directory is absent OR empty (fresh clone path, smoke
+    fixture not yet seeded). Never 500. A per-file decode failure logs
+    a warning and is skipped — one bad file cannot poison the listing.
+
+    Skips Phase 4 sidecars (`*.ensemble.json`, `*.significance.json`) so
+    the listing only enumerates primary snapshots.
+
+    Does NOT depend on `tournament-harness` service running (profile=
+    tournament stays opt-in per D-02). The disk read happens entirely
+    inside the gateway.
+    """
+    # Local imports — autoflake removes unused top-level imports across
+    # api-gateway/main.py refactors. Pin use site here. (Project memory:
+    # feedback_main_imports_autoflake.md.) `Path` is also imported at
+    # module top (line 46) so the constant resolution works; the local
+    # alias below is a use-site pin for future refactors.
+    from pathlib import Path as _Path  # noqa: F401
+    import json
+
+    snapshots_dir = _TOURNAMENT_SNAPSHOTS_DIR
+    tournaments: list = []
+    if not snapshots_dir.exists():
+        return {"success": True, "count": 0, "tournaments": []}
+    for p in sorted(snapshots_dir.glob("*.json")):
+        # Skip Phase 4 sidecars (*.ensemble.json, *.significance.json).
+        if p.stem.endswith((".ensemble", ".significance")):
+            continue
+        try:
+            data = json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"/api/tournament/snapshots: skipping {p.name}: {e}")
+            continue
+        tournaments.append(
+            {
+                "tournament_id": data.get("tournament_id"),
+                "exported_at": data.get("exported_at"),
+                **(data.get("summary") or {}),
+            }
+        )
+    return {"success": True, "count": len(tournaments), "tournaments": tournaments}
+
+
+@app.get("/api/tournament/snapshots/{tournament_id}")
+async def get_tournament_snapshot(tournament_id: str) -> dict:
+    """Return merged {snapshot, ensemble|null, significance|null}.
+
+    Filename convention (Phase 3 D-18 + Phase 4 atomic-write):
+      - {tournament_id}.json              (snapshot — required)
+      - {tournament_id}.ensemble.json     (Phase 4; null when Phase 4 not run)
+      - {tournament_id}.significance.json (Phase 4; null when Phase 4 not run)
+
+    Path-traversal mitigation (T-07-03):
+      1. regex gate `^[A-Za-z0-9_\\-]+$` — rejects `.`, `/`, `\\`, `..`,
+         URL-encoded variants. 400 on mismatch.
+      2. resolve + is_relative_to check — defense-in-depth so the file
+         path never escapes the bind-mount root.
+
+    Size guardrail (T-07-04): refuse to read snapshot files larger than
+    50 MiB; the cap is checked via Path.stat() BEFORE the body is read,
+    so a poisoned file cannot blow gateway memory.
+
+    Returns 404 only when the snapshot file is absent. Sidecars (D-05)
+    are tolerated as missing — `ensemble` / `significance` are returned
+    as null when the corresponding file does not exist.
+
+    Unauthenticated (D-09 carryforward).
+    """
+    # Local imports — pin use site (autoflake-safe). `Path` is at module
+    # top (line 46); aliased here so the use-site is visible.
+    from pathlib import Path as _Path  # noqa: F401
+    import json
+    import re
+
+    if not re.match(r"^[A-Za-z0-9_\-]+$", tournament_id):
+        raise HTTPException(status_code=400, detail="invalid tournament_id")
+
+    base = _TOURNAMENT_SNAPSHOTS_DIR.resolve()
+    snap_path = (base / f"{tournament_id}.json").resolve()
+    # Defense-in-depth: even though the regex blocks `/` `\\` `.` `..`, this
+    # guards against any future regex regression. is_relative_to is Python
+    # 3.9+; api-gateway pins 3.12 (project rule).
+    if not snap_path.is_relative_to(base):
+        raise HTTPException(status_code=400, detail="invalid tournament_id")
+
+    if not snap_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"snapshot {tournament_id} not found",
+        )
+
+    if snap_path.stat().st_size > _TOURNAMENT_MAX_FILE_BYTES:
+        raise HTTPException(status_code=500, detail="snapshot file too large")
+
+    snapshot = json.loads(snap_path.read_text())
+
+    ensemble = None
+    significance = None
+    ens_path = base / f"{tournament_id}.ensemble.json"
+    sig_path = base / f"{tournament_id}.significance.json"
+    if ens_path.exists():
+        try:
+            ensemble = json.loads(ens_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(
+                f"/api/tournament/snapshots/{tournament_id}: ensemble decode failed: {e}"
+            )
+    if sig_path.exists():
+        try:
+            significance = json.loads(sig_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(
+                f"/api/tournament/snapshots/{tournament_id}: significance decode failed: {e}"
+            )
+
+    return {
+        "success": True,
+        "snapshot": snapshot,
+        "ensemble": ensemble,
+        "significance": significance,
+    }
+
+
 @app.get("/api/trading/performance")
 # @rate_limiter.general_limit  # Rate limited via middleware
 async def get_trading_performance():
