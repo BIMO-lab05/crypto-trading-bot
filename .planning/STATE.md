@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
+status: verifying
 stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-05-14T21:56:30.957Z"
-last_activity: 2026-05-14 -- Phase 07 marked complete
+last_updated: "2026-05-14T23:02:06.541Z"
+last_activity: 2026-05-14
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 49
-  completed_plans: 48
-  percent: 98
+  completed_plans: 49
+  percent: 100
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-06)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns.
-**Current focus:** Phase 07 — tournament-view-smoke-test
+**Current focus:** Phase 07.1 — smoke-test-bugfixes
 
 ## Current Position
 
-Phase: 07 — COMPLETE
-Plan: 6 of 6
+Phase: 07.1 (smoke-test-bugfixes) — EXECUTING
+Plan: 1 of 1
 Plans: 4 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 MLCL-04 backtest divergence documented DONE)
-Status: Phase 07 complete
-Last activity: 2026-05-14 -- Phase 07 marked complete
+Status: Phase complete — ready for verification
+Last activity: 2026-05-14
 
 CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
 
