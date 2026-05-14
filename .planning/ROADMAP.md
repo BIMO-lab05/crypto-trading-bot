@@ -19,7 +19,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: ML Cleanup (post-V0)** - Forward-paper-test the three opt-in features, ship a T0.1.x experiment, and resolve parked items (completed 2026-05-13)
 - [ ] **Phase 6: Dashboard Audit & Safety State** - End-to-end tile audit, config-driven URLs, safety-state header, explicit empty/error states
 - [x] **Phase 7: Tournament View & Smoke Test** - Frontend tournament leaderboard view + Playwright smoke against the recorded-tape stack (completed 2026-05-14)
-- [ ] **Phase 7.1: Smoke Test Bugfixes** - Close the 3 real bugs surfaced during Phase 7 local verification (strict-mode locator, page-level LABELED_STALE assertion, gateway origin proxy)
+- [x] **Phase 7.1: Smoke Test Bugfixes** - Close the 3 real bugs surfaced during Phase 7 local verification (strict-mode locator, page-level LABELED_STALE assertion, gateway origin proxy) (completed 2026-05-15)
+- [ ] **Phase 7.2: Phase3Dashboard Skeleton-Loader Fix** - Phase3Dashboard renders `<div class="animate-pulse">` forever when ml-prediction-service returns 503; needs explicit empty/stale state transition. Audit row re-added after fix.
 
 ## Phase Details
 
@@ -208,12 +209,23 @@ Plans:
 **UI hint**: no
 
 Plans:
-- [ ] 07.1-PLAN.md — scope-aware stale assertion + descendant audit rows + api-gateway frontend reverse-proxy (DASH-06)
+- [x] 07.1-01-PLAN.md — scope-aware stale assertion + descendant audit rows + api-gateway frontend reverse-proxy + Phase3Dashboard skeleton-loader finding (DASH-06; smoke green 2026-05-15)
+
+### Phase 7.2: Phase3Dashboard Skeleton-Loader Fix
+**Goal**: Phase3Dashboard transitions out of skeleton-loader state into an explicit empty/stale UI when backing ml-prediction-service responds 503 for a sustained window. After fix, re-add the Phase3Dashboard row to `.planning/phases/06-dashboard-audit-safety-state/06-TILE-AUDIT.json` with an empirically-verifiable verdict.
+**Depends on**: Phase 7.1
+**Requirements**: DASH-05 (explicit empty/error states)
+**Success Criteria** (what must be TRUE):
+  1. With `ENABLE_ML_PREDICTIONS=false`, `/phase3` renders a non-skeleton state within 10 seconds — either explicit "ML predictions disabled" copy, a `<TileState forceStale={true}/>` at page root with a visible `tile-stale-badge`, or REMOVED (component returns null when feature off).
+  2. `phase3-dashboard` testid behavior is consistent with the chosen state (present with stale badge → verdict LABELED_STALE; present with copy → verdict FIXED; absent → verdict REMOVED).
+  3. Phase 7 audit-driven smoke test passes against the live stack with Phase3Dashboard row re-added to `06-TILE-AUDIT.json`.
+**Plans**: TBD (1 plan expected)
+**UI hint**: yes
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 7.1
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 7.1 → 7.2
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -224,4 +236,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 7.1
 | 5. ML Cleanup (post-V0) | 4/4 | Complete | 2026-05-13 |
 | 6. Dashboard Audit & Safety State | 5/5 | Complete | - |
 | 7. Tournament View & Smoke Test | 6/6 | Complete | 2026-05-14 |
-| 7.1. Smoke Test Bugfixes | 0/1 | Not started | - |
+| 7.1. Smoke Test Bugfixes | 1/1 | Complete | 2026-05-15 |
+| 7.2. Phase3Dashboard Skeleton-Loader Fix | 0/0 | Not started | - |
