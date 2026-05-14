@@ -101,7 +101,11 @@ None yet (use `/gsd-capture` to add).
 
 ## Session Continuity
 
-Last session: 2026-05-13T13:03:01.901Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-dashboard-audit-safety-state/06-CONTEXT.md
-Next: Phase 05 verification. Separately: TIMESCALE_PASSWORD still needed for re-running t0_1_x_horizon_sweep tournament (MLCL-02 INSUFFICIENT_DATA).
+Last session: 2026-05-14T11:55Z
+Stopped at: Phase 6 — 3 of 4 manual smokes Playwright-verified this session (smoke 2 force-failure ✓, smoke 3 force-empty ✓, smoke 4 alignment-score ✓ at code+expr level, smoke 1 PAPER half ✓). LIVE-flip half of smoke 1 remains operator-only (classifier blocked TRADING_MODE=LIVE recreate per safety rules). Phase 5 MLCL-02 cascade bugs surfaced + partially fixed (compose default + migration 005 retargeted to market_data); migration apply against live DB also blocked by classifier — operator needs to apply.
+Resume file: .planning/phases/06-dashboard-audit-safety-state/smokes/2026-05-14-resume/SMOKE-EVIDENCE.md
+Open operator actions (3):
+  1. Manual smoke 1 LIVE flip — recreate api-gateway with TRADING_MODE=LIVE, verify rose outline + red MODE pill, then revert.
+  2. Apply migration 005 against market_data — `docker cp infrastructure/migrations/005_tournament_reader.sql crypto-bot-timescaledb:/tmp/ && docker exec crypto-bot-timescaledb psql -U cryptobot -d market_data -f /tmp/005_tournament_reader.sql`.
+  3. Set TOURNAMENT_READER_PASSWORD in .env + ALTER ROLE tournament_reader PASSWORD '<value>' on TimescaleDB + force-recreate tournament-harness. Then re-run MLCL-02 t0_1_x_horizon_sweep.
+Next: After operator unblocks, advance to Phase 7 (Tournament View & Smoke Test).

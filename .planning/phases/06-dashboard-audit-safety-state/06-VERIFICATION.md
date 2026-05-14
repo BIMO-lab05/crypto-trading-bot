@@ -2,7 +2,9 @@
 phase: 06-dashboard-audit-safety-state
 verified: 2026-05-14T02:18:00Z
 status: human_needed
-score: 4/4 ROADMAP success criteria verified at the code+behavior level; 4 operator confirmations remain
+re_verified: 2026-05-14T11:55:00Z
+score: 4/4 ROADMAP success criteria verified at code+behavior level; 3 of 4 manual smokes Playwright-verified 2026-05-14; 1 smoke (LIVE-flip half) remains operator-only by safety-classifier
+smoke_evidence_dir: .planning/phases/06-dashboard-audit-safety-state/smokes/2026-05-14-resume/
 overrides_applied: 0
 requirements_verified: [DASH-01, DASH-02, DASH-03, DASH-05]
 human_verification:
