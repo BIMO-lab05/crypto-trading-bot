@@ -213,4 +213,14 @@ export const autoTraderAPI = {
   forceSignalCheck: () => api.get('/trading/status'),
 }
 
+// Tournament endpoints (Phase 7, DASH-04). Gateway reads committed snapshot files from a RO bind-mount per CONTEXT.md D-01.
+// Path shape is `/tournament/snapshots` (NO `/v1/` prefix per ADR-007). The shared `api` axios instance has
+// baseURL '/api' and a response interceptor (line 34) that strips `.data`, so callers see the body directly.
+export const tournamentAPI = {
+  // List all committed snapshots (gateway reads ./services/tournament-harness/data/snapshots/*.json)
+  listSnapshots: () => api.get('/tournament/snapshots'),
+  // Merged snapshot + ensemble + significance for one tournament
+  getSnapshot: (tournamentId) => api.get(`/tournament/snapshots/${tournamentId}`),
+}
+
 export default api
