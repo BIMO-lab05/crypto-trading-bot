@@ -183,7 +183,7 @@ Plans:
 - [x] 07-03-PLAN.md — data-testid wiring on TileState (stale/error/empty), StatusBar (root + 5 D-17 cells), 15 audit-referenced tile components + audit JSON/MD updates (Tournament row appended) (DASH-06)
 
 **Wave 2** *(blocked on 07-01)*
-- [ ] 07-02-PLAN.md — Frontend tournamentAPI extension + useTournamentList/useTournamentSnapshot React Query hooks (staleTime=Infinity, no polling per D-23) (DASH-04)
+- [x] 07-02-PLAN.md — Frontend tournamentAPI extension + useTournamentList/useTournamentSnapshot React Query hooks (staleTime=Infinity, no polling per D-23) (DASH-04)
 
 **Wave 3** *(blocked on 07-02)*
 - [ ] 07-04-PLAN.md — TournamentDashboard page + leaderboard table + filter chips + significance badge + contaminated-window warning + route registration honoring UI-SPEC (DASH-04)
