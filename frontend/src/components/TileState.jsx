@@ -79,6 +79,7 @@ function StaleBadge() {
   return (
     <span
       aria-label="stale"
+      data-testid="tile-stale-badge"
       style={{
         position: 'absolute',
         top: 6,
@@ -115,6 +116,7 @@ function Skeleton() {
 function EmptyState({ title }) {
   return (
     <div
+      data-testid="tile-empty"
       style={{
         padding: 16,
         color: C.text3,
@@ -156,6 +158,7 @@ function ErrorState({ title, error, onRetry }) {
     'request failed'
   return (
     <div
+      data-testid="tile-error"
       style={{
         padding: 16,
         fontFamily: 'Manrope, system-ui, sans-serif',

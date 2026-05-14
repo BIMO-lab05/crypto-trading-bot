@@ -71,6 +71,7 @@ export default function TradingSignals({
   // Compact mode: Vertical list for sidebar.
   if (compact) {
     return (
+      <div data-testid="trading-signals" style={{ display: 'contents' }}>
       <TileState
         query={q}
         title="Trading Signals"
@@ -147,11 +148,13 @@ export default function TradingSignals({
         </div>
       </div>
       </TileState>
+      </div>
     )
   }
 
   // Full mode: Grid display
   return (
+    <div data-testid="trading-signals" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title="Trading Signals"
@@ -257,6 +260,7 @@ export default function TradingSignals({
       </div>
     </div>
     </TileState>
+    </div>
   )
 }
 

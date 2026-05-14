@@ -34,6 +34,7 @@ export default function PriceTickerGrid({
   const tickers = q.data
 
   return (
+    <div data-testid="price-ticker-grid" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title="Live Prices"
@@ -148,5 +149,6 @@ export default function PriceTickerGrid({
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

@@ -327,6 +327,7 @@ export default function Phase3Dashboard() {
   } : { label: 'NEUTRAL', score: 0, tradingSignal: 'HOLD', signalStrength: 0, dataQuality: 'UNKNOWN', confidence: 0 }
 
   return (
+    <div data-testid="phase3-dashboard" style={{ display: 'contents' }}>
     <TileState
       query={mlQuery}
       title="Phase 3: AI-Enhanced Trading"
@@ -1186,5 +1187,6 @@ export default function Phase3Dashboard() {
       </div>
     </div>
     </TileState>
+    </div>
   )
 }

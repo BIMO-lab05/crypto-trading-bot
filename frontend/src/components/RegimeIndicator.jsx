@@ -52,6 +52,7 @@ export default function RegimeIndicator() {
   }
 
   return (
+    <div data-testid="regime-indicator" style={{ display: 'contents' }}>
     <TileState
       query={q}
       title="Market Regime"
@@ -78,5 +79,6 @@ export default function RegimeIndicator() {
       <div className={`w-2 h-2 bg-${regimeColor}-500 rounded-full animate-pulse shadow-sm shadow-${regimeColor}-500/50 ml-1`}></div>
     </div>
     </TileState>
+    </div>
   )
 }

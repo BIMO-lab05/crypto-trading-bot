@@ -600,6 +600,7 @@ const Portfolio = () => {
   const availableMargin = cashBalance;
 
   return (
+    <div data-testid="portfolio-page" style={{ display: 'contents' }}>
     <TileState
       query={portfolioQuery}
       title="Portfolio"
@@ -773,6 +774,7 @@ const Portfolio = () => {
       </div>
     </div>
     </TileState>
+    </div>
   );
 };
 

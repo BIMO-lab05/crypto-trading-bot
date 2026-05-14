@@ -28,8 +28,12 @@ const fmt = (n, d = 2) => {
   return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
 }
 
-const Cell = ({ eyebrow, value, valueStyle, accent, mono = true }) => (
-  <div className="flex flex-col gap-0.5 px-4 py-1.5 min-w-0" style={{ borderRight: '1px solid #2a2a32' }}>
+const Cell = ({ eyebrow, value, valueStyle, accent, mono = true, testId }) => (
+  <div
+    className="flex flex-col gap-0.5 px-4 py-1.5 min-w-0"
+    style={{ borderRight: '1px solid #2a2a32' }}
+    data-testid={testId}
+  >
     <span
       className="text-[9px] uppercase tracking-[0.18em] truncate"
       style={{ color: '#65645e', fontWeight: 600 }}
@@ -111,6 +115,7 @@ export default function StatusBar() {
       role="status"
       aria-live="polite"
       aria-label="Trading bot live status"
+      data-testid="statusbar"
       className="fixed bottom-0 left-0 right-0 z-30"
       style={{
         background: '#0a0a0b',
@@ -124,6 +129,7 @@ export default function StatusBar() {
         <div
           className="flex items-center gap-2 px-4 flex-shrink-0"
           style={{ borderRight: '1px solid #2a2a32' }}
+          data-testid="statusbar-trading-state"
         >
           <span
             className="inline-block rounded-full"
@@ -169,6 +175,7 @@ export default function StatusBar() {
           value={tradingMode}
           accent={modeAccent}
           mono={false}
+          testId="statusbar-mode"
         />
 
         {/* D-04/D-05: 5%-daily-loss kill-switch state */}
@@ -176,6 +183,7 @@ export default function StatusBar() {
           eyebrow="KILL-SWITCH"
           value={killSwitchTripped ? 'TRIPPED' : 'ARMED'}
           accent={killSwitchAccent}
+          testId="statusbar-kill-switch"
         />
 
         {/* D-05: ML predictions feature flag */}
@@ -183,6 +191,7 @@ export default function StatusBar() {
           eyebrow="ML"
           value={mlOn ? 'ON' : 'OFF'}
           accent={mlAccent}
+          testId="statusbar-ml"
         />
 
         {/* D-07: EMERGENCY_STOP file Active/Inactive + mtime (HH:MM:SS UTC) */}
@@ -191,6 +200,7 @@ export default function StatusBar() {
           value={emergencyValue}
           accent={emergencyAccent}
           mono={false}
+          testId="statusbar-emergency-stop"
         />
 
         <div className="flex-1" />
