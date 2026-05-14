@@ -49,11 +49,21 @@ _AUDIT_JSON = (
     / "06-TILE-AUDIT.json"
 )
 
-# ANSI color codes (same palette as scripts/monitor.py)
-GREEN = "\033[0;32m"
-RED = "\033[0;31m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
+# ANSI color codes (same palette as scripts/monitor.py).
+#
+# WR-06: emit ANSI codes only when stdout is a real TTY AND the operator
+# has not opted out via NO_COLOR (https://no-color.org). When the script
+# is invoked from CI, piped to a file, or captured by `docker logs`, the
+# escape sequences would otherwise be written as literal bytes (e.g.
+# "[0;32mPASS[0m") and corrupt the regression-gate output. The five
+# scripts/test_audit_tiles.py tests only assert "PASS"/"FAIL" substring
+# presence so they pass either way — the regression here is operator
+# legibility, not test correctness.
+_use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+GREEN = "\033[0;32m" if _use_color else ""
+RED = "\033[0;31m" if _use_color else ""
+YELLOW = "\033[1;33m" if _use_color else ""
+NC = "\033[0m" if _use_color else ""
 
 _PROBE_TIMEOUT_SEC = 10
 
