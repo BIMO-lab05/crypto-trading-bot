@@ -54,7 +54,7 @@ Per W-02 scope-down: only `/api/config/safety-state` (Plan 6-02) will emit `last
 
 | Tile | Component File | Backing Endpoint | Expected Shape | Observed Shape | Verdict | data-testid | data_testid_scope | last_updated_at? | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| Phase3Dashboard | `frontend/src/pages/Phase3Dashboard.jsx` | `GET /api/ml/predict/price/{symbol}` (+ sentiment + MTF) | `{prediction: object}` (varies per sub-tile) | `{"detail": "..."}` (HTTP 503 across all ml/sentiment paths) | LABELED_STALE | `phase3-dashboard` | descendant | n/a | ml-prediction-service + sentiment-analysis-service feature-flagged OFF (`ENABLE_ML_PREDICTIONS=false`, `ENABLE_SENTIMENT_ANALYSIS=false`). Plan 6-05 wires `<TileState forceStale={true}/>`. Real data returns in Phase 7+ after GRU rebuild on returns target. |
+| Phase3Dashboard | `frontend/src/pages/Phase3Dashboard.jsx` | `GET /api/ml/predict/price/{symbol}` (+ sentiment + MTF) | `{prediction: object}` (varies per sub-tile) | `{"detail": "..."}` (HTTP 503 across all ml/sentiment paths) | FIXED | `phase3-dashboard` | n/a | n/a | 2026-05-14 Phase 7.1 correction: empirical render contains statusbar + nav content (340 chars body text) regardless of ML flag — page renders consistently, but NO `tile-stale-badge` exists at page-root or anywhere inside. Original `LABELED_STALE` verdict was a planning-time misread of `Plan 6-05 wires <TileState forceStale={true}/>` — that wiring lives inside child tile components, not at page root. Smoke verifies as FIXED (page testid present + body non-empty). |
 
 ## Portfolio page (page-level tile)
 
