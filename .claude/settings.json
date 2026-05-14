@@ -1,27 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
-    "defaultMode": "plan",
-    "deny": [
-      "Read(./.env)",
-      "Read(./.env.*)",
-      "Read(./services/**/.env)",
-      "Read(./services/**/.env.*)",
-      "Read(./secrets/**)",
-      "Read(./**/credentials/**)",
-      "Read(./**/.aws/**)",
-      "Read(./**/.ssh/**)",
-      "Bash(curl * api.bybit.com *)",
-      "Bash(curl * .telegram.org *)",
-      "Bash(wget *)",
-      "Bash(*BYBIT_API_KEY*)",
-      "Bash(*BYBIT_API_SECRET*)",
-      "Bash(*TELEGRAM_BOT_TOKEN*)",
-      "Bash(git push --force*)",
-      "Bash(git push -f*)",
-      "Bash(git reset --hard origin/main*)",
-      "Bash(git reset --hard origin/master*)"
-    ],
     "allow": [
       "Bash(git status*)",
       "Bash(git diff*)",
@@ -68,7 +47,28 @@
       "Bash(find . *)",
       "Bash(head *)",
       "Bash(tail *)"
-    ]
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./services/**/.env)",
+      "Read(./services/**/.env.*)",
+      "Read(./secrets/**)",
+      "Read(./**/credentials/**)",
+      "Read(./**/.aws/**)",
+      "Read(./**/.ssh/**)",
+      "Bash(curl * api.bybit.com *)",
+      "Bash(curl * .telegram.org *)",
+      "Bash(wget *)",
+      "Bash(*BYBIT_API_KEY*)",
+      "Bash(*BYBIT_API_SECRET*)",
+      "Bash(*TELEGRAM_BOT_TOKEN*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard origin/main*)",
+      "Bash(git reset --hard origin/master*)"
+    ],
+    "defaultMode": "plan"
   },
   "hooks": {
     "PreToolUse": [
@@ -98,6 +98,46 @@
             "command": "${CLAUDE_PROJECT_DIR}/.claude/scripts/block-secret-writes.sh"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/usr/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-prompt-guard.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/usr/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-read-guard.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/usr/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-workflow-guard.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-validate-commit.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -109,7 +149,66 @@
             "command": "${CLAUDE_PROJECT_DIR}/.claude/scripts/format-python.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/usr/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-context-monitor.js",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/usr/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-read-injection-scanner.js",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-phase-boundary.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/usr/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-check-update.js"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-session-state.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/usr/bin/node\" \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gsd-update-banner.js"
+          }
+        ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "superpowers@superpowers-marketplace": true
   }
 }
