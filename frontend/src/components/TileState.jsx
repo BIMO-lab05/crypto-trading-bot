@@ -247,7 +247,16 @@ export default function TileState({
   }
 
   // ---- Branch 3: EMPTY ----------------------------------------------------
-  if (query?.isSuccess && isEmptyFn(query.data)) {
+  // WR-05: defer the empty branch when a refetch is in flight. If a tile
+  // holds a prior payload in cache and a refetch returns an
+  // empty-ish payload mid-flight (e.g. {positions: []}), this branch
+  // would otherwise flash "No data yet" over the stale-but-populated
+  // view. Gating on !isFetching keeps the cached body rendered (via the
+  // stale-overlay or steady branch below) until the refetch resolves.
+  // The error and loading branches still take precedence (F-05); a real
+  // empty result from a settled query (isFetching=false) still shows
+  // "No data yet" correctly.
+  if (query?.isSuccess && isEmptyFn(query.data) && !query?.isFetching) {
     return (
       <div style={{ position: 'relative' }}>
         <EmptyState title={title} />
