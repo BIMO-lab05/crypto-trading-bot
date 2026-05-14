@@ -246,24 +246,6 @@
       "data_testid": "phase1-dashboard"
     },
     {
-      "tile": "Phase3Dashboard",
-      "page": "Phase3",
-      "component_file": "frontend/src/pages/Phase3Dashboard.jsx",
-      "hooks": [
-        "useMLPrediction",
-        "useSentiment",
-        "useMTFAnalysis (et al.)"
-      ],
-      "endpoint": "/api/ml/predict/price/BTCUSDT?interval=60",
-      "expected_shape": {
-        "_composition": "list[object]"
-      },
-      "verdict": "FIXED",
-      "last_updated_at_emitter": "n/a",
-      "notes": "All Phase3 endpoints return 503 (ml-prediction-service + sentiment-analysis-service feature-flagged OFF per ENABLE_ML_PREDICTIONS=false / ENABLE_SENTIMENT_ANALYSIS=false in CLAUDE.md). Wire <TileState forceStale={true}/> in Plan 6-05; backing services come back online in Phase 7+ after GRU rebuild on returns target. | 2026-05-14 Phase 7.1 correction: page renders consistently regardless of ML flag (statusbar + nav + empty content area). No tile-stale-badge at root or anywhere inside; LABELED_STALE verdict was a planning-time misread. FIXED reflects empirical behavior.",
-      "data_testid": "phase3-dashboard"
-    },
-    {
       "tile": "Portfolio",
       "page": "Portfolio",
       "component_file": "frontend/src/pages/Portfolio.jsx",
