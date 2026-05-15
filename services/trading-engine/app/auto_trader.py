@@ -2423,6 +2423,8 @@ class AutoTrader:
                 quantity=position.quantity,
                 position_id=position.id,
                 reduce_only=True,
+                # 2026-05-15: tag close rows for post-hoc attribution.
+                strategy="max_hold_force_close",
             )
 
             # Execute force close
@@ -3047,6 +3049,8 @@ class AutoTrader:
                     else None,
                     reduce_only=True,
                     position_id=position.id,
+                    # 2026-05-15: tag close rows for post-hoc attribution.
+                    strategy="stop_loss_limit",
                 )
 
                 # Execute limit order
@@ -3118,6 +3122,8 @@ class AutoTrader:
                 quantity=position.quantity,
                 reduce_only=True,
                 position_id=position.id,
+                # 2026-05-15: tag close rows for post-hoc attribution.
+                strategy="stop_loss_market_fallback",
             )
 
             # Execute market order
@@ -3591,6 +3597,10 @@ class AutoTrader:
                 type=OrderType.MARKET,  # Field name is 'type', not 'order_type'
                 quantity=Decimal(str(quantity)),
                 strategy="auto_trader",
+                # 2026-05-15: persist confidence so trades table can be analyzed
+                # post-hoc. Previously NULL on 29/31 rows blocked debugging the
+                # May 6-7 whipsaw run.
+                entry_signal_confidence=float(confidence),
             )
 
             executed_order, error = await paper_engine.execute_market_order(
@@ -3987,6 +3997,8 @@ class AutoTrader:
                 type=OrderType.MARKET,
                 quantity=Decimal(str(quantity)),
                 strategy="ensemble",
+                # 2026-05-15: persist confidence for post-hoc analysis.
+                entry_signal_confidence=float(ens_signal.confidence),
             )
             executed_order, error = await paper_engine.execute_market_order(
                 order, Decimal(str(current_price))
