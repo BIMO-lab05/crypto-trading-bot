@@ -20,26 +20,36 @@ logger = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler = None
 
 
-# Trading pairs to collect data for
-# Updated: 2025-11-19 - Added ADAUSDT and DOGEUSDT
-TRADING_PAIRS = [
-    "BTCUSDT",   # Bitcoin
-    "ETHUSDT",   # Ethereum
-    "BNBUSDT",   # Binance Coin
-    "SOLUSDT",   # Solana
-    "XRPUSDT",   # Ripple
-    "ADAUSDT",   # Cardano - NEW
-    "DOGEUSDT",  # Dogecoin - NEW
-]
+# Trading pairs to collect data for.
+#
+# 2026-05-15: Switched from hardcoded module-level constant to settings-driven
+# accessor. The old hardcoded list silently re-added XRPUSDT + DOGEUSDT,
+# violating the "no silent re-add" project rule (CLAUDE.md). The single source
+# of truth for which symbols this service ingests is now
+# `config.Settings.default_symbols` (exposed via `symbols_list` property).
+def _trading_pairs() -> List[str]:
+    """Return the active trading pair list from settings."""
+    return get_settings().symbols_list
+
+
+def __getattr__(name: str):
+    # Backward-compatible accessor: existing tests / external callers do
+    # `from app.scheduler import TRADING_PAIRS`. Resolve dynamically from
+    # settings so the deprecated symbol stays in sync with the new source
+    # of truth instead of drifting back into a hardcoded list.
+    if name == "TRADING_PAIRS":
+        return _trading_pairs()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Kline intervals to collect
 KLINE_INTERVALS = [
-    "1",    # 1 minute
-    "5",    # 5 minutes
-    "15",   # 15 minutes
-    "60",   # 1 hour
+    "1",  # 1 minute
+    "5",  # 5 minutes
+    "15",  # 15 minutes
+    "60",  # 1 hour
     "240",  # 4 hours
-    "D",    # Daily
+    "D",  # Daily
 ]
 
 
@@ -56,7 +66,7 @@ async def collect_ticker_data():
     success_count = 0
     error_count = 0
 
-    for symbol in TRADING_PAIRS:
+    for symbol in _trading_pairs():
         try:
             # Fetch ticker data
             ticker_data = await fetcher.get_ticker(symbol=symbol)
@@ -74,7 +84,9 @@ async def collect_ticker_data():
             logger.error(f"❌ Error collecting ticker for {symbol}: {e}")
             error_count += 1
 
-    logger.info(f"📊 Ticker collection complete: {success_count} success, {error_count} errors")
+    logger.info(
+        f"📊 Ticker collection complete: {success_count} success, {error_count} errors"
+    )
 
 
 async def collect_kline_data():
@@ -90,38 +102,44 @@ async def collect_kline_data():
     success_count = 0
     error_count = 0
 
-    for symbol in TRADING_PAIRS:
+    for symbol in _trading_pairs():
         for interval in KLINE_INTERVALS:
             try:
                 # Fetch kline data (last 200 candles)
                 klines = await fetcher.get_kline(
-                    symbol=symbol,
-                    interval=interval,
-                    limit=200
+                    symbol=symbol, interval=interval, limit=200
                 )
 
                 if klines:
                     # Add symbol and interval to each kline
                     for kline in klines:
-                        kline['symbol'] = symbol
-                        kline['interval'] = interval
+                        kline["symbol"] = symbol
+                        kline["interval"] = interval
 
                     # Bulk insert/update
                     inserted = await kline_repo.bulk_upsert(klines)
                     success_count += 1
-                    logger.info(f"✅ Collected {inserted} klines for {symbol} ({interval})")
+                    logger.info(
+                        f"✅ Collected {inserted} klines for {symbol} ({interval})"
+                    )
                 else:
-                    logger.warning(f"⚠️ No kline data returned for {symbol} ({interval})")
+                    logger.warning(
+                        f"⚠️ No kline data returned for {symbol} ({interval})"
+                    )
                     error_count += 1
 
             except Exception as e:
-                logger.error(f"❌ Error collecting klines for {symbol} ({interval}): {e}")
+                logger.error(
+                    f"❌ Error collecting klines for {symbol} ({interval}): {e}"
+                )
                 error_count += 1
 
             # Small delay to avoid rate limits
             await asyncio.sleep(0.5)
 
-    logger.info(f"📈 Kline collection complete: {success_count} success, {error_count} errors")
+    logger.info(
+        f"📈 Kline collection complete: {success_count} success, {error_count} errors"
+    )
 
 
 async def collect_all_data():
@@ -166,8 +184,8 @@ def start_scheduler():
     _scheduler.add_job(
         collect_ticker_data,
         trigger=IntervalTrigger(minutes=5),
-        id='ticker_collection',
-        name='Ticker Data Collection',
+        id="ticker_collection",
+        name="Ticker Data Collection",
         replace_existing=True,
         max_instances=1,  # Only one instance at a time
     )
@@ -176,9 +194,9 @@ def start_scheduler():
     # Job 2: Collect kline data every 5 minutes (offset by 2 minutes)
     _scheduler.add_job(
         collect_kline_data,
-        trigger=IntervalTrigger(minutes=5, start_date='2024-01-01 00:02:00'),
-        id='kline_collection',
-        name='Kline Data Collection',
+        trigger=IntervalTrigger(minutes=5, start_date="2024-01-01 00:02:00"),
+        id="kline_collection",
+        name="Kline Data Collection",
         replace_existing=True,
         max_instances=1,
     )
@@ -188,8 +206,8 @@ def start_scheduler():
     _scheduler.add_job(
         collect_all_data,
         trigger=CronTrigger(minute=0),  # Top of every hour
-        id='hourly_full_collection',
-        name='Hourly Full Data Collection',
+        id="hourly_full_collection",
+        name="Hourly Full Data Collection",
         replace_existing=True,
         max_instances=1,
     )
@@ -228,25 +246,20 @@ def get_scheduler_status() -> dict:
         dict: Scheduler status including running jobs
     """
     if _scheduler is None:
-        return {
-            "running": False,
-            "jobs": []
-        }
+        return {"running": False, "jobs": []}
 
     jobs = []
     for job in _scheduler.get_jobs():
-        jobs.append({
-            "id": job.id,
-            "name": job.name,
-            "next_run": str(job.next_run_time) if job.next_run_time else None,
-            "trigger": str(job.trigger)
-        })
+        jobs.append(
+            {
+                "id": job.id,
+                "name": job.name,
+                "next_run": str(job.next_run_time) if job.next_run_time else None,
+                "trigger": str(job.trigger),
+            }
+        )
 
-    return {
-        "running": _scheduler.running,
-        "jobs": jobs,
-        "job_count": len(jobs)
-    }
+    return {"running": _scheduler.running, "jobs": jobs, "job_count": len(jobs)}
 
 
 async def run_manual_collection():
