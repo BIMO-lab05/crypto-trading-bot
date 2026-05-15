@@ -153,7 +153,7 @@ async def readiness_check():
     aggregator_ready = True
     aggregator_error = None
     try:
-        agg = get_aggregator()
+        agg = await get_aggregator()
         if agg is None:
             aggregator_ready = False
             aggregator_error = "aggregator instance is None"
