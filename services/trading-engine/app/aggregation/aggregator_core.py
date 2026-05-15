@@ -239,10 +239,15 @@ class CoreAggregator:
         # ==================== STEP 6: Apply REGIME DETECTOR (ADX-based) ====================
         regime_adjustment_reason = "Regime detection disabled"
         regime_modifier = 1.0
+        regime_blocked = False
 
         if self.enable_market_regime and regime_analysis:
-            # Apply regime-based confidence adjustment
-            confidence, regime_adjustment_reason = (
+            # Apply regime-based confidence adjustment.
+            # apply_regime_adjustment now returns a 3-tuple (conf, reason, blocked)
+            # — added 2026-05-15. When ADX confirms a strong/moderate trend
+            # (STRONG_TREND or TRENDING regime) AND the candidate signal is
+            # counter-trend, regime_blocked=True forces a HOLD downstream.
+            confidence, regime_adjustment_reason, regime_blocked = (
                 self.regime_detector.apply_regime_adjustment(
                     action, confidence, regime_analysis
                 )
@@ -257,6 +262,11 @@ class CoreAggregator:
                 f"Modifier: {regime_modifier:.2f}x)"
             )
             logger.info(f"  {regime_adjustment_reason}")
+            if regime_blocked:
+                logger.warning(
+                    f"REGIME HARD-BLOCK: counter-trend {action.value} rejected "
+                    f"in {regime_analysis.regime.value}"
+                )
 
         # ==================== STEP 7: Check Consensus Requirements ====================
         # RESEARCH-BACKED 2025-11-29: Category-based consensus + confidence thresholds
@@ -287,6 +297,7 @@ class CoreAggregator:
             and confidence >= self.min_confidence
             and category_passes  # NEW: Category diversity check
             and not trend_blocked
+            and not regime_blocked  # 2026-05-15: ADX-based hard block
         )
 
         if not meets_requirements:
@@ -299,6 +310,8 @@ class CoreAggregator:
                 category_passes,
                 category_count,
                 category_reason,
+                regime_blocked,
+                regime_adjustment_reason,
             )
             logger.info(f"Requirements NOT met: {', '.join(reasons)}")
             action = SignalAction.HOLD
@@ -322,6 +335,7 @@ class CoreAggregator:
             regime_adjustment_reason,
             category_count,  # RESEARCH-BACKED: Category consensus data
             category_reason,
+            regime_blocked=regime_blocked,
         )
 
         logger.info(
@@ -451,6 +465,8 @@ class CoreAggregator:
         category_passes: bool = True,
         category_count: int = 0,
         category_reason: str = "",
+        regime_blocked: bool = False,
+        regime_reason: str = "",
     ) -> list:
         """
         Build list of reasons why signal was rejected
@@ -463,6 +479,8 @@ class CoreAggregator:
             category_passes: Whether category diversity requirement is met
             category_count: Number of agreeing categories
             category_reason: Explanation of category check result
+            regime_blocked: Whether signal was hard-blocked by ADX-based regime detector
+            regime_reason: Regime block reason (e.g. counter-trend in TRENDING)
 
         Returns:
             List of rejection reason strings
@@ -488,6 +506,10 @@ class CoreAggregator:
                 f"category_diversity={category_count} (min={self.min_category_consensus})"
             )
 
+        # 2026-05-15: ADX-based hard-block (counter-trend in confirmed trend regime)
+        if regime_blocked:
+            reasons.append(f"regime_blocked: {regime_reason}")
+
         return reasons
 
     def _build_metadata(
@@ -506,6 +528,7 @@ class CoreAggregator:
         regime_adjustment_reason: str = "",
         category_count: int = 0,
         category_reason: str = "",
+        regime_blocked: bool = False,
     ) -> Dict:
         """
         Build comprehensive metadata for TradingSignal
@@ -552,6 +575,9 @@ class CoreAggregator:
                 "min_required": self.min_category_consensus,
                 "reason": category_reason,
             },
+            # 2026-05-15: ADX-based hard-block flag
+            "regime_blocked": regime_blocked,
+            "regime_adjustment_reason": regime_adjustment_reason,
             # RESEARCH-BASED NOTE: Parameters optimized 2025-11-29
             "optimization_note": "Research-backed: Freqtrade/Hummingbot/Jesse + category diversity",
         }

@@ -916,6 +916,11 @@ class SignalAggregator:
 
         PHASE 1 UPDATE: Now fetches and includes ATR data for dynamic stops
         2025-11-26 UPDATE: Now includes advanced indicators (RSI Divergence, Ichimoku, SQZMOM)
+        2026-05-15: Single-timeframe path now fetches market regime analysis and
+        applies the ADX-based hard-block (counter-trend in TRENDING/STRONG_TREND).
+        Previously regime adjustment only ran when callers explicitly fetched
+        regime_analysis (auto-trader path); the read-only GET /signals/{symbol}
+        endpoint bypassed it. With this change both paths get consistent gating.
         """
         import time
 
@@ -924,8 +929,23 @@ class SignalAggregator:
         # Fetch all indicators (returns both indicators and ATR data)
         indicators, atr_data = await self.fetch_all_indicators(symbol, interval)
 
-        # Aggregate signals with ATR data
-        signal = self.aggregate_signals(indicators, timestamp, atr_data)
+        # Fetch regime analysis (best-effort; falls back to None on failure so
+        # signal generation stays available even if ADX endpoint is degraded).
+        regime_analysis = None
+        try:
+            regime_analysis = await self.core_aggregator.regime_detector.detect_regime(
+                symbol, interval
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"Regime detection failed for {symbol} — proceeding without "
+                f"regime hard-block: {e}"
+            )
+
+        # Aggregate signals with ATR data + regime analysis
+        signal = self.core_aggregator.aggregate_signals(
+            indicators, timestamp, atr_data, regime_analysis=regime_analysis
+        )
         signal.symbol = symbol
 
         return signal
@@ -1032,7 +1052,12 @@ class SignalAggregator:
             },
         }
 
-        # Add market regime data if available (2025-11-28)
+        # Add market regime data if available (2025-11-28).
+        # 2026-05-15: also apply regime hard-block here — the per-timeframe
+        # signals are fetched via get_trading_signal() which does NOT receive
+        # regime_analysis, so the core aggregator's regime step is bypassed in
+        # this path. Apply it post-MTF on the primary signal to enforce the
+        # ADX-based counter-trend block (see market_regime.apply_regime_adjustment).
         if regime_analysis:
             primary_signal.metadata["market_regime"] = {
                 "regime": regime_analysis.regime.value,
@@ -1045,6 +1070,27 @@ class SignalAggregator:
                 "description": regime_analysis.description,
                 "strategy_recommendation": regime_analysis.strategy_recommendation,
             }
+
+            adjusted_conf, regime_reason, regime_blocked = (
+                self.core_aggregator.regime_detector.apply_regime_adjustment(
+                    primary_signal.action,
+                    primary_signal.confidence,
+                    regime_analysis,
+                )
+            )
+            primary_signal.confidence = adjusted_conf
+            primary_signal.metadata["regime_blocked"] = regime_blocked
+            primary_signal.metadata["regime_adjustment_reason"] = regime_reason
+
+            if regime_blocked:
+                logger.warning(
+                    f"REGIME HARD-BLOCK (post-MTF): {primary_signal.action.value} "
+                    f"on {symbol} rejected — {regime_reason}"
+                )
+                from app.models import SignalAction
+
+                primary_signal.action = SignalAction.HOLD
+                primary_signal.metadata["meets_requirements"] = False
 
         return primary_signal
 

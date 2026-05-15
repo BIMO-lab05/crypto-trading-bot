@@ -48,6 +48,7 @@ class MarketRegime(str, Enum):
     - VOLATILE: Reduced exposure, tighter risk management
     - UNKNOWN: Unable to determine regime, use default behavior
     """
+
     STRONG_TREND = "STRONG_TREND"
     TRENDING = "TRENDING"
     WEAK_TREND = "WEAK_TREND"
@@ -64,6 +65,7 @@ class TrendDirection(str, Enum):
     BEARISH: -DI > +DI (downward momentum dominates)
     NEUTRAL: +DI approximately equals -DI
     """
+
     BULLISH = "BULLISH"
     BEARISH = "BEARISH"
     NEUTRAL = "NEUTRAL"
@@ -85,6 +87,7 @@ class RegimeAnalysis:
         description: Human-readable description
         strategy_recommendation: Suggested trading strategy type
     """
+
     regime: MarketRegime
     direction: TrendDirection
     adx: float
@@ -122,7 +125,7 @@ class MarketRegimeDetector:
         enabled: bool = True,
         adx_period: int = 14,
         cache_ttl_seconds: int = 60,
-        request_timeout: float = 5.0
+        request_timeout: float = 5.0,
     ):
         """
         Initialize market regime detector
@@ -160,11 +163,7 @@ class MarketRegimeDetector:
         else:
             logger.info("MarketRegimeDetector initialized (DISABLED)")
 
-    async def detect_regime(
-        self,
-        symbol: str,
-        interval: str = "60"
-    ) -> RegimeAnalysis:
+    async def detect_regime(self, symbol: str, interval: str = "60") -> RegimeAnalysis:
         """
         Detect current market regime for a symbol
 
@@ -187,6 +186,7 @@ class MarketRegimeDetector:
 
         # Check cache first
         import time
+
         cache_key = f"{symbol}_{interval}"
         if cache_key in self._cache:
             cached_time, cached_analysis = self._cache[cache_key]
@@ -224,11 +224,7 @@ class MarketRegimeDetector:
             logger.error(f"Error detecting regime for {symbol}: {e}", exc_info=True)
             return self._get_default_analysis()
 
-    async def _fetch_adx_data(
-        self,
-        symbol: str,
-        interval: str
-    ) -> Optional[Dict]:
+    async def _fetch_adx_data(self, symbol: str, interval: str) -> Optional[Dict]:
         """
         Fetch ADX data from technical-analysis service
 
@@ -239,15 +235,8 @@ class MarketRegimeDetector:
         Returns:
             ADX data dictionary or None if request fails
         """
-        url = (
-            f"{self.settings.technical_analysis_url}"
-            f"/api/v1/indicators/adx/{symbol}"
-        )
-        params = {
-            "interval": interval,
-            "period": self.adx_period,
-            "limit": 100
-        }
+        url = f"{self.settings.technical_analysis_url}/api/v1/indicators/adx/{symbol}"
+        params = {"interval": interval, "period": self.adx_period, "limit": 100}
 
         try:
             async with httpx.AsyncClient(timeout=self.request_timeout) as client:
@@ -331,7 +320,7 @@ class MarketRegimeDetector:
             confidence=confidence,
             confidence_modifier=confidence_modifier,
             description=description,
-            strategy_recommendation=strategy_recommendation
+            strategy_recommendation=strategy_recommendation,
         )
 
     def _calculate_confidence_modifier(self, regime: MarketRegime) -> float:
@@ -358,14 +347,12 @@ class MarketRegimeDetector:
             MarketRegime.WEAK_TREND: 1.0,
             MarketRegime.RANGING: 0.8,
             MarketRegime.VOLATILE: 0.7,
-            MarketRegime.UNKNOWN: 1.0
+            MarketRegime.UNKNOWN: 1.0,
         }
         return modifiers.get(regime, 1.0)
 
     def _get_strategy_recommendation(
-        self,
-        regime: MarketRegime,
-        direction: TrendDirection
+        self, regime: MarketRegime, direction: TrendDirection
     ) -> str:
         """
         Get strategy recommendation based on regime and direction
@@ -406,10 +393,7 @@ class MarketRegimeDetector:
             return "Unable to determine regime, use standard approach"
 
     def _build_description(
-        self,
-        regime: MarketRegime,
-        direction: TrendDirection,
-        adx: float
+        self, regime: MarketRegime, direction: TrendDirection, adx: float
     ) -> str:
         """
         Build human-readable description of regime analysis
@@ -428,13 +412,13 @@ class MarketRegimeDetector:
             MarketRegime.WEAK_TREND: "Weak trend developing or fading",
             MarketRegime.RANGING: "Ranging/sideways market",
             MarketRegime.VOLATILE: "Highly volatile conditions",
-            MarketRegime.UNKNOWN: "Unable to classify market regime"
+            MarketRegime.UNKNOWN: "Unable to classify market regime",
         }
 
         direction_descriptions = {
             TrendDirection.BULLISH: "bullish bias",
             TrendDirection.BEARISH: "bearish bias",
-            TrendDirection.NEUTRAL: "no clear directional bias"
+            TrendDirection.NEUTRAL: "no clear directional bias",
         }
 
         return (
@@ -467,17 +451,14 @@ class MarketRegimeDetector:
             confidence=0.0,
             confidence_modifier=1.0,  # No adjustment when unknown
             description="Market regime detection unavailable (failure sentinel)",
-            strategy_recommendation="Use standard trading approach"
+            strategy_recommendation="Use standard trading approach",
         )
 
     def apply_regime_adjustment(
-        self,
-        action: SignalAction,
-        confidence: float,
-        analysis: RegimeAnalysis
-    ) -> Tuple[float, str]:
+        self, action: SignalAction, confidence: float, analysis: RegimeAnalysis
+    ) -> Tuple[float, str, bool]:
         """
-        Apply regime-based confidence adjustment
+        Apply regime-based confidence adjustment.
 
         Args:
             action: Trading action (BUY/SELL/HOLD)
@@ -485,27 +466,38 @@ class MarketRegimeDetector:
             analysis: Regime analysis result
 
         Returns:
-            Tuple of (adjusted_confidence, adjustment_reason)
+            Tuple of (adjusted_confidence, adjustment_reason, regime_blocked)
 
         Logic:
         - Trend-following signals (BUY in bullish, SELL in bearish) get boost in trends
-        - Counter-trend signals get penalized in trends
+        - Counter-trend signals in STRONG_TREND / TRENDING regimes are HARD-BLOCKED
+          (added 2026-05-15 after May 6-7 whipsaw run: 25 closed positions / 0 winners.
+          Oscillator-vs-trend disagreement was generating LONG entries against confirmed
+          bearish trends, getting stopped out at -2% each. Soft 0.6x penalty was not
+          enough — final cascade still let trades through. Hard-block forces HOLD.)
+        - Counter-trend signals in WEAK_TREND keep the 0.6x soft penalty (ADX 20-25 is
+          a transitioning regime where the trend is fading and reversal trades may be
+          legitimate).
         - Mean-reversion signals get boost in ranging markets
         - HOLD signals are not adjusted
         """
         if action == SignalAction.HOLD:
-            return confidence, "HOLD signal - no regime adjustment"
+            return confidence, "HOLD signal - no regime adjustment", False
 
         # Check if signal aligns with trend direction
         is_aligned = (
-            (action == SignalAction.BUY and analysis.direction == TrendDirection.BULLISH) or
-            (action == SignalAction.SELL and analysis.direction == TrendDirection.BEARISH)
+            action == SignalAction.BUY and analysis.direction == TrendDirection.BULLISH
+        ) or (
+            action == SignalAction.SELL and analysis.direction == TrendDirection.BEARISH
         )
 
         is_counter_trend = (
-            (action == SignalAction.BUY and analysis.direction == TrendDirection.BEARISH) or
-            (action == SignalAction.SELL and analysis.direction == TrendDirection.BULLISH)
+            action == SignalAction.BUY and analysis.direction == TrendDirection.BEARISH
+        ) or (
+            action == SignalAction.SELL and analysis.direction == TrendDirection.BULLISH
         )
+
+        regime_blocked = False
 
         # Apply modifier based on regime and alignment
         if analysis.regime in [MarketRegime.STRONG_TREND, MarketRegime.TRENDING]:
@@ -517,10 +509,17 @@ class MarketRegimeDetector:
                     f"(x{analysis.confidence_modifier:.2f})"
                 )
             elif is_counter_trend:
-                # Counter-trend signal in trending market - heavy penalty
-                penalty = 0.6  # 40% penalty for counter-trend in strong trend
-                adjusted = confidence * penalty
-                reason = f"Counter-trend penalty in {analysis.regime.value} (x{penalty:.2f})"
+                # HARD-BLOCK counter-trend signals in confirmed trend regimes
+                # (ADX >= 25 by definition of TRENDING / STRONG_TREND).
+                # Confidence is zeroed so any downstream gate that bypasses the
+                # regime_blocked flag still rejects the signal.
+                adjusted = 0.0
+                regime_blocked = True
+                reason = (
+                    f"Counter-trend HARD-BLOCKED in {analysis.regime.value} "
+                    f"(ADX={analysis.adx:.1f}, +DI={analysis.plus_di:.1f}, "
+                    f"-DI={analysis.minus_di:.1f})"
+                )
             else:
                 # Neutral direction - small adjustment
                 adjusted = confidence * analysis.confidence_modifier
@@ -541,15 +540,22 @@ class MarketRegimeDetector:
             adjusted = confidence * analysis.confidence_modifier  # 0.7x
             reason = f"Volatile market penalty (x{analysis.confidence_modifier:.2f})"
 
+        elif analysis.regime == MarketRegime.WEAK_TREND and is_counter_trend:
+            # WEAK_TREND (ADX 20-25): transitioning regime. Counter-trend trades may
+            # be legitimate reversals. Keep soft 0.6x penalty (was the old behavior
+            # for all trend regimes; now only retained for WEAK_TREND).
+            adjusted = confidence * 0.6
+            reason = f"Counter-trend penalty in {analysis.regime.value} (x0.60, soft)"
+
         else:
-            # WEAK_TREND or UNKNOWN - no adjustment
+            # WEAK_TREND aligned/neutral or UNKNOWN - no adjustment
             adjusted = confidence
             reason = f"No adjustment for {analysis.regime.value}"
 
         # Ensure confidence stays in valid range
         adjusted = max(0.0, min(1.0, adjusted))
 
-        return adjusted, reason
+        return adjusted, reason, regime_blocked
 
     def get_stats(self) -> Dict:
         """
@@ -573,7 +579,7 @@ class MarketRegimeDetector:
                 regime.value: count
                 for regime, count in self.regime_counts.items()
                 if count > 0
-            }
+            },
         }
 
     def reset_stats(self):
