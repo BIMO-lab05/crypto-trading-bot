@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
+status: Awaiting next milestone
 stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-05-14T23:32:36.547Z"
-last_activity: 2026-05-14 -- Phase 07.2 marked complete
+last_updated: "2026-05-15T02:55:07.614Z"
+last_activity: 2026-05-15 — Milestone v1.0 completed and archived
 progress:
   total_phases: 9
   completed_phases: 9
@@ -25,15 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-06)
 
 ## Current Position
 
-Phase: 07.2 — COMPLETE
-Plan: 1 of 1
-Plans: 4 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 MLCL-04 backtest divergence documented DONE)
-Status: Phase 07.2 complete
-Last activity: 2026-05-14 -- Phase 07.2 marked complete
-
-CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-15 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -90,14 +85,36 @@ None yet (use `/gsd-capture` to add).
 
 ## Deferred Items
 
+Items acknowledged and deferred at v1.0 milestone close on 2026-05-15:
+
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
+| uat_gap | 01-UAT.md | partial (0 pending) | 2026-05-15 |
+| uat_gap | 02-HUMAN-UAT.md | partial (5 pending operator scenarios) | 2026-05-15 |
+| uat_gap | 04-UAT.md | gaps_closed (0 pending) | 2026-05-15 |
+| verification_gap | 01-VERIFICATION.md | human_needed (INFRA-02 Plan 01-03 Task 4 fresh-clone checkpoint) | 2026-05-15 |
+| verification_gap | 02-VERIFICATION.md | human_needed (INFRA-01 live-stack run, blocked OP-04) | 2026-05-15 |
+| verification_gap | 05-VERIFICATION.md | human_needed (MLCL-01 ≥7-day evidence loops; MLCL-02 INSUFFICIENT_DATA pending OP-02/OP-03) | 2026-05-15 |
+| verification_gap | 06-VERIFICATION.md | human_needed (DASH-03 LIVE-flip smoke, pending OP-01) | 2026-05-15 |
+| verification_gap | 07-VERIFICATION.md | human_needed (DASH-06 CI run, pending OP-04; closed locally via P07.1 smoke green) | 2026-05-15 |
 | ML | Sentiment-as-filter integration | v2 | 2026-05-06 |
 | ML | Classification head + calibration | v2 | 2026-05-06 |
 | Dashboard | Server-side `/ws/metrics` route + WS subscription layer | v2 | 2026-05-06 |
 | Dashboard | Mobile-friendly responsive layout | v2 | 2026-05-06 |
 | Infra | K8s deployment | v2 | 2026-05-06 |
 | Tournament | XRP/AVAX inclusion + multi-horizon search | v2 | 2026-05-06 |
+
+### Open Operator Actions (carry into v1.1)
+
+| ID | Action | Blocks |
+|---|---|---|
+| OP-01 | Manual smoke: TRADING_MODE=LIVE force-recreate api-gateway, confirm rose outline + red MODE pill, revert | DASH-03 LIVE-flip visual; Phase 06 VERIFICATION transition |
+| OP-02 | Apply `infrastructure/migrations/005_tournament_reader.sql` to `market_data` on `crypto-bot-timescaledb` | MLCL-02 verdict; tournament_reader role |
+| OP-03 | Set `TOURNAMENT_READER_PASSWORD` in `.env` + `ALTER ROLE tournament_reader PASSWORD '<value>'` + force-recreate `tournament-harness` | MLCL-02 verdict |
+| OP-04 | Resolve GitHub Actions billing at github.com/settings/billing | INFRA-01 CD-05 ML-on nightly variant; tournament-harness CI first run; DASH-06 CI confirmation |
+| INFRA-02 checkpoint | Operator runs Plan 01-03 Task 4 — fresh tmp clone → `bash bootstrap.sh` × 2 → grep `BYBIT_PRICE_SOURCE: mode=tape` → 15 services healthy | INFRA-02 SC-1 + SC-3 behavioural confirmation |
+
+OP-05 (push 60+ commits to origin/main) — CLOSED 2026-05-15T02:20Z.
 
 ## Session Continuity
 
@@ -111,3 +128,7 @@ Open operator actions (3):
   3. Set TOURNAMENT_READER_PASSWORD in .env + ALTER ROLE tournament_reader PASSWORD '<value>' on TimescaleDB + force-recreate tournament-harness. Then re-run MLCL-02 t0_1_x_horizon_sweep.
 
 Next: After operator unblocks, advance to Phase 7 (Tournament View & Smoke Test).
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
