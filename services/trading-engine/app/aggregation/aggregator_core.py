@@ -32,10 +32,8 @@ from .validator import VolumeValidator
 from .voter import SignalVoter
 from .signal_cache import SignalCache
 from .market_regime import (
-    MarketRegimeDetector,
-    MarketRegime,
     RegimeAnalysis,
-    get_market_regime_detector
+    get_market_regime_detector,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,11 +70,7 @@ class CoreAggregator:
     NOTE: Re-optimize quarterly using 6-month walk-forward windows.
     """
 
-    def __init__(
-        self,
-        settings=None,
-        enable_market_regime: bool = True
-    ):
+    def __init__(self, settings=None, enable_market_regime: bool = True):
         """
         Initialize core aggregator with modular components
 
@@ -110,8 +104,15 @@ class CoreAggregator:
         # Research shows 0.10-0.20 range optimal for crypto, prevents noise trades
         # ADJUSTED 2025-12-25: Lowered to 0.10 for more trade opportunities
         # ADJUSTED 2025-12-30: Lowered to 0.07 for increased sensitivity (5 symbols now)
+        # RESTORED 2026-05-15: Reverted to 0.15 after May 6-7 paper-trade run produced
+        # 25 closed positions / 0 winners / -$0.78 P&L. Voter@0.07 fired trades on
+        # weak score imbalances (RSI/STOCH oversold-BUY vs SMA/EMA/ICHIMOKU SELL in
+        # bearish trend), generating whipsaw entries. 0.15 matches voter.py default,
+        # test_aggregator_core.py expectations, and originally documented optimum.
         # ==========================================================================
-        self.voter = SignalVoter(aggregation_threshold=0.07)  # Aggressive threshold: optimized for 5 symbols
+        self.voter = SignalVoter(
+            aggregation_threshold=0.15
+        )  # Research-optimal: prevents whipsaw on noise
         self.cache = SignalCache(enabled=False)  # Disabled for now, Phase 2
 
         # Initialize market regime detector (2025-11-28)
@@ -141,9 +142,17 @@ class CoreAggregator:
         # ×0.75 (volume) and ×0.8 (RANGING regime) penalties. With 0.40 floor the bot rejected
         # 100% of signals (1325/1550 in test). 0.20 still filters noise while letting clear
         # multi-indicator agreements through.
+        # RAISED 2026-05-15: 0.20 → 0.30 after May 6-7 run (25 trades / 0 winners) showed
+        # 0.20 still let through low-conviction signals on conflicting indicators. The Apr-25
+        # rejection rate was measured under voter@0.07 which generated many sub-0.20 scores;
+        # with voter@0.15 the score distribution shifts upward and 0.30 stays reachable.
+        # Cascade: aggregator emits ≥0.30, risk_manager.min_signal_confidence (config.py)
+        # holds at 0.40 as final quality gate.
         self.min_consensus = 3  # Research-backed: Require 3 indicators minimum
-        self.min_confidence = 0.20  # Aligned with realistic indicator confidence range
-        self.min_category_consensus = 2  # Research-backed: Require 2 different categories for diversification
+        self.min_confidence = 0.30  # Tightened from 0.20 (2026-05-15)
+        self.min_category_consensus = (
+            2  # Research-backed: Require 2 different categories for diversification
+        )
 
         # Track last regime analysis for async access
         self._last_regime_analysis: Optional[RegimeAnalysis] = None
@@ -163,7 +172,7 @@ class CoreAggregator:
         indicators: Dict[str, IndicatorSignal],
         timestamp: int,
         atr_data: Optional[Dict] = None,
-        regime_analysis: Optional[RegimeAnalysis] = None
+        regime_analysis: Optional[RegimeAnalysis] = None,
     ) -> TradingSignal:
         """
         Aggregate individual indicator signals into a final trading signal
@@ -192,11 +201,13 @@ class CoreAggregator:
         # Validate inputs
         if not indicators:
             logger.warning("No indicators available for aggregation")
-            return self._build_error_signal(symbol, timestamp, "No indicators available")
+            return self._build_error_signal(
+                symbol, timestamp, "No indicators available"
+            )
 
-        logger.info("="*80)
+        logger.info("=" * 80)
         logger.info("PHASE 1 SIGNAL AGGREGATION PIPELINE")
-        logger.info("="*80)
+        logger.info("=" * 80)
 
         # ==================== STEP 1: Filter Voting Indicators ====================
         voting_indicators = self.voter.filter_non_voting_indicators(indicators)
@@ -206,21 +217,24 @@ class CoreAggregator:
             return self._build_error_signal(symbol, timestamp, "No voting indicators")
 
         # ==================== STEP 2: Calculate Votes ====================
-        aggregated_score, consensus_count, buy_count, sell_count, hold_count = \
+        aggregated_score, consensus_count, buy_count, sell_count, hold_count = (
             self.voter.calculate_votes(voting_indicators)
+        )
 
         # ==================== STEP 3: Determine Preliminary Action ====================
         action, confidence = self.voter.determine_action(aggregated_score)
 
         # ==================== STEP 4: Apply GATEKEEPER (Trend Filter) ====================
         trend_filter = indicators.get("TREND_FILTER")
-        action, confidence, trend_blocked, trend_reason = \
-            self.gatekeeper.check_signal(action, confidence, trend_filter)
+        action, confidence, trend_blocked, trend_reason = self.gatekeeper.check_signal(
+            action, confidence, trend_filter
+        )
 
         # ==================== STEP 5: Apply VALIDATOR (Volume Confirmation) ====================
         volume_conf = indicators.get("VOLUME_CONFIRMATION")
-        confidence, volume_penalty, volume_reason = \
-            self.validator.validate_volume(confidence, volume_conf)
+        confidence, volume_penalty, volume_reason = self.validator.validate_volume(
+            confidence, volume_conf
+        )
 
         # ==================== STEP 6: Apply REGIME DETECTOR (ADX-based) ====================
         regime_adjustment_reason = "Regime detection disabled"
@@ -228,10 +242,11 @@ class CoreAggregator:
 
         if self.enable_market_regime and regime_analysis:
             # Apply regime-based confidence adjustment
-            confidence, regime_adjustment_reason = \
+            confidence, regime_adjustment_reason = (
                 self.regime_detector.apply_regime_adjustment(
                     action, confidence, regime_analysis
                 )
+            )
             regime_modifier = regime_analysis.confidence_modifier
             self._last_regime_analysis = regime_analysis
 
@@ -254,22 +269,24 @@ class CoreAggregator:
         # 3. Trend blocking still critical for counter-trend protection
 
         # Check category diversity (research-backed)
-        category_passes, category_count, category_reason = \
+        category_passes, category_count, category_reason = (
             self.voter.check_category_diversity(
                 voting_indicators, action, self.min_category_consensus
             )
+        )
 
         # Final defence: re-validate confidence right before the gate so any
         # gatekeeper/validator/regime-detector that returned a bad value (NaN,
         # negative, > 1) cannot silently bypass the threshold check below.
         from app.aggregation.confidence_guard import validate_confidence
+
         confidence = validate_confidence(confidence, source="aggregator_core.gate")
 
         meets_requirements = (
-            consensus_count >= self.min_consensus and
-            confidence >= self.min_confidence and
-            category_passes and  # NEW: Category diversity check
-            not trend_blocked
+            consensus_count >= self.min_consensus
+            and confidence >= self.min_confidence
+            and category_passes  # NEW: Category diversity check
+            and not trend_blocked
         )
 
         if not meets_requirements:
@@ -281,7 +298,7 @@ class CoreAggregator:
                 trend_reason,
                 category_passes,
                 category_count,
-                category_reason
+                category_reason,
             )
             logger.info(f"Requirements NOT met: {', '.join(reasons)}")
             action = SignalAction.HOLD
@@ -291,15 +308,20 @@ class CoreAggregator:
 
         # ==================== STEP 8: Build Final Signal ====================
         metadata = self._build_metadata(
-            buy_count, sell_count, hold_count,
-            voting_indicators, meets_requirements,
-            trend_blocked, trend_reason,
-            volume_penalty, volume_reason,
+            buy_count,
+            sell_count,
+            hold_count,
+            voting_indicators,
+            meets_requirements,
+            trend_blocked,
+            trend_reason,
+            volume_penalty,
+            volume_reason,
             atr_data,
             regime_analysis,
             regime_adjustment_reason,
             category_count,  # RESEARCH-BACKED: Category consensus data
-            category_reason
+            category_reason,
         )
 
         logger.info(
@@ -307,7 +329,7 @@ class CoreAggregator:
             f"(score: {aggregated_score:+.2f}, conf: {confidence:.2f}, "
             f"consensus: {consensus_count}/{len(voting_indicators)})"
         )
-        logger.info("="*80)
+        logger.info("=" * 80)
 
         # ==================== STEP 9: Record Signal for Phase 1 Metrics ====================
         # Extract real filter data for Phase 1 monitoring
@@ -336,7 +358,7 @@ class CoreAggregator:
                 "direction": regime_analysis.direction.value,
                 "adx": regime_analysis.adx,
                 "confidence_modifier": regime_modifier,
-                "adjustment_reason": regime_adjustment_reason
+                "adjustment_reason": regime_adjustment_reason,
             }
 
         # Record signal with real filter data
@@ -354,7 +376,7 @@ class CoreAggregator:
                 "volume_strength": volume_strength,
                 "volume_penalty": volume_penalty,
                 "regime_detector": self.enable_market_regime,
-                "regime": regime_data
+                "regime": regime_data,
             },
             metadata={
                 "buy_count": buy_count,
@@ -364,8 +386,8 @@ class CoreAggregator:
                 "meets_requirements": meets_requirements,
                 "aggregated_score": round(aggregated_score, 3),
                 "atr": atr_data,
-                "stochastic_condition": stochastic_condition
-            }
+                "stochastic_condition": stochastic_condition,
+            },
         )
 
         return TradingSignal(
@@ -376,14 +398,11 @@ class CoreAggregator:
             indicators=indicators,
             aggregated_score=round(aggregated_score, 3),
             consensus_count=consensus_count,
-            metadata=metadata
+            metadata=metadata,
         )
 
     def _build_error_signal(
-        self,
-        symbol: str,
-        timestamp: int,
-        error_message: str
+        self, symbol: str, timestamp: int, error_message: str
     ) -> TradingSignal:
         """
         Build a failure-sentinel TradingSignal when aggregation cannot proceed.
@@ -431,7 +450,7 @@ class CoreAggregator:
         trend_reason: str,
         category_passes: bool = True,
         category_count: int = 0,
-        category_reason: str = ""
+        category_reason: str = "",
     ) -> list:
         """
         Build list of reasons why signal was rejected
@@ -465,7 +484,9 @@ class CoreAggregator:
 
         # NEW: Category diversity check (research-backed)
         if not category_passes:
-            reasons.append(f"category_diversity={category_count} (min={self.min_category_consensus})")
+            reasons.append(
+                f"category_diversity={category_count} (min={self.min_category_consensus})"
+            )
 
         return reasons
 
@@ -484,7 +505,7 @@ class CoreAggregator:
         regime_analysis: Optional[RegimeAnalysis] = None,
         regime_adjustment_reason: str = "",
         category_count: int = 0,
-        category_reason: str = ""
+        category_reason: str = "",
     ) -> Dict:
         """
         Build comprehensive metadata for TradingSignal
@@ -529,10 +550,10 @@ class CoreAggregator:
             "category_consensus": {
                 "agreeing_categories": category_count,
                 "min_required": self.min_category_consensus,
-                "reason": category_reason
+                "reason": category_reason,
             },
             # RESEARCH-BASED NOTE: Parameters optimized 2025-11-29
-            "optimization_note": "Research-backed: Freqtrade/Hummingbot/Jesse + category diversity"
+            "optimization_note": "Research-backed: Freqtrade/Hummingbot/Jesse + category diversity",
         }
 
         # Add ATR data for dynamic stops if available
@@ -556,7 +577,7 @@ class CoreAggregator:
                 "confidence_modifier": regime_analysis.confidence_modifier,
                 "description": regime_analysis.description,
                 "strategy_recommendation": regime_analysis.strategy_recommendation,
-                "adjustment_reason": regime_adjustment_reason
+                "adjustment_reason": regime_adjustment_reason,
             }
 
         return metadata
@@ -575,7 +596,7 @@ class CoreAggregator:
             "thresholds": {
                 "min_consensus": self.min_consensus,
                 "min_confidence": self.min_confidence,
-                "aggregation_threshold": self.voter.aggregation_threshold
+                "aggregation_threshold": self.voter.aggregation_threshold,
             },
             # RESEARCH-BASED NOTE
             "optimization_info": {
@@ -583,8 +604,8 @@ class CoreAggregator:
                 "research_basis": "Freqtrade/Hummingbot/Jesse analysis",
                 "target_accuracy": "82.68%",
                 "reoptimization_schedule": "quarterly",
-                "optimization_window": "6-month walk-forward"
-            }
+                "optimization_window": "6-month walk-forward",
+            },
         }
 
         # Add regime detector stats if enabled
