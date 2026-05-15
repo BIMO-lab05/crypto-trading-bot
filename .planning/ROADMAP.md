@@ -12,12 +12,12 @@ This milestone hardens the bot around four user-named initiatives: a test-driven
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 1: Bootstrap & Recorded Tape** - Reproducible bring-up + deterministic exchange-data fixtures (completed 2026-05-06)
-- [ ] **Phase 2: Integration Test Suite & RUNBOOK** - Fresh-clone pytest+testcontainers suite + checkpointed iteration + ops runbook
-- [ ] **Phase 3: Tournament Harness Core** - Docker+SQLite orchestrator with leaderboard schema, search-space config, and per-experiment isolation
-- [ ] **Phase 4: Tournament Significance & Auto-PR** - DSR/bootstrap significance gating + draft-PR automation when ensemble wins
+- [x] **Phase 1: Bootstrap & Recorded Tape** - Reproducible bring-up + deterministic exchange-data fixtures (completed 2026-05-06; INFRA-02 SC-1+SC-3 operator-checkpoint pending — see v1.0 audit)
+- [x] **Phase 2: Integration Test Suite & RUNBOOK** - Fresh-clone pytest+testcontainers suite + checkpointed iteration + ops runbook (completed 2026-05-08; INFRA-01 live-stack run pending OP-04)
+- [x] **Phase 3: Tournament Harness Core** - Docker+SQLite orchestrator with leaderboard schema, search-space config, and per-experiment isolation (completed 2026-05-09)
+- [x] **Phase 4: Tournament Significance & Auto-PR** - DSR/bootstrap significance gating + draft-PR automation when ensemble wins (completed 2026-05-12)
 - [x] **Phase 5: ML Cleanup (post-V0)** - Forward-paper-test the three opt-in features, ship a T0.1.x experiment, and resolve parked items (completed 2026-05-13)
-- [ ] **Phase 6: Dashboard Audit & Safety State** - End-to-end tile audit, config-driven URLs, safety-state header, explicit empty/error states
+- [x] **Phase 6: Dashboard Audit & Safety State** - End-to-end tile audit, config-driven URLs, safety-state header, explicit empty/error states (completed 2026-05-14; LIVE-flip smoke pending OP-01)
 - [x] **Phase 7: Tournament View & Smoke Test** - Frontend tournament leaderboard view + Playwright smoke against the recorded-tape stack (completed 2026-05-14)
 - [x] **Phase 7.1: Smoke Test Bugfixes** - Close the 3 real bugs surfaced during Phase 7 local verification (strict-mode locator, page-level LABELED_STALE assertion, gateway origin proxy) (completed 2026-05-15)
 - [x] **Phase 7.2: Phase3Dashboard Skeleton-Loader Fix** - Short-circuit 503 retry surfaces `<ErrorState/>` instead of skeleton-forever; audit row re-added with verdict=FIXED (completed 2026-05-15)
