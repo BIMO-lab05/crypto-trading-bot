@@ -18,10 +18,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-06)
+See: .planning/PROJECT.md (updated 2026-05-15 after v1.0 milestone close)
 
-**Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns.
-**Current focus:** Phase 07.2 — phase3-skeleton-loader-fix
+**Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns through the tournament harness, not raw R² on price levels.
+**Current focus:** Planning v1.1 — start with `/gsd-new-milestone` to scope (likely candidates: close v1.0 operator-blocked partials, path-to-LIVE checklist).
 
 ## Current Position
 
@@ -79,9 +79,9 @@ None yet (use `/gsd-capture` to add).
 
 ### Blockers/Concerns
 
-- Local main is 60+ commits ahead of origin/main as of 2026-05-01 — push pending; verify CI green before opening tournament PRs
-- Working tree dirty at init time (15+ modified files including service code + frontend); mods are unrelated to GSD setup and stay outside GSD commits
-- `scripts/monitoring/` tier-2 deleted per ADR-011 (Phase 5 MLCL-03); tier-1 retained as cheap health monitor
+- Carry-into-v1.1 operator items: OP-01..04 + INFRA-02 checkpoint (see Deferred Items below)
+- v1.0 audit status: gaps_found (acknowledged) — orchestrator + dev work complete; remaining items operator-only
+- ML predictions remain `ENABLE_ML_PREDICTIONS=false` by default until DSR > 0.95 evidence via tournament harness clears V0 finding
 
 ## Deferred Items
 
