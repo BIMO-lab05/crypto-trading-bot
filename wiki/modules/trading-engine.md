@@ -223,5 +223,5 @@ This contradicts the "event-driven" mental model in the task brief — see contr
 
 - Flows: [[../flows/Signal-Pipeline]], [[../flows/Order-Lifecycle]], [[../flows/Emergency-Stop]]
 - Concepts: [[../concepts/Risk-Model]], [[../concepts/Trading-Mode-Flags]], [[../concepts/Auto-Trader]], [[../concepts/Validated-Symbols]], [[../concepts/Test-Setup-Gotchas]], [[../concepts/State-Persistence]], [[../concepts/Paper-Trading-Internals]]
-- ADRs: [[../decisions/ADR-002-trading-engine-lifespan-refactor]], [[../decisions/ADR-004-paper-trading-default]], [[../decisions/ADR-005-emergency-stop-file-flag]], [[../decisions/ADR-006-mainnet-prices-paper-orders]], [[../decisions/ADR-011-paper-deterministic-execution]], [[../decisions/ADR-012-http-not-events]]
+- ADRs: [[../decisions/ADR-002-trading-engine-lifespan-refactor]], [[../decisions/ADR-004-paper-trading-default]], [[../decisions/ADR-005-emergency-stop-file-flag]], [[../decisions/ADR-006-mainnet-prices-paper-orders]], [[../decisions/ADR-011-paper-deterministic-execution]], [[../decisions/ADR-016-http-not-events]]
 - Sibling services: [[bybit-connector]], [[market-data-service]], [[technical-analysis]], [[portfolio-manager]], [[risk-metrics-service]]

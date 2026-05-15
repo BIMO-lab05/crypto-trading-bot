@@ -51,5 +51,5 @@ Defer. Documented here so future graphify runs do not waste time treating discon
 
 ## Related
 
-- [[../decisions/ADR-012-http-not-events]] (was the trigger that surfaced the gap)
+- [[../decisions/ADR-016-http-not-events]] (was the trigger that surfaced the gap)
 - `graphify-out/GRAPH_REPORT.md` — components count

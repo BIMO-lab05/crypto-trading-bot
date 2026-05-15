@@ -35,7 +35,9 @@ ADRs and design choices, captured from progress.md, CLAUDE.md, and code archaeol
 
 ## Architecture (cont.)
 
-- [[ADR-012-http-not-events]] — service mesh is synchronous HTTP end-to-end; documented RabbitMQ topics are fiction
+- [[ADR-016-http-not-events]] — service mesh is synchronous HTTP end-to-end; documented RabbitMQ topics are fiction *(renumbered from ADR-012 on 2026-05-15 — collision with `docs/decisions/ADR-012-extended-backtest-disposition.md`; see v1.0 audit INT-01)*
+
+> **Namespace policy (added 2026-05-15):** `wiki/decisions/ADR-NNN.md` is a separate namespace from `docs/decisions/ADR-NNN.md`. To avoid xref ambiguity, **wiki ADR numbers must not duplicate any docs/decisions/ADR number**. When a new docs ADR lands, check this index for collisions and renumber if needed. Latent collision still open: wiki `ADR-011-paper-deterministic-execution` vs `docs/decisions/ADR-011-monitoring-disposition` — flagged but not yet renumbered (more xrefs to update; will fix in v1.1 cleanup).
 
 ## Strategy
 

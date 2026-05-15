@@ -6,10 +6,14 @@ context: "Service-to-service communication topology"
 deciders: []
 tags: [decision, adr, architecture, rabbitmq, http]
 created: 2026-05-06
-updated: 2026-05-06
+updated: 2026-05-15
+renumbered_from: ADR-012
+renumbered_reason: "Number collision with docs/decisions/ADR-012-extended-backtest-disposition.md (added 2026-05-13). Wiki ADRs renumbered to next free slot per v1.0 milestone audit INT-01. Old slug `ADR-012-http-not-events` historical only."
 ---
 
-# ADR-012: HTTP service mesh, not RabbitMQ event bus
+# ADR-016: HTTP service mesh, not RabbitMQ event bus
+
+> **Note:** Renumbered from ADR-012 on 2026-05-15 to resolve namespace collision with `docs/decisions/ADR-012-extended-backtest-disposition.md`. Content unchanged. Latent collision with wiki `ADR-011-paper-deterministic-execution.md` vs `docs/decisions/ADR-011-monitoring-disposition.md` flagged separately — not yet renumbered.
 
 ## Context
 

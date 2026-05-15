@@ -50,5 +50,5 @@ The service mesh is **synchronous HTTP** end-to-end. See [[HTTP-Service-Mesh]].
 
 - [[HTTP-Service-Mesh]]
 - [[Aspirational-vs-Real]]
-- [[../decisions/ADR-012-http-not-events]]
+- [[../decisions/ADR-016-http-not-events]]
 - [[../sources/SERVICE_CONTRACTS]]
