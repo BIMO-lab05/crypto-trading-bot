@@ -141,6 +141,18 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Fail-fast on canonical-metrics PYTHONPATH break (TOURN-07, v1.0 audit INT-02).
+    # If the chain is unavailable here, no point parsing spec or loading data --
+    # compute_all_metrics would raise at the end anyway, costing a full train.
+    from app.runner.metrics_bridge import assert_canonical_metrics_available
+
+    try:
+        assert_canonical_metrics_available()
+    except RuntimeError as e:
+        logger.error("canonical-metrics chain unavailable at runner boot: %s", e)
+        _atomic_write_result(_build_failure_result({}, "exit_nonzero", str(e)))
+        return 1
+
     try:
         spec: Dict[str, Any] = json.loads(args.spec_json)
     except json.JSONDecodeError as e:

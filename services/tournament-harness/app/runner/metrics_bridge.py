@@ -35,12 +35,40 @@ try:
     from app.cpcv import cpcv_to_dsr  # noqa: F401
 
     _CANONICAL_METRICS_AVAILABLE = True
+    _CANONICAL_METRICS_IMPORT_ERROR: Exception | None = None
 except ImportError as _e:  # pragma: no cover — environment-dependent
     _CANONICAL_METRICS_AVAILABLE = False
     _CANONICAL_METRICS_IMPORT_ERROR = _e
 
 
 logger = logging.getLogger(__name__)
+
+
+def assert_canonical_metrics_available() -> None:
+    """Fail-fast guard for deployed runtimes.
+
+    Raise RuntimeError if the canonical metric chain (compute_returns_metrics,
+    evaluate_with_cpcv, probabilistic_sharpe_ratio, deflated_sharpe_ratio,
+    cpcv_to_dsr) failed to import at module load.
+
+    Call from FastAPI lifespan and from the runner CLI entrypoint so the
+    container surfaces a PYTHONPATH break at boot, not silently at first
+    metric call. Host pytest paths that do not exercise compute_all_metrics
+    must NOT call this — they tolerate the missing chain on purpose
+    (see top-of-module docstring).
+
+    See v1.0 milestone audit INT-02.
+    """
+    if _CANONICAL_METRICS_AVAILABLE:
+        return
+    raise RuntimeError(
+        "tournament-harness canonical metric chain unavailable -- import failed "
+        "at module load. Expected resolution via PYTHONPATH=/app:/opt/ml_retraining "
+        "inside the harness Docker image. Underlying ImportError: "
+        f"{_CANONICAL_METRICS_IMPORT_ERROR!r}. "
+        "TOURN-07 forbids reimplementation; fix the import path. "
+        "See v1.0 milestone audit INT-02."
+    )
 
 
 def dir_acc_corrected_from_log_returns(
