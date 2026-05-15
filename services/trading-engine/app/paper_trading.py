@@ -189,6 +189,7 @@ class PaperTradingEngine:
                         commission=commission,
                         strategy=order.strategy,
                         signal_confidence=order.entry_signal_confidence,
+                        realized_pnl=closed_position.realized_pnl,
                     )
                 )
 
@@ -339,6 +340,7 @@ class PaperTradingEngine:
                     commission=commission,
                     strategy=order.strategy,
                     signal_confidence=order.entry_signal_confidence,
+                    realized_pnl=closed_position.realized_pnl,
                 )
             )
 
