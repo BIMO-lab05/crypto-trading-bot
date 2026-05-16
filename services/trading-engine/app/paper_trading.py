@@ -280,8 +280,7 @@ class PaperTradingEngine:
                     side=PositionSide.SHORT,
                     entry_price=current_price,
                     quantity=order.quantity,
-                    strategy="research_optimized",
-                    # CRITICAL FIX 2025-12-07: Save entry signal confidence
+                    strategy=order.strategy,
                     entry_signal_confidence=order.entry_signal_confidence,
                 )
 
