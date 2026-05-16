@@ -22,7 +22,7 @@ The point: by the end of v1.1, flipping `TRADING_MODE=LIVE` without preflight pa
 
 - [ ] **PREFLIGHT-01**: `scripts/preflight_live.py` CLI asserts all 6 LIVE preconditions and exits non-zero on any miss — (1) per-trade risk cap ≤2%, (2) `PAPER_TRADING_MODE=false`, (3) `TRADING_MODE=LIVE`, (4) `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY`, (5) `EMERGENCY_STOP` file absent, (6) DSR>0.95 evidence-row exists in `tournament_results` if `ENABLE_ML_PREDICTIONS=true`. Output is structured JSON per check.
 - [x] **PREFLIGHT-02**: trading-engine boot path enforces per-trade cap mode at startup — refuses to boot in `TRADING_MODE=LIVE` with `MAX_POSITION_RISK_PCT > 2`; logs explicit `LIVE_PREFLIGHT_REJECTED reason=cap_too_high` and exits. Unit test asserts both directions (PAPER allows 10%, LIVE rejects 3%). _Completed by 08-03._
-- [ ] **PREFLIGHT-03**: CI workflow `preflight-live-readiness.yml` runs `preflight_live.py --dry-run --target=HEAD` and blocks any PR labeled `live: requested` that fails any check; result posted as PR check status.
+- [x] **PREFLIGHT-03**: CI workflow `preflight-live-readiness.yml` runs `preflight_live.py --dry-run --target=HEAD` and blocks any PR labeled `live: requested` that fails any check; result posted as PR check status.
 - [ ] **PREFLIGHT-04**: Pre-LIVE operator checklist added to `RUNBOOK.md` (Diagnose/Action/Verification per precondition) and cross-linked from PROJECT.md's Out of Scope LIVE-default note.
 
 ### MLGATE — Operator-driven ML re-enablement evidence loop

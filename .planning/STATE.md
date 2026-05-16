@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: Path to LIVE
 status: executing
 stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-05-16T21:23:28Z"
-last_activity: 2026-05-16 -- Phase 08 plan 03 (lifespan cap-check) complete
+last_updated: "2026-05-16T21:47:46.143Z"
+last_activity: 2026-05-16
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-16)
 ## Current Position
 
 Phase: 8 of 12 (Pre-LIVE Preflight)
-Plan: 03 of 05 complete (08-01, 08-02, 08-03, 08-05 landed; 08-04 CI workflow pending)
-Status: Plan 08-03 complete — ready for 08-04
-Last activity: 2026-05-16 -- 08-03 lifespan cap-check + grep gates landed
+Plan: 4 of 05 complete (08-01, 08-02, 08-03, 08-05 landed; 08-04 CI workflow pending)
+Status: Ready to execute
+Last activity: 2026-05-16
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -39,6 +39,7 @@ Progress: [████████░░] 80%
 | 08 | 03 | ~25 min | 3 | 3 |
 
 *Updated after each plan completion*
+| Phase 08-pre-live-preflight P04 | ~25min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -50,6 +51,9 @@ Progress: [████████░░] 80%
 - [v1.1 init]: LIVECLOSE-03 (7-day evidence) depends on MLGATE-01 driver (Phase 9) existing first.
 - [08-03]: Boundary-agreement test guards the two intentionally duplicate 0.02 thresholds (inline at main.py + check_cap() in app/preflight/checks.py) per 08-CONTEXT.md locked decision — duplication kept for lifespan locality, drift detected by parametrised boundary test at 0.0200 + 0.0201.
 - [08-03]: Grep gate scope locked to services/trading-engine/app/ only (NOT repo root) — RUNBOOK.md prose containing the LIVE_PREFLIGHT_REJECTED literal would otherwise mask silent production-code removal.
+- [Phase ?]: 08-04: Pinned action versions @v4/@v5 per supply-chain mitigation T-08-04-01
+- [Phase ?]: 08-04: gate job uses needs:unit-tests so test failures short-circuit the dry-run gate even on labelled PRs
+- [Phase ?]: 08-04: if: expression YAML-double-quoted so PyYAML strict scanner accepts the inner 'live: requested' colon-space literal
 
 ### Blockers/Concerns
 
@@ -68,6 +72,6 @@ Progress: [████████░░] 80%
 
 ## Session Continuity
 
-Last session: 2026-05-16T21:23:28Z
+Last session: 2026-05-16T21:47:31.964Z
 Stopped at: Completed 08-03-PLAN.md
-Resume file: .planning/phases/08-pre-live-preflight/08-04-ci-workflow-PLAN.md
+Resume file: None

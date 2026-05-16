@@ -29,7 +29,7 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 
 **Milestone Goal:** Close all v1.0 operator-blocked carry-ins and ratify the path-to-LIVE checklist with code-enforced preconditions, so flipping `TRADING_MODE=LIVE` becomes a verified four-step act rather than a leap of faith. Real-money LIVE trading is NOT a v1.1 deliverable — the gates and preconditions are.
 
-- [ ] **Phase 8: Pre-LIVE Preflight** — CLI + HTTP API + trading-engine boot enforcement + CI workflow + RUNBOOK checklist for all 6 LIVE preconditions (includes unit tests and CI grep gates per PREFLIGHT-01/02 scope)
+- [x] **Phase 8: Pre-LIVE Preflight** — CLI + HTTP API + trading-engine boot enforcement + CI workflow + RUNBOOK checklist for all 6 LIVE preconditions (includes unit tests and CI grep gates per PREFLIGHT-01/02 scope) (completed 2026-05-16)
 - [ ] **Phase 9: ML Re-enablement Gate** — 7-day evidence loop driver, startup auto-flip based on DSR>0.95 evidence row, structured disable-reason enum with Telegram digest (includes unit tests and CI grep gate per MLGATE-02 scope)
 - [ ] **Phase 10: Path-to-LIVE Dashboard** — PathToLiveTile showing preflight + carry-in state, DO-NOT-FLIP/ALMOST/READY logic, Playwright smoke
 - [ ] **Phase 11: Carry-In Closure** — Operator-runnable harnesses for all 5 v1.0 carry-ins; each closes with evidence row under `.planning/evidence/LIVECLOSE-*/`
@@ -48,11 +48,11 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
   4. `.github/workflows/preflight-live-readiness.yml` exists and blocks any PR labeled `live: requested` where `preflight_live.py --dry-run --target=HEAD` exits non-zero; CI result is posted as a PR check status.
   5. `RUNBOOK.md` contains a "Pre-LIVE Operator Checklist" section with Diagnose/Action/Verification rows for each of the 6 preconditions; PROJECT.md Out of Scope section cross-links to it.
   6. CI grep gate test fails if the `LIVE_PREFLIGHT_REJECTED` log emission is removed from the trading-engine startup path; grep gate is enforced in the same CI workflow that runs the unit tests from criterion 3, making silent removal of the enforcement detectable.
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
 - [x] 08-01-preflight-core-module-PLAN.md — preflight package: types, 6 checks, run_all aggregator, unit tests (foundation, Wave 1)
 - [x] 08-02-cli-and-http-route-PLAN.md — scripts/preflight_live.py CLI + trading-engine handler + api-gateway proxy + tests (Wave 2)
 - [x] 08-03-lifespan-cap-check-PLAN.md — main.py cap-check block + router mount + grep gates + lifespan tests (Wave 2) — completed 2026-05-16
-- [ ] 08-04-ci-workflow-PLAN.md — .github/workflows/preflight-live-readiness.yml with PR-label gate (Wave 3)
+- [x] 08-04-ci-workflow-PLAN.md — .github/workflows/preflight-live-readiness.yml with PR-label gate (Wave 3)
 - [x] 08-05-runbook-and-crosslink-PLAN.md — RUNBOOK Pre-LIVE Operator Checklist + PROJECT.md cross-link (Wave 1, parallel with 08-01)
 
 ### Phase 9: ML Re-enablement Gate
@@ -116,7 +116,7 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 | 7. Tournament View & Smoke Test | v1.0 | 6/6 | Complete | 2026-05-14 |
 | 7.1. Smoke Test Bugfixes | v1.0 | 1/1 | Complete | 2026-05-15 |
 | 7.2. Phase3Dashboard Skeleton-Loader Fix | v1.0 | 1/1 | Complete | 2026-05-15 |
-| 8. Pre-LIVE Preflight | v1.1 | 0/5 | Not started | - |
+| 8. Pre-LIVE Preflight | v1.1 | 5/5 | Complete   | 2026-05-16 |
 | 9. ML Re-enablement Gate | v1.1 | 0/TBD | Not started | - |
 | 10. Path-to-LIVE Dashboard | v1.1 | 0/TBD | Not started | - |
 | 11. Carry-In Closure | v1.1 | 0/TBD | Not started | - |
