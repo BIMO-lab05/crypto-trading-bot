@@ -870,8 +870,9 @@ async def get_circuit_breaker_status():
         exposure_metrics.exposure_ratio
     )
 
-    # Update circuit breaker gauge
-    circuit_breaker_active_gauge.set(1 if status.active else 0)
+    # Update circuit breaker gauge. CircuitBreakerStatus has no .active field
+    # (was renamed to is_tripped during a state-machine refactor); use that.
+    circuit_breaker_active_gauge.set(1 if status.is_tripped else 0)
 
     return status
 
