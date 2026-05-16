@@ -8,6 +8,17 @@ A self-hosted, microservices-based crypto trading bot targeting Bybit (paper tra
 
 The bot must never lose money it wasn't authorized to risk. Every trade goes through enforced risk caps (per-trade, daily-loss, drawdown, kill-switch) backed by code that actually runs — and any "edge" claim must be backed by DSR/CPCV evidence on returns through the tournament harness, not raw R² on price levels.
 
+## Current Milestone: v1.1 Path to LIVE — Close Carry-Ins & LIVE-Readiness
+
+**Goal:** Close all v1.0 operator-blocked carry-ins and ratify the path-to-LIVE checklist with code-enforced preconditions, so flipping `TRADING_MODE=LIVE` becomes a verified four-step act rather than a leap of faith.
+
+**Target features:**
+- Closure of v1.0 carry-ins (INFRA-01, INFRA-02 checkpoint, MLCL-01, MLCL-02, DASH-03) via operator-runnable harnesses + verifiable evidence rows.
+- Pre-LIVE preflight validator (CLI + CI gate) asserting per-trade cap ≤2%, four flags set correctly, `LIVE_TRADING_ACK` present, mainnet keys with trade permission, `EMERGENCY_STOP` absent, and DSR>0.95 evidence-row exists if ML is enabled.
+- Operator-driven ≥7-day forward-paper-test evidence loop with PSR-CI publishing and an auto-gate that flips `ENABLE_ML_PREDICTIONS=true` only when DSR>0.95 lands.
+- Path-to-LIVE dashboard tile surfacing every precondition + carry-in OP-* state on a single screen.
+- First-green-CI recovery for INFRA-01 nightly, tournament-harness, and DASH-06 once OP-04 (GH Actions billing) is resolved.
+
 ## Current State (post v1.0, 2026-05-15)
 
 **Shipped v1.0 (2026-05-06 → 2026-05-15, 9 phases / 50 plans / 427 commits):**
@@ -77,7 +88,7 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 
 <!-- v1.1 candidates. To be ratified by `/gsd-new-milestone`. -->
 
-(None yet — pending `/gsd-new-milestone` to scope v1.1. Likely scope: close v1.0 operator-blocked partials, then evaluate path-to-LIVE checklist.)
+v1.1 candidates ratified via `/gsd-new-milestone` on 2026-05-16. See `.planning/REQUIREMENTS.md` for the full REQ-ID list. Categories: LIVECLOSE (carry-ins), PREFLIGHT (preconditions), MLGATE (evidence loop), DASHLIVE (preflight tile), CIRESTORE (post-OP-04 CI).
 
 ### Out of Scope
 
@@ -156,4 +167,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-15 after v1.0 milestone close*
+*Last updated: 2026-05-16 — milestone v1.1 (Path to LIVE) started*
