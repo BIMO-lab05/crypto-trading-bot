@@ -14,6 +14,7 @@ Symptom-indexed recovery procedures for the crypto-trading-bot stack.
 - [Symptom: Stale in-memory ML model after retrain](#symptom-stale-in-memory-ml-model-after-retrain)
 - [Symptom: bootstrap.sh fails with one or more UNHEALTHY services](#symptom-bootstrapsh-fails-with-one-or-more-unhealthy-services)
 - [Symptom: EMERGENCY_STOP recovery — auto-trader will not arm after stop](#symptom-emergency_stop-recovery--auto-trader-will-not-arm-after-stop)
+- [Pre-LIVE Operator Checklist](#pre-live-operator-checklist)
 - [Tournament harness — first-time setup](#tournament-harness--first-time-setup)
 
 ---
@@ -162,6 +163,154 @@ docker compose -f docker-compose.unified.yml restart trading-engine
 - `curl http://localhost:8000/api/portfolio/emergency-stop/status` — returns `active: false`.
 - `docker logs trading-engine --tail 20 | grep -iE "auto.?trader.armed|loop running"` — engine reports armed and looping.
 - Stack reaches healthy idle (re-run `bash bootstrap.sh` if needed; expect `[6/6] Bootstrap complete`).
+
+---
+
+## Pre-LIVE Operator Checklist
+
+Before flipping `TRADING_MODE=LIVE`, work through each of the 6 preconditions below.
+Each pairs with a `preflight_live.py` check ID; the dashboard tile (Phase 10
+DASHLIVE-01, not yet shipped) will render the same 6 rows.
+
+Run `python3 scripts/preflight_live.py --json` for a snapshot of all 6 at once.
+The CLI exits 0 on PASS, 1 on any FAIL or UNKNOWN. The HTTP endpoint
+`GET /api/preflight/live-readiness` (proxied through api-gateway, served by
+trading-engine) returns the same JSON. The four-flag friction documented in
+CLAUDE.md "Trading-mode flags" is enforced — these checks verify each flag is
+in the LIVE-correct state, they do not replace the deliberate flip.
+
+### Precondition 1: Per-trade cap <= 2% (LIVE-strict)
+
+**Diagnose:**
+- `python3 scripts/preflight_live.py --check=cap --json` — reports `"status": "FAIL"` when `MAX_RISK_PER_TRADE > 0.02` in the current env.
+- `grep MAX_RISK_PER_TRADE .env` — shows the current setting (default 0.10 per ADR-010 paper-relaxed).
+- `docker logs trading-engine | grep "LIVE_PREFLIGHT_REJECTED reason=cap_too_high"` — if the container failed to start, this line names the cause.
+
+**Action:**
+```bash
+# Restore LIVE-strict cap in .env (paper-relaxed 10% per ADR-010 must be lowered before flipping LIVE)
+sed -i 's/^MAX_RISK_PER_TRADE=.*/MAX_RISK_PER_TRADE=0.02/' .env
+grep MAX_RISK_PER_TRADE .env   # expect: MAX_RISK_PER_TRADE=0.02
+
+# Restart trading-engine so the new cap is read at lifespan
+docker compose -f docker-compose.unified.yml restart trading-engine
+```
+
+**Verification:**
+- `python3 scripts/preflight_live.py --check=cap` exits 0.
+- `docker compose -f docker-compose.unified.yml up trading-engine` reaches log line `LIVE preflight cap check passed: max_risk_per_trade=0.02 <= 0.02`.
+- `curl -s http://localhost:8000/api/preflight/live-readiness | python3 -m json.tool` — the `cap` row's `status` field is `"PASS"`.
+
+---
+
+### Precondition 2: PAPER_TRADING_MODE=false
+
+**Diagnose:**
+- `python3 scripts/preflight_live.py --check=paper_mode --json` — reports `"status": "FAIL"` when `PAPER_TRADING_MODE=true` in `.env`.
+- `grep PAPER_TRADING_MODE .env` — shows the current setting (default `true`).
+
+**Action:**
+```bash
+sed -i 's/^PAPER_TRADING_MODE=.*/PAPER_TRADING_MODE=false/' .env
+grep PAPER_TRADING_MODE .env   # expect: PAPER_TRADING_MODE=false
+
+# Restart trading-engine so the new mode is picked up at lifespan
+docker compose -f docker-compose.unified.yml restart trading-engine
+```
+
+**Verification:**
+- `python3 scripts/preflight_live.py --check=paper_mode` exits 0.
+- `curl -s http://localhost:8000/api/preflight/live-readiness | python3 -m json.tool` — the `paper_mode` row's `status` field is `"PASS"`.
+
+---
+
+### Precondition 3: TRADING_MODE=LIVE
+
+**Diagnose:**
+- `python3 scripts/preflight_live.py --check=trading_mode --json` — reports the detected value in `detail`.
+- `grep TRADING_MODE .env` — shows the current setting (default unset / `PAPER`).
+
+**Action:**
+```bash
+sed -i 's/^TRADING_MODE=.*/TRADING_MODE=LIVE/' .env
+grep TRADING_MODE .env   # expect: TRADING_MODE=LIVE
+
+# Restart trading-engine so the new mode is read at lifespan (cap + ack checks fire here)
+docker compose -f docker-compose.unified.yml restart trading-engine
+```
+
+**Verification:**
+- `python3 scripts/preflight_live.py --check=trading_mode` exits 0.
+- `curl -s http://localhost:8000/api/preflight/live-readiness | python3 -m json.tool` — the `trading_mode` row's `status` field is `"PASS"`.
+
+---
+
+### Precondition 4: LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY
+
+**Diagnose:**
+- `python3 scripts/preflight_live.py --check=ack --json` — reports `"status": "FAIL"` when the ACK is absent or wrong.
+- `grep LIVE_TRADING_ACK .env` — shows the current setting (default absent).
+- This sentinel is the deliberate-friction gate from CLAUDE.md "Trading-mode flags". Do NOT shortcut it; the literal value is checked exactly by `services/trading-engine/app/main.py` at lifespan.
+
+**Action:**
+```bash
+# Add the literal sentinel exactly — no variation is accepted by the ACK check
+echo 'LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY' >> .env
+grep LIVE_TRADING_ACK .env   # expect: LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY
+
+# Restart trading-engine so the ACK is verified at lifespan boot
+docker compose -f docker-compose.unified.yml restart trading-engine
+```
+
+**Verification:**
+- `python3 scripts/preflight_live.py --check=ack` exits 0.
+- On startup, trading-engine logs `LIVE trading mode acknowledged via LIVE_TRADING_ACK`.
+- `curl -s http://localhost:8000/api/preflight/live-readiness | python3 -m json.tool` — the `ack` row's `status` field is `"PASS"`.
+
+---
+
+### Precondition 5: EMERGENCY_STOP file absent
+
+**Diagnose:**
+- `python3 scripts/preflight_live.py --check=emergency_stop --json` — reports `"status": "FAIL"` if a regular file is present at the configured path (`Path.is_file()` check, matching trading-engine's existing handling).
+- `ls -la EMERGENCY_STOP` — run from repo root.
+
+**Action:**
+```bash
+rm -f EMERGENCY_STOP
+ls -la EMERGENCY_STOP   # expect: No such file or directory
+```
+
+Note (CLAUDE.md gotcha): a *directory* at the path also reads as absent for the
+preflight check, because `Path.is_file()` returns `False` for directories. If
+you encounter an empty directory there (WSL bind-mount race), clean it up with
+`rmdir EMERGENCY_STOP`. See the existing `## Symptom: EMERGENCY_STOP recovery`
+section above for the full recovery flow including clearing the API-side flag.
+
+**Verification:**
+- `python3 scripts/preflight_live.py --check=emergency_stop` exits 0.
+- `curl -s http://localhost:8000/api/preflight/live-readiness | python3 -m json.tool` — the `emergency_stop` row's `status` field is `"PASS"`.
+
+---
+
+### Precondition 6: DSR > 0.95 evidence row (only when ML enabled)
+
+**Diagnose:**
+- `python3 scripts/preflight_live.py --check=dsr_evidence --json` — reports `"status": "UNKNOWN"` when `ENABLE_ML_PREDICTIONS=true` but Phase 9's auto-flip marker `/run/mlgate_auto_flip.json` is absent.
+- With `ENABLE_ML_PREDICTIONS=false` (the default), this check short-circuits to `"PASS"` — ML is disabled by default, so the gate does not apply.
+- Query the leaderboard directly for the latest DSR row:
+  ```bash
+  docker exec crypto-bot-tournament-harness sqlite3 /data/tournament.db \
+      "SELECT dsr FROM leaderboard ORDER BY tournament_start_ts DESC LIMIT 1"
+  ```
+
+**Action:**
+- LIVE without ML: leave `ENABLE_ML_PREDICTIONS=false` and the check passes automatically. No further action required for this precondition.
+- LIVE with ML on: Phase 9 (MLGATE-01/02) must land first; it owns the 7-day evidence accrual + auto-flip marker. As of 2026-05-16, Phase 9 has not shipped — `dsr_evidence` returns `UNKNOWN` whenever ML is enabled, and the CLI exits non-zero.
+
+**Verification:**
+- `python3 scripts/preflight_live.py --check=dsr_evidence` exits 0 (ML disabled path) or remains pending Phase 9 (ML enabled path).
+- `curl -s http://localhost:8000/api/preflight/live-readiness | python3 -m json.tool` — the `dsr_evidence` row's `status` is `"PASS"` (ML off) or `"UNKNOWN"` (ML on, Phase 9 pending).
 
 ---
 

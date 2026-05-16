@@ -95,6 +95,7 @@ v1.1 candidates ratified via `/gsd-new-milestone` on 2026-05-16. See `.planning/
 <!-- Explicit boundaries. Reasoning kept to prevent re-adding. -->
 
 - Real-money LIVE trading enabled by default — paper-mode is the safety boundary; LIVE requires four explicit flag flips (`PAPER_TRADING_MODE=false`, `TRADING_MODE=LIVE`, mainnet keys with trade permissions, `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY`); pre-LIVE checklist must restore per-trade cap to ≤2% (currently 10% in paper per ADR-010).
+  - When flipping LIVE is in scope, the 6-precondition Diagnose/Action/Verification path lives in [RUNBOOK.md "Pre-LIVE Operator Checklist"](../RUNBOOK.md#pre-live-operator-checklist). Phase 8 enforces these in code; v1.1 does not flip LIVE.
 - 30+ parallel LLM subagents for tournament — confirmed wrong primitive; Docker isolation is the right one.
 - Auto-merge of tournament-winning PRs — confirmed unsafe; `gh pr merge` CI grep gate enforced.
 - Live-exchange prices in every pytest run — deterministic suite uses recorded tape; one nightly live smoke allowed flaky.
