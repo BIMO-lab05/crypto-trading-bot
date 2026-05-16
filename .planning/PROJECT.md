@@ -63,6 +63,7 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 <!-- Explicit boundaries. Reasoning kept to prevent re-adding. -->
 
 - Real-money LIVE trading enabled by default — paper-mode is the safety boundary; LIVE requires three explicit flag flips and is not part of this milestone
+  - When flipping LIVE is in scope, the 6-precondition Diagnose/Action/Verification path lives in [RUNBOOK.md "Pre-LIVE Operator Checklist"](../RUNBOOK.md#pre-live-operator-checklist). Phase 8 enforces these in code; v1.1 does not flip LIVE.
 - 30+ parallel LLM subagents for tournament — Agent tool spawns share parent shell, no per-experiment isolation; the right primitive is Docker, not subagents
 - Auto-merge of tournament PRs — coordinator opens drafts; human merges
 - Live-exchange prices in every pytest run — flaky, rate-limited, costs money; deterministic suite runs against recorded tape, one nightly live smoke is allowed to be flaky
