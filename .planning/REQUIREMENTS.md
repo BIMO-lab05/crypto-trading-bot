@@ -79,25 +79,25 @@ Once billing is resolved, the carry-in CI jobs must actually run green and the r
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| LIVECLOSE-01 | TBD | active |
-| LIVECLOSE-02 | TBD | active |
-| LIVECLOSE-03 | TBD | active |
-| LIVECLOSE-04 | TBD | active |
-| LIVECLOSE-05 | TBD | active |
-| PREFLIGHT-01 | TBD | active |
-| PREFLIGHT-02 | TBD | active |
-| PREFLIGHT-03 | TBD | active |
-| PREFLIGHT-04 | TBD | active |
-| MLGATE-01 | TBD | active |
-| MLGATE-02 | TBD | active |
-| MLGATE-03 | TBD | active |
-| DASHLIVE-01 | TBD | active |
-| DASHLIVE-02 | TBD | active |
-| DASHLIVE-03 | TBD | active |
-| DASHLIVE-04 | TBD | active |
-| CIRESTORE-01 | TBD | active |
-| CIRESTORE-02 | TBD | active |
-| CIRESTORE-03 | TBD | active |
+| LIVECLOSE-01 | Phase 11 | active |
+| LIVECLOSE-02 | Phase 11 | active |
+| LIVECLOSE-03 | Phase 11 | active |
+| LIVECLOSE-04 | Phase 11 | active |
+| LIVECLOSE-05 | Phase 11 | active |
+| PREFLIGHT-01 | Phase 8 | active |
+| PREFLIGHT-02 | Phase 8 | active |
+| PREFLIGHT-03 | Phase 8 | active |
+| PREFLIGHT-04 | Phase 8 | active |
+| MLGATE-01 | Phase 9 | active |
+| MLGATE-02 | Phase 9 | active |
+| MLGATE-03 | Phase 9 | active |
+| DASHLIVE-01 | Phase 10 | active |
+| DASHLIVE-02 | Phase 10 | active |
+| DASHLIVE-03 | Phase 10 | active |
+| DASHLIVE-04 | Phase 10 | active |
+| CIRESTORE-01 | Phase 12 | active |
+| CIRESTORE-02 | Phase 12 | active |
+| CIRESTORE-03 | Phase 12 | active |
 
 ---
-*Last updated: 2026-05-16 — milestone v1.1 ratified*
+*Last updated: 2026-05-16 — v1.1 roadmap created; all 19 REQ-IDs mapped to phases 8–12*
