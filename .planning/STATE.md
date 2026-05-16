@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Path to LIVE
 status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-05-16T14:49:42.901Z"
-last_activity: 2026-05-16 -- Phase 08 planning complete
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-05-16T21:23:28Z"
+last_activity: 2026-05-16 -- Phase 08 plan 03 (lifespan cap-check) complete
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
-  percent: 0
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State
@@ -25,16 +25,19 @@ See: .planning/PROJECT.md (updated 2026-05-16)
 
 ## Current Position
 
-Phase: 8 of 12 (Pre-LIVE Preflight) — roadmap complete, not yet started
-Plan: —
-Status: Ready to execute
-Last activity: 2026-05-16 -- Phase 08 planning complete
+Phase: 8 of 12 (Pre-LIVE Preflight)
+Plan: 03 of 05 complete (08-01, 08-02, 08-03, 08-05 landed; 08-04 CI workflow pending)
+Status: Plan 08-03 complete — ready for 08-04
+Last activity: 2026-05-16 -- 08-03 lifespan cap-check + grep gates landed
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
-**Velocity:** — (v1.1 not started)
+| Phase | Plan | Duration | Tasks | Files |
+|---|---|---|---|---|
+| 08 | 03 | ~25 min | 3 | 3 |
+
 *Updated after each plan completion*
 
 ## Accumulated Context
@@ -45,6 +48,8 @@ Progress: [░░░░░░░░░░] 0%
 - [v1.1 init]: PREFLIGHT-01 owns both CLI and HTTP endpoint (`/api/preflight/live-readiness`) — Phase 10 DASHLIVE depends on the endpoint existing in Phase 8.
 - [v1.1 init]: LIVECLOSE-02 and CIRESTORE-02 reference the same operator-driven green-CI event; both REQs kept separate — same OP-04 resolution closes both.
 - [v1.1 init]: LIVECLOSE-03 (7-day evidence) depends on MLGATE-01 driver (Phase 9) existing first.
+- [08-03]: Boundary-agreement test guards the two intentionally duplicate 0.02 thresholds (inline at main.py + check_cap() in app/preflight/checks.py) per 08-CONTEXT.md locked decision — duplication kept for lifespan locality, drift detected by parametrised boundary test at 0.0200 + 0.0201.
+- [08-03]: Grep gate scope locked to services/trading-engine/app/ only (NOT repo root) — RUNBOOK.md prose containing the LIVE_PREFLIGHT_REJECTED literal would otherwise mask silent production-code removal.
 
 ### Blockers/Concerns
 
@@ -63,6 +68,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-05-16T13:46:23.251Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-pre-live-preflight/08-CONTEXT.md
+Last session: 2026-05-16T21:23:28Z
+Stopped at: Completed 08-03-PLAN.md
+Resume file: .planning/phases/08-pre-live-preflight/08-04-ci-workflow-PLAN.md

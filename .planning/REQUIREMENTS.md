@@ -21,7 +21,7 @@ Each carry-in needs an operator-runnable closure path with verifiable evidence r
 The point: by the end of v1.1, flipping `TRADING_MODE=LIVE` without preflight passing must be impossible at the trading-engine boot path, not merely discouraged in docs.
 
 - [ ] **PREFLIGHT-01**: `scripts/preflight_live.py` CLI asserts all 6 LIVE preconditions and exits non-zero on any miss — (1) per-trade risk cap ≤2%, (2) `PAPER_TRADING_MODE=false`, (3) `TRADING_MODE=LIVE`, (4) `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY`, (5) `EMERGENCY_STOP` file absent, (6) DSR>0.95 evidence-row exists in `tournament_results` if `ENABLE_ML_PREDICTIONS=true`. Output is structured JSON per check.
-- [ ] **PREFLIGHT-02**: trading-engine boot path enforces per-trade cap mode at startup — refuses to boot in `TRADING_MODE=LIVE` with `MAX_POSITION_RISK_PCT > 2`; logs explicit `LIVE_PREFLIGHT_REJECTED reason=cap_too_high` and exits. Unit test asserts both directions (PAPER allows 10%, LIVE rejects 3%).
+- [x] **PREFLIGHT-02**: trading-engine boot path enforces per-trade cap mode at startup — refuses to boot in `TRADING_MODE=LIVE` with `MAX_POSITION_RISK_PCT > 2`; logs explicit `LIVE_PREFLIGHT_REJECTED reason=cap_too_high` and exits. Unit test asserts both directions (PAPER allows 10%, LIVE rejects 3%). _Completed by 08-03._
 - [ ] **PREFLIGHT-03**: CI workflow `preflight-live-readiness.yml` runs `preflight_live.py --dry-run --target=HEAD` and blocks any PR labeled `live: requested` that fails any check; result posted as PR check status.
 - [ ] **PREFLIGHT-04**: Pre-LIVE operator checklist added to `RUNBOOK.md` (Diagnose/Action/Verification per precondition) and cross-linked from PROJECT.md's Out of Scope LIVE-default note.
 
@@ -85,7 +85,7 @@ Once billing is resolved, the carry-in CI jobs must actually run green and the r
 | LIVECLOSE-04 | Phase 11 | active |
 | LIVECLOSE-05 | Phase 11 | active |
 | PREFLIGHT-01 | Phase 8 | active |
-| PREFLIGHT-02 | Phase 8 | active |
+| PREFLIGHT-02 | Phase 8 | complete (08-03) |
 | PREFLIGHT-03 | Phase 8 | active |
 | PREFLIGHT-04 | Phase 8 | active |
 | MLGATE-01 | Phase 9 | active |

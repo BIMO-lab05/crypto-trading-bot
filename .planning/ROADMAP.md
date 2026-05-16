@@ -49,11 +49,11 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
   5. `RUNBOOK.md` contains a "Pre-LIVE Operator Checklist" section with Diagnose/Action/Verification rows for each of the 6 preconditions; PROJECT.md Out of Scope section cross-links to it.
   6. CI grep gate test fails if the `LIVE_PREFLIGHT_REJECTED` log emission is removed from the trading-engine startup path; grep gate is enforced in the same CI workflow that runs the unit tests from criterion 3, making silent removal of the enforcement detectable.
 **Plans:** 5 plans
-- [ ] 08-01-preflight-core-module-PLAN.md — preflight package: types, 6 checks, run_all aggregator, unit tests (foundation, Wave 1)
-- [ ] 08-02-cli-and-http-route-PLAN.md — scripts/preflight_live.py CLI + trading-engine handler + api-gateway proxy + tests (Wave 2)
-- [ ] 08-03-lifespan-cap-check-PLAN.md — main.py cap-check block + router mount + grep gates + lifespan tests (Wave 2)
+- [x] 08-01-preflight-core-module-PLAN.md — preflight package: types, 6 checks, run_all aggregator, unit tests (foundation, Wave 1)
+- [x] 08-02-cli-and-http-route-PLAN.md — scripts/preflight_live.py CLI + trading-engine handler + api-gateway proxy + tests (Wave 2)
+- [x] 08-03-lifespan-cap-check-PLAN.md — main.py cap-check block + router mount + grep gates + lifespan tests (Wave 2) — completed 2026-05-16
 - [ ] 08-04-ci-workflow-PLAN.md — .github/workflows/preflight-live-readiness.yml with PR-label gate (Wave 3)
-- [ ] 08-05-runbook-and-crosslink-PLAN.md — RUNBOOK Pre-LIVE Operator Checklist + PROJECT.md cross-link (Wave 1, parallel with 08-01)
+- [x] 08-05-runbook-and-crosslink-PLAN.md — RUNBOOK Pre-LIVE Operator Checklist + PROJECT.md cross-link (Wave 1, parallel with 08-01)
 
 ### Phase 9: ML Re-enablement Gate
 **Goal**: The ML on/off decision is driven by code and evidence, not by human memory — `run_evidence_loop.py` manages the ≥7-day evidence accrual + PSR-CI publish idempotently; trading-engine startup auto-flips `ENABLE_ML_PREDICTIONS` based on a DSR>0.95 evidence row within the last 14 days and reverts on stale/drop; every "ML disabled" event logs a structured reason from a fixed enum. This auto-flip startup check ships with unit tests and a CI grep gate (MLGATE-02 scope) so the enforcement cannot be silently removed.
