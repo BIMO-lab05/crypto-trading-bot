@@ -160,6 +160,13 @@ from app.repositories import get_portfolio_repository  # noqa: F401
 from app.paper_trading import get_paper_engine  # noqa: F401
 from app.services.instruments_cache import get_instruments_cache  # noqa: F401
 
+# Phase 8 PREFLIGHT-02 import-survival — grep gate #2 asserts this stays.
+# The cap-check block in lifespan() reads settings.max_risk_per_trade directly,
+# so this import is currently unused in the module body. The F401 noqa is
+# load-bearing: without it, autoflake strips the import on next `make format`
+# and the grep gate fails. See project memory feedback_main_imports_autoflake.md.
+from app.preflight import run_all  # noqa: F401
+
 # Fixed: Create logs directory to prevent startup crashes (Critical Issue #1)
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -256,6 +263,25 @@ async def lifespan(app: FastAPI):
                 "Set the ack env var explicitly to authorize live trading."
             )
         logger.critical("LIVE trading mode acknowledged via LIVE_TRADING_ACK")
+
+        # Phase 8 PREFLIGHT-02 — LIVE-strict per-trade cap gate.
+        # PAPER skips this entirely (ADR-010 paper-relaxed 10%). LIVE-only.
+        # The literal "LIVE_PREFLIGHT_REJECTED" below is the grep-gate target;
+        # do NOT split with concatenation. See 08-CONTEXT.md lines 36-53.
+        if settings.max_risk_per_trade > 0.02:
+            logger.critical(
+                "LIVE_PREFLIGHT_REJECTED reason=cap_too_high "
+                f"cap={settings.max_risk_per_trade} limit=0.02"
+            )
+            raise RuntimeError(
+                f"Refusing to boot: TRADING_MODE=LIVE with "
+                f"max_risk_per_trade={settings.max_risk_per_trade} > 0.02. "
+                "Restore the LIVE-strict cap before flipping the mode."
+            )
+        logger.info(
+            f"LIVE preflight cap check passed: max_risk_per_trade="
+            f"{settings.max_risk_per_trade} <= 0.02"
+        )
 
     # 4 phase context managers run in order on enter, reverse on exit (cm stack
     # semantics). Auto-trader start/stop stays OUTSIDE the phases — gated on
@@ -445,6 +471,14 @@ app.include_router(analytics_report_router)
 # Was defined in handlers/performance_dashboard.py but never mounted —
 # same shape as the orchestration-router fix in commit 4a158e2.
 app.include_router(performance_dashboard_router)
+
+# Phase 8 PREFLIGHT-01 — unauthenticated read-only preflight route (D-09 pattern).
+# Routes the GET /api/preflight/live-readiness handler defined in 08-02. The
+# local import keeps this router mount co-located with the lifespan cap-check
+# block above so the entire Phase 8 enforcement surface lives in one file.
+from app.handlers.preflight import router as preflight_router  # noqa: E402
+
+app.include_router(preflight_router)
 
 
 # ============================================================================
