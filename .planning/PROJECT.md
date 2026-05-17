@@ -90,6 +90,10 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 - ✓ **MLGATE-01**: Idempotent ≥7-day forward-paper-test evidence accrual + PSR-CI publish (`run_evidence_loop.py` + migration 0002 adding `run_date` + `psr_ci_published` to `leaderboard`) — Phase 9 (2026-05-17)
 - ✓ **MLGATE-02**: Trading-engine startup auto-flip of `ENABLE_ML_PREDICTIONS` driven by DSR>0.95 evidence within 14 days; structured `MLGATE_AUTO_FLIP direction=X reason=Y` log + `/run/mlgate_auto_flip.json` schema_version=1 marker; CI grep gate — Phase 9 (2026-05-17)
 - ✓ **MLGATE-03**: 5-member MLGateReason enum + cross-plan reason-state cache; structured-reason logging at trading-engine ML-disabled sites; unauth read-only `/api/preflight/ml-gate-reason-counts` endpoint; notification-service scheduled Telegram digest of reason counts; CI grep gate — Phase 9 (2026-05-17)
+- ✓ **DASHLIVE-01**: `PathToLiveTile.jsx` (banner + 6 PREFLIGHT chip rows + 5 carry-in rows + 24h window footer) rendered above `KeyMetricsStrip` in `Dashboard.jsx`, banner tokens `bg-rose-700 / bg-amber-600 / bg-emerald-700` per D-10-13 — Phase 10 (2026-05-17)
+- ✓ **DASHLIVE-02**: api-gateway `GET /api/preflight/carry-ins` (schema_version=1) backed by atomic file-state machine at `.planning/state/carry_ins.json` (parent-dir bind-mount per D-10-05 + WSL gotcha); server-side `overall` computation per D-10-04; `_state.first_all_pass_at` reset rule per D-10-07 — Phase 10 (2026-05-17)
+- ✓ **DASHLIVE-03**: Two react-query hooks (`useLiveReadiness`, `useCarryIns`) verbatim from `useSafetyState` idiom (5s poll, retry=2, retryDelay=1000); D-10-16 authority rule (`useCarryIns` wins) documented inline — Phase 10 (2026-05-17)
+- ✓ **DASHLIVE-04**: pytest-playwright Chromium smoke covering all 7 D-10-18 assertions; two defence-in-depth grep gates (`PathToLiveTile` + `carry-ins` literals, narrow scope per D-10-20); `.github/workflows/dashboard-smoke.yml` with PR paths filter listing all six D-10-19 paths + `workflow_dispatch` (no nightly cron — Phase 12 deferred) — Phase 10 (2026-05-17)
 
 ### Active
 
@@ -175,4 +179,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-17 — Phase 9 (ML Re-enablement Gate) complete; MLGATE-01/02/03 validated*
+*Last updated: 2026-05-17 — Phase 10 (Path-to-LIVE Dashboard) complete; DASHLIVE-01/02/03/04 validated*
