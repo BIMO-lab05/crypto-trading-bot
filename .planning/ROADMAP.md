@@ -121,6 +121,6 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 | 7.2. Phase3Dashboard Skeleton-Loader Fix | v1.0 | 1/1 | Complete | 2026-05-15 |
 | 8. Pre-LIVE Preflight | v1.1 | 5/5 | Complete   | 2026-05-16 |
 | 9. ML Re-enablement Gate | v1.1 | 0/TBD | Not started | - |
-| 10. Path-to-LIVE Dashboard | v1.1 | 3/3 | Complete   | 2026-05-17 |
+| 10. Path-to-LIVE Dashboard | v1.1 | 3/3 | Complete    | 2026-05-17 |
 | 11. Carry-In Closure | v1.1 | 0/TBD | Not started | - |
 | 12. CI Recovery | v1.1 | 0/TBD | Not started | - |

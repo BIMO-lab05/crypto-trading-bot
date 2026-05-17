@@ -37,10 +37,10 @@ ML predictions stay off until evidence justifies them — and the gate is in cod
 
 One screen surfacing every precondition so the operator never flips LIVE blind.
 
-- [ ] **DASHLIVE-01**: New dashboard component `PathToLiveTile.jsx` renders PASS/FAIL/UNKNOWN status of every PREFLIGHT-01 check on a 5-second poll against `GET /api/preflight/live-readiness`.
-- [ ] **DASHLIVE-02**: Same tile shows OP-* carry-in close states (OP-01..04 + INFRA-02 checkpoint) sourced from `GET /api/preflight/carry-ins` — file-backed (`.planning/state/carry_ins.json`) or git-tag–backed (`carry-in/closed/<id>`).
-- [ ] **DASHLIVE-03**: Tile renders "DO NOT FLIP" (red) until **all** PREFLIGHT checks PASS for ≥24h continuous; "READY" (green) only after the 24h continuous-PASS window holds; partial transitions render "ALMOST" (amber) with count.
-- [ ] **DASHLIVE-04**: Playwright smoke `tests/e2e/test_path_to_live_smoke.py` validates the tile renders correctly in PAPER mode and that DSR evidence-row shape is asserted; runs in `dashboard-smoke.yml` CI.
+- [x] **DASHLIVE-01**: New dashboard component `PathToLiveTile.jsx` renders PASS/FAIL/UNKNOWN status of every PREFLIGHT-01 check on a 5-second poll against `GET /api/preflight/live-readiness`.
+- [x] **DASHLIVE-02**: Same tile shows OP-* carry-in close states (OP-01..04 + INFRA-02 checkpoint) sourced from `GET /api/preflight/carry-ins` — file-backed (`.planning/state/carry_ins.json`) or git-tag–backed (`carry-in/closed/<id>`).
+- [x] **DASHLIVE-03**: Tile renders "DO NOT FLIP" (red) until **all** PREFLIGHT checks PASS for ≥24h continuous; "READY" (green) only after the 24h continuous-PASS window holds; partial transitions render "ALMOST" (amber) with count.
+- [x] **DASHLIVE-04**: Playwright smoke `tests/e2e/test_path_to_live_smoke.py` validates the tile renders correctly in PAPER mode and that DSR evidence-row shape is asserted; runs in `dashboard-smoke.yml` CI.
 
 ### CIRESTORE — Post-OP-04 CI recovery
 
