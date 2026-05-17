@@ -84,6 +84,13 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 - ⚠ **MLCL-01**: Forward-paper-test apparatus + PSR-CI gate — code complete; ≥7-day operator wall-clock evidence loops pending — v1.0 partial
 - ⚠ **MLCL-02**: T0.1.x `different_horizon` sweep — code + YAML complete; verdict INSUFFICIENT_DATA pending OP-02 (migration 005) + OP-03 (reader password) — v1.0 partial
 
+**v1.1 (in progress)**
+
+- ✓ **PREFLIGHT-01..04**: Pre-LIVE preflight CLI + HTTP + boot enforcement + CI workflow + RUNBOOK — Phase 8 (2026-05-16)
+- ✓ **MLGATE-01**: Idempotent ≥7-day forward-paper-test evidence accrual + PSR-CI publish (`run_evidence_loop.py` + migration 0002 adding `run_date` + `psr_ci_published` to `leaderboard`) — Phase 9 (2026-05-17)
+- ✓ **MLGATE-02**: Trading-engine startup auto-flip of `ENABLE_ML_PREDICTIONS` driven by DSR>0.95 evidence within 14 days; structured `MLGATE_AUTO_FLIP direction=X reason=Y` log + `/run/mlgate_auto_flip.json` schema_version=1 marker; CI grep gate — Phase 9 (2026-05-17)
+- ✓ **MLGATE-03**: 5-member MLGateReason enum + cross-plan reason-state cache; structured-reason logging at trading-engine ML-disabled sites; unauth read-only `/api/preflight/ml-gate-reason-counts` endpoint; notification-service scheduled Telegram digest of reason counts; CI grep gate — Phase 9 (2026-05-17)
+
 ### Active
 
 <!-- v1.1 candidates. To be ratified by `/gsd-new-milestone`. -->
@@ -168,4 +175,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-16 — milestone v1.1 (Path to LIVE) started*
+*Last updated: 2026-05-17 — Phase 9 (ML Re-enablement Gate) complete; MLGATE-01/02/03 validated*
