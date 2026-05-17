@@ -77,8 +77,8 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
   3. Tile renders "DO NOT FLIP" with red background when any PREFLIGHT check is FAIL or UNKNOWN; renders "ALMOST" with amber background when all checks PASS but the 24h continuous-PASS window is not yet satisfied (tracked as a timestamped state record in `carry_ins.json`); renders "READY" with green background only after all checks have been PASS for ≥24h continuously (verified by timestamp comparison at poll time).
   4. `pytest tests/e2e/test_path_to_live_smoke.py` passes — validates tile renders in PAPER mode, preflight endpoint returns expected JSON shape, and DSR evidence-row schema (columns `dsr`, `run_date`) is asserted against the seeded `tournament_results` test fixture; smoke runs in `dashboard-smoke.yml` CI.
 **Plans**: 3/3 plans planned (0 complete)
-- [ ] 10-01-PLAN.md — api-gateway /api/preflight/carry-ins endpoint + carry_ins.json seed + docker-compose RW bind-mount (Wave 1; DASHLIVE-02 + DASHLIVE-03)
-- [ ] 10-02-PLAN.md — useLiveReadiness + useCarryIns hooks + PathToLiveTile + Dashboard.jsx wiring (Wave 1; DASHLIVE-01 + DASHLIVE-03)
+- [x] 10-01-PLAN.md — api-gateway /api/preflight/carry-ins endpoint + carry_ins.json seed + docker-compose RW bind-mount (Wave 1; DASHLIVE-02 + DASHLIVE-03)
+- [x] 10-02-PLAN.md — useLiveReadiness + useCarryIns hooks + PathToLiveTile + Dashboard.jsx wiring (Wave 1; DASHLIVE-01 + DASHLIVE-03)
 - [ ] 10-03-PLAN.md — tests/e2e Playwright smoke + tests/integration grep gates + dashboard-smoke.yml CI (Wave 2, depends on 10-01 + 10-02; DASHLIVE-04)
 **UI hint**: yes
 
@@ -121,6 +121,6 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 | 7.2. Phase3Dashboard Skeleton-Loader Fix | v1.0 | 1/1 | Complete | 2026-05-15 |
 | 8. Pre-LIVE Preflight | v1.1 | 5/5 | Complete   | 2026-05-16 |
 | 9. ML Re-enablement Gate | v1.1 | 0/TBD | Not started | - |
-| 10. Path-to-LIVE Dashboard | v1.1 | 0/3 | Planned | - |
+| 10. Path-to-LIVE Dashboard | v1.1 | 2/3 | In Progress|  |
 | 11. Carry-In Closure | v1.1 | 0/TBD | Not started | - |
 | 12. CI Recovery | v1.1 | 0/TBD | Not started | - |
