@@ -471,6 +471,7 @@ def leaderboard_dsr_seeded():
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if seed_result.returncode != 0:
         pytest.fail(
@@ -490,6 +491,7 @@ def leaderboard_dsr_seeded():
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if marker_result.returncode != 0:
         pytest.fail(
@@ -497,29 +499,18 @@ def leaderboard_dsr_seeded():
             f"(rc={marker_result.returncode}): {marker_result.stderr}"
         )
 
-    # Step 3: Force-recreate trading-engine with ENABLE_ML_PREDICTIONS=true
-    # so check_dsr_evidence reads the leaderboard instead of short-circuiting.
-    override = str(
-        REPO_ROOT / "tests" / "e2e" / "fixtures" / "test-live-trading.override.yml"
-    )
-    ml_env_override = "ENABLE_ML_PREDICTIONS=true"
-    recreate_result = subprocess.run(
-        COMPOSE_CMD
-        + [
-            "--env-file",
-            "/dev/null",
-        ]
-        + ["run", "--rm", "-e", ml_env_override, "--no-deps", "trading-engine", "true"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
-    # If run --rm is unavailable (not all compose versions), fall back:
-    # force-recreate with env override is the canonical approach.
+    # Step 3: Force-recreate trading-engine via the LIVE-mode override file
+    # (which now also sets ENABLE_ML_PREDICTIONS=true). This is the same
+    # idiom `all_preflight_checks_passing` uses, so the running container
+    # actually picks up the env. The prior implementation tried `compose run
+    # --rm` (spawns a one-off container) and `compose up -e VAR=val` (invalid
+    # CLI flag) — both silently failed because returncode was unchecked,
+    # leaving trading-engine on ENABLE_ML_PREDICTIONS=false and making
+    # D-10-18 #6 + #7 unreachable in CI.
     ml_override_file = (
         REPO_ROOT / "tests" / "e2e" / "fixtures" / "test-live-trading.override.yml"
     )
-    recreate_result2 = subprocess.run(
+    recreate_result = subprocess.run(
         [
             "docker",
             "compose",
@@ -531,14 +522,18 @@ def leaderboard_dsr_seeded():
             "-d",
             "--force-recreate",
             "--no-deps",
-            "-e",
-            "ENABLE_ML_PREDICTIONS=true",
             "trading-engine",
         ],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        timeout=120,
     )
+    if recreate_result.returncode != 0:
+        pytest.fail(
+            f"leaderboard_dsr_seeded: trading-engine force-recreate failed "
+            f"(rc={recreate_result.returncode}): {recreate_result.stderr}"
+        )
     # Poll /health (max 60s)
     deadline = time.monotonic() + 60.0
     healthy = False
@@ -608,8 +603,11 @@ def all_preflight_checks_passing():
         REPO_ROOT / "tests" / "e2e" / "fixtures" / "test-live-trading.override.yml"
     )
 
-    # Setup: force-recreate trading-engine with LIVE-mode override
-    subprocess.run(
+    # Setup: force-recreate trading-engine with LIVE-mode override.
+    # Capture output + manual returncode check (not check=True) so any
+    # compose error message (image pull failure, port conflict, etc.) is
+    # surfaced in the test failure instead of an opaque CalledProcessError.
+    recreate_result = subprocess.run(
         [
             "docker",
             "compose",
@@ -622,9 +620,16 @@ def all_preflight_checks_passing():
             "--force-recreate",
             "trading-engine",
         ],
-        check=True,
         cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
+    if recreate_result.returncode != 0:
+        pytest.fail(
+            f"all_preflight_checks_passing: trading-engine force-recreate failed "
+            f"(rc={recreate_result.returncode}): {recreate_result.stderr}"
+        )
 
     # Poll /health until up (timeout 60s)
     deadline = time.monotonic() + 60.0
