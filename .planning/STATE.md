@@ -4,8 +4,8 @@ milestone: v1.1
 milestone_name: Path to LIVE
 status: executing
 stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-05-16T23:14:29.572Z"
-last_activity: 2026-05-16 -- Phase 9 planning complete
+last_updated: "2026-05-17T00:14:23.947Z"
+last_activity: 2026-05-17 -- Phase 09 execution started
 progress:
   total_phases: 5
   completed_phases: 1
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-16)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** v1.1 roadmap created — ready to plan Phase 8 (Pre-LIVE Preflight).
+**Current focus:** Phase 09 — ML Re-enablement Gate
 
 ## Current Position
 
-Phase: 08 — COMPLETE
-Plan: 4 of 05 complete (08-01, 08-02, 08-03, 08-05 landed; 08-04 CI workflow pending)
-Status: Ready to execute
-Last activity: 2026-05-16 -- Phase 9 planning complete
+Phase: 09 (ML Re-enablement Gate) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 09
+Last activity: 2026-05-17 -- Phase 09 execution started
 
 Progress: [██████████] 100%
 
