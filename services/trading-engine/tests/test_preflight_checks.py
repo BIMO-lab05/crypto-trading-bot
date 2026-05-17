@@ -12,6 +12,7 @@ env-var roundtrip, no ``reload_settings()`` (avoids global side effects).
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -29,7 +30,9 @@ from app.preflight.checks import (
 
 # ============================================================================
 # Production-schema-faithful fixture for the DSR check.
-# Column types MUST match services/tournament-harness/migrations/0001_initial.sql:9-38.
+# Column types MUST match services/tournament-harness/migrations/0001_initial.sql:9-38
+# AND migration 0002_mlgate_evidence_columns.sql (run_date TEXT, psr_ci_published
+# INTEGER NOT NULL DEFAULT 0 — added by Phase 9 Plan 09-01).
 # In particular, tournament_start_ts is TEXT NOT NULL (ISO-8601 string),
 # NOT INTEGER. ORDER BY on ISO-8601 strings is chronological because the
 # format is fixed-width — but switching the fixture to INTEGER would
@@ -37,6 +40,13 @@ from app.preflight.checks import (
 # datetime-aware refactor would pass against the fixture but fail in
 # production. The meta-test
 # ``test_dsr_fixture_schema_matches_production`` below guards this.
+#
+# Inline-merge rationale (Phase 9 Plan 09-02 Task 1, advisor note 3):
+# rather than apply migration 0002.sql against the inline CREATE (which has
+# no schema_version table for run_migrations to gate on), we merge the
+# columns directly into the inline CREATE here. This satisfies the Plan
+# 09-02 acceptance criterion's "OR the inline ALTER TABLE columns appear in
+# the fixture build" branch.
 # ============================================================================
 LEADERBOARD_SCHEMA_SQL = """
 CREATE TABLE leaderboard (
@@ -51,15 +61,38 @@ CREATE TABLE leaderboard (
     git_sha             TEXT NOT NULL,
     tournament_start_ts TEXT NOT NULL,
     status              TEXT NOT NULL,
+    -- Phase 9 Plan 09-01 migration 0002 columns (mlgate_evidence_columns):
+    run_date            TEXT,
+    psr_ci_published    INTEGER NOT NULL DEFAULT 0
+        CHECK (psr_ci_published IN (0, 1)),
     PRIMARY KEY (architecture, symbol, horizon, target_mode, hp_hash, run_id)
 );
 """
 
 
-def _seed_leaderboard(db_path: Path, dsr_value: float) -> None:
-    """Create the leaderboard table and insert a single row with the given dsr.
+def _fresh_run_date(days_ago: int = 3) -> str:
+    """ISO-8601 UTC string ``run_date`` value `days_ago` before now.
+
+    Within Phase 9 MLGATE-02's 14-day staleness window for any
+    ``days_ago < 14``; outside for any ``days_ago >= 14``.
+    """
+    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+
+
+def _seed_leaderboard(
+    db_path: Path,
+    dsr_value: float,
+    *,
+    psr_ci_published: int = 1,
+    run_date: str | None = None,
+) -> None:
+    """Create the leaderboard table and insert a single row.
 
     Uses an ISO-8601 string ``tournament_start_ts`` to match production schema.
+    The two Phase 9 columns default to "qualifying" values
+    (``psr_ci_published=1``, ``run_date=now-3d``) so the existing Phase 8
+    tests can call the helper unchanged for the freshness-and-published case.
+    Callers that need an unpublished or stale row pass the kwargs explicitly.
     """
     conn = sqlite3.connect(str(db_path))
     try:
@@ -68,8 +101,9 @@ def _seed_leaderboard(db_path: Path, dsr_value: float) -> None:
         cur.execute(
             "INSERT INTO leaderboard "
             "(run_id, tournament_id, architecture, symbol, horizon, target_mode, "
-            " hp_hash, dsr, git_sha, tournament_start_ts, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " hp_hash, dsr, git_sha, tournament_start_ts, status, "
+            " run_date, psr_ci_published) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "run-001",
                 "tourn-001",
@@ -82,6 +116,8 @@ def _seed_leaderboard(db_path: Path, dsr_value: float) -> None:
                 "abc123",
                 "2026-05-16T14:32:01Z",
                 "success",
+                run_date if run_date is not None else _fresh_run_date(3),
+                psr_ci_published,
             ),
         )
         conn.commit()
@@ -269,16 +305,25 @@ def test_check_dsr_evidence_ml_enabled_with_row_above_gate_passes(
     """ML on + marker present + leaderboard row with dsr=0.97 -> PASS.
 
     Seeds the leaderboard table using the production-faithful schema
-    (tournament_start_ts TEXT NOT NULL, ISO-8601 string timestamp).
+    (tournament_start_ts TEXT NOT NULL, ISO-8601 string timestamp). Per
+    Phase 9 Plan 09-02 Task 1 step 8, the row MUST include
+    ``psr_ci_published=1`` AND a fresh ``run_date`` (within the 14-day
+    staleness window) so the new MLGATE-02 filters pass.
     """
     monkeypatch.setenv("ENABLE_ML_PREDICTIONS", "true")
     # Create the marker file at an in-tmp path and point the constant at it.
     marker = tmp_path / "mlgate_marker.json"
     marker.write_text("{}")
     monkeypatch.setattr("app.preflight.checks._MLGATE_MARKER_PATH", str(marker))
-    # Seed a leaderboard row well above the 0.95 floor.
+    # Seed a leaderboard row well above the 0.95 floor with the Phase 9
+    # columns set to "qualifying": psr_ci_published=1 + fresh run_date.
     db_path = tmp_path / "tournament.db"
-    _seed_leaderboard(db_path, dsr_value=0.97)
+    _seed_leaderboard(
+        db_path,
+        dsr_value=0.97,
+        psr_ci_published=1,
+        run_date=_fresh_run_date(days_ago=3),
+    )
 
     result = check_dsr_evidence(db_path=str(db_path))
     assert result.status == "PASS"
@@ -288,17 +333,31 @@ def test_check_dsr_evidence_ml_enabled_with_row_above_gate_passes(
 def test_check_dsr_evidence_ml_enabled_with_row_at_or_below_gate_fails(
     monkeypatch, tmp_path
 ):
-    """ML on + marker present + leaderboard row with dsr<=0.95 -> FAIL."""
+    """ML on + marker present + leaderboard row with dsr<=0.95 -> FAIL.
+
+    The row carries ``psr_ci_published=1`` + fresh ``run_date`` so the
+    failure reason is the dsr-below-gate path, not the staleness path
+    (Phase 9 MLGATE-02 branch ordering).
+    """
     monkeypatch.setenv("ENABLE_ML_PREDICTIONS", "true")
     marker = tmp_path / "mlgate_marker.json"
     marker.write_text("{}")
     monkeypatch.setattr("app.preflight.checks._MLGATE_MARKER_PATH", str(marker))
     db_path = tmp_path / "tournament.db"
-    _seed_leaderboard(db_path, dsr_value=0.90)
+    _seed_leaderboard(
+        db_path,
+        dsr_value=0.90,
+        psr_ci_published=1,
+        run_date=_fresh_run_date(days_ago=3),
+    )
 
     result = check_dsr_evidence(db_path=str(db_path))
     assert result.status == "FAIL"
     assert "0.9" in result.detail
+    # The detail must name the below-gate cause (not "stale"). The new
+    # check_dsr_evidence branch-orders dsr_below_gate above evidence_stale
+    # so the operator sees the root cause.
+    assert "stale" not in result.detail.lower()
 
 
 # ============================================================================
