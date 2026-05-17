@@ -1231,6 +1231,12 @@ async def get_preflight_live_readiness():
         }
 
 
+# Phase 10 DASHLIVE-02 — carry-ins endpoint (state file + 24h window).
+from app.routes.preflight_carry_ins import router as preflight_carry_ins_router  # noqa: E402
+
+app.include_router(preflight_carry_ins_router)
+
+
 # Phase 7 D-01: gateway reads committed tournament snapshots from a RO bind-mount.
 # Intentional duplication of the live tournament-harness:8010 /api/v1/tournaments
 # path — frontend reads files (no --profile tournament dependency) per CONTEXT.md
