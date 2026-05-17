@@ -148,7 +148,13 @@ from app.handlers.orchestration import (  # noqa: F401 — router mounted below
 
 # Lifespan phase context managers (refactored 2026-05-01 — split fat lifespan
 # into 4 composed @asynccontextmanager phases, see app/lifespan/__init__.py)
-from app.lifespan import init_data, init_ml, init_risk, init_strategy
+from app.lifespan import (  # noqa: F401 — auto_flip_ml_predictions is referenced by Phase 9 grep gate #4
+    auto_flip_ml_predictions,
+    init_data,
+    init_ml,
+    init_risk,
+    init_strategy,
+)
 
 # Backward-compat re-exports for tests that patch `app.main.<symbol>`. These
 # symbols moved into app/lifespan/* during the 2026-05-01 refactor; the F401

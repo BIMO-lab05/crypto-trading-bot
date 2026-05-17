@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.config import Settings, get_settings
@@ -55,6 +56,13 @@ _LIVE_STRICT_CAP = 0.02
 # DSR floor used by the v1.0 evaluation framework (returns_metrics + PSR/DSR).
 # Mirrors REQUIREMENTS.md PREFLIGHT-01 wording.
 _DSR_FLOOR = 0.95
+
+# Phase 9 MLGATE-02: DSR evidence row is considered stale once `run_date`
+# is older than this many days. Mirrors the wall-clock window used by
+# Plan 09-01's evidence-loop driver. Constant kept here (single source of
+# truth for the staleness rule) so a future tightening flows to every
+# caller of ``check_dsr_evidence()`` automatically.
+_DSR_EVIDENCE_STALENESS_DAYS = 14
 
 
 # ---------------------------------------------------------------------------
@@ -195,24 +203,58 @@ def check_emergency_stop(settings: Settings | None = None) -> CheckResult:
     )
 
 
-def check_dsr_evidence(db_path: str | None = None) -> CheckResult:
-    """DSR > 0.95 row in the ``leaderboard`` table — best-effort in Phase 8.
+def _parse_run_date(raw: str) -> datetime:
+    """Parse an ISO-8601 UTC ``run_date`` string into a tz-aware datetime.
 
-    Returns ``UNKNOWN`` if any of:
-      - Phase 9 (MLGATE-02) auto-flip marker is absent (the 14-day staleness
-        rule and the ``psr_ci_published`` column belong to Phase 9; Phase 8
-        only surfaces the latest DSR value).
-      - the sqlite DB is unreachable or the ``leaderboard`` table is empty.
+    Accepts both ``2026-05-17T14:32:01Z`` (trailing-Z) and the
+    ``2026-05-17T14:32:01+00:00`` form. Assumes UTC if the string carries
+    no offset (the tournament-harness writer stamps UTC by contract per
+    Plan 09-01 D-09-01-02).
+    """
+    fixed = raw.replace("Z", "+00:00")
+    dt = datetime.fromisoformat(fixed)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
-    Returns ``PASS`` if ``ENABLE_ML_PREDICTIONS != true`` — ML is gated off
-    by default per CLAUDE.md so no DSR evidence is required for boot.
+
+def check_dsr_evidence(
+    db_path: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> CheckResult:
+    """DSR > 0.95 AND psr_ci_published=1 AND run_date within 14 days (Phase 9 MLGATE-02).
+
+    Single source of truth for the "is DSR evidence good enough to enable
+    ML?" question — read both by Phase 8's preflight report and by the
+    Phase 9 lifespan auto-flip in ``app/lifespan/ml.py``.
+
+    Status semantics:
+
+    * ``PASS``  — ``ENABLE_ML_PREDICTIONS != true`` (ML gated off; nothing to verify), OR
+                  ``ENABLE_ML_PREDICTIONS=true`` + marker present + latest qualifying
+                  row has ``dsr > 0.95`` AND ``run_date`` within 14 days.
+    * ``FAIL``  — qualifying row exists but ``dsr <= 0.95`` (``dsr_below_gate``), OR
+                  qualifying row exists and ``dsr > 0.95`` but ``run_date`` is
+                  older than 14 days (``evidence_stale``).
+    * ``UNKNOWN`` — Phase 9 marker absent, sqlite DB unreachable, or the
+                    ``leaderboard`` table contains zero rows matching the
+                    ``psr_ci_published = 1 AND status = 'success'`` filter
+                    (treated as "no evidence yet" rather than a hard FAIL).
+
+    Args:
+        db_path: tournament sqlite DB path; defaults to
+            ``_DEFAULT_TOURNAMENT_DB_PATH``.
+        now: injectable wall-clock for deterministic tests; defaults to
+            ``datetime.now(timezone.utc)``. Production callers pass ``None``.
 
     NOTE on table name: REQUIREMENTS.md wording says ``tournament_results``;
     the actual schema (services/tournament-harness/migrations/0001_initial.sql:9)
     defines the ``leaderboard`` table with the ``dsr REAL`` column. We read
     from ``leaderboard`` per 08-CONTEXT.md lines 95-101 decision. The
     REQUIREMENTS.md wording will be corrected in a follow-up docs commit;
-    Phase 9 owns evidence-row schema additions.
+    Phase 9 owns evidence-row schema additions (migration 0002 adds
+    ``run_date`` + ``psr_ci_published`` consumed by this check).
     """
     if os.environ.get("ENABLE_ML_PREDICTIONS", "false").lower() != "true":
         return CheckResult(
@@ -236,10 +278,15 @@ def check_dsr_evidence(db_path: str | None = None) -> CheckResult:
         # harness module already initialises the DB read-write in another
         # process — we use a plain connect with a short timeout. The query
         # is parameter-free (column whitelisted in code, no user input).
+        # The (psr_ci_published, run_date DESC) index added by Plan 09-01
+        # migration 0002 covers this lookup.
         with sqlite3.connect(path, timeout=2.0) as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT dsr FROM leaderboard ORDER BY tournament_start_ts DESC LIMIT 1"
+                "SELECT dsr, run_date FROM leaderboard "
+                "WHERE psr_ci_published = 1 AND status = 'success' "
+                "AND run_date IS NOT NULL "
+                "ORDER BY run_date DESC LIMIT 1"
             )
             row = cur.fetchone()
     except sqlite3.Error as e:
@@ -254,20 +301,62 @@ def check_dsr_evidence(db_path: str | None = None) -> CheckResult:
         return CheckResult(
             check="dsr_evidence",
             status="UNKNOWN",
-            detail=f"leaderboard empty or latest row has null dsr (db_path={path})",
+            detail=(
+                f"leaderboard empty (after psr_ci_published filter) (db_path={path})"
+            ),
         )
 
     dsr_value = float(row[0])
-    if dsr_value > _DSR_FLOOR:
+    run_date_raw = row[1]
+    now_utc = now or datetime.now(timezone.utc)
+
+    # Parse run_date; an unparseable value is treated as UNKNOWN (a corrupt
+    # write should not silently flip the gate either direction).
+    try:
+        run_date_dt = _parse_run_date(run_date_raw)
+    except (ValueError, TypeError) as e:
         return CheckResult(
             check="dsr_evidence",
-            status="PASS",
-            detail=f"latest leaderboard dsr={dsr_value} > {_DSR_FLOOR}",
+            status="UNKNOWN",
+            detail=(
+                f"leaderboard run_date unparseable: {type(e).__name__} (db_path={path})"
+            ),
         )
+
+    age = now_utc - run_date_dt
+    staleness_window = timedelta(days=_DSR_EVIDENCE_STALENESS_DAYS)
+
+    # Branch order matters: a stale row with above-gate dsr is FAIL with the
+    # `evidence_stale` reason; a below-gate row regardless of age is FAIL
+    # with `dsr_below_gate` (the gate floor takes precedence over staleness
+    # so the operator-visible reason matches the root cause).
+    if dsr_value <= _DSR_FLOOR:
+        return CheckResult(
+            check="dsr_evidence",
+            status="FAIL",
+            detail=(
+                f"latest leaderboard dsr={dsr_value} <= {_DSR_FLOOR} "
+                f"(run_date={run_date_raw})"
+            ),
+        )
+
+    if age > staleness_window:
+        return CheckResult(
+            check="dsr_evidence",
+            status="FAIL",
+            detail=(
+                f"evidence stale: run_date={run_date_raw} "
+                f"age_days={age.days} > {_DSR_EVIDENCE_STALENESS_DAYS}"
+            ),
+        )
+
     return CheckResult(
         check="dsr_evidence",
-        status="FAIL",
-        detail=f"latest leaderboard dsr={dsr_value} <= {_DSR_FLOOR}",
+        status="PASS",
+        detail=(
+            f"latest leaderboard dsr={dsr_value} > {_DSR_FLOOR} "
+            f"(run_date={run_date_raw} age_days={age.days})"
+        ),
     )
 
 
