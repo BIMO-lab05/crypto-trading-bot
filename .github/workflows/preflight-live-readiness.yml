@@ -39,7 +39,8 @@ jobs:
         working-directory: services/trading-engine
         run: pytest tests/test_preflight_checks.py tests/test_preflight_route.py tests/test_preflight_lifespan.py -v
       - name: Grep gates
-        run: pytest tests/integration/test_preflight_grep_gates.py -v
+        working-directory: services/trading-engine
+        run: pytest ../../tests/integration/test_preflight_grep_gates.py ../../tests/integration/test_mlgate_grep_gates.py ../../tests/integration/test_mlgate_reason_grep_gate.py -v
 
   gate:
     name: Live-readiness gate (labelled PRs only)
