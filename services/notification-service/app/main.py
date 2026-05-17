@@ -15,27 +15,39 @@ from fastapi.responses import Response
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from typing import Dict, Optional
+import asyncio  # MLGATE-03 (Plan 09-03 D-09-03-07): lifespan cancels the ML-gate digest scheduler task
 import logging
-import uuid
 import time
 from datetime import datetime
 
 # Prometheus metrics imports
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import (
+    Counter,
+    Histogram,
+    Gauge,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
 from prometheus_client import multiprocess, CollectorRegistry
 import os
 import tempfile
 
 # Import local modules
 try:
-    from .utils.structured_logging import setup_logging, RequestContextLogger, install_token_redaction
+    from .utils.structured_logging import (
+        setup_logging,
+        RequestContextLogger,
+        install_token_redaction,
+    )
     from .utils.graceful_shutdown import GracefulShutdownHandler
 except ImportError:
     from pathlib import Path
     import sys
+
     sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
-    from utils.structured_logging import setup_logging, RequestContextLogger, install_token_redaction
-    from utils.graceful_shutdown import GracefulShutdownHandler
+    from utils.structured_logging import (
+        install_token_redaction,
+    )
 
 from .config import config
 from .routers.alerts import router as alerts_router
@@ -48,8 +60,7 @@ from .telegram_notifier import telegram_notifier
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 install_token_redaction()
 logger = logging.getLogger(__name__)
@@ -63,6 +74,7 @@ logger = logging.getLogger(__name__)
 # actually True, so the trading-engine logged "notification sent" while
 # Telegram/SMTP had silently failed. The helper raises 502 on partial /
 # total delivery failure so callers can react instead of trusting HTTP 200.
+
 
 def _build_delivery_response(
     *,
@@ -103,7 +115,9 @@ def _build_delivery_response(
     if failed:
         body["failed_channels"] = failed
         body["reason"] = f"delivery failed on: {failed}"
-        logger.warning("Notification delivery FAILED on channels=%s body=%s", failed, body)
+        logger.warning(
+            "Notification delivery FAILED on channels=%s body=%s", failed, body
+        )
         dlq.enqueue(
             endpoint=endpoint,
             failed_channels=failed,
@@ -121,43 +135,38 @@ def _build_delivery_response(
 
 # HTTP request counter
 http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status_code']
+    "http_requests_total", "Total HTTP requests", ["method", "endpoint", "status_code"]
 )
 
 # HTTP request duration histogram
 http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'endpoint'],
-    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0]
+    "http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "endpoint"],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0],
 )
 
 # Active requests gauge
-http_requests_active = Gauge(
-    'http_requests_active',
-    'Number of active HTTP requests'
-)
+http_requests_active = Gauge("http_requests_active", "Number of active HTTP requests")
 
 # Notification-specific metrics
 notifications_sent_total = Counter(
-    'notifications_sent_total',
-    'Total notifications sent',
-    ['channel', 'type', 'status']
+    "notifications_sent_total",
+    "Total notifications sent",
+    ["channel", "type", "status"],
 )
 
 notification_delivery_duration_seconds = Histogram(
-    'notification_delivery_duration_seconds',
-    'Notification delivery duration in seconds',
-    ['channel'],
-    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+    "notification_delivery_duration_seconds",
+    "Notification delivery duration in seconds",
+    ["channel"],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0],
 )
 
 notification_channel_health = Gauge(
-    'notification_channel_health',
-    'Notification channel health status (1=healthy, 0=unhealthy)',
-    ['channel']
+    "notification_channel_health",
+    "Notification channel health status (1=healthy, 0=unhealthy)",
+    ["channel"],
 )
 
 
@@ -166,7 +175,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler for startup and shutdown"""
     # Setup multiprocess metrics directory
     temp_dir = tempfile.mkdtemp(prefix="prometheus_multiproc_")
-    os.environ['PROMETHEUS_MULTIPROC_DIR'] = temp_dir
+    os.environ["PROMETHEUS_MULTIPROC_DIR"] = temp_dir
     logger.info(f"Prometheus multiprocess directory: {temp_dir}")
 
     # Startup
@@ -177,24 +186,52 @@ async def lifespan(app: FastAPI):
     logger.info("Alert Manager started")
 
     # Set channel health metrics
-    notification_channel_health.labels(channel='email').set(1 if config.email_enabled else 0)
-    notification_channel_health.labels(channel='telegram').set(1 if config.telegram_enabled else 0)
-    notification_channel_health.labels(channel='slack').set(1 if config.slack_enabled else 0)
-    notification_channel_health.labels(channel='sms').set(1 if config.sms_enabled else 0)
+    notification_channel_health.labels(channel="email").set(
+        1 if config.email_enabled else 0
+    )
+    notification_channel_health.labels(channel="telegram").set(
+        1 if config.telegram_enabled else 0
+    )
+    notification_channel_health.labels(channel="slack").set(
+        1 if config.slack_enabled else 0
+    )
+    notification_channel_health.labels(channel="sms").set(
+        1 if config.sms_enabled else 0
+    )
+
+    # MLGATE-03 (Plan 09-03 D-09-03-07): feature-flagged ML-gate digest
+    # scheduler. Off by default per CLAUDE.md flag discipline (mirror of
+    # ENABLE_SENTIMENT_ANALYSIS). When ML_GATE_DIGEST_ENABLED=true, spawn
+    # the cross-service fetcher that pulls reason counts from the
+    # trading-engine and ships them in the daily Telegram digest.
+    app.state.ml_gate_digest_task = None
+    if os.environ.get("ML_GATE_DIGEST_ENABLED", "false").lower() == "true":
+        from .scheduler.ml_gate_digest import start_scheduler as _start_ml_gate_digest
+
+        app.state.ml_gate_digest_task = await _start_ml_gate_digest()
+        logger.info("ML-gate digest scheduler started (feature-flag active)")
 
     yield
 
     # Shutdown
     logger.info("Notification Service shutting down...")
+    if app.state.ml_gate_digest_task is not None:
+        app.state.ml_gate_digest_task.cancel()
+        try:
+            await app.state.ml_gate_digest_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        logger.info("ML-gate digest scheduler stopped")
     await alert_manager.stop()
     logger.info("Alert Manager stopped")
 
     # Cleanup multiprocess metrics
     try:
         import shutil
+
         shutil.rmtree(temp_dir, ignore_errors=True)
-        if 'PROMETHEUS_MULTIPROC_DIR' in os.environ:
-            del os.environ['PROMETHEUS_MULTIPROC_DIR']
+        if "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+            del os.environ["PROMETHEUS_MULTIPROC_DIR"]
     except Exception as e:
         logger.error(f"Error cleaning up multiprocess metrics directory: {e}")
 
@@ -204,13 +241,14 @@ app = FastAPI(
     title="Notification Service",
     description="Multi-channel alert system with intelligent routing, suppression, and escalation",
     version=config.service_version,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
 # ============================================================================
 # PROMETHEUS METRICS MIDDLEWARE
 # ============================================================================
+
 
 @app.middleware("http")
 async def prometheus_metrics_middleware(request: Request, call_next):
@@ -224,7 +262,13 @@ async def prometheus_metrics_middleware(request: Request, call_next):
 
     # Normalize path to prevent high cardinality
     import re
-    normalized_path = re.sub(r'/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '/{uuid}', path, flags=re.IGNORECASE)
+
+    normalized_path = re.sub(
+        r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        "/{uuid}",
+        path,
+        flags=re.IGNORECASE,
+    )
 
     http_requests_active.inc()
     start_time = time.time()
@@ -232,7 +276,7 @@ async def prometheus_metrics_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
         status_code = response.status_code
-    except Exception as e:
+    except Exception:
         status_code = 500
         raise
     finally:
@@ -240,14 +284,11 @@ async def prometheus_metrics_middleware(request: Request, call_next):
         http_requests_active.dec()
 
         http_requests_total.labels(
-            method=method,
-            endpoint=normalized_path,
-            status_code=status_code
+            method=method, endpoint=normalized_path, status_code=status_code
         ).inc()
 
         http_request_duration_seconds.labels(
-            method=method,
-            endpoint=normalized_path
+            method=method, endpoint=normalized_path
         ).observe(duration)
 
     return response
@@ -270,14 +311,16 @@ app.include_router(alerts_router)
 # PROMETHEUS METRICS ENDPOINT
 # ============================================================================
 
+
 def get_metrics_registry():
     """Get appropriate registry based on multiprocess environment"""
-    if 'PROMETHEUS_MULTIPROC_DIR' in os.environ:
+    if "PROMETHEUS_MULTIPROC_DIR" in os.environ:
         registry = CollectorRegistry()
         multiprocess.MultiProcessCollector(registry)
         return registry
     else:
         return None
+
 
 @app.get("/metrics", include_in_schema=False)
 async def metrics():
@@ -294,8 +337,10 @@ async def metrics():
 # Legacy Request Models (Backward Compatibility)
 # ========================================
 
+
 class TradeNotification(BaseModel):
     """Trade notification data"""
+
     action: str
     symbol: str
     quantity: float
@@ -306,18 +351,21 @@ class TradeNotification(BaseModel):
 
 class ProfitLossNotification(BaseModel):
     """Profit/loss notification data"""
+
     trade: TradeNotification
     pnl: float
 
 
 class ErrorNotification(BaseModel):
     """Error notification data"""
+
     error_message: str
     context: Optional[Dict] = None
 
 
 class StartupNotification(BaseModel):
     """Startup notification data"""
+
     mode: str
     symbols: list
     interval_minutes: int
@@ -329,6 +377,7 @@ class StartupNotification(BaseModel):
 
 class DailySummary(BaseModel):
     """Daily summary data"""
+
     total_pnl: float
     total_trades: int
     win_rate: float
@@ -342,6 +391,7 @@ class DailySummary(BaseModel):
 # Health and Info Endpoints
 # ========================================
 
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -354,18 +404,15 @@ async def health_check():
             "email_enabled": config.email_enabled,
             "telegram_enabled": config.telegram_enabled,
             "slack_enabled": config.slack_enabled,
-            "sms_enabled": config.sms_enabled
-        }
+            "sms_enabled": config.sms_enabled,
+        },
     }
 
 
 @app.get("/ready")
 async def readiness_check():
     """Readiness probe endpoint"""
-    return {
-        "status": "ready",
-        "service": config.service_name
-    }
+    return {"status": "ready", "service": config.service_name}
 
 
 @app.get("/api/v1/config")
@@ -385,14 +432,15 @@ async def get_config():
             "alert_on_error": config.alert_on_error,
             "alert_on_startup": config.alert_on_startup,
             "min_profit_alert": config.min_profit_alert,
-            "min_loss_alert": config.min_loss_alert
-        }
+            "min_loss_alert": config.min_loss_alert,
+        },
     }
 
 
 # ========================================
 # Legacy Notification Endpoints (Backward Compatibility)
 # ========================================
+
 
 @app.post("/api/v1/notify/trade")
 async def notify_trade(notification: TradeNotification):
@@ -405,7 +453,9 @@ async def notify_trade(notification: TradeNotification):
     Returns:
         dict: Notification status
     """
-    logger.info(f"[notify_trade] RECEIVED - symbol={notification.symbol}, action={notification.action}")
+    logger.info(
+        f"[notify_trade] RECEIVED - symbol={notification.symbol}, action={notification.action}"
+    )
     try:
         trade_dict = notification.model_dump()
 
@@ -414,11 +464,13 @@ async def notify_trade(notification: TradeNotification):
         email_start = time.time()
         if config.email_enabled:
             email_sent = email_notifier.notify_trade_executed(trade_dict)
-            notification_delivery_duration_seconds.labels(channel='email').observe(time.time() - email_start)
+            notification_delivery_duration_seconds.labels(channel="email").observe(
+                time.time() - email_start
+            )
             notifications_sent_total.labels(
-                channel='email',
-                type='trade',
-                status='success' if email_sent else 'failed'
+                channel="email",
+                type="trade",
+                status="success" if email_sent else "failed",
             ).inc()
 
         # Send via Telegram
@@ -426,11 +478,13 @@ async def notify_trade(notification: TradeNotification):
         telegram_start = time.time()
         if config.telegram_enabled:
             telegram_sent = await telegram_notifier.notify_trade_executed(trade_dict)
-            notification_delivery_duration_seconds.labels(channel='telegram').observe(time.time() - telegram_start)
+            notification_delivery_duration_seconds.labels(channel="telegram").observe(
+                time.time() - telegram_start
+            )
             notifications_sent_total.labels(
-                channel='telegram',
-                type='trade',
-                status='success' if telegram_sent else 'failed'
+                channel="telegram",
+                type="trade",
+                status="success" if telegram_sent else "failed",
             ).inc()
 
         return _build_delivery_response(
@@ -469,11 +523,13 @@ async def notify_pnl(notification: ProfitLossNotification):
         email_start = time.time()
         if config.email_enabled:
             email_sent = email_notifier.notify_profit_loss(trade_dict, pnl)
-            notification_delivery_duration_seconds.labels(channel='email').observe(time.time() - email_start)
+            notification_delivery_duration_seconds.labels(channel="email").observe(
+                time.time() - email_start
+            )
             notifications_sent_total.labels(
-                channel='email',
-                type='pnl',
-                status='success' if email_sent else 'failed'
+                channel="email",
+                type="pnl",
+                status="success" if email_sent else "failed",
             ).inc()
 
         # Send via Telegram
@@ -481,11 +537,13 @@ async def notify_pnl(notification: ProfitLossNotification):
         telegram_start = time.time()
         if config.telegram_enabled:
             telegram_sent = await telegram_notifier.notify_profit_loss(trade_dict, pnl)
-            notification_delivery_duration_seconds.labels(channel='telegram').observe(time.time() - telegram_start)
+            notification_delivery_duration_seconds.labels(channel="telegram").observe(
+                time.time() - telegram_start
+            )
             notifications_sent_total.labels(
-                channel='telegram',
-                type='pnl',
-                status='success' if telegram_sent else 'failed'
+                channel="telegram",
+                type="pnl",
+                status="success" if telegram_sent else "failed",
             ).inc()
 
         return _build_delivery_response(
@@ -521,23 +579,29 @@ async def notify_daily_limit(total_loss: float):
         email_start = time.time()
         if config.email_enabled:
             email_sent = email_notifier.notify_daily_limit_reached(total_loss)
-            notification_delivery_duration_seconds.labels(channel='email').observe(time.time() - email_start)
+            notification_delivery_duration_seconds.labels(channel="email").observe(
+                time.time() - email_start
+            )
             notifications_sent_total.labels(
-                channel='email',
-                type='daily_limit',
-                status='success' if email_sent else 'failed'
+                channel="email",
+                type="daily_limit",
+                status="success" if email_sent else "failed",
             ).inc()
 
         # Send via Telegram
         telegram_sent = False
         telegram_start = time.time()
         if config.telegram_enabled:
-            telegram_sent = await telegram_notifier.notify_daily_limit_reached(total_loss)
-            notification_delivery_duration_seconds.labels(channel='telegram').observe(time.time() - telegram_start)
+            telegram_sent = await telegram_notifier.notify_daily_limit_reached(
+                total_loss
+            )
+            notification_delivery_duration_seconds.labels(channel="telegram").observe(
+                time.time() - telegram_start
+            )
             notifications_sent_total.labels(
-                channel='telegram',
-                type='daily_limit',
-                status='success' if telegram_sent else 'failed'
+                channel="telegram",
+                type="daily_limit",
+                status="success" if telegram_sent else "failed",
             ).inc()
 
         return _build_delivery_response(
@@ -573,14 +637,15 @@ async def notify_error(notification: ErrorNotification):
         email_start = time.time()
         if config.email_enabled:
             email_sent = email_notifier.notify_error(
-                notification.error_message,
-                notification.context
+                notification.error_message, notification.context
             )
-            notification_delivery_duration_seconds.labels(channel='email').observe(time.time() - email_start)
+            notification_delivery_duration_seconds.labels(channel="email").observe(
+                time.time() - email_start
+            )
             notifications_sent_total.labels(
-                channel='email',
-                type='error',
-                status='success' if email_sent else 'failed'
+                channel="email",
+                type="error",
+                status="success" if email_sent else "failed",
             ).inc()
 
         # Send via Telegram
@@ -588,14 +653,15 @@ async def notify_error(notification: ErrorNotification):
         telegram_start = time.time()
         if config.telegram_enabled:
             telegram_sent = await telegram_notifier.notify_error(
-                notification.error_message,
-                notification.context
+                notification.error_message, notification.context
             )
-            notification_delivery_duration_seconds.labels(channel='telegram').observe(time.time() - telegram_start)
+            notification_delivery_duration_seconds.labels(channel="telegram").observe(
+                time.time() - telegram_start
+            )
             notifications_sent_total.labels(
-                channel='telegram',
-                type='error',
-                status='success' if telegram_sent else 'failed'
+                channel="telegram",
+                type="error",
+                status="success" if telegram_sent else "failed",
             ).inc()
 
         return _build_delivery_response(
@@ -633,11 +699,13 @@ async def notify_startup(notification: StartupNotification):
         email_start = time.time()
         if config.email_enabled:
             email_sent = email_notifier.notify_startup(config_dict)
-            notification_delivery_duration_seconds.labels(channel='email').observe(time.time() - email_start)
+            notification_delivery_duration_seconds.labels(channel="email").observe(
+                time.time() - email_start
+            )
             notifications_sent_total.labels(
-                channel='email',
-                type='startup',
-                status='success' if email_sent else 'failed'
+                channel="email",
+                type="startup",
+                status="success" if email_sent else "failed",
             ).inc()
 
         # Send via Telegram
@@ -645,11 +713,13 @@ async def notify_startup(notification: StartupNotification):
         telegram_start = time.time()
         if config.telegram_enabled:
             telegram_sent = await telegram_notifier.notify_startup(config_dict)
-            notification_delivery_duration_seconds.labels(channel='telegram').observe(time.time() - telegram_start)
+            notification_delivery_duration_seconds.labels(channel="telegram").observe(
+                time.time() - telegram_start
+            )
             notifications_sent_total.labels(
-                channel='telegram',
-                type='startup',
-                status='success' if telegram_sent else 'failed'
+                channel="telegram",
+                type="startup",
+                status="success" if telegram_sent else "failed",
             ).inc()
 
         return _build_delivery_response(
@@ -687,11 +757,13 @@ async def notify_daily_summary(summary: DailySummary):
         telegram_start = time.time()
         if config.telegram_enabled:
             telegram_sent = await telegram_notifier.notify_daily_summary(summary_dict)
-            notification_delivery_duration_seconds.labels(channel='telegram').observe(time.time() - telegram_start)
+            notification_delivery_duration_seconds.labels(channel="telegram").observe(
+                time.time() - telegram_start
+            )
             notifications_sent_total.labels(
-                channel='telegram',
-                type='daily_summary',
-                status='success' if telegram_sent else 'failed'
+                channel="telegram",
+                type="daily_summary",
+                status="success" if telegram_sent else "failed",
             ).inc()
 
         return _build_delivery_response(
@@ -713,6 +785,7 @@ async def notify_daily_summary(summary: DailySummary):
 # ========================================
 # Dead-letter queue (visibility for failed deliveries)
 # ========================================
+
 
 @app.get("/api/v1/dlq")
 async def list_dlq(limit: int = 50):
@@ -742,7 +815,7 @@ async def test_notifications():
         "email": {"enabled": config.email_enabled, "sent": False},
         "telegram": {"enabled": config.telegram_enabled, "sent": False},
         "slack": {"enabled": config.slack_enabled, "sent": False},
-        "sms": {"enabled": config.sms_enabled, "sent": False}
+        "sms": {"enabled": config.sms_enabled, "sent": False},
     }
 
     # Test email
@@ -750,13 +823,15 @@ async def test_notifications():
         email_start = time.time()
         results["email"]["sent"] = email_notifier.send_email(
             "Test Notification",
-            "This is a test notification from your trading bot. If you receive this, email notifications are working correctly!"
+            "This is a test notification from your trading bot. If you receive this, email notifications are working correctly!",
         )
-        notification_delivery_duration_seconds.labels(channel='email').observe(time.time() - email_start)
+        notification_delivery_duration_seconds.labels(channel="email").observe(
+            time.time() - email_start
+        )
         notifications_sent_total.labels(
-            channel='email',
-            type='test',
-            status='success' if results["email"]["sent"] else 'failed'
+            channel="email",
+            type="test",
+            status="success" if results["email"]["sent"] else "failed",
         ).inc()
 
     # Test Telegram
@@ -765,11 +840,13 @@ async def test_notifications():
         results["telegram"]["sent"] = await telegram_notifier.send_message(
             "<b>Test Notification</b>\n\nThis is a test message from your trading bot. If you receive this, Telegram notifications are working correctly!"
         )
-        notification_delivery_duration_seconds.labels(channel='telegram').observe(time.time() - telegram_start)
+        notification_delivery_duration_seconds.labels(channel="telegram").observe(
+            time.time() - telegram_start
+        )
         notifications_sent_total.labels(
-            channel='telegram',
-            type='test',
-            status='success' if results["telegram"]["sent"] else 'failed'
+            channel="telegram",
+            type="test",
+            status="success" if results["telegram"]["sent"] else "failed",
         ).inc()
 
     # Honest top-level success: at least one *enabled* channel must have delivered.
@@ -787,6 +864,7 @@ async def test_notifications():
 # Root Endpoint
 # ========================================
 
+
 @app.get("/")
 async def root():
     """Service information endpoint"""
@@ -798,7 +876,7 @@ async def root():
             "email": config.email_enabled,
             "telegram": config.telegram_enabled,
             "slack": config.slack_enabled,
-            "sms": config.sms_enabled
+            "sms": config.sms_enabled,
         },
         "endpoints": {
             "health": "/health",
@@ -806,11 +884,12 @@ async def root():
             "metrics": "/metrics",
             "config": "/api/v1/config",
             "test": "/api/v1/test",
-            "docs": "/docs"
-        }
+            "docs": "/docs",
+        },
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host=config.host, port=config.port)

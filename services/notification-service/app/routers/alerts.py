@@ -7,13 +7,23 @@ import logging
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query
 
 from ..models import (
-    AlertCreate, AlertBatch, Alert, AlertResponse, AlertListResponse,
-    AlertAcknowledge, AlertStats, AlertConfigResponse, AlertConfigUpdate,
-    AlertRules, AlertRulesUpdate, ChannelStatus, ChannelTestResult,
-    AlertSeverity, AlertType, NotificationChannel
+    AlertCreate,
+    AlertBatch,
+    Alert,
+    AlertResponse,
+    AlertListResponse,
+    AlertAcknowledge,
+    AlertStats,
+    AlertConfigResponse,
+    AlertConfigUpdate,
+    AlertRules,
+    AlertRulesUpdate,
+    ChannelTestResult,
+    AlertSeverity,
+    AlertType,
 )
 from ..alert_manager import alert_manager
 from ..alert_rules import alert_rules_engine
@@ -27,6 +37,7 @@ router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 # ========================================
 # Alert Sending Endpoints
 # ========================================
+
 
 @router.post("/send", response_model=AlertResponse)
 async def send_alert(alert: AlertCreate):
@@ -68,12 +79,13 @@ async def send_batch_alerts(batch: AlertBatch):
 # Alert Retrieval Endpoints
 # ========================================
 
+
 @router.get("/history", response_model=AlertListResponse)
 async def get_alert_history(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     severity: Optional[AlertSeverity] = None,
-    alert_type: Optional[AlertType] = None
+    alert_type: Optional[AlertType] = None,
 ):
     """
     Get alert history with optional filtering
@@ -82,10 +94,7 @@ async def get_alert_history(
     """
     try:
         alerts = alert_manager.get_alerts(
-            limit=limit,
-            offset=offset,
-            severity=severity,
-            alert_type=alert_type
+            limit=limit, offset=offset, severity=severity, alert_type=alert_type
         )
 
         return AlertListResponse(
@@ -94,7 +103,7 @@ async def get_alert_history(
             total=len(alerts),
             page=offset // limit + 1,
             page_size=limit,
-            has_more=len(alerts) == limit
+            has_more=len(alerts) == limit,
         )
     except Exception as e:
         logger.error(f"Error getting alert history: {e}")
@@ -117,7 +126,7 @@ async def get_active_alerts():
             total=len(alerts),
             page=1,
             page_size=len(alerts),
-            has_more=False
+            has_more=False,
         )
     except Exception as e:
         logger.error(f"Error getting active alerts: {e}")
@@ -139,6 +148,7 @@ async def get_alert(alert_id: str):
 # Alert Acknowledgment
 # ========================================
 
+
 @router.post("/acknowledge/{alert_id}", response_model=AlertResponse)
 async def acknowledge_alert(alert_id: str, ack: AlertAcknowledge):
     """
@@ -147,9 +157,7 @@ async def acknowledge_alert(alert_id: str, ack: AlertAcknowledge):
     Marks the alert as acknowledged to prevent escalation.
     """
     success = alert_manager.acknowledge_alert(
-        alert_id=alert_id,
-        acknowledged_by=ack.acknowledged_by,
-        notes=ack.notes
+        alert_id=alert_id, acknowledged_by=ack.acknowledged_by, notes=ack.notes
     )
 
     if not success:
@@ -158,13 +166,14 @@ async def acknowledge_alert(alert_id: str, ack: AlertAcknowledge):
     return AlertResponse(
         success=True,
         alert_id=alert_id,
-        message=f"Alert acknowledged by {ack.acknowledged_by}"
+        message=f"Alert acknowledged by {ack.acknowledged_by}",
     )
 
 
 # ========================================
 # Configuration Endpoints
 # ========================================
+
 
 @router.get("/config", response_model=AlertConfigResponse)
 async def get_alert_config():
@@ -201,7 +210,7 @@ async def get_alert_config():
             "start": config.quiet_hours_start,
             "end": config.quiet_hours_end,
             "timezone": config.quiet_hours_timezone,
-        }
+        },
     )
 
 
@@ -216,7 +225,9 @@ async def update_alert_config(update: AlertConfigUpdate):
     # Note: In production, this would persist to database
     # For now, we just log the update request
 
-    logger.info(f"Alert config update requested: {update.model_dump(exclude_none=True)}")
+    logger.info(
+        f"Alert config update requested: {update.model_dump(exclude_none=True)}"
+    )
 
     # Return current config (in production, return updated config)
     return await get_alert_config()
@@ -225,6 +236,7 @@ async def update_alert_config(update: AlertConfigUpdate):
 # ========================================
 # Channel Management Endpoints
 # ========================================
+
 
 @router.get("/channels/status")
 async def get_channels_status():
@@ -242,15 +254,17 @@ async def get_channels_status():
                 name: {
                     "enabled": status.enabled,
                     "healthy": status.healthy,
-                    "last_message_at": status.last_message_at.isoformat() if status.last_message_at else None,
+                    "last_message_at": status.last_message_at.isoformat()
+                    if status.last_message_at
+                    else None,
                     "messages_sent_today": status.messages_sent_today,
                     "failures_today": status.failures_today,
                     "rate_limit_remaining": status.rate_limit_remaining,
-                    "error_message": status.error_message
+                    "error_message": status.error_message,
                 }
                 for name, status in statuses.items()
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         logger.error(f"Error getting channel status: {e}")
@@ -267,8 +281,7 @@ async def test_channel(channel: str):
     valid_channels = ["telegram", "email", "slack", "sms"]
     if channel not in valid_channels:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid channel. Must be one of: {valid_channels}"
+            status_code=400, detail=f"Invalid channel. Must be one of: {valid_channels}"
         )
 
     try:
@@ -283,7 +296,7 @@ async def test_channel(channel: str):
             success=result.success,
             response_time_ms=response_time,
             error_message=result.error_message,
-            timestamp=end_time
+            timestamp=end_time,
         )
     except Exception as e:
         logger.error(f"Error testing channel {channel}: {e}")
@@ -294,6 +307,7 @@ async def test_channel(channel: str):
 # Rules Management Endpoints
 # ========================================
 
+
 @router.get("/rules", response_model=AlertRules)
 async def get_alert_rules():
     """
@@ -301,7 +315,7 @@ async def get_alert_rules():
     """
     return AlertRules(
         suppression_rules=alert_rules_engine.get_suppression_rules(),
-        escalation_rules=alert_rules_engine.get_escalation_rules()
+        escalation_rules=alert_rules_engine.get_escalation_rules(),
     )
 
 
@@ -320,7 +334,7 @@ async def update_alert_rules(rules_update: AlertRulesUpdate):
 
     return AlertRules(
         suppression_rules=alert_rules_engine.get_suppression_rules(),
-        escalation_rules=alert_rules_engine.get_escalation_rules()
+        escalation_rules=alert_rules_engine.get_escalation_rules(),
     )
 
 
@@ -328,10 +342,9 @@ async def update_alert_rules(rules_update: AlertRulesUpdate):
 # Statistics Endpoint
 # ========================================
 
+
 @router.get("/stats", response_model=AlertStats)
-async def get_alert_stats(
-    hours: int = Query(default=24, ge=1, le=720)
-):
+async def get_alert_stats(hours: int = Query(default=24, ge=1, le=720)):
     """
     Get alert statistics for the specified period
 
@@ -349,6 +362,7 @@ async def get_alert_stats(
 # Specialized Alert Endpoints
 # ========================================
 
+
 @router.post("/trade", response_model=AlertResponse)
 async def send_trade_alert(
     action: str,
@@ -358,7 +372,7 @@ async def send_trade_alert(
     stop_loss: Optional[float] = None,
     take_profit: Optional[float] = None,
     confidence: float = 0.0,
-    pnl: Optional[float] = None
+    pnl: Optional[float] = None,
 ):
     """
     Send a trade execution alert
@@ -374,7 +388,7 @@ async def send_trade_alert(
             stop_loss=stop_loss,
             take_profit=take_profit,
             confidence=confidence,
-            pnl=pnl
+            pnl=pnl,
         )
         return response
     except Exception as e:
@@ -388,7 +402,7 @@ async def send_risk_alert(
     message: str,
     severity: AlertSeverity = AlertSeverity.HIGH,
     current_value: Optional[float] = None,
-    threshold: Optional[float] = None
+    threshold: Optional[float] = None,
 ):
     """
     Send a risk management alert
@@ -401,7 +415,7 @@ async def send_risk_alert(
             message=message,
             severity=severity,
             current_value=current_value,
-            threshold=threshold
+            threshold=threshold,
         )
         return response
     except Exception as e:
@@ -411,9 +425,7 @@ async def send_risk_alert(
 
 @router.post("/system", response_model=AlertResponse)
 async def send_system_alert(
-    service_name: str,
-    status: str,
-    error_message: Optional[str] = None
+    service_name: str, status: str, error_message: Optional[str] = None
 ):
     """
     Send a system status alert
@@ -422,9 +434,7 @@ async def send_system_alert(
     """
     try:
         response = await alert_manager.send_system_alert(
-            service_name=service_name,
-            status=status,
-            error_message=error_message
+            service_name=service_name, status=status, error_message=error_message
         )
         return response
     except Exception as e:
@@ -440,12 +450,18 @@ async def send_daily_summary(
     best_trade: float,
     worst_trade: float,
     balance: float,
-    open_positions: int = 0
+    open_positions: int = 0,
+    ml_gate_reason_counts: Optional[dict] = None,
 ):
     """
     Send daily trading summary
 
     Convenience endpoint for daily performance summaries.
+
+    ``ml_gate_reason_counts`` (Plan 09-03 MLGATE-03): optional dict of
+    ML-gate reason counts; when non-empty, the rendered digest message gains
+    an "ML Gate Reasons (24h):" section in canonical order. Forwarded to
+    ``alert_manager.send_daily_summary``.
     """
     try:
         response = await alert_manager.send_daily_summary(
@@ -455,7 +471,8 @@ async def send_daily_summary(
             best_trade=best_trade,
             worst_trade=worst_trade,
             balance=balance,
-            open_positions=open_positions
+            open_positions=open_positions,
+            ml_gate_reason_counts=ml_gate_reason_counts,
         )
         return response
     except Exception as e:
