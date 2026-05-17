@@ -31,7 +31,7 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 
 - [x] **Phase 8: Pre-LIVE Preflight** — CLI + HTTP API + trading-engine boot enforcement + CI workflow + RUNBOOK checklist for all 6 LIVE preconditions (includes unit tests and CI grep gates per PREFLIGHT-01/02 scope) (completed 2026-05-16)
 - [ ] **Phase 9: ML Re-enablement Gate** — 7-day evidence loop driver, startup auto-flip based on DSR>0.95 evidence row, structured disable-reason enum with Telegram digest (includes unit tests and CI grep gate per MLGATE-02 scope)
-- [ ] **Phase 10: Path-to-LIVE Dashboard** — PathToLiveTile showing preflight + carry-in state, DO-NOT-FLIP/ALMOST/READY logic, Playwright smoke
+- [x] **Phase 10: Path-to-LIVE Dashboard** — PathToLiveTile showing preflight + carry-in state, DO-NOT-FLIP/ALMOST/READY logic, Playwright smoke (completed 2026-05-17)
 - [ ] **Phase 11: Carry-In Closure** — Operator-runnable harnesses for all 5 v1.0 carry-ins; each closes with evidence row under `.planning/evidence/LIVECLOSE-*/`
 - [ ] **Phase 12: CI Recovery** — Billing-failure detector workflow + first green CI runs of integration/tournament/dashboard-smoke after OP-04 resolved
 
@@ -79,7 +79,7 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 **Plans**: 3/3 plans planned (0 complete)
 - [x] 10-01-PLAN.md — api-gateway /api/preflight/carry-ins endpoint + carry_ins.json seed + docker-compose RW bind-mount (Wave 1; DASHLIVE-02 + DASHLIVE-03)
 - [x] 10-02-PLAN.md — useLiveReadiness + useCarryIns hooks + PathToLiveTile + Dashboard.jsx wiring (Wave 1; DASHLIVE-01 + DASHLIVE-03)
-- [ ] 10-03-PLAN.md — tests/e2e Playwright smoke + tests/integration grep gates + dashboard-smoke.yml CI (Wave 2, depends on 10-01 + 10-02; DASHLIVE-04)
+- [x] 10-03-PLAN.md — tests/e2e Playwright smoke + tests/integration grep gates + dashboard-smoke.yml CI (Wave 2, depends on 10-01 + 10-02; DASHLIVE-04)
 **UI hint**: yes
 
 ### Phase 11: Carry-In Closure
@@ -121,6 +121,6 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 | 7.2. Phase3Dashboard Skeleton-Loader Fix | v1.0 | 1/1 | Complete | 2026-05-15 |
 | 8. Pre-LIVE Preflight | v1.1 | 5/5 | Complete   | 2026-05-16 |
 | 9. ML Re-enablement Gate | v1.1 | 0/TBD | Not started | - |
-| 10. Path-to-LIVE Dashboard | v1.1 | 2/3 | In Progress|  |
+| 10. Path-to-LIVE Dashboard | v1.1 | 3/3 | Complete   | 2026-05-17 |
 | 11. Carry-In Closure | v1.1 | 0/TBD | Not started | - |
 | 12. CI Recovery | v1.1 | 0/TBD | Not started | - |
