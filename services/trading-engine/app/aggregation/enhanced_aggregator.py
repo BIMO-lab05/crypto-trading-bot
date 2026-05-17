@@ -14,6 +14,7 @@ from typing import Dict, Optional, Tuple
 from app.models import TradingSignal, IndicatorSignal, SignalAction
 from app.config import get_settings
 from .aggregator_core import CoreAggregator
+from app.aggregation.ml_gate_reasons import log_ml_disabled  # noqa: F401 — used in __init__ + aggregate_signals_enhanced ML-disabled branches; autoflake-survival
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,15 @@ class EnhancedAggregator(CoreAggregator):
             f"(ML={self.use_ml}, MTF={self.use_multi_timeframe})"
         )
 
+        # MLGATE-03 emission site E1 (Plan 09-03):
+        # When ML predictions are disabled at aggregator init, emit a structured
+        # reason log. D-09-03-06: no explicit `reason` arg — the helper reads
+        # get_current_reason() which returns the live auto-flip outcome (Plan
+        # 09-02 wrote it via set_current_reason()). Before any auto-flip fires,
+        # the cache defaults to "manual_override".
+        if not self.use_ml:
+            log_ml_disabled(detail="enable_ml_predictions=false at aggregator init")
+
     async def close(self):
         """Close HTTP client"""
         await self.http_client.aclose()
@@ -126,6 +136,11 @@ class EnhancedAggregator(CoreAggregator):
         else:
             tasks.append(asyncio.sleep(0))  # Dummy task
             task_names.append("ML_DISABLED")
+            # MLGATE-03 emission site E2 (Plan 09-03): per-cycle structured
+            # reason log on the parallel-fetch ML-disabled branch. No explicit
+            # `reason` arg — defaults to get_current_reason() so the per-cycle
+            # emission reflects the live auto-flip outcome (D-09-03-06).
+            log_ml_disabled(detail=f"symbol={symbol} interval={interval}")
 
         if self.use_multi_timeframe:
             tasks.append(self._fetch_multi_timeframe(symbol))

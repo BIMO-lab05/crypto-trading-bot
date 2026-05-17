@@ -480,6 +480,13 @@ from app.handlers.preflight import router as preflight_router  # noqa: E402
 
 app.include_router(preflight_router)
 
+# Phase 9 MLGATE-03 — unauthenticated read-only ML-gate reason-counts endpoint
+# (Plan 09-03 D-09-03-07). Mirrors the preflight_router shape and disclosure
+# level. Consumed by the notification-service daily-digest scheduler.
+from app.handlers.ml_gate_reasons import router as ml_gate_reasons_router  # noqa: E402, F401 — autoflake-survival
+
+app.include_router(ml_gate_reasons_router)
+
 
 # ============================================================================
 # PROMETHEUS METRICS ENDPOINT

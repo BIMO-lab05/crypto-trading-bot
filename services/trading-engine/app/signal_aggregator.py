@@ -20,6 +20,7 @@ from typing import Dict, Optional, List
 from app.config import get_settings
 from app.models import TradingSignal, IndicatorSignal, SignalAction
 from app.aggregation import CoreAggregator
+from app.aggregation.ml_gate_reasons import log_ml_disabled  # noqa: F401 — used in get_trading_signal fallback branch; autoflake-survival
 from app.services.indicator_registry import get_indicator_registry
 
 logger = logging.getLogger(__name__)
@@ -1132,6 +1133,12 @@ class SignalAggregator:
             )
         else:
             # Fallback to Phase 1 aggregation
+            # MLGATE-03 emission site E3 (Plan 09-03): the Phase-1 fallback is
+            # the canonical ML-disabled branch on the routing path. No explicit
+            # `reason` arg — defaults to get_current_reason() (D-09-03-06
+            # cross-plan fallback). The actual log literal is emitted by
+            # log_ml_disabled() in the helper module.
+            log_ml_disabled(detail="fallback_to_phase1")
             signal = self.aggregate_signals(indicators, timestamp, atr_data)
 
         signal.symbol = symbol
