@@ -124,7 +124,8 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
   1. CIRESTORE-01 — Operator confirms GH Actions billing resolved; `.planning/evidence/OP-04/billing-screenshot.png` committed with visible timestamp on the billing page. (human_needed checkpoint: operator action)
   2. CIRESTORE-02 — Three green CI run URLs committed to `.planning/evidence/CIRESTORE-02/`: one each for `integration-ml-on.yml` nightly variant, `tournament-harness.yml`, and `dashboard-smoke.yml`. (human_needed checkpoint: requires OP-04 billing resolution)
   3. `.github/workflows/billing-failure-detector.yml` runs on `schedule: cron: '0 */6 * * *'`; on detecting a run with `billing` substring in failure reason via `gh run list --status failure --limit 5`, it posts to the Telegram notification path and creates a GitHub Issue labeled `ops: billing`; behavior is asserted by a unit test that mocks `gh run list` output containing `billing`.
-**Plans**: TBD
+**Plans:** 1/1 plan planned (0 complete)
+- [ ] 12-01-PLAN.md — billing-failure-detector workflow + tests + .planning/evidence/{OP-04,CIRESTORE-02}/ scaffolds (Wave 1; CIRESTORE-01 + CIRESTORE-02 + CIRESTORE-03)
 
 ## Progress
 
@@ -146,4 +147,4 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 | 10. Path-to-LIVE Dashboard | v1.1 | 3/3 | Complete    | 2026-05-17 |
 | 11. Carry-In Closure | v1.1 | 0/TBD | Not started | - |
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete   | 2026-05-18 |
-| 12. CI Recovery | v1.1 | 0/TBD | Not started | - |
+| 12. CI Recovery | v1.1 | 0/1 | Planned    | -          |
