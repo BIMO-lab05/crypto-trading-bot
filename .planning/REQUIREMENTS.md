@@ -10,11 +10,11 @@
 
 Each carry-in needs an operator-runnable closure path with verifiable evidence row, not "code complete pending operator".
 
-- [ ] **LIVECLOSE-01**: Operator executes INFRA-02 fresh-clone bootstrap checkpoint (Plan 01-03 Task 4) — runs `bash bootstrap.sh` against a fresh `git clone` into a tmp directory **twice**, captures `BYBIT_PRICE_SOURCE: mode=tape` log line + 15-service health snapshot per run, and commits the evidence under `.planning/evidence/LIVECLOSE-01/`.
-- [ ] **LIVECLOSE-02**: INFRA-01 live-stack ML-on nightly variant produces its first green CI run on GitHub Actions (after OP-04 billing recovery); CI URL + green-badge evidence linked in OP-04 close note.
-- [ ] **LIVECLOSE-03**: MLCL-01 forward-paper-test apparatus accrues ≥7 consecutive trading days of evidence with PSR-CI published per feature; evidence row visible in tournament leaderboard with `psr_ci_published=true`.
-- [ ] **LIVECLOSE-04**: MLCL-02 T0.1.x `different_horizon` sweep re-runs after OP-02 (migration 005) + OP-03 (reader password); verdict transitions from `INSUFFICIENT_DATA` to `PASS` or `FAIL` with bootstrap p-value persisted in `tournament_results`.
-- [ ] **LIVECLOSE-05**: DASH-03 LIVE-flip manual smoke executed — operator force-recreates api-gateway with `TRADING_MODE=LIVE`, captures screenshot showing rose viewport outline + red MODE pill + KILL-SWITCH state, reverts, and commits screenshot under `.planning/evidence/LIVECLOSE-05/`.
+- [x] **LIVECLOSE-01**: Operator executes INFRA-02 fresh-clone bootstrap checkpoint (Plan 01-03 Task 4) — runs `bash bootstrap.sh` against a fresh `git clone` into a tmp directory **twice**, captures `BYBIT_PRICE_SOURCE: mode=tape` log line + 15-service health snapshot per run, and commits the evidence under `.planning/evidence/LIVECLOSE-01/`.
+- [x] **LIVECLOSE-02**: INFRA-01 live-stack ML-on nightly variant produces its first green CI run on GitHub Actions (after OP-04 billing recovery); CI URL + green-badge evidence linked in OP-04 close note.
+- [x] **LIVECLOSE-03**: MLCL-01 forward-paper-test apparatus accrues ≥7 consecutive trading days of evidence with PSR-CI published per feature; evidence row visible in tournament leaderboard with `psr_ci_published=true`.
+- [x] **LIVECLOSE-04**: MLCL-02 T0.1.x `different_horizon` sweep re-runs after OP-02 (migration 005) + OP-03 (reader password); verdict transitions from `INSUFFICIENT_DATA` to `PASS` or `FAIL` with bootstrap p-value persisted in `tournament_results`.
+- [x] **LIVECLOSE-05**: DASH-03 LIVE-flip manual smoke executed — operator force-recreates api-gateway with `TRADING_MODE=LIVE`, captures screenshot showing rose viewport outline + red MODE pill + KILL-SWITCH state, reverts, and commits screenshot under `.planning/evidence/LIVECLOSE-05/`.
 
 ### PREFLIGHT — Code-enforced LIVE preconditions
 

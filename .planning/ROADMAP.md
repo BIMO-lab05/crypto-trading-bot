@@ -107,14 +107,14 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
   5. LIVECLOSE-05 harness — `scripts/closure/liveclose-05-live-flip-smoke.sh` documents the exact `docker compose ... up -d --force-recreate api-gateway` command with `TRADING_MODE=LIVE`, an inline curl probe asserting `GET /api/preflight/live-readiness` returns the LIVE-mode marker, and a tear-down revert step; `docs/runbooks/LIVECLOSE-05.md` co-ships and references the script; an end-to-end test on docker-compose stack (`tests/e2e/test_liveclose_05_smoke.py`) executes the script against a paper-mode container and asserts revert restores `TRADING_MODE=PAPER`.
   6. README + index — `.planning/evidence/LIVECLOSE-INDEX.md` enumerates the 5 carry-ins, the harness command, the evidence target path, and the `human_needed` checkpoint status; markdown lint-clean.
   7. All 5 harness scripts emit machine-readable evidence files conforming to a shared JSON schema documented at `.planning/evidence/_schema.json` (status, timestamp, evidence_paths array, human_needed bool).
-**Plans:** 7 plans
+**Plans:** 7/7 plans complete
 - [x] 11.1-01-PLAN.md — Evidence JSON Schema + LIVECLOSE-INDEX.md template + scripts/closure/_common.py write helper (Wave 1, foundation; LIVECLOSE-01..05) [shipped 2026-05-18: fe16d87+7be4f31+b1744fb+e11aea2]
-- [ ] 11.1-02-PLAN.md — LIVECLOSE-01 fresh-clone harness: bootstrap.sh × 2 from mktemp -d + BYBIT_PRICE_SOURCE grep + integration test (Wave 2; LIVECLOSE-01)
-- [ ] 11.1-03-PLAN.md — LIVECLOSE-02 CI-URL recorder: integration-ml-on.yml URL validation via gh api + paper-only refusal + unit tests (Wave 2; LIVECLOSE-02)
-- [ ] 11.1-04-PLAN.md — LIVECLOSE-03 PSR-evidence exporter: SQLite query of `leaderboard` table (not tournament_results) for ≥7-day consecutive window + in-memory fixtures (Wave 2; LIVECLOSE-03)
-- [ ] 11.1-05-PLAN.md — LIVECLOSE-04 sweep-verdict exporter: decision_note.md terminal verdict (EDGE_FOUND/NO_EDGE_FOUND/INSUFFICIENT_DATA) + significance.json p-values + fixture-driven tests (Wave 2; LIVECLOSE-04)
-- [ ] 11.1-06-PLAN.md — LIVECLOSE-05 LIVE-flip smoke harness + docs/runbooks/LIVECLOSE-05.md + e2e pytest (Wave 2; supervised-run-only; LIVECLOSE-05)
-- [ ] 11.1-07-PLAN.md — Wire LIVECLOSE-INDEX.md + scripts/closure/run-all.sh orchestrator + wiring tests (Wave 3, depends on 11.1-01..06; LIVECLOSE-01..05)
+- [x] 11.1-02-PLAN.md — LIVECLOSE-01 fresh-clone harness: bootstrap.sh × 2 from mktemp -d + BYBIT_PRICE_SOURCE grep + integration test (Wave 2; LIVECLOSE-01)
+- [x] 11.1-03-PLAN.md — LIVECLOSE-02 CI-URL recorder: integration-ml-on.yml URL validation via gh api + paper-only refusal + unit tests (Wave 2; LIVECLOSE-02)
+- [x] 11.1-04-PLAN.md — LIVECLOSE-03 PSR-evidence exporter: SQLite query of `leaderboard` table (not tournament_results) for ≥7-day consecutive window + in-memory fixtures (Wave 2; LIVECLOSE-03)
+- [x] 11.1-05-PLAN.md — LIVECLOSE-04 sweep-verdict exporter: decision_note.md terminal verdict (EDGE_FOUND/NO_EDGE_FOUND/INSUFFICIENT_DATA) + significance.json p-values + fixture-driven tests (Wave 2; LIVECLOSE-04)
+- [x] 11.1-06-PLAN.md — LIVECLOSE-05 LIVE-flip smoke harness + docs/runbooks/LIVECLOSE-05.md + e2e pytest (Wave 2; supervised-run-only; LIVECLOSE-05)
+- [x] 11.1-07-PLAN.md — Wire LIVECLOSE-INDEX.md + scripts/closure/run-all.sh orchestrator + wiring tests (Wave 3, depends on 11.1-01..06; LIVECLOSE-01..05)
 
 ### Phase 12: CI Recovery
 **Goal**: Once GH Actions billing is resolved, CI regressions are detectable automatically and the three blocked CI jobs produce their first green runs — `billing-failure-detector.yml` workflow runs every 6h and creates a GitHub Issue + Telegram alert on billing failure detection; first green runs of `integration-ml-on.yml`, `tournament-harness.yml`, and `dashboard-smoke.yml` are linked as evidence. The billing detector ships regardless of OP-04 state; CIRESTORE-02 green-run evidence is `awaiting-checkpoint` until OP-04 is resolved.
@@ -145,5 +145,5 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 | 9. ML Re-enablement Gate | v1.1 | 0/TBD | Not started | - |
 | 10. Path-to-LIVE Dashboard | v1.1 | 3/3 | Complete    | 2026-05-17 |
 | 11. Carry-In Closure | v1.1 | 0/TBD | Not started | - |
-| 11.1. Carry-In Closure Harnesses | v1.1 | 0/7 | Planned | - |
+| 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete   | 2026-05-18 |
 | 12. CI Recovery | v1.1 | 0/TBD | Not started | - |
