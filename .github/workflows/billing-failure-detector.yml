@@ -1,0 +1,130 @@
+# Phase 12 CIRESTORE-03 — Billing-failure-detector cron workflow.
+#
+# Runs every 6 hours (`'0 */6 * * *'` UTC) and on workflow_dispatch.
+# Lists the last 5 failed GitHub Actions runs via `gh run list`, filters for
+# displayTitle (case-insensitive) containing the literal `billing` substring,
+# excludes the detector's own failure rows (self-trigger guard), and on any
+# foreign match posts a Telegram alert + creates a GitHub Issue with the
+# `ops: billing` label.
+#
+# SELF-TRIGGER PREVENTION (advisor-flagged blocker during planning):
+# The workflow `name:` value below is deliberately `CI Health Monitor
+# (CIRESTORE-03)` — it does NOT contain the literal `billing` (case-insensitive).
+# Reason: if the detector itself ever fails (Telegram 5xx, jq error, transient
+# `gh api` flake), the next cron tick would read its own failure row, the row's
+# displayTitle would inherit the workflow name (which would contain `billing`),
+# the substring match would trip, and a new alert would post — infinite loop.
+# Defense-in-depth: the jq pipeline below also has an explicit
+# `select(.name != "CI Health Monitor (CIRESTORE-03)")` clause so the filter
+# still catches the self-trigger even if a future refactor renames the workflow.
+#
+# TELEGRAM PATH (forced design decision):
+# Direct `curl` to `https://api.telegram.org/bot${TOKEN}/sendMessage`. The
+# in-cluster notification-service (port 8006) runs inside the operator's
+# docker-compose host and is NOT reachable from GitHub-hosted runners without
+# VPN/tunnel. Direct curl is the only viable option and the smaller blast
+# radius (no service dependency, no networking surface).
+#
+# SECURITY (no event-payload interpolation):
+# This workflow has only `schedule` + `workflow_dispatch` triggers — no
+# event payload exists. The workflow does NOT interpolate any user-controllable
+# fields into shell `run:` blocks. Matches the security convention in
+# `.github/workflows/preflight-live-readiness.yml`. Telegram bot token is
+# `::add-mask::`-ed at workflow start (Step A) and only expanded inside the
+# direct curl POST body (Step D).
+#
+# IDEMPOTENCY (`ops: billing` label):
+# The label-create step runs unconditionally with a trailing `|| true` so the
+# first run on a fresh repo (label doesn't exist → create) and every
+# subsequent run (label exists → 422 from gh) both succeed silently.
+#
+# Threat acceptance (per .planning/phases/12-ci-recovery/12-CONTEXT.md row 4):
+# Detector may miss the actual billing-exhaustion event itself — if billing
+# is fully exhausted, GitHub Actions cannot run any workflow including this
+# one, so no failure rows surface. Acceptable: 6h cron skew matches operator-
+# monitored cadence; this is a "detect-on-resume" net, not "detect-during-outage".
+
+name: CI Health Monitor (CIRESTORE-03)
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'    # every 6h, on the hour (UTC)
+  workflow_dispatch:          # manual trigger for ops smoke
+
+concurrency:
+  group: ci-health-monitor
+  cancel-in-progress: false   # let a running detection finish before next cron tick
+
+permissions:
+  issues: write       # gh issue create
+  actions: read       # gh run list
+  contents: read
+
+jobs:
+  detect-billing:
+    name: Detect billing-blocked failures and alert
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Mask Telegram secrets
+        run: |
+          if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
+            echo "::add-mask::${TELEGRAM_BOT_TOKEN}"
+          fi
+
+      - name: Ensure ops billing label exists (idempotent)
+        run: |
+          gh label create "ops: billing" --color "d73a4a" --description "Billing-blocked CI failure detector" --repo "${GITHUB_REPOSITORY}" || true
+
+      - name: Query recent failures
+        id: detect
+        run: |
+          FAILED_JSON="$(gh run list --status failure --limit 5 --json conclusion,displayTitle,name,htmlUrl,databaseId,event --repo "${GITHUB_REPOSITORY}")"
+          echo "$FAILED_JSON" > /tmp/failed_runs.json
+          # jq pipeline:
+          #   1. exclude rows whose .name equals the detector's own workflow
+          #      name (self-trigger guard — defense-in-depth in addition to the
+          #      no-`billing`-literal-in-name policy enforced by the workflow
+          #      `name:` field above);
+          #   2. ascii-lower displayTitle;
+          #   3. substring-match against literal 'billing'.
+          MATCHED="$(jq -r '[.[] | select(.name != "CI Health Monitor (CIRESTORE-03)") | select(.displayTitle | ascii_downcase | contains("billing"))] | length' /tmp/failed_runs.json)"
+          echo "matched_count=${MATCHED}" >> "$GITHUB_OUTPUT"
+          if [[ "${MATCHED}" -gt 0 ]]; then
+            echo "billing_detected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "billing_detected=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post Telegram alert
+        if: steps.detect.outputs.billing_detected == 'true'
+        run: |
+          SUMMARY="$(jq -r '[.[] | select(.name != "CI Health Monitor (CIRESTORE-03)") | select(.displayTitle | ascii_downcase | contains("billing"))] | map("- " + .displayTitle + " (" + .htmlUrl + ")") | join("\n")' /tmp/failed_runs.json)"
+          PAYLOAD="$(jq -n --arg chat "${TELEGRAM_CHAT_ID}" --arg text "Billing-blocked CI runs detected:\n\n${SUMMARY}\n\nRepo: ${GITHUB_REPOSITORY}" '{chat_id: $chat, text: $text, parse_mode: "HTML"}')"
+          curl -s --fail -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "${PAYLOAD}"
+
+      - name: Create ops billing Issue
+        if: steps.detect.outputs.billing_detected == 'true'
+        run: |
+          BODY_FILE=/tmp/issue_body.md
+          {
+            echo "Automated detection — billing-failure-detector.yml cron found recent CI failures whose displayTitle matches the substring billing (case-insensitive), excluding the detector's own failures."
+            echo
+            echo "## Matched runs"
+            jq -r '.[] | select(.name != "CI Health Monitor (CIRESTORE-03)") | select(.displayTitle | ascii_downcase | contains("billing")) | "- [" + .displayTitle + "](" + .htmlUrl + ") - event: " + .event' /tmp/failed_runs.json
+            echo
+            echo "## Action"
+            echo "Review the GitHub Actions billing settings for ${GITHUB_REPOSITORY}."
+            echo
+            echo "Auto-generated by .github/workflows/billing-failure-detector.yml (CIRESTORE-03)."
+          } > "$BODY_FILE"
+          gh issue create \
+            --title "ops: billing — recent CI runs blocked by billing" \
+            --label "ops: billing" \
+            --body-file "$BODY_FILE" \
+            --repo "${GITHUB_REPOSITORY}"
