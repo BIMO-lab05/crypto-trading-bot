@@ -74,22 +74,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WS-01 | Phase [TBD] | Pending |
-| WS-02 | Phase [TBD] | Pending |
-| WS-03 | Phase [TBD] | Pending |
-| WS-04 | Phase [TBD] | Pending |
-| MOBILE-01 | Phase [TBD] | Pending |
-| MOBILE-02 | Phase [TBD] | Pending |
-| MOBILE-03 | Phase [TBD] | Pending |
-| TOOL-01 | Phase [TBD] | Pending |
-| TOOL-02 | Phase [TBD] | Pending |
-| TOOL-03 | Phase [TBD] | Pending |
+| WS-01 | Phase 13 | Pending |
+| WS-02 | Phase 13 | Pending |
+| WS-03 | Phase 13 | Pending |
+| WS-04 | Phase 13 | Pending |
+| MOBILE-01 | Phase 14 | Pending |
+| MOBILE-02 | Phase 14 | Pending |
+| MOBILE-03 | Phase 14 | Pending |
+| TOOL-01 | Phase 15 | Pending |
+| TOOL-02 | Phase 15 | Pending |
+| TOOL-03 | Phase 15 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 10 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 10 ⚠️ (resolved by gsd-roadmapper)
+- Mapped to phases: 10 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-18*
-*Last updated: 2026-05-18 after `/gsd-new-milestone v1.2`*
+*Last updated: 2026-05-18 after `/gsd-roadmapper` (Phases 13/14/15 mapped)*
