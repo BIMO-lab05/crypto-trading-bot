@@ -7,27 +7,28 @@ import logging
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..models import (
-    AlertCreate,
-    AlertBatch,
-    Alert,
-    AlertResponse,
-    AlertListResponse,
-    AlertAcknowledge,
-    AlertStats,
-    AlertConfigResponse,
-    AlertConfigUpdate,
-    AlertRules,
-    AlertRulesUpdate,
-    ChannelTestResult,
-    AlertSeverity,
-    AlertType,
-)
 from ..alert_manager import alert_manager
 from ..alert_rules import alert_rules_engine
+from ..auth import verify_admin_key
 from ..config import config
+from ..models import (
+    Alert,
+    AlertAcknowledge,
+    AlertBatch,
+    AlertConfigResponse,
+    AlertConfigUpdate,
+    AlertCreate,
+    AlertListResponse,
+    AlertResponse,
+    AlertRules,
+    AlertRulesUpdate,
+    AlertSeverity,
+    AlertStats,
+    AlertType,
+    ChannelTestResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -452,11 +453,18 @@ async def send_daily_summary(
     balance: float,
     open_positions: int = 0,
     ml_gate_reason_counts: Optional[dict] = None,
+    _admin: str = Depends(verify_admin_key),
 ):
     """
     Send daily trading summary
 
     Convenience endpoint for daily performance summaries.
+
+    Admin-guarded (Phase 9 T-09-03-05): requires the ``X-Admin-Key`` header
+    matching the service's configured ``ADMIN_API_KEY``. The scheduled
+    digest path (``app/scheduler/ml_gate_digest.py``) bypasses this guard
+    because it calls ``alert_manager.send_daily_summary`` directly in
+    process; only the HTTP surface is gated.
 
     ``ml_gate_reason_counts`` (Plan 09-03 MLGATE-03): optional dict of
     ML-gate reason counts; when non-empty, the rendered digest message gains

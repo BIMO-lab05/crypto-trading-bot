@@ -221,6 +221,21 @@ class NotificationConfig(BaseSettings):
     min_profit_alert: float = 10.0  # Alert on profit > $10
     min_loss_alert: float = 10.0  # Alert on loss > $10
 
+    # ========================================
+    # Admin authentication (Phase 9 T-09-03-05)
+    # ========================================
+    # Required for routes that can spoof user-facing payloads (e.g. the
+    # Telegram daily digest). Mirrors risk-metrics-service auth.py pattern:
+    # X-Admin-Key header verified against this value. Empty value means the
+    # service refuses to boot guarded routes (see auth.verify_admin_key).
+    admin_api_key: str = Field(
+        default="",
+        description=(
+            "Shared admin API key for guarded routes (X-Admin-Key header). "
+            "REQUIRED via ADMIN_API_KEY env var in production."
+        ),
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
