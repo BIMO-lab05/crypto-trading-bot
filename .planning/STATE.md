@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Path to LIVE
 status: executing
-stopped_at: Phase 10 context gathered
-last_updated: "2026-05-18T12:13:37.439Z"
-last_activity: 2026-05-18 -- Phase 11.1 planning complete
+stopped_at: Plan 11.1-01 complete — Wave 2 unblocked
+last_updated: "2026-05-18T13:26:14.184Z"
+last_activity: 2026-05-18 -- Plan 11.1-01 shipped (evidence schema + closure helper foundation)
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 18
-  completed_plans: 11
-  percent: 61
+  total_plans: 25
+  completed_plans: 12
+  percent: 48
 ---
 
 # Project State
@@ -26,17 +26,18 @@ See: .planning/PROJECT.md (updated 2026-05-16)
 ## Current Position
 
 Phase: 11.1
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-18 -- Phase 11.1 planning complete
+Plan: 01 of 7 completed
+Status: Wave 1 (foundation) complete — Wave 2 unblocked
+Last activity: 2026-05-18 -- Plan 11.1-01 shipped (evidence schema + closure helper foundation)
 
-Progress: [██████████] 100%
+Progress: [█░░░░░░░░░] 14%
 
 ## Performance Metrics
 
 | Phase | Plan | Duration | Tasks | Files |
 |---|---|---|---|---|
 | 08 | 03 | ~25 min | 3 | 3 |
+| 11.1 | 01 | ~12 min | 3 | 7 |
 
 *Updated after each plan completion*
 | Phase 08-pre-live-preflight P04 | ~25min | 1 tasks | 1 files |
@@ -58,6 +59,10 @@ Progress: [██████████] 100%
 - [Phase ?]: 08-04: Pinned action versions @v4/@v5 per supply-chain mitigation T-08-04-01
 - [Phase ?]: 08-04: gate job uses needs:unit-tests so test failures short-circuit the dry-run gate even on labelled PRs
 - [Phase ?]: 08-04: if: expression YAML-double-quoted so PyYAML strict scanner accepts the inner 'live: requested' colon-space literal
+- [11.1-01]: LIVECLOSE evidence schema is closed for extension after Wave 1; Wave 2 plans (11.1-02..06) MUST consume `.planning/evidence/_schema.json` and `scripts/closure/_common.py` read-only.
+- [11.1-01]: `scripts.closure._common.write_evidence()` auto-injects `schema_version=1` and ISO-8601 UTC `timestamp` (caller cannot override) — prevents drift across the five harnesses.
+- [11.1-01]: Required-field collision in the `extra` dict raises `ValueError` BEFORE `jsonschema.validate` — semantically distinguishes caller misuse from data-shape errors.
+- [11.1-01]: `LIVECLOSE-INDEX.md` ships with `<filled-by-plan-7>` tripwire tokens; Plan 11.1-07 grep gate (count drops to 0 after Wave 3) is the explicit detector for forgotten cells.
 
 ### Blockers/Concerns
 
@@ -76,6 +81,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-05-17T16:20:01.036Z
-Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/10-path-to-live-dashboard/10-CONTEXT.md
+Last session: 2026-05-18T13:23:26Z
+Stopped at: Plan 11.1-01 complete — Wave 2 unblocked (11.1-02..06 may now import from scripts.closure._common)
+Resume file: .planning/phases/11.1-carry-in-closure-harnesses-liveclose-01-05/11.1-02-PLAN.md

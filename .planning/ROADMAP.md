@@ -108,7 +108,7 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
   6. README + index — `.planning/evidence/LIVECLOSE-INDEX.md` enumerates the 5 carry-ins, the harness command, the evidence target path, and the `human_needed` checkpoint status; markdown lint-clean.
   7. All 5 harness scripts emit machine-readable evidence files conforming to a shared JSON schema documented at `.planning/evidence/_schema.json` (status, timestamp, evidence_paths array, human_needed bool).
 **Plans:** 7 plans
-- [ ] 11.1-01-PLAN.md — Evidence JSON Schema + LIVECLOSE-INDEX.md template + scripts/closure/_common.py write helper (Wave 1, foundation; LIVECLOSE-01..05)
+- [x] 11.1-01-PLAN.md — Evidence JSON Schema + LIVECLOSE-INDEX.md template + scripts/closure/_common.py write helper (Wave 1, foundation; LIVECLOSE-01..05) [shipped 2026-05-18: fe16d87+7be4f31+b1744fb+e11aea2]
 - [ ] 11.1-02-PLAN.md — LIVECLOSE-01 fresh-clone harness: bootstrap.sh × 2 from mktemp -d + BYBIT_PRICE_SOURCE grep + integration test (Wave 2; LIVECLOSE-01)
 - [ ] 11.1-03-PLAN.md — LIVECLOSE-02 CI-URL recorder: integration-ml-on.yml URL validation via gh api + paper-only refusal + unit tests (Wave 2; LIVECLOSE-02)
 - [ ] 11.1-04-PLAN.md — LIVECLOSE-03 PSR-evidence exporter: SQLite query of `leaderboard` table (not tournament_results) for ≥7-day consecutive window + in-memory fixtures (Wave 2; LIVECLOSE-03)
