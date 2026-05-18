@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Path to LIVE
-status: verifying
-stopped_at: Plan 11.1-07 complete — Wave 3 wiring shipped; LIVECLOSE-INDEX.md fully populated + scripts/closure/run-all.sh orchestrator live; Phase 11.1 closure harness scaffolding done
-last_updated: "2026-05-18T16:15:25.872Z"
+status: phase-complete
+stopped_at: Phase 12 (CI Recovery) complete + verified (11/11 must-haves + 12/12 detector tests PASS) — billing-failure-detector workflow shipped + CIRESTORE-01/02 evidence scaffolds; only operator wall-clock carry-ins remain (OP-01..04 + INFRA-02)
+last_updated: "2026-05-18T16:30:00.000Z"
 last_activity: 2026-05-18
 progress:
   total_phases: 6
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-16)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Phase 12 — CI Recovery (last unplanned v1.1 phase). v1.1 code work outstanding: Phase 12 plans. Operator wall-clock outstanding: OP-01..04 + INFRA-02 carry-ins (LIVECLOSE-01..05 harness executions).
+**Current focus:** v1.1 code work COMPLETE (Phases 8, 9, 10, 11.1, 12 done; Phase 11 umbrella superseded by 11.1). All remaining work is operator wall-clock: OP-01..04 + INFRA-02 carry-ins (LIVECLOSE-01..05 harness executions + CIRESTORE-01/02 evidence fills upon OP-04 close).
 
 ## Current Position
 
-Phase: 11.1
-Plan: 7 of 7 completed
-Status: Phase complete — ready for verification
+Phase: 12
+Plan: 1 of 1 completed
+Status: Phase complete + verified (gsd-verifier 11/11 must-haves + 12/12 tests PASS); CIRESTORE-03 SATISFIED; CIRESTORE-01/02 remain open by design (operator-blocked on OP-04)
 Last activity: 2026-05-18
 
 Progress: [██████████] 100%
@@ -89,6 +89,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-05-18T16:14:51.682Z
-Stopped at: Plan 11.1-07 complete — Wave 3 wiring shipped; LIVECLOSE-INDEX.md fully populated + scripts/closure/run-all.sh orchestrator live; Phase 11.1 closure harness scaffolding done
+Last session: 2026-05-18T16:30:00.000Z
+Stopped at: Phase 12 (CI Recovery) complete + verified — billing-failure-detector workflow shipped + CIRESTORE-01/02 evidence scaffolds in place; v1.1 code work done, only operator carry-ins remain
 Resume file: None
