@@ -1,94 +1,87 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Path to LIVE
-status: phase-complete
-stopped_at: Phase 12 (CI Recovery) complete + verified (11/11 must-haves + 12/12 detector tests PASS) — billing-failure-detector workflow shipped + CIRESTORE-01/02 evidence scaffolds; only operator wall-clock carry-ins remain (OP-01..04 + INFRA-02)
-last_updated: "2026-05-18T16:30:00.000Z"
-last_activity: 2026-05-18
+milestone: null
+milestone_name: null
+status: awaiting-next-milestone
+stopped_at: v1.1 Path to LIVE shipped + archived 2026-05-18 — 17/19 deliverables (12 complete + 5 harness-delivered + 2 operator-blocked on OP-04 GH Actions billing); next milestone not yet ratified
+last_updated: "2026-05-18T20:36:00.000Z"
+last_activity: 2026-05-18 — Milestone v1.1 archived; ROADMAP collapsed; PROJECT.md evolved; git tag v1.1 pending
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 19
-  completed_plans: 19
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-16)
+See: .planning/PROJECT.md (updated 2026-05-18 after v1.1 milestone close)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** v1.1 code work COMPLETE (Phases 8, 9, 10, 11.1, 12 done; Phase 11 umbrella superseded by 11.1). All remaining work is operator wall-clock: OP-01..04 + INFRA-02 carry-ins (LIVECLOSE-01..05 harness executions + CIRESTORE-01/02 evidence fills upon OP-04 close).
+**Current focus:** Planning next milestone. v1.1 closed with 5 operator carry-ins (LIVECLOSE-01..05 harness executions, wall-clock) + 2 operator-blocked CI items (CIRESTORE-01/02 awaiting OP-04). No code debt outstanding.
 
 ## Current Position
 
-Phase: 12
-Plan: 1 of 1 completed
-Status: Phase complete + verified (gsd-verifier 11/11 must-haves + 12/12 tests PASS); CIRESTORE-03 SATISFIED; CIRESTORE-01/02 remain open by design (operator-blocked on OP-04)
-Last activity: 2026-05-18
+Milestone: — (between milestones)
+Phase: —
+Plan: —
+Status: Awaiting next milestone definition
+Last activity: 2026-05-18 — `/gsd-complete-milestone v1.1` executed; archive + reconciliation + tag pending
 
-Progress: [██████████] 100%
+## Deferred Items
 
-## Performance Metrics
+Items acknowledged and deferred at milestone close on 2026-05-18:
 
-| Phase | Plan | Duration | Tasks | Files |
-|---|---|---|---|---|
-| 08 | 03 | ~25 min | 3 | 3 |
-| 11.1 | 01 | ~12 min | 3 | 7 |
-
-*Updated after each plan completion*
-| Phase 08-pre-live-preflight P04 | ~25min | 1 tasks | 1 files |
-| Phase 11.1 P07 | ~25 min | 2 tasks | 4 files |
-| Phase 12-ci-recovery P01 | ~52 min | 3 tasks | 6 files |
+| Category | Item | Status |
+|---|---|---|
+| verification | Phase 08 VERIFICATION.md | human_needed (2 manual-only smokes: container-restart cap-rejection proof + live HTTP curl through api-gateway after image rebuild — both deferred to post-merge operator verification per Manual-Only #1/#2 in 08-VALIDATION.md) |
+| operator-action | OP-01 — LIVE-flip manual smoke | open (blocks LIVECLOSE-05 evidence; harness shipped at scripts/closure/liveclose-05-live-flip-smoke.sh + docs/runbooks/LIVECLOSE-05.md, supervised-run-only) |
+| operator-action | OP-02 — apply migration 005 (`tournament_reader` role) | open (blocks LIVECLOSE-04 verdict) |
+| operator-action | OP-03 — set `TOURNAMENT_READER_PASSWORD` + force-recreate tournament-harness | open (blocks LIVECLOSE-04 verdict) |
+| operator-action | OP-04 — resolve GitHub Actions billing | open (blocks LIVECLOSE-02, CIRESTORE-01, CIRESTORE-02 evidence accrual) |
+| operator-action | INFRA-02 checkpoint — fresh tmp clone bootstrap × 2 | open (blocks LIVECLOSE-01 evidence; harness shipped at scripts/closure/liveclose-01-fresh-clone.sh) |
+| operator-action | LIVECLOSE-03 ≥7-day evidence accrual | open (wall-clock-bound; harness shipped at scripts/closure/liveclose_03_psr_evidence.py) |
 
 ## Accumulated Context
 
 ### Roadmap Evolution
 
-- Phase 11.1 inserted after Phase 11: Carry-In Closure harnesses (LIVECLOSE-01..05) (URGENT)
+- v1.0 milestone shipped 2026-05-15 (9 phases, 50 plans, 427 commits)
+- v1.1 milestone shipped 2026-05-18 (5 phases, 19 plans, 138 commits; Phase 11 umbrella superseded by Phase 11.1 harnesses-only split)
 
 ### Decisions
 
-- [v1.0]: Win criterion = DSR + bootstrap p<0.05; tournament uses Docker+Python orchestrator; bootstrap-tests against fresh clone; draft PRs only; backtest divergence permanent doc (ADR-012); tier-2 monitoring deleted (ADR-011).
-- [v1.1 init]: PREFLIGHT-01 owns both CLI and HTTP endpoint (`/api/preflight/live-readiness`) — Phase 10 DASHLIVE depends on the endpoint existing in Phase 8.
-- [v1.1 init]: LIVECLOSE-02 and CIRESTORE-02 reference the same operator-driven green-CI event; both REQs kept separate — same OP-04 resolution closes both.
-- [v1.1 init]: LIVECLOSE-03 (7-day evidence) depends on MLGATE-01 driver (Phase 9) existing first.
-- [08-03]: Boundary-agreement test guards the two intentionally duplicate 0.02 thresholds (inline at main.py + check_cap() in app/preflight/checks.py) per 08-CONTEXT.md locked decision — duplication kept for lifespan locality, drift detected by parametrised boundary test at 0.0200 + 0.0201.
-- [08-03]: Grep gate scope locked to services/trading-engine/app/ only (NOT repo root) — RUNBOOK.md prose containing the LIVE_PREFLIGHT_REJECTED literal would otherwise mask silent production-code removal.
-- [Phase ?]: 08-04: Pinned action versions @v4/@v5 per supply-chain mitigation T-08-04-01
-- [Phase ?]: 08-04: gate job uses needs:unit-tests so test failures short-circuit the dry-run gate even on labelled PRs
-- [Phase ?]: 08-04: if: expression YAML-double-quoted so PyYAML strict scanner accepts the inner 'live: requested' colon-space literal
-- [11.1-01]: LIVECLOSE evidence schema is closed for extension after Wave 1; Wave 2 plans (11.1-02..06) MUST consume `.planning/evidence/_schema.json` and `scripts/closure/_common.py` read-only.
-- [11.1-01]: `scripts.closure._common.write_evidence()` auto-injects `schema_version=1` and ISO-8601 UTC `timestamp` (caller cannot override) — prevents drift across the five harnesses.
-- [11.1-01]: Required-field collision in the `extra` dict raises `ValueError` BEFORE `jsonschema.validate` — semantically distinguishes caller misuse from data-shape errors.
-- [11.1-01]: `LIVECLOSE-INDEX.md` ships with `<filled-by-plan-7>` tripwire tokens; Plan 11.1-07 grep gate (count drops to 0 after Wave 3) is the explicit detector for forgotten cells.
-- [Phase ?]: [11.1-07]: LIVECLOSE-INDEX.md fully wired (zero placeholders) + scripts/closure/run-all.sh read-mostly orchestrator with whitelisted --exec (LIVECLOSE-01..04) and explicit LIVECLOSE-05 refusal (operator-supervised only).
-- [Phase ?]: [11.1-07]: Carry-in state lookup degrades to 'unknown' on missing .planning/state/carry_ins.json OR unmapped LIVECLOSE-0X; 1:1 mappings wired LIVECLOSE-01->INFRA-02, LIVECLOSE-05->OP-01.
-- [Phase ?]: [11.1-07]: Plan frontmatter 'contains:' lines reference hyphen-form .py filenames; on-disk reality is underscore-form per Python import contract. Recommended non-blocking housekeeping amendment to plan frontmatter.
-- [Phase ?]: [12-01]: Self-trigger-safe cron-monitor pattern — workflow name must not contain its own substring filter; jq pipeline carries defense-in-depth select(.name != own_name)
-- [Phase ?]: [12-01]: Direct curl to api.telegram.org from GH Actions runners — in-cluster notification-service is unreachable from GitHub-hosted runners (forced design)
-- [Phase ?]: [12-01]: Phase 12 marks only CIRESTORE-03 complete in REQUIREMENTS.md — CIRESTORE-01/02 are operator-blocked human_needed checkpoints that close on OP-04 resolution per CONTEXT.md
+Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains only the open / load-bearing-now items:
+
+- ML predictions remain `ENABLE_ML_PREDICTIONS=false`; trading-engine auto-flip is *armed* (Phase 9) but no qualifying DSR>0.95 evidence row exists in `leaderboard` yet (LIVECLOSE-03 wall-clock).
+- Paper-mode per-trade cap relaxed to 10% (ADR-010); Phase 8 boot-path enforces ≤2% only in LIVE. Pre-LIVE checklist (RUNBOOK Pre-LIVE Operator Checklist) restores ≤2% before flip.
 
 ### Blockers/Concerns
 
-- OP-01..04 + INFRA-02 checkpoint still open; Phase 11 + 12 have `human_needed` criteria that depend on these.
-- ML predictions remain `ENABLE_ML_PREDICTIONS=false` until DSR > 0.95 evidence lands via tournament harness.
+- 7 operator-action items open (5 LIVECLOSE harnesses + 2 CIRESTORE evidence + 1 INFRA-02 checkpoint). All have shipped harness code; only wall-clock execution remains.
+- Phase 08 VERIFICATION.md `human_needed` status persists post-archive: 2 manual-only smokes require operator post-merge action.
 
-## Open Operator Actions (carry into v1.1)
+## Open Operator Actions (carry into v1.2)
 
 | ID | Action | Blocks |
 |---|---|---|
-| OP-01 | LIVE-flip manual smoke (api-gateway TRADING_MODE=LIVE, rose outline, revert) | LIVECLOSE-05 |
+| OP-01 | LIVE-flip manual smoke (api-gateway `TRADING_MODE=LIVE`, rose outline, revert) | LIVECLOSE-05 |
 | OP-02 | Apply migration 005 to market_data on timescaledb | LIVECLOSE-04 |
-| OP-03 | Set TOURNAMENT_READER_PASSWORD + force-recreate tournament-harness | LIVECLOSE-04 |
+| OP-03 | Set `TOURNAMENT_READER_PASSWORD` + force-recreate tournament-harness | LIVECLOSE-04 |
 | OP-04 | Resolve GH Actions billing | LIVECLOSE-02, CIRESTORE-01, CIRESTORE-02 |
-| INFRA-02 chk | Run bootstrap.sh × 2 from fresh tmp clone | LIVECLOSE-01 |
+| INFRA-02 chk | Run `bootstrap.sh` × 2 from fresh tmp clone | LIVECLOSE-01 |
+| LIVECLOSE-03 accrual | Run `scripts/forward_paper_test/run_evidence_loop.py` for ≥7 trading days | LIVECLOSE-03 |
 
 ## Session Continuity
 
-Last session: 2026-05-18T16:30:00.000Z
-Stopped at: Phase 12 (CI Recovery) complete + verified — billing-failure-detector workflow shipped + CIRESTORE-01/02 evidence scaffolds in place; v1.1 code work done, only operator carry-ins remain
+Last session: 2026-05-18T20:36:00.000Z
+Stopped at: v1.1 milestone archive + reconciliation complete; git tag + final commit pending
 Resume file: None
+
+## Operator Next Steps
+
+- Run `/gsd-new-milestone` to define v1.2 scope (or `/gsd-review-backlog` to triage carry-overs first).
+- Execute open LIVECLOSE harnesses + close OP-* carry-ins independently as wall-clock-bound operator work; commit evidence under `.planning/evidence/LIVECLOSE-*/` and `.planning/evidence/{OP-04,CIRESTORE-02}/`.

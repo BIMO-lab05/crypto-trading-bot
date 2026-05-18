@@ -1,5 +1,60 @@
 # Milestones
 
+## v1.1 Path to LIVE (Shipped: 2026-05-18)
+
+**Phases completed:** 5 phases (8, 9, 10, 11.1, 12 — Phase 11 superseded by 11.1), 19 plans, 32 tasks
+**Timeline:** 2026-05-15 → 2026-05-18 (~4 days post v1.0 tag)
+**Git range:** 138 commits since v1.0 tag, 339 files changed (+31,072 / −47,475 LOC; 92 code files in services/scripts/tests/.github/frontend with +14,522 / −574)
+**Audit status:** `gaps_found` reconciled at close — audit dated 2026-05-18T02:55Z predates Phase 11.1 + 12 wave-3 verification; manually reconciled before archive. Net post-Phase-12 reality: **17/19 v1.1 deliverables shipped** (12 complete + 5 harness-delivered; 2 operator-blocked on OP-04 GH Actions billing).
+
+### What Shipped
+
+1. **Pre-LIVE preflight (Phase 8, 5 plans)** — `app/preflight/{types,checks,run_all}.py` core module with 6 checks; `scripts/preflight_live.py` CLI + `GET /api/preflight/live-readiness` HTTP route (gateway-proxied); `services/trading-engine` lifespan `cap_check` refuses LIVE boot when `MAX_POSITION_RISK_PCT > 0.02` (logs `LIVE_PREFLIGHT_REJECTED reason=cap_too_high`); `.github/workflows/preflight-live-readiness.yml` PR-label gate (`live: requested`); `RUNBOOK.md` Pre-LIVE Operator Checklist (6 Diagnose/Action/Verification subsections); two CI grep gates pin the enforcement against silent removal; boundary-agreement test guards the two intentionally-duplicate 0.02 thresholds.
+2. **ML re-enablement gate (Phase 9, 3 plans)** — `scripts/forward_paper_test/run_evidence_loop.py` idempotent ≥7-day driver + migration `0002_mlgate_evidence_columns.sql` adding `run_date` + `psr_ci_published` to `leaderboard`; trading-engine startup `auto_flip_ml_predictions()` reads DSR>0.95 evidence within 14 days and writes `/run/mlgate_auto_flip.json` schema_version=1 marker + structured `MLGATE_AUTO_FLIP direction=X reason=Y` log; 5-member `MLGateReason` enum (`no_evidence|dsr_below_gate|evidence_stale|regime_shift|manual_override`); cross-plan reason-state cache; unauth read-only `/api/preflight/ml-gate-reason-counts`; notification-service scheduled Telegram digest (in-process Python call to `alert_manager.send_daily_summary`, not through admin-guarded HTTP — regression test pins the contract).
+3. **Path-to-LIVE dashboard (Phase 10, 3 plans)** — `api-gateway` `GET /api/preflight/carry-ins` (schema_version=1) backed by atomic file-state machine at `.planning/state/carry_ins.json` (RW parent-dir bind-mount per WSL gotcha); two react-query hooks (`useLiveReadiness`, `useCarryIns`) verbatim from `useSafetyState` idiom (5s poll, retry=2); `PathToLiveTile.jsx` (banner + 6 PREFLIGHT chip rows + 5 carry-in rows + 24h continuous-PASS footer); banner tokens `bg-rose-700 / bg-amber-600 / bg-emerald-700`; pytest-playwright Chromium smoke (7 D-10-18 assertions); two defence-in-depth grep gates; `.github/workflows/dashboard-smoke.yml` with PR paths filter.
+4. **Carry-in closure harnesses (Phase 11.1, 7 plans)** — Plan-1 closed-for-extension contract: Draft 2020-12 JSON Schema (`.planning/evidence/_schema.json`) + `scripts.closure._common.write_evidence()` helper auto-injecting `schema_version=1` + ISO-8601 UTC timestamp; five operator-runnable harnesses each emitting schema-validated evidence JSON: `liveclose-01-fresh-clone.sh` (double-bootstrap + `BYBIT_PRICE_SOURCE: mode=tape` grep), `liveclose-02-record-ci.sh` (gh-api validation of integration-ml-on.yml conclusion=success), `liveclose_03_psr_evidence.py` (≥7-consecutive-day window query on `leaderboard`), `liveclose_04_sweep_verdict.py` (decision_note.md verdict + significance.json p-values), `liveclose-05-live-flip-smoke.sh` (two-key authorized, EXIT-trap revert, supervised-run-only); `scripts/closure/run-all.sh` orchestrator (whitelisted `--exec` LIVECLOSE-01..04, refuses LIVECLOSE-05 auto-invocation); `LIVECLOSE-INDEX.md` fully wired (zero `<filled-by-plan-7>` tripwire tokens at close); 14 integration tests bolt the wiring contract into CI.
+5. **CI recovery (Phase 12, 1 plan)** — `.github/workflows/billing-failure-detector.yml` cron-driven (every 6h) with self-trigger-safe naming (jq filter excludes own workflow name); direct curl to api.telegram.org (in-cluster notification-service unreachable from GitHub-hosted runners) + `gh issue create` with `ops: billing` label; 12-test grep-gate net pins the contract; evidence-dir scaffolds for the two operator-blocked carry-ins (CIRESTORE-01 OP-04 billing screenshot path + CIRESTORE-02 three green CI run URLs).
+
+### Requirements Coverage (Reconciled 3-state)
+
+- **Complete (12/19)** — code + evidence verified: PREFLIGHT-01..04, MLGATE-01..03, DASHLIVE-01..04, CIRESTORE-03.
+- **Harness-delivered (5/19)** — code/harness shipped, operator wall-clock execution remaining: LIVECLOSE-01 (fresh-clone × 2), LIVECLOSE-02 (CI URL after OP-04), LIVECLOSE-03 (≥7-day accrual), LIVECLOSE-04 (sweep verdict after OP-02 + OP-03), LIVECLOSE-05 (supervised LIVE-flip smoke).
+- **Operator-blocked (2/19)** — external precondition not met (OP-04 GH Actions billing): CIRESTORE-01, CIRESTORE-02.
+
+### Known Gaps at Close (operator wall-clock only — no code debt)
+
+| Category | Item | Owner | Blocks |
+|---|---|---|---|
+| Operator action | OP-01 — LIVE-flip manual smoke (LIVECLOSE-05 harness execution) | operator | LIVECLOSE-05 evidence |
+| Operator action | OP-02 — apply migration 005 (`tournament_reader` role) | operator | LIVECLOSE-04 verdict |
+| Operator action | OP-03 — set `TOURNAMENT_READER_PASSWORD` + force-recreate harness | operator | LIVECLOSE-04 verdict |
+| Operator action | OP-04 — resolve GitHub Actions billing | operator | LIVECLOSE-02, CIRESTORE-01, CIRESTORE-02 |
+| Operator action | INFRA-02 checkpoint — fresh tmp clone bootstrap × 2 (LIVECLOSE-01 harness execution) | operator | LIVECLOSE-01 evidence |
+| Verification | Phase 08 VERIFICATION.md status = `human_needed` (2 manual-only smokes: container-restart for cap rejection + curl /api/preflight/live-readiness through deployed api-gateway) | operator | Phase 08 final sign-off |
+| Docs lag | None at close — REQUIREMENTS.md status table reconciled to 3-state taxonomy before archive | — | — |
+
+### Key Decisions (Outcome ✓ Good unless marked)
+
+- ✓ Phase 11 umbrella → Phase 11.1 harnesses-only — keep harness-delivery distinct from wall-clock operator execution so the milestone closes on code-deliverable scope rather than on operator wall-clock.
+- ✓ 3-state requirements taxonomy at close (complete/harness-delivered/operator-blocked) — collapses the four-source-of-truth conflict identified by advisor pre-archive.
+- ✓ MLGATE-02 cold-boot graceful degradation — `/run/mlgate_auto_flip.json` marker absent on first boot causes `check_dsr_evidence` to return UNKNOWN, not error. HTTP route mount happens after `init_ml()` so the gate is only reachable post-marker.
+- ✓ Scheduler in-process Python call (notification-service → trading-engine via `alert_manager.send_daily_summary` direct invocation, NOT admin-guarded HTTP) — regression test pins the contract.
+- ✓ Self-trigger-safe cron-monitor pattern for billing-failure-detector — workflow name must not contain its own substring filter; defense-in-depth `jq select(.name != own_name)`.
+- ✓ Direct curl to api.telegram.org from GH Actions runners — in-cluster notification-service unreachable from GitHub-hosted runners (forced design).
+- ✓ LIVECLOSE-05 supervised-run-only — `scripts/closure/run-all.sh` explicit refusal of `--exec liveclose-05`. Two-key authorization (`--i-understand-this-flips-live` + `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY`) on the harness itself.
+- ✓ Evidence JSON Schema closed for extension after Wave 1 (Phase 11.1-01) — Wave 2 plans consume `_schema.json` + `_common.py` read-only.
+- ⚠ Carries forward: ML predictions remain `ENABLE_ML_PREDICTIONS=false` until DSR > 0.95 evidence lands via the gate. Auto-flip is *armed* but no qualifying row exists in `leaderboard` yet (LIVECLOSE-03 wall-clock).
+- ⚠ Carries forward: 10% per-trade cap relaxed for paper mode (ADR-010) — pre-LIVE checklist (RUNBOOK Pre-LIVE Operator Checklist) must restore ≤2% before flipping `TRADING_MODE=LIVE`. Phase 8 enforces this in trading-engine boot.
+
+### Audit & Verification Artifacts
+
+- Audit: `.planning/milestones/v1.1-MILESTONE-AUDIT.md` (status `gaps_found`, audited 2026-05-18T02:55Z; predates Phase 11.1 + 12 wave-3 verification — reconciled at close)
+- Archived ROADMAP: `.planning/milestones/v1.1-ROADMAP.md`
+- Archived REQUIREMENTS: `.planning/milestones/v1.1-REQUIREMENTS.md`
+- All 5 phases: VERIFICATION.md present (4 verified, 1 human_needed = Phase 08); VALIDATION.md present (3/3 nyquist-compliant on completed phases 8/9/10; 11.1 + 12 verified via VERIFICATION); SECURITY.md present (3/3 verified, 0 open threats on completed phases 8/9/10).
+
+---
+
 ## v1.0 (Shipped: 2026-05-15)
 
 **Phases completed:** 9 phases (1, 2, 3, 4, 5, 6, 7, 7.1, 7.2), 50 plans, 67 tasks
