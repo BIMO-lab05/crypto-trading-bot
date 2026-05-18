@@ -69,6 +69,7 @@ TARGET_PATH=""
 LIVE_RESPONSE_PATH=""
 PAPER_AFTER_RESPONSE_PATH=""
 FLIP_ATTEMPTED=0  # set to 1 after we start the LIVE flip — trap reads this
+REVERT_DONE=0     # set to 1 by revert_to_paper after a successful (or attempted) revert — prevents the EXIT trap from re-reverting if main flow already called it
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -223,6 +224,13 @@ revert_to_paper() {
     return ${trap_exit_code}
   fi
 
+  if [[ "${REVERT_DONE}" -eq 1 ]]; then
+    # Main flow already invoked revert (the success path). The EXIT trap
+    # is still firing because the script is ending normally; we just
+    # need to be idempotent. Return the saved exit code unchanged.
+    return ${trap_exit_code}
+  fi
+
   log_info "Reverting api-gateway to TRADING_MODE=PAPER"
   # Use timeout 30s on the compose call to bound DoS from a hung daemon.
   if timeout 30 env -u LIVE_TRADING_ACK TRADING_MODE=PAPER \
@@ -250,6 +258,7 @@ revert_to_paper() {
     log_err "Probe under PAPER: FAIL (api-gateway not yet healthy or shape mismatch)"
   fi
 
+  REVERT_DONE=1
   return ${trap_exit_code}
 }
 
@@ -310,7 +319,14 @@ fi
 
 if [[ "${REVERT_ONLY}" -eq 1 ]]; then
   log_info "Running revert-only path (no LIVE flip attempted)"
-  FLIP_ATTEMPTED=1  # force the EXIT trap to actually call revert
+  # Call revert_to_paper DIRECTLY rather than relying on the EXIT trap.
+  # The trap is registered later in the supervised-flip path; if we set
+  # FLIP_ATTEMPTED=1 here and exit before registering the trap, the
+  # revert never actually runs. PAPER_AFTER_RESPONSE_PATH stays empty
+  # so revert_to_paper skips the evidence-snippet write (guard at line
+  # ~246 already covers this case).
+  FLIP_ATTEMPTED=1
+  revert_to_paper
   exit 0
 fi
 
@@ -385,7 +401,12 @@ else
   log_info "Auto-revert after 120s timeout"
 fi
 
-# EXIT trap runs revert_to_paper + post-revert probe.
+# Run the revert step explicitly in main flow so that PAPER_AFTER_RESPONSE_PATH
+# is populated on disk BEFORE we invoke write-evidence (otherwise the JSON
+# would list a path that doesn't exist yet for ~10s until the EXIT trap
+# fires). The EXIT trap stays registered as a fallback for error paths;
+# revert_to_paper is idempotent via the REVERT_DONE flag.
+revert_to_paper
 
 # Write evidence JSON via the shared _common.py CLI. Note we pass
 # --status AWAITING_HUMAN + --human-needed (the screenshot is operator-
