@@ -1,17 +1,18 @@
 ---
 phase: 09
 slug: ml-re-enablement-gate
-status: blocked
-threats_open: 1
+status: verified
+threats_open: 0
 asvs_level: 1
 created: 2026-05-18
+verified: 2026-05-18
 ---
 
 # Phase 09 — Security
 
 > Per-phase security contract: threat register, accepted risks, and audit trail.
 >
-> **STATUS: BLOCKED — 1 of 22 threats OPEN (T-09-03-05).** Phase advancement gated until the declared admin guard on `/daily-summary` is implemented (or risk explicitly accepted in the Accepted Risks Log).
+> **STATUS: VERIFIED — 22 of 22 threats CLOSED.** T-09-03-05 admin guard implemented in commit `660a9ac` (`services/notification-service/app/auth.py` + `Depends(verify_admin_key)` on `/api/v1/alerts/daily-summary`). All declared mitigations now present in code.
 
 ---
 
@@ -52,7 +53,7 @@ created: 2026-05-18
 | T-09-03-02 | Information Disclosure | Log emissions leak symbol/interval | accept | Symbol + interval public (mainnet ticker); no secrets/PII. | closed | Documented in plan. |
 | T-09-03-03 | Denial of Service | Per-cycle emission floods log subsystem | accept | ≥30s cadence; 5 symbols × 1/30s ≈ 10 lines/min. | closed | Documented in plan. |
 | T-09-03-04 | Tampering | Notification-service kwarg duplicates reason-order tuple, allowing drift | mitigate | Duplication intentional (decoupling); CI grep gate anchors canonical enum; unit test enforces canonical order on notification-service side. | closed | `test_mlgate_reason_field_present` at `test_mlgate_reason_grep_gate.py:70`; `test_digest_message_reason_order_is_canonical` at `test_daily_digest_ml_gate.py:94`. |
-| **T-09-03-05** | **Spoofing** | **Operator passes forged `ml_gate_reason_counts` to `/daily-summary`** | **mitigate** | **Sub-(a) `/daily-summary` admin-guarded; Sub-(b) scheduled fetcher uses canonical `/api/preflight/ml-gate-reason-counts` path, not the operator-facing kwarg.** | **OPEN** | **Sub-(b) CLOSED — scheduler fetches `/api/preflight/ml-gate-reason-counts` at `ml_gate_digest.py:39`. Sub-(a) ABSENT — `services/notification-service/app/routers/alerts.py:445-480` has no `Depends(get_current_admin_user)`; router declared at line 34 with no `dependencies=`. Notification-service has no admin auth mechanism. Port 8006 exposed directly in `docker-compose.unified.yml:664`, bypassing api-gateway. Any reachable process can POST forged `ml_gate_reason_counts` to trigger a forged Telegram digest. Pre-Phase-9 baseline (`7e2c27e`) was also unguarded — Phase 9 did not introduce the gap but inherited it; the threat register asserted the guard would be present, and it never was.** |
+| T-09-03-05 | Spoofing | Operator passes forged `ml_gate_reason_counts` to `/daily-summary` | mitigate | Sub-(a) `/daily-summary` admin-guarded via `X-Admin-Key` header (`Depends(verify_admin_key)`); Sub-(b) scheduled fetcher uses canonical `/api/preflight/ml-gate-reason-counts` path and calls `alert_manager.send_daily_summary` in-process (no HTTP round-trip). | closed | Sub-(a) CLOSED — `services/notification-service/app/auth.py` defines `verify_admin_key` (mirror of `services/risk-metrics-service/app/auth.py`). Wired into `services/notification-service/app/routers/alerts.py:456` via `_admin: str = Depends(verify_admin_key)` on `send_daily_summary`. Config field `admin_api_key` added at `config.py:225-236`; empty server-side key returns 500 (deploy-without-secret footgun closed). Sub-(b) CLOSED — scheduler at `ml_gate_digest.py:39` fetches `/api/preflight/ml-gate-reason-counts` from trading-engine, then calls `alert_manager.send_daily_summary` directly in-process; never hits the HTTP `/daily-summary` route (regression test `test_scheduler_path_does_not_hit_admin_guarded_endpoint` pins the contract). Five auth tests in `tests/test_daily_summary_auth.py` (missing header → 401, invalid key → 403, valid key → 200, unconfigured server → 500, scheduler-path pin). 171 passing on host. Operator must set `ADMIN_API_KEY` env var on notification-service deployments. |
 | T-09-03-06 | Repudiation | Operator removes `log_ml_disabled` call to hide emission | mitigate | CI grep gate scans for literal `"ML predictions disabled"` in `services/trading-engine/app/`. | closed | `test_mlgate_reason_field_present` at `test_mlgate_reason_grep_gate.py:70`. |
 | T-09-03-07 | Information Disclosure | NEW endpoint leaks reason counts to unauthenticated readers | accept | Reason counts public-grade observability — same disclosure level as Phase 8 `/api/preflight/live-readiness`. | closed | Documented in plan. |
 | T-09-03-08 | Denial of Service | NEW scheduled fetcher hangs on slow trading-engine | mitigate | `httpx.AsyncClient(timeout=5.0)`; graceful degradation with `ml_gate_reason_counts=None` on timeout/non-200. | closed | `_FETCH_TIMEOUT_SECONDS = 5.0` at `ml_gate_digest.py:38`; applied at line 65; tests `test_scheduler_handles_trading_engine_unreachable` (line 81) and `test_scheduler_handles_non_200_response` (line 106). |
@@ -74,28 +75,21 @@ created: 2026-05-18
 
 ## Open Threats — Remediation
 
-### T-09-03-05 — `/daily-summary` admin guard absent
+None — all 22 threats CLOSED.
 
-**Disposition:** mitigate (declared in plan).
-**Status:** OPEN — declared mitigation absent from implementation.
+### T-09-03-05 — Resolved (admin guard implemented)
 
-**Gap:**
-- `services/notification-service/app/routers/alerts.py:445-480` defines `POST /daily-summary` accepting `ml_gate_reason_counts` kwarg.
-- Route has no `Depends(get_current_admin_user)` or equivalent auth dependency.
-- Router declaration at line 34 has no router-level `dependencies=` parameter.
-- Notification-service has no admin authentication mechanism anywhere in its codebase.
-- Port 8006 is exposed directly in `docker-compose.unified.yml:664`, bypassing api-gateway auth.
-- **Impact:** Any process reachable on port 8006 can POST forged `ml_gate_reason_counts` to trigger a misleading Telegram digest.
+**Resolution commit:** `660a9ac` — `feat(notification-service): admin-guard /daily-summary (T-09-03-05)`.
 
-**Note on origin:** Pre-Phase-9 baseline (`7e2c27e`) was also unguarded — Phase 9 did not introduce the gap. The threat register authored at plan time asserted the guard would be present; it never was. This is an inherited gap surfaced by the audit, not a regression caused by Phase 9 code.
+**What changed:**
+- `services/notification-service/app/auth.py` (new) — `verify_admin_key` dependency mirroring `services/risk-metrics-service/app/auth.py`. Reads `X-Admin-Key` header; verifies against `config.admin_api_key`. Empty server-side key returns 500 (refuses to accept any caller against an unconfigured secret).
+- `services/notification-service/app/config.py:225-236` — adds `admin_api_key: str = Field(default="", ...)` to `NotificationConfig`. Reads `ADMIN_API_KEY` env var.
+- `services/notification-service/app/routers/alerts.py:10,14,456` — imports `Depends`/`verify_admin_key`; wires `_admin: str = Depends(verify_admin_key)` into `send_daily_summary`.
+- `services/notification-service/tests/test_daily_summary_auth.py` (new) — 5 tests: missing header → 401, invalid key → 403, valid key → 200, unconfigured server → 500, scheduler-path pin.
 
-**Remediation options (operator decision required):**
+**Operator action:** set `ADMIN_API_KEY` env var on notification-service deployments. The compose definition does NOT yet pass `ADMIN_API_KEY` through — operators running existing deployments must add `- ADMIN_API_KEY=${ADMIN_API_KEY}` to `docker-compose.unified.yml` notification-service `environment:` block, then redeploy. Empty key → service refuses all `/daily-summary` calls with 500.
 
-1. **Implement admin guard.** Add admin auth dependency to `/daily-summary` (or all of notification-service `/api/v1/alerts/*`). Mirror api-gateway's `get_current_admin_user` pattern. Reference: `services/api-gateway/app/auth/dependencies.py`. Estimated work: small (1 file + tests + auth wiring through env/secret). Re-run `/gsd-secure-phase 09` after implementation.
-
-2. **Accept the risk explicitly.** Document in Accepted Risks Log above with rationale: e.g., "Notification-service port 8006 is bound to localhost-only / private docker network; no external reachability; forged digest impact bounded to misleading operator UX, no money/data loss." Operator signs the row with date. Then re-run `/gsd-secure-phase 09` to re-classify as closed-by-acceptance.
-
-3. **Tighten network exposure.** Remove `${NOTIFICATION_PORT:-8006}:8006` host-port mapping from `docker-compose.unified.yml:664`; require the notification-service to be reachable only via api-gateway (which already enforces admin auth on its proxied surface). This converts T-09-03-05 from "spoofing" to "internal-only request"; document the new network boundary as an accepted risk and re-run.
+**Scope note:** Only `/daily-summary` is guarded by this remediation. Other POST/PUT routes in `routers/alerts.py` (`/send`, `/batch`, `/test/{channel}`, `/config`, `/rules`, `/trade`, `/risk`, `/system`) remain unguarded — broader notification-service auth hardening is a follow-up outside Phase 9's threat scope.
 
 ---
 
@@ -105,14 +99,15 @@ created: 2026-05-18
 |------------|---------------|--------|------|--------|
 | 2026-05-18 | 22 | 21 | 1 | gsd-security-auditor (sonnet, balanced) |
 | 2026-05-18 | 22 | 21 | 1 | re-audit — T-09-03-05 unchanged (no commits to `services/notification-service/app/routers/alerts.py` or `docker-compose.unified.yml:664` since prior audit; router still unguarded, port still host-mapped) |
+| 2026-05-18 | 22 | 22 | 0 | post-fix audit — T-09-03-05 admin guard implemented in commit `660a9ac`. Verified: `services/notification-service/app/routers/alerts.py:456` has `_admin: str = Depends(verify_admin_key)`; `app/auth.py:22` defines verifier; `app/config.py:225-236` adds `admin_api_key` field. 5 auth tests pass; 171/171 notification-service tests pass on host. |
 
 ---
 
 ## Sign-Off
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
-- [ ] Accepted risks documented in Accepted Risks Log — *N/A for T-09-03-05 unless operator accepts*
-- [ ] `threats_open: 0` confirmed — **currently `threats_open: 1`**
-- [ ] `status: verified` set in frontmatter — **currently `status: blocked`**
+- [x] Accepted risks documented in Accepted Risks Log (8 register-accepted entries; no operator-accepted additions)
+- [x] `threats_open: 0` confirmed
+- [x] `status: verified` set in frontmatter
 
-**Approval:** pending — phase advancement BLOCKED until T-09-03-05 is closed (by mitigation, acceptance, or scope reduction). Re-run `/gsd-secure-phase 09` after remediation.
+**Approval:** verified 2026-05-18 — all 22 threats CLOSED. T-09-03-05 admin guard implemented in commit `660a9ac`. Operator action still required at deploy time: set `ADMIN_API_KEY` env var on notification-service deployments (and add the env passthrough to `docker-compose.unified.yml`).
