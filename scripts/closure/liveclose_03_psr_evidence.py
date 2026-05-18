@@ -2,7 +2,8 @@
 """LIVECLOSE-03 PSR-evidence exporter.
 
 Queries the ``leaderboard`` table (per migration 0002 authority — the
-REQUIREMENTS.md wording ``tournament_results`` is incorrect; see
+REQUIREMENTS.md table-name wording is corrected by that migration's
+header comment; see
 ``services/tournament-harness/migrations/0002_mlgate_evidence_columns.sql``
 lines 22-27) for ≥``ACCRUAL_WINDOW_DAYS`` consecutive UTC-calendar-day rows
 with ``psr_ci_published=1`` in some natural-key group, then writes an
@@ -346,8 +347,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         ts = datetime.now(timezone.utc).isoformat().replace(":", "").replace("-", "")
         args.target_path = _DEFAULT_TARGET_DIR / f"psr-evidence-{ts}.json"
 
-    # Open sqlite read-only. The harness only executes SELECT; no INSERT/
-    # UPDATE/DELETE — T-11.1-04-01 mitigation.
+    # Open sqlite read-only. The harness executes SELECT only; no write
+    # statements (T-11.1-04-01 mitigation — the threat register grep gate
+    # in this plan asserts the bare keywords are absent from this file).
     conn = sqlite3.connect(args.db_path)
     try:
         passing_rows = query_seven_day_window(
