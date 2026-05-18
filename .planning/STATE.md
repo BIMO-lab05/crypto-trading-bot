@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-16)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Phase 10 — path-to-live-dashboard
+**Current focus:** Phase 12 — CI Recovery (last unplanned v1.1 phase). v1.1 code work outstanding: Phase 12 plans. Operator wall-clock outstanding: OP-01..04 + INFRA-02 carry-ins (LIVECLOSE-01..05 harness executions).
 
 ## Current Position
 
