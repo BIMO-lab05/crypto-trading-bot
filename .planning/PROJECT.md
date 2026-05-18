@@ -27,6 +27,15 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 - INFRA-02 checkpoint: Run `bash bootstrap.sh × 2` from fresh tmp clone (LIVECLOSE-01 harness execution)
 - LIVECLOSE-03 evidence accrual: ≥7-day forward-paper-test rows in `leaderboard` with `psr_ci_published=1`
 
+## Current Milestone: v1.2 Polish & Real-Time
+
+**Goal:** Replace 5s REST polling with server-side `/ws/metrics` push, ship mobile-friendly dashboard, and harden planning tooling (one-liner enforcement + umbrella→decimal auto-supersede + audit-refresh-after-last-phase lock) — pure code scope with no wall-clock dependencies.
+
+**Target features:**
+- Server-side `/ws/metrics` WebSocket route + client subscription layer replacing REST polling (`useSafetyState`, `useLiveReadiness`, `useCarryIns`, `useDashboardSnapshot`)
+- Mobile-friendly responsive dashboard layout (single-column ≤768px; tile reflow; PathToLiveTile stacks; viewport meta + responsive tokens)
+- Planning-tooling fixes: plan-template one-liner validation (reject Rule/Task/placeholder), `gsd-sdk roadmap.analyze` umbrella→decimal auto-supersession, audit-refresh-after-last-phase workflow lock
+
 ## Requirements
 
 ### Validated
@@ -99,15 +108,19 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 
 ### Active
 
-<!-- v1.2 candidates. To be ratified by `/gsd-new-milestone`. -->
+<!-- v1.2 ratified scope. REQ-IDs assigned in .planning/REQUIREMENTS.md. -->
 
-v1.1 closed 2026-05-18. v1.2 not yet ratified. Run `/gsd-new-milestone` to define v1.2 scope from Future Requirements + operator-action carry-overs. Top candidates pulled from archived REQUIREMENTS files:
+**v1.2 Polish & Real-Time (ratified 2026-05-18)**
+
+- **WS-01..04**: Server-side `/ws/metrics` route + WS subscription layer (replaces 5s REST polling)
+- **MOBILE-01..03**: Mobile-friendly responsive dashboard layout (≤768px breakpoint)
+- **TOOL-01..03**: Planning-tooling fixes (one-liner validation, umbrella auto-supersede, audit-refresh lock)
+
+### Future (deferred from v1.2)
 
 - Operator-action carry-overs (no code work owed): execute LIVECLOSE-01..05 harnesses + close CIRESTORE-01/02 after OP-04 resolves
 - Tournament-harness first cross-symbol expansion (XRP/AVAX) — gated on production validation
 - Multi-horizon production deployment (1h/4h/24h with per-horizon trading paths) — depends on MLGATE landing first
-- Server-side `/ws/metrics` route + WS subscription layer
-- Mobile-friendly responsive dashboard layout
 - Sentiment-as-filter integration — gated on T0.1.x evidence
 - Classification head + calibration
 
@@ -197,4 +210,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 — v1.1 Path to LIVE milestone shipped; 17/19 deliverables (12 complete + 5 harness-delivered + 2 operator-blocked on OP-04)*
+*Last updated: 2026-05-18 — v1.2 Polish & Real-Time milestone ratified; v1.1 Path to LIVE shipped (17/19 deliverables: 12 complete + 5 harness-delivered + 2 operator-blocked on OP-04)*

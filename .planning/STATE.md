@@ -1,11 +1,10 @@
 ---
 gsd_state_version: 1.0
-milestone: null
-milestone_name: null
-status: awaiting-next-milestone
-stopped_at: v1.1 Path to LIVE shipped + archived 2026-05-18 — 17/19 deliverables (12 complete + 5 harness-delivered + 2 operator-blocked on OP-04 GH Actions billing); next milestone not yet ratified
-last_updated: "2026-05-18T20:36:00.000Z"
-last_activity: 2026-05-18 — Milestone v1.1 archived; ROADMAP collapsed; PROJECT.md evolved; git tag v1.1 pending
+milestone: v1.2
+milestone_name: Polish & Real-Time
+status: planning
+last_updated: "2026-05-18T20:08:16.357Z"
+last_activity: 2026-05-18
 progress:
   total_phases: 0
   completed_phases: 0
@@ -25,11 +24,10 @@ See: .planning/PROJECT.md (updated 2026-05-18 after v1.1 milestone close)
 
 ## Current Position
 
-Milestone: — (between milestones)
-Phase: —
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone definition
-Last activity: 2026-05-18 — `/gsd-complete-milestone v1.1` executed; archive + reconciliation + tag pending
+Status: Defining requirements
+Last activity: 2026-05-18 — Milestone v1.2 started
 
 ## Deferred Items
 
