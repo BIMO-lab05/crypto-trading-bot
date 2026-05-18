@@ -104,6 +104,7 @@ created: 2026-05-18
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-05-18 | 22 | 21 | 1 | gsd-security-auditor (sonnet, balanced) |
+| 2026-05-18 | 22 | 21 | 1 | re-audit — T-09-03-05 unchanged (no commits to `services/notification-service/app/routers/alerts.py` or `docker-compose.unified.yml:664` since prior audit; router still unguarded, port still host-mapped) |
 
 ---
 
