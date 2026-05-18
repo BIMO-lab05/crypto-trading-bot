@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Path to LIVE
-status: executing
-stopped_at: Plan 11.1-07 complete — Wave 3 wiring shipped (LIVECLOSE-INDEX populated + run-all.sh orchestrator); Phase 11.1 carry-in closure harness scaffolding complete
-last_updated: "2026-05-18T14:47:44.725Z"
+status: verifying
+stopped_at: Plan 11.1-07 complete — Wave 3 wiring shipped; LIVECLOSE-INDEX.md fully populated + scripts/closure/run-all.sh orchestrator live; Phase 11.1 closure harness scaffolding done
+last_updated: "2026-05-18T16:15:25.872Z"
 last_activity: 2026-05-18
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
+  completed_phases: 5
+  total_plans: 19
+  completed_plans: 19
   percent: 100
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-16)
 
 Phase: 11.1
 Plan: 7 of 7 completed
-Status: Phase verified (gsd-verifier 7/7 PASS) — operator wall-clock carry-ins remain
-Last activity: 2026-05-18 -- Phase 11.1 execution + verification complete
+Status: Phase complete — ready for verification
+Last activity: 2026-05-18
 
 Progress: [██████████] 100%
 
@@ -42,6 +42,7 @@ Progress: [██████████] 100%
 *Updated after each plan completion*
 | Phase 08-pre-live-preflight P04 | ~25min | 1 tasks | 1 files |
 | Phase 11.1 P07 | ~25 min | 2 tasks | 4 files |
+| Phase 12-ci-recovery P01 | ~52 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,9 @@ Progress: [██████████] 100%
 - [Phase ?]: [11.1-07]: LIVECLOSE-INDEX.md fully wired (zero placeholders) + scripts/closure/run-all.sh read-mostly orchestrator with whitelisted --exec (LIVECLOSE-01..04) and explicit LIVECLOSE-05 refusal (operator-supervised only).
 - [Phase ?]: [11.1-07]: Carry-in state lookup degrades to 'unknown' on missing .planning/state/carry_ins.json OR unmapped LIVECLOSE-0X; 1:1 mappings wired LIVECLOSE-01->INFRA-02, LIVECLOSE-05->OP-01.
 - [Phase ?]: [11.1-07]: Plan frontmatter 'contains:' lines reference hyphen-form .py filenames; on-disk reality is underscore-form per Python import contract. Recommended non-blocking housekeeping amendment to plan frontmatter.
+- [Phase ?]: [12-01]: Self-trigger-safe cron-monitor pattern — workflow name must not contain its own substring filter; jq pipeline carries defense-in-depth select(.name != own_name)
+- [Phase ?]: [12-01]: Direct curl to api.telegram.org from GH Actions runners — in-cluster notification-service is unreachable from GitHub-hosted runners (forced design)
+- [Phase ?]: [12-01]: Phase 12 marks only CIRESTORE-03 complete in REQUIREMENTS.md — CIRESTORE-01/02 are operator-blocked human_needed checkpoints that close on OP-04 resolution per CONTEXT.md
 
 ### Blockers/Concerns
 
@@ -85,6 +89,6 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-Last session: 2026-05-18T15:55:00.000Z
+Last session: 2026-05-18T16:14:51.682Z
 Stopped at: Plan 11.1-07 complete — Wave 3 wiring shipped; LIVECLOSE-INDEX.md fully populated + scripts/closure/run-all.sh orchestrator live; Phase 11.1 closure harness scaffolding done
-Resume file: None — Phase 11.1 wiring complete; operator wall-clock work on LIVECLOSE-01..05 remains per their individual harnesses
+Resume file: None

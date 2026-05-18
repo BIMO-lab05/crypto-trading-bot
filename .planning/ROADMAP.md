@@ -33,7 +33,7 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 - [x] **Phase 9: ML Re-enablement Gate** — 7-day evidence loop driver, startup auto-flip based on DSR>0.95 evidence row, structured disable-reason enum with Telegram digest (includes unit tests and CI grep gate per MLGATE-02 scope) (completed 2026-05-17, verified 5/5)
 - [x] **Phase 10: Path-to-LIVE Dashboard** — PathToLiveTile showing preflight + carry-in state, DO-NOT-FLIP/ALMOST/READY logic, Playwright smoke (completed 2026-05-17)
 - [ ] **Phase 11: Carry-In Closure** — Operator-runnable harnesses for all 5 v1.0 carry-ins; each closes with evidence row under `.planning/evidence/LIVECLOSE-*/`
-- [ ] **Phase 12: CI Recovery** — Billing-failure detector workflow + first green CI runs of integration/tournament/dashboard-smoke after OP-04 resolved
+- [x] **Phase 12: CI Recovery** — Billing-failure detector workflow + first green CI runs of integration/tournament/dashboard-smoke after OP-04 resolved (completed 2026-05-18)
 
 ## Phase Details
 
@@ -124,8 +124,8 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
   1. CIRESTORE-01 — Operator confirms GH Actions billing resolved; `.planning/evidence/OP-04/billing-screenshot.png` committed with visible timestamp on the billing page. (human_needed checkpoint: operator action)
   2. CIRESTORE-02 — Three green CI run URLs committed to `.planning/evidence/CIRESTORE-02/`: one each for `integration-ml-on.yml` nightly variant, `tournament-harness.yml`, and `dashboard-smoke.yml`. (human_needed checkpoint: requires OP-04 billing resolution)
   3. `.github/workflows/billing-failure-detector.yml` runs on `schedule: cron: '0 */6 * * *'`; on detecting a run with `billing` substring in failure reason via `gh run list --status failure --limit 5`, it posts to the Telegram notification path and creates a GitHub Issue labeled `ops: billing`; behavior is asserted by a unit test that mocks `gh run list` output containing `billing`.
-**Plans:** 1/1 plan planned (0 complete)
-- [ ] 12-01-PLAN.md — billing-failure-detector workflow + tests + .planning/evidence/{OP-04,CIRESTORE-02}/ scaffolds (Wave 1; CIRESTORE-01 + CIRESTORE-02 + CIRESTORE-03)
+**Plans:** 1/1 plans complete
+- [x] 12-01-PLAN.md — billing-failure-detector workflow + tests + .planning/evidence/{OP-04,CIRESTORE-02}/ scaffolds (Wave 1; CIRESTORE-01 + CIRESTORE-02 + CIRESTORE-03)
 
 ## Progress
 
@@ -147,4 +147,4 @@ Audit: [`.planning/milestones/v1.0-MILESTONE-AUDIT.md`](milestones/v1.0-MILESTON
 | 10. Path-to-LIVE Dashboard | v1.1 | 3/3 | Complete    | 2026-05-17 |
 | 11. Carry-In Closure | v1.1 | 0/TBD | Not started | - |
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete   | 2026-05-18 |
-| 12. CI Recovery | v1.1 | 0/1 | Planned    | -          |
+| 12. CI Recovery | v1.1 | 1/1 | Complete   | 2026-05-18 |

@@ -48,7 +48,7 @@ Once billing is resolved, the carry-in CI jobs must actually run green and the r
 
 - [ ] **CIRESTORE-01**: Operator confirms GH Actions billing resolved (OP-04 close); close-note committed under `.planning/evidence/OP-04/` with billing-page screenshot timestamp.
 - [ ] **CIRESTORE-02**: First green CI run of (a) `integration-ml-on.yml` nightly variant, (b) `tournament-harness.yml`, (c) `dashboard-smoke.yml` — three CI run URLs linked in OP-04 close note.
-- [ ] **CIRESTORE-03**: Add `billing-failure-detector.yml` workflow that runs every 6h via `gh run list --status failure --limit 5` filtering for `billing` substring; on detection, posts to Telegram via existing notification path and creates a GitHub Issue with the `ops: billing` label.
+- [x] **CIRESTORE-03**: Add `billing-failure-detector.yml` workflow that runs every 6h via `gh run list --status failure --limit 5` filtering for `billing` substring; on detection, posts to Telegram via existing notification path and creates a GitHub Issue with the `ops: billing` label.
 
 ## Future Requirements
 
