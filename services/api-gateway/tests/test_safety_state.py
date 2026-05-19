@@ -28,7 +28,6 @@ import pytest
 from fastapi.responses import JSONResponse
 
 
-
 def _build_response(content, status_code=200):
     """Mimic ServiceProxy.proxy_request() — returns a JSONResponse with
     a populated .body attribute (the test must exercise the body.decode
@@ -59,7 +58,7 @@ def _default_status_payload(emergency_active=False, mtime=None):
         "timestamp": 1700000000000,
         "system_metrics": {},
         "emergency_stop": {
-            "file_path": "/app/EMERGENCY_STOP",
+            "file_path": "/app/safety/EMERGENCY_STOP",
             "active": emergency_active,
             "mtime": mtime,
             "last_checked": "2026-05-13T10:00:00+00:00",
