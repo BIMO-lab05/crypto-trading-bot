@@ -20,7 +20,6 @@ Phase: 5.3 - Real-Time Performance Dashboard
 import logging
 import time
 from typing import List, Dict, Optional, Any
-from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import math
@@ -30,11 +29,6 @@ from pydantic import BaseModel, Field
 
 from app.paper_trading import get_paper_engine
 from app.repositories import get_position_repository
-from app.analytics import (
-    get_advanced_metrics_calculator,
-    get_attribution_analyzer,
-    MetricsPeriod,
-)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -47,8 +41,10 @@ router = APIRouter(prefix="/api/v1/trading", tags=["Performance Dashboard"])
 # RESPONSE MODELS
 # =============================================================================
 
+
 class PerformanceSummaryResponse(BaseModel):
     """Response model for comprehensive performance summary"""
+
     success: bool = True
     metrics: Dict[str, Any] = Field(default_factory=dict)
     timestamp: int = Field(default_factory=lambda: int(time.time() * 1000))
@@ -56,6 +52,7 @@ class PerformanceSummaryResponse(BaseModel):
 
 class EquityCurvePoint(BaseModel):
     """Single equity curve data point"""
+
     timestamp: str
     equity: float
     pnl: float = 0.0
@@ -65,6 +62,7 @@ class EquityCurvePoint(BaseModel):
 
 class EquityCurveResponse(BaseModel):
     """Response model for equity curve data"""
+
     success: bool = True
     curve: List[EquityCurvePoint] = Field(default_factory=list)
     period: str = "30d"
@@ -74,6 +72,7 @@ class EquityCurveResponse(BaseModel):
 
 class DrawdownPoint(BaseModel):
     """Single drawdown data point"""
+
     timestamp: str
     drawdown_percent: float
     drawdown_value: float
@@ -83,6 +82,7 @@ class DrawdownPoint(BaseModel):
 
 class DrawdownResponse(BaseModel):
     """Response model for drawdown series"""
+
     success: bool = True
     drawdown: List[DrawdownPoint] = Field(default_factory=list)
     current_drawdown: float = 0.0
@@ -92,6 +92,7 @@ class DrawdownResponse(BaseModel):
 
 class ReturnsDistributionBin(BaseModel):
     """Single histogram bin for returns distribution"""
+
     bin_start: float
     bin_end: float
     bin_mid: float
@@ -101,6 +102,7 @@ class ReturnsDistributionBin(BaseModel):
 
 class ReturnsDistributionStats(BaseModel):
     """Statistical summary for returns distribution"""
+
     count: int = 0
     mean: float = 0.0
     median: float = 0.0
@@ -115,6 +117,7 @@ class ReturnsDistributionStats(BaseModel):
 
 class ReturnsDistributionResponse(BaseModel):
     """Response model for returns distribution"""
+
     success: bool = True
     bins: List[ReturnsDistributionBin] = Field(default_factory=list)
     stats: Optional[ReturnsDistributionStats] = None
@@ -123,6 +126,7 @@ class ReturnsDistributionResponse(BaseModel):
 
 class CorrelationMatrixResponse(BaseModel):
     """Response model for asset correlation matrix"""
+
     success: bool = True
     matrix: List[List[float]] = Field(default_factory=list)
     symbols: List[str] = Field(default_factory=list)
@@ -131,6 +135,7 @@ class CorrelationMatrixResponse(BaseModel):
 
 class TradeStatisticsResponse(BaseModel):
     """Response model for detailed trade statistics"""
+
     success: bool = True
     statistics: Dict[str, Any] = Field(default_factory=dict)
     period: str = "30d"
@@ -138,6 +143,7 @@ class TradeStatisticsResponse(BaseModel):
 
 class TradeHistoryItem(BaseModel):
     """Single trade history item"""
+
     id: str
     symbol: str
     side: str
@@ -154,6 +160,7 @@ class TradeHistoryItem(BaseModel):
 
 class TradeHistoryResponse(BaseModel):
     """Response model for trade history"""
+
     success: bool = True
     trades: List[TradeHistoryItem] = Field(default_factory=list)
     total_count: int = 0
@@ -165,22 +172,42 @@ class TradeHistoryResponse(BaseModel):
 # UTILITY FUNCTIONS
 # =============================================================================
 
+
 def get_period_timedelta(period: str) -> timedelta:
     """Convert period string to timedelta"""
     period_map = {
-        '1d': timedelta(days=1),
-        '7d': timedelta(days=7),
-        '30d': timedelta(days=30),
-        '90d': timedelta(days=90),
-        '365d': timedelta(days=365),
-        'all': timedelta(days=3650),  # ~10 years for "all"
+        "1d": timedelta(days=1),
+        "7d": timedelta(days=7),
+        "30d": timedelta(days=30),
+        "90d": timedelta(days=90),
+        "365d": timedelta(days=365),
+        "all": timedelta(days=3650),  # ~10 years for "all"
     }
     return period_map.get(period, timedelta(days=30))
 
 
+def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """
+    Treat a naive datetime as UTC for comparison purposes.
+
+    The positions table stores opened_at / closed_at as `timestamp
+    without time zone`, but writes go through datetime.now(timezone.utc)
+    — so values are conceptually UTC but come back from the ORM as
+    tz-naive. Comparing them directly to a tz-aware cutoff
+    (datetime.now(timezone.utc) - delta) raises
+    "can't compare offset-naive and offset-aware datetimes", which
+    500s every period-filtered endpoint in this module (statistics,
+    performance, equity-curve, drawdown, returns-distribution).
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def calculate_equity_curve_from_trades(
-    trades: List[Any],
-    initial_balance: float = 10000.0
+    trades: List[Any], initial_balance: float = 10000.0
 ) -> List[Dict[str, Any]]:
     """
     Calculate equity curve from list of trades
@@ -195,27 +222,31 @@ def calculate_equity_curve_from_trades(
     if not trades:
         return [
             {
-                'timestamp': datetime.now(timezone.utc).isoformat(),
-                'equity': initial_balance,
-                'pnl': 0.0,
-                'cumulative_pnl': 0.0,
-                'trade_count': 0,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "equity": initial_balance,
+                "pnl": 0.0,
+                "cumulative_pnl": 0.0,
+                "trade_count": 0,
             }
         ]
 
     # Sort trades by close time
     sorted_trades = sorted(
-        [t for t in trades if hasattr(t, 'closed_at') and t.closed_at],
-        key=lambda t: t.closed_at
+        [t for t in trades if hasattr(t, "closed_at") and t.closed_at],
+        key=lambda t: t.closed_at,
     )
 
-    equity_curve = [{
-        'timestamp': sorted_trades[0].closed_at.isoformat() if sorted_trades else datetime.now(timezone.utc).isoformat(),
-        'equity': initial_balance,
-        'pnl': 0.0,
-        'cumulative_pnl': 0.0,
-        'trade_count': 0,
-    }]
+    equity_curve = [
+        {
+            "timestamp": sorted_trades[0].closed_at.isoformat()
+            if sorted_trades
+            else datetime.now(timezone.utc).isoformat(),
+            "equity": initial_balance,
+            "pnl": 0.0,
+            "cumulative_pnl": 0.0,
+            "trade_count": 0,
+        }
+    ]
 
     cumulative_equity = initial_balance
     for idx, trade in enumerate(sorted_trades, 1):
@@ -223,18 +254,24 @@ def calculate_equity_curve_from_trades(
         cumulative_equity += pnl
         cumulative_pnl = cumulative_equity - initial_balance
 
-        equity_curve.append({
-            'timestamp': trade.closed_at.isoformat() if trade.closed_at else datetime.now(timezone.utc).isoformat(),
-            'equity': cumulative_equity,
-            'pnl': pnl,
-            'cumulative_pnl': cumulative_pnl,
-            'trade_count': idx,
-        })
+        equity_curve.append(
+            {
+                "timestamp": trade.closed_at.isoformat()
+                if trade.closed_at
+                else datetime.now(timezone.utc).isoformat(),
+                "equity": cumulative_equity,
+                "pnl": pnl,
+                "cumulative_pnl": cumulative_pnl,
+                "trade_count": idx,
+            }
+        )
 
     return equity_curve
 
 
-def calculate_drawdown_series(equity_curve: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def calculate_drawdown_series(
+    equity_curve: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     """
     Calculate drawdown series from equity curve
 
@@ -248,23 +285,25 @@ def calculate_drawdown_series(equity_curve: List[Dict[str, Any]]) -> List[Dict[s
         return []
 
     drawdown_series = []
-    peak = equity_curve[0]['equity']
+    peak = equity_curve[0]["equity"]
 
     for point in equity_curve:
-        equity = point['equity']
+        equity = point["equity"]
         if equity > peak:
             peak = equity
 
         drawdown_value = equity - peak
         drawdown_percent = (drawdown_value / peak * 100) if peak > 0 else 0.0
 
-        drawdown_series.append({
-            'timestamp': point['timestamp'],
-            'drawdown_percent': abs(drawdown_percent),
-            'drawdown_value': drawdown_value,
-            'equity': equity,
-            'peak': peak,
-        })
+        drawdown_series.append(
+            {
+                "timestamp": point["timestamp"],
+                "drawdown_percent": abs(drawdown_percent),
+                "drawdown_value": drawdown_value,
+                "equity": equity,
+                "peak": peak,
+            }
+        )
 
     return drawdown_series
 
@@ -284,7 +323,7 @@ def calculate_returns_distribution(trades: List[Any], bins: int = 20) -> Dict[st
     pnls = [float(t.realized_pnl) for t in trades if t.realized_pnl is not None]
 
     if not pnls:
-        return {'bins': [], 'stats': None}
+        return {"bins": [], "stats": None}
 
     # Calculate statistics
     n = len(pnls)
@@ -301,8 +340,8 @@ def calculate_returns_distribution(trades: List[Any], bins: int = 20) -> Dict[st
 
     # Skewness and kurtosis
     if std_dev > 0:
-        skewness = sum((x - mean) ** 3 for x in pnls) / (n * std_dev ** 3)
-        kurtosis = (sum((x - mean) ** 4 for x in pnls) / (n * std_dev ** 4)) - 3
+        skewness = sum((x - mean) ** 3 for x in pnls) / (n * std_dev**3)
+        kurtosis = (sum((x - mean) ** 4 for x in pnls) / (n * std_dev**4)) - 3
     else:
         skewness = 0.0
         kurtosis = 0.0
@@ -314,39 +353,46 @@ def calculate_returns_distribution(trades: List[Any], bins: int = 20) -> Dict[st
     for i in range(bins):
         bin_start = min_val + i * bin_width
         bin_end = bin_start + bin_width
-        count = sum(1 for x in pnls if bin_start <= x < bin_end or (i == bins - 1 and x == bin_end))
+        count = sum(
+            1
+            for x in pnls
+            if bin_start <= x < bin_end or (i == bins - 1 and x == bin_end)
+        )
 
-        histogram.append({
-            'bin_start': round(bin_start, 2),
-            'bin_end': round(bin_end, 2),
-            'bin_mid': round((bin_start + bin_end) / 2, 2),
-            'count': count,
-            'frequency': round(count / n, 4) if n > 0 else 0.0,
-        })
+        histogram.append(
+            {
+                "bin_start": round(bin_start, 2),
+                "bin_end": round(bin_end, 2),
+                "bin_mid": round((bin_start + bin_end) / 2, 2),
+                "count": count,
+                "frequency": round(count / n, 4) if n > 0 else 0.0,
+            }
+        )
 
     stats = {
-        'count': n,
-        'mean': round(mean, 2),
-        'median': round(median, 2),
-        'std_dev': round(std_dev, 2),
-        'variance': round(variance, 2),
-        'min_value': round(min_val, 2),
-        'max_value': round(max_val, 2),
-        'skewness': round(skewness, 4),
-        'kurtosis': round(kurtosis, 4),
-        'range_value': round(range_val, 2),
+        "count": n,
+        "mean": round(mean, 2),
+        "median": round(median, 2),
+        "std_dev": round(std_dev, 2),
+        "variance": round(variance, 2),
+        "min_value": round(min_val, 2),
+        "max_value": round(max_val, 2),
+        "skewness": round(skewness, 4),
+        "kurtosis": round(kurtosis, 4),
+        "range_value": round(range_val, 2),
     }
 
-    return {'bins': histogram, 'stats': stats}
+    return {"bins": histogram, "stats": stats}
 
 
 # =============================================================================
 # API ENDPOINTS
 # =============================================================================
 
+
 @router.get("/performance", response_model=PerformanceSummaryResponse)
 async def get_performance_summary(
-    period: str = Query("30d", description="Time period (1d, 7d, 30d, 90d, all)")
+    period: str = Query("30d", description="Time period (1d, 7d, 30d, 90d, all)"),
 ):
     """
     Get comprehensive performance summary with all key metrics
@@ -360,8 +406,7 @@ async def get_performance_summary(
 
         # Get closed positions from database
         db_closed_positions = await position_repo.get_closed_positions(
-            portfolio_id="paper_trading",
-            limit=1000
+            portfolio_id="paper_trading", limit=1000
         )
 
         # Filter by period
@@ -369,22 +414,45 @@ async def get_performance_summary(
         cutoff_date = datetime.now(timezone.utc) - period_delta
 
         filtered_positions = [
-            pos for pos in db_closed_positions
-            if pos.closed_at and pos.closed_at >= cutoff_date
+            pos
+            for pos in db_closed_positions
+            if pos.closed_at and _ensure_utc(pos.closed_at) >= cutoff_date
         ]
 
         # Calculate basic metrics
         total_trades = len(filtered_positions)
-        winning_trades = sum(1 for p in filtered_positions if p.realized_pnl and float(p.realized_pnl) > 0)
-        losing_trades = sum(1 for p in filtered_positions if p.realized_pnl and float(p.realized_pnl) < 0)
+        winning_trades = sum(
+            1
+            for p in filtered_positions
+            if p.realized_pnl and float(p.realized_pnl) > 0
+        )
+        losing_trades = sum(
+            1
+            for p in filtered_positions
+            if p.realized_pnl and float(p.realized_pnl) < 0
+        )
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
 
         total_pnl = sum(float(p.realized_pnl or 0) for p in filtered_positions)
         avg_pnl = total_pnl / total_trades if total_trades > 0 else 0.0
 
-        gross_profit = sum(float(p.realized_pnl) for p in filtered_positions if p.realized_pnl and float(p.realized_pnl) > 0)
-        gross_loss = abs(sum(float(p.realized_pnl) for p in filtered_positions if p.realized_pnl and float(p.realized_pnl) < 0))
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else (float('inf') if gross_profit > 0 else 0.0)
+        gross_profit = sum(
+            float(p.realized_pnl)
+            for p in filtered_positions
+            if p.realized_pnl and float(p.realized_pnl) > 0
+        )
+        gross_loss = abs(
+            sum(
+                float(p.realized_pnl)
+                for p in filtered_positions
+                if p.realized_pnl and float(p.realized_pnl) < 0
+            )
+        )
+        profit_factor = (
+            gross_profit / gross_loss
+            if gross_loss > 0
+            else (float("inf") if gross_profit > 0 else 0.0)
+        )
 
         avg_win = gross_profit / winning_trades if winning_trades > 0 else 0.0
         avg_loss = gross_loss / losing_trades if losing_trades > 0 else 0.0
@@ -402,25 +470,29 @@ async def get_performance_summary(
             # Sortino Ratio
             downside_pnls = [x for x in pnls if x < 0]
             if downside_pnls:
-                downside_var = sum(x ** 2 for x in downside_pnls) / len(downside_pnls)
+                downside_var = sum(x**2 for x in downside_pnls) / len(downside_pnls)
                 downside_dev = math.sqrt(downside_var)
                 sortino_ratio = avg_pnl / downside_dev if downside_dev > 0 else 0.0
             else:
-                sortino_ratio = float('inf') if avg_pnl > 0 else 0.0
+                sortino_ratio = float("inf") if avg_pnl > 0 else 0.0
 
             # VaR (95%)
             sorted_pnls = sorted(pnls)
             var_index = int(len(sorted_pnls) * 0.05)
-            var_95 = abs(sorted_pnls[var_index]) if var_index < len(sorted_pnls) else 0.0
+            var_95 = (
+                abs(sorted_pnls[var_index]) if var_index < len(sorted_pnls) else 0.0
+            )
 
             # CVaR (95%)
-            cvar_pnls = sorted_pnls[:var_index + 1]
+            cvar_pnls = sorted_pnls[: var_index + 1]
             cvar_95 = abs(sum(cvar_pnls) / len(cvar_pnls)) if cvar_pnls else 0.0
 
             # Max Drawdown
             equity_curve = calculate_equity_curve_from_trades(filtered_positions)
             drawdown_series = calculate_drawdown_series(equity_curve)
-            max_drawdown = max((d['drawdown_percent'] for d in drawdown_series), default=0.0)
+            max_drawdown = max(
+                (d["drawdown_percent"] for d in drawdown_series), default=0.0
+            )
         else:
             sharpe_ratio = 0.0
             sortino_ratio = 0.0
@@ -431,32 +503,33 @@ async def get_performance_summary(
 
         metrics = {
             # Trade statistics
-            'total_trades': total_trades,
-            'winning_trades': winning_trades,
-            'losing_trades': losing_trades,
-            'win_rate': round(win_rate, 2),
-
+            "total_trades": total_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "win_rate": round(win_rate, 2),
             # P&L metrics
-            'total_pnl': round(total_pnl, 2),
-            'avg_pnl': round(avg_pnl, 2),
-            'avg_win': round(avg_win, 2),
-            'avg_loss': round(avg_loss, 2),
-            'gross_profit': round(gross_profit, 2),
-            'gross_loss': round(gross_loss, 2),
-            'profit_factor': round(profit_factor, 4) if profit_factor != float('inf') else 999.99,
-
+            "total_pnl": round(total_pnl, 2),
+            "avg_pnl": round(avg_pnl, 2),
+            "avg_win": round(avg_win, 2),
+            "avg_loss": round(avg_loss, 2),
+            "gross_profit": round(gross_profit, 2),
+            "gross_loss": round(gross_loss, 2),
+            "profit_factor": round(profit_factor, 4)
+            if profit_factor != float("inf")
+            else 999.99,
             # Risk-adjusted metrics
-            'sharpe_ratio': round(sharpe_ratio, 4),
-            'sortino_ratio': round(sortino_ratio, 4) if sortino_ratio != float('inf') else 999.99,
-            'var_95': round(var_95, 2),
-            'cvar_95': round(cvar_95, 2),
-            'max_drawdown': round(max_drawdown, 2),
-            'max_drawdown_percent': round(max_drawdown, 2),
-            'std_dev': round(std_dev, 4),
-
+            "sharpe_ratio": round(sharpe_ratio, 4),
+            "sortino_ratio": round(sortino_ratio, 4)
+            if sortino_ratio != float("inf")
+            else 999.99,
+            "var_95": round(var_95, 2),
+            "cvar_95": round(cvar_95, 2),
+            "max_drawdown": round(max_drawdown, 2),
+            "max_drawdown_percent": round(max_drawdown, 2),
+            "std_dev": round(std_dev, 4),
             # Metadata
-            'period': period,
-            'timestamp': int(time.time() * 1000),
+            "period": period,
+            "timestamp": int(time.time() * 1000),
         }
 
         return PerformanceSummaryResponse(success=True, metrics=metrics)
@@ -469,7 +542,7 @@ async def get_performance_summary(
 @router.get("/equity-curve", response_model=EquityCurveResponse)
 async def get_equity_curve(
     period: str = Query("30d", description="Time period (1d, 7d, 30d, 90d, all)"),
-    interval: str = Query("1h", description="Data interval (1m, 5m, 15m, 1h, 4h, 1d)")
+    interval: str = Query("1h", description="Data interval (1m, 5m, 15m, 1h, 4h, 1d)"),
 ):
     """
     Get equity curve data for charting
@@ -486,8 +559,7 @@ async def get_equity_curve(
 
         # Get closed positions
         db_closed_positions = await position_repo.get_closed_positions(
-            portfolio_id="paper_trading",
-            limit=1000
+            portfolio_id="paper_trading", limit=1000
         )
 
         # Filter by period
@@ -495,21 +567,24 @@ async def get_equity_curve(
         cutoff_date = datetime.now(timezone.utc) - period_delta
 
         filtered_positions = [
-            pos for pos in db_closed_positions
-            if pos.closed_at and pos.closed_at >= cutoff_date
+            pos
+            for pos in db_closed_positions
+            if pos.closed_at and _ensure_utc(pos.closed_at) >= cutoff_date
         ]
 
         # Calculate equity curve
-        equity_curve = calculate_equity_curve_from_trades(filtered_positions, initial_balance)
+        equity_curve = calculate_equity_curve_from_trades(
+            filtered_positions, initial_balance
+        )
 
         # Convert to response model
         curve_points = [
             EquityCurvePoint(
-                timestamp=point['timestamp'],
-                equity=round(point['equity'], 2),
-                pnl=round(point['pnl'], 2),
-                cumulative_pnl=round(point['cumulative_pnl'], 2),
-                trade_count=point['trade_count']
+                timestamp=point["timestamp"],
+                equity=round(point["equity"], 2),
+                pnl=round(point["pnl"], 2),
+                cumulative_pnl=round(point["cumulative_pnl"], 2),
+                trade_count=point["trade_count"],
             )
             for point in equity_curve
         ]
@@ -519,7 +594,7 @@ async def get_equity_curve(
             curve=curve_points,
             period=period,
             interval=interval,
-            initial_equity=initial_balance
+            initial_equity=initial_balance,
         )
 
     except Exception as e:
@@ -529,7 +604,7 @@ async def get_equity_curve(
 
 @router.get("/drawdown", response_model=DrawdownResponse)
 async def get_drawdown_history(
-    period: str = Query("30d", description="Time period (7d, 30d, 90d, all)")
+    period: str = Query("30d", description="Time period (7d, 30d, 90d, all)"),
 ):
     """
     Get drawdown history series
@@ -544,28 +619,30 @@ async def get_drawdown_history(
         initial_balance = float(paper_engine.get_initial_balance())
 
         db_closed_positions = await position_repo.get_closed_positions(
-            portfolio_id="paper_trading",
-            limit=1000
+            portfolio_id="paper_trading", limit=1000
         )
 
         period_delta = get_period_timedelta(period)
         cutoff_date = datetime.now(timezone.utc) - period_delta
 
         filtered_positions = [
-            pos for pos in db_closed_positions
-            if pos.closed_at and pos.closed_at >= cutoff_date
+            pos
+            for pos in db_closed_positions
+            if pos.closed_at and _ensure_utc(pos.closed_at) >= cutoff_date
         ]
 
-        equity_curve = calculate_equity_curve_from_trades(filtered_positions, initial_balance)
+        equity_curve = calculate_equity_curve_from_trades(
+            filtered_positions, initial_balance
+        )
         drawdown_series = calculate_drawdown_series(equity_curve)
 
         drawdown_points = [
             DrawdownPoint(
-                timestamp=d['timestamp'],
-                drawdown_percent=round(d['drawdown_percent'], 2),
-                drawdown_value=round(d['drawdown_value'], 2),
-                equity=round(d['equity'], 2),
-                peak=round(d['peak'], 2)
+                timestamp=d["timestamp"],
+                drawdown_percent=round(d["drawdown_percent"], 2),
+                drawdown_value=round(d["drawdown_value"], 2),
+                equity=round(d["equity"], 2),
+                peak=round(d["peak"], 2),
             )
             for d in drawdown_series
         ]
@@ -578,7 +655,7 @@ async def get_drawdown_history(
             drawdown=drawdown_points,
             current_drawdown=round(current_dd, 2),
             max_drawdown=round(max_dd, 2),
-            period=period
+            period=period,
         )
 
     except Exception as e:
@@ -589,7 +666,7 @@ async def get_drawdown_history(
 @router.get("/returns-distribution", response_model=ReturnsDistributionResponse)
 async def get_returns_distribution(
     period: str = Query("30d", description="Time period"),
-    bins: int = Query(20, ge=5, le=100, description="Number of histogram bins")
+    bins: int = Query(20, ge=5, le=100, description="Number of histogram bins"),
 ):
     """
     Get returns distribution for histogram
@@ -601,33 +678,28 @@ async def get_returns_distribution(
         position_repo = get_position_repository()
 
         db_closed_positions = await position_repo.get_closed_positions(
-            portfolio_id="paper_trading",
-            limit=1000
+            portfolio_id="paper_trading", limit=1000
         )
 
         period_delta = get_period_timedelta(period)
         cutoff_date = datetime.now(timezone.utc) - period_delta
 
         filtered_positions = [
-            pos for pos in db_closed_positions
-            if pos.closed_at and pos.closed_at >= cutoff_date
+            pos
+            for pos in db_closed_positions
+            if pos.closed_at and _ensure_utc(pos.closed_at) >= cutoff_date
         ]
 
         distribution = calculate_returns_distribution(filtered_positions, bins)
 
-        dist_bins = [
-            ReturnsDistributionBin(**b) for b in distribution.get('bins', [])
-        ]
+        dist_bins = [ReturnsDistributionBin(**b) for b in distribution.get("bins", [])]
 
         dist_stats = None
-        if distribution.get('stats'):
-            dist_stats = ReturnsDistributionStats(**distribution['stats'])
+        if distribution.get("stats"):
+            dist_stats = ReturnsDistributionStats(**distribution["stats"])
 
         return ReturnsDistributionResponse(
-            success=True,
-            bins=dist_bins,
-            stats=dist_stats,
-            period=period
+            success=True, bins=dist_bins, stats=dist_stats, period=period
         )
 
     except Exception as e:
@@ -638,7 +710,7 @@ async def get_returns_distribution(
 @router.get("/correlations", response_model=CorrelationMatrixResponse)
 async def get_correlations(
     period: str = Query("30d", description="Lookback period"),
-    symbols: Optional[str] = Query(None, description="Comma-separated symbols")
+    symbols: Optional[str] = Query(None, description="Comma-separated symbols"),
 ):
     """
     Get asset correlation matrix
@@ -648,14 +720,17 @@ async def get_correlations(
     """
     try:
         # Parse symbols
-        symbol_list = symbols.split(',') if symbols else ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT']
+        symbol_list = (
+            symbols.split(",")
+            if symbols
+            else ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"]
+        )
 
         position_repo = get_position_repository()
 
         # Get positions by symbol
         db_closed_positions = await position_repo.get_closed_positions(
-            portfolio_id="paper_trading",
-            limit=1000
+            portfolio_id="paper_trading", limit=1000
         )
 
         # Group P&L by symbol
@@ -670,9 +745,7 @@ async def get_correlations(
         if len(valid_symbols) < 2:
             # Not enough data for correlation
             return CorrelationMatrixResponse(
-                success=True,
-                matrix=[],
-                symbols=valid_symbols
+                success=True, matrix=[], symbols=valid_symbols
             )
 
         # Simple correlation calculation
@@ -696,7 +769,13 @@ async def get_correlations(
                         mean_i = sum(pi) / min_len
                         mean_j = sum(pj) / min_len
 
-                        cov = sum((pi[k] - mean_i) * (pj[k] - mean_j) for k in range(min_len)) / min_len
+                        cov = (
+                            sum(
+                                (pi[k] - mean_i) * (pj[k] - mean_j)
+                                for k in range(min_len)
+                            )
+                            / min_len
+                        )
                         std_i = math.sqrt(sum((x - mean_i) ** 2 for x in pi) / min_len)
                         std_j = math.sqrt(sum((x - mean_j) ** 2 for x in pj) / min_len)
 
@@ -705,9 +784,7 @@ async def get_correlations(
                         matrix[j][i] = round(corr, 4)
 
         return CorrelationMatrixResponse(
-            success=True,
-            matrix=matrix,
-            symbols=valid_symbols
+            success=True, matrix=matrix, symbols=valid_symbols
         )
 
     except Exception as e:
@@ -718,7 +795,7 @@ async def get_correlations(
 @router.get("/statistics", response_model=TradeStatisticsResponse)
 async def get_trade_statistics(
     period: str = Query("30d", description="Time period"),
-    symbol: Optional[str] = Query(None, description="Filter by symbol")
+    symbol: Optional[str] = Query(None, description="Filter by symbol"),
 ):
     """
     Get detailed trade statistics
@@ -730,16 +807,17 @@ async def get_trade_statistics(
         position_repo = get_position_repository()
 
         db_closed_positions = await position_repo.get_closed_positions(
-            portfolio_id="paper_trading",
-            limit=1000
+            portfolio_id="paper_trading", limit=1000
         )
 
         period_delta = get_period_timedelta(period)
         cutoff_date = datetime.now(timezone.utc) - period_delta
 
         filtered_positions = [
-            pos for pos in db_closed_positions
-            if pos.closed_at and pos.closed_at >= cutoff_date
+            pos
+            for pos in db_closed_positions
+            if pos.closed_at
+            and _ensure_utc(pos.closed_at) >= cutoff_date
             and (symbol is None or pos.symbol == symbol)
         ]
 
@@ -747,9 +825,7 @@ async def get_trade_statistics(
         total_trades = len(filtered_positions)
         if total_trades == 0:
             return TradeStatisticsResponse(
-                success=True,
-                statistics={'total_trades': 0},
-                period=period
+                success=True, statistics={"total_trades": 0}, period=period
             )
 
         pnls = [float(p.realized_pnl) for p in filtered_positions if p.realized_pnl]
@@ -763,37 +839,45 @@ async def get_trade_statistics(
         gross_loss = abs(sum(p for p in pnls if p < 0))
 
         # By symbol breakdown
-        by_symbol = defaultdict(lambda: {'trades': 0, 'pnl': 0.0, 'wins': 0, 'losses': 0})
+        by_symbol = defaultdict(
+            lambda: {"trades": 0, "pnl": 0.0, "wins": 0, "losses": 0}
+        )
         for pos in filtered_positions:
             sym = pos.symbol
-            by_symbol[sym]['trades'] += 1
+            by_symbol[sym]["trades"] += 1
             pnl = float(pos.realized_pnl or 0)
-            by_symbol[sym]['pnl'] += pnl
+            by_symbol[sym]["pnl"] += pnl
             if pnl > 0:
-                by_symbol[sym]['wins'] += 1
+                by_symbol[sym]["wins"] += 1
             elif pnl < 0:
-                by_symbol[sym]['losses'] += 1
+                by_symbol[sym]["losses"] += 1
 
         statistics = {
-            'total_trades': total_trades,
-            'winning_trades': winning_trades,
-            'losing_trades': losing_trades,
-            'breakeven_trades': total_trades - winning_trades - losing_trades,
-            'win_rate': round(winning_trades / total_trades * 100, 2) if total_trades > 0 else 0.0,
-            'total_pnl': round(total_pnl, 2),
-            'avg_pnl': round(avg_pnl, 2),
-            'gross_profit': round(gross_profit, 2),
-            'gross_loss': round(gross_loss, 2),
-            'profit_factor': round(gross_profit / gross_loss, 4) if gross_loss > 0 else 999.99,
-            'avg_win': round(gross_profit / winning_trades, 2) if winning_trades > 0 else 0.0,
-            'avg_loss': round(gross_loss / losing_trades, 2) if losing_trades > 0 else 0.0,
-            'by_symbol': {k: dict(v) for k, v in by_symbol.items()},
+            "total_trades": total_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "breakeven_trades": total_trades - winning_trades - losing_trades,
+            "win_rate": round(winning_trades / total_trades * 100, 2)
+            if total_trades > 0
+            else 0.0,
+            "total_pnl": round(total_pnl, 2),
+            "avg_pnl": round(avg_pnl, 2),
+            "gross_profit": round(gross_profit, 2),
+            "gross_loss": round(gross_loss, 2),
+            "profit_factor": round(gross_profit / gross_loss, 4)
+            if gross_loss > 0
+            else 999.99,
+            "avg_win": round(gross_profit / winning_trades, 2)
+            if winning_trades > 0
+            else 0.0,
+            "avg_loss": round(gross_loss / losing_trades, 2)
+            if losing_trades > 0
+            else 0.0,
+            "by_symbol": {k: dict(v) for k, v in by_symbol.items()},
         }
 
         return TradeStatisticsResponse(
-            success=True,
-            statistics=statistics,
-            period=period
+            success=True, statistics=statistics, period=period
         )
 
     except Exception as e:
@@ -805,7 +889,9 @@ async def get_trade_statistics(
 async def get_trade_history_endpoint(
     limit: int = Query(100, ge=1, le=1000, description="Number of trades to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
-    status: str = Query("CLOSED", description="Trade status filter (OPEN, CLOSED, ALL)")
+    status: str = Query(
+        "CLOSED", description="Trade status filter (OPEN, CLOSED, ALL)"
+    ),
 ):
     """
     Get trade history with P&L details
@@ -826,28 +912,27 @@ async def get_trade_history_endpoint(
             )
         else:
             db_positions = await position_repo.get_closed_positions(
-                portfolio_id="paper_trading",
-                limit=limit + offset
+                portfolio_id="paper_trading", limit=limit + offset
             )
 
         # Apply pagination
         total_count = len(db_positions)
-        paginated = db_positions[offset:offset + limit]
+        paginated = db_positions[offset : offset + limit]
 
         trades = [
             TradeHistoryItem(
                 id=str(pos.id),
                 symbol=pos.symbol,
                 side=pos.side,
-                strategy=getattr(pos, 'strategy', None),
-                signal_type=getattr(pos, 'signal_type', None),
+                strategy=getattr(pos, "strategy", None),
+                signal_type=getattr(pos, "signal_type", None),
                 entry_price=float(pos.entry_price),
                 exit_price=float(pos.exit_price) if pos.exit_price else None,
                 quantity=float(pos.quantity),
                 realized_pnl=float(pos.realized_pnl) if pos.realized_pnl else None,
                 opened_at=pos.opened_at.isoformat() if pos.opened_at else None,
                 closed_at=pos.closed_at.isoformat() if pos.closed_at else None,
-                status=pos.status
+                status=pos.status,
             )
             for pos in paginated
         ]
@@ -857,7 +942,7 @@ async def get_trade_history_endpoint(
             trades=trades,
             total_count=total_count,
             offset=offset,
-            limit=limit
+            limit=limit,
         )
 
     except Exception as e:
@@ -869,6 +954,7 @@ async def get_trade_history_endpoint(
 # WEBSOCKET FOR REAL-TIME UPDATES
 # =============================================================================
 
+
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates"""
 
@@ -878,16 +964,22 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+        logger.info(
+            f"WebSocket connected. Total connections: {len(self.active_connections)}"
+        )
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-        logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
+        logger.info(
+            f"WebSocket disconnected. Total connections: {len(self.active_connections)}"
+        )
 
     async def broadcast(self, message: Dict[str, Any]):
         """Broadcast message to all connected clients"""
-        for connection in self.active_connections[:]:  # Copy list to avoid mutation during iteration
+        for connection in self.active_connections[
+            :
+        ]:  # Copy list to avoid mutation during iteration
             try:
                 await connection.send_json(message)
             except Exception as e:
@@ -914,10 +1006,14 @@ async def websocket_performance(websocket: WebSocket):
                 # Wait for ping/subscribe messages
                 data = await asyncio.wait_for(websocket.receive_json(), timeout=1.0)
 
-                if data.get('type') == 'ping':
-                    await websocket.send_json({'type': 'pong', 'timestamp': int(time.time() * 1000)})
-                elif data.get('type') == 'subscribe':
-                    await websocket.send_json({'type': 'subscribed', 'channel': data.get('channel')})
+                if data.get("type") == "ping":
+                    await websocket.send_json(
+                        {"type": "pong", "timestamp": int(time.time() * 1000)}
+                    )
+                elif data.get("type") == "subscribe":
+                    await websocket.send_json(
+                        {"type": "subscribed", "channel": data.get("channel")}
+                    )
 
             except asyncio.TimeoutError:
                 # No message received, send metrics update
@@ -926,15 +1022,19 @@ async def websocket_performance(websocket: WebSocket):
                     paper_engine = get_paper_engine()
                     summary = paper_engine.get_performance_summary()
 
-                    await websocket.send_json({
-                        'type': 'metrics',
-                        'payload': {
-                            'balance': float(summary.get('current_balance', 0)),
-                            'unrealized_pnl': float(summary.get('unrealized_pnl', 0)),
-                            'total_trades': summary.get('total_trades', 0),
-                            'timestamp': int(time.time() * 1000),
+                    await websocket.send_json(
+                        {
+                            "type": "metrics",
+                            "payload": {
+                                "balance": float(summary.get("current_balance", 0)),
+                                "unrealized_pnl": float(
+                                    summary.get("unrealized_pnl", 0)
+                                ),
+                                "total_trades": summary.get("total_trades", 0),
+                                "timestamp": int(time.time() * 1000),
+                            },
                         }
-                    })
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to send metrics update: {e}")
 
