@@ -555,7 +555,7 @@ export default function Phase3Dashboard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-800 dark:text-slate-100 flex items-center transition-colors duration-200">
                 <span className="mr-2 text-blue-600 dark:text-blue-400">[ML]</span>
-                ML Price Predictions (LSTM)
+                ML Price Predictions (GRU)
               </h2>
               <div className="flex items-center space-x-2">
                 {mlLoading && (
@@ -791,7 +791,7 @@ export default function Phase3Dashboard() {
                 {(mlPrediction.model_version || mlPrediction.model_type) && (
                   <div className="pt-3 border-t border-gray-200 dark:border-slate-700 transition-colors duration-200">
                     <p className="text-xs text-gray-500 dark:text-slate-500 transition-colors duration-200">
-                      Model: {mlPrediction.model_type || 'LSTM'} - {mlPrediction.model_version || 'Unknown'}
+                      Model: {mlPrediction.model_type || 'GRU'} - {mlPrediction.model_version || 'Unknown'}
                     </p>
                     {mlPrediction.model_last_trained && (
                       <p className="text-xs text-gray-500 dark:text-slate-500 transition-colors duration-200">
@@ -813,7 +813,7 @@ export default function Phase3Dashboard() {
                 </p>
                 {!mlLoading && (
                   <p className="mt-2 text-sm text-gray-400 dark:text-slate-500 transition-colors duration-200">
-                    Train the LSTM model to get price predictions
+                    Train the GRU model to get price predictions
                   </p>
                 )}
               </div>
@@ -1175,7 +1175,7 @@ export default function Phase3Dashboard() {
               <p className="font-semibold text-gray-700 dark:text-slate-300 mb-1 transition-colors duration-200">
                 <span className="text-blue-600 dark:text-blue-400">[ML]</span> ML Predictions (30% weight)
               </p>
-              <p>LSTM neural network forecasts price trends with multi-step predictions</p>
+              <p>GRU neural network forecasts price trends with multi-step predictions</p>
             </div>
             <div>
               <p className="font-semibold text-gray-700 dark:text-slate-300 mb-1 transition-colors duration-200">
