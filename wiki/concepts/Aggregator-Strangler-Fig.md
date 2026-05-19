@@ -72,6 +72,6 @@ Hold the retirement until a dedicated session that has the docker stack running.
 
 ## Related
 
-- [[../decisions/ADR-012-http-not-events]] (this whole pipeline is the HTTP mesh in question)
+- [[../decisions/ADR-016-http-not-events]] (this whole pipeline is the HTTP mesh in question)
 - [[../flows/Signal-Pipeline]]
 - [[../modules/trading-engine]]

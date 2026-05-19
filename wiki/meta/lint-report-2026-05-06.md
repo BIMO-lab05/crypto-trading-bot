@@ -34,7 +34,7 @@ Run after ADR-011 + ADR-012 additions and graphify wiki extraction.
 - ADR-011 (`paper-deterministic-execution`) is linked by `concepts/Paper-Trading-Internals.md` and `decisions/_index.md`.
 
 ## Resolved this run
-- `[[../decisions/ADR-012-http-not-events]]` — file was missing in 3 concept pages; **created** at `wiki/decisions/ADR-012-http-not-events.md`
+- `[[../decisions/ADR-016-http-not-events]]` — file was missing in 3 concept pages; **created** at `wiki/decisions/ADR-016-http-not-events.md`
 - `[[../decisions/ADR-010-paper-deterministic-execution]]` — wikilink pointed to non-existent slug; **renamed in concept page to** `[[../decisions/ADR-011-paper-deterministic-execution]]` and **filed** ADR-011
 
 ## Address Validation

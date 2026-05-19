@@ -110,7 +110,7 @@ Default state: `BYBIT_TESTNET=false` + `PAPER_TRADING_MODE=true` → real prices
 |---|---|---|
 | `ENABLE_ML_PREDICTIONS` | `false` | GRU inference call from trading-engine. Off because the V0 GRU directional-accuracy metric was found to have look-ahead leakage (May 2026); models score chance-level on returns. Re-enable after rebuild on returns target with DSR > 0.95 acceptance. |
 | `ENABLE_SENTIMENT_ANALYSIS` | `false` | Sentiment leg in signal aggregator. Sentiment-analysis-service still runs but is idle (no callers in the default pipeline). |
-| `AUTO_TRADING_ENABLED` | `false` (compose) / **`true` (operator `.env`)** | Trading-engine's auto-trader loop. Currently armed by operator override. Loop only fires once the `EMERGENCY_STOP` file is absent at repo root. Pause: `touch EMERGENCY_STOP` or `POST /api/portfolio/emergency-stop`. Stop: `POST /api/trading/auto/stop`. |
+| `AUTO_TRADING_ENABLED` | `false` (compose) / **`true` (operator `.env`)** | Trading-engine's auto-trader loop. Currently armed by operator override. Loop only fires once the kill-switch file is absent. Kill-switch path: `safety/EMERGENCY_STOP` (host) → `/app/safety/EMERGENCY_STOP` (container) via dir-to-dir bind-mount of `./safety/`. Pause: `touch safety/EMERGENCY_STOP` or `POST /api/portfolio/emergency-stop`. Resume: `rm safety/EMERGENCY_STOP` (+ `POST /api/trading/start` if halted at boot). Stop: `POST /api/trading/auto/stop`. |
 
 ### Emergency stop
 

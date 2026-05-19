@@ -22,8 +22,14 @@ Mirrors the existing pattern in app/database/connection.py:156
 """
 
 from .data import init_data
-from .ml import init_ml
+from .ml import auto_flip_ml_predictions, init_ml
 from .risk import init_risk
 from .strategy import init_strategy
 
-__all__ = ["init_data", "init_ml", "init_risk", "init_strategy"]
+__all__ = [
+    "init_data",
+    "init_ml",
+    "init_risk",
+    "init_strategy",
+    "auto_flip_ml_predictions",
+]

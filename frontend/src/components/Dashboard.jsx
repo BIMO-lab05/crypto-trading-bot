@@ -5,6 +5,7 @@ import EmergencyStop from './EmergencyStop'
 import TradingSignals from './TradingSignals'
 import PriceChart from './PriceChart'
 import KeyMetricsStrip from './KeyMetricsStrip'
+import PathToLiveTile from './PathToLiveTile'
 import ActiveTrades from './ActiveTrades'
 import TradeHistory from './TradeHistory'
 import TradingEnhancementsPanel from './TradingEnhancementsPanel'
@@ -71,6 +72,8 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-900 transition-colors duration-200">
+      {/* Path to LIVE tile — Phase 10 DASHLIVE-01/03, first visible element per D-10-12 */}
+      <PathToLiveTile />
       {/* Key Metrics Strip - Research-backed essential metrics */}
       <KeyMetricsStrip />
 

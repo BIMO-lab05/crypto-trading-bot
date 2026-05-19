@@ -200,7 +200,7 @@ mtime-based stale check on next prediction request.
 ### 6.3 Halt trading entirely
 
 ```bash
-touch EMERGENCY_STOP        # repo root, read-only bind into trading-engine
+touch safety/EMERGENCY_STOP   # host ./safety/ RO-bound into trading-engine
 # OR
 curl -X POST http://localhost:8000/api/portfolio/emergency-stop \
     -H "Authorization: Bearer ${ADMIN_TOKEN}"

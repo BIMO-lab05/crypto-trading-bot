@@ -34,10 +34,18 @@ async def lifespan(app: FastAPI):
     No scheduler (D-12 — start is operator-driven via CLI), no DB-init side
     effects on boot. Migrations run lazily on the first orchestrator CLI
     invocation, not at API startup.
+
+    Canonical-metrics chain (TOURN-07) MUST resolve at boot. Fail-fast on
+    PYTHONPATH break so the container is unhealthy rather than serving
+    metrics endpoints that would raise at first compute. See v1.0 audit INT-02.
     """
+    from app.runner.metrics_bridge import assert_canonical_metrics_available
+
+    assert_canonical_metrics_available()
     logger.info("=" * 60)
     logger.info(f"Starting {settings.service_name}")
     logger.info("=" * 60)
+    logger.info("canonical-metrics chain OK (TOURN-07)")
     logger.info(f"Service ready on {settings.service_host}:{settings.service_port}")
     yield
     logger.info("Service stopped")

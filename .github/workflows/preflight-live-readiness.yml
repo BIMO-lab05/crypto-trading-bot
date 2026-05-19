@@ -1,0 +1,64 @@
+# Phase 8 PREFLIGHT-03 — Pre-LIVE preflight gate.
+# Every PR runs unit tests + grep gates (cheap regression net).
+# PRs labelled `live: requested` additionally run the preflight CLI in
+# --dry-run mode against HEAD; gate fails if any of the 6 checks FAIL.
+# See .planning/phases/08-pre-live-preflight/08-CONTEXT.md decision lines 88-95.
+#
+# Security note: this workflow does NOT interpolate any user-controlled
+# event payload (issue/PR title, body, commit message, head ref) into shell
+# commands. The only ${{ }} expressions used are:
+#   - github.ref in concurrency.group (Actions-sanitised context)
+#   - github.event.pull_request.labels.*.name inside an if: contains()
+#     expression (boolean evaluation, not shell interpolation)
+# No command-injection surface per the standard GH workflow security guide.
+
+name: Preflight Live-Readiness Gate
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Preflight unit tests (always)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install trading-engine deps
+        run: |
+          pip install --upgrade pip
+          pip install -r services/trading-engine/requirements.txt
+      - name: Preflight unit tests
+        working-directory: services/trading-engine
+        run: pytest tests/test_preflight_checks.py tests/test_preflight_route.py tests/test_preflight_lifespan.py -v
+      - name: Grep gates
+        working-directory: services/trading-engine
+        run: pytest ../../tests/integration/test_preflight_grep_gates.py ../../tests/integration/test_mlgate_grep_gates.py ../../tests/integration/test_mlgate_reason_grep_gate.py -v
+
+  gate:
+    name: Live-readiness gate (labelled PRs only)
+    needs: unit-tests
+    # Label literal is `live: requested` (lowercase, single space after the colon).
+    # See 08-CONTEXT.md decision lines 88-95 and 08-PATTERNS.md lines 417-432.
+    if: "contains(github.event.pull_request.labels.*.name, 'live: requested')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for `git show <ref>:.env.example` to resolve
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install trading-engine deps
+        run: |
+          pip install --upgrade pip
+          pip install -r services/trading-engine/requirements.txt
+      - name: Run preflight gate
+        run: python3 scripts/preflight_live.py --dry-run --target=HEAD --json

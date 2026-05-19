@@ -677,9 +677,30 @@ class AlertManager:
         total_trades: int,
         win_rate: float,
         balance: float,
+        ml_gate_reason_counts: Optional[Dict[str, int]] = None,
         **kwargs,
     ) -> AlertResponse:
-        """Send daily performance summary"""
+        """Send daily performance summary.
+
+        ``ml_gate_reason_counts`` (Plan 09-03 MLGATE-03): optional dict of
+        ML-gate reason counts from the trading-engine's in-process counter
+        (surfaced via the new GET /api/preflight/ml-gate-reason-counts
+        unauthenticated read-only endpoint). When non-empty, the rendered
+        digest message body gains an ``ML Gate Reasons (24h):`` section in
+        canonical reason order (no_evidence, dsr_below_gate, evidence_stale,
+        regime_shift, manual_override). The same dict is also placed under
+        ``metadata['ml_gate_reason_counts']`` for downstream consumers (Phase
+        10 dashboard tile, structured-data scraping).
+
+        Backward-compatible: omitting the kwarg (or passing None / empty
+        dict) yields the original message body verbatim.
+
+        Reason ordering duplicated locally (NOT imported from trading-engine
+        source) to keep the notification-service package decoupled — see
+        D-09-03-04 + threat T-09-03-04. CI grep gate on the trading-engine
+        side anchors the canonical enum; drift here surfaces as a unit-test
+        failure in test_daily_digest_ml_gate.py::test_digest_message_reason_order_is_canonical.
+        """
         emoji = "+" if total_pnl >= 0 else "-"
 
         message = f"""
@@ -690,6 +711,41 @@ Performance Summary:
 - Balance: ${balance:,.2f}
 """
 
+        # MLGATE-03 (Plan 09-03 D-09-03-04): append optional ML Gate Reasons block.
+        ml_section = ""
+        if ml_gate_reason_counts:
+            # Canonical reason ordering — must match
+            # services/trading-engine/app/aggregation/ml_gate_reasons.ML_GATE_REASONS.
+            # Duplicated intentionally (D-09-03-04, T-09-03-04).
+            reason_order = (
+                "no_evidence",
+                "dsr_below_gate",
+                "evidence_stale",
+                "regime_shift",
+                "manual_override",
+            )
+            present = [
+                (r, ml_gate_reason_counts[r])
+                for r in reason_order
+                if r in ml_gate_reason_counts
+            ]
+            if present:
+                ml_section_lines = ["", "ML Gate Reasons (24h):"]
+                ml_section_lines.extend(
+                    f"- {reason}: {count}" for reason, count in present
+                )
+                ml_section = "\n".join(ml_section_lines)
+
+        message = message + ml_section
+
+        metadata: Dict = {
+            "total_pnl": total_pnl,
+            "total_trades": total_trades,
+            **kwargs,
+        }
+        if ml_gate_reason_counts is not None:
+            metadata["ml_gate_reason_counts"] = ml_gate_reason_counts
+
         return await self.send_alert(
             AlertCreate(
                 alert_type=AlertType.PERFORMANCE,
@@ -697,11 +753,7 @@ Performance Summary:
                 title=f"{emoji} Daily Summary: ${total_pnl:,.2f}",
                 message=message,
                 source="post-trade-analysis",
-                metadata={
-                    "total_pnl": total_pnl,
-                    "total_trades": total_trades,
-                    **kwargs,
-                },
+                metadata=metadata,
             )
         )
 

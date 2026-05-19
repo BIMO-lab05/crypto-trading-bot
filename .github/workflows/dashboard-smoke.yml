@@ -1,0 +1,91 @@
+# Phase 10 DASHLIVE — Path-to-LIVE Dashboard Smoke (D-10-19).
+# Triggers: pull_request with paths filter (D-10-19) + manual dispatch ONLY.
+# NEVER on schedule — nightly cadence is deferred to Phase 12 per
+# 10-CONTEXT.md "Deferred Ideas" so the deterministic CI lane stays unblocked.
+#
+# Security note: this workflow does NOT interpolate any user-controlled
+# event payload (issue/PR title, body, commit message, head ref) into shell
+# commands. The only ${{ }} expressions used are:
+#   - github.ref in concurrency.group (Actions-sanitised context)
+# No command-injection surface per the standard GH workflow security guide.
+
+name: Dashboard Smoke (Path-to-LIVE)
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'services/api-gateway/**'
+      - 'services/trading-engine/app/preflight/**'
+      - 'services/trading-engine/app/handlers/preflight.py'
+      - 'tests/e2e/test_path_to_live_smoke.py'
+      - '.planning/state/carry_ins.json'
+  workflow_dispatch:
+
+concurrency:
+  group: dashboard-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard-smoke:
+    name: Path-to-LIVE smoke (D-10-18 #1..#7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install playwright runtime
+        run: |
+          pip install --upgrade pip
+          pip install playwright httpx
+          playwright install --with-deps chromium
+
+      - name: Boot stack via bootstrap.sh (paper mode, tape source)
+        env:
+          MARKET_DATA_SOURCE: tape
+          PAPER_TRADING_MODE: 'true'
+          TRADING_MODE: PAPER
+          AUTO_TRADING_ENABLED: 'false'
+          ENABLE_ML_PREDICTIONS: 'false'
+          PREFLIGHT_CONTINUOUS_PASS_REQUIRED_SECONDS: '1'
+        run: |
+          cp .env.example .env
+          {
+            echo "MARKET_DATA_SOURCE=$MARKET_DATA_SOURCE"
+            echo "PAPER_TRADING_MODE=$PAPER_TRADING_MODE"
+            echo "TRADING_MODE=$TRADING_MODE"
+            echo "AUTO_TRADING_ENABLED=$AUTO_TRADING_ENABLED"
+            echo "ENABLE_ML_PREDICTIONS=$ENABLE_ML_PREDICTIONS"
+            echo "PREFLIGHT_CONTINUOUS_PASS_REQUIRED_SECONDS=$PREFLIGHT_CONTINUOUS_PASS_REQUIRED_SECONDS"
+          } >> .env
+          bash bootstrap.sh
+
+      - name: Run smoke
+        run: |
+          pip install pytest-playwright
+          pytest tests/e2e/test_path_to_live_smoke.py --screenshot=only-on-failure --video=retain-on-failure -v
+
+      - name: Collect logs
+        if: always()
+        run: |
+          docker compose -f docker-compose.unified.yml logs > dashboard-smoke-logs.txt 2>&1 || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-smoke-logs
+          path: dashboard-smoke-logs.txt
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f docker-compose.unified.yml down -v || true

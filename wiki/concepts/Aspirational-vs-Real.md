@@ -71,4 +71,4 @@ Catalog of features described in docs / configured / imported but **not actually
 - [[HTTP-Service-Mesh]]
 - [[Message-Queue-Topics]]
 - [[../decisions/ADR-001-LSTM-removed]]
-- [[../decisions/ADR-012-http-not-events]]
+- [[../decisions/ADR-016-http-not-events]]

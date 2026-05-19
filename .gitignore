@@ -41,6 +41,10 @@ venv.bak/
 
 # Claude Code (personal local overrides only — settings.json + scripts are committed)
 .claude/settings.local.json
+# Claude Code per-agent worktrees (transient git worktrees the orchestrator
+# allocates under .claude/worktrees/agent-<id>/; never committed to the
+# operator's tree).
+.claude/worktrees/
 
 # ============================================================================
 # SECURITY: Environment and Secrets (CRITICAL - Never commit credentials)

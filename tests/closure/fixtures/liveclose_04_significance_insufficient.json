@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "tournament_id": "t0_1_x_horizon_sweep",
+  "baseline": "persistence",
+  "aggregation": "mean_log_returns",
+  "git_sha": "0000000000000000000000000000000000000000",
+  "evaluated_at": "2026-05-18T00:00:00+00:00",
+  "tournaments_evaluated_count": 1,
+  "n_winning_symbols": 0,
+  "per_symbol": {
+    "SOLUSDT": {
+      "sharpe_pvalue": null,
+      "dir_acc_pvalue": null,
+      "sharpe_lift": 0.0,
+      "dir_acc_lift": 0.0,
+      "n_members": 1,
+      "win_gate_passed": false,
+      "gate_failure_reasons": ["insufficient_runs"]
+    }
+  }
+}

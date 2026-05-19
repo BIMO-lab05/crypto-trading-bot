@@ -1165,6 +1165,78 @@ async def get_safety_state():
     }
 
 
+@app.get("/api/preflight/live-readiness")
+async def get_preflight_live_readiness():
+    """
+    Pre-LIVE preflight snapshot (Phase 8 PREFLIGHT-01 / plan 02).
+
+    Unauthenticated read-only (D-09 carryforward from
+    ``/api/config/safety-state``). Thin proxy to trading-engine — the
+    check logic owns runtime env (D-10: only trading-engine reads
+    ``MAX_RISK_PER_TRADE`` / ``LIVE_TRADING_ACK``).
+
+    Graceful degradation: if the trading-engine proxy call raises OR the
+    upstream returns a non-200 status, this handler returns 200 with all
+    six checks marked UNKNOWN and ``overall`` set to UNKNOWN. The
+    fallback NEVER fabricates a successful gate — UNKNOWN is the safe
+    default per CONTEXT.md "Open Question" close. Regression guard:
+    ``test_proxy_returns_unknown_when_trading_engine_unreachable`` in
+    ``tests/test_preflight_proxy.py``.
+
+    Schema pinned at v1 — matches
+    ``services/trading-engine/app/preflight/types.py::PreflightReport.to_dict()``.
+    """
+    # Local imports — autoflake removes unused top-level imports across
+    # api-gateway/main.py refactors. Pinning the use site keeps these
+    # in place (project memory: feedback_main_imports_autoflake.md;
+    # mirrors lines 1155 + 1209 patterns).
+    from datetime import datetime, timezone as _tz
+    import json
+
+    proxy = get_proxy()
+    try:
+        resp = await proxy.proxy_request(
+            service_name="trading-engine",
+            path="/api/preflight/live-readiness",
+            method="GET",
+        )
+        if getattr(resp, "status_code", 500) == 200:
+            return json.loads(resp.body.decode())
+        raise Exception(
+            f"trading-engine returned status_code={getattr(resp, 'status_code', 'unknown')}"
+        )
+    except Exception as e:
+        logger.warning(
+            f"/api/preflight/live-readiness: trading-engine proxy failed: {e}"
+        )
+        return {
+            "schema_version": 1,
+            "overall": "UNKNOWN",
+            "evaluated_at": datetime.now(_tz.utc).isoformat(),
+            "checks": [
+                {
+                    "check": name,
+                    "status": "UNKNOWN",
+                    "detail": "trading-engine unreachable",
+                }
+                for name in (
+                    "cap",
+                    "paper_mode",
+                    "trading_mode",
+                    "ack",
+                    "emergency_stop",
+                    "dsr_evidence",
+                )
+            ],
+        }
+
+
+# Phase 10 DASHLIVE-02 — carry-ins endpoint (state file + 24h window).
+from app.routes.preflight_carry_ins import router as preflight_carry_ins_router  # noqa: E402
+
+app.include_router(preflight_carry_ins_router)
+
+
 # Phase 7 D-01: gateway reads committed tournament snapshots from a RO bind-mount.
 # Intentional duplication of the live tournament-harness:8010 /api/v1/tournaments
 # path — frontend reads files (no --profile tournament dependency) per CONTEXT.md

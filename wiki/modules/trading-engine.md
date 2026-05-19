@@ -104,9 +104,9 @@ Lives **outside** the four phases (`main.py:266–300`), inside the `async with`
 Two off-switches in order:
 
 1. `settings.auto_trading_enabled = False` → no auto-start. Manual `/start` endpoint still works.
-2. `Path(settings.emergency_stop_file).is_file()` → refuse. Path defaults to `/app/EMERGENCY_STOP` (RO bind-mount from repo root). `is_file()` is required because of the WSL bind-mount race ([[../concepts/Test-Setup-Gotchas]]).
+2. `Path(settings.emergency_stop_file).is_file()` → refuse. Path is `/app/safety/EMERGENCY_STOP` (RO bind-mount of host `./safety/`). `is_file()` is required because of the WSL bind-mount race ([[../concepts/Test-Setup-Gotchas]]). Dir-to-dir mount (post-2026-05-19) prevents the auto-create-dir failure mode that the older file-to-file bind suffered.
 
-If both pass, `await auto_trader.start()` and the loop polls signals every `check_frequency_seconds` (default 30 s). The loop **re-checks the file every cycle** (`auto_trader.py:755`), so `touch EMERGENCY_STOP` mid-run halts execution.
+If both pass, `await auto_trader.start()` and the loop polls signals every `check_frequency_seconds` (default 30 s). The loop **re-checks the file every cycle** (`auto_trader.py:886`), so `touch safety/EMERGENCY_STOP` mid-run halts execution within one tick.
 
 ## Trading-mode flags
 
@@ -223,5 +223,5 @@ This contradicts the "event-driven" mental model in the task brief — see contr
 
 - Flows: [[../flows/Signal-Pipeline]], [[../flows/Order-Lifecycle]], [[../flows/Emergency-Stop]]
 - Concepts: [[../concepts/Risk-Model]], [[../concepts/Trading-Mode-Flags]], [[../concepts/Auto-Trader]], [[../concepts/Validated-Symbols]], [[../concepts/Test-Setup-Gotchas]], [[../concepts/State-Persistence]], [[../concepts/Paper-Trading-Internals]]
-- ADRs: [[../decisions/ADR-002-trading-engine-lifespan-refactor]], [[../decisions/ADR-004-paper-trading-default]], [[../decisions/ADR-005-emergency-stop-file-flag]], [[../decisions/ADR-006-mainnet-prices-paper-orders]], [[../decisions/ADR-011-paper-deterministic-execution]], [[../decisions/ADR-012-http-not-events]]
+- ADRs: [[../decisions/ADR-002-trading-engine-lifespan-refactor]], [[../decisions/ADR-004-paper-trading-default]], [[../decisions/ADR-005-emergency-stop-file-flag]], [[../decisions/ADR-006-mainnet-prices-paper-orders]], [[../decisions/ADR-011-paper-deterministic-execution]], [[../decisions/ADR-016-http-not-events]]
 - Sibling services: [[bybit-connector]], [[market-data-service]], [[technical-analysis]], [[portfolio-manager]], [[risk-metrics-service]]

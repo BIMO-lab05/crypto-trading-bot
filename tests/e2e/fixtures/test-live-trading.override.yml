@@ -1,0 +1,19 @@
+# Phase 10 DASHLIVE-04 — test-only override for D-10-18 #7 fast-forward.
+#
+# Flips trading-engine into LIVE-mode env so all 6 PREFLIGHT checks return PASS.
+# MARKET_DATA_SOURCE is intentionally NOT set: bootstrap.sh exports
+# MARKET_DATA_SOURCE=tape at boot, and we leave it alone so the smoke runs
+# against the deterministic tape — no Bybit credentials, no real-money path.
+# MAX_POSITION_RISK_PCT=2 satisfies the Phase 8 `cap` check (LIVE cap = 2%).
+services:
+  trading-engine:
+    environment:
+      - PAPER_TRADING_MODE=false
+      - TRADING_MODE=LIVE
+      - LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY
+      - MAX_POSITION_RISK_PCT=2
+      # ENABLE_ML_PREDICTIONS=true so check_dsr_evidence reads the seeded
+      # leaderboard row (D-10-18 #6 DSR-row chip PASS + #7 24h-window
+      # fast-forward to READY). Without this, the DSR check short-circuits
+      # to UNKNOWN and the all-PASS window never opens.
+      - ENABLE_ML_PREDICTIONS=true

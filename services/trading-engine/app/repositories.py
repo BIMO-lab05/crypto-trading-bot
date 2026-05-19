@@ -243,6 +243,7 @@ class TradeRepository:
         ] = None,  # accepted but unused (live schema lacks column)
         strategy: Optional[str] = None,
         signal_confidence: Optional[Decimal] = None,
+        realized_pnl: Optional[Decimal] = None,
         order_type: str = "MARKET",  # accepted but unused
         action: Optional[str] = None,  # legacy kwarg alias for side
     ):
@@ -267,6 +268,10 @@ class TradeRepository:
             position_id: Accepted for caller compat; not persisted (no column)
             strategy: Optional strategy name (persisted to `strategy`)
             signal_confidence: Optional confidence 0..1 (persisted)
+            realized_pnl: Optional realized P&L for close-side trades
+                (entry-side trades pass None; persisted to `realized_pnl`).
+                Added 2026-05-15: prior to this all rows had NULL realized_pnl
+                because close callers had the value but never passed it.
             order_type: Accepted for caller compat; not persisted
             action: Legacy alias for `side`
         """
@@ -297,11 +302,11 @@ class TradeRepository:
                         """
                         INSERT INTO trades (
                             trade_id, portfolio_id, symbol, side,
-                            quantity, price, total_value, fee,
+                            quantity, price, total_value, fee, realized_pnl,
                             strategy, signal_confidence, executed_at, metadata
                         ) VALUES (
                             :trade_id, :portfolio_id, :symbol, :side,
-                            :quantity, :price, :total_value, :fee,
+                            :quantity, :price, :total_value, :fee, :realized_pnl,
                             :strategy, :signal_confidence, :executed_at,
                             CAST(:metadata AS jsonb)
                         )
@@ -316,6 +321,7 @@ class TradeRepository:
                         "price": price,
                         "total_value": total_value,
                         "fee": commission,
+                        "realized_pnl": realized_pnl,
                         "strategy": strategy,
                         "signal_confidence": signal_confidence,
                         # Live `executed_at` column is `timestamp without time

@@ -277,9 +277,13 @@ services:
       - ML_PREDICTION_URL=http://ml-prediction:8007
       - SENTIMENT_ANALYSIS_URL=http://sentiment-analysis:8008
       - RISK_METRICS_URL=http://risk-metrics:8009
-      # Emergency stop file - admin endpoint writes here, trading-engine reads
-      # the same host file via its own bind-mount (see trading-engine block).
-      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
+      # Emergency stop file — admin endpoint writes here, trading-engine reads
+      # via the shared safety/ dir bind-mount. Dir-to-dir mount avoids the
+      # Docker auto-create-dir gotcha that file-to-file binds suffer when the
+      # host file is missing at compose-up. File presence inside the dir is
+      # the toggle: absent=run, present=halt. Operator toggles via
+      # `touch safety/EMERGENCY_STOP` / `rm safety/EMERGENCY_STOP` on host.
+      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/safety/EMERGENCY_STOP}
       # Trading-mode flags — read by /api/config/safety-state (DASH-03 / Plan 06-02).
       # Defaults match CLAUDE.md project rules: TRADING_MODE starts at PAPER, the
       # four deliberate steps to LIVE require explicit env override.
@@ -297,16 +301,31 @@ services:
       # a brief 502 window while frontend boots (returns Bad Gateway,
       # no startup blocker on api-gateway itself).
       - FRONTEND_UPSTREAM=${FRONTEND_UPSTREAM:-http://frontend:80}
+      # Phase 10 DASHLIVE-02 — state file path + 24h continuous-PASS window env vars.
+      # PREFLIGHT_CARRY_INS_PATH defaults to /app/planning_state/carry_ins.json (inside
+      # the RW bind-mount declared in volumes below). Override to /tmp/carry_ins.json
+      # in unit tests; use PREFLIGHT_CONTINUOUS_PASS_REQUIRED_SECONDS=1 in CI.
+      - PREFLIGHT_CARRY_INS_PATH=${PREFLIGHT_CARRY_INS_PATH:-/app/planning_state/carry_ins.json}
+      - PREFLIGHT_CONTINUOUS_PASS_REQUIRED_SECONDS=${PREFLIGHT_CONTINUOUS_PASS_REQUIRED_SECONDS:-86400}
     volumes:
       - ./services/api-gateway/logs:/app/logs
-      # RW for the gateway: it creates/overwrites the EMERGENCY_STOP file.
-      # trading-engine mounts the same host file read-only.
-      - ./EMERGENCY_STOP:/app/EMERGENCY_STOP
+      # RW dir-to-dir mount: gateway writes /app/safety/EMERGENCY_STOP via
+      # POST /api/portfolio/emergency-stop. trading-engine reads same dir RO.
+      # Dir-to-dir avoids Docker's auto-create-dir-on-missing-file gotcha.
+      - ./safety:/app/safety
       # Phase 7 D-01: RO bind-mount of committed tournament snapshots.
       # Gateway reads /app/snapshots/*.json for /api/tournament/snapshots[/{id}].
       # tournament-harness service writes here under profile=tournament; gateway
       # never writes. RO ensures the gateway can't corrupt the committed artifact.
       - ./services/tournament-harness/data/snapshots:/app/snapshots:ro
+      # Phase 10 DASHLIVE-02 — RW bind-mount for carry_ins.json state file.
+      # Gateway writes _state.first_all_pass_at on each 5s poll cycle.
+      # Mount the PARENT DIRECTORY (./.planning/state), NOT the single file —
+      # see CLAUDE.md WSL bind-mount-race gotcha (docker silently creates an
+      # empty dir at single-file mount points on WSL2). Container path
+      # /app/planning_state/carry_ins.json is the default of
+      # PREFLIGHT_CARRY_INS_PATH (overridable for tests).
+      - ./.planning/state:/app/planning_state:rw
     networks:
       - crypto-bot-network
     depends_on:
@@ -566,7 +585,8 @@ services:
       - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.10}
       - MAX_POSITION_SIZE_PCT=${MAX_POSITION_SIZE_PCT:-10.0}
       - EMERGENCY_STOP_LOSS=${EMERGENCY_STOP_LOSS:-0.05}
-      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/EMERGENCY_STOP}
+      # File path inside the shared safety/ dir (see api-gateway block for context).
+      - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/safety/EMERGENCY_STOP}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
       - PAPER_INITIAL_BALANCE=100.0
       # Strategy mode: ensemble = SimpleRSI + multi-indicator + mean-reversion (performance-weighted)
@@ -609,12 +629,12 @@ services:
       - MIN_LEVERAGE=${MIN_LEVERAGE:-1.0}
     volumes:
       - ./services/trading-engine/logs:/app/logs
-      # File-based emergency stop kill switch (read-only).
-      # NOTE: host file must exist before `docker compose up` — bind-mounting a
-      # missing file causes Docker to create a directory at the mount point, which
-      # the in-container check (Path.is_file()) correctly rejects but is wasteful.
-      # The repo root has the file pre-created. Operator: touch/rm to halt/resume.
-      - ./EMERGENCY_STOP:/app/EMERGENCY_STOP:ro
+      # RO dir-to-dir mount of shared safety/ directory. The kill-switch
+      # file path is /app/safety/EMERGENCY_STOP (see EMERGENCY_STOP_FILE env).
+      # Dir-to-dir mount is intentional: file-to-file binds break silently when
+      # the host file is missing (Docker auto-creates a dir at the mount point).
+      # Operator: `touch safety/EMERGENCY_STOP` to halt, `rm` to resume.
+      - ./safety:/app/safety:ro
     networks:
       - crypto-bot-network
     depends_on:
@@ -798,7 +818,7 @@ services:
       timescaledb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8010/health',timeout=5).status==200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3

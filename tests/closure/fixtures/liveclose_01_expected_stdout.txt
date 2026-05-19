@@ -1,0 +1,12 @@
+LIVECLOSE-01 fresh-clone harness starting
+TMP_CLONE_DIR=<dir>
+REPO_URL=<url>
+Run 1: bootstrap.sh exit=<rc>
+Run 1: BYBIT_PRICE_SOURCE: mode=tape <details> (match=<yes|no>)
+Run 1: compose ps running_count=<n>
+Run 2: bootstrap.sh exit=<rc>
+Run 2: BYBIT_PRICE_SOURCE: mode=tape <details> (match=<yes|no>)
+Run 2: compose ps running_count=<n>
+Evidence written: <path>
+Status: <COMPLETE|AWAITING_HUMAN|FAILED>
+LIVECLOSE-01 harness exit=<0|1>

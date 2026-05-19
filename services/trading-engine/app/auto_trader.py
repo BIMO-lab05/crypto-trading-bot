@@ -256,6 +256,18 @@ class AutoTrader:
             getattr(self.settings, "open_cooldown_seconds", 60)
         )
 
+        # Stop-loss cooldown (2026-05-15).
+        # After a position closes via stop-loss, freeze new entries on the same
+        # symbol for sl_cooldown_seconds. Counters the whipsaw pattern observed
+        # May 6-7: ADA LONG stop → ADA LONG re-entry within minutes → stop →
+        # repeat (7× same setup in 6 hours, all losses). Cleared on bot restart
+        # — short-lived in-memory state is acceptable since restart implies
+        # operator intervention.
+        self._sl_cooldown_until: Dict[str, datetime] = {}
+        self.sl_cooldown_seconds: int = int(
+            getattr(self.settings, "sl_cooldown_seconds", 14400)  # 4 hours
+        )
+
         # Get the regime detector
         self.regime_detector = get_market_regime_detector(enabled=enable_market_regime)
 
@@ -1418,7 +1430,30 @@ class AutoTrader:
 
         Returns:
             True if can trade (no cooldown or cooldown expired), False if in cooldown
+
+        Two cooldowns are checked:
+        1. General post-trade cooldown (min_time_between_trades) — short, applies
+           to every close regardless of outcome.
+        2. Stop-loss cooldown (sl_cooldown_seconds, default 4h) — long, applies
+           only after an SL exit. Counters the whipsaw re-entry pattern. Set
+           by _record_sl_hit() from the close-position paths.
         """
+        # Stop-loss cooldown (2026-05-15) — checked unconditionally; takes
+        # precedence over reentry toggle because the whole point is to *prevent*
+        # immediate same-symbol reentry after an SL hit.
+        sl_until = self._sl_cooldown_until.get(symbol)
+        if sl_until is not None:
+            now = datetime.now()
+            if now < sl_until:
+                remaining = (sl_until - now).total_seconds()
+                logger.info(
+                    f"{symbol} in SL cooldown: {remaining:.0f}s remaining "
+                    f"(of {self.sl_cooldown_seconds}s)"
+                )
+                return False
+            # Expired — clean up so the registry doesn't grow unbounded.
+            self._sl_cooldown_until.pop(symbol, None)
+
         if not self.allow_same_symbol_reentry:
             return True  # No cooldown tracking if reentry disabled
 
@@ -1431,6 +1466,23 @@ class AutoTrader:
                 )
                 return False
         return True
+
+    def _record_sl_hit(self, symbol: str, reason: str) -> None:
+        """
+        Register a stop-loss cooldown for a symbol.
+
+        Called from close-position paths when the exit reason indicates a
+        stop-loss event. The cooldown blocks new entries on this symbol for
+        sl_cooldown_seconds via _check_symbol_cooldown().
+        """
+        from datetime import timedelta
+
+        until = datetime.now() + timedelta(seconds=self.sl_cooldown_seconds)
+        self._sl_cooldown_until[symbol] = until
+        logger.warning(
+            f"[SL_COOLDOWN] {symbol}: cooldown armed for {self.sl_cooldown_seconds}s "
+            f"(until {until.isoformat(timespec='seconds')}) — reason: {reason}"
+        )
 
     def _record_trade(self, symbol: str):
         """Record a trade for daily limit and cooldown tracking"""
@@ -2371,6 +2423,8 @@ class AutoTrader:
                 quantity=position.quantity,
                 position_id=position.id,
                 reduce_only=True,
+                # 2026-05-15: tag close rows for post-hoc attribution.
+                strategy="max_hold_force_close",
             )
 
             # Execute force close
@@ -2746,6 +2800,10 @@ class AutoTrader:
                 position.id, Decimal(str(current_price)), reason
             )
 
+            # Arm SL cooldown if this close was a stop-loss event (2026-05-15)
+            if "stop" in reason.lower() or "loss" in reason.lower():
+                self._record_sl_hit(position.symbol, reason)
+
             # ================================================================
             # UPDATE KILL SWITCH METRICS (Enhanced 2025-11-30)
             # ================================================================
@@ -2885,6 +2943,13 @@ class AutoTrader:
                 "test cannot run in LIVE mode. See "
                 "app/auto_trader.py:_close_position_with_limit_order."
             )
+
+        # Arm SL cooldown (2026-05-15). This path is invoked only for stop-loss
+        # exits (callers gate on "stop"/"loss" in reason — see _monitor loop).
+        # Done before close attempt so even if the close path partially fails
+        # the cooldown still blocks re-entry whipsaw.
+        self._record_sl_hit(position.symbol, reason)
+
         try:
             from app.models import (
                 OrderCreate,
@@ -2984,6 +3049,8 @@ class AutoTrader:
                     else None,
                     reduce_only=True,
                     position_id=position.id,
+                    # 2026-05-15: tag close rows for post-hoc attribution.
+                    strategy="stop_loss_limit",
                 )
 
                 # Execute limit order
@@ -3055,6 +3122,8 @@ class AutoTrader:
                 quantity=position.quantity,
                 reduce_only=True,
                 position_id=position.id,
+                # 2026-05-15: tag close rows for post-hoc attribution.
+                strategy="stop_loss_market_fallback",
             )
 
             # Execute market order
@@ -3400,6 +3469,14 @@ class AutoTrader:
             confidence: Signal confidence score
             signal: TradingSignal object
         """
+        # SL cooldown check (2026-05-15). Block re-entry on same symbol within
+        # sl_cooldown_seconds after a stop-loss exit. Mirrors the check in
+        # _execute_trade_with_setup; placed before the open-slot claim so we
+        # don't burn a slot on a guaranteed rejection.
+        if not self._check_symbol_cooldown(symbol):
+            self.total_trades_rejected += 1
+            return
+
         # Concurrent-open dedup gate (2026-05-06). Race-safe per-symbol claim
         # so two signal paths can't both pass has_position before either commits.
         if not await self._claim_open_slot(symbol):
@@ -3520,6 +3597,10 @@ class AutoTrader:
                 type=OrderType.MARKET,  # Field name is 'type', not 'order_type'
                 quantity=Decimal(str(quantity)),
                 strategy="auto_trader",
+                # 2026-05-15: persist confidence so trades table can be analyzed
+                # post-hoc. Previously NULL on 29/31 rows blocked debugging the
+                # May 6-7 whipsaw run.
+                entry_signal_confidence=float(confidence),
             )
 
             executed_order, error = await paper_engine.execute_market_order(
@@ -3916,6 +3997,8 @@ class AutoTrader:
                 type=OrderType.MARKET,
                 quantity=Decimal(str(quantity)),
                 strategy="ensemble",
+                # 2026-05-15: persist confidence for post-hoc analysis.
+                entry_signal_confidence=float(ens_signal.confidence),
             )
             executed_order, error = await paper_engine.execute_market_order(
                 order, Decimal(str(current_price))

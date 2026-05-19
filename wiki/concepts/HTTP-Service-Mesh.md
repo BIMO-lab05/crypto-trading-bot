@@ -71,6 +71,6 @@ Original arch doc (Oct 2025, `docs/architecture/SYSTEM_OVERVIEW.md`) prescribed 
 
 - [[Message-Queue-Topics]]
 - [[Aspirational-vs-Real]]
-- [[../decisions/ADR-012-http-not-events]]
+- [[../decisions/ADR-016-http-not-events]]
 - [[../flows/Signal-Pipeline]]
 - [[../flows/Order-Lifecycle]]

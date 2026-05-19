@@ -94,7 +94,7 @@ Build ONE strategy aligned with the research findings, not 25 alternates. Specif
 - `wiki/decisions/ADR-001-LSTM-removed.md` (V0 directional-accuracy leakage incident — same lesson)
 - `wiki/decisions/ADR-010-max-risk-per-trade-paper-bump.md`
 - `wiki/decisions/ADR-011-paper-deterministic-execution.md`
-- `wiki/decisions/ADR-012-http-not-events.md`
+- `wiki/decisions/ADR-016-http-not-events.md`
 - `.claude/skills/trading-strategy-dev/references/leakage-tests.md`
 - `.claude/skills/trading-strategy-dev/references/acceptance-gates.md`
 - 2026-05-06 research synthesis (web-search-researcher + general-purpose agents) — sources cited in respective audit comments

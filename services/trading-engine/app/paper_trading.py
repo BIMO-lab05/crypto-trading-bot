@@ -189,6 +189,7 @@ class PaperTradingEngine:
                         commission=commission,
                         strategy=order.strategy,
                         signal_confidence=order.entry_signal_confidence,
+                        realized_pnl=closed_position.realized_pnl,
                     )
                 )
 
@@ -279,8 +280,7 @@ class PaperTradingEngine:
                     side=PositionSide.SHORT,
                     entry_price=current_price,
                     quantity=order.quantity,
-                    strategy="research_optimized",
-                    # CRITICAL FIX 2025-12-07: Save entry signal confidence
+                    strategy=order.strategy,
                     entry_signal_confidence=order.entry_signal_confidence,
                 )
 
@@ -339,6 +339,7 @@ class PaperTradingEngine:
                     commission=commission,
                     strategy=order.strategy,
                     signal_confidence=order.entry_signal_confidence,
+                    realized_pnl=closed_position.realized_pnl,
                 )
             )
 

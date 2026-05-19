@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "tournament_id": "t0_1_x_horizon_sweep",
+  "baseline": "persistence",
+  "aggregation": "mean_log_returns",
+  "git_sha": "0000000000000000000000000000000000000000",
+  "evaluated_at": "2026-05-18T00:00:00+00:00",
+  "tournaments_evaluated_count": 1,
+  "n_winning_symbols": 2,
+  "per_symbol": {
+    "SOLUSDT": {
+      "sharpe_pvalue": 0.02,
+      "dir_acc_pvalue": 0.03,
+      "sharpe_lift": 0.5,
+      "dir_acc_lift": 0.01,
+      "n_members": 4,
+      "win_gate_passed": true,
+      "gate_failure_reasons": []
+    },
+    "BNBUSDT": {
+      "sharpe_pvalue": 0.04,
+      "dir_acc_pvalue": 0.04,
+      "sharpe_lift": 0.3,
+      "dir_acc_lift": 0.005,
+      "n_members": 4,
+      "win_gate_passed": true,
+      "gate_failure_reasons": []
+    },
+    "ADAUSDT": {
+      "sharpe_pvalue": 0.10,
+      "dir_acc_pvalue": 0.15,
+      "sharpe_lift": 0.1,
+      "dir_acc_lift": 0.002,
+      "n_members": 4,
+      "win_gate_passed": false,
+      "gate_failure_reasons": ["sharpe_pvalue>=0.05", "dir_acc_pvalue>=0.05"]
+    }
+  }
+}

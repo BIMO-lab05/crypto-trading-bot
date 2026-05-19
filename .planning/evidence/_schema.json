@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crypto-trading-bot/.planning/evidence/_schema.json",
+  "title": "LIVECLOSE Harness Evidence",
+  "description": "Machine-readable evidence contract for Phase 11.1 LIVECLOSE carry-in closure harnesses (LIVECLOSE-01..05). Every harness in scripts/closure/ MUST emit evidence files conforming to this schema via scripts.closure._common.write_evidence(). Closed for extension after Phase 11.1 Plan 01; Wave 2 plans (11.1-02..06) consume read-only. schema_version is pinned to 1; additionalProperties is true so individual harnesses may add payload keys (ci_url, verdict, row_count, etc.) without bumping schema_version.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "status",
+    "timestamp",
+    "evidence_paths",
+    "human_needed",
+    "liveclose_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Pinned schema version. Bump only on a breaking change to the required-field set or to the status enum."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "COMPLETE",
+        "AWAITING_HUMAN",
+        "INSUFFICIENT_DATA",
+        "FAILED"
+      ],
+      "description": "Harness outcome. COMPLETE = harness ran and emitted all evidence. AWAITING_HUMAN = harness ran successfully but a wall-clock operator action is still required to close the carry-in. INSUFFICIENT_DATA = harness ran but the input data is below the closure threshold (e.g. <7 PSR-CI rows for LIVECLOSE-03). FAILED = harness errored before emitting full evidence."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when the harness wrote this evidence file."
+    },
+    "evidence_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 0,
+      "description": "Repo-relative paths to the human-readable evidence artifacts (markdown, screenshots, log captures, CSVs). Empty list permitted for FAILED runs that never produced any artifact."
+    },
+    "human_needed": {
+      "type": "boolean",
+      "description": "True when a wall-clock operator action is still required AFTER the harness ran (e.g. LIVE-flip smoke, GitHub-Actions billing recovery). The LIVECLOSE-INDEX.md table surfaces this flag to operators."
+    },
+    "liveclose_id": {
+      "type": "string",
+      "enum": [
+        "LIVECLOSE-01",
+        "LIVECLOSE-02",
+        "LIVECLOSE-03",
+        "LIVECLOSE-04",
+        "LIVECLOSE-05"
+      ],
+      "description": "Which Phase 11 carry-in this evidence file closes (or partially closes, when human_needed=true)."
+    }
+  }
+}

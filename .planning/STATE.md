@@ -1,113 +1,85 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: completed
-stopped_at: Phase 7 UI-SPEC approved
-last_updated: "2026-05-14T23:32:36.547Z"
-last_activity: 2026-05-14 -- Phase 07.2 marked complete
+milestone: v1.2
+milestone_name: Polish & Real-Time
+status: planning
+last_updated: "2026-05-18T20:08:16.357Z"
+last_activity: 2026-05-18
 progress:
-  total_phases: 9
-  completed_phases: 9
-  total_plans: 50
-  completed_plans: 50
-  percent: 100
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-06)
+See: .planning/PROJECT.md (updated 2026-05-18 after v1.1 milestone close)
 
-**Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns.
-**Current focus:** Phase 07.2 — phase3-skeleton-loader-fix
+**Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
+**Current focus:** Planning next milestone. v1.1 closed with 5 operator carry-ins (LIVECLOSE-01..05 harness executions, wall-clock) + 2 operator-blocked CI items (CIRESTORE-01/02 awaiting OP-04). No code debt outstanding.
 
 ## Current Position
 
-Phase: 07.2 — COMPLETE
-Plan: 1 of 1
-Plans: 4 of 4 complete in Phase 05 (05-01 MLCL-01 apparatus + gate DONE; 05-02 MLCL-02 horizon-sweep shipped DONE; 05-03 MLCL-03 monitoring disposition DONE; 05-04 MLCL-04 backtest divergence documented DONE)
-Status: Phase 07.2 complete
-Last activity: 2026-05-14 -- Phase 07.2 marked complete
-
-CI: Workflow `tournament-harness.yml` registered upstream; first run blocked by GitHub Actions billing (operator must resolve at github.com/settings/billing). YAML validity confirmed locally.
-
-Progress: [██████████] 100%
-
-## Performance Metrics
-
-**Velocity:**
-
-- Total plans completed: 19
-- Average duration: —
-- Total execution time: —
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 02 | 10 | - | - |
-| 03 | 9 | - | - |
-
-**Recent Trend:**
-
-- Last 5 plans: —
-- Trend: —
-
-*Updated after each plan completion*
-| Phase 04-tournament-significance-auto-pr P09 | 35min | 3 tasks | 1 files |
-| Phase 05-ml-cleanup-post-v0 P02 | ~25min | 3 tasks | 7 files |
-| Phase 05-ml-cleanup-post-v0 P03 | ~25min | 3 tasks | 8 files |
-| Phase 05-ml-cleanup-post-v0 P04 | ~30min | 2 tasks | 4 files |
-
-## Accumulated Context
-
-### Decisions
-
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- Init: Skipped GSD codebase mapping; bootstrapped from existing CLAUDE.md + audit memory + V0 finding
-- Init: Tournament uses Docker+Python orchestrator, not LLM subagents
-- Init: Win criterion is DSR + bootstrap p<0.05 on OOS Sharpe / corrected Dir.Acc, not >5% R²
-- Init: Bootstrap-tests run against fresh clone in tmp, never against working tree
-- Init: Tournament wins open draft PRs; humans merge
-- [Phase 04]: Used pytest --ignore (cwd-relative) over --deselect (rootdir-relative) in integration-fake-docker CI step — Plan literal --deselect tests/integration/X.py silently matched nothing because pytest rootdir is repo root; --ignore preserves cwd-relative path form and works correctly. Verified 26 passed / 14 ignored vs 40 collected with broken form.
-- [Phase 04]: 0-SKIP grep guard in container-integration CI job is load-bearing — Pairs with Plan 04-08 test_canonical_metrics_importable.py for defence in depth — catches silent namespace-merge regression even if the regression test itself is re-routed to a skip path.
-- [Phase 05 MLCL-02]: different_horizon selected as T0.1.x experiment — sweep horizon [3,5,7,10] on GRU-only grid (12 experiments); pure YAML edit, zero new Python; INSUFFICIENT_DATA verdict due to TIMESCALE_PASSWORD not propagated into container env (operator action required before re-run).
-- [Phase 05 MLCL-04]: document_divergence_permanently chosen over rewrite_to_core_aggregator — tournament harness is the honest-evaluation path; run_extended_backtest.py designated as strategy regime characterisation tool only with PERMANENT DIVERGENCE framing + ADR-012.
-
-### Pending Todos
-
-None yet (use `/gsd-capture` to add).
-
-### Blockers/Concerns
-
-- Local main is 60+ commits ahead of origin/main as of 2026-05-01 — push pending; verify CI green before opening tournament PRs
-- Working tree dirty at init time (15+ modified files including service code + frontend); mods are unrelated to GSD setup and stay outside GSD commits
-- `scripts/monitoring/` tier-2 deleted per ADR-011 (Phase 5 MLCL-03); tier-1 retained as cheap health monitor
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-18 — Milestone v1.2 started
 
 ## Deferred Items
 
-| Category | Item | Status | Deferred At |
-|----------|------|--------|-------------|
-| ML | Sentiment-as-filter integration | v2 | 2026-05-06 |
-| ML | Classification head + calibration | v2 | 2026-05-06 |
-| Dashboard | Server-side `/ws/metrics` route + WS subscription layer | v2 | 2026-05-06 |
-| Dashboard | Mobile-friendly responsive layout | v2 | 2026-05-06 |
-| Infra | K8s deployment | v2 | 2026-05-06 |
-| Tournament | XRP/AVAX inclusion + multi-horizon search | v2 | 2026-05-06 |
+Items acknowledged and deferred at milestone close on 2026-05-18:
+
+| Category | Item | Status |
+|---|---|---|
+| verification | Phase 08 VERIFICATION.md | human_needed (2 manual-only smokes: container-restart cap-rejection proof + live HTTP curl through api-gateway after image rebuild — both deferred to post-merge operator verification per Manual-Only #1/#2 in 08-VALIDATION.md) |
+| operator-action | OP-01 — LIVE-flip manual smoke | open (blocks LIVECLOSE-05 evidence; harness shipped at scripts/closure/liveclose-05-live-flip-smoke.sh + docs/runbooks/LIVECLOSE-05.md, supervised-run-only) |
+| operator-action | OP-02 — apply migration 005 (`tournament_reader` role) | open (blocks LIVECLOSE-04 verdict) |
+| operator-action | OP-03 — set `TOURNAMENT_READER_PASSWORD` + force-recreate tournament-harness | open (blocks LIVECLOSE-04 verdict) |
+| operator-action | OP-04 — resolve GitHub Actions billing | open (blocks LIVECLOSE-02, CIRESTORE-01, CIRESTORE-02 evidence accrual) |
+| operator-action | INFRA-02 checkpoint — fresh tmp clone bootstrap × 2 | open (blocks LIVECLOSE-01 evidence; harness shipped at scripts/closure/liveclose-01-fresh-clone.sh) |
+| operator-action | LIVECLOSE-03 ≥7-day evidence accrual | open (wall-clock-bound; harness shipped at scripts/closure/liveclose_03_psr_evidence.py) |
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- v1.0 milestone shipped 2026-05-15 (9 phases, 50 plans, 427 commits)
+- v1.1 milestone shipped 2026-05-18 (5 phases, 19 plans, 138 commits; Phase 11 umbrella superseded by Phase 11.1 harnesses-only split)
+
+### Decisions
+
+Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains only the open / load-bearing-now items:
+
+- ML predictions remain `ENABLE_ML_PREDICTIONS=false`; trading-engine auto-flip is *armed* (Phase 9) but no qualifying DSR>0.95 evidence row exists in `leaderboard` yet (LIVECLOSE-03 wall-clock).
+- Paper-mode per-trade cap relaxed to 10% (ADR-010); Phase 8 boot-path enforces ≤2% only in LIVE. Pre-LIVE checklist (RUNBOOK Pre-LIVE Operator Checklist) restores ≤2% before flip.
+
+### Blockers/Concerns
+
+- 7 operator-action items open (5 LIVECLOSE harnesses + 2 CIRESTORE evidence + 1 INFRA-02 checkpoint). All have shipped harness code; only wall-clock execution remains.
+- Phase 08 VERIFICATION.md `human_needed` status persists post-archive: 2 manual-only smokes require operator post-merge action.
+
+## Open Operator Actions (carry into v1.2)
+
+| ID | Action | Blocks |
+|---|---|---|
+| OP-01 | LIVE-flip manual smoke (api-gateway `TRADING_MODE=LIVE`, rose outline, revert) | LIVECLOSE-05 |
+| OP-02 | Apply migration 005 to market_data on timescaledb | LIVECLOSE-04 |
+| OP-03 | Set `TOURNAMENT_READER_PASSWORD` + force-recreate tournament-harness | LIVECLOSE-04 |
+| OP-04 | Resolve GH Actions billing | LIVECLOSE-02, CIRESTORE-01, CIRESTORE-02 |
+| INFRA-02 chk | Run `bootstrap.sh` × 2 from fresh tmp clone | LIVECLOSE-01 |
+| LIVECLOSE-03 accrual | Run `scripts/forward_paper_test/run_evidence_loop.py` for ≥7 trading days | LIVECLOSE-03 |
 
 ## Session Continuity
 
-Last session: 2026-05-14T12:35:47.641Z
-Stopped at: Phase 7 UI-SPEC approved
-Resume file: .planning/phases/07-tournament-view-smoke-test/07-UI-SPEC.md
-Open operator actions (3):
+Last session: 2026-05-18T20:36:00.000Z
+Stopped at: v1.1 milestone archive + reconciliation complete; git tag + final commit pending
+Resume file: None
 
-  1. Manual smoke 1 LIVE flip — recreate api-gateway with TRADING_MODE=LIVE, verify rose outline + red MODE pill, then revert.
-  2. Apply migration 005 against market_data — `docker cp infrastructure/migrations/005_tournament_reader.sql crypto-bot-timescaledb:/tmp/ && docker exec crypto-bot-timescaledb psql -U cryptobot -d market_data -f /tmp/005_tournament_reader.sql`.
-  3. Set TOURNAMENT_READER_PASSWORD in .env + ALTER ROLE tournament_reader PASSWORD '<value>' on TimescaleDB + force-recreate tournament-harness. Then re-run MLCL-02 t0_1_x_horizon_sweep.
+## Operator Next Steps
 
-Next: After operator unblocks, advance to Phase 7 (Tournament View & Smoke Test).
+- Run `/gsd-new-milestone` to define v1.2 scope (or `/gsd-review-backlog` to triage carry-overs first).
+- Execute open LIVECLOSE harnesses + close OP-* carry-ins independently as wall-clock-bound operator work; commit evidence under `.planning/evidence/LIVECLOSE-*/` and `.planning/evidence/{OP-04,CIRESTORE-02}/`.

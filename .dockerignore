@@ -45,6 +45,17 @@ logs/
 .gitignore
 .gitattributes
 
+# Build/analysis output (not needed in image; bloats build context on WSL2)
+graphify-out/
+data/
+backups/
+.planning/
+wiki/
+.obsidian/
+.claude/
+.playwright-mcp/
+.audit/
+
 # Documentation
 *.md
 docs/
