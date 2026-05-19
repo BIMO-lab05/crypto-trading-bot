@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { mlAPI, sentimentAPI, multiTimeframeAPI, enhancedTradingAPI } from '../services/api'
 import TileState from '../components/TileState'
+import { useSafetyState } from '../hooks/useSafetyState'
 
 /**
  * Phase3Dashboard - AI-Enhanced Trading Dashboard
@@ -40,6 +41,19 @@ export default function Phase3Dashboard() {
 
   // Query client for cache invalidation after training
   const queryClient = useQueryClient()
+
+  // Feature-flag gate (debug session phase3-feature-flag-ungated, 2026-05-19).
+  // Pull ml_predictions_enabled + sentiment_analysis_enabled from
+  // /api/config/safety-state. When the operator has gated a service OFF
+  // (compose-default for both is false), block the corresponding useQuery
+  // via `enabled` so the disabled service is never called — suppresses the
+  // 503-noise that produced 4 console errors per Phase3 page load. Explicit
+  // `=== true` per advisor: the safety hook resolves to `undefined` for the
+  // first ~50ms after mount, and we want only literal true to enable the
+  // fetch (not stringified envelopes or accidental truthy values).
+  const { data: safety } = useSafetyState()
+  const mlPredictionsEnabled = safety?.ml_predictions_enabled === true
+  const sentimentAnalysisEnabled = safety?.sentiment_analysis_enabled === true
 
   // All intervals for training
   const allIntervals = [
@@ -158,6 +172,12 @@ export default function Phase3Dashboard() {
     // (tile-error testid) instead of skeleton-forever.
     retry: (failureCount, error) => error?.response?.status !== 503 && failureCount < 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    // Gate (debug session phase3-feature-flag-ungated, 2026-05-19): only
+    // fire the request when the operator has ENABLE_ML_PREDICTIONS=true
+    // (surfaced via /api/config/safety-state.ml_predictions_enabled).
+    // Suppresses the 503 console-error noise produced when the ml-prediction
+    // service is intentionally gated OFF.
+    enabled: mlPredictionsEnabled,
     staleTime: 30000,
   })
   const {
@@ -180,6 +200,12 @@ export default function Phase3Dashboard() {
     // Phase 7.2: short-circuit 503 retry (ENABLE_SENTIMENT_ANALYSIS=false).
     retry: (failureCount, error) => error?.response?.status !== 503 && failureCount < 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    // Gate (debug session phase3-feature-flag-ungated, 2026-05-19): only
+    // fire the request when the operator has ENABLE_SENTIMENT_ANALYSIS=true
+    // (surfaced via /api/config/safety-state.sentiment_analysis_enabled).
+    // Suppresses the 503 console-error noise produced when the
+    // sentiment-analysis service is intentionally gated OFF.
+    enabled: sentimentAnalysisEnabled,
     staleTime: 300000,
   })
 

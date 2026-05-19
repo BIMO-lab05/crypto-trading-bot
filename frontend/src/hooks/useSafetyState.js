@@ -17,6 +17,7 @@ import api from '../services/api'
  *     auto_trading_enabled: boolean,
  *     emergency_stop: { active: boolean, mtime: <ISO string or null> },
  *     ml_predictions_enabled: boolean,
+ *     sentiment_analysis_enabled: boolean,
  *     kill_switch: {
  *       daily_loss_armed: boolean,
  *       daily_pnl_pct: number,

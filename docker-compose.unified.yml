@@ -290,6 +290,7 @@ services:
       - TRADING_MODE=${TRADING_MODE:-PAPER}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
       - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-false}
+      - ENABLE_SENTIMENT_ANALYSIS=${ENABLE_SENTIMENT_ANALYSIS:-false}
       # Plan 07.1-01 BUG-3: catch-all reverse-proxy target. api-gateway
       # forwards non-/api GET requests (including `/`) to the frontend
       # nginx container so http://localhost:8000 (gateway origin) can

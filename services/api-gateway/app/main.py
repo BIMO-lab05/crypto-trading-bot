@@ -1057,7 +1057,9 @@ async def get_safety_state():
 
     Ownership split (D-09 / D-10):
     - api-gateway reads its own env for trading_mode / paper_trading_mode /
-      ml_predictions_enabled (F-04 wired these into the compose env block).
+      ml_predictions_enabled / sentiment_analysis_enabled (F-04 wired these into
+      the compose env block; sentiment_analysis_enabled added 2026-05-19 for
+      Phase3 frontend gate, debug session phase3-feature-flag-ungated).
     - Proxies to trading-engine for auto_trading_enabled + emergency_stop
       (D-10: only trading-engine reads the EMERGENCY_STOP bind-mount file).
     - Proxies to trading-engine for kill_switch state (D-04: 5% daily-loss
@@ -1125,6 +1127,9 @@ async def get_safety_state():
     ml_predictions_enabled = (
         os.getenv("ENABLE_ML_PREDICTIONS", "false").lower() == "true"
     )
+    sentiment_analysis_enabled = (
+        os.getenv("ENABLE_SENTIMENT_ANALYSIS", "false").lower() == "true"
+    )
 
     # --- emergency_stop sub-dict from te_status ---------------------------
     es_raw = te_status.get("emergency_stop") or {}
@@ -1160,6 +1165,7 @@ async def get_safety_state():
         "auto_trading_enabled": bool(te_status.get("auto_trading_enabled", False)),
         "emergency_stop": emergency_stop,
         "ml_predictions_enabled": ml_predictions_enabled,
+        "sentiment_analysis_enabled": sentiment_analysis_enabled,
         "kill_switch": kill_switch,
         "last_updated_at": datetime.now(_tz.utc).isoformat(),
     }
