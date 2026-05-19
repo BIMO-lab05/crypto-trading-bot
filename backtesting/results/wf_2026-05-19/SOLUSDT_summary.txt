@@ -1,0 +1,22 @@
+INFO:backtesting.backtest_engine:Backtest complete: 0 trades
+INFO:backtesting.backtest_engine:Win rate: 0.00%
+INFO:backtesting.backtest_engine:Total P&L: $0.00 (0.00%)
+================================================================================
+WALK-FORWARD RESULTS — SOLUSDT 60m 180d
+================================================================================
+fold start       end          bars trades    WR%  Sharpe  maxDD%    PF    PnL%
+   0 2025-08-24  2025-09-04    270      0    0.0    0.00    0.00  0.00    0.00
+   1 2025-09-27  2025-10-19    540      0    0.0    0.00    0.00  0.00    0.00
+   2 2025-10-31  2025-12-03    810      0    0.0    0.00    0.00  0.00    0.00
+   3 2025-12-04  2026-05-19   1080      0    0.0    0.00    0.00  0.00    0.00
+--------------------------------------------------------------------------------
+IS Sharpe mean : +0.000
+OOS Sharpe mean: +0.000
+OOS/IS ratio   : +0.000  (gate ≥ 0.60)
+DSR            : 0.500  (gate ≥ 0.95)
+Gate passed    : False
+Gate failures  :
+  - OOS Sharpe mean 0.00 < 1.00
+  - OOS/IS Sharpe ratio 0.00 < 0.60
+  - DSR 0.50 < 0.95
+================================================================================
