@@ -893,6 +893,12 @@ class AutoTrader:
                         self.emergency_stop_active = True
                     self.is_running = False
                     break
+                elif self.emergency_stop_active:
+                    logger.info(
+                        f"EMERGENCY_STOP file no longer present at {self.emergency_stop_file} - "
+                        f"clearing stale emergency_stop_active flag."
+                    )
+                    self.emergency_stop_active = False
 
                 # ================================================================
                 # STEP 0: CHECK KILL SWITCH (2025-11-30)
