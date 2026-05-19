@@ -23,7 +23,8 @@ export default function RegimeIndicator() {
     staleTime: 4000,
   })
 
-  const hybrid = q.data?.status?.hybrid_strategy_stats || {}
+  const status = q.data?.status || {}
+  const hybrid = status.hybrid_strategy_stats || {}
   const trendPct = hybrid.trend_pct || 0
   const meanRevPct = hybrid.mean_reversion_pct || 0
 
@@ -49,6 +50,35 @@ export default function RegimeIndicator() {
     regimeBorder = 'border-emerald-500/30'
     regimeIcon = '↔️'
     strategy = 'Mean Rev'
+  } else {
+    // Fallback: in ENSEMBLE mode (and other non-HYBRID/RESEARCH modes) the
+    // backend does not emit hybrid_strategy_stats. Derive regime by summing
+    // categories from regime_detector_stats.regime_distribution so the tile
+    // reflects live engine state instead of the placeholder.
+    const dist =
+      status.regime_detector_stats?.regime_distribution ||
+      status.regime_distribution ||
+      {}
+    const trendingKeys = ['STRONG_TREND', 'TRENDING', 'WEAK_TREND']
+    const meanRevKeys = ['MEAN_REVERTING', 'RANGING', 'RANGE_BOUND']
+    const trendCount = trendingKeys.reduce((s, k) => s + (dist[k] || 0), 0)
+    const meanRevCount = meanRevKeys.reduce((s, k) => s + (dist[k] || 0), 0)
+    const total = trendCount + meanRevCount
+    if (total > 0 && trendCount > meanRevCount * 1.5) {
+      regime = 'TRENDING'
+      regimeColor = 'blue'
+      regimeBg = 'bg-blue-500/10'
+      regimeBorder = 'border-blue-500/30'
+      regimeIcon = '📈'
+      strategy = 'Trend'
+    } else if (total > 0 && meanRevCount > trendCount * 1.5) {
+      regime = 'RANGING'
+      regimeColor = 'emerald'
+      regimeBg = 'bg-emerald-500/10'
+      regimeBorder = 'border-emerald-500/30'
+      regimeIcon = '↔️'
+      strategy = 'Mean Rev'
+    }
   }
 
   return (
