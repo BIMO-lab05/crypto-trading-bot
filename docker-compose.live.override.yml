@@ -1,0 +1,17 @@
+# Live market data override for crypto-trading-bot.
+#
+# Activates real Bybit mainnet pricing on bybit-connector and market-data-service
+# without touching .env (which holds API keys and is permission-locked).
+#
+# Use:
+#   docker compose -f docker-compose.unified.yml -f docker-compose.live.override.yml up -d --force-recreate bybit-connector market-data
+#
+# Revert to deterministic tape mode by omitting this file from the -f chain
+# (compose default in docker-compose.unified.yml is MARKET_DATA_SOURCE=tape).
+services:
+  bybit-connector:
+    environment:
+      - MARKET_DATA_SOURCE=live
+  market-data:
+    environment:
+      - MARKET_DATA_SOURCE=live
