@@ -143,6 +143,94 @@ class TestCircuitBreakerRouteDailyLossScale:
 
     @patch("app.main.fetch_performance_data", new_callable=AsyncMock)
     @patch("app.main.fetch_portfolio_data", new_callable=AsyncMock)
+    def test_paper_mode_gross_32pct_does_not_trip_exposure_cb(
+        self, mock_fetch_portfolio, mock_fetch_performance, cb_route_client
+    ):
+        """
+        Regression for 2026-05-19: paper-mode normal operation must not
+        trip the exposure CB.
+
+        5 symbols × ~6.4% positions = 32% gross is the expected operating
+        range under ADR-010 (paper per-trade cap 10%, ensemble sizing
+        producing 5-8% positions). Old defaults (max_exposure=0.20 → CB
+        trip at 0.24) made the CB trip every loop. ADR-017 raised
+        max_exposure to 0.50 → CB trip at 0.60 = 60% gross.
+        """
+        holdings = [
+            {
+                "symbol": f"{sym}USDT",
+                "current_value": 6.4,
+                "quantity": 1.0,
+                "current_price": 6.4,
+            }
+            for sym in ("BTC", "ETH", "SOL", "BNB", "ADA")
+        ]
+        mock_fetch_portfolio.return_value = {
+            "portfolio": {
+                "total_value": 100.0,
+                "available_balance": 68.0,
+                "total_return_pct": 0.0,
+                "holdings": holdings,
+            }
+        }
+        mock_fetch_performance.return_value = _performance_payload(daily_return_pct=0.0)
+
+        response = cb_route_client.get("/circuit-breaker")
+        assert response.status_code == 200
+
+        data = response.json()
+        exposure_reasons = [r for r in data.get("reasons", []) if "Exposure" in r]
+        assert exposure_reasons == [], (
+            "CB tripped on exposure at ~32% gross — must be allowed under paper-mode "
+            f"max_exposure=0.50 (CB trips at 0.60). Reasons: {data.get('reasons')!r}"
+        )
+        assert data["is_tripped"] is False, (
+            f"CB tripped at all on normal paper-mode operation. Full response: {data!r}"
+        )
+
+    @patch("app.main.fetch_performance_data", new_callable=AsyncMock)
+    @patch("app.main.fetch_portfolio_data", new_callable=AsyncMock)
+    def test_runaway_gross_above_paper_threshold_still_trips(
+        self, mock_fetch_portfolio, mock_fetch_performance, cb_route_client
+    ):
+        """
+        Safety net still fires when gross exposure exceeds the paper-mode
+        trip threshold (max_exposure × multiplier = 0.50 × 1.2 = 0.60).
+        Raising the limits in ADR-017 must not disable the safety net —
+        a 70% gross deployment is still a runaway condition.
+        """
+        # 7 positions × $10 each = 70% gross of a $100 balance — above CB trip (60%)
+        holdings = [
+            {
+                "symbol": f"SYM{i}USDT",
+                "current_value": 10.0,
+                "quantity": 1.0,
+                "current_price": 10.0,
+            }
+            for i in range(7)
+        ]
+        mock_fetch_portfolio.return_value = {
+            "portfolio": {
+                "total_value": 100.0,
+                "available_balance": 30.0,
+                "total_return_pct": 0.0,
+                "holdings": holdings,
+            }
+        }
+        mock_fetch_performance.return_value = _performance_payload(daily_return_pct=0.0)
+
+        response = cb_route_client.get("/circuit-breaker")
+        assert response.status_code == 200
+
+        data = response.json()
+        exposure_reasons = [r for r in data.get("reasons", []) if "Exposure" in r]
+        assert len(exposure_reasons) >= 1, (
+            "Safety-net CB failed to trip on 70% gross exposure. "
+            f"Reasons: {data.get('reasons')!r}"
+        )
+
+    @patch("app.main.fetch_performance_data", new_callable=AsyncMock)
+    @patch("app.main.fetch_portfolio_data", new_callable=AsyncMock)
     def test_performance_fetch_failure_falls_back_to_no_signal(
         self, mock_fetch_portfolio, mock_fetch_performance, cb_route_client
     ):

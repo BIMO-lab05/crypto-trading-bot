@@ -6,7 +6,6 @@ Tests all risk calculation methods, metrics generation, and circuit breaker logi
 import pytest
 from decimal import Decimal
 from datetime import datetime, timedelta
-from app.risk_engine import RiskEngine
 from app.config import settings
 from app.models import RiskLevel
 
@@ -21,17 +20,20 @@ class TestRiskEngineCapitalMetrics:
         total_capital = Decimal("10000")
         positions = [
             {"current_value": 2500.0},  # 25% of capital
-            {"current_value": 1500.0}   # 15% of capital
+            {"current_value": 1500.0},  # 15% of capital
         ]
 
         metrics = risk_engine.calculate_capital_metrics(total_capital, positions)
 
         assert metrics.total_capital == total_capital
         assert metrics.allocated_capital == Decimal("4000")  # 2500 + 1500
-        assert metrics.available_capital == Decimal("5500")  # 10000 - 4000 - 500 (reserved)
+        assert metrics.available_capital == Decimal(
+            "5500"
+        )  # 10000 - 4000 - 500 (reserved)
         assert metrics.capital_utilization == 0.40  # 40% utilization
-        assert metrics.max_position_size == Decimal("200")  # 2% of 10000
-        assert metrics.recommended_position_size == Decimal("100")  # 1% of 10000
+        # ADR-017: defaults aligned with paper-mode (max_position_size=0.10)
+        assert metrics.max_position_size == Decimal("1000")  # 10% of 10000
+        assert metrics.recommended_position_size == Decimal("500")  # 5% of 10000
 
     def test_calculate_capital_metrics_no_positions(self, risk_engine):
         """Test capital metrics with empty portfolio"""
@@ -42,9 +44,12 @@ class TestRiskEngineCapitalMetrics:
 
         assert metrics.total_capital == total_capital
         assert metrics.allocated_capital == Decimal("0")
-        assert metrics.available_capital == total_capital - Decimal("500")  # Minus reserved capital
+        assert metrics.available_capital == total_capital - Decimal(
+            "500"
+        )  # Minus reserved capital
         assert metrics.capital_utilization == 0.0
-        assert metrics.max_position_size == Decimal("200")
+        # ADR-017: max_position_size now 0.10 (paper-mode aligned)
+        assert metrics.max_position_size == Decimal("1000")
 
     def test_calculate_capital_metrics_fully_invested(self, risk_engine):
         """Test capital metrics when portfolio is fully invested"""
@@ -56,7 +61,9 @@ class TestRiskEngineCapitalMetrics:
         metrics = risk_engine.calculate_capital_metrics(total_capital, positions)
 
         assert metrics.allocated_capital == total_capital
-        assert metrics.available_capital == Decimal("-500")  # Total - Allocated - Reserved
+        assert metrics.available_capital == Decimal(
+            "-500"
+        )  # Total - Allocated - Reserved
         assert metrics.capital_utilization == 1.0  # 100% utilization
 
 
@@ -69,8 +76,18 @@ class TestRiskEngineExposureMetrics:
         """Test exposure metrics with diversified portfolio"""
         total_capital = Decimal("10000")
         positions = [
-            {"symbol": "BTCUSDT", "quantity": 0.1, "current_price": 45000.0, "current_value": 4500.0},
-            {"symbol": "ETHUSDT", "quantity": 2.0, "current_price": 3000.0, "current_value": 6000.0}
+            {
+                "symbol": "BTCUSDT",
+                "quantity": 0.1,
+                "current_price": 45000.0,
+                "current_value": 4500.0,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "quantity": 2.0,
+                "current_price": 3000.0,
+                "current_value": 6000.0,
+            },
         ]
 
         metrics = risk_engine.calculate_exposure_metrics(positions, total_capital)
@@ -81,20 +98,27 @@ class TestRiskEngineExposureMetrics:
         assert metrics.short_exposure == Decimal("0")
         assert metrics.net_exposure == Decimal("10500")
         assert metrics.gross_exposure == Decimal("10500")
-        assert len(metrics.concentrated_positions) == 2  # Both positions > 2% (max_position_size)
+        assert (
+            len(metrics.concentrated_positions) == 2
+        )  # Both positions > 2% (max_position_size)
 
     def test_calculate_exposure_metrics_concentrated(self, risk_engine):
         """Test exposure metrics with concentrated position (>2%)"""
         total_capital = Decimal("10000")
         positions = [
-            {"symbol": "BTCUSDT", "quantity": 0.2, "current_price": 45000.0, "current_value": 9000.0}
+            {
+                "symbol": "BTCUSDT",
+                "quantity": 0.2,
+                "current_price": 45000.0,
+                "current_value": 9000.0,
+            }
         ]
 
         metrics = risk_engine.calculate_exposure_metrics(positions, total_capital)
 
         assert metrics.exposure_ratio == 0.9  # 9000 / 10000
         assert len(metrics.concentrated_positions) == 1
-        assert metrics.concentrated_positions[0]['symbol'] == "BTCUSDT"
+        assert metrics.concentrated_positions[0]["symbol"] == "BTCUSDT"
 
     def test_calculate_exposure_metrics_empty_portfolio(self, risk_engine):
         """Test exposure metrics with no positions"""
@@ -113,11 +137,15 @@ class TestRiskEngineExposureMetrics:
 class TestRiskEngineDrawdownMetrics:
     """Tests for drawdown calculation and tracking"""
 
-    def test_calculate_drawdown_metrics_with_drawdown(self, risk_engine, sample_historical_values):
+    def test_calculate_drawdown_metrics_with_drawdown(
+        self, risk_engine, sample_historical_values
+    ):
         """Test drawdown calculation with historical data showing drawdown"""
         current_value = Decimal("11000")
 
-        metrics = risk_engine.calculate_drawdown_metrics(current_value, sample_historical_values)
+        metrics = risk_engine.calculate_drawdown_metrics(
+            current_value, sample_historical_values
+        )
 
         # Verify basic metrics
         assert metrics.current_drawdown >= 0
@@ -134,7 +162,9 @@ class TestRiskEngineDrawdownMetrics:
             for i in range(10)
         ]
 
-        metrics = risk_engine.calculate_drawdown_metrics(current_value, historical_values)
+        metrics = risk_engine.calculate_drawdown_metrics(
+            current_value, historical_values
+        )
 
         assert metrics.current_drawdown == 0.0  # At ATH, no drawdown
         assert metrics.recovery_factor is not None or metrics.max_drawdown == 0
@@ -144,7 +174,9 @@ class TestRiskEngineDrawdownMetrics:
         current_value = Decimal("10000")
         historical_values = [(datetime.now(), current_value)]
 
-        metrics = risk_engine.calculate_drawdown_metrics(current_value, historical_values)
+        metrics = risk_engine.calculate_drawdown_metrics(
+            current_value, historical_values
+        )
 
         assert metrics.current_drawdown == 0.0
         assert metrics.max_drawdown == 0.0
@@ -154,13 +186,17 @@ class TestRiskEngineDrawdownMetrics:
         current_value = Decimal("10000")
         historical_values = [
             (datetime.now(), Decimal("0")),  # Zero value should be handled
-            (datetime.now() - timedelta(days=1), Decimal("10000"))
+            (datetime.now() - timedelta(days=1), Decimal("10000")),
         ]
 
-        metrics = risk_engine.calculate_drawdown_metrics(current_value, historical_values)
+        metrics = risk_engine.calculate_drawdown_metrics(
+            current_value, historical_values
+        )
 
         # Should not crash and should handle zero gracefully
-        assert metrics.recovery_factor is None or isinstance(metrics.recovery_factor, float)
+        assert metrics.recovery_factor is None or isinstance(
+            metrics.recovery_factor, float
+        )
 
 
 @pytest.mark.unit
@@ -169,11 +205,15 @@ class TestRiskEngineDrawdownMetrics:
 class TestRiskEnginePerformanceMetrics:
     """Tests for performance metrics calculation"""
 
-    def test_calculate_performance_metrics_with_returns(self, risk_engine, sample_returns, sample_trades):
+    def test_calculate_performance_metrics_with_returns(
+        self, risk_engine, sample_returns, sample_trades
+    ):
         """Test performance metrics calculation with historical data"""
         max_drawdown = 0.08
 
-        metrics = risk_engine.calculate_performance_metrics(sample_returns, max_drawdown, sample_trades)
+        metrics = risk_engine.calculate_performance_metrics(
+            sample_returns, max_drawdown, sample_trades
+        )
 
         # Verify all metrics are calculated
         assert metrics.total_return is not None
@@ -183,7 +223,11 @@ class TestRiskEnginePerformanceMetrics:
         assert metrics.sortino_ratio is not None
         assert metrics.max_drawdown == max_drawdown
         assert metrics.win_rate >= 0 and metrics.win_rate <= 1
-        assert metrics.profit_factor is None or metrics.profit_factor >= 0 or metrics.profit_factor == float('inf')
+        assert (
+            metrics.profit_factor is None
+            or metrics.profit_factor >= 0
+            or metrics.profit_factor == float("inf")
+        )
         assert metrics.total_trades == len(sample_trades)
 
     def test_calculate_performance_metrics_all_winning_trades(self, risk_engine):
@@ -193,13 +237,15 @@ class TestRiskEnginePerformanceMetrics:
         trades = [
             {"pnl": 100, "return_pct": 2.0},
             {"pnl": 150, "return_pct": 3.0},
-            {"pnl": 50, "return_pct": 1.0}
+            {"pnl": 50, "return_pct": 1.0},
         ]
 
-        metrics = risk_engine.calculate_performance_metrics(returns, max_drawdown, trades)
+        metrics = risk_engine.calculate_performance_metrics(
+            returns, max_drawdown, trades
+        )
 
         assert metrics.win_rate == 1.0  # 100% win rate
-        assert metrics.profit_factor == float('inf')  # Infinite when no losses
+        assert metrics.profit_factor == float("inf")  # Infinite when no losses
         assert metrics.average_loss is None  # No losses
 
     def test_calculate_performance_metrics_no_returns(self, risk_engine):
@@ -208,7 +254,9 @@ class TestRiskEnginePerformanceMetrics:
         max_drawdown = 0.0
         trades = []
 
-        metrics = risk_engine.calculate_performance_metrics(returns, max_drawdown, trades)
+        metrics = risk_engine.calculate_performance_metrics(
+            returns, max_drawdown, trades
+        )
 
         assert metrics.total_return == 0.0
         assert metrics.volatility == 0.0
@@ -225,7 +273,9 @@ class TestRiskEnginePerformanceMetrics:
 
         # With consistent 1% returns, Sharpe should be very high
         assert metrics.sharpe_ratio is not None and metrics.sharpe_ratio > 3.0
-        assert metrics.annualized_return > 0.50  # Should be high with consistent returns
+        assert (
+            metrics.annualized_return > 0.50
+        )  # Should be high with consistent returns
 
 
 @pytest.mark.unit
@@ -236,7 +286,16 @@ class TestRiskEngineVaRCalculation:
     def test_calculate_var_with_returns(self, risk_engine):
         """Test VaR calculation with sufficient historical returns"""
         portfolio_value = Decimal("10000")
-        returns = [0.02, -0.01, 0.015, -0.03, 0.025, -0.02, 0.01, -0.015] * 10  # 80 returns
+        returns = [
+            0.02,
+            -0.01,
+            0.015,
+            -0.03,
+            0.025,
+            -0.02,
+            0.01,
+            -0.015,
+        ] * 10  # 80 returns
 
         var_metrics = risk_engine.calculate_var(portfolio_value, returns)
 
@@ -255,7 +314,9 @@ class TestRiskEngineVaRCalculation:
 
         var_metrics = risk_engine.calculate_var(portfolio_value, returns)
 
-        assert var_metrics.calculation_method == "historical"  # Use calculation_method instead of method
+        assert (
+            var_metrics.calculation_method == "historical"
+        )  # Use calculation_method instead of method
         assert var_metrics.var_95 > 0
         assert var_metrics.var_99 > 0
 
@@ -288,8 +349,12 @@ class TestRiskEngineVaRCalculation:
         portfolio_value = Decimal("10000")
         returns = [0.01, -0.02, 0.015, -0.01] * 25  # 100 returns
 
-        var_1day = risk_engine.calculate_var(portfolio_value, returns, time_horizon_days=1)
-        var_5day = risk_engine.calculate_var(portfolio_value, returns, time_horizon_days=5)
+        var_1day = risk_engine.calculate_var(
+            portfolio_value, returns, time_horizon_days=1
+        )
+        var_5day = risk_engine.calculate_var(
+            portfolio_value, returns, time_horizon_days=5
+        )
 
         # 5-day VaR should be higher than 1-day VaR (square root of time rule)
         assert var_5day.var_95 > var_1day.var_95
@@ -302,21 +367,40 @@ class TestRiskEngineRiskScore:
     """Tests for risk score calculation"""
 
     def test_calculate_risk_score_comprehensive(
-        self, risk_engine, capital_metrics_sample, exposure_metrics_sample,
-        drawdown_metrics_sample, performance_metrics_sample, var_metrics_sample
+        self,
+        risk_engine,
+        capital_metrics_sample,
+        exposure_metrics_sample,
+        drawdown_metrics_sample,
+        performance_metrics_sample,
+        var_metrics_sample,
     ):
         """Test comprehensive risk score calculation with all metrics"""
         score, level = risk_engine.calculate_risk_score(
-            capital_metrics_sample, exposure_metrics_sample, drawdown_metrics_sample,
-            performance_metrics_sample, var_metrics_sample
+            capital_metrics_sample,
+            exposure_metrics_sample,
+            drawdown_metrics_sample,
+            performance_metrics_sample,
+            var_metrics_sample,
         )
 
         assert 0 <= score <= 100
-        assert level in [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]
+        assert level in [
+            RiskLevel.LOW,
+            RiskLevel.MEDIUM,
+            RiskLevel.HIGH,
+            RiskLevel.CRITICAL,
+        ]
 
     def test_calculate_risk_score_low_risk(self, risk_engine):
         """Test risk score for low-risk portfolio"""
-        from app.models import CapitalMetrics, ExposureMetrics, DrawdownMetrics, PerformanceMetrics, ValueAtRisk
+        from app.models import (
+            CapitalMetrics,
+            ExposureMetrics,
+            DrawdownMetrics,
+            PerformanceMetrics,
+            ValueAtRisk,
+        )
 
         # Low risk scenario
         capital = CapitalMetrics(
@@ -325,7 +409,7 @@ class TestRiskEngineRiskScore:
             allocated_capital=Decimal("2000"),
             capital_utilization=0.20,
             max_position_size=Decimal("200"),
-            recommended_position_size=Decimal("100")
+            recommended_position_size=Decimal("100"),
         )
         exposure = ExposureMetrics(
             total_exposure=Decimal("2000"),
@@ -335,28 +419,42 @@ class TestRiskEngineRiskScore:
             gross_exposure=Decimal("2000"),
             exposure_ratio=0.20,
             leverage=0.20,
-            concentrated_positions=[]
+            concentrated_positions=[],
         )
         drawdown = DrawdownMetrics(current_drawdown=0.02, max_drawdown=0.05)
         performance = PerformanceMetrics(
-            total_return=0.10, annualized_return=0.15, volatility=0.10,
-            sharpe_ratio=1.5, max_drawdown=0.05
+            total_return=0.10,
+            annualized_return=0.15,
+            volatility=0.10,
+            sharpe_ratio=1.5,
+            max_drawdown=0.05,
         )
         var = ValueAtRisk(
-            var_95=Decimal("500"), var_99=Decimal("700"),
-            cvar_95=Decimal("600"), cvar_99=Decimal("800"),
-            confidence_level=0.95, time_horizon_days=1,
-            calculation_method="historical"
+            var_95=Decimal("500"),
+            var_99=Decimal("700"),
+            cvar_95=Decimal("600"),
+            cvar_99=Decimal("800"),
+            confidence_level=0.95,
+            time_horizon_days=1,
+            calculation_method="historical",
         )
 
-        score, level = risk_engine.calculate_risk_score(capital, exposure, drawdown, performance, var)
+        score, level = risk_engine.calculate_risk_score(
+            capital, exposure, drawdown, performance, var
+        )
 
         assert score < 30
         assert level == RiskLevel.LOW
 
     def test_calculate_risk_score_boundaries(self, risk_engine):
         """Test risk score boundaries for different risk levels"""
-        from app.models import CapitalMetrics, ExposureMetrics, DrawdownMetrics, PerformanceMetrics, ValueAtRisk
+        from app.models import (
+            CapitalMetrics,
+            ExposureMetrics,
+            DrawdownMetrics,
+            PerformanceMetrics,
+            ValueAtRisk,
+        )
 
         # Create high risk scenario
         exp_low = ExposureMetrics(
@@ -367,7 +465,7 @@ class TestRiskEngineRiskScore:
             gross_exposure=Decimal("1000"),
             exposure_ratio=0.10,
             leverage=0.10,  # Add the required leverage field
-            concentrated_positions=[]
+            concentrated_positions=[],
         )
 
         # Medium risk scenario
@@ -377,7 +475,7 @@ class TestRiskEngineRiskScore:
             allocated_capital=Decimal("5000"),
             capital_utilization=0.50,
             max_position_size=Decimal("200"),
-            recommended_position_size=Decimal("100")
+            recommended_position_size=Decimal("100"),
         )
         exp_med = ExposureMetrics(
             total_exposure=Decimal("5000"),
@@ -387,21 +485,29 @@ class TestRiskEngineRiskScore:
             gross_exposure=Decimal("5000"),
             exposure_ratio=0.50,
             leverage=0.50,  # Add the required leverage field
-            concentrated_positions=[]
+            concentrated_positions=[],
         )
         drawdown = DrawdownMetrics(current_drawdown=0.05, max_drawdown=0.10)
         performance = PerformanceMetrics(
-            total_return=0.10, annualized_return=0.15, volatility=0.15,
-            sharpe_ratio=1.0, max_drawdown=0.10
+            total_return=0.10,
+            annualized_return=0.15,
+            volatility=0.15,
+            sharpe_ratio=1.0,
+            max_drawdown=0.10,
         )
         var = ValueAtRisk(
-            var_95=Decimal("1000"), var_99=Decimal("1500"),
-            cvar_95=Decimal("1200"), cvar_99=Decimal("1700"),
-            confidence_level=0.95, time_horizon_days=1,
-            calculation_method="historical"
+            var_95=Decimal("1000"),
+            var_99=Decimal("1500"),
+            cvar_95=Decimal("1200"),
+            cvar_99=Decimal("1700"),
+            confidence_level=0.95,
+            time_horizon_days=1,
+            calculation_method="historical",
         )
 
-        score, level = risk_engine.calculate_risk_score(capital_med, exp_med, drawdown, performance, var)
+        score, level = risk_engine.calculate_risk_score(
+            capital_med, exp_med, drawdown, performance, var
+        )
 
         assert 30 <= score < 60
         assert level == RiskLevel.MEDIUM
@@ -413,12 +519,19 @@ class TestRiskEngineAlerts:
     """Tests for risk alert generation"""
 
     def test_generate_risk_alerts_no_violations(
-        self, risk_engine, capital_metrics_sample, exposure_metrics_sample,
-        drawdown_metrics_sample, performance_metrics_sample
+        self,
+        risk_engine,
+        capital_metrics_sample,
+        exposure_metrics_sample,
+        drawdown_metrics_sample,
+        performance_metrics_sample,
     ):
         """Test no alerts generated when all metrics are within limits"""
         alerts = risk_engine.generate_risk_alerts(
-            capital_metrics_sample, exposure_metrics_sample, drawdown_metrics_sample, performance_metrics_sample
+            capital_metrics_sample,
+            exposure_metrics_sample,
+            drawdown_metrics_sample,
+            performance_metrics_sample,
         )
 
         # Default fixtures should not trigger alerts
@@ -426,7 +539,12 @@ class TestRiskEngineAlerts:
 
     def test_generate_risk_alerts_high_utilization(self, risk_engine):
         """Test alert generation for high capital utilization"""
-        from app.models import CapitalMetrics, ExposureMetrics, DrawdownMetrics, PerformanceMetrics
+        from app.models import (
+            CapitalMetrics,
+            ExposureMetrics,
+            DrawdownMetrics,
+            PerformanceMetrics,
+        )
 
         capital_metrics = CapitalMetrics(
             total_capital=Decimal("10000"),
@@ -434,7 +552,7 @@ class TestRiskEngineAlerts:
             allocated_capital=Decimal("9500"),
             capital_utilization=0.95,  # 95% > 90% threshold
             max_position_size=Decimal("200"),
-            recommended_position_size=Decimal("100")
+            recommended_position_size=Decimal("100"),
         )
         exposure_metrics = ExposureMetrics(
             total_exposure=Decimal("9500"),
@@ -444,12 +562,15 @@ class TestRiskEngineAlerts:
             gross_exposure=Decimal("9500"),
             exposure_ratio=0.95,
             leverage=0.95,  # Add the required leverage field
-            concentrated_positions=[]
+            concentrated_positions=[],
         )
         drawdown_metrics = DrawdownMetrics(current_drawdown=0.02, max_drawdown=0.05)
         performance_metrics = PerformanceMetrics(
-            total_return=0.10, annualized_return=0.15, volatility=0.10,
-            sharpe_ratio=1.5, max_drawdown=0.05
+            total_return=0.10,
+            annualized_return=0.15,
+            volatility=0.10,
+            sharpe_ratio=1.5,
+            max_drawdown=0.05,
         )
 
         alerts = risk_engine.generate_risk_alerts(
@@ -463,7 +584,12 @@ class TestRiskEngineAlerts:
 
     def test_generate_risk_alerts_multiple_violations(self, risk_engine):
         """Test multiple alert generation for various violations"""
-        from app.models import CapitalMetrics, ExposureMetrics, DrawdownMetrics, PerformanceMetrics
+        from app.models import (
+            CapitalMetrics,
+            ExposureMetrics,
+            DrawdownMetrics,
+            PerformanceMetrics,
+        )
 
         capital_metrics = CapitalMetrics(
             total_capital=Decimal("10000"),
@@ -471,7 +597,7 @@ class TestRiskEngineAlerts:
             allocated_capital=Decimal("10000"),
             capital_utilization=1.0,
             max_position_size=Decimal("200"),
-            recommended_position_size=Decimal("100")
+            recommended_position_size=Decimal("100"),
         )
         exposure_metrics = ExposureMetrics(
             total_exposure=Decimal("2500"),
@@ -481,13 +607,17 @@ class TestRiskEngineAlerts:
             gross_exposure=Decimal("2500"),
             exposure_ratio=0.25,  # Exceeds 20% max
             leverage=0.25,
-            concentrated_positions=[]
+            concentrated_positions=[],
         )
-        drawdown_metrics = DrawdownMetrics(current_drawdown=0.15, max_drawdown=0.15)  # Exceeds 10%
+        drawdown_metrics = DrawdownMetrics(
+            current_drawdown=0.15, max_drawdown=0.15
+        )  # Exceeds 10%
         performance_metrics = PerformanceMetrics(
-            total_return=-0.05, annualized_return=-0.10, volatility=0.30,
+            total_return=-0.05,
+            annualized_return=-0.10,
+            volatility=0.30,
             sharpe_ratio=0.5,  # Below 1.0
-            max_drawdown=0.15
+            max_drawdown=0.15,
         )
 
         alerts = risk_engine.generate_risk_alerts(
@@ -498,7 +628,12 @@ class TestRiskEngineAlerts:
 
     def test_generate_risk_alerts_concentration(self, risk_engine):
         """Test alert generation for concentrated positions"""
-        from app.models import CapitalMetrics, ExposureMetrics, DrawdownMetrics, PerformanceMetrics
+        from app.models import (
+            CapitalMetrics,
+            ExposureMetrics,
+            DrawdownMetrics,
+            PerformanceMetrics,
+        )
 
         capital_metrics = CapitalMetrics(
             total_capital=Decimal("10000"),
@@ -506,7 +641,7 @@ class TestRiskEngineAlerts:
             allocated_capital=Decimal("5000"),
             capital_utilization=0.50,
             max_position_size=Decimal("200"),
-            recommended_position_size=Decimal("100")
+            recommended_position_size=Decimal("100"),
         )
         exposure_metrics = ExposureMetrics(
             total_exposure=Decimal("5000"),
@@ -517,14 +652,27 @@ class TestRiskEngineAlerts:
             exposure_ratio=0.50,
             leverage=0.50,  # Add the required leverage field
             concentrated_positions=[
-                {'symbol': 'BTCUSDT', 'value': 3000.0, 'percentage': 30.0, 'excess': 28.0},
-                {'symbol': 'ETHUSDT', 'value': 2000.0, 'percentage': 20.0, 'excess': 18.0}
-            ]
+                {
+                    "symbol": "BTCUSDT",
+                    "value": 3000.0,
+                    "percentage": 30.0,
+                    "excess": 28.0,
+                },
+                {
+                    "symbol": "ETHUSDT",
+                    "value": 2000.0,
+                    "percentage": 20.0,
+                    "excess": 18.0,
+                },
+            ],
         )
         drawdown_metrics = DrawdownMetrics(current_drawdown=0.05, max_drawdown=0.10)
         performance_metrics = PerformanceMetrics(
-            total_return=0.10, annualized_return=0.15, volatility=0.15,
-            sharpe_ratio=1.0, max_drawdown=0.10
+            total_return=0.10,
+            annualized_return=0.15,
+            volatility=0.15,
+            sharpe_ratio=1.0,
+            max_drawdown=0.10,
         )
 
         alerts = risk_engine.generate_risk_alerts(
@@ -583,7 +731,9 @@ class TestRiskEngineCircuitBreaker:
         """Test circuit breaker trips on excessive exposure"""
         daily_pnl = -0.02
         drawdown = 0.05
-        exposure_ratio = 0.25  # 25% exposure (exceeds 20% * 1.2 = 24% critical limit)
+        # ADR-017: max_exposure=0.50, trip threshold = 0.50 * 1.2 = 0.60.
+        # Pre-ADR-017 this was 0.20 * 1.2 = 0.24, so the test used 0.25.
+        exposure_ratio = 0.65  # 65% exposure exceeds 60% critical limit
 
         status = risk_engine.check_circuit_breaker(daily_pnl, drawdown, exposure_ratio)
 
@@ -596,7 +746,8 @@ class TestRiskEngineCircuitBreaker:
         """Test circuit breaker with multiple violations"""
         daily_pnl = -0.07  # Violates daily loss limit
         drawdown = 0.15  # Violates drawdown limit
-        exposure_ratio = 0.30  # Violates exposure limit
+        # ADR-017: bumped from 0.30 (old 24% trip) to 0.65 (new 60% trip)
+        exposure_ratio = 0.65  # Violates exposure limit
 
         status = risk_engine.check_circuit_breaker(daily_pnl, drawdown, exposure_ratio)
 

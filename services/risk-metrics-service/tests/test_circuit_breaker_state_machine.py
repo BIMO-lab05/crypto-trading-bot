@@ -5,7 +5,6 @@ Tests the complete state machine with cooldown periods, half-open state, and rec
 
 import pytest
 from datetime import datetime, timedelta
-from app.risk_engine import RiskEngine
 from app.config import settings
 from app.models import CircuitBreakerState
 
@@ -25,7 +24,7 @@ class TestCircuitBreakerStateMachine:
         status = risk_engine.check_circuit_breaker(
             daily_pnl=-0.06,  # Exceeds -5% limit
             drawdown=0.05,
-            exposure_ratio=0.15
+            exposure_ratio=0.15,
         )
 
         # Verify transition to OPEN
@@ -40,22 +39,22 @@ class TestCircuitBreakerStateMachine:
         """Test transition from OPEN to HALF_OPEN after cooldown expires"""
         # Trip the circuit breaker
         risk_engine.check_circuit_breaker(
-            daily_pnl=-0.06,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.06, drawdown=0.05, exposure_ratio=0.15
         )
 
         # Verify we're in OPEN state
         assert risk_engine.circuit_breaker_state == CircuitBreakerState.OPEN
 
         # Manually expire the cooldown for testing
-        risk_engine.circuit_breaker_cooldown_until = datetime.now() - timedelta(seconds=1)
+        risk_engine.circuit_breaker_cooldown_until = datetime.now() - timedelta(
+            seconds=1
+        )
 
         # Check again - should transition to HALF_OPEN
         status = risk_engine.check_circuit_breaker(
             daily_pnl=-0.02,  # Within limits
             drawdown=0.05,
-            exposure_ratio=0.15
+            exposure_ratio=0.15,
         )
 
         # Verify transition to HALF_OPEN
@@ -78,9 +77,7 @@ class TestCircuitBreakerStateMachine:
 
         # Check status - should transition to CLOSED
         status = risk_engine.check_circuit_breaker(
-            daily_pnl=-0.02,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.02, drawdown=0.05, exposure_ratio=0.15
         )
 
         # Verify transition to CLOSED
@@ -118,14 +115,18 @@ class TestCircuitBreakerStateMachine:
             status = risk_engine.check_circuit_breaker(
                 daily_pnl=-0.06,  # Exceeds limit
                 drawdown=0.05,
-                exposure_ratio=0.15
+                exposure_ratio=0.15,
             )
 
             cooldowns.append(status.cooldown_duration)
 
             # Manually expire cooldown and transition to HALF_OPEN, then fail
-            risk_engine.circuit_breaker_cooldown_until = datetime.now() - timedelta(seconds=1)
-            risk_engine.check_circuit_breaker(-0.02, 0.05, 0.15)  # Transition to HALF_OPEN
+            risk_engine.circuit_breaker_cooldown_until = datetime.now() - timedelta(
+                seconds=1
+            )
+            risk_engine.check_circuit_breaker(
+                -0.02, 0.05, 0.15
+            )  # Transition to HALF_OPEN
             risk_engine.record_trade_result(success=False)  # Fail and return to OPEN
 
         # Verify exponential growth
@@ -133,7 +134,9 @@ class TestCircuitBreakerStateMachine:
         assert cooldowns[2] > cooldowns[1]
 
         # Verify multiplier is being applied
-        expected_cooldown_1 = base_cooldown * settings.circuit_breaker_cooldown_multiplier
+        expected_cooldown_1 = (
+            base_cooldown * settings.circuit_breaker_cooldown_multiplier
+        )
         assert abs(cooldowns[1] - expected_cooldown_1) < 1  # Allow 1 second tolerance
 
     def test_max_cooldown_limit(self, risk_engine):
@@ -143,9 +146,7 @@ class TestCircuitBreakerStateMachine:
 
         # Trip circuit breaker
         status = risk_engine.check_circuit_breaker(
-            daily_pnl=-0.06,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.06, drawdown=0.05, exposure_ratio=0.15
         )
 
         # Verify cooldown is capped at max
@@ -155,9 +156,7 @@ class TestCircuitBreakerStateMachine:
         """Test that trading is not allowed during cooldown period"""
         # Trip circuit breaker
         status1 = risk_engine.check_circuit_breaker(
-            daily_pnl=-0.06,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.06, drawdown=0.05, exposure_ratio=0.15
         )
 
         # Verify cooldown is active
@@ -168,7 +167,7 @@ class TestCircuitBreakerStateMachine:
         status2 = risk_engine.check_circuit_breaker(
             daily_pnl=-0.01,  # Now within limits
             drawdown=0.05,
-            exposure_ratio=0.15
+            exposure_ratio=0.15,
         )
 
         # Should still be in OPEN state due to cooldown
@@ -185,9 +184,7 @@ class TestCircuitBreakerStateMachine:
 
         # Check status
         status = risk_engine.check_circuit_breaker(
-            daily_pnl=-0.02,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.02, drawdown=0.05, exposure_ratio=0.15
         )
 
         # Verify trading is allowed
@@ -199,9 +196,7 @@ class TestCircuitBreakerStateMachine:
         """Test manual reset of circuit breaker"""
         # Trip circuit breaker
         risk_engine.check_circuit_breaker(
-            daily_pnl=-0.06,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.06, drawdown=0.05, exposure_ratio=0.15
         )
 
         # Verify it's tripped
@@ -242,16 +237,12 @@ class TestCircuitBreakerStateMachine:
         """Test that state persists across multiple check_circuit_breaker calls"""
         # Trip the circuit breaker
         status1 = risk_engine.check_circuit_breaker(
-            daily_pnl=-0.06,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.06, drawdown=0.05, exposure_ratio=0.15
         )
 
         # Check again (without expiring cooldown)
         status2 = risk_engine.check_circuit_breaker(
-            daily_pnl=-0.02,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.02, drawdown=0.05, exposure_ratio=0.15
         )
 
         # State should persist
@@ -261,11 +252,14 @@ class TestCircuitBreakerStateMachine:
 
     def test_multiple_violations_recorded(self, risk_engine):
         """Test that multiple simultaneous violations are all recorded"""
-        # Trip with multiple violations
+        # Trip with multiple violations.
+        # ADR-017: max_exposure raised to 0.50, trip threshold = 0.50 * 1.2
+        # = 0.60. Pre-ADR-017 exposure_ratio=0.30 tripped against the 0.24
+        # threshold; now we need >0.60 to fire the third reason.
         status = risk_engine.check_circuit_breaker(
             daily_pnl=-0.07,  # Violates daily loss
-            drawdown=0.15,    # Violates drawdown
-            exposure_ratio=0.30  # Violates exposure
+            drawdown=0.15,  # Violates drawdown
+            exposure_ratio=0.65,  # Violates exposure
         )
 
         # Verify all reasons are recorded
@@ -279,14 +273,14 @@ class TestCircuitBreakerStateMachine:
         # Trip circuit breaker
         before_trip = datetime.now()
         status = risk_engine.check_circuit_breaker(
-            daily_pnl=-0.06,
-            drawdown=0.05,
-            exposure_ratio=0.15
+            daily_pnl=-0.06, drawdown=0.05, exposure_ratio=0.15
         )
         after_trip = datetime.now()
 
         # Verify cooldown_until is approximately cooldown_duration seconds in the future
-        expected_cooldown_end = before_trip + timedelta(seconds=status.cooldown_duration)
+        expected_cooldown_end = before_trip + timedelta(
+            seconds=status.cooldown_duration
+        )
         actual_cooldown_end = status.cooldown_until
 
         # Allow 2 second tolerance for test execution time
@@ -304,8 +298,8 @@ class TestCircuitBreakerEdgeCases:
         # Test at exact threshold (should NOT trip)
         status = risk_engine.check_circuit_breaker(
             daily_pnl=-0.05,  # Exactly at limit
-            drawdown=0.10,    # Exactly at limit
-            exposure_ratio=0.24  # Exactly at limit (0.20 * 1.2)
+            drawdown=0.10,  # Exactly at limit
+            exposure_ratio=0.24,  # Exactly at limit (0.20 * 1.2)
         )
 
         # Should NOT trip at exact threshold
@@ -318,7 +312,7 @@ class TestCircuitBreakerEdgeCases:
         status = risk_engine.check_circuit_breaker(
             daily_pnl=-0.050001,  # Just beyond limit
             drawdown=0.05,
-            exposure_ratio=0.15
+            exposure_ratio=0.15,
         )
 
         # Should trip
@@ -339,9 +333,7 @@ class TestCircuitBreakerEdgeCases:
 
             # Check status - should immediately transition to CLOSED
             status = risk_engine.check_circuit_breaker(
-                daily_pnl=-0.02,
-                drawdown=0.05,
-                exposure_ratio=0.15
+                daily_pnl=-0.02, drawdown=0.05, exposure_ratio=0.15
             )
 
             assert status.state == CircuitBreakerState.CLOSED
