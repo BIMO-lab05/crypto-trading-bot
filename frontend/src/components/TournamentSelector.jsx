@@ -80,7 +80,7 @@ export default function TournamentSelector({ tournaments, selectedId, onChange }
       >
         {empty && (
           <option value="" disabled>
-            {'Loading tournaments…'}
+            {'No tournaments available'}
           </option>
         )}
         {!empty && value === '' && (
