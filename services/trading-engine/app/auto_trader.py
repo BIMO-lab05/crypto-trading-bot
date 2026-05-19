@@ -3990,8 +3990,28 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
-            position_value = float(balance) * ens_signal.position_size_pct
+            # Apply leverage to ensemble sizing (fix 2026-05-19).
+            # ensemble.position_size_pct sets the MARGIN fraction (already capped
+            # at max_risk_per_trade by ensemble's own cascade). Multiplying by
+            # leverage converts margin to notional position value. paper_engine
+            # then divides notional by default_leverage to compute margin
+            # deducted, so cash impact = balance × position_size_pct regardless
+            # of leverage; leverage only scales notional (P&L exposure).
+            leverage = 1.0
+            if self.settings.leverage_enabled:
+                leverage = max(
+                    self.settings.min_leverage,
+                    min(self.settings.default_leverage, self.settings.max_leverage),
+                )
+            margin_value = float(balance) * ens_signal.position_size_pct
+            position_value = margin_value * leverage
             quantity = position_value / current_price
+
+            if self.settings.leverage_enabled:
+                logger.info(
+                    f"[ENSEMBLE][LEVERAGE] {symbol}: margin=${margin_value:.2f} × "
+                    f"{leverage:.0f}x = notional ${position_value:.2f}"
+                )
 
             from decimal import Decimal
 
