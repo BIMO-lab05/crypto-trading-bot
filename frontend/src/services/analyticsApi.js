@@ -337,9 +337,10 @@ export function calculateReturnsDistribution(trades, bins = 20) {
  * Calculate performance metrics from trade history
  *
  * @param {Array} trades - Array of trade objects
+ * @param {number} initialBalance - Starting balance used as the equity-curve baseline (paper default $100)
  * @returns {Object} Performance metrics
  */
-export function calculatePerformanceMetrics(trades) {
+export function calculatePerformanceMetrics(trades, initialBalance = 100) {
   if (!trades || trades.length === 0) {
     return null
   }
@@ -393,16 +394,23 @@ export function calculatePerformanceMetrics(trades) {
   // Sortino Ratio
   const sortinoRatio = downsideDev !== 0 ? avgPnL / downsideDev : 0
 
-  // Max Drawdown
+  // Max Drawdown — computed against equity curve, not raw cumulative P&L.
+  // Tracks running peak of equity and the worst peak-to-trough percentage seen,
+  // bounding maxDrawdownPercent to the 0–100 range.
   let cumulativePnL = 0
-  let peak = 0
+  let equity = initialBalance
+  let peakEquity = initialBalance
   let maxDrawdown = 0
+  let maxDrawdownPercent = 0
 
   pnls.forEach((pnl) => {
     cumulativePnL += pnl
-    if (cumulativePnL > peak) peak = cumulativePnL
-    const drawdown = peak - cumulativePnL
+    equity = initialBalance + cumulativePnL
+    if (equity > peakEquity) peakEquity = equity
+    const drawdown = peakEquity - equity
+    const drawdownPercent = peakEquity > 0 ? (drawdown / peakEquity) * 100 : 0
     if (drawdown > maxDrawdown) maxDrawdown = drawdown
+    if (drawdownPercent > maxDrawdownPercent) maxDrawdownPercent = drawdownPercent
   })
 
   // VaR 95% - sort P&Ls and find 5th percentile
@@ -450,7 +458,7 @@ export function calculatePerformanceMetrics(trades) {
 
     // Drawdown
     maxDrawdown,
-    maxDrawdownPercent: peak > 0 ? (maxDrawdown / peak) * 100 : 0,
+    maxDrawdownPercent,
 
     // VaR metrics
     var95,

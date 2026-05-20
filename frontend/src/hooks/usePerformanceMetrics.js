@@ -110,9 +110,19 @@ export function usePerformanceMetrics(options = {}) {
     return tradeHistoryData?.trades || tradeHistoryData || []
   }, [tradeHistoryData])
 
-  // Get initial balance from portfolio
+  // Get initial balance from portfolio. The portfolio-manager API returns
+  // `total_value` and `cash_balance`; older shapes used `total_equity` /
+  // `balance.total`. Fall back to the paper-trading default ($100) so the
+  // equity curve and drawdown scale correctly when the API is unreachable.
   const initialBalance = useMemo(() => {
-    return portfolioData?.total_equity || portfolioData?.balance?.total || 10000
+    const raw =
+      portfolioData?.total_value ??
+      portfolioData?.cash_balance ??
+      portfolioData?.total_equity ??
+      portfolioData?.balance?.total ??
+      100
+    const parsed = typeof raw === 'string' ? parseFloat(raw) : raw
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 100
   }, [portfolioData])
 
   // Calculate equity curve from trades
@@ -136,8 +146,8 @@ export function usePerformanceMetrics(options = {}) {
   // Calculate client-side metrics (supplement backend metrics)
   const calculatedMetrics = useMemo(() => {
     if (trades.length === 0) return null
-    return calculatePerformanceMetrics(trades)
-  }, [trades])
+    return calculatePerformanceMetrics(trades, initialBalance)
+  }, [trades, initialBalance])
 
   // ============================================================================
   // MERGED METRICS (Backend + Calculated)

@@ -497,5 +497,33 @@ describe('Analytics Utility Functions', () => {
       const metrics = calculatePerformanceMetrics([])
       expect(metrics).toBeNull()
     })
+
+    it('keeps maxDrawdownPercent bounded to 0–100 even when losses exceed peak gains', () => {
+      // Win-then-cascading-losses sequence used to overflow the old formula
+      // (cumulativePnL / peak_at_end) and produce >100% drawdown.
+      const trades = [
+        { realized_pnl: 0.1, closed_at: '2026-05-01T00:00:00Z' },
+        { realized_pnl: -0.05, closed_at: '2026-05-01T01:00:00Z' },
+        { realized_pnl: -0.2, closed_at: '2026-05-01T02:00:00Z' },
+        { realized_pnl: -0.2, closed_at: '2026-05-01T03:00:00Z' },
+        { realized_pnl: -0.05, closed_at: '2026-05-01T04:00:00Z' },
+      ]
+      const metrics = calculatePerformanceMetrics(trades, 100)
+
+      expect(metrics.maxDrawdownPercent).toBeGreaterThanOrEqual(0)
+      expect(metrics.maxDrawdownPercent).toBeLessThanOrEqual(100)
+      expect(metrics.maxDrawdown).toBeGreaterThan(0)
+    })
+
+    it('matches calculateDrawdownSeries when using the same initialBalance', () => {
+      const trades = generateMockTrades(30)
+      const initialBalance = 10000
+      const metrics = calculatePerformanceMetrics(trades, initialBalance)
+      const equity = calculateEquityCurve(trades, initialBalance)
+      const ddSeries = calculateDrawdownSeries(equity)
+      const expectedMaxPct = Math.max(...ddSeries.map((d) => d.drawdownPercent), 0)
+
+      expect(metrics.maxDrawdownPercent).toBeCloseTo(expectedMaxPct, 6)
+    })
   })
 })
