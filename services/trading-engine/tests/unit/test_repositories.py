@@ -4,7 +4,6 @@ Tests CRUD operations for Position, Trade, and Portfolio repositories
 """
 
 import pytest
-import asyncio
 from decimal import Decimal
 from datetime import datetime, UTC
 from uuid import uuid4
@@ -12,6 +11,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "app"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "shared"))
 
@@ -42,14 +42,14 @@ class TestPositionRepository:
             take_profit=Decimal("52000.00"),
             status=PositionStatus.OPEN,
             strategy="test_strategy",
-            opened_at=datetime.now(UTC)  # Fixed: was entry_time
+            opened_at=datetime.now(UTC),  # Fixed: was entry_time
         )
 
     @pytest.mark.asyncio
     async def test_create_position_success(self, position_repo, sample_position):
         """Test creating a position in database"""
         # Mock database session
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
@@ -64,7 +64,7 @@ class TestPositionRepository:
     @pytest.mark.asyncio
     async def test_create_position_failure(self, position_repo, sample_position):
         """Test create position handling database errors"""
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.commit.side_effect = Exception("DB Error")
             mock_session.return_value.__aenter__.return_value = mock_async_session
@@ -82,7 +82,7 @@ class TestPositionRepository:
         new_price = Decimal("51000.00")
         new_pnl = Decimal("100.00")
 
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
@@ -101,12 +101,14 @@ class TestPositionRepository:
         realized_pnl = Decimal("200.00")
         exit_reason = "Take Profit Hit"
 
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
             # Execute
-            await position_repo.close(position_id, exit_price, realized_pnl, exit_reason)
+            await position_repo.close(
+                position_id, exit_price, realized_pnl, exit_reason
+            )
 
             # Verify
             mock_async_session.execute.assert_called_once()
@@ -117,14 +119,12 @@ class TestPositionRepository:
         """Test retrieving position by ID"""
         position_id = uuid4()
 
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             # mock_result should be a regular Mock, not AsyncMock, since scalar_one_or_none() is not async
             mock_result = Mock()
             mock_result.scalar_one_or_none.return_value = MagicMock(
-                position_id=position_id,
-                symbol="BTCUSDT",
-                quantity=Decimal("0.1")
+                position_id=position_id, symbol="BTCUSDT", quantity=Decimal("0.1")
             )
             # execute() is async, so we set return_value for the awaited result
             mock_async_session.execute.return_value = mock_result
@@ -140,14 +140,14 @@ class TestPositionRepository:
     @pytest.mark.asyncio
     async def test_get_open_positions_success(self, position_repo):
         """Test retrieving all open positions"""
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             # mock_result should be a regular Mock since scalars() is not async
             mock_result = Mock()
             mock_scalars = Mock()
             mock_scalars.all.return_value = [
                 MagicMock(symbol="BTCUSDT", quantity=Decimal("0.1")),
-                MagicMock(symbol="ETHUSDT", quantity=Decimal("1.0"))
+                MagicMock(symbol="ETHUSDT", quantity=Decimal("1.0")),
             ]
             mock_result.scalars.return_value = mock_scalars
             mock_async_session.execute.return_value = mock_result
@@ -172,73 +172,70 @@ class TestTradeRepository:
 
     @pytest.mark.asyncio
     async def test_log_trade_success(self, trade_repo):
-        """Test logging a trade to database"""
-        with patch.object(trade_repo.db, 'get_async_session') as mock_session:
+        """Test logging a trade to database via raw SQL execute."""
+        with patch.object(trade_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
-            # Execute - Fixed parameters to match actual signature
             await trade_repo.log_trade(
-                position_id=uuid4(),
                 portfolio_id="paper_trading",
                 symbol="BTCUSDT",
-                action="BUY",  # Fixed: was 'side', should be 'action'
+                side="BUY",
                 quantity=Decimal("0.1"),
                 price=Decimal("50000.00"),
                 commission=Decimal("5.00"),
-                order_type="MARKET"  # Fixed: was 'trade_type'
+                position_id=uuid4(),
+                order_type="MARKET",
             )
 
-            # Verify
-            mock_async_session.add.assert_called_once()
+            mock_async_session.execute.assert_called_once()
             mock_async_session.commit.assert_called_once()
+            params = mock_async_session.execute.call_args[0][1]
+            assert params["side"] == "BUY"
+            assert params["symbol"] == "BTCUSDT"
+            assert params["fee"] == Decimal("5.00")
 
     @pytest.mark.asyncio
     async def test_log_trade_with_pnl(self, trade_repo):
-        """Test logging a SELL trade"""
-        with patch.object(trade_repo.db, 'get_async_session') as mock_session:
+        """Test logging a SELL close trade with realized PnL persisted."""
+        with patch.object(trade_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
-            # Execute - Fixed parameters to match actual signature
             await trade_repo.log_trade(
-                position_id=uuid4(),
                 portfolio_id="paper_trading",
                 symbol="BTCUSDT",
-                action="SELL",  # Fixed: was 'side', should be 'action'
+                side="SELL",
                 quantity=Decimal("0.1"),
                 price=Decimal("52000.00"),
                 commission=Decimal("5.20"),
-                order_type="MARKET"  # Fixed: was 'trade_type'
+                realized_pnl=Decimal("194.80"),
+                strategy="ensemble",
             )
 
-            # Verify
-            mock_async_session.add.assert_called_once()
-            call_args = mock_async_session.add.call_args[0][0]
-            assert call_args.action == "SELL"  # Fixed: was 'side'
+            mock_async_session.execute.assert_called_once()
+            params = mock_async_session.execute.call_args[0][1]
+            assert params["side"] == "SELL"
+            assert params["realized_pnl"] == Decimal("194.80")
+            assert params["strategy"] == "ensemble"
 
     @pytest.mark.asyncio
     async def test_log_trade_failure(self, trade_repo):
-        """Test trade logging handles errors gracefully (doesn't raise exception)"""
-        with patch.object(trade_repo.db, 'get_async_session') as mock_session:
+        """Errors must be swallowed — execution path must not break on DB failure."""
+        with patch.object(trade_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.commit.side_effect = Exception("DB Error")
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
-            # Execute - Fixed parameters and error handling expectation
-            # Trade logging catches exceptions and doesn't raise them
             await trade_repo.log_trade(
-                position_id=uuid4(),
                 portfolio_id="paper_trading",
                 symbol="BTCUSDT",
-                action="BUY",  # Fixed: was 'side', should be 'action'
+                side="BUY",
                 quantity=Decimal("0.1"),
                 price=Decimal("50000.00"),
-                commission=Decimal("5.00")
+                commission=Decimal("5.00"),
             )
-
-            # Verify it handled the error gracefully (no exception raised)
-            # This test passes if no exception is raised
+            # No exception raised → test passes.
 
 
 class TestPortfolioRepository:
@@ -252,11 +249,13 @@ class TestPortfolioRepository:
     @pytest.mark.asyncio
     async def test_get_or_create_new_portfolio(self, portfolio_repo):
         """Test creating a new portfolio"""
-        with patch.object(portfolio_repo.db, 'get_async_session') as mock_session:
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             # mock_result should be regular Mock since scalar_one_or_none() is not async
             mock_result = Mock()
-            mock_result.scalar_one_or_none.return_value = None  # Portfolio doesn't exist
+            mock_result.scalar_one_or_none.return_value = (
+                None  # Portfolio doesn't exist
+            )
             mock_async_session.execute.return_value = mock_result
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
@@ -264,7 +263,7 @@ class TestPortfolioRepository:
             result = await portfolio_repo.get_or_create(
                 portfolio_id="new_portfolio",
                 name="New Portfolio",
-                initial_balance=Decimal("100.00")
+                initial_balance=Decimal("100.00"),
             )
 
             # Verify - can't check result directly since it's from the method, but can verify calls
@@ -277,10 +276,10 @@ class TestPortfolioRepository:
         existing_portfolio = MagicMock(
             portfolio_id="existing",
             name="Existing Portfolio",
-            cash_balance=Decimal("100.00")
+            cash_balance=Decimal("100.00"),
         )
 
-        with patch.object(portfolio_repo.db, 'get_async_session') as mock_session:
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             # mock_result should be regular Mock since scalar_one_or_none() is not async
             mock_result = Mock()
@@ -292,7 +291,7 @@ class TestPortfolioRepository:
             result = await portfolio_repo.get_or_create(
                 portfolio_id="existing",
                 name="Existing Portfolio",
-                initial_balance=Decimal("100.00")
+                initial_balance=Decimal("100.00"),
             )
 
             # Verify
@@ -303,7 +302,7 @@ class TestPortfolioRepository:
     @pytest.mark.asyncio
     async def test_update_balance(self, portfolio_repo):
         """Test updating portfolio balance"""
-        with patch.object(portfolio_repo.db, 'get_async_session') as mock_session:
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
@@ -311,7 +310,7 @@ class TestPortfolioRepository:
             await portfolio_repo.update_balance(
                 portfolio_id="test_portfolio",
                 cash_balance=Decimal("120.00"),
-                realized_pnl=Decimal("30.00")
+                realized_pnl=Decimal("30.00"),
             )
 
             # Verify
@@ -333,29 +332,33 @@ class TestRepositoryExceptionHandling:
     @pytest.mark.asyncio
     async def test_position_update_price_exception(self, position_repo):
         """Test update_price with database exception"""
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.execute.side_effect = Exception("Database error")
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
             with pytest.raises(Exception, match="Database error"):
-                await position_repo.update_price(uuid4(), Decimal("50000.00"), Decimal("100.00"))
+                await position_repo.update_price(
+                    uuid4(), Decimal("50000.00"), Decimal("100.00")
+                )
 
     @pytest.mark.asyncio
     async def test_position_close_exception(self, position_repo):
         """Test close with database exception"""
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.execute.side_effect = Exception("Close failed")
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
             with pytest.raises(Exception, match="Close failed"):
-                await position_repo.close(uuid4(), Decimal("50000.00"), Decimal("100.00"))
+                await position_repo.close(
+                    uuid4(), Decimal("50000.00"), Decimal("100.00")
+                )
 
     @pytest.mark.asyncio
     async def test_position_get_by_id_exception(self, position_repo):
         """Test get_by_id with database exception"""
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.execute.side_effect = Exception("Get failed")
             mock_session.return_value.__aenter__.return_value = mock_async_session
@@ -366,7 +369,7 @@ class TestRepositoryExceptionHandling:
     @pytest.mark.asyncio
     async def test_position_get_open_positions_exception(self, position_repo):
         """Test get_open_positions with database exception"""
-        with patch.object(position_repo.db, 'get_async_session') as mock_session:
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.execute.side_effect = Exception("Query failed")
             mock_session.return_value.__aenter__.return_value = mock_async_session
@@ -386,22 +389,22 @@ class TestPortfolioRepositoryExceptionHandling:
     @pytest.mark.asyncio
     async def test_get_or_create_exception(self, portfolio_repo):
         """Test get_or_create with database exception"""
-        with patch.object(portfolio_repo.db, 'get_async_session') as mock_session:
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
-            mock_async_session.execute.side_effect = Exception("Database connection failed")
+            mock_async_session.execute.side_effect = Exception(
+                "Database connection failed"
+            )
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
             with pytest.raises(Exception, match="Database connection failed"):
                 await portfolio_repo.get_or_create(
-                    portfolio_id="test",
-                    name="Test",
-                    initial_balance=Decimal("100.00")
+                    portfolio_id="test", name="Test", initial_balance=Decimal("100.00")
                 )
 
     @pytest.mark.asyncio
     async def test_update_balance_exception(self, portfolio_repo):
         """Test update_balance with database exception"""
-        with patch.object(portfolio_repo.db, 'get_async_session') as mock_session:
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.execute.side_effect = Exception("Update failed")
             mock_session.return_value.__aenter__.return_value = mock_async_session
@@ -410,7 +413,7 @@ class TestPortfolioRepositoryExceptionHandling:
                 await portfolio_repo.update_balance(
                     portfolio_id="test",
                     cash_balance=Decimal("5000.00"),
-                    realized_pnl=Decimal("500.00")
+                    realized_pnl=Decimal("500.00"),
                 )
 
 
@@ -419,7 +422,9 @@ class TestRepositorySingletons:
 
     def test_get_position_repository_singleton(self):
         """Test that get_position_repository returns same instance"""
-        from app.repositories import get_position_repository, _position_repo as initial_repo
+        from app.repositories import (
+            get_position_repository,
+        )
 
         repo1 = get_position_repository()
         repo2 = get_position_repository()
