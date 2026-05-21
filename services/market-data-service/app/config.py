@@ -55,7 +55,11 @@ class Settings(BaseSettings):
     rabbitmq_vhost: str = Field(default="cryptobot")
 
     # Bybit Connector Service
-    bybit_connector_url: str = Field(default="http://localhost:8002")
+    # Phase 13 (BC-05/D-09): bybit-connector listens on :8001; the prior default
+    # was a copy-paste of market-data-service's own :8002 — harmless under the
+    # compose stack (env overrides) but a misroute for any host-side script that
+    # constructed Settings() without setting BYBIT_CONNECTOR_URL.
+    bybit_connector_url: str = Field(default="http://localhost:8001")
 
     # Mirror of the BYBIT_TESTNET env var on bybit-connector. Used to tag
     # ingested klines with `is_mainnet=not bybit_testnet` so the table
