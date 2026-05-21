@@ -270,3 +270,11 @@ services/tournament-harness/data/snapshots/*.db
 
 # Claude scheduled tasks lock (runtime)
 .claude/scheduled_tasks.lock
+
+# ============================================================================
+# GSD graphify outputs — regenerable from source via `/graphify`.
+# graph.json + .last-build-snapshot.json hit 1.5M+ lines each; GRAPH_REPORT.md
+# at 6K lines is also a session-scoped audit. Skip the whole dir to keep the
+# tree clean; re-run `/graphify` locally when fresh signal is needed.
+# ============================================================================
+.planning/graphs/

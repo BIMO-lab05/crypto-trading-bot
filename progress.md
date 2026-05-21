@@ -752,3 +752,55 @@ this session:
 **Project rules honored:** risk caps, paper-trading flags, validated
 symbols, mainnet-prices contract all untouched. No services were rebuilt
 with regression-prone PR branch code (final stack runs main).
+
+---
+
+## 2026-05-20 — Signal-aggregator math fix: 5+ months zero fills resolved (live in container, not committed)
+
+### Symptom
+
+User report: "bot getting wrong trading signals." Reality: `total_trades_executed=0` for 5+ months despite signals computing every 30s. Auto-trader armed, kill-switch absent, CB closed, stack healthy.
+
+### Root cause
+
+Confidence metric in the aggregator was structurally bounded:
+`confidence = |Σ(direction × indicator_conf × weight) / Σ(weight)|`
+
+In an 8-indicator basket, even *unanimous* agreement at avg indicator-conf 0.5 caps confidence at ~0.5. A realistic 5-3 split with avg conf 0.4 gives ~0.13. The 0.30 `min_confidence` floor (raised 2026-05-15, commit `b53a0ae`, after a 25-trade / 0-winners run at 0.20 floor — n=25 = statistical noise, not signal) was therefore *unreachable* regardless of voting strength.
+
+Compounding: `risk_manager.min_signal_confidence` was set to 0.40 in 2026-02-25 to "sync with aggregator" *when aggregator was higher*; never updated after the May-15 raise. Implicit cascade break.
+
+### Fixes applied (live via docker cp, host source updated, NOT committed)
+
+1. **`config.py:391`** — `min_signal_confidence: 0.40 → 0.30` to match the aggregator floor after the May-15 raise.
+2. **`voter.py`** — Added `compute_agreement_confidence(voting_indicators, action)`:
+   `Σ(weight_i × conf_i for i agreeing with action) / Σ(total weight)`. Range [0, 1], realistic distribution 0.3–0.8 — distinguishes weak agreement from strong agreement, which `|weighted_score|` could not.
+3. **`aggregator_core.py` STEP 3** — For non-HOLD action, override the legacy confidence with the new agreement metric. HOLD path unchanged (`1 - |score|` keeps the "high conf = strong no-trade view" semantics).
+4. **`tests/unit/test_voter.py`** — 8 new test cases for `compute_agreement_confidence` (unanimous, majority, minority, HOLD passthrough, empty, weighted-indicator dominance, unit-interval clamp, 0.30-floor reachability). All 21 voter tests pass; 46 pre-existing tests skip (PR #86 refactor, unrelated).
+
+### Live evidence (post-deploy, 1 hour)
+
+- 2932 signal checks. **0 BUY/SELL fired.**
+- Peak agreement conf: **0.26** (post-cascade ~0.23 after volume 0.95× + multi-tf weak 0.90×).
+- Regime distribution: 255 STRONG_TREND, 357 RANGING, 153 WEAK_TREND, 1010 WEAK timeframe-alignment.
+- Even in STRONG_TREND samples, agreement didn't peak above 0.26.
+
+### Interpretation
+
+New metric is producing realistic distribution; bot still HOLDs because *current market regime genuinely lacks strong agreement* (5 SELL / 1 BUY / 2 HOLD avg conf ~0.4 typical sample). The 0.30 floor may also be too tight for the new metric distribution (advisor warned: don't re-tune after 3 min of one regime). Decision pending: wait 24-48 h across regime shifts before any threshold tuning.
+
+### Open follow-ups
+
+1. **Cascade penalty interaction with new metric.** Volume validator `INSUFFICIENT` → 0.95×; regime RANGING → 0.80×; multi-tf WEAK → 0.90×. Combined 0.684× shaves agreement signals by ~32%. Was irrelevant with the broken metric; now the next thing to investigate.
+2. **Production-aggregator backtest harness.** `backtesting/strategies/multi_indicator_strategy.py` is standalone (own RSI/MACD/BB with different params). Does not exercise `CoreAggregator`. Build a backtest module that wires the production aggregator so future signal-aggregator changes can be gated by walk-forward DSR per the trading-strategy-dev skill's acceptance gate.
+3. **May-7 "25 trades / 0 winners / -$0.78"** is still unexplained. Could be sample noise (n=25); could be a real no-edge problem with the rule-based legs. Needs more fills + measurement, not threshold gymnastics.
+
+### What this is NOT
+
+Not "profitable trades today." Not even one fill yet. The structural blocker is gone — when the market shows real conviction, the bot will trade. Whether those trades are profitable is a separate measurement question that needs days, not hours, and a real production-aggregator backtest harness.
+
+### Project rules honoured
+
+- Risk caps untouched. Paper-trading mode unchanged. Live trading gates unchanged.
+- Validated symbols (5: BTC/ETH/SOL/BNB/ADA) unchanged.
+- No commit yet — user holds the call per CLAUDE.md "commit in logical chunks, propose grouping before each commit and wait for approval."
