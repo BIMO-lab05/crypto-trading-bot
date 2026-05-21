@@ -29,6 +29,7 @@ must_haves:
     - "When live-readiness payload diffs, a frame on the live-readiness channel is published within 500ms"
     - "When dashboard-snapshot payload diffs, a frame on the dashboard-snapshot channel is published within 500ms"
     - "Two api-gateway workers running concurrently do NOT publish duplicate frames — Redis SETNX per (channel, poll-tick) leader lock ensures exactly one worker publishes per diff event"
+    - "Both workers' subscribers receive the push within 500ms — the non-publishing worker's RedisFanout delivers the message to its locally connected WS clients (the actual cross-worker pub/sub proof, per ROADMAP success criterion 1)"
     - "If only one worker is healthy, it still publishes (leader lock with TTL prevents permanent lockout)"
     - "Heartbeat is emitted at most every 5s per channel even when payload is unchanged (so silent backend does not look like a stale connection)"
   artifacts:
@@ -58,6 +59,8 @@ Land the producer side of `/ws/metrics`. A `SnapshotPoller` running in api-gatew
 
 Purpose: Push events from server to clients. Plan 13-01 built the pipe; this plan turns on the tap.
 Output: New `app/ws/snapshot_poller.py` + `app/ws/leader_lock.py` + lifespan wiring + multi-worker integration test.
+
+Note: 4 tasks instead of the standard 2-3. Task 4 is intentionally a deploy + observe step (separated per the verify-stack project skill — "never declare working on HTTP 200 alone"). Tasks 1-3 are code; Task 4 is verification of the integrated producer side.
 
 CONSTRAINT (architectural — non-negotiable): Phase 13 may NOT modify trading-engine or other backend services. Source-side mutation hooks are off the table. Centralized poll-and-diff inside api-gateway is the ONLY producer architecture available. The 250ms cadence is the design constraint that lets us hit the <500ms ROADMAP target (worst-case = one full poll period + Redis hop + client deserialize).
 </objective>
@@ -251,19 +254,38 @@ ok = await redis.set(key, value, nx=True, ex=1)  # returns True if acquired, Non
     - docker-compose.unified.yml (verify api-gateway service definition; confirm Redis is at crypto-bot-redis:6379 on the docker network)
   </read_first>
   <behavior>
-    The integration test does NOT spin up two uvicorn workers (too heavyweight). Instead it instantiates TWO SnapshotPoller objects sharing the same real Redis (crypto-bot-redis:6379), both pointing at the SAME fanout publisher mock, and proves:
-    - Across a 1s window of polling at 250ms cadence, each detected change is published EXACTLY ONCE across both pollers (not duplicated)
-    - When one poller is paused/cancelled, the other one continues to publish without missing changes
-    - When the test injects a payload change at t=0, a frame is published at the next poll tick (t < 250ms + safety margin)
+    The integration test does NOT spin up two uvicorn workers (too heavyweight). Instead it simulates two workers IN-PROCESS, each with its OWN RedisFanout + WsMetricsConnectionManager, both connected to the same real Redis (crypto-bot-redis:6379). This setup proves the ROADMAP criterion exactly: "mutate state on worker A and assert both A's and B's subscribers receive the push within 500ms via Redis pub/sub fanout".
 
-    The test requires the running crypto-bot-redis container. Mark as `@pytest.mark.integration` and skip if `REDIS_URL` env not set or Redis unreachable.
+    Test fixtures per "worker":
+    - workerA: RedisFanout_A + WsMetricsConnectionManager_A + SnapshotPoller_A + a StubWebSocket_A (test double that records every send_json call with a wall-clock timestamp). Stub subscribed to safety-state via WsMetricsConnectionManager_A.subscribe(stub, {"safety-state"}).
+    - workerB: RedisFanout_B + WsMetricsConnectionManager_B + SnapshotPoller_B + StubWebSocket_B. Stub subscribed to safety-state via WsMetricsConnectionManager_B.subscribe(stub, {"safety-state"}).
+    - Both fanouts share the same Redis URL — Redis is the bus.
+
+    The test proves three assertions in one run:
+    1. **Leader-lock dedup**: across a 1s window of both pollers polling at 250ms cadence, a single state change is PUBLISHED exactly once across both pollers (not duplicated). Verify by spying on Redis-side publish call counts via `MONITOR` or a publish-side counter.
+    2. **Cross-worker delivery (the real ROADMAP criterion)**: after the state change, BOTH StubWebSocket_A and StubWebSocket_B have received the frame within 500ms wall-clock. Each stub records its receive timestamp; assert `t_received - t_state_change < 0.500` for BOTH stubs. The non-publisher worker proves cross-fanout delivery is working — that is what pub/sub buys us.
+    3. **No-publisher-elected-still-progresses**: when one poller is cancelled mid-test, the other still publishes; both stubs still see the change.
+
+    The state-change injection: each SnapshotPoller's _fetch is monkey-patched to return v1 for the first 500ms then v2 — the change-detection diff fires on the next tick.
+
+    The test requires the running crypto-bot-redis container. Mark as `@pytest.mark.integration` and skip if Redis unreachable. Cleanup: drain Redis pub/sub `ws:metrics:lock:*` keys and `ws:metrics:*` channel state before/after the test.
   </behavior>
   <action>
     Create services/api-gateway/tests/integration/test_ws_multi_worker_coherence.py.
     Use `redis.asyncio.from_url("redis://crypto-bot-redis:6379")` if RUN_IN_CONTAINER else "redis://localhost:6379". Provide both via env so the test runs both from inside the container (via `docker exec ... pytest`) and from host CI.
-    Use a counting publish-spy: subclass RedisFanout or instantiate it with a stubbed publish method that increments a shared counter dict keyed by channel.
-    Use a stateful fetch that returns snapshot v1 for the first 500ms, then v2 (mutate via shared `nonlocal` ref).
-    Assert: total publish calls for the changed channel across both pollers === number of distinct payloads observed. Heartbeats counted separately.
+    StubWebSocket double: a class with an async `send_json(self, payload)` method that appends `(time.monotonic(), payload)` to a list. NO real WebSocket — the assertion is on what the ConnectionManager actually delivered.
+    Wire pair A and pair B in the test setup:
+      manager_A = WsMetricsConnectionManager(); fanout_A = RedisFanout(redis_url, manager_A); await fanout_A.start()
+      stub_A = StubWebSocket(); await manager_A.subscribe(stub_A, {"safety-state"})
+      (mirror for B)
+    For the publish-count assertion: install a counting wrapper around each RedisFanout's publish (or use a Redis-side `MONITOR` parse — the wrapper is simpler).
+    State change injection: each SnapshotPoller._fetch is monkey-patched to return safety-state-v1 for the first 500ms, then v2. Use shared `nonlocal` ref.
+    Assertions:
+      - assert publish_count[fanout_A] + publish_count[fanout_B] == 1   # leader-lock dedup
+      - assert len(stub_A.received) >= 1 AND last received payload's data.emergency_stop.active == v2_value  # delivery to publisher's worker
+      - assert len(stub_B.received) >= 1 AND last received payload's data.emergency_stop.active == v2_value  # delivery to NON-publisher's worker (the cross-fanout proof)
+      - assert (stub_A.received[-1][0] - t_state_change) < 0.500 AND (stub_B.received[-1][0] - t_state_change) < 0.500  # both within 500ms
+    Cleanup in `finally:`: cancel both pollers, stop both fanouts, flush `ws:metrics:lock:*` keys via `redis-cli --scan --pattern 'ws:metrics:lock:*' | xargs redis-cli del` or equivalent (in Python: scan iter + delete).
   </action>
   <verify>
     <automated>docker exec crypto-bot-api-gateway pytest services/api-gateway/tests/integration/test_ws_multi_worker_coherence.py -v --tb=short</automated>
@@ -271,8 +293,9 @@ ok = await redis.set(key, value, nx=True, ex=1)  # returns True if acquired, Non
   <acceptance_criteria>
     - Test file exists and is marked `@pytest.mark.integration`
     - Test passes inside the container (assumes crypto-bot-redis is running, which it is in the normal stack)
-    - Test asserts on a counter: for the safety-state channel after a single mutation, publish_count == 1 (not 2)
-    - On test cleanup, Redis lock keys with prefix `ws:metrics:lock:*` are flushed via `redis-cli --scan --pattern 'ws:metrics:lock:*' | xargs redis-cli del` or equivalent; failure to clean up is non-blocking (TTL evicts them)
+    - Three assertions are present (verify via `grep -cE 'publish_count|stub_A.received|stub_B.received' services/api-gateway/tests/integration/test_ws_multi_worker_coherence.py` returns >=4): publish_count dedup, stub_A delivery, stub_B delivery (cross-fanout), per-stub <500ms timing
+    - On test cleanup, Redis lock keys with prefix `ws:metrics:lock:*` are flushed; failure to clean up is non-blocking (TTL evicts them)
+    - Test output (use `-s`) records the measured stub_A and stub_B receive latencies in ms; capture in SUMMARY
   </acceptance_criteria>
   <done>Multi-worker coherence proven; leader lock validates the no-duplicate-publish contract.</done>
 </task>

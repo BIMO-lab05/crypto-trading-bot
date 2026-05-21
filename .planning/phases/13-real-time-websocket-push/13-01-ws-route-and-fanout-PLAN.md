@@ -64,6 +64,8 @@ Land the server-side `/ws/metrics` WebSocket route on api-gateway with a per-con
 
 Purpose: Provide the pipe. Plan 13-02 will plug producers into it; plan 13-03 will plug the client into it.
 Output: New `app/ws/` package + `app/routes/ws_metrics.py` route + main.py lifespan wiring + 3 unit-test files.
+
+Note: 4 tasks instead of the standard 2-3. Task 4 is intentionally a deploy + observe step (separated per the verify-stack project skill — "never declare working on HTTP 200 alone"). Tasks 1-3 are code; Task 4 is verification of the integrated boot.
 </objective>
 
 <execution_context>
@@ -274,7 +276,7 @@ WebSocket close codes:
     4. Look up user via get_user(token_data.username); on None or inactive → close with 4401
     5. Filter requested channels against CHANNELS enum (drop unknown, log warning); if zero valid → close with 4400
     6. connection_manager.subscribe(ws, valid_channels)
-    7. Fetch one snapshot per subscribed channel via HTTP self-call to /api/config/safety-state, /api/preflight/live-readiness, /api/preflight/carry-ins, /api/dashboard/snapshot (the last one will exist after Plan 13-04 — for THIS plan: handle 404 gracefully by sending a {"data":null} placeholder frame, log warning; carry-ins endpoint already exists at routes/preflight_carry_ins.py). Each call uses httpx.AsyncClient targeting `http://localhost:8000` (in-process self-call). Send each via ws.send_json wrapped in make_frame.
+    7. Fetch one snapshot per subscribed channel via IN-PROCESS calls to the existing handler coroutines (NOT httpx self-call — cheaper, avoids loopback rate-limit accounting, matches the pattern Plan 13-02 SnapshotPoller uses). LATE imports inside the function body to break circular-import risk: `from app.main import get_safety_state, get_preflight_live_readiness` and `from app.routes.preflight_carry_ins import <handler_name_pinned_in_read_first>`; for dashboard-snapshot (does not yet exist before Plan 13-04 lands), emit a placeholder `make_frame(channel, {"data": None, "note": "snapshot endpoint not yet available"})` and log warning. Send each via ws.send_json wrapped in make_frame.
     8. Enter receive loop; accept further action frames {pause | resume | unsubscribe}. On any other action → close with 4400.
     9. Heartbeat: an asyncio.create_task running every 5s sends a heartbeat frame per subscribed-not-paused channel ONLY IF no real frame was sent for that channel in the last 5s. Track via per-(ws, channel) timestamp.
     10. On WebSocketDisconnect → connection_manager.drop(ws), cancel heartbeat task.
@@ -299,7 +301,7 @@ WebSocket close codes:
     - `router = APIRouter()` and `@router.websocket("/ws/metrics")` handler implementing the 10-step protocol above.
     - Module-level singletons `_connection_manager` and `_redis_fanout` set by lifespan in main.py via `set_connection_manager(...)` / `set_redis_fanout(...)` helpers (or read from app.state via the websocket's `ws.app.state.ws_connection_manager`). Prefer reading from `ws.app.state` to avoid global mutation.
     - Token verification uses `from app.auth_middleware import verify_token` if exposed there, otherwise `from app.auth_models import verify_token` (both modules currently expose it; verify the existing import path with grep before writing — pin whichever exists today).
-    - Self-call snapshots use `httpx.AsyncClient(base_url=f"http://localhost:{settings.service_port}", timeout=2.0)`. On 404 (dashboard-snapshot not yet wired before Plan 13-04 lands) send `make_frame(channel, {"data": None, "note": "snapshot endpoint not yet available"})` and continue.
+    - Self-call snapshots use in-process imports per behavior step 7 (LATE imports inside the handler body). On ImportError or AttributeError (dashboard-snapshot not yet wired before Plan 13-04 lands) emit `make_frame(channel, {"data": None, "note": "snapshot endpoint not yet available"})` and continue. Wrap each in-process call in `asyncio.wait_for(..., timeout=2.0)` so a stuck handler cannot freeze the WS subscribe path.
     - Heartbeat tracked via a `dict[tuple[id(ws), str], float]` of last-send times.
 
     Modify services/api-gateway/app/main.py:

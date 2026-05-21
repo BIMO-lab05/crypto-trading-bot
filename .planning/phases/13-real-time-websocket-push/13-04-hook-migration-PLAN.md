@@ -67,6 +67,8 @@ Output:
 - 3 migrated frontend hooks (useSafetyState.js, useLiveReadiness.js, useCarryIns.js)
 - 4 contract tests proving the value-shape is unchanged
 - Update SnapshotPoller's _fetch_dashboard_snapshot to call the new endpoint (replaces the placeholder from Plan 13-02)
+
+Note: 4 tasks instead of the standard 2-3. Task 4 is intentionally a deploy + observe step (separated per the verify-stack project skill — "never declare working on HTTP 200 alone"). Tasks 1-3 are code; Task 4 is end-to-end browser DevTools observation of the integrated WS pipeline.
 </objective>
 
 <execution_context>
