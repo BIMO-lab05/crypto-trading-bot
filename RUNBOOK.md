@@ -341,12 +341,12 @@ The experiment containers use a SELECT-only Postgres role:
 
     # With the stack running, apply the migration manually
     docker exec -i crypto-bot-timescaledb \
-        psql -U postgres -d trading_bot \
+        psql -U cryptobot -d market_data \
         < infrastructure/migrations/005_tournament_reader.sql
 
     # Confirm role exists
     docker exec crypto-bot-timescaledb \
-        psql -U postgres -d trading_bot -c \
+        psql -U cryptobot -d market_data -c \
         "SELECT rolname FROM pg_roles WHERE rolname = 'tournament_reader';"
 
 ### 2. Set + rotate TOURNAMENT_READER_PASSWORD
@@ -359,16 +359,16 @@ The experiment containers use a SELECT-only Postgres role:
 
     # Apply to Postgres (rotates from the CHANGE_ME_VIA_ENV placeholder)
     docker exec -i crypto-bot-timescaledb \
-        psql -U postgres -d trading_bot -c \
+        psql -U cryptobot -d market_data -c \
         "ALTER ROLE tournament_reader PASSWORD '$PASSWORD';"
 
     # Verify by connecting as the role
     docker exec crypto-bot-timescaledb \
-        psql -U tournament_reader -d trading_bot -c "SELECT 1 FROM klines LIMIT 1"
+        psql -h localhost -U tournament_reader -d market_data -c "SELECT 1 FROM klines LIMIT 1"
 
     # Confirm SELECT-only (this command MUST fail with permission denied)
     docker exec crypto-bot-timescaledb \
-        psql -U tournament_reader -d trading_bot -c \
+        psql -h localhost -U tournament_reader -d market_data -c \
         "DELETE FROM klines WHERE FALSE"
 
 ### Rotating the password later
@@ -387,7 +387,7 @@ The tournament refuses to start if any (symbol, interval) pair has fewer than
     # rows you see here MUST include 'SOLUSDT' / 'BNBUSDT' / 'ADAUSDT' for the v1
     # validated-symbol set. If you see only bare base entries, market-data-service
     # is misconfigured and no tournament can run.
-    docker exec crypto-bot-timescaledb psql -U postgres -d trading_bot -c \
+    docker exec crypto-bot-timescaledb psql -U cryptobot -d market_data -c \
       "SELECT symbol, interval, COUNT(*) FROM klines
          WHERE is_mainnet = true
            AND timestamp > now() - interval '365 days'
@@ -395,7 +395,7 @@ The tournament refuses to start if any (symbol, interval) pair has fewer than
          ORDER BY symbol, interval;"
 
     # Targeted check for the v1 validated-symbol set (each must show >= 50000 rows):
-    docker exec crypto-bot-timescaledb psql -U postgres -d trading_bot -c \
+    docker exec crypto-bot-timescaledb psql -U cryptobot -d market_data -c \
       "SELECT symbol, COUNT(*) FROM klines
          WHERE is_mainnet = true
            AND interval = '5m'
