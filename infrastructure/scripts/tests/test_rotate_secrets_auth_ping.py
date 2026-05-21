@@ -77,6 +77,9 @@ def patch_subprocess_success(monkeypatch):
 
     monkeypatch.setattr(rotate_secrets.subprocess, "run", _fake_run)
     monkeypatch.setenv("BYBIT_CONNECTOR_URL", CONNECTOR_URL)
+    # Keep the connector-health poll short so the unreachable / 503 tests
+    # don't wait the full 30s default.
+    monkeypatch.setenv("BYBIT_CONNECTOR_HEALTH_TIMEOUT", "2")
     return calls
 
 
@@ -98,6 +101,9 @@ def patch_subprocess_already_invoked(monkeypatch):
 
     monkeypatch.setattr(rotate_secrets.subprocess, "run", _fake_run)
     monkeypatch.setenv("BYBIT_CONNECTOR_URL", CONNECTOR_URL)
+    # Keep the connector-health poll short so the unreachable / 503 tests
+    # don't wait the full 30s default.
+    monkeypatch.setenv("BYBIT_CONNECTOR_HEALTH_TIMEOUT", "2")
     return calls
 
 
