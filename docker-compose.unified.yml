@@ -397,7 +397,11 @@ services:
       - BYBIT_API_KEY=${BYBIT_API_KEY:-}
       - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
       - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
-      - MARKET_DATA_SOURCE=${MARKET_DATA_SOURCE:-tape}
+      # Default 'live' — real Bybit REST/WS. Set MARKET_DATA_SOURCE=tape in .env
+      # only when replaying tests/fixtures/tape/*.jsonl (integration tests, replay
+      # debugging). Tape fixtures freeze prices and silently diverge from real
+      # market — flagged 2026-05-21 after BTC cache stuck at 81,270 vs mainnet 77,200.
+      - MARKET_DATA_SOURCE=${MARKET_DATA_SOURCE:-live}
       - TAPE_FIXTURES_PATH=/app/tests/fixtures/tape
     volumes:
       - ./services/bybit-connector/logs:/app/logs
