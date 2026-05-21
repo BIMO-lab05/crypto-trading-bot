@@ -144,7 +144,15 @@ def phase1_strategy_prod(row, position, idx, data: pd.DataFrame):
     atr = ATR(period=14).calculate(high_list, low_list, close_list, current_price)
 
     if not position:
-        if rsi_val < 20 and current_price > ema_20:
+        # Mean-reversion entry: RSI extreme on the SAME side as the short EMA
+        # (oversold dump below EMA20 = BUY; overbought rally above EMA20 = SELL).
+        # Higher-timeframe direction is enforced by TrendFilter + ADX direction
+        # below — those veto if the major trend opposes the reversion trade.
+        # Prior polarity (rsi<20 AND price>ema20) was contradictory under real
+        # price action: RSI(9) only dips <20 on sharp drops, when price has
+        # already broken EMA20 down — zero trades on 16,200 bars (5 symbols x
+        # 180d, 2026-05-19 walk-forward run).
+        if rsi_val < 20 and current_price < ema_20:
             if trend.get("trend") == "BEARISH":
                 return None
             if direction == "BEARISH":
@@ -162,7 +170,7 @@ def phase1_strategy_prod(row, position, idx, data: pd.DataFrame):
                     "strategy": "phase1_prod",
                 },
             }
-        if rsi_val > 80 and current_price < ema_20:
+        if rsi_val > 80 and current_price > ema_20:
             if trend.get("trend") == "BULLISH":
                 return None
             if direction == "BULLISH":
