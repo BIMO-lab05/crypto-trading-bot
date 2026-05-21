@@ -51,10 +51,19 @@ EXEMPT_DIRS: set[Path] = {
 # Per-(file, kind) replacement endpoint overrides. Default fallback is
 # `/api/v1/market/kline` (see _replacement_for below).
 _REPLACEMENT_OVERRIDES: dict[tuple[str, str], str] = {
-    # rotate_secrets: pybit auth ping → account/balance (D-07)
+    # rotate_secrets: pybit auth ping AND the surrounding base_url switch all
+    # converge on the bybit-connector account/balance endpoint per D-07.
     (
         "infrastructure/scripts/rotate_secrets.py",
         "pybit_import",
+    ): "/api/v1/account/balance",
+    (
+        "infrastructure/scripts/rotate_secrets.py",
+        "mainnet_rest_url",
+    ): "/api/v1/account/balance",
+    (
+        "infrastructure/scripts/rotate_secrets.py",
+        "testnet_rest_url",
     ): "/api/v1/account/balance",
     # health_check probe → bybit-connector /health (RESEARCH Endpoint Mapping)
     ("shared/health_check.py", "mainnet_rest_url"): "/health",
