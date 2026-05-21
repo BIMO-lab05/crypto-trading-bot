@@ -2,12 +2,13 @@
 phase: 13-real-time-websocket-push
 plan: 05
 type: execute
-wave: 3
+wave: 4
 depends_on:
   - 13-02
   - 13-04
 files_modified:
   - tests/ci/test_no_new_setinterval_polling.py
+  - tests/ci/__init__.py
   - tests/integration/test_ws_latency.py
   - tests/integration/conftest.py
   - RUNBOOK.md
@@ -56,7 +57,7 @@ Land the three CI-grade contracts that lock in Phase 13's work and prevent regre
 2. **Integration latency test** (`tests/integration/test_ws_latency.py`) — proves the >50% improvement contract: p95 push-to-render latency on safety-state is <500ms while a REST-polling baseline on the same fixture yields p95 ≥1000ms.
 3. **Operator surface** — RUNBOOK Symptom #7 documents the recovery path; PROJECT.md Out-of-Scope row for client-side WS scaffolding is removed (precondition is now satisfied).
 
-Output: 2 new test files + 1 conftest.py + RUNBOOK.md edit + PROJECT.md edit.
+Output: 2 new test files + 1 conftest.py + 1 tests/ci/__init__.py + RUNBOOK.md edit + PROJECT.md edit.
 </objective>
 
 <execution_context>
@@ -114,65 +115,93 @@ Integration test approach (NO multi-worker uvicorn fork — that complicates CI)
 
 <task type="auto" tdd="true">
   <name>Task 1: CI grep gate — block new setInterval/refetchInterval in frontend/src/hooks/</name>
-  <files>tests/ci/test_no_new_setinterval_polling.py</files>
+  <files>tests/ci/test_no_new_setinterval_polling.py, tests/ci/__init__.py</files>
   <read_first>
     - frontend/src/hooks/useSafetyState.js (confirm exact allowlist sentinel string on the refetchInterval line)
     - frontend/src/hooks/useGatewayWebSocket.js (confirm the HEARTBEAT_INTERVAL_MS setInterval line — file-level allowlist target)
     - frontend/src/hooks/useWsSubscription.ts (this should have ZERO periodic poll calls — uses setTimeout only; gate must not false-positive on setTimeout)
   </read_first>
   <behavior>
-    The test scans every .js / .jsx / .ts / .tsx file under frontend/src/hooks/ and for each file:
+    Concrete identifiers (pin these in the source):
+    - Sentinel string constant `SENTINEL = "// allowlist:rest-fallback-rearm"` (byte-identical to what Plan 13-04 lands on the refetchInterval lines)
+    - File-level allowlist set `FILE_ALLOWLIST = {"useGatewayWebSocket.js"}` (legacy WS heartbeat ping; semantically not a REST poll)
+    - Periodic-poll regex `POLL_RE = re.compile(r"(setInterval|refetchInterval)\s*[:(].*\d{4,}")` — catches both `setInterval(fn, 5000)` and `refetchInterval: 5000` forms with 4+ digit literals (i.e. >=1000ms; excludes microsecond debouncers)
 
-    1. Find all lines matching `/(setInterval|refetchInterval)\s*[:(].*\d{4,}/` (catches both `setInterval(fn, 5000)` and `refetchInterval: 5000` forms with 4+ digit literals — i.e. >=1000ms; excludes microsecond debouncers)
-    2. For each match, check whether:
-       a. The same line contains the sentinel `// allowlist:rest-fallback-rearm` → ALLOWED
-       b. OR the file is `useGatewayWebSocket.js` AND the line contains `HEARTBEAT_INTERVAL_MS` → ALLOWED (legacy WS heartbeat, file-level allowlist)
-    3. Any other match → FAIL the test, listing the file + line number + offending line
+    Scan algorithm: walk every `.js / .jsx / .ts / .tsx` file under `frontend/src/hooks/` (skip any path with `__tests__` in its parts). For each matching line:
+    - If the sentinel string is present on the same line → ALLOWED
+    - Else if the file's basename is in FILE_ALLOWLIST AND the line contains `HEARTBEAT_INTERVAL_MS` → ALLOWED
+    - Otherwise → record `(path, lineno, stripped_line)` as a violation
 
     Also fail-test:
     - Gate file itself must be present in the repo (the test cannot self-skip if it can't find its target dir)
-    - frontend/src/hooks/ directory must exist (sanity check)
+    - `frontend/src/hooks/` directory must exist (sanity check — raise AssertionError if absent so the gate cannot silently pass on a misconfigured checkout)
 
     Tests (the test file IS the gate, so it lives self-contained):
-    - Happy path: with current sources after Plan 13-04, gate passes
-    - Negative path baked in as a `pytest.fixture` or temp-file synthetic: write a temp `bad.js` with `setInterval(x, 5000)` and no sentinel into a tmp dir mocked to be the hooks dir → assert the gate function raises AssertionError naming the bad file + line
+    - **test_no_new_setinterval_polling**: scan `HOOKS_DIR` (the real frontend/src/hooks/) — expect zero violations on a clean checkout AFTER Plan 13-04 has landed. Assertion message lists `file:line: stripped_line` for each violation when it fails (so CI output is actionable).
+    - **test_gate_detects_synthetic_violation(tmp_path)**: write a temp `bad.js` containing `setInterval(() => fetch('/x'), 5000)` with NO sentinel into `tmp_path`; call the scan against `tmp_path` and assert exactly one violation whose path equals `bad.js`. This proves the gate is not a no-op.
 
-    The gate must be runnable from repo root: `pytest tests/ci/test_no_new_setinterval_polling.py`. Add minimal `tests/ci/__init__.py` if needed.
+    REPO_ROOT detection: walk up from `__file__` until a directory containing `.git` (preferred) or `pyproject.toml` (fallback) is found. Raise if neither is reachable (prevents the gate from running against the wrong tree).
+
+    Pytest invocation site: `pytest tests/ci/test_no_new_setinterval_polling.py` from the repo root. The `tests/ci/__init__.py` file is created empty so pytest can discover the module without conftest collection conflicts with `tests/conftest.py` higher up.
   </behavior>
-  <action>
-    Create tests/ci/test_no_new_setinterval_polling.py. Structure:
+  <implementation_hint>
+    Illustrative source (not load-bearing — keep the actual file readable; structure is up to the executor):
+
     ```python
-    # Top-level constants:
+    # tests/ci/test_no_new_setinterval_polling.py
+    import re
+    from pathlib import Path
+
     SENTINEL = "// allowlist:rest-fallback-rearm"
-    FILE_ALLOWLIST = {"useGatewayWebSocket.js"}  # file-level allowlist (legacy WS heartbeat ping)
+    FILE_ALLOWLIST = {"useGatewayWebSocket.js"}
     POLL_RE = re.compile(r"(setInterval|refetchInterval)\s*[:(].*\d{4,}")
+
+    def _find_repo_root(start: Path) -> Path:
+        for parent in [start, *start.parents]:
+            if (parent / ".git").exists() or (parent / "pyproject.toml").exists():
+                return parent
+        raise RuntimeError("could not locate repo root from %s" % start)
+
+    REPO_ROOT = _find_repo_root(Path(__file__).resolve())
     HOOKS_DIR = REPO_ROOT / "frontend/src/hooks"
 
-    def _scan(hooks_dir: Path) -> list[tuple[Path, int, str]]:
+    def _scan(hooks_dir):
         violations = []
         for p in hooks_dir.rglob("*"):
-            if p.suffix not in {".js", ".jsx", ".ts", ".tsx"}: continue
-            if "__tests__" in p.parts: continue   # skip test fixtures
+            if p.suffix not in {".js", ".jsx", ".ts", ".tsx"}:
+                continue
+            if "__tests__" in p.parts:
+                continue
             for i, line in enumerate(p.read_text().splitlines(), start=1):
-                if not POLL_RE.search(line): continue
-                if SENTINEL in line: continue
-                if p.name in FILE_ALLOWLIST and "HEARTBEAT_INTERVAL_MS" in line: continue
+                if not POLL_RE.search(line):
+                    continue
+                if SENTINEL in line:
+                    continue
+                if p.name in FILE_ALLOWLIST and "HEARTBEAT_INTERVAL_MS" in line:
+                    continue
                 violations.append((p, i, line.strip()))
         return violations
 
     def test_no_new_setinterval_polling():
+        assert HOOKS_DIR.is_dir(), f"hooks dir not found: {HOOKS_DIR}"
         violations = _scan(HOOKS_DIR)
-        assert not violations, "\\n".join(f"{p}:{i}: {line}" for p,i,line in violations)
+        assert not violations, "\n".join(
+            f"{p}:{i}: {line}" for p, i, line in violations
+        )
 
     def test_gate_detects_synthetic_violation(tmp_path):
-        # write a bad.js file with a setInterval and no sentinel
         bad = tmp_path / "bad.js"
-        bad.write_text("setInterval(() => fetch('/x'), 5000)\\n")
+        bad.write_text("setInterval(() => fetch('/x'), 5000)\n")
         violations = _scan(tmp_path)
         assert violations and violations[0][0] == bad
     ```
-    Locate REPO_ROOT by walking up from `__file__` until we find a `.git` directory or `pyproject.toml`.
-    Add `tests/ci/__init__.py` (empty) if not already present.
+  </implementation_hint>
+  <action>
+    Create the following files at the paths given in `<files>`:
+    - `tests/ci/__init__.py` — empty (enables pytest discovery for the ci/ subdir without colliding with `tests/conftest.py`)
+    - `tests/ci/test_no_new_setinterval_polling.py` — implements REPO_ROOT walk-up detection, the `_scan()` helper, the live-repo gate test, and the synthetic-violation test. Use the concrete identifiers pinned in `<behavior>`: `SENTINEL = "// allowlist:rest-fallback-rearm"`, `FILE_ALLOWLIST = {"useGatewayWebSocket.js"}`, and the `POLL_RE` pattern above. See `<implementation_hint>` above for shape; the exact code is the executor's call.
+
+    Invocation site: the test must be runnable from repo root via `pytest tests/ci/test_no_new_setinterval_polling.py`. No new pytest marker is needed; the test is unmarked (ordinary unit-grade) so it runs by default in CI.
   </action>
   <verify>
     <automated>pytest tests/ci/test_no_new_setinterval_polling.py -v</automated>
@@ -196,8 +225,8 @@ Integration test approach (NO multi-worker uvicorn fork — that complicates CI)
   </read_first>
   <behavior>
     Test sequence (single test function):
-    1. Pre-check: api-gateway is reachable; /ws/metrics is accepting connections; auth token is available (the integration conftest creates a test user + token via the existing test fixtures pattern from services/api-gateway/tests/conftest.py).
-    2. Connect WebSocket to /ws/metrics; subscribe to safety-state; await the initial snapshot frame.
+    1. Pre-check: api-gateway is reachable; /ws/metrics is accepting connections. (No auth-token fixture is required in v1.2 — /ws/metrics is unauthenticated per Plan 13-01 T-13-01 ACCEPT, matching D-09 REST posture.)
+    2. Connect WebSocket to /ws/metrics; subscribe to safety-state (subscribe frame is `{action:"subscribe", channels:["safety-state"]}` — NO token field); await the initial snapshot frame.
     3. Spin up an httpx.AsyncClient REST poller polling /api/config/safety-state at 5000ms interval (matching the OLD pre-migration cadence).
     4. Toggle safety/EMERGENCY_STOP 20 times with 250ms spacing (touch, sleep 250ms, rm, sleep 250ms = 5 toggle pairs/sec). Each toggle is a state mutation observable through both transports.
     5. For each toggle, record:
@@ -214,12 +243,12 @@ Integration test approach (NO multi-worker uvicorn fork — that complicates CI)
     Make the test `@pytest.mark.integration`; skip if api-gateway is not reachable on localhost:8000 within 1s. Tag with `@pytest.mark.slow` since the toggle loop takes ~10s.
 
     Conftest provides:
-    - An auth-token fixture creating a test user via create_user + create_access_token (same pattern as services/api-gateway/tests/conftest.py admin_client fixture)
-    - A cleanup fixture that ensures safety/EMERGENCY_STOP is removed at the end (regardless of pass/fail)
+    - A cleanup fixture that ensures safety/EMERGENCY_STOP is removed at the end (regardless of pass/fail) — uses `yield` so cleanup runs after the test body
+    - (No auth-token fixture is needed for v1.2 — see step 1.)
   </behavior>
   <action>
-    Create tests/integration/conftest.py — add the test-user/token fixture (use yield-fixture so cleanup runs) + the EMERGENCY_STOP cleanup fixture.
-    Create tests/integration/test_ws_latency.py — implement the 7-step sequence above. Use `websockets` python lib for the WS client (already in services/bybit-connector requirements, but verify it's importable from the test runner; if not, fall back to `aiohttp.ClientSession.ws_connect`). Use `statistics.quantiles(data, n=20)[18]` for p95 (4-decimal precision is fine).
+    Create tests/integration/conftest.py — add the EMERGENCY_STOP cleanup fixture (yield-fixture; on teardown, unlink safety/EMERGENCY_STOP if present).
+    Create tests/integration/test_ws_latency.py — implement the 7-step sequence above. Use `websockets` python lib for the WS client (already in services/bybit-connector requirements, but verify it's importable from the test runner; if not, fall back to `aiohttp.ClientSession.ws_connect`). Use `statistics.quantiles(data, n=20)[18]` for p95 (4-decimal precision is fine). Subscribe frame in the WS client MUST NOT include a `token` field — matches Plan 13-03's contract.
     Add a markers config to pyproject.toml ONLY IF integration marker is not already registered (it is — pyproject already registers `slow` marker per .planning/codebase/STACK.md line 138).
     Run inside the container: `docker exec crypto-bot-api-gateway pytest tests/integration/test_ws_latency.py -v -m integration`.
   </action>
@@ -279,8 +308,9 @@ Integration test approach (NO multi-worker uvicorn fork — that complicates CI)
 
 <success_criteria>
 - [ ] tests/ci/test_no_new_setinterval_polling.py exists and passes; catches synthetic regressions
+- [ ] tests/ci/__init__.py exists (empty)
 - [ ] tests/integration/test_ws_latency.py exists and passes inside container with WS_p95 < 500ms, REST_p95 >= 1000ms, improvement > 50%
-- [ ] tests/integration/conftest.py provides the auth-token + EMERGENCY_STOP-cleanup fixtures
+- [ ] tests/integration/conftest.py provides the EMERGENCY_STOP-cleanup fixture
 - [ ] RUNBOOK.md Symptom #7 (Dashboard tiles frozen — WS layer down) in Diagnose/Action/Verification format
 - [ ] RUNBOOK.md Index section includes a bullet for Symptom #7
 - [ ] PROJECT.md Out-of-Scope row "Re-introducing client-side WebSocket scaffolding before server /ws/metrics route exists" removed

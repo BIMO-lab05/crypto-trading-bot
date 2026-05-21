@@ -24,7 +24,7 @@ must_haves:
     - "document.visibilityState transitions: hidden → {action:'pause'} frame sent; visible → {action:'resume'} frame sent; next frame arrives within 1s of visible (assertion driven by mock server)"
     - "Reconnect after server-close follows exponential backoff: 1s, 2s, 4s, 8s, 16s, then capped at 30s indefinitely (each attempt logs an Info-level message including the attempted delay)"
     - "On first successful onopen after a fresh connect, useWsSubscription primes its cache via a REST GET (uses the same /api/<path> as the existing hook would have) BEFORE waiting for the first push frame — render does not show empty state on initial mount"
-    - "Token is sent ONLY inside the subscribe frame body; never as a URL query string"
+    - "Subscribe frame is `{action:'subscribe', channels:[...]}` — NO `token` field is sent in v1.2 (matches server-side D-09 unauthenticated read-only posture; see Plan 13-01 threat-model T-13-01 ACCEPT disposition). The field shape is reserved for v1.3+ per WS-02's forward-compat interpretation; this plan does NOT read any token from localStorage or services/api.js."
   artifacts:
     - path: "frontend/src/lib/wsClient.ts"
       provides: "createWsClient singleton, exponential-backoff reconnect, visibility-aware pause, subscribe/unsubscribe API"
@@ -47,6 +47,8 @@ must_haves:
 Land the frontend WebSocket client layer that Plans 13-04 (hook migration) will consume. Two artifacts:
 1. `frontend/src/lib/wsClient.ts` — a single tab-scoped WebSocket connection to `/ws/metrics`, with exponential-backoff reconnect (1s → 30s cap), visibility-aware pause/resume, and per-channel subscriber bookkeeping.
 2. `frontend/src/hooks/useWsSubscription.ts` — the React hook that components will call. It registers a per-channel callback against wsClient, primes the React Query cache with a REST snapshot fetch on first mount, and exposes a `restFallbackActive` flag that flips to `true` after 30s of WS silence (the actual REST poll re-arm happens in plan 13-04 inside each migrated hook — this plan exposes the flag).
+
+**v1.2 auth posture (mirrors Plan 13-01 server-side decision):** The four channels emit operator-global read-only metadata whose REST mirrors are themselves UNAUTHENTICATED per D-09 (see services/api-gateway/app/main.py:1062-1071). The client therefore does NOT send a `token` field in the subscribe frame. The current frontend (`frontend/src/services/api.js:17-30`) has no live JWT infrastructure — the token-injection block is commented out with a "Future: Add JWT token here" annotation — and v1.2 does not add one. WS-02's "token-bearer auth via initial subscribe frame" clause is INTERPRETED AS structurally-supported-but-currently-empty: the subscribe-frame field shape stays reservable for v1.3+ when per-user channels are introduced; this plan ships without sending it.
 
 Plan 13-03 does NOT modify any production hooks; that is Plan 13-04. The existing `useGatewayWebSocket.js` (the /ws ticker subscription) stays untouched.
 
@@ -78,18 +80,20 @@ From frontend/src/hooks/useGatewayWebSocket.js (existing — DO NOT MODIFY):
 - Heartbeat via setInterval(ping, 30000)  ← NOTE: this is allowlisted; do not refactor in this plan
 - WebSocket URL: `${protocol}//${window.location.host}/ws` (the /ws ticker route, different from our new /ws/metrics)
 
-From frontend/src/services/api.js:
+From frontend/src/services/api.js (lines 17-30 — confirmed in revision context):
 - Default axios client with baseURL `/api` and a response interceptor that unwraps `.data`
 - Resolved value of `api.get(path)` is the body itself
+- **Auth token block is COMMENTED OUT**: lines 19-24 currently read `// Future: Add JWT token here` followed by commented `localStorage.getItem('token')` + commented header injection. There is NO live token source in v1.2. wsClient.ts MUST NOT read localStorage for an auth token, MUST NOT send one in the subscribe frame, and MUST NOT add an `Authorization` header to the WS handshake.
 
 WebSocket URL for /ws/metrics:
 - Dev (Vite): `import.meta.env.VITE_WS_METRICS_URL` (default `ws://localhost:8000/ws/metrics`)
 - Prod: `${protocol}//${window.location.host}/ws/metrics`
 
-Subscribe frame schema (must match server):
+Subscribe frame schema (must match server-side Plan 13-01):
 ```json
-{"action": "subscribe", "channels": ["safety-state", ...], "token": "<bearer>"}
+{"action": "subscribe", "channels": ["safety-state", ...]}
 ```
+NO `token` field is sent in v1.2 (see auth posture in objective).
 
 Server-emitted frame schema:
 ```json
@@ -98,12 +102,9 @@ Server-emitted frame schema:
 
 Server close codes the client must recognize:
 - 4400 — protocol error (our subscribe was malformed); do NOT reconnect (config error, retry would loop)
-- 4401 — auth failure; do NOT reconnect (token expired/invalid; user must re-login)
 - 1000 — normal closure; do NOT reconnect
 - 1006 / others — abnormal; reconnect with backoff
-
-Auth token source:
-- Existing patterns use localStorage `auth_token` or similar — read frontend/src/services/api.js to confirm exact key name and use the same.
+- (4401 reserved for v1.3+ per-user channel auth — currently UNUSED in v1.2; if it ever arrives, do NOT reconnect, treat as final.)
 
 Vitest setup (frontend already has it):
 - `frontend/package.json` declares `vitest ^1.6.0` + `@testing-library/react ^14.2.0` + `jsdom ^24.0.0`
@@ -118,7 +119,7 @@ Vitest setup (frontend already has it):
   <files>frontend/src/lib/wsClient.ts, frontend/src/lib/__tests__/wsClient.test.ts</files>
   <read_first>
     - frontend/src/hooks/useGatewayWebSocket.js (singleton + lifecycle sentinel + backoff pattern to mirror, NOT to import)
-    - frontend/src/services/api.js (find the auth token key — likely `localStorage.getItem('auth_token')` or via axios interceptor; pin exact location)
+    - frontend/src/services/api.js (CONFIRM lines 17-30: the auth-token block is commented out — do NOT include a token field in the subscribe frame; matches D-09 REST posture, auth is not in v1.2 scope for these channels)
     - frontend/package.json (confirm vitest, @testing-library/react, jsdom versions)
   </read_first>
   <behavior>
@@ -140,9 +141,9 @@ Vitest setup (frontend already has it):
 
     Internal lifecycle:
     - On first subscribe() call ever: open WebSocket to `${protocol}//${host}/ws/metrics` (or VITE_WS_METRICS_URL in dev)
-    - onopen: send subscribe frame with the union of all currently-subscribed channels + token from localStorage
+    - onopen: send subscribe frame `{action: "subscribe", channels: [...all currently-subscribed channels...]}`. **Do NOT include a `token` field** — server in v1.2 accepts subscribe frames without auth (D-09 carryforward; see Plan 13-01 T-13-01 ACCEPT). When the v1.3+ per-user channel work lands, a follow-up plan will reintroduce token sourcing for those per-user channels only.
     - onmessage: parse JSON; route to all listeners registered for frame.channel; update lastFrameAt[channel] = Date.now()
-    - onclose: if close code is 1000/4400/4401 → do NOT reconnect (final). Otherwise → scheduleReconnect with exponential backoff starting at 1s, doubling per attempt, capped at 30s.
+    - onclose: if close code is 1000/4400 → do NOT reconnect (final). Otherwise → scheduleReconnect with exponential backoff starting at 1s, doubling per attempt, capped at 30s. (Code 4401 is reserved for v1.3+ per-user auth and is also treated as final-no-reconnect if it ever arrives.)
     - visibilitychange listener: hidden → ws.send({action:"pause"}) AND clear the WS-silence detection timer; visible → ws.send({action:"resume"})
     - On 100% subscriber unsubscribe (subscribers map becomes empty across all channels): close ws with code 1000 and reset state.
 
@@ -156,9 +157,9 @@ Vitest setup (frontend already has it):
     1. First subscribe() opens exactly one WebSocket
     2. Second subscribe() to a DIFFERENT channel reuses the same WebSocket (subscribers count goes 1 → 2; no new connection)
     3. Listener for channel X receives the next frame whose `frame.channel === 'X'`; listener for channel Y is NOT called
-    4. After onopen, the mock receives a subscribe frame whose `channels` array contains all registered channels
+    4. After onopen, the mock receives a subscribe frame whose `channels` array contains all registered channels AND the frame's JSON DOES NOT contain a `token` key (verify with `JSON.parse(sentFrame); expect(parsed).not.toHaveProperty('token')`) — pins the v1.2 unauthenticated-subscribe contract
     5. Server close code 1006: scheduleReconnect fires after 1000ms (use vi.useFakeTimers + vi.advanceTimersByTime)
-    6. Server close code 4401: NO reconnect (timer never scheduled); subsequent vi.advanceTimersByTime(60000) sees no new connect
+    6. Server close code 4400: NO reconnect (timer never scheduled); subsequent vi.advanceTimersByTime(60000) sees no new connect
     7. Exponential backoff: attempt 1 → 1s, attempt 2 → 2s, attempt 3 → 4s, attempt 5 → 16s, attempt 6 → 30s, attempt 10 → 30s (cap)
     8. visibilitychange → 'hidden': mock receives `{action: "pause"}` frame
     9. visibilitychange → 'visible': mock receives `{action: "resume"}` frame
@@ -170,7 +171,7 @@ Vitest setup (frontend already has it):
       - test env: `__WS_URL_OVERRIDE` global (let tests inject a mock URL)
       - dev (`import.meta.env.DEV`): `import.meta.env.VITE_WS_METRICS_URL || 'ws://localhost:8000/ws/metrics'`
       - prod: `${protocol}//${window.location.host}/ws/metrics` where protocol = 'wss:' if `window.location.protocol === 'https:'` else 'ws:'
-    Resolve the token via the existing pattern in services/api.js (localStorage key — pin the exact name during read_first).
+    Build the subscribe frame as `{action: "subscribe", channels: Array.from(allSubscribedChannels)}` with **no `token` field, no `Authorization` header**. Add a one-line code comment at the subscribe-send site: `// v1.2: WS is unauthenticated to match D-09 REST posture (services/api-gateway/app/main.py:1062-1071). Token field reserved for v1.3+ per-user channels.`
     Create frontend/src/lib/__tests__/wsClient.test.ts implementing the 10 tests above with vitest + fake timers. Use a hand-rolled MockWebSocket class assigned to `global.WebSocket` per-test; tests step its lifecycle by directly invoking `mock.onopen()`, `mock.onmessage({data: JSON.stringify(frame)})`, `mock.onclose({code: N})`.
     Drive visibility transitions via `Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })` plus `document.dispatchEvent(new Event('visibilitychange'))`.
   </action>
@@ -184,8 +185,10 @@ Vitest setup (frontend already has it):
     - `grep -n "1000.*\\*\\*.*30000\\|Math.min.*1000.*\\*\\*\\|Math.pow" frontend/src/lib/wsClient.ts` returns >=1 hit (proves exponential-backoff math is in source, not external)
     - `grep -n "visibilitychange" frontend/src/lib/wsClient.ts` returns >=1 hit (proves listener is wired)
     - File contains NO `setInterval(.*[0-9]{4,})` for the primary connection logic (heartbeat is sent BY the server, not the client, for /ws/metrics; client may use setInterval ONLY for visibility-pause-check if needed — but should not poll)
+    - File contains NO `localStorage` token read for the subscribe frame AND NO `token` key in the subscribe-send call (verify: `grep -cE "localStorage|token" frontend/src/lib/wsClient.ts` returns 0 — proves the v1.2 unauthenticated-subscribe contract is enforced in source)
+    - Test #4 (subscribe frame omits token) passes — pins the contract in CI, not just by source-grep
   </acceptance_criteria>
-  <done>wsClient singleton implements connect/reconnect/visibility per the contract; vitest green.</done>
+  <done>wsClient singleton implements connect/reconnect/visibility per the contract WITHOUT auth-token sourcing; vitest green; unauthenticated-subscribe contract pinned in test #4.</done>
 </task>
 
 <task type="auto" tdd="true">
@@ -194,7 +197,7 @@ Vitest setup (frontend already has it):
   <read_first>
     - frontend/src/lib/wsClient.ts (from Task 1)
     - frontend/src/hooks/useSafetyState.js (the value-contract any migrated hook must preserve — refer to its doc comments for the data shape)
-    - frontend/src/services/api.js (the axios client)
+    - frontend/src/services/api.js (the axios client — used for REST priming GETs; auth is NOT layered here in v1.2)
   </read_first>
   <behavior>
     Public API:
@@ -254,24 +257,26 @@ Vitest setup (frontend already has it):
 </tasks>
 
 <verification>
-- WS-02 implemented: wsClient handles reconnect/backoff/visibility; useWsSubscription delivers data + flags to consumers
-- Tests prove: exponential backoff math correct, visibility pause/resume frames sent, REST priming + silence detection in hook
+- WS-02 implemented in its v1.2-interpreted form: wsClient handles reconnect/backoff/visibility; useWsSubscription delivers data + flags to consumers; subscribe frame omits `token` field to match D-09 REST posture (Plan 13-01 T-13-01 ACCEPT)
+- Tests prove: exponential backoff math correct, visibility pause/resume frames sent, REST priming + silence detection in hook, subscribe frame contains no token
 - No production hook is modified yet (Plan 13-04's job)
 </verification>
 
 <success_criteria>
 - [ ] frontend/src/lib/wsClient.ts exists with full singleton lifecycle
 - [ ] frontend/src/hooks/useWsSubscription.ts exists with REST priming + silence detection
+- [ ] Subscribe frame in wsClient is `{action:'subscribe', channels:[...]}` with NO token field; pinned by test #4 AND by source-grep acceptance criterion
 - [ ] vitest green across both new test files (~17 tests total)
 - [ ] No production hook (.js files in frontend/src/hooks/use*.js) modified
 - [ ] useGatewayWebSocket.js (existing /ws ticker client) untouched
-- [ ] WS-02 satisfied
+- [ ] WS-02 satisfied (in its v1.2-interpreted form: structurally-supported-but-currently-empty token field; subscribe-frame schema reserves the slot for v1.3+ per-user channels)
 </success_criteria>
 
 <output>
 After completion, create `.planning/phases/13-real-time-websocket-push/13-03-SUMMARY.md` documenting:
 - Public API exports from wsClient and useWsSubscription
-- Auth token source (localStorage key name pinned during read_first)
+- Confirmation that the subscribe frame omits `token` (paste the exact frame from a debug log or test output)
+- The one-line code comment landed at the subscribe-send site (verbatim)
 - Backoff schedule table (attempt N → delay)
 - Number of vitest tests passing
 </output>

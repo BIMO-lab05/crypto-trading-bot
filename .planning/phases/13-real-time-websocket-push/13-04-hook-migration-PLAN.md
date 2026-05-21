@@ -2,7 +2,7 @@
 phase: 13-real-time-websocket-push
 plan: 04
 type: execute
-wave: 2
+wave: 3
 depends_on:
   - 13-02
   - 13-03
