@@ -387,11 +387,16 @@ class Settings(BaseSettings):
     # Professional standard: 65-75% confidence for automated trading
     # Research shows: 75-85% win rate at 65%+ confidence
     # ADJUSTED 2026-02-25: Lowered to 40% to sync with aggregator and enable trading
+    # ADJUSTED 2026-05-20: Lowered to 30% to re-sync with aggregator after 2026-05-15
+    # raised aggregator min_confidence 0.20→0.30 (commit b53a0ae) without touching
+    # this downstream gate. Symptom: 5+ months zero fills despite signals computing;
+    # aggregator could not emit anything ≥ this 0.40 floor after the cascade
+    # (multi-timeframe WEAK alignment shaves another 0.90x post-aggregator).
     min_signal_confidence: float = Field(
-        default=0.40,  # SYNCED to 40% to match aggregator (enables trading in current market)
+        default=0.30,  # SYNCED to aggregator floor (raised 2026-05-15 to 0.30)
         ge=0.0,
         le=1.0,
-        description="SYNCED: 40% to match aggregator - enables trading while filtering noise",
+        description="SYNCED: 30% to match aggregator (raised 2026-05-15) - cascade reachability fix",
     )
     # Need 3 indicators from different categories for consensus
     min_consensus_indicators: int = Field(

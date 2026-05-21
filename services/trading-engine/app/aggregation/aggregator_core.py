@@ -224,6 +224,25 @@ class CoreAggregator:
         # ==================== STEP 3: Determine Preliminary Action ====================
         action, confidence = self.voter.determine_action(aggregated_score)
 
+        # AGREEMENT-BASED CONFIDENCE (2026-05-20):
+        # Replace the legacy |weighted_score| confidence with fraction-of-agreeing-
+        # weighted-power × avg-conviction. The legacy metric was structurally
+        # bounded by avg-indicator-conf (~0.25 in a realistic 8-indicator basket)
+        # so the 0.30 min_confidence floor was unreachable regardless of voting
+        # strength — produced 5+ months of zero fills despite signals computing.
+        # New metric measures *agreement*: realistic distribution 0.3-0.8, so
+        # the 0.30 floor now means "majority of weighted voting power agrees
+        # with mean conviction ~0.5" — operator-intended semantics. HOLD keeps
+        # its `1 - |score|` semantics (high conf = strong "no-trade" view).
+        if action != SignalAction.HOLD:
+            confidence = self.voter.compute_agreement_confidence(
+                voting_indicators, action
+            )
+            logger.info(
+                f"Preliminary (agreement): {action.value} "
+                f"(score: {aggregated_score:+.2f}, conf: {confidence:.2f})"
+            )
+
         # ==================== STEP 4: Apply GATEKEEPER (Trend Filter) ====================
         trend_filter = indicators.get("TREND_FILTER")
         action, confidence, trend_blocked, trend_reason = self.gatekeeper.check_signal(

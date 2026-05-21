@@ -51,12 +51,12 @@ RESEARCH_WEIGHTS = {
     "EMA": 1.0,
     "BOLLINGER_BANDS": 1.0,
     # Advanced with proven track record
-    "RSI_DIVERGENCE": 1.3,      # Strong reversal detection
-    "ICHIMOKU": 0.9,            # REDUCED: 1.2→0.9 (less weight in ranging/choppy markets)
-    "SQZMOM_ENHANCED": 1.5,     # Highest win rate for breakouts (research: 92%)
+    "RSI_DIVERGENCE": 1.3,  # Strong reversal detection
+    "ICHIMOKU": 0.9,  # REDUCED: 1.2→0.9 (less weight in ranging/choppy markets)
+    "SQZMOM_ENHANCED": 1.5,  # Highest win rate for breakouts (research: 92%)
     # Supporting indicators
-    "SMA": 0.8,                 # Lagging, less reliable alone
-    "STOCHASTIC": 0.9,          # Good for timing, not direction
+    "SMA": 0.8,  # Lagging, less reliable alone
+    "STOCHASTIC": 0.9,  # Good for timing, not direction
 }
 
 
@@ -143,8 +143,7 @@ class SignalVoter:
         return 1.0
 
     def calculate_votes(
-        self,
-        voting_indicators: Dict[str, IndicatorSignal]
+        self, voting_indicators: Dict[str, IndicatorSignal]
     ) -> Tuple[float, int, int, int, int]:
         """
         Calculate weighted scores and vote counts
@@ -192,19 +191,25 @@ class SignalVoter:
             if indicator.signal == SignalAction.BUY:
                 buy_count += 1
                 if indicator_weight > 1.0:
-                    logger.debug(f"  {name}: BUY (score: {weighted_score:+.2f}, weight: {indicator_weight}x)")
+                    logger.debug(
+                        f"  {name}: BUY (score: {weighted_score:+.2f}, weight: {indicator_weight}x)"
+                    )
                 else:
                     logger.debug(f"  {name}: BUY (score: {weighted_score:+.2f})")
             elif indicator.signal == SignalAction.SELL:
                 sell_count += 1
                 if indicator_weight > 1.0:
-                    logger.debug(f"  {name}: SELL (score: {weighted_score:+.2f}, weight: {indicator_weight}x)")
+                    logger.debug(
+                        f"  {name}: SELL (score: {weighted_score:+.2f}, weight: {indicator_weight}x)"
+                    )
                 else:
                     logger.debug(f"  {name}: SELL (score: {weighted_score:+.2f})")
             else:
                 hold_count += 1
                 if indicator_weight > 1.0:
-                    logger.debug(f"  {name}: HOLD (score: {weighted_score:+.2f}, weight: {indicator_weight}x)")
+                    logger.debug(
+                        f"  {name}: HOLD (score: {weighted_score:+.2f}, weight: {indicator_weight}x)"
+                    )
                 else:
                     logger.debug(f"  {name}: HOLD (score: {weighted_score:+.2f})")
 
@@ -227,12 +232,9 @@ class SignalVoter:
 
         return aggregated_score, consensus_count, buy_count, sell_count, hold_count
 
-    def determine_action(
-        self,
-        aggregated_score: float
-    ) -> Tuple[SignalAction, float]:
+    def determine_action(self, aggregated_score: float) -> Tuple[SignalAction, float]:
         """
-        Determine preliminary action based on aggregated score
+        Determine preliminary action based on aggregated score.
 
         Args:
             aggregated_score: Weighted average score from voting
@@ -241,9 +243,26 @@ class SignalVoter:
             Tuple of (preliminary_action, preliminary_confidence)
 
         Logic:
-        - score >= +threshold -> BUY with confidence = |score|
-        - score <= -threshold -> SELL with confidence = |score|
+        - score >= +threshold -> BUY with confidence = |score|  (legacy metric, see below)
+        - score <= -threshold -> SELL with confidence = |score|  (legacy metric, see below)
         - score in between -> HOLD with confidence = 1.0 - |score|
+
+        IMPORTANT (2026-05-20): The BUY/SELL confidence returned here is the
+        *legacy* |weighted_score| metric. It is structurally bounded by the
+        average indicator confidence — even unanimous agreement at avg conf
+        0.5 caps at ~0.5 of the score range, so a 5-3 split lands at
+        ~0.125. That made downstream confidence floors of 0.30+ structurally
+        unreachable and produced 5+ months of zero fills.
+
+        The CoreAggregator now overrides BUY/SELL confidence with
+        `compute_agreement_confidence(voting_indicators, action)` which
+        measures *agreement strength* (fraction of weighted voting power
+        agreeing with the action × avg of their conviction). That value
+        lives in [0, 1] with a realistic 0.3-0.8 distribution.
+
+        This method retains the legacy formula so any direct callers
+        (tests, alternate aggregators) still get a defined number;
+        production behaviour comes from the override.
         """
         # validate_confidence rejects NaN/None/non-numeric and clamps to [0, 1].
         # Replaces the previous upper-only `min(abs(x), 1.0)` cap which let
@@ -252,25 +271,95 @@ class SignalVoter:
             # BUY signal
             action = SignalAction.BUY
             confidence = validate_confidence(abs(aggregated_score), source="voter.BUY")
-            logger.info(f"Preliminary: BUY (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")
+            logger.info(
+                f"Preliminary: BUY (score: {aggregated_score:+.2f}, conf: {confidence:.2f})"
+            )
 
         elif aggregated_score <= -self.aggregation_threshold:
             # SELL signal
             action = SignalAction.SELL
             confidence = validate_confidence(abs(aggregated_score), source="voter.SELL")
-            logger.info(f"Preliminary: SELL (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")
+            logger.info(
+                f"Preliminary: SELL (score: {aggregated_score:+.2f}, conf: {confidence:.2f})"
+            )
 
         else:
             # Weak signal -> HOLD
             action = SignalAction.HOLD
-            confidence = validate_confidence(1.0 - abs(aggregated_score), source="voter.HOLD")
-            logger.info(f"Preliminary: HOLD (score: {aggregated_score:+.2f}, conf: {confidence:.2f})")
+            confidence = validate_confidence(
+                1.0 - abs(aggregated_score), source="voter.HOLD"
+            )
+            logger.info(
+                f"Preliminary: HOLD (score: {aggregated_score:+.2f}, conf: {confidence:.2f})"
+            )
 
         return action, confidence
 
-    def filter_non_voting_indicators(
+    def compute_agreement_confidence(
         self,
-        all_indicators: Dict[str, IndicatorSignal]
+        voting_indicators: Dict[str, IndicatorSignal],
+        action: SignalAction,
+    ) -> float:
+        """
+        Compute agreement-based confidence for a non-HOLD action.
+
+        New confidence metric (2026-05-20) replacing the legacy
+        `|weighted_score|` approach used by `determine_action`.
+
+        Formula:
+            confidence = Σ_i (weight_i × conf_i)  for indicators agreeing with `action`
+                       / Σ_j (weight_j)            for all voting indicators
+
+        Range: [0, 1]. Realistic distribution in an 8-indicator basket:
+          - All 8 agreeing at avg conf 0.5 → ~0.50
+          - 6 agreeing at avg conf 0.5     → ~0.37
+          - 5 agreeing at avg conf 0.5     → ~0.31
+          - 4 agreeing at conf 0.7         → ~0.35
+          - 3 agreeing at avg conf 0.5     → ~0.19
+        The existing 0.30 `min_confidence` floor therefore translates to
+        "≥ majority of weighted voting power agrees with mean conviction
+        ≥ ~0.5". That matches the operator-intended semantics — quality
+        gate that bites without being structurally unreachable.
+
+        Why this is correct:
+        - Decouples *action selection* (sign of `weighted_score`, handled
+          by `determine_action`) from *quality of agreement* (this method).
+        - Doesn't reward a small basket with one strongly-conviction outlier;
+          weights by share of *total* voting power.
+        - HOLD action is meaningless here; return 0.0 (callers should not
+          override HOLD confidence — that remains `1 - |score|` to keep
+          HOLD's "high confidence we should NOT trade" semantics).
+
+        Args:
+            voting_indicators: Dict of voting indicators (excludes GATEKEEPER, VALIDATOR)
+            action: Action whose agreement strength to measure (BUY or SELL only)
+
+        Returns:
+            Agreement-based confidence in [0, 1]; 0.0 for HOLD / empty.
+        """
+        if not voting_indicators or action == SignalAction.HOLD:
+            return 0.0
+
+        agreeing_weighted_conf = 0.0
+        total_weight = 0.0
+
+        for _, indicator in voting_indicators.items():
+            weight = self.get_indicator_weight(indicator)
+            total_weight += weight
+            if indicator.signal == action:
+                # Each agreeing indicator contributes weight × its own conviction.
+                # Disagreeing indicators contribute 0 to the numerator but still
+                # add to the denominator — they dilute confidence.
+                agreeing_weighted_conf += weight * float(indicator.confidence)
+
+        if total_weight <= 0:
+            return 0.0
+
+        raw_confidence = agreeing_weighted_conf / total_weight
+        return validate_confidence(raw_confidence, source="voter.agreement_confidence")
+
+    def filter_non_voting_indicators(
+        self, all_indicators: Dict[str, IndicatorSignal]
     ) -> Dict[str, IndicatorSignal]:
         """
         Filter out non-voting indicators (GATEKEEPER, VALIDATOR)
@@ -290,28 +379,31 @@ class SignalVoter:
         - Advanced: RSI_DIVERGENCE, ICHIMOKU, SQZMOM_ENHANCED
         """
         voting_indicators = {
-            k: v for k, v in all_indicators.items()
+            k: v
+            for k, v in all_indicators.items()
             if k not in ["TREND_FILTER", "VOLUME_CONFIRMATION"]
         }
 
         # Count weighted indicators
         weighted_count = sum(
-            1 for v in voting_indicators.values()
+            1
+            for v in voting_indicators.values()
             if v.metadata and v.metadata.get("weight", 1.0) > 1.0
         )
 
-        logger.info(f"Filtered voting indicators: {len(voting_indicators)}/{len(all_indicators)}")
+        logger.info(
+            f"Filtered voting indicators: {len(voting_indicators)}/{len(all_indicators)}"
+        )
         logger.info(f"  Standard indicators: {len(voting_indicators) - weighted_count}")
         logger.info(f"  Weighted indicators: {weighted_count}")
         logger.debug(f"Voting: {list(voting_indicators.keys())}")
-        logger.debug(f"Non-voting: {[k for k in all_indicators.keys() if k not in voting_indicators]}")
+        logger.debug(
+            f"Non-voting: {[k for k in all_indicators.keys() if k not in voting_indicators]}"
+        )
 
         return voting_indicators
 
-    def get_voting_summary(
-        self,
-        voting_indicators: Dict[str, IndicatorSignal]
-    ) -> Dict:
+    def get_voting_summary(self, voting_indicators: Dict[str, IndicatorSignal]) -> Dict:
         """
         Get a detailed summary of the voting indicators
 
@@ -334,7 +426,9 @@ class SignalVoter:
                 "signal": indicator.signal.value,
                 "confidence": indicator.confidence,
                 "weight": weight,
-                "role": indicator.metadata.get("role", "VOTER") if indicator.metadata else "VOTER"
+                "role": indicator.metadata.get("role", "VOTER")
+                if indicator.metadata
+                else "VOTER",
             }
 
             if weight > 1.0:
@@ -348,7 +442,7 @@ class SignalVoter:
             "weighted_count": len(weighted_indicators),
             "total_weight": total_weight,
             "standard_indicators": standard_indicators,
-            "weighted_indicators": weighted_indicators
+            "weighted_indicators": weighted_indicators,
         }
 
     # ==================== RESEARCH-BACKED CATEGORY CONSENSUS (2025-11-29) ====================
@@ -372,9 +466,7 @@ class SignalVoter:
         return "OTHER"
 
     def calculate_category_consensus(
-        self,
-        voting_indicators: Dict[str, IndicatorSignal],
-        target_action: SignalAction
+        self, voting_indicators: Dict[str, IndicatorSignal], target_action: SignalAction
     ) -> Tuple[int, Set[str], Dict[str, list]]:
         """
         Calculate consensus by category (research-backed)
@@ -396,7 +488,7 @@ class SignalVoter:
             "MOMENTUM": [],
             "TREND": [],
             "VOLATILITY": [],
-            "OTHER": []
+            "OTHER": [],
         }
 
         # Group indicators by category and record their votes
@@ -406,7 +498,7 @@ class SignalVoter:
                 "name": name,
                 "signal": indicator.signal.value,
                 "confidence": indicator.confidence,
-                "agrees": indicator.signal == target_action
+                "agrees": indicator.signal == target_action,
             }
             category_votes[category].append(vote_info)
 
@@ -422,7 +514,9 @@ class SignalVoter:
         for category, votes in category_votes.items():
             if votes:
                 agreeing = [v["name"] for v in votes if v["agrees"]]
-                logger.debug(f"  {category}: {len(agreeing)}/{len(votes)} agree - {agreeing}")
+                logger.debug(
+                    f"  {category}: {len(agreeing)}/{len(votes)} agree - {agreeing}"
+                )
 
         return category_count, agreeing_categories, category_votes
 
@@ -430,7 +524,7 @@ class SignalVoter:
         self,
         voting_indicators: Dict[str, IndicatorSignal],
         action: SignalAction,
-        min_categories: int = 2
+        min_categories: int = 2,
     ) -> Tuple[bool, int, str]:
         """
         Check if signal has sufficient category diversity
