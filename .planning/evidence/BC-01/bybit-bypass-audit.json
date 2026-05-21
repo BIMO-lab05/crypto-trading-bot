@@ -1,0 +1,142 @@
+[
+  {
+    "file": "backtesting/bybit_data_fetcher.py",
+    "line": 36,
+    "kind": "testnet_rest_url",
+    "current_call": "self.base_url = \"https://api-testnet.bybit.com\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "backtesting/bybit_data_fetcher.py",
+    "line": 38,
+    "kind": "mainnet_rest_url",
+    "current_call": "self.base_url = \"https://api.bybit.com\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "infrastructure/scripts/rotate_secrets.py",
+    "line": 232,
+    "kind": "pybit_import",
+    "current_call": "from pybit.unified_trading import HTTP",
+    "replacement_path": "/api/v1/account/balance"
+  },
+  {
+    "file": "infrastructure/scripts/rotate_secrets.py",
+    "line": 234,
+    "kind": "mainnet_rest_url",
+    "current_call": "base_url = \"https://api-testnet.bybit.com\" if testnet else \"https://api.bybit.com\"",
+    "replacement_path": "/api/v1/account/balance"
+  },
+  {
+    "file": "infrastructure/scripts/rotate_secrets.py",
+    "line": 234,
+    "kind": "testnet_rest_url",
+    "current_call": "base_url = \"https://api-testnet.bybit.com\" if testnet else \"https://api.bybit.com\"",
+    "replacement_path": "/api/v1/account/balance"
+  },
+  {
+    "file": "scripts/collect_180_days_data.py",
+    "line": 56,
+    "kind": "mainnet_rest_url",
+    "current_call": "BYBIT_API_URL = \"https://api.bybit.com\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "scripts/collect_6months_for_ml.py",
+    "line": 28,
+    "kind": "mainnet_rest_url",
+    "current_call": "self.base_url = \"https://api.bybit.com\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "scripts/collect_bybit_direct_180days.py",
+    "line": 59,
+    "kind": "mainnet_rest_url",
+    "current_call": "BYBIT_API_ENDPOINT = 'https://api.bybit.com'",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "scripts/collect_ml_training_data_simple.py",
+    "line": 18,
+    "kind": "pybit_import",
+    "current_call": "from pybit.unified_trading import HTTP",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "scripts/data_quality_enhancement.py",
+    "line": 72,
+    "kind": "mainnet_rest_url",
+    "current_call": "self.bybit_base_url = 'https://api.bybit.com'",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "scripts/fetch_real_historical_data.py",
+    "line": 31,
+    "kind": "mainnet_rest_url",
+    "current_call": "self.base_url = \"https://api.bybit.com\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "scripts/test_public_bybit_api.py",
+    "line": 21,
+    "kind": "mainnet_rest_url",
+    "current_call": "api_url = \"https://api.bybit.com/v5/market/klines\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "services/market-data-service/tests/test_pagination_fix.py",
+    "line": 36,
+    "kind": "mainnet_rest_url",
+    "current_call": "BYBIT_API_URL = \"https://api.bybit.com\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "services/ml-prediction-service/app/handlers/orderbook.py",
+    "line": 262,
+    "kind": "mainnet_rest_url",
+    "current_call": "url = \"https://api.bybit.com/v5/market/orderbook\"",
+    "replacement_path": "/api/v1/market/orderbook"
+  },
+  {
+    "file": "services/ml-prediction-service/download_final_4.py",
+    "line": 18,
+    "kind": "mainnet_rest_url",
+    "current_call": "BYBIT_API = \"https://api.bybit.com/v5/market/kline\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "services/ml-prediction-service/download_missing_symbols_data.py",
+    "line": 43,
+    "kind": "mainnet_rest_url",
+    "current_call": "BYBIT_API_URL = \"https://api.bybit.com\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "services/ml-prediction-service/download_op_sui_6months.py",
+    "line": 30,
+    "kind": "mainnet_rest_url",
+    "current_call": "url = \"https://api.bybit.com/v5/market/kline\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "services/ml-prediction-service/download_suiusdt_12months.py",
+    "line": 39,
+    "kind": "mainnet_rest_url",
+    "current_call": "url = \"https://api.bybit.com/v5/market/kline\"",
+    "replacement_path": "/api/v1/market/kline"
+  },
+  {
+    "file": "shared/health_check.py",
+    "line": 771,
+    "kind": "mainnet_rest_url",
+    "current_call": "base_url = \"https://api-testnet.bybit.com\" if testnet else \"https://api.bybit.com\"",
+    "replacement_path": "/health"
+  },
+  {
+    "file": "shared/health_check.py",
+    "line": 771,
+    "kind": "testnet_rest_url",
+    "current_call": "base_url = \"https://api-testnet.bybit.com\" if testnet else \"https://api.bybit.com\"",
+    "replacement_path": "/health"
+  }
+]
