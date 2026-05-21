@@ -109,7 +109,12 @@ Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
   3. Client behavior under stress is observable in DevTools and asserted by integration test: when `document.visibilityState === 'hidden'` the client sends a `{"action": "pause"}` frame and the server suspends pushes for that connection; on `visible` the client sends `{"action": "resume"}` and the next push arrives within 1s. WS reconnect after server kill follows exponential backoff (≥1s, doubling, capped ≤30s) observable from client console logs.
   4. `pytest tests/ci/test_no_new_setinterval_polling.py` is green on `main`, fails if a new `setInterval(.*\d+000)` lands in `frontend/src/hooks/` outside the documented allowlist (REST-fallback re-arm sites only). `pytest tests/integration/test_ws_latency.py` is green and asserts p95 push-to-render latency on `safety-state` is <500ms while REST-equivalent p95 ≥1s on the same fixture (>50% improvement contract).
   5. `RUNBOOK.md` Symptom #7 ("Dashboard tiles frozen — WS layer down") exists in Diagnose/Action/Verification format and documents the WS-reconnect path + the 30s REST-fallback behavior; PROJECT.md Out-of-Scope row "Re-introducing client-side WebSocket scaffolding before server `/ws/metrics` route exists" is removed (precondition satisfied).
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 13-01-ws-route-and-fanout-PLAN.md — Server `/ws/metrics` route + ConnectionManager + RedisFanout subscriber
+- [ ] 13-02-ws-producer-poller-PLAN.md — Centralized poll-and-diff producer with leader-lock multi-worker coherence
+- [ ] 13-03-frontend-ws-client-PLAN.md — `wsClient.ts` singleton + `useWsSubscription` hook with REST priming
+- [ ] 13-04-hook-migration-PLAN.md — Migrate 4 production hooks to WS; add `/api/dashboard/snapshot` + `useDashboardSnapshot.js`
+- [ ] 13-05-ci-gate-latency-runbook-PLAN.md — CI grep gate + p95 latency integration test + RUNBOOK Symptom #7 + PROJECT.md OOS cleanup
 **UI hint**: yes
 
 ### Phase 14: Mobile Responsive Dashboard
@@ -159,6 +164,6 @@ Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependen
 | 11. Carry-In Closure | v1.1 | — | Superseded by 11.1 | — |
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete | 2026-05-18 |
 | 12. CI Recovery | v1.1 | 1/1 | Complete | 2026-05-18 |
-| 13. Real-Time WebSocket Push | v1.2 | 0/TBD | Not started | - |
+| 13. Real-Time WebSocket Push | v1.2 | 0/5 | Planned | - |
 | 14. Mobile Responsive Dashboard | v1.2 | 0/TBD | Not started | - |
 | 15. Planning-Tooling Hardening | v1.2 | 0/TBD | Not started | - |
