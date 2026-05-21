@@ -105,9 +105,27 @@ Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 
 **Goal**: Make `services/bybit-connector/` the sole Bybit-facing service in the codebase. Repo-wide audit identifies every direct Bybit API call (pybit imports, `api.bybit.com` / `wss://stream.bybit` URLs) and alternate market-data source (CoinGecko, etc.) outside the connector; each hit is refactored to consume bybit-connector REST endpoints (`/api/v1/market/ticker|kline|orderbook|recent-trade|funding-rate/history|instruments-info`). CI grep gate locks the new contract and RUNBOOK documents the chain.
 **Depends on**: Nothing (no upstream v1.2 blocker; consumes existing `bybit-connector` REST surface)
-**Requirements**: TBD (populated by `/gsd-discuss-phase 13`)
-**Success Criteria**: TBD (populated by `/gsd-discuss-phase 13`)
-**Plans**: TBD (populated by `/gsd-plan-phase 13`)
+**Requirements**: BC-01, BC-02, BC-03, BC-04, BC-05, BC-06, BC-07
+**Success Criteria** (what must be TRUE):
+  1. `tests/ci/test_no_bybit_bypass.py` is green on `main`. Grep across `**/*.py` outside `services/bybit-connector/` returns zero hits for `from pybit`, `import pybit`, `https?://api\.bybit\.com`, `https?://api-testnet\.bybit\.com`, `wss?://stream\.bybit`. (BC-01, BC-03)
+  2. Every script under `scripts/` that previously pulled market data direct from Bybit now calls `${BYBIT_CONNECTOR_URL}/api/v1/market/...` via httpx; running any such script with bybit-connector container down fails fast with an operator-readable error pointing at `docker compose up bybit-connector`. (BC-02, D-04)
+  3. `services/ml-prediction-service/app/handlers/orderbook.py` calls `${BYBIT_CONNECTOR_URL}/api/v1/market/orderbook`; `infrastructure/scripts/rotate_secrets.py` calls `${BYBIT_CONNECTOR_URL}/api/v1/account/balance` for the post-rotation auth ping. (BC-02)
+  4. `services/trading-engine/app/exchanges/binance.py` is at `_archive_exchanges/binance.py`; `factory.py`, `__init__.py`, and `tests/test_multi_exchange.py` contain no live Binance references; trading-engine boots without ImportError. (BC-04)
+  5. `services/market-data-service/app/config.py:58` default reads `http://localhost:8001`. (BC-05)
+  6. `RUNBOOK.md` contains the new "Market-data stale or missing — bybit-connector chain broken" symptom in Diagnose/Action/Verification format. (BC-06)
+  7. Integration test `tests/integration/test_bybit_connector_tape_preserved.py` asserts `MARKET_DATA_SOURCE=tape` works for refactored consumers post-refactor. (BC-07)
+**Plans**: 9/9 plans pending
+
+Plans:
+- [ ] 13-01-PLAN.md — BC-01: Repo-wide audit script + JSON evidence artifact
+- [ ] 13-02-PLAN.md — BC-03: CI grep gate scaffolding + bybit-bypass-gate workflow (RED-on-main by design)
+- [ ] 13-03-PLAN.md — Wave 0 RED tests for BC-02/BC-05/BC-07 (tape preservation, fail-fast, config default)
+- [ ] 13-04-PLAN.md — BC-02: ml-prediction-service orderbook handler + 4 download scripts refactor
+- [ ] 13-05-PLAN.md — BC-02: 5 scripts/collect_*.py refactor; drop last pybit import in scripts/
+- [ ] 13-06-PLAN.md — BC-02 + BC-05: scripts/fetch + backtesting + delete diagnostic + config-port fix
+- [ ] 13-07-PLAN.md — BC-02: rotate_secrets (Option A) + shared/health_check refactor; final non-Binance pybit gone
+- [ ] 13-08-PLAN.md — BC-04: archive Binance adapter; delete test_multi_exchange; BC-03 gate flips GREEN
+- [ ] 13-09-PLAN.md — BC-06 + D-10 + verify-stack 4-check phase-close
 **Initial audit (2026-05-21)** — anchor for discuss-phase:
 - Service runtime hits: `services/ml-prediction-service/app/handlers/orderbook.py:262`, `services/ml-prediction-service/download_missing_symbols_data.py:43`
 - Script hits: `scripts/collect_180_days_data.py:56`, `scripts/collect_6months_for_ml.py:28`, `scripts/fetch_real_historical_data.py:31`, `scripts/collect_ml_training_data_simple.py:18`
@@ -165,6 +183,6 @@ Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependen
 | 11. Carry-In Closure | v1.1 | — | Superseded by 11.1 | — |
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete | 2026-05-18 |
 | 12. CI Recovery | v1.1 | 1/1 | Complete | 2026-05-18 |
-| 13. Bybit-Connector Market-Data Centralization | v1.2 | 0/TBD | Not started | - |
+| 13. Bybit-Connector Market-Data Centralization | v1.2 | 0/9 | Planned | - |
 | 14. Mobile Responsive Dashboard | v1.2 | 0/TBD | Not started | - |
 | 15. Planning-Tooling Hardening | v1.2 | 0/TBD | Not started | - |
