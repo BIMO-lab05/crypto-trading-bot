@@ -79,7 +79,7 @@ completed: 2026-05-21
 1. **Task 1: `tests/ci/__init__.py` + `tests/ci/test_no_bybit_bypass.py`** — `23213d5` (test)
 2. **Task 2: `.github/workflows/bybit-bypass-gate.yml`** — `1e72e93` (feat)
 
-**Plan metadata commit:** (this SUMMARY) — to be created by next commit
+**Plan metadata commit:** `4c310b3` (this SUMMARY)
 
 _Note: this plan has `type: tdd`. The RED test is the contract — there is no GREEN commit for Test 1 inside this plan. GREEN transitions land in subsequent BC-02 refactor plans (Wave 1) and BC-04 archival (Wave 2)._
 
