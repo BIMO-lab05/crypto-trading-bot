@@ -29,10 +29,10 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 
 ## Current Milestone: v1.2 Polish & Real-Time
 
-**Goal:** Replace 5s REST polling with server-side `/ws/metrics` push, ship mobile-friendly dashboard, and harden planning tooling (one-liner enforcement + umbrella→decimal auto-supersede + audit-refresh-after-last-phase lock) — pure code scope with no wall-clock dependencies.
+**Goal:** Centralize all market-data access through `services/bybit-connector/` (refactor every direct Bybit API call, hardcoded URL, or alternate market-data source elsewhere in the repo to route through the connector REST surface; CI grep gate locks the contract), ship mobile-friendly dashboard, and harden planning tooling (one-liner enforcement + umbrella→decimal auto-supersede + audit-refresh-after-last-phase lock) — pure code scope with no wall-clock dependencies. (Rescoped 2026-05-21 — original `/ws/metrics` push goal deferred to v2.)
 
 **Target features:**
-- Server-side `/ws/metrics` WebSocket route + client subscription layer replacing REST polling (`useSafetyState`, `useLiveReadiness`, `useCarryIns`, `useDashboardSnapshot`)
+- Bybit-connector centralization: every direct Bybit API call (`pybit` imports, hardcoded `api.bybit.com` / `wss://stream.bybit` URLs) or alternate market-data source outside `services/bybit-connector/` is refactored through the connector REST surface; CI grep gate prevents new direct-Bybit imports outside the connector
 - Mobile-friendly responsive dashboard layout (single-column ≤768px; tile reflow; PathToLiveTile stacks; viewport meta + responsive tokens)
 - Planning-tooling fixes: plan-template one-liner validation (reject Rule/Task/placeholder), `gsd-sdk roadmap.analyze` umbrella→decimal auto-supersession, audit-refresh-after-last-phase workflow lock
 
@@ -112,7 +112,7 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 
 **v1.2 Polish & Real-Time (ratified 2026-05-18)**
 
-- **WS-01..04**: Server-side `/ws/metrics` route + WS subscription layer (replaces 5s REST polling)
+- **BC-NN (TBD, Phase 13)**: Bybit-connector market-data centralization — audit + refactor every direct Bybit API call or alternate market-data source outside `services/bybit-connector/`; CI grep gate. (Rescoped 2026-05-21; replaced WS-01..04 which is deferred to v2.)
 - **MOBILE-01..03**: Mobile-friendly responsive dashboard layout (≤768px breakpoint)
 - **TOOL-01..03**: Planning-tooling fixes (one-liner validation, umbrella auto-supersede, audit-refresh lock)
 
@@ -135,7 +135,6 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 - Live-exchange prices in every pytest run — deterministic suite uses recorded tape; one nightly live smoke allowed flaky.
 - Unattended "iterate till green" loops — confirmed Goodhart trap; anti-mock guard enforces.
 - `ENABLE_ML_PREDICTIONS=true` by default — blocked behind DSR > 0.95 evidence on returns.
-- Re-introducing client-side WebSocket scaffolding before server `/ws/metrics` route exists.
 - XRP/AVAX in production allocations — only BTC/ETH/SOL/BNB/ADA validated; tournament may evaluate; production deployment requires separate validation milestone.
 - Mobile-native app — web dashboard sufficient for solo operator.
 - Rewrite of any of the 15 services — stack locked.

@@ -49,7 +49,7 @@ Audit: [`.planning/milestones/v1.1-MILESTONE-AUDIT.md`](milestones/v1.1-MILESTON
 
 **Milestone Goal:** Replace the 5s REST polling layer that powers the dashboard with a server-pushed `/ws/metrics` WebSocket stream, ship a mobile-friendly responsive layout (≤768px single-column reflow), and harden planning tooling against three recurring frictions identified in v1.0/v1.1 retros (one-liner discipline, umbrella-phase supersession, audit-timing drift). Pure code scope; no wall-clock dependencies; no new compose services (backend work stays inside `api-gateway` and reuses existing Redis for pub/sub fanout).
 
-- [ ] **Phase 13: Real-Time WebSocket Push** — Server-side `/ws/metrics` route in `api-gateway` with Redis pub/sub fanout, frontend WS client + `useWsSubscription` hook with REST-snapshot priming and visibility-aware pause, migration of 4 production hooks (`useSafetyState`/`useLiveReadiness`/`useCarryIns`/`useDashboardSnapshot`) off `setInterval`, CI grep gate + integration latency assertion + RUNBOOK Symptom #7
+- [ ] **Phase 13: Bybit-Connector Market-Data Centralization** — Audit every service, script, backtester, and test for direct Bybit API access (`pybit` imports, hardcoded `api.bybit.com` / `wss://stream.bybit` URLs) or alternate market-data source outside `services/bybit-connector/`; refactor each hit to route through bybit-connector REST endpoints (`/api/v1/market/ticker|kline|orderbook|recent-trade|funding-rate/history|instruments-info`); CI grep gate prevents new direct-Bybit imports outside the connector; RUNBOOK symptom for stale market-data chain. (Rescoped 2026-05-21 — replaces former "Real-Time WebSocket Push" scope, which is deferred to v2.)
 - [ ] **Phase 14: Mobile Responsive Dashboard** — Viewport meta + Tailwind breakpoint audit, single-column reflow ≤768px across `Dashboard.jsx`/`PathToLiveTile.jsx`/`KeyMetricsStrip`/`TournamentDashboard.jsx` with no information loss, pytest-playwright matrix smoke at iPhone SE (375×667) + iPad portrait (768×1024) asserting no horizontal scroll + ≥44px touch targets
 - [ ] **Phase 15: Planning-Tooling Hardening** — `plan.validate` rejects 5 placeholder one-liner patterns (pre-commit + CI), `roadmap.analyze` auto-marks umbrella phases as superseded when decimal child covers their REQ set, `/gsd-complete-milestone` refuses to archive if latest milestone-audit `audited_at` predates most recent phase VERIFICATION.md by >1h (replays v1.1 13h-gap scenario as fixture)
 
@@ -99,23 +99,24 @@ Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 **Plans**: 1/1 plans complete
 Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 
-### Phase 13: Real-Time WebSocket Push
-**Goal**: Replace the 5s REST polling that powers four production dashboard hooks with a server-pushed `/ws/metrics` WebSocket stream — api-gateway exposes a single WS route emitting self-describing JSON-line frames for `safety-state` / `live-readiness` / `carry-ins` / `dashboard-snapshot`, backed by Redis pub/sub fanout for multi-worker coherence; the React client gains a `useWsSubscription` hook with exponential-backoff reconnect, visibility-aware pause, and REST-snapshot priming on connect; all four production hooks migrate off `setInterval` with a 30s WS-silence REST fallback (graceful degradation); a CI grep gate blocks new `setInterval` polling in `frontend/src/hooks/` outside an allowlist; an integration test asserts p95 push-to-render latency <500ms vs REST p95 ≥1s.
-**Depends on**: Nothing (no upstream v1.2 blocker; consumes existing `api-gateway` service + existing Redis; references existing endpoint schemas from Phase 8/10)
-**Requirements**: WS-01, WS-02, WS-03, WS-04
-**Success Criteria** (what must be TRUE):
-  1. `GET /ws/metrics` (WebSocket) accepts a connection against the running `api-gateway` container, the client subscribes via initial frame `{"action": "subscribe", "channels": ["safety-state", "live-readiness", "carry-ins", "dashboard-snapshot"], "token": "<bearer>"}`, and within 1s receives a snapshot frame per channel matching `{"channel": "<name>", "schema_version": 1, "data": {...}, "ts": "<ISO-8601>"}`. State mutations on backing endpoints trigger a push within 500ms; heartbeat frames arrive at most every 5s per channel when state is steady. Two concurrent gateway workers stay coherent (asserted by integration test that mutates state on worker A and asserts both A's and B's subscribers receive the push within 500ms via Redis pub/sub fanout).
-  2. The four production hooks (`useSafetyState`, `useLiveReadiness`, `useCarryIns`, `useDashboardSnapshot`) consume `useWsSubscription(channel)` and no longer call `setInterval` for their primary fetch path; existing component value-contracts (the shape consumed by `Dashboard.jsx`, `PathToLiveTile.jsx`, `KeyMetricsStrip`, `StatusBar`) are unchanged. Disconnecting the WS server (e.g. kill `api-gateway` for >30s) causes each hook to re-arm a REST fallback poll; reconnecting the server cancels the REST fallback within one successful push cycle.
-  3. Client behavior under stress is observable in DevTools and asserted by integration test: when `document.visibilityState === 'hidden'` the client sends a `{"action": "pause"}` frame and the server suspends pushes for that connection; on `visible` the client sends `{"action": "resume"}` and the next push arrives within 1s. WS reconnect after server kill follows exponential backoff (≥1s, doubling, capped ≤30s) observable from client console logs.
-  4. `pytest tests/ci/test_no_new_setinterval_polling.py` is green on `main`, fails if a new `setInterval(.*\d+000)` lands in `frontend/src/hooks/` outside the documented allowlist (REST-fallback re-arm sites only). `pytest tests/integration/test_ws_latency.py` is green and asserts p95 push-to-render latency on `safety-state` is <500ms while REST-equivalent p95 ≥1s on the same fixture (>50% improvement contract).
-  5. `RUNBOOK.md` Symptom #7 ("Dashboard tiles frozen — WS layer down") exists in Diagnose/Action/Verification format and documents the WS-reconnect path + the 30s REST-fallback behavior; PROJECT.md Out-of-Scope row "Re-introducing client-side WebSocket scaffolding before server `/ws/metrics` route exists" is removed (precondition satisfied).
-**Plans**: 5 plans
-- [ ] 13-01-ws-route-and-fanout-PLAN.md — Server `/ws/metrics` route + ConnectionManager + RedisFanout subscriber
-- [ ] 13-02-ws-producer-poller-PLAN.md — Centralized poll-and-diff producer with leader-lock multi-worker coherence
-- [ ] 13-03-frontend-ws-client-PLAN.md — `wsClient.ts` singleton + `useWsSubscription` hook with REST priming
-- [ ] 13-04-hook-migration-PLAN.md — Migrate 4 production hooks to WS; add `/api/dashboard/snapshot` + `useDashboardSnapshot.js`
-- [ ] 13-05-ci-gate-latency-runbook-PLAN.md — CI grep gate + p95 latency integration test + RUNBOOK Symptom #7 + PROJECT.md OOS cleanup
-**UI hint**: yes
+### Phase 13: Bybit-Connector Market-Data Centralization
+
+> Rescoped 2026-05-21 — former "Real-Time WebSocket Push" scope deferred to v2; plan files dropped. Discuss-phase to follow for fresh requirement/plan derivation.
+
+**Goal**: Make `services/bybit-connector/` the sole Bybit-facing service in the codebase. Repo-wide audit identifies every direct Bybit API call (pybit imports, `api.bybit.com` / `wss://stream.bybit` URLs) and alternate market-data source (CoinGecko, etc.) outside the connector; each hit is refactored to consume bybit-connector REST endpoints (`/api/v1/market/ticker|kline|orderbook|recent-trade|funding-rate/history|instruments-info`). CI grep gate locks the new contract and RUNBOOK documents the chain.
+**Depends on**: Nothing (no upstream v1.2 blocker; consumes existing `bybit-connector` REST surface)
+**Requirements**: TBD (populated by `/gsd-discuss-phase 13`)
+**Success Criteria**: TBD (populated by `/gsd-discuss-phase 13`)
+**Plans**: TBD (populated by `/gsd-plan-phase 13`)
+**Initial audit (2026-05-21)** — anchor for discuss-phase:
+- Service runtime hits: `services/ml-prediction-service/app/handlers/orderbook.py:262`, `services/ml-prediction-service/download_missing_symbols_data.py:43`
+- Script hits: `scripts/collect_180_days_data.py:56`, `scripts/collect_6months_for_ml.py:28`, `scripts/fetch_real_historical_data.py:31`, `scripts/collect_ml_training_data_simple.py:18`
+- Backtesting: `backtesting/bybit_data_fetcher.py:36-38`
+- Test hits: `services/market-data-service/tests/test_pagination_fix.py:36`
+- Infra util (borderline): `infrastructure/scripts/rotate_secrets.py:232-234` — key-rotation validation, not market-data
+- Config defect: `services/market-data-service/app/config.py:58` (default port `8002` should be `8001`; compose env overrides)
+- Open question for discuss-phase: `services/trading-engine/app/exchanges/binance.py` is actively imported despite "Bybit-first" project rule — confirm intent or queue for separate cleanup
+- Out-of-scope: cryptocompare news fetch in sentiment service (not market-data); coingecko in `tier1_monitor.py` (intentional cross-source divergence check)
 
 ### Phase 14: Mobile Responsive Dashboard
 **Goal**: Make the dashboard usable on phone-sized viewports without horizontal scroll — establish Tailwind breakpoint tokens (`sm:640`, `md:768`, `lg:1024`, `xl:1280`) + viewport meta tag, audit every `frontend/src/components/**/*.jsx` for fixed-width violations (artifact `responsive-audit.json` lists file:line), implement single-column reflow ≤768px across `Dashboard.jsx` grid / `PathToLiveTile.jsx` (6 PREFLIGHT chip rows + 5 carry-in rows wrap to 1-col) / `KeyMetricsStrip` (horizontal scroll → 2-col) / `TournamentDashboard.jsx` (table → card list) with zero information loss; pytest-playwright Chromium matrix at iPhone SE (375×667) and iPad portrait (768×1024) asserts every dashboard tile renders with its `data-testid` visible without horizontal scroll and all navigation has ≥44px touch targets per WCAG.
@@ -164,6 +165,6 @@ Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependen
 | 11. Carry-In Closure | v1.1 | — | Superseded by 11.1 | — |
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete | 2026-05-18 |
 | 12. CI Recovery | v1.1 | 1/1 | Complete | 2026-05-18 |
-| 13. Real-Time WebSocket Push | v1.2 | 0/5 | Planned | - |
+| 13. Bybit-Connector Market-Data Centralization | v1.2 | 0/TBD | Not started | - |
 | 14. Mobile Responsive Dashboard | v1.2 | 0/TBD | Not started | - |
 | 15. Planning-Tooling Hardening | v1.2 | 0/TBD | Not started | - |

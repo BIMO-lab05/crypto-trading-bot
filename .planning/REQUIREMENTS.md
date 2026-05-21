@@ -8,14 +8,15 @@
 
 Requirements for this milestone. Each maps to exactly one roadmap phase.
 
-### Real-Time WebSocket (WS)
+### Bybit-Connector Market-Data Centralization (BC)
 
-Replace the 5s REST polling that powers the dashboard with a server-pushed WebSocket stream. Polling burns gateway CPU, lags observably on state changes (≤5s tail), and blocks future multi-symbol streaming. Scope is the four production hooks and the route they consume.
+Make `services/bybit-connector/` the sole Bybit-facing service in the codebase. Audit identifies every direct Bybit API call (`pybit` imports, hardcoded `api.bybit.com` / `wss://stream.bybit` URLs) and alternate market-data source (CoinGecko, etc.) outside the connector; refactor each hit to consume bybit-connector REST endpoints. CI grep gate locks the new contract; RUNBOOK documents the chain.
 
-- [ ] **WS-01**: api-gateway exposes `GET /ws/metrics` WebSocket route that emits JSON-line frames for the four current REST-polled domains (`safety-state`, `live-readiness`, `carry-ins`, `dashboard-snapshot`). Each frame is self-describing (`{"channel": "<name>", "schema_version": 1, "data": {...}, "ts": "ISO-8601"}`). Server pushes on actual state change OR at most every 5s heartbeat per channel. Backed by Redis pub/sub fanout so multiple gateway workers stay coherent.
-- [ ] **WS-02**: Frontend WS client layer (`src/lib/wsClient.ts` + `useWsSubscription(channel)` hook). Exponential-backoff reconnect (1s → 30s cap), viewport-aware pause (suspends + sends `pause` frame when `document.visibilityState === 'hidden'`), token-bearer auth via initial subscribe frame, REST-snapshot priming on connect (so first render has data before first push arrives).
-- [ ] **WS-03**: Migrate `useSafetyState`, `useLiveReadiness`, `useCarryIns`, `useDashboardSnapshot` from `setInterval` REST poll to `useWsSubscription`. Each hook keeps a REST fallback that re-arms after 30s of WS silence (graceful degradation if WS route is down). React-query cache shape unchanged — components consume same value contract.
-- [ ] **WS-04**: CI grep gate (`tests/ci/test_no_new_setinterval_polling.py`) fails if a new `setInterval(.*\d+000)` lands in `frontend/src/hooks/` outside the explicit allowlist. Integration test (`tests/integration/test_ws_latency.py`) asserts p95 push-to-render latency on `safety-state` is <500ms vs REST p95 ≥1s (>50% improvement). Documented in `RUNBOOK.md` as Symptom #7 (dashboard frozen → WS reconnect / REST fallback).
+<!-- Requirement IDs (BC-NN) populated by `/gsd-discuss-phase 13`. Initial audit landed in ROADMAP §"Phase 13" detail block on 2026-05-21. -->
+
+### Real-Time WebSocket (WS) — rescoped, deferred to v2
+
+> Rescoped 2026-05-21. Phase 13 was repurposed to bybit-connector centralization; WS-01..04 deferred to a future milestone. Original requirement text preserved in commit history (see `git log -- .planning/REQUIREMENTS.md`).
 
 ### Mobile Responsive (MOBILE)
 
@@ -74,22 +75,21 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WS-01 | Phase 13 | Pending |
-| WS-02 | Phase 13 | Pending |
-| WS-03 | Phase 13 | Pending |
-| WS-04 | Phase 13 | Pending |
+| BC-NN (TBD) | Phase 13 | Pending (populated by `/gsd-discuss-phase 13`) |
 | MOBILE-01 | Phase 14 | Pending |
 | MOBILE-02 | Phase 14 | Pending |
 | MOBILE-03 | Phase 14 | Pending |
 | TOOL-01 | Phase 15 | Pending |
 | TOOL-02 | Phase 15 | Pending |
 | TOOL-03 | Phase 15 | Pending |
+| WS-01..04 | — (rescoped, deferred to v2) | Deferred |
 
 **Coverage:**
-- v1.2 requirements: 10 total
-- Mapped to phases: 10 ✓
+- v1.2 requirements (post-2026-05-21 rescope): 6 hard + BC-NN (TBD count, Phase 13)
+- Mapped to phases: BC=Phase 13, MOBILE-01..03=Phase 14, TOOL-01..03=Phase 15
+- Deferred: WS-01..04 (originally Phase 13, rescoped 2026-05-21)
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-18*
-*Last updated: 2026-05-18 after `/gsd-roadmapper` (Phases 13/14/15 mapped)*
+*Last updated: 2026-05-21 — Phase 13 repurposed to bybit-connector market-data centralization; WS-01..04 deferred to v2.*
