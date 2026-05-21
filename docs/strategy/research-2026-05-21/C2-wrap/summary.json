@@ -1,0 +1,9 @@
+{
+  "overall_verdict": "NO_EDGE",
+  "n_pass": 0,
+  "n_symbols": 3,
+  "thresholds": {
+    "balanced_accuracy_min": 0.45,
+    "dsr_min": 0.95
+  }
+}

@@ -1,0 +1,110 @@
+[
+  {
+    "symbol": "SOLUSDT",
+    "csv_file": "SOLUSDT_1H_4hfresh.csv",
+    "n_train": 3547,
+    "n_test": 887,
+    "epsilon": 0.002995670074597001,
+    "mu_train": 0.0004172980261500925,
+    "sigma_train": 0.002995670074597001,
+    "signal_distribution": {
+      "buy": 163,
+      "flat": 531,
+      "sell": 193
+    },
+    "balanced_accuracy": 0.3307068555029717,
+    "recall_short": 0.2138728323699422,
+    "recall_flat": 0.6,
+    "recall_long": 0.1782477341389728,
+    "actual_class_counts": {
+      "-1": 346,
+      "0": 210,
+      "1": 331
+    },
+    "strat_mean_return": 0.00018250144443080166,
+    "strat_total_return": 0.16187878121012106,
+    "strat_oos_sharpe": 0.010507069998738012,
+    "strat_dsr": 3.5950812564689016e-06,
+    "strat_cpcv_sharpe_mean": -0.012478709196115188,
+    "strat_cpcv_sharpe_std": 0.06662124312811658,
+    "strat_cpcv_sharpe_median": -0.002166642413128445,
+    "strat_cpcv_sharpe_ci_low": -0.11600752035774026,
+    "strat_cpcv_sharpe_ci_high": 0.0802603461662483,
+    "strat_cpcv_n_paths": 45,
+    "pass_balanced_acc": false,
+    "pass_dsr": false,
+    "verdict": "FAIL"
+  },
+  {
+    "symbol": "BNBUSDT",
+    "csv_file": "BNBUSDT_1H_4hfresh.csv",
+    "n_train": 3547,
+    "n_test": 887,
+    "epsilon": 0.0037220814265310764,
+    "mu_train": 0.0017943537095561624,
+    "sigma_train": 0.0037220814265310764,
+    "signal_distribution": {
+      "buy": 225,
+      "flat": 453,
+      "sell": 209
+    },
+    "balanced_accuracy": 0.28704294520083995,
+    "recall_short": 0.22180451127819548,
+    "recall_flat": 0.44,
+    "recall_long": 0.19932432432432431,
+    "actual_class_counts": {
+      "-1": 266,
+      "0": 325,
+      "1": 296
+    },
+    "strat_mean_return": -0.0001807635916611735,
+    "strat_total_return": -0.1603373058034609,
+    "strat_oos_sharpe": -0.019956979346136366,
+    "strat_dsr": 2.091786233116011e-08,
+    "strat_cpcv_sharpe_mean": -0.04065602719578207,
+    "strat_cpcv_sharpe_std": 0.0756877109119623,
+    "strat_cpcv_sharpe_median": -0.04275510944509,
+    "strat_cpcv_sharpe_ci_low": -0.14233934253590227,
+    "strat_cpcv_sharpe_ci_high": 0.0754160178985713,
+    "strat_cpcv_n_paths": 45,
+    "pass_balanced_acc": false,
+    "pass_dsr": false,
+    "verdict": "FAIL"
+  },
+  {
+    "symbol": "ADAUSDT",
+    "csv_file": "ADAUSDT_1H_4hfresh.csv",
+    "n_train": 3547,
+    "n_test": 887,
+    "epsilon": 0.003976866602897644,
+    "mu_train": -0.0013214129721745849,
+    "sigma_train": 0.003976866602897644,
+    "signal_distribution": {
+      "buy": 105,
+      "flat": 668,
+      "sell": 114
+    },
+    "balanced_accuracy": 0.34326097812789297,
+    "recall_short": 0.13855421686746988,
+    "recall_flat": 0.7786885245901639,
+    "recall_long": 0.11254019292604502,
+    "actual_class_counts": {
+      "-1": 332,
+      "0": 244,
+      "1": 311
+    },
+    "strat_mean_return": 0.000185372438700299,
+    "strat_total_return": 0.1644253531271652,
+    "strat_oos_sharpe": 0.021725522636420063,
+    "strat_dsr": 1.3585325531195735e-08,
+    "strat_cpcv_sharpe_mean": 0.014251091955964442,
+    "strat_cpcv_sharpe_std": 0.09250281811640107,
+    "strat_cpcv_sharpe_median": 0.023089035700337063,
+    "strat_cpcv_sharpe_ci_low": -0.13608105375826662,
+    "strat_cpcv_sharpe_ci_high": 0.1364183980525155,
+    "strat_cpcv_n_paths": 45,
+    "pass_balanced_acc": false,
+    "pass_dsr": false,
+    "verdict": "FAIL"
+  }
+]
