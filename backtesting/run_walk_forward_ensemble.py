@@ -203,7 +203,7 @@ ATR_TP_MULT = 3.0  # R/R 2:1
 #   8) ensemble (this run)
 N_TRIALS = 8
 
-RESULTS_SUBDIR = "wf_ensemble_2026-05-20"
+RESULTS_SUBDIR = "wf_ensemble_2026-05-21_realdata"
 
 # Indicator weights: live voter weight table (only non-1.0 values matter)
 # Source: services/trading-engine/app/aggregation/voter.py
