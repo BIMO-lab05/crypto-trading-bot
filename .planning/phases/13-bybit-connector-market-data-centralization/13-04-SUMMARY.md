@@ -106,6 +106,8 @@ services/ml-prediction-service/tests/ (full suite):                      12 pass
 
 BC-07 Test 1 + Test 2 (orderbook channel) flipped from RED-on-main to GREEN. Test 3 was always-green by design.
 
+> **Reproduction note:** the BC-07 integration test loads `app.handlers.orderbook` via `importlib.util.spec_from_file_location`. The handler depends on `app.config`, `app.features.orderbook_features`, etc. To run the BC-07 test on host (outside the ml-prediction-service container), set `PYTHONPATH=services/ml-prediction-service` so the in-handler `from app.config import get_settings` resolves. Inside the service container the service's own `pytest.ini` makes this automatic. This is a Plan 03 scaffolding choice, not a Plan 04 regression.
+
 Plan automated verification one-liner (Task 2):
 
 ```
