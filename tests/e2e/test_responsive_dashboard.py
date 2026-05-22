@@ -160,23 +160,32 @@ def test_touch_targets_44px(page: Page, browser_context_args):
         }
         """
     )
-    # Filter through allowlist: drop any failure whose `hint` contains an
-    # allowlisted selector substring.
+    # Filter through allowlist (Phase 14 WR-05 tightened).
+    #
+    # Previously the loop ran THREE comparisons per (failure, entry) pair:
+    #   1. `sel in f["hint"]`                                  -- forward substring
+    #   2. `f"data-testid='{f['testid']}'" in sel`             -- inverted substring
+    #   3. `f"href='{f['href']}'" in sel`                      -- inverted substring
+    # The inverted-direction substring checks created a cross-allowlist
+    # surface: an allowlist selector that happened to mention testid X as
+    # a substring (e.g. `[data-testid='tournament-refresh'] + button`)
+    # would silently allowlist EVERY element whose own testid was
+    # `tournament-refresh-flyout` etc. Selector intent and string-in-string
+    # match are different operations.
+    #
+    # Tightened semantics: only the forward direction (`sel` is a substring
+    # of the synthetic `hint` for the failing element) survives. Allowlist
+    # entries must therefore be exact-or-substring fragments of the hint
+    # the test JS builds: `<tag>[data-testid='<id>'][href='<href>'][role='<r>']`.
+    # The two existing entries (`button[data-testid='emergency-stop']`,
+    # `a[href='/tournament']`) already match this contract.
     allowlist = _load_touch_target_allowlist()
     filtered = []
     for f in failures:
         matched_allow = False
         for entry in allowlist:
             sel = entry["selector"]
-            # Substring match against rendered hint (tag + testid + href).
             if sel and sel in f["hint"]:
-                matched_allow = True
-                break
-            # Also match against bare data-testid/href tokens.
-            if f["testid"] and f"data-testid='{f['testid']}'" in sel:
-                matched_allow = True
-                break
-            if f["href"] and f"href='{f['href']}'" in sel:
                 matched_allow = True
                 break
         if not matched_allow:
