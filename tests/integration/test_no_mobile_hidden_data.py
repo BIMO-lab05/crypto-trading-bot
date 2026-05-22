@@ -80,11 +80,27 @@ def _load_allowlist() -> set[str]:
     Entries without a non-empty `reason` field are silently dropped (mirrors
     audit_bybit_bypass.py allowlist discipline; prevents drive-by allowlisting
     without explanation).
+
+    Phase 14 WR-04 fix — previously this function crashed mid-collection on
+    malformed JSON (JSONDecodeError) or entries missing `data_testid`
+    (KeyError), inconsistent with scripts/audit_responsive.py:88-89's
+    graceful-degrade pattern. Now mirrors that shape: empty allowlist on
+    OSError / JSONDecodeError / non-list root, and a per-entry guard that
+    requires `isinstance(e, dict)` + both `data_testid` and `reason` present.
     """
     if not ALLOWLIST_PATH.exists():
         return set()
-    entries = json.loads(ALLOWLIST_PATH.read_text())
-    return {e["data_testid"] for e in entries if e.get("reason")}
+    try:
+        entries = json.loads(ALLOWLIST_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return set()
+    if not isinstance(entries, list):
+        return set()
+    return {
+        e["data_testid"]
+        for e in entries
+        if isinstance(e, dict) and e.get("data_testid") and e.get("reason")
+    }
 
 
 # ---------------------------------------------------------------------------
