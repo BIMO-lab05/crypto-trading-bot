@@ -355,15 +355,21 @@ export default function TournamentDashboard() {
             className="md:hidden flex flex-col gap-3"
             data-testid="tournament-mobile-card-list"
           >
-            {sortedRows.map((row) => {
+            {sortedRows.map((row, idx) => {
               // MIRROR TournamentLeaderboard.jsx:360-366 verbatim:
-              //   const runId = row?.run_id ?? 'unknown'
+              //   const runId = row?.run_id ?? `unknown-${idx}`
               //   data-testid={`tournament-row-${runId}`}
               // SAME testid string lives on the <tr> (desktop) and this <div> (mobile);
               // the two branches sit under display-toggling wrappers, so only ONE is
               // visible per viewport — Playwright's [data-testid^="tournament-row-"]
               // query stays stable and always resolves to the active rowset.
-              const runId = row?.run_id ?? 'unknown'
+              //
+              // Phase 14 CR-03 fix: previously coalesced to literal `'unknown'`,
+              // which produced duplicate React keys + duplicate testids when
+              // multiple rows had null `run_id`. Index suffix disambiguates while
+              // keeping the same `tournament-row-*` prefix the Playwright contract
+              // queries via `[data-testid^="tournament-row-"]`.
+              const runId = row?.run_id ?? `unknown-${idx}`
               const status = row?.status
               const isFailed = status === 'failed'
               const isContaminated = row?.train_window_includes_contaminated === true
