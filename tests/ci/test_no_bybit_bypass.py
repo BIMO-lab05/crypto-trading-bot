@@ -102,9 +102,23 @@ EXEMPT_PATHS: set[Path] = {
 # assertion ("the root .env.example MUST NOT contain testnet URLs"). The
 # token is being asserted-against, not used. File-level allowlist keeps the
 # gate's regex simple and free of context-sensitive logic.
+#
+# tests/integration/test_bybit_connector_tape_preserved.py (BC-07) embeds
+# the literal Bybit mainnet and testnet REST hosts in two legitimate roles:
+#   (a) respx mock-target strings — the test registers catch-all routes for
+#       those hosts and asserts the refactored consumer does NOT call them
+#       under tape mode; the host strings are passed to respx, not invoked
+#       outbound. (Literals deliberately not reproduced here — Pitfall 4 in
+#       13-RESEARCH: the gate would fire on itself, as the legacy version of
+#       this comment did pre-amendment.)
+#   (b) RED-by-design documentation in the module docstring describing the
+#       pre-refactor state of the orderbook handler.
+# File-level allowlist preferred over restructuring the test — removing the
+# host strings would weaken the BC-07 no-live-call contract.
 # ---------------------------------------------------------------------------
 EXEMPT_FILES: set[Path] = {
     REPO_ROOT / "tests" / "smoke" / "test_smoke.py",
+    REPO_ROOT / "tests" / "integration" / "test_bybit_connector_tape_preserved.py",
 }
 
 
@@ -344,4 +358,33 @@ def test_smoke_security_test_allowlisted() -> None:
         "a security assertion (it asserts the token is NOT in "
         ".env.example), not as a bypass call. Without the allowlist, the "
         "BC-03 gate fires a false positive on the security test itself."
+    )
+
+
+def test_tape_preserved_test_allowlisted() -> None:
+    """``tests/integration/test_bybit_connector_tape_preserved.py`` (BC-07)
+    embeds the literal Bybit mainnet and testnet REST host strings in two
+    legitimate roles (literals deliberately not reproduced in this docstring
+    per Pitfall 4 in 13-RESEARCH — the gate would fire on itself):
+
+      (a) respx mock-target strings — the BC-07 contract registers those
+          hosts as catch-all routes that MUST NOT be called by the refactored
+          consumer; the host strings are passed to respx, not invoked outbound.
+      (b) RED-by-design documentation in the module docstring describing the
+          pre-refactor state of the orderbook handler.
+
+    File-level allowlist preferred over restructuring the test — the host
+    strings are load-bearing for the BC-07 contract (their absence would
+    weaken the no-live-call assertion). Without the allowlist, the BC-03
+    gate fires four false positives on the BC-07 contract test itself.
+    """
+    tape_preserved_test = (
+        REPO_ROOT / "tests" / "integration" / "test_bybit_connector_tape_preserved.py"
+    )
+    assert tape_preserved_test in EXEMPT_FILES, (
+        "tests/integration/test_bybit_connector_tape_preserved.py must be in "
+        "EXEMPT_FILES — its respx mock-target URLs and RED-by-design docstring "
+        "reference the literal Bybit hosts as the URLs the refactored consumer "
+        "MUST NOT call under tape mode. Without the allowlist, the BC-03 gate "
+        "fires four false positives on the BC-07 contract test itself."
     )
