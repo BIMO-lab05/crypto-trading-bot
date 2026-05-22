@@ -2,17 +2,21 @@
 """
 Historical Data Collection Script for Strategy Validation
 ==========================================================
-Purpose: Collect 180 days of hourly OHLCV data from Bybit API
-         Properly handles pagination and API rate limits
+Purpose: Collect 180 days of hourly OHLCV data via bybit-connector REST.
+         Properly handles pagination and rate limits.
 
 Author: Data Researcher Agent
 Date: 2025-12-11
 
 This script:
-1. Connects directly to Bybit V5 API (no service dependencies)
+1. Routes all kline requests through bybit-connector (services/bybit-connector)
 2. Fetches data in batches of 1000 candles with proper pagination
 3. Saves data to CSV files for offline backtesting
 4. Validates data completeness and quality
+
+Phase 13 / BC-02: All direct Bybit access removed; the connector handles
+testnet/mainnet selection internally via BYBIT_TESTNET. Fail-fast (D-04) at
+script start if connector unreachable.
 
 Usage:
     python collect_180_days_data.py
@@ -26,12 +30,13 @@ Requirements:
 import asyncio
 import argparse
 import csv
-import os
+import os  # noqa: F401  -- used by BYBIT_CONNECTOR_URL os.getenv below; guard against autoflake
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import json
 import time
 
@@ -52,31 +57,57 @@ except ImportError:
 # CONFIGURATION
 # =============================================================================
 
-# Bybit V5 API Base URL (mainnet for historical data)
-BYBIT_API_URL = "https://api.bybit.com"
+# Phase 13 / BC-02: route through bybit-connector REST (no direct Bybit URLs).
+BYBIT_CONNECTOR_URL = os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001")
+
+
+def assert_connector_reachable() -> None:
+    """D-04 fail-fast: exit 2 with operator-readable error if connector unreachable.
+
+    Runs BEFORE argparse so the no-args invocation (used by
+    `tests/integration/test_scripts_fail_fast.py`) triggers the probe.
+    """
+
+    async def _probe() -> None:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{BYBIT_CONNECTOR_URL}/health")
+                response.raise_for_status()
+        except Exception as e:
+            print(
+                f"\nERROR: bybit-connector is not reachable at {BYBIT_CONNECTOR_URL}.\n"
+                f"  Cause: {e!r}\n"
+                f"  Fix:   Run `docker compose -f docker-compose.unified.yml up -d bybit-connector`\n"
+                f"  (or set BYBIT_CONNECTOR_URL if running against a non-default host).\n",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+    asyncio.run(_probe())
+
 
 # Default symbols to collect
 DEFAULT_SYMBOLS = [
-    "BTCUSDT",   # Bitcoin
-    "ETHUSDT",   # Ethereum
-    "SOLUSDT",   # Solana
-    "BNBUSDT",   # Binance Coin
-    "XRPUSDT",   # Ripple
-    "DOGEUSDT", # Dogecoin
-    "ADAUSDT",   # Cardano
-    "LTCUSDT",   # Litecoin
-    "AVAXUSDT", # Avalanche
-    "DOTUSDT",   # Polkadot
-    "LINKUSDT", # Chainlink
-    "MATICUSDT",# Polygon (POL)
-    "SUIUSDT",   # Sui
-    "ARBUSDT",   # Arbitrum
-    "OPUSDT",    # Optimism
-    "APTUSDT",   # Aptos
+    "BTCUSDT",  # Bitcoin
+    "ETHUSDT",  # Ethereum
+    "SOLUSDT",  # Solana
+    "BNBUSDT",  # Binance Coin
+    "XRPUSDT",  # Ripple
+    "DOGEUSDT",  # Dogecoin
+    "ADAUSDT",  # Cardano
+    "LTCUSDT",  # Litecoin
+    "AVAXUSDT",  # Avalanche
+    "DOTUSDT",  # Polkadot
+    "LINKUSDT",  # Chainlink
+    "MATICUSDT",  # Polygon (POL)
+    "SUIUSDT",  # Sui
+    "ARBUSDT",  # Arbitrum
+    "OPUSDT",  # Optimism
+    "APTUSDT",  # Aptos
 ]
 
 # Output directory for CSV files
-OUTPUT_DIR = (_REPO_ROOT / 'data/historical')
+OUTPUT_DIR = _REPO_ROOT / "data/historical"
 
 # API rate limit (requests per second)
 RATE_LIMIT_RPS = 5
@@ -89,13 +120,14 @@ MAX_CANDLES_PER_REQUEST = 1000
 # DATA COLLECTION FUNCTIONS
 # =============================================================================
 
+
 async def fetch_klines_batch(
     client: httpx.AsyncClient,
     symbol: str,
     interval: str,
     start_time: int,
     end_time: int,
-    limit: int = MAX_CANDLES_PER_REQUEST
+    limit: int = MAX_CANDLES_PER_REQUEST,
 ) -> List[List[Any]]:
     """
     Fetch a single batch of klines from Bybit API
@@ -115,18 +147,17 @@ async def fetch_klines_batch(
         Exception: If API request fails
     """
     params = {
-        "category": "linear",     # USDT perpetual contracts
+        "category": "linear",  # USDT perpetual contracts
         "symbol": symbol,
         "interval": interval,
         "start": start_time,
         "end": end_time,
-        "limit": min(limit, MAX_CANDLES_PER_REQUEST)
+        "limit": min(limit, MAX_CANDLES_PER_REQUEST),
     }
 
     try:
         response = await client.get(
-            f"{BYBIT_API_URL}/v5/market/kline",
-            params=params
+            f"{BYBIT_CONNECTOR_URL}/api/v1/market/kline", params=params
         )
 
         if response.status_code != 200:
@@ -135,12 +166,12 @@ async def fetch_klines_batch(
 
         data = response.json()
 
-        if data.get("retCode") != 0:
-            error_msg = data.get("retMsg", "Unknown error")
-            print(f"  ERROR: Bybit API error - {error_msg}")
+        if not data.get("success"):
+            error_msg = data.get("error") or data.get("message") or "Unknown error"
+            print(f"  ERROR: bybit-connector error - {error_msg}")
             return []
 
-        klines = data.get("result", {}).get("list", [])
+        klines = data.get("data", {}).get("list", [])
         return klines
 
     except httpx.RequestError as e:
@@ -152,10 +183,7 @@ async def fetch_klines_batch(
 
 
 async def collect_symbol_data(
-    symbol: str,
-    days: int = 180,
-    interval: str = "60",
-    rate_limit_delay: float = 0.2
+    symbol: str, days: int = 180, interval: str = "60", rate_limit_delay: float = 0.2
 ) -> Dict[str, Any]:
     """
     Collect historical data for a single symbol
@@ -178,9 +206,9 @@ async def collect_symbol_data(
             "error": str (if failed)
         }
     """
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Collecting {days} days of {symbol} data (interval: {interval}m)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     all_klines = []
 
@@ -208,11 +236,11 @@ async def collect_symbol_data(
                 interval=interval,
                 start_time=target_start_ms,
                 end_time=current_end_ms,
-                limit=MAX_CANDLES_PER_REQUEST
+                limit=MAX_CANDLES_PER_REQUEST,
             )
 
             if not batch:
-                print(f"  No more data available")
+                print("  No more data available")
                 break
 
             # Bybit returns newest first, so we need to reverse for chronological order
@@ -233,7 +261,7 @@ async def collect_symbol_data(
 
             # Check if we've reached the target start
             if oldest_ts <= target_start_ms:
-                print(f"  Reached target start date")
+                print("  Reached target start date")
                 break
 
             # Update end time for next batch (1 ms before oldest)
@@ -253,11 +281,10 @@ async def collect_symbol_data(
 
     # Filter to target time range
     filtered_klines = [
-        k for k in sorted_klines
-        if target_start_ms <= int(k[0]) <= end_ms
+        k for k in sorted_klines if target_start_ms <= int(k[0]) <= end_ms
     ]
 
-    print(f"\nData collection complete:")
+    print("\nData collection complete:")
     print(f"  Total candles: {len(filtered_klines)}")
     print(f"  Expected candles (~): {days * 24}")
 
@@ -266,7 +293,7 @@ async def collect_symbol_data(
             "symbol": symbol,
             "success": False,
             "candles": 0,
-            "error": "No data collected"
+            "error": "No data collected",
         }
 
     # Get date range
@@ -275,33 +302,48 @@ async def collect_symbol_data(
     first_date = datetime.fromtimestamp(first_ts / 1000)
     last_date = datetime.fromtimestamp(last_ts / 1000)
 
-    print(f"  Date range: {first_date.strftime('%Y-%m-%d %H:%M')} to {last_date.strftime('%Y-%m-%d %H:%M')}")
+    print(
+        f"  Date range: {first_date.strftime('%Y-%m-%d %H:%M')} to {last_date.strftime('%Y-%m-%d %H:%M')}"
+    )
 
     # Save to CSV
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    filename = OUTPUT_DIR / f"{symbol}_{days}days_{datetime.now().strftime('%Y%m%d')}.csv"
+    filename = (
+        OUTPUT_DIR / f"{symbol}_{days}days_{datetime.now().strftime('%Y%m%d')}.csv"
+    )
 
-    with open(filename, 'w', newline='') as f:
+    with open(filename, "w", newline="") as f:
         writer = csv.writer(f)
         # Header
-        writer.writerow([
-            'timestamp', 'datetime', 'open', 'high', 'low', 'close', 'volume', 'turnover'
-        ])
+        writer.writerow(
+            [
+                "timestamp",
+                "datetime",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "turnover",
+            ]
+        )
 
         # Data rows
         for k in filtered_klines:
             ts = int(k[0])
-            dt = datetime.fromtimestamp(ts / 1000).strftime('%Y-%m-%d %H:%M:%S')
-            writer.writerow([
-                ts,        # timestamp (ms)
-                dt,        # datetime string
-                k[1],      # open
-                k[2],      # high
-                k[3],      # low
-                k[4],      # close
-                k[5],      # volume
-                k[6] if len(k) > 6 else 0  # turnover
-            ])
+            dt = datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d %H:%M:%S")
+            writer.writerow(
+                [
+                    ts,  # timestamp (ms)
+                    dt,  # datetime string
+                    k[1],  # open
+                    k[2],  # high
+                    k[3],  # low
+                    k[4],  # close
+                    k[5],  # volume
+                    k[6] if len(k) > 6 else 0,  # turnover
+                ]
+            )
 
     print(f"  Saved to: {filename}")
 
@@ -311,9 +353,9 @@ async def collect_symbol_data(
         "candles": len(filtered_klines),
         "expected": days * 24,
         "coverage": round(len(filtered_klines) / (days * 24) * 100, 1),
-        "start_date": first_date.strftime('%Y-%m-%d %H:%M'),
-        "end_date": last_date.strftime('%Y-%m-%d %H:%M'),
-        "file_path": str(filename)
+        "start_date": first_date.strftime("%Y-%m-%d %H:%M"),
+        "end_date": last_date.strftime("%Y-%m-%d %H:%M"),
+        "file_path": str(filename),
     }
 
 
@@ -338,21 +380,21 @@ async def validate_csv_file(filepath: Path) -> Dict[str, Any]:
         columns = list(df.columns)
 
         # Check for required columns
-        required = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        required = ["timestamp", "open", "high", "low", "close", "volume"]
         missing = [c for c in required if c not in columns]
 
         # Check for gaps
-        if 'timestamp' in df.columns:
-            df['ts'] = pd.to_numeric(df['timestamp'])
-            df = df.sort_values('ts')
-            df['gap'] = df['ts'].diff()
+        if "timestamp" in df.columns:
+            df["ts"] = pd.to_numeric(df["timestamp"])
+            df = df.sort_values("ts")
+            df["gap"] = df["ts"].diff()
 
             # For hourly data, expected gap is 3600000 ms (1 hour)
             expected_gap = 3600000
-            large_gaps = df[df['gap'] > expected_gap * 1.5]  # 50% tolerance
+            large_gaps = df[df["gap"] > expected_gap * 1.5]  # 50% tolerance
 
         # Check for invalid values
-        price_cols = ['open', 'high', 'low', 'close']
+        price_cols = ["open", "high", "low", "close"]
         invalid_prices = 0
         for col in price_cols:
             if col in df.columns:
@@ -360,24 +402,21 @@ async def validate_csv_file(filepath: Path) -> Dict[str, Any]:
 
         # Check high >= low
         hl_violations = 0
-        if 'high' in df.columns and 'low' in df.columns:
-            hl_violations = (df['high'] < df['low']).sum()
+        if "high" in df.columns and "low" in df.columns:
+            hl_violations = (df["high"] < df["low"]).sum()
 
         return {
             "valid": len(missing) == 0 and invalid_prices == 0 and hl_violations == 0,
             "rows": rows,
             "columns": columns,
             "missing_columns": missing,
-            "gaps_detected": len(large_gaps) if 'large_gaps' in dir() else 0,
+            "gaps_detected": len(large_gaps) if "large_gaps" in dir() else 0,
             "invalid_prices": invalid_prices,
-            "high_low_violations": hl_violations
+            "high_low_violations": hl_violations,
         }
 
     except Exception as e:
-        return {
-            "valid": False,
-            "error": str(e)
-        }
+        return {"valid": False, "error": str(e)}
 
 
 async def main(symbols: List[str], days: int, interval: str):
@@ -390,7 +429,9 @@ async def main(symbols: List[str], days: int, interval: str):
         interval: Candlestick interval
     """
     print("=" * 70)
-    print(f"HISTORICAL DATA COLLECTION - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(
+        f"HISTORICAL DATA COLLECTION - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
     print("=" * 70)
     print(f"Symbols: {', '.join(symbols)}")
     print(f"Days: {days}")
@@ -409,7 +450,7 @@ async def main(symbols: List[str], days: int, interval: str):
                 symbol=symbol,
                 days=days,
                 interval=interval,
-                rate_limit_delay=1.0 / RATE_LIMIT_RPS
+                rate_limit_delay=1.0 / RATE_LIMIT_RPS,
             )
             results.append(result)
 
@@ -420,15 +461,11 @@ async def main(symbols: List[str], days: int, interval: str):
 
         except Exception as e:
             print(f"  FAILED: {e}")
-            results.append({
-                "symbol": symbol,
-                "success": False,
-                "error": str(e)
-            })
+            results.append({"symbol": symbol, "success": False, "error": str(e)})
 
         # Delay between symbols to avoid rate limiting
         if i < len(symbols):
-            print(f"\nWaiting 2 seconds before next symbol...")
+            print("\nWaiting 2 seconds before next symbol...")
             await asyncio.sleep(2.0)
 
     # Print summary
@@ -447,28 +484,35 @@ async def main(symbols: List[str], days: int, interval: str):
     print(f"Elapsed time: {elapsed:.1f} seconds")
 
     if successful:
-        print(f"\nSuccessful collections:")
+        print("\nSuccessful collections:")
         for r in successful:
-            coverage = r.get('coverage', 'N/A')
+            coverage = r.get("coverage", "N/A")
             print(f"  {r['symbol']}: {r['candles']:,} candles ({coverage}% coverage)")
 
     if failed:
-        print(f"\nFailed collections:")
+        print("\nFailed collections:")
         for r in failed:
             print(f"  {r['symbol']}: {r.get('error', 'Unknown error')}")
 
     # Save summary to JSON
-    summary_file = OUTPUT_DIR / f"collection_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    with open(summary_file, 'w') as f:
-        json.dump({
-            "timestamp": datetime.now().isoformat(),
-            "days": days,
-            "interval": interval,
-            "results": results,
-            "successful": len(successful),
-            "failed": len(failed),
-            "elapsed_seconds": elapsed
-        }, f, indent=2)
+    summary_file = (
+        OUTPUT_DIR
+        / f"collection_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+    with open(summary_file, "w") as f:
+        json.dump(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "days": days,
+                "interval": interval,
+                "results": results,
+                "successful": len(successful),
+                "failed": len(failed),
+                "elapsed_seconds": elapsed,
+            },
+            f,
+            indent=2,
+        )
 
     print(f"\nSummary saved to: {summary_file}")
 
@@ -476,40 +520,39 @@ async def main(symbols: List[str], days: int, interval: str):
 
 
 if __name__ == "__main__":
+    # D-04 fail-fast: BEFORE argparse so no-args invocation triggers the probe.
+    assert_connector_reachable()
+
     parser = argparse.ArgumentParser(
-        description="Collect historical OHLCV data from Bybit for strategy validation"
+        description="Collect historical OHLCV data via bybit-connector for strategy validation"
     )
 
     parser.add_argument(
         "--symbols",
         nargs="+",
         default=DEFAULT_SYMBOLS,
-        help=f"Symbols to collect (default: {', '.join(DEFAULT_SYMBOLS[:5])}...)"
+        help=f"Symbols to collect (default: {', '.join(DEFAULT_SYMBOLS[:5])}...)",
     )
 
     parser.add_argument(
         "--days",
         type=int,
         default=180,
-        help="Number of days of history to collect (default: 180)"
+        help="Number of days of history to collect (default: 180)",
     )
 
     parser.add_argument(
         "--interval",
         type=str,
         default="60",
-        help="Candlestick interval in minutes (default: 60 = 1 hour)"
+        help="Candlestick interval in minutes (default: 60 = 1 hour)",
     )
 
     args = parser.parse_args()
 
     # Run collection
     try:
-        asyncio.run(main(
-            symbols=args.symbols,
-            days=args.days,
-            interval=args.interval
-        ))
+        asyncio.run(main(symbols=args.symbols, days=args.days, interval=args.interval))
     except KeyboardInterrupt:
         print("\nCollection interrupted by user")
         sys.exit(1)

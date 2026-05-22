@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """
 Collect 6 Months Historical Data for ML Training
-Purpose: Download 180 days of 60m kline data for LSTM/GRU model training
-Saves data to CSV files in /backtesting/data/ directory
+Purpose: Download 180 days of 60m kline data for GRU model training via bybit-connector.
+Saves data to CSV files in /backtesting/data/ directory.
+
+Phase 13 / BC-02: routes through bybit-connector REST (no direct Bybit URLs);
+fail-fast (D-04) if connector unreachable.
 """
 
 import asyncio
+import os  # noqa: F401  -- used by BYBIT_CONNECTOR_URL os.getenv below; guard against autoflake
+import sys
 import httpx
 import pandas as pd
 from datetime import datetime, timedelta
@@ -15,19 +20,47 @@ from typing import List
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 
+# Phase 13 / BC-02: route through bybit-connector REST (no direct Bybit URLs).
+BYBIT_CONNECTOR_URL = os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001")
+
+
+def assert_connector_reachable() -> None:
+    """D-04 fail-fast: exit 2 with operator-readable error if connector unreachable.
+
+    Runs BEFORE any other __main__ logic so `tests/integration/test_scripts_fail_fast.py`
+    (no-args invocation) triggers the probe.
+    """
+
+    async def _probe() -> None:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{BYBIT_CONNECTOR_URL}/health")
+                response.raise_for_status()
+        except Exception as e:
+            print(
+                f"\nERROR: bybit-connector is not reachable at {BYBIT_CONNECTOR_URL}.\n"
+                f"  Cause: {e!r}\n"
+                f"  Fix:   Run `docker compose -f docker-compose.unified.yml up -d bybit-connector`\n"
+                f"  (or set BYBIT_CONNECTOR_URL if running against a non-default host).\n",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+    asyncio.run(_probe())
+
+
 class BybitDataCollector:
-    """Collect historical kline data from Bybit and save to CSV"""
+    """Collect historical kline data via bybit-connector and save to CSV"""
 
     def __init__(self):
-        self.base_url = "https://api.bybit.com"
+        self.base_url = BYBIT_CONNECTOR_URL
         self.http_client = None
-        self.data_dir = Path(__file__).parent.parent / 'backtesting' / 'data'
+        self.data_dir = Path(__file__).parent.parent / "backtesting" / "data"
         self.data_dir.mkdir(exist_ok=True, parents=True)
         logger.info(f"Data directory: {self.data_dir}")
 
@@ -47,7 +80,7 @@ class BybitDataCollector:
         interval: str = "60",
         limit: int = 200,
         start_time: int = None,
-        end_time: int = None
+        end_time: int = None,
     ) -> List[List]:
         """
         Fetch kline data from Bybit API
@@ -62,13 +95,13 @@ class BybitDataCollector:
         Returns:
             List of klines: [timestamp, open, high, low, close, volume, turnover]
         """
-        url = f"{self.base_url}/v5/market/kline"
+        url = f"{self.base_url}/api/v1/market/kline"
 
         params = {
             "category": "linear",  # USDT perpetual
             "symbol": symbol,
             "interval": interval,
-            "limit": limit
+            "limit": limit,
         }
 
         if start_time:
@@ -82,11 +115,13 @@ class BybitDataCollector:
 
             data = response.json()
 
-            if data.get("retCode") != 0:
-                logger.error(f"API error: {data.get('retMsg')}")
+            if not data.get("success"):
+                logger.error(
+                    f"bybit-connector error: {data.get('error') or data.get('message')}"
+                )
                 return []
 
-            klines = data.get("result", {}).get("list", [])
+            klines = data.get("data", {}).get("list", [])
             logger.debug(f"Fetched {len(klines)} candles for {symbol}")
             return klines
 
@@ -95,10 +130,7 @@ class BybitDataCollector:
             return []
 
     async def collect_symbol_data(
-        self,
-        symbol: str,
-        days: int = 180,
-        interval: str = "60"
+        self, symbol: str, days: int = 180, interval: str = "60"
     ) -> pd.DataFrame:
         """
         Collect full historical data for a symbol
@@ -126,10 +158,7 @@ class BybitDataCollector:
         while True:
             # Fetch batch
             klines = await self.fetch_klines(
-                symbol=symbol,
-                interval=interval,
-                limit=200,
-                end_time=current_end
+                symbol=symbol, interval=interval, limit=200, end_time=current_end
             )
 
             if not klines:
@@ -156,36 +185,43 @@ class BybitDataCollector:
             await asyncio.sleep(0.5)
 
             if batch_count % 5 == 0:
-                logger.info(f"Collected {batch_count} batches ({len(all_klines)} candles)...")
+                logger.info(
+                    f"Collected {batch_count} batches ({len(all_klines)} candles)..."
+                )
 
-        logger.info(f"Total collected: {len(all_klines)} candles in {batch_count} batches")
+        logger.info(
+            f"Total collected: {len(all_klines)} candles in {batch_count} batches"
+        )
 
         # Convert to DataFrame
-        df = pd.DataFrame(all_klines, columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
-        ])
+        df = pd.DataFrame(
+            all_klines,
+            columns=["timestamp", "open", "high", "low", "close", "volume", "turnover"],
+        )
 
         # Convert timestamp to datetime
-        df['timestamp'] = pd.to_datetime(df['timestamp'].astype(int), unit='ms')
+        df["timestamp"] = pd.to_datetime(df["timestamp"].astype(int), unit="ms")
 
         # Convert price columns to float
-        for col in ['open', 'high', 'low', 'close', 'volume']:
+        for col in ["open", "high", "low", "close", "volume"]:
             df[col] = df[col].astype(float)
 
         # Sort by timestamp (oldest first)
-        df = df.sort_values('timestamp').reset_index(drop=True)
+        df = df.sort_values("timestamp").reset_index(drop=True)
 
         # Remove duplicates
-        df = df.drop_duplicates(subset=['timestamp'])
+        df = df.drop_duplicates(subset=["timestamp"])
 
         # Drop turnover column (not needed for ML training)
-        df = df.drop(columns=['turnover'])
+        df = df.drop(columns=["turnover"])
 
         logger.info(f"Cleaned data: {len(df)} unique candles")
 
         return df
 
-    async def save_to_csv(self, df: pd.DataFrame, symbol: str, days: int, interval: str):
+    async def save_to_csv(
+        self, df: pd.DataFrame, symbol: str, days: int, interval: str
+    ):
         """Save DataFrame to CSV file"""
         filename = f"{symbol}_{interval}m_{days}d_bybit.csv"
         filepath = self.data_dir / filename
@@ -196,11 +232,13 @@ class BybitDataCollector:
         logger.info(f"Saved {len(df)} candles to {filename} ({file_size:.1f} KB)")
 
         # Show data range
-        start_date = df['timestamp'].min()
-        end_date = df['timestamp'].max()
+        start_date = df["timestamp"].min()
+        end_date = df["timestamp"].max()
         logger.info(f"Data range: {start_date} to {end_date}")
 
-    async def collect_all_symbols(self, symbols: List[str], days: int = 180, interval: str = "60"):
+    async def collect_all_symbols(
+        self, symbols: List[str], days: int = 180, interval: str = "60"
+    ):
         """Collect data for multiple symbols"""
         logger.info(f"Starting data collection for {len(symbols)} symbols...")
         logger.info(f"Target: {days} days of {interval}m kline data")
@@ -246,21 +284,13 @@ class BybitDataCollector:
 async def main():
     """Main execution"""
     # Target symbols for ML training
-    symbols = [
-        "BNBUSDT",
-        "SOLUSDT",
-        "ADAUSDT"
-    ]
+    symbols = ["BNBUSDT", "SOLUSDT", "ADAUSDT"]
 
     # Create collector
     collector = BybitDataCollector()
 
     # Collect 6 months (180 days) of 60-minute kline data
-    await collector.collect_all_symbols(
-        symbols=symbols,
-        days=180,
-        interval="60"
-    )
+    await collector.collect_all_symbols(symbols=symbols, days=180, interval="60")
 
     print(f"\n📊 Data saved to: {collector.data_dir}")
     print("\nNext steps:")
@@ -270,6 +300,9 @@ async def main():
 
 
 if __name__ == "__main__":
+    # D-04 fail-fast: BEFORE any other __main__ logic so no-args invocation triggers the probe.
+    assert_connector_reachable()
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
@@ -277,4 +310,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n\n❌ Fatal error: {e}")
         import traceback
+
         traceback.print_exc()
