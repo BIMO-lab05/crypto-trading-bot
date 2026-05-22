@@ -28,9 +28,9 @@ Make `services/bybit-connector/` the sole Bybit-facing service in the codebase. 
 
 Dashboard is currently built for ≥1280px viewports. Operator increasingly checks paper-trading state from phone; horizontal-scroll-to-find-tile is the dominant pain. Scope is responsive layout only, no native app, no PWA.
 
-- [ ] **MOBILE-01**: Viewport meta tag + responsive Tailwind tokens established (breakpoints `sm:640`, `md:768`, `lg:1024`, `xl:1280` standardized; `tailwind.config.cjs` audited for hardcoded widths). Layout audit (`scripts/audit_responsive.py` or inline grep) of every `frontend/src/components/**/*.jsx` identifies fixed-width violations; `responsive-audit.json` artifact lists each violation with file:line.
-- [ ] **MOBILE-02**: Single-column reflow ≤768px implemented for: `Dashboard.jsx` grid (collapses to stacked tiles), `PathToLiveTile.jsx` (6 PREFLIGHT chip rows + 5 carry-in rows wrap to 1-col), `KeyMetricsStrip` (horizontal scroll → 2-col grid), `TournamentDashboard.jsx` (filter chips wrap, table converts to card list). No tile loses information; only layout changes.
-- [ ] **MOBILE-03**: pytest-playwright Chromium smoke at iPhone SE (375×667) and iPad portrait (768×1024) viewports asserts: every dashboard tile rendered with `data-testid` visible without horizontal scroll, no element overflows `window.innerWidth`, PathToLiveTile banner state-token still visible, navigation tappable (≥44px touch targets per WCAG). Runs under `.github/workflows/dashboard-smoke.yml` matrix.
+- [x] **MOBILE-01**: Viewport meta tag + responsive Tailwind tokens established (breakpoints `sm:640`, `md:768`, `lg:1024`, `xl:1280` standardized; `tailwind.config.cjs` audited for hardcoded widths). Layout audit (`scripts/audit_responsive.py` or inline grep) of every `frontend/src/components/**/*.jsx` identifies fixed-width violations; `responsive-audit.json` artifact lists each violation with file:line.
+- [x] **MOBILE-02**: Single-column reflow ≤768px implemented for: `Dashboard.jsx` grid (collapses to stacked tiles), `PathToLiveTile.jsx` (6 PREFLIGHT chip rows + 5 carry-in rows wrap to 1-col), `KeyMetricsStrip` (horizontal scroll → 2-col grid), `TournamentDashboard.jsx` (filter chips wrap, table converts to card list). No tile loses information; only layout changes.
+- [x] **MOBILE-03**: pytest-playwright Chromium smoke at iPhone SE (375×667) and iPad portrait (768×1024) viewports asserts: every dashboard tile rendered with `data-testid` visible without horizontal scroll, no element overflows `window.innerWidth`, PathToLiveTile banner state-token still visible, navigation tappable (≥44px touch targets per WCAG). Runs under `.github/workflows/dashboard-smoke.yml` matrix.
 
 ### Planning Tooling (TOOL)
 
@@ -88,9 +88,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BC-05 | Phase 13 | Complete |
 | BC-06 | Phase 13 | Complete |
 | BC-07 | Phase 13 | Complete |
-| MOBILE-01 | Phase 14 | Pending |
-| MOBILE-02 | Phase 14 | Pending |
-| MOBILE-03 | Phase 14 | Pending |
+| MOBILE-01 | Phase 14 | Complete |
+| MOBILE-02 | Phase 14 | Complete |
+| MOBILE-03 | Phase 14 | Complete |
 | TOOL-01 | Phase 15 | Pending |
 | TOOL-02 | Phase 15 | Pending |
 | TOOL-03 | Phase 15 | Pending |
