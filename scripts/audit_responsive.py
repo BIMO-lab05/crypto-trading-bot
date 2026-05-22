@@ -67,11 +67,13 @@ PATTERNS: dict[str, re.Pattern[str]] = {
     "no-hardcoded-width-style": re.compile(r"\bwidth:\s*(\d+)px\b"),
 }
 
-# Self-exclusion guard: the audit script lives at scripts/audit_responsive.py;
-# walking `frontend/src/**/*.jsx` can't hit it (different tree, different
-# extension), but the acceptance gate greps for an explicit guard literal so
-# we mirror `audit_bybit_bypass.py:121` verbatim.
-_SELF_PATH = "scripts/audit_responsive.py"
+# Phase 14 WR-07 fix — removed dead `_SELF_PATH = "scripts/audit_responsive.py"`
+# and the corresponding `if rel == _SELF_PATH: continue` branch below. The
+# walker is `FRONTEND_SRC.rglob("*.jsx")` — a .py script in the `scripts/`
+# tree can never be a candidate (different tree, different extension), so
+# the self-exclusion check was structurally unreachable. Mirrors of the
+# audit_bybit_bypass.py shape are kept where they're load-bearing; this
+# one was cargo-culted.
 
 
 def _load_allowlist() -> dict[str, str]:
@@ -136,14 +138,11 @@ def collect_hits(allowlist: dict[str, str] | None = None) -> list[dict[str, Any]
         return hits
     for jsx in FRONTEND_SRC.rglob("*.jsx"):
         rel = jsx.relative_to(REPO_ROOT).as_posix()
-        # Self-exclusion guard — mirror audit_bybit_bypass.py:121.
-        # The walker is *.jsx-only and the script is .py, so this skip is
-        # semantically a no-op; it satisfies the acceptance gate and matches
-        # the established analog shape so future scope expansion stays safe.
-        if (
-            rel == _SELF_PATH
-        ):  # scripts/audit_responsive.py -> continue (self-exclusion)
-            continue
+        # Phase 14 WR-07 fix — removed `if rel == _SELF_PATH: continue`
+        # branch (and the `_SELF_PATH` constant above). It was a cargo-cult
+        # from audit_bybit_bypass.py:121 and was structurally unreachable
+        # here: the walker is `*.jsx`-only and the audit script is a `.py`
+        # file in a different tree.
         try:
             text = jsx.read_text(encoding="utf-8", errors="ignore")
         except OSError:
