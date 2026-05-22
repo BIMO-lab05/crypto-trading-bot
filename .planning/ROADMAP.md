@@ -146,8 +146,16 @@ Plans:
   3. At viewport 768×1024 (iPad portrait), the layout uses the `md:` token boundary correctly — tiles can render in 2-column groups where information density allows but no element overflows `window.innerWidth`; filter chips on `TournamentDashboard` wrap onto multiple lines instead of horizontal-scrolling.
   4. `pytest tests/e2e/test_responsive_dashboard.py` is green under `.github/workflows/dashboard-smoke.yml` matrix (Chromium × {375x667, 768x1024}) and asserts for each viewport: zero elements where `boundingBox.x + boundingBox.width > window.innerWidth`, `PathToLiveTile` banner state-token (DO-NOT-FLIP / ALMOST / READY) is visible without scroll, every nav button has computed `min-height ≥ 44px` (WCAG tappable touch target).
   5. No information shown at ≥1280px is removed at ≤768px — only layout/density changes. A grep test (`tests/integration/test_no_mobile_hidden_data.py`) blocks `display: none` / `hidden md:block` patterns on any element matching `data-testid="(metric|tile|chip|row)-*"` to prevent future "just hide it on mobile" regressions.
-**Plans**: TBD
+**Plans**: 6/6 plans pending
 **UI hint**: yes
+
+Plans:
+- [ ] 14-01-PLAN.md — MOBILE-01: Tailwind breakpoints + audit script + responsive-audit.json (Wave 1)
+- [ ] 14-02-PLAN.md — MOBILE-02/03: Wave-0 test files (Playwright matrix + anti-hidden grep gate) (Wave 1)
+- [ ] 14-03-PLAN.md — MOBILE-02: Dashboard.jsx + KeyMetricsStrip.jsx reflow verification (Wave 2)
+- [ ] 14-04-PLAN.md — MOBILE-02: PathToLiveTile.jsx chip-row + carry-in-row reflow (Wave 2)
+- [ ] 14-05-PLAN.md — MOBILE-02: TournamentDashboard.jsx dual-render + TournamentFilterChips.jsx 44px tap-target (Wave 2)
+- [ ] 14-06-PLAN.md — MOBILE-03: dashboard-smoke.yml CI extension + screenshot evidence + verify-stack PASS (Wave 3)
 
 ### Phase 15: Planning-Tooling Hardening
 **Goal**: Three recurring frictions from v1.0 and v1.1 retros become structurally impossible — `plan.validate` rejects placeholder one-liners (Rule N / Task N / `<one-line summary>` / empty) at pre-commit + CI time so `summary-extract` can never auto-generate garbage MILESTONES.md entries; `roadmap.analyze` auto-detects when a decimal phase's REQ set covers its umbrella parent and marks the parent `Superseded by N.M [⊘]` in ROADMAP.md (idempotent, diff-to-stdout for operator review); `/gsd-complete-milestone` refuses to archive when the latest `v[X.Y]-MILESTONE-AUDIT.md` `audited_at` predates the most recent phase's `VERIFICATION.md` modification time by >1h (the v1.1 13h-gap scenario replayed as a fixture). Override flag `--accept-stale-audit` documented for emergency closes.
@@ -184,5 +192,5 @@ Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependen
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete | 2026-05-18 |
 | 12. CI Recovery | v1.1 | 1/1 | Complete | 2026-05-18 |
 | 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete    | 2026-05-22 |
-| 14. Mobile Responsive Dashboard | v1.2 | 0/TBD | Not started | - |
+| 14. Mobile Responsive Dashboard | v1.2 | 0/6 | Not started | - |
 | 15. Planning-Tooling Hardening | v1.2 | 0/TBD | Not started | - |
