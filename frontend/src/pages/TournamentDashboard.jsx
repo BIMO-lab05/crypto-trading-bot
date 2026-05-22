@@ -338,14 +338,172 @@ export default function TournamentDashboard() {
           lastUpdatedAt={exportedAt}
           staleAfterMs={Infinity}
         >
-          <TournamentLeaderboard
-            rows={sortedRows}
-            ensembleMembersBySymbol={ensembleMembersBySymbol}
-            perSymbolSignificance={perSymbolSignificance}
-            sort={sortCol}
-            dir={sortDir}
-            onSort={onSort}
-          />
+          {/* DESKTOP: existing table — visible at >=768px (md+) */}
+          <div className="hidden md:block" data-testid="tournament-desktop-table-wrapper">
+            <TournamentLeaderboard
+              rows={sortedRows}
+              ensembleMembersBySymbol={ensembleMembersBySymbol}
+              perSymbolSignificance={perSymbolSignificance}
+              sort={sortCol}
+              dir={sortDir}
+              onSort={onSort}
+            />
+          </div>
+
+          {/* MOBILE: stacked cards — visible at <=768px (md:hidden) */}
+          <div
+            className="md:hidden flex flex-col gap-3"
+            data-testid="tournament-mobile-card-list"
+          >
+            {sortedRows.map((row) => {
+              // MIRROR TournamentLeaderboard.jsx:360-366 verbatim:
+              //   const runId = row?.run_id ?? 'unknown'
+              //   data-testid={`tournament-row-${runId}`}
+              // SAME testid string lives on the <tr> (desktop) and this <div> (mobile);
+              // the two branches sit under display-toggling wrappers, so only ONE is
+              // visible per viewport — Playwright's [data-testid^="tournament-row-"]
+              // query stays stable and always resolves to the active rowset.
+              const runId = row?.run_id ?? 'unknown'
+              const status = row?.status
+              const isFailed = status === 'failed'
+              const isContaminated = row?.train_window_includes_contaminated === true
+              return (
+                <div
+                  key={runId}
+                  data-testid={`tournament-row-${runId}`}
+                  style={{
+                    background: C.surface,
+                    border: `1px solid ${isFailed ? C.loss : C.border}`,
+                    borderLeft: isFailed
+                      ? `2px solid ${C.loss}`
+                      : isContaminated
+                        ? `2px solid ${C.gold}`
+                        : `1px solid ${C.border}`,
+                    borderRadius: 4,
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  {/* Card content order: column-heading → primary-metric (DSR) →
+                      secondary-metrics (OOS Sharpe, PSR) → meta (architecture). */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: 'Manrope, system-ui, sans-serif',
+                        fontSize: 15,
+                        fontWeight: 600,
+                        color: C.text,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {row?.symbol ?? '—'}{' '}
+                      <span
+                        style={{
+                          color: C.text3,
+                          fontFamily: 'JetBrains Mono, monospace',
+                          fontSize: 11,
+                          fontWeight: 400,
+                        }}
+                      >
+                        {Number.isFinite(row?.horizon) ? `${row.horizon}` : '—'}
+                      </span>
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color:
+                          Number.isFinite(row?.dsr) && row.dsr < 0
+                            ? C.loss
+                            : Number.isFinite(row?.dsr) && row.dsr >= 1.0
+                              ? C.gain
+                              : C.text,
+                        fontFeatureSettings: '"tnum" 1, "zero" 1',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      DSR {Number.isFinite(row?.dsr) ? row.dsr.toFixed(3) : '—'}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto',
+                      columnGap: 12,
+                      rowGap: 4,
+                      fontSize: 11,
+                      fontFamily: 'Manrope, system-ui, sans-serif',
+                    }}
+                  >
+                    <span style={{ color: C.text2 }}>OOS Sharpe</span>
+                    <span
+                      style={{
+                        color:
+                          Number.isFinite(row?.oos_sharpe) && row.oos_sharpe < 0
+                            ? C.loss
+                            : Number.isFinite(row?.oos_sharpe) && row.oos_sharpe >= 1.0
+                              ? C.gain
+                              : C.text,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        textAlign: 'right',
+                        fontFeatureSettings: '"tnum" 1, "zero" 1',
+                      }}
+                    >
+                      {Number.isFinite(row?.oos_sharpe) ? row.oos_sharpe.toFixed(2) : '—'}
+                    </span>
+                    <span style={{ color: C.text2 }}>PSR</span>
+                    <span
+                      style={{
+                        color: C.text,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        textAlign: 'right',
+                        fontFeatureSettings: '"tnum" 1, "zero" 1',
+                      }}
+                    >
+                      {Number.isFinite(row?.psr) ? row.psr.toFixed(3) : '—'}
+                    </span>
+                    <span style={{ color: C.text2 }}>Architecture</span>
+                    <span
+                      style={{
+                        color: C.text,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        textAlign: 'right',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {row?.architecture || '—'}
+                    </span>
+                    <span style={{ color: C.text2 }}>Status</span>
+                    <span
+                      style={{
+                        color: isFailed ? C.loss : C.text,
+                        fontFamily: 'Manrope, system-ui, sans-serif',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {status || '—'}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </TileState>
 
         <ContaminatedWindowWarning visible={anyContaminated} />
