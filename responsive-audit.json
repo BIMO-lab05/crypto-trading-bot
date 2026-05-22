@@ -1,0 +1,266 @@
+[
+  {
+    "file": "frontend/src/components/PerformanceDashboard/ExportPanel.jsx",
+    "line": 370,
+    "rule": "no-hardcoded-width-style",
+    "snippet": ".metric-card { display: inline-block; width: 200px; margin: 10px; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; }",
+    "allowlisted": true,
+    "reason": "PDF export inline CSS, not viewport-bound; defer refactor"
+  },
+  {
+    "file": "frontend/src/components/PerformanceDashboard/StrategyAttribution.jsx",
+    "line": 106,
+    "rule": "no-hardcoded-min-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[200px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/PerformanceDashboard/StrategyAttribution.jsx",
+    "line": 106,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[200px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/PerformanceDashboard/StrategyAttribution.jsx",
+    "line": 150,
+    "rule": "no-hardcoded-min-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[160px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/PerformanceDashboard/StrategyAttribution.jsx",
+    "line": 150,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[160px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/StatusBar.jsx",
+    "line": 127,
+    "rule": "no-hardcoded-max-width-tailwind",
+    "snippet": "<div className=\"max-w-[1600px] mx-auto h-full flex items-stretch overflow-x-auto\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; not in 5 reflow surfaces; defer refactor (RESEARCH Pitfall 1)"
+  },
+  {
+    "file": "frontend/src/components/StatusBar.jsx",
+    "line": 127,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"max-w-[1600px] mx-auto h-full flex items-stretch overflow-x-auto\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; not in 5 reflow surfaces; defer refactor (RESEARCH Pitfall 1)"
+  },
+  {
+    "file": "frontend/src/components/performance/CorrelationHeatmap.jsx",
+    "line": 417,
+    "rule": "no-hardcoded-min-width-tailwind",
+    "snippet": "<div className=\"flex-1 min-w-[200px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/CorrelationHeatmap.jsx",
+    "line": 417,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"flex-1 min-w-[200px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/DailyPnLChart.jsx",
+    "line": 107,
+    "rule": "no-hardcoded-min-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[200px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/DailyPnLChart.jsx",
+    "line": 107,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[200px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/DrawdownChart.jsx",
+    "line": 83,
+    "rule": "no-hardcoded-min-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[200px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/DrawdownChart.jsx",
+    "line": 83,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[200px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/EquityCurveChart.jsx",
+    "line": 110,
+    "rule": "no-hardcoded-min-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[180px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/EquityCurveChart.jsx",
+    "line": 110,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[180px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 205,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"w-[140px] px-3 py-2 text-sm text-slate-400\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 210,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"w-[100px] px-3 py-2 text-sm font-medium text-slate-200\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 215,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className={`w-[70px] px-3 py-2 text-sm font-medium ${sideColorClass}`}>",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 220,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"w-[100px] px-3 py-2 text-sm text-slate-300 text-right\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 225,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"w-[100px] px-3 py-2 text-sm text-slate-300 text-right\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 230,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"w-[80px] px-3 py-2 text-sm text-slate-400 text-right\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 235,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className={`w-[100px] px-3 py-2 text-sm font-semibold text-right ${pnlColorClass}`}>",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 245,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"w-[50px] px-3 py-2 flex justify-center\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 357,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "{ key: 'closed_at', label: 'Time', width: 'w-[140px]', sortable: true },",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 358,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "{ key: 'symbol', label: 'Symbol', width: 'w-[100px]', sortable: true },",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 359,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "{ key: 'side', label: 'Side', width: 'w-[70px]', sortable: true },",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 360,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "{ key: 'entry_price', label: 'Entry', width: 'w-[100px]', sortable: true, align: 'right' },",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 361,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "{ key: 'exit_price', label: 'Exit', width: 'w-[100px]', sortable: true, align: 'right' },",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 362,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "{ key: 'quantity', label: 'Qty', width: 'w-[80px]', sortable: true, align: 'right' },",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 363,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "{ key: 'realized_pnl', label: 'P&L', width: 'w-[100px]', sortable: true, align: 'right' },",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 365,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "{ key: 'quality', label: '', width: 'w-[50px]', sortable: false },",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/ReturnsDistribution.jsx",
+    "line": 109,
+    "rule": "no-hardcoded-min-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[180px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/ReturnsDistribution.jsx",
+    "line": 109,
+    "rule": "no-hardcoded-width-tailwind",
+    "snippet": "<div className=\"bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[180px]\">",
+    "allowlisted": true,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  }
+]

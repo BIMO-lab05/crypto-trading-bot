@@ -62,6 +62,27 @@ export default {
   // ============================================================================
 
   theme: {
+    // -------------------------------------------------------------------------
+    // RESPONSIVE BREAKPOINTS (Phase 14 — MOBILE-01)
+    // -------------------------------------------------------------------------
+    //
+    // Explicit `screens` declaration locks the 4-breakpoint contract used by
+    // the dashboard reflow work. Replaces Tailwind defaults (Option A) —
+    // verified safe against zero `2xl:` usage in `frontend/src/` and
+    // `frontend/index.html` (2026-05-22). 2xl is intentionally omitted;
+    // no Phase-14 surface targets >=1536px.
+    //
+    // sm:640px  -> small phones (rarely matters; Tailwind default)
+    // md:768px  -> mobile/tablet boundary (load-bearing for all reflows)
+    // lg:1024px -> tablet/desktop boundary
+    // xl:1280px -> wide desktop
+    //
+    screens: {
+      sm: '640px',
+      md: '768px',
+      lg: '1024px',
+      xl: '1280px',
+    },
     extend: {
       // -----------------------------------------------------------------------
       // COLOR PALETTE
