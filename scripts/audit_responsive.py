@@ -85,7 +85,17 @@ def _load_allowlist() -> dict[str, str]:
         return {}
     try:
         raw = json.loads(ALLOWLIST.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        # Phase 14 WR-02 fix — defense-in-depth: a typo in the allowlist
+        # (trailing comma, missing brace) previously dropped every entry
+        # silently, which made the audit gate fail with no diagnostic. Emit
+        # a stderr WARN so the maintainer sees the parse error AND knows
+        # the audit will now re-emit every formerly-allowlisted hit.
+        print(
+            f"audit_responsive: WARN failed to parse allowlist {ALLOWLIST}: {exc}; "
+            "treating as empty (every formerly-allowlisted hit will now report)",
+            file=sys.stderr,
+        )
         return {}
     out: dict[str, str] = {}
     for entry in raw:
