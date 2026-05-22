@@ -42,12 +42,12 @@ created: 2026-05-22
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 14-01-01 | 01 | 1 | MOBILE-01 | — / — | tailwind.config.js declares 4 breakpoints | unit | `grep -q "screens" frontend/tailwind.config.js` | ❌ W0 | ⬜ pending |
 | 14-01-02 | 01 | 1 | MOBILE-01 | — / — | audit script produces responsive-audit.json | integration | `python3 scripts/audit_responsive.py --out responsive-audit.json && test -f responsive-audit.json` | ❌ W0 | ⬜ pending |
-| 14-02-01 | 02 | 2 | MOBILE-02 | — / — | Dashboard.jsx flex-col md:grid at ≤768px | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_dashboard_single_col_375` | ❌ W0 | ⬜ pending |
-| 14-02-02 | 02 | 2 | MOBILE-02 | — / — | PathToLiveTile 6+5 rows wrap to full-width-per-row | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_path_to_live_row_wrap_375` | ❌ W0 | ⬜ pending |
-| 14-02-03 | 02 | 2 | MOBILE-02 | — / — | KeyMetricsStrip grid-cols-2 at ≤768px | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_key_metrics_2col_375` | ❌ W0 | ⬜ pending |
-| 14-02-04 | 02 | 2 | MOBILE-02 | — / — | TournamentDashboard table → cards via dual render | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_tournament_card_list_375` | ❌ W0 | ⬜ pending |
+| 14-02-01 | 02 | 2 | MOBILE-02 | — / — | Dashboard.jsx flex-col md:grid at ≤768px | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_dashboard_single_column_mobile` | ❌ W0 | ⬜ pending |
+| 14-02-02 | 02 | 2 | MOBILE-02 | — / — | PathToLiveTile 6+5 rows wrap to full-width-per-row | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_path_to_live_rows_full_width` | ❌ W0 | ⬜ pending |
+| 14-02-03 | 02 | 2 | MOBILE-02 | — / — | KeyMetricsStrip grid-cols-2 at ≤768px | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_key_metrics_2col` | ❌ W0 | ⬜ pending |
+| 14-02-04 | 02 | 2 | MOBILE-02 | — / — | TournamentDashboard table → cards via dual render | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_tournament_dual_render` | ❌ W0 | ⬜ pending |
 | 14-03-01 | 03 | 3 | MOBILE-03 | — / — | Zero element with bbox.x+width > window.innerWidth | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_no_horizontal_scroll` | ❌ W0 | ⬜ pending |
-| 14-03-02 | 03 | 3 | MOBILE-03 | — / — | All tappable elements min-height >= 44px | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_touch_target_44px` | ❌ W0 | ⬜ pending |
+| 14-03-02 | 03 | 3 | MOBILE-03 | — / — | All tappable elements min-height >= 44px | playwright | `pytest tests/e2e/test_responsive_dashboard.py::test_touch_targets_44px` | ❌ W0 | ⬜ pending |
 | 14-03-03 | 03 | 3 | MOBILE-03 | — / — | Anti-hidden grep gate green | unit | `pytest tests/integration/test_no_mobile_hidden_data.py` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*

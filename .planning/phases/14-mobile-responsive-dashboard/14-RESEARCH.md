@@ -652,22 +652,22 @@ The viewport parametrization itself lives INSIDE `test_responsive_dashboard.py` 
 
 **If operator confirms or denies any of A1-A5 during discuss-phase, planner gains a locked decision.** If operator silent, A1-A5 become Claude's discretion at plan time and revisit during code review.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `responsive-audit.json` be committed to git or gitignored?**
    - What we know: ROADMAP SC#1 says "`responsive-audit.json` exists at repo root listing every fixed-width violation"
    - What's unclear: Whether "exists" means "committed in repo" or "regenerated on CI run"
-   - Recommendation: Commit it for Phase 14 (per ROADMAP literal). Phase 15 can move generation to CI and gitignore it.
+   - RESOLVED: Commit it for Phase 14 (per ROADMAP literal). Phase 15 can move generation to CI and gitignore it.
 
 2. **Audit script — walk path scope?**
    - What we know: CONTEXT.md says walk `frontend/src/components/**/*.jsx` AND `frontend/src/pages/**/*.jsx`
    - What's unclear: Whether to scope-narrow to just the 4 reflow surfaces
-   - Recommendation: Keep the broad walk (per CONTEXT.md), use allowlist for out-of-scope hits. This preserves discovery value for future phases.
+   - RESOLVED: Keep the broad walk (per CONTEXT.md), use allowlist for out-of-scope hits. This preserves discovery value for future phases.
 
 3. **Touch-target compliance approach for compact chips?**
    - What we know: WCAG 2.5.5 AAA = 44px; existing TournamentFilterChips render at ~22-24px
    - What's unclear: Which mechanism — extended tap target via padding, pseudo-element extension, or full visual resize?
-   - Recommendation: Responsive padding (`py-3 md:py-1`) — straightforward, no CSS hacks, no visual regression on desktop. Plan to verify with screenshot at first PR review.
+   - RESOLVED: Responsive padding (`py-3 md:py-1`) — straightforward, no CSS hacks, no visual regression on desktop. Plan to verify with screenshot at first PR review.
 
 ## Environment Availability
 
