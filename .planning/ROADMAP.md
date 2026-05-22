@@ -183,6 +183,6 @@ Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependen
 | 11. Carry-In Closure | v1.1 | — | Superseded by 11.1 | — |
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete | 2026-05-18 |
 | 12. CI Recovery | v1.1 | 1/1 | Complete | 2026-05-18 |
-| 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete   | 2026-05-22 |
+| 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete    | 2026-05-22 |
 | 14. Mobile Responsive Dashboard | v1.2 | 0/TBD | Not started | - |
 | 15. Planning-Tooling Hardening | v1.2 | 0/TBD | Not started | - |
