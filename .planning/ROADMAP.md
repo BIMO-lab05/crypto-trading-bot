@@ -145,7 +145,18 @@ Plans:
   4. CI grep gates pin all three contracts: `tests/ci/test_no_placeholder_one_liners.py` ensures the validator's 5 patterns aren't silently weakened; `tests/ci/test_roadmap_analyze_supersession_wired.py` asserts `/gsd-complete-milestone` invokes `roadmap.analyze --apply` before archive; `tests/ci/test_audit_freshness_gate.py` asserts the `audited_at` vs `VERIFICATION.md mtime` comparison is unconditional in the workflow source (no `if SKIP_AUDIT_FRESHNESS` escape hatches).
   5. The v1.2 milestone close itself demonstrates all three: at `/gsd-complete-milestone v1.2` time, every plan SUMMARY one-liner passes `plan.validate`; ROADMAP.md has zero `[ ]` umbrella phases superseded by complete decimal children (or the diff proposed by `roadmap.analyze --apply` is captured in the milestone commit); the v1.2 audit's `audited_at` is ≤1h before the most recent phase VERIFICATION.md mtime.
 
-**Plans**: TBD
+**Plans**: 4/4 plans pending
+
+Plans:
+**Wave 1**
+
+- [ ] 15-01-PLAN.md — TOOL-01: placeholder one-liner CI grep gate (PLAN.md + SUMMARY.md) + sdk-proposal spec + empty allowlist JSON (Wave 1)
+- [ ] 15-02-PLAN.md — TOOL-02: roadmap.analyze --apply supersession wiring CI gate + Phase 11→11.1 fixture + sdk-proposal spec (Wave 1)
+- [ ] 15-03-PLAN.md — TOOL-03: audit-freshness wiring CI gate + v1.1 13h-gap canonical fixture + sdk-proposal spec for --accept-stale-audit (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 15-04-PLAN.md — CI workflow planning-tooling-gate.yml (3 jobs) + pre-commit installer + planning-tooling-adapted verify-stack 4-check evidence (Wave 2)
 
 ## Progress
 
@@ -171,4 +182,4 @@ Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependen
 | 12. CI Recovery | v1.1 | 1/1 | Complete | 2026-05-18 |
 | 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete    | 2026-05-22 |
 | 14. Mobile Responsive Dashboard | v1.2 | 6/6 | Complete    | 2026-05-22 |
-| 15. Planning-Tooling Hardening | v1.2 | 0/TBD | Not started | - |
+| 15. Planning-Tooling Hardening | v1.2 | 0/4 | Not started | - |
