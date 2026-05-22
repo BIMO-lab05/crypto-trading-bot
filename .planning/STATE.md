@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Polish & Real-Time
-status: ready_to_plan
-stopped_at: Phase 13 complete (9/9) — ready to discuss Phase 14
-last_updated: 2026-05-22T01:37:09.118Z
-last_activity: 2026-05-22 -- Phase 13 execution started
+status: planning
+stopped_at: Phase 13 planned (9 plans, 4 waves)
+last_updated: "2026-05-22T01:51:49.751Z"
+last_activity: 2026-05-22
 progress:
   total_phases: 9
   completed_phases: 0
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-18 after v1.1 milestone close)
 Phase: 14
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-05-22
+Last activity: 2026-05-22 - Completed quick task 260522-hv0: JWT default-secret hardening (api-gateway)
 
 ## Deferred Items
 
@@ -62,6 +62,13 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 
 - 7 operator-action items open (5 LIVECLOSE harnesses + 2 CIRESTORE evidence + 1 INFRA-02 checkpoint). All have shipped harness code; only wall-clock execution remains.
 - Phase 08 VERIFICATION.md `human_needed` status persists post-archive: 2 manual-only smokes require operator post-merge action.
+- New (2026-05-22): OP-05 added — running api-gateway container computed `SECRET_KEY` before quick-260522-hv0 fix; must be force-recreated before any `TRADING_MODE=LIVE` or `PAPER_TRADING_MODE=false` flip or hard-fail predicate won't run.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260522-hv0 | Fix JWT default-secret hole — extend `_validate_jwt_secret()` hard-fail to `TRADING_MODE=LIVE` / `PAPER_TRADING_MODE=false`; remove dead `Settings.jwt_secret_key` Pydantic field with insecure default | 2026-05-22 | `e0c4aa6` | [260522-hv0-fix-jwt-default-secret-hole-extend-hard-](./quick/260522-hv0-fix-jwt-default-secret-hole-extend-hard-/) |
 
 ## Open Operator Actions (carry into v1.2)
 
@@ -73,6 +80,7 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 | OP-04 | Resolve GH Actions billing | LIVECLOSE-02, CIRESTORE-01, CIRESTORE-02 |
 | INFRA-02 chk | Run `bootstrap.sh` × 2 from fresh tmp clone | LIVECLOSE-01 |
 | LIVECLOSE-03 accrual | Run `scripts/forward_paper_test/run_evidence_loop.py` for ≥7 trading days | LIVECLOSE-03 |
+| OP-05 | Force-recreate `crypto-bot-api-gateway` to load hardened `_validate_jwt_secret()` from quick-260522-hv0 (`docker compose -f docker-compose.unified.yml up -d --force-recreate api-gateway` with `JWT_SECRET_KEY` set via `openssl rand -hex 64`) | Pre-LIVE flip, OP-01 |
 
 ## Session Continuity
 
