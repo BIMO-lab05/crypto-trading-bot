@@ -97,6 +97,19 @@ def _load_allowlist() -> dict[str, str]:
             file=sys.stderr,
         )
         return {}
+    # Phase 14 WR-03 fix — guard against non-list root. If the allowlist is
+    # accidentally written as a dict (e.g. `{"entries": [...]}`) the
+    # subsequent `for entry in raw:` would yield keys (strings) and the
+    # isinstance(entry, dict) guard below would catch each one, but the
+    # surface error message would be misleading. Better to fail fast with a
+    # diagnostic and treat the allowlist as empty.
+    if not isinstance(raw, list):
+        print(
+            f"audit_responsive: WARN allowlist {ALLOWLIST} root is "
+            f"{type(raw).__name__}, expected list; treating as empty",
+            file=sys.stderr,
+        )
+        return {}
     out: dict[str, str] = {}
     for entry in raw:
         if not isinstance(entry, dict):
