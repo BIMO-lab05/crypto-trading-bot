@@ -228,7 +228,7 @@ Additionally **revert** `MAX_RISK_PER_TRADE` to ≤ 0.02 and `DEFAULT_LEVERAGE` 
 | Direction | Endpoint | Used by |
 |---|---|---|
 | Out | `https://api.bybit.com/*` (mainnet) or `https://api-testnet.bybit.com/*` | bybit-connector, ml-prediction-service |
-| Out | `wss://stream.bybit.com/*` | bybit-connector, market-data |
+| Out | `wss://stream.bybit.com/*` | bybit-connector |
 | Out | `https://api.telegram.org/bot<token>/sendMessage` | notification-service |
 | Out | `https://hooks.slack.com/services/*` | notification-service |
 | Out | `https://api.twilio.com/2010-04-01/Accounts/*` | notification-service |
