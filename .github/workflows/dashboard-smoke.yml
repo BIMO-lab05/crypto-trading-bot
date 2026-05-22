@@ -19,6 +19,9 @@ on:
       - 'services/trading-engine/app/preflight/**'
       - 'services/trading-engine/app/handlers/preflight.py'
       - 'tests/e2e/test_path_to_live_smoke.py'
+      - 'tests/e2e/test_responsive_dashboard.py'   # Phase 14 MOBILE-03
+      - 'frontend/tailwind.config.js'              # Phase 14 MOBILE-01 (breakpoint tokens)
+      - 'scripts/audit_responsive.py'              # Phase 14 MOBILE-01 (responsive audit script)
       - '.planning/state/carry_ins.json'
   workflow_dispatch:
 
@@ -67,10 +70,17 @@ jobs:
           } >> .env
           bash bootstrap.sh
 
-      - name: Run smoke
+      - name: Run smoke (Path-to-LIVE)
         run: |
           pip install pytest-playwright
           pytest tests/e2e/test_path_to_live_smoke.py --screenshot=only-on-failure --video=retain-on-failure -v
+
+      - name: Run smoke (Responsive)
+        # Phase 14 MOBILE-03: iPhone SE (375x667) + iPad portrait (768x1024) viewports
+        # parametrized inside the test file via browser_context_args (indirect=True).
+        # pytest-playwright already installed in previous step; pip cache reused.
+        run: |
+          pytest tests/e2e/test_responsive_dashboard.py --screenshot=only-on-failure --video=retain-on-failure -v
 
       - name: Collect logs
         if: always()
