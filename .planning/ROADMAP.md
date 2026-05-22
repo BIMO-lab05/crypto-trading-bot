@@ -49,7 +49,7 @@ Audit: [`.planning/milestones/v1.1-MILESTONE-AUDIT.md`](milestones/v1.1-MILESTON
 
 **Milestone Goal:** Replace the 5s REST polling layer that powers the dashboard with a server-pushed `/ws/metrics` WebSocket stream, ship a mobile-friendly responsive layout (≤768px single-column reflow), and harden planning tooling against three recurring frictions identified in v1.0/v1.1 retros (one-liner discipline, umbrella-phase supersession, audit-timing drift). Pure code scope; no wall-clock dependencies; no new compose services (backend work stays inside `api-gateway` and reuses existing Redis for pub/sub fanout).
 
-- [ ] **Phase 13: Bybit-Connector Market-Data Centralization** — Audit every service, script, backtester, and test for direct Bybit API access (`pybit` imports, hardcoded `api.bybit.com` / `wss://stream.bybit` URLs) or alternate market-data source outside `services/bybit-connector/`; refactor each hit to route through bybit-connector REST endpoints (`/api/v1/market/ticker|kline|orderbook|recent-trade|funding-rate/history|instruments-info`); CI grep gate prevents new direct-Bybit imports outside the connector; RUNBOOK symptom for stale market-data chain. (Rescoped 2026-05-21 — replaces former "Real-Time WebSocket Push" scope, which is deferred to v2.)
+- [x] **Phase 13: Bybit-Connector Market-Data Centralization** — Audit every service, script, backtester, and test for direct Bybit API access (`pybit` imports, hardcoded `api.bybit.com` / `wss://stream.bybit` URLs) or alternate market-data source outside `services/bybit-connector/`; refactor each hit to route through bybit-connector REST endpoints (`/api/v1/market/ticker|kline|orderbook|recent-trade|funding-rate/history|instruments-info`); CI grep gate prevents new direct-Bybit imports outside the connector; RUNBOOK symptom for stale market-data chain. (Rescoped 2026-05-21 — replaces former "Real-Time WebSocket Push" scope, which is deferred to v2.) (completed 2026-05-22)
 - [ ] **Phase 14: Mobile Responsive Dashboard** — Viewport meta + Tailwind breakpoint audit, single-column reflow ≤768px across `Dashboard.jsx`/`PathToLiveTile.jsx`/`KeyMetricsStrip`/`TournamentDashboard.jsx` with no information loss, pytest-playwright matrix smoke at iPhone SE (375×667) + iPad portrait (768×1024) asserting no horizontal scroll + ≥44px touch targets
 - [ ] **Phase 15: Planning-Tooling Hardening** — `plan.validate` rejects 5 placeholder one-liner patterns (pre-commit + CI), `roadmap.analyze` auto-marks umbrella phases as superseded when decimal child covers their REQ set, `/gsd-complete-milestone` refuses to archive if latest milestone-audit `audited_at` predates most recent phase VERIFICATION.md by >1h (replays v1.1 13h-gap scenario as fixture)
 
@@ -117,15 +117,15 @@ Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 **Plans**: 9/9 plans pending
 
 Plans:
-- [ ] 13-01-PLAN.md — BC-01: Repo-wide audit script + JSON evidence artifact
-- [ ] 13-02-PLAN.md — BC-03: CI grep gate scaffolding + bybit-bypass-gate workflow (RED-on-main by design)
-- [ ] 13-03-PLAN.md — Wave 0 RED tests for BC-02/BC-05/BC-07 (tape preservation, fail-fast, config default)
-- [ ] 13-04-PLAN.md — BC-02: ml-prediction-service orderbook handler + 4 download scripts refactor
-- [ ] 13-05-PLAN.md — BC-02: 5 scripts/collect_*.py refactor; drop last pybit import in scripts/
-- [ ] 13-06-PLAN.md — BC-02 + BC-05: scripts/fetch + backtesting + delete diagnostic + config-port fix
-- [ ] 13-07-PLAN.md — BC-02: rotate_secrets (Option A) + shared/health_check refactor; final non-Binance pybit gone
-- [ ] 13-08-PLAN.md — BC-04: archive Binance adapter; delete test_multi_exchange; BC-03 gate flips GREEN
-- [ ] 13-09-PLAN.md — BC-06 + D-10 + verify-stack 4-check phase-close
+- [x] 13-01-PLAN.md — BC-01: Repo-wide audit script + JSON evidence artifact
+- [x] 13-02-PLAN.md — BC-03: CI grep gate scaffolding + bybit-bypass-gate workflow (RED-on-main by design)
+- [x] 13-03-PLAN.md — Wave 0 RED tests for BC-02/BC-05/BC-07 (tape preservation, fail-fast, config default)
+- [x] 13-04-PLAN.md — BC-02: ml-prediction-service orderbook handler + 4 download scripts refactor
+- [x] 13-05-PLAN.md — BC-02: 5 scripts/collect_*.py refactor; drop last pybit import in scripts/
+- [x] 13-06-PLAN.md — BC-02 + BC-05: scripts/fetch + backtesting + delete diagnostic + config-port fix
+- [x] 13-07-PLAN.md — BC-02: rotate_secrets (Option A) + shared/health_check refactor; final non-Binance pybit gone
+- [x] 13-08-PLAN.md — BC-04: archive Binance adapter; delete test_multi_exchange; BC-03 gate flips GREEN
+- [x] 13-09-PLAN.md — BC-06 + D-10 + verify-stack 4-check phase-close
 **Initial audit (2026-05-21)** — anchor for discuss-phase:
 - Service runtime hits: `services/ml-prediction-service/app/handlers/orderbook.py:262`, `services/ml-prediction-service/download_missing_symbols_data.py:43`
 - Script hits: `scripts/collect_180_days_data.py:56`, `scripts/collect_6months_for_ml.py:28`, `scripts/fetch_real_historical_data.py:31`, `scripts/collect_ml_training_data_simple.py:18`
@@ -183,6 +183,6 @@ Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependen
 | 11. Carry-In Closure | v1.1 | — | Superseded by 11.1 | — |
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete | 2026-05-18 |
 | 12. CI Recovery | v1.1 | 1/1 | Complete | 2026-05-18 |
-| 13. Bybit-Connector Market-Data Centralization | v1.2 | 0/9 | Planned | - |
+| 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete   | 2026-05-22 |
 | 14. Mobile Responsive Dashboard | v1.2 | 0/TBD | Not started | - |
 | 15. Planning-Tooling Hardening | v1.2 | 0/TBD | Not started | - |
