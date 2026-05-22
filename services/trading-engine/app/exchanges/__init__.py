@@ -20,7 +20,6 @@ interface. Key features include:
 
 3. Exchange Adapters:
    - BybitExchangeAdapter: Wrapper for bybit-connector service
-   - BinanceExchangeAdapter: Direct Binance API integration
    - KrakenExchangeAdapter: Kraken API with nonce-based auth
    - CoinbaseExchangeAdapter: Coinbase Advanced Trade API
 
@@ -210,7 +209,6 @@ app/exchanges/
     __init__.py         # This file - exports all public API
     base.py             # ExchangeInterface and unified models
     bybit_adapter.py    # Bybit exchange adapter
-    binance.py          # Binance exchange adapter
     kraken.py           # Kraken exchange adapter
     coinbase.py         # Coinbase exchange adapter
     factory.py          # ExchangeFactory and creation utilities
@@ -230,7 +228,6 @@ Author: Backend Developer Agent
 from app.exchanges.base import (
     # Abstract interface
     ExchangeInterface,
-
     # Enumerations
     ExchangeName,
     ProductType,
@@ -239,21 +236,16 @@ from app.exchanges.base import (
     TimeInForce,
     OrderStatus,
     PositionSide,
-
     # Configuration
     ExchangeConfig,
     ExchangeCapabilities,
-
     # Order model
     UnifiedOrder,
-
     # Balance models
     AssetBalance,
     AccountBalance,
-
     # Position model
     UnifiedPosition,
-
     # Market data models
     Ticker,
     OrderBookLevel,
@@ -269,45 +261,36 @@ from app.exchanges.base import (
 from app.exchanges.errors import (
     # Error codes
     ExchangeErrorCode,
-
     # Base exception
     ExchangeError,
-
     # Connection errors
     ConnectionError,
     TimeoutError,
     NetworkError,
-
     # Authentication errors
     AuthenticationError,
     InvalidAPIKeyError,
     InvalidSignatureError,
     PermissionDeniedError,
-
     # Rate limiting
     RateLimitError,
-
     # Validation errors
     ValidationError,
     InvalidSymbolError,
     InvalidQuantityError,
     InvalidPriceError,
-
     # Order errors
     OrderError,
     OrderNotFoundError,
     OrderAlreadyCancelledError,
     InsufficientBalanceError,
     OrderRejectedError,
-
     # Market data errors
     MarketDataError,
     SymbolNotFoundError,
     DataUnavailableError,
-
     # System errors
     ExchangeMaintenanceError,
-
     # Mapping utilities
     BYBIT_ERROR_MAP,
     map_bybit_error,
@@ -323,16 +306,6 @@ from app.exchanges.bybit_adapter import (
     BybitAdapterConfig,
     RateLimiter,
     create_bybit_adapter,
-)
-
-# Binance Adapter
-from app.exchanges.binance import (
-    BinanceExchangeAdapter,
-    BinanceAdapterConfig,
-    BinanceRateLimiter,
-    create_binance_adapter,
-    map_binance_error,
-    BINANCE_ERROR_MAP,
 )
 
 # Kraken Adapter
@@ -363,11 +336,9 @@ from app.exchanges.factory import (
     # Factory class
     ExchangeFactory,
     AdapterInfo,
-
     # Global factory functions
     get_exchange_factory,
     reset_exchange_factory,
-
     # Convenience functions
     create_exchange,
     get_exchange,
@@ -383,17 +354,14 @@ from app.exchanges.router import (
     # Enumerations
     RoutingStrategy,
     RoutingPriority,
-
     # Data classes
     ExchangeMetrics,
     ExchangeLiquidity,
     RoutingDecision,
     SplitOrderPlan,
     ArbitrageOpportunity,
-
     # Configuration
     RoutingConfig,
-
     # Router class
     ExchangeRouter,
 )
@@ -406,16 +374,13 @@ from app.exchanges.manager import (
     # State
     ConnectionState,
     ExchangeStatus,
-
     # Configuration
     HealthCheckConfig,
     FailoverConfig,
     ManagerConfig,
-
     # Data
     PortfolioSummary,
     CrossExchangeRisk,
-
     # Manager class
     ExchangeManager,
     create_exchange_manager,
@@ -438,10 +403,8 @@ __created__ = "2025-12-11"
 __all__ = [
     # Version
     "__version__",
-
     # ========== Base Interface ==========
     "ExchangeInterface",
-
     # ========== Enumerations ==========
     "ExchangeName",
     "ProductType",
@@ -450,28 +413,22 @@ __all__ = [
     "TimeInForce",
     "OrderStatus",
     "PositionSide",
-
     # ========== Configuration ==========
     "ExchangeConfig",
     "ExchangeCapabilities",
-
     # ========== Order Model ==========
     "UnifiedOrder",
-
     # ========== Balance Models ==========
     "AssetBalance",
     "AccountBalance",
-
     # ========== Position Model ==========
     "UnifiedPosition",
-
     # ========== Market Data Models ==========
     "Ticker",
     "OrderBookLevel",
     "OrderBook",
     "Trade",
     "Kline",
-
     # ========== Error Handling ==========
     "ExchangeErrorCode",
     "ExchangeError",
@@ -502,19 +459,11 @@ __all__ = [
     "map_binance_error",
     "map_kraken_error",
     "map_coinbase_error",
-
     # ========== Bybit Adapter ==========
     "BybitExchangeAdapter",
     "BybitAdapterConfig",
     "RateLimiter",
     "create_bybit_adapter",
-
-    # ========== Binance Adapter ==========
-    "BinanceExchangeAdapter",
-    "BinanceAdapterConfig",
-    "BinanceRateLimiter",
-    "create_binance_adapter",
-
     # ========== Kraken Adapter ==========
     "KrakenExchangeAdapter",
     "KrakenAdapterConfig",
@@ -522,13 +471,11 @@ __all__ = [
     "create_kraken_adapter",
     "to_kraken_symbol",
     "from_kraken_symbol",
-
     # ========== Coinbase Adapter ==========
     "CoinbaseExchangeAdapter",
     "CoinbaseAdapterConfig",
     "CoinbaseRateLimiter",
     "create_coinbase_adapter",
-
     # ========== Factory ==========
     "ExchangeFactory",
     "AdapterInfo",
@@ -538,7 +485,6 @@ __all__ = [
     "get_exchange",
     "list_supported_exchanges",
     "list_registered_exchanges",
-
     # ========== Router ==========
     "RoutingStrategy",
     "RoutingPriority",
@@ -549,7 +495,6 @@ __all__ = [
     "ArbitrageOpportunity",
     "RoutingConfig",
     "ExchangeRouter",
-
     # ========== Manager ==========
     "ConnectionState",
     "ExchangeStatus",

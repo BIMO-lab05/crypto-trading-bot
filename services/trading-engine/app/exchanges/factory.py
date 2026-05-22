@@ -59,12 +59,9 @@ from app.exchanges.base import (
     ProductType,
 )
 from app.exchanges.bybit_adapter import BybitExchangeAdapter
-from app.exchanges.binance import BinanceExchangeAdapter
 from app.exchanges.kraken import KrakenExchangeAdapter
 from app.exchanges.coinbase import CoinbaseExchangeAdapter
 from app.exchanges.errors import (
-    ExchangeError,
-    ExchangeErrorCode,
     ValidationError,
 )
 
@@ -92,6 +89,7 @@ class AdapterInfo:
         capabilities: Exchange capabilities
         extra_params: Additional parameters for constructor
     """
+
     name: ExchangeName
     adapter_class: Type[ExchangeInterface]
     constructor: Optional[AdapterConstructor] = None
@@ -102,6 +100,7 @@ class AdapterInfo:
 # ============================================================================
 # EXCHANGE FACTORY
 # ============================================================================
+
 
 class ExchangeFactory:
     """
@@ -179,34 +178,7 @@ class ExchangeFactory:
                     max_leverage=100,
                     min_order_size_usd=1.0,
                     testnet_available=True,
-                )
-            )
-
-        # Register Binance adapter
-        if ExchangeName.BINANCE not in self._registry:
-            self.register(
-                exchange=ExchangeName.BINANCE,
-                adapter_class=BinanceExchangeAdapter,
-                capabilities=ExchangeCapabilities(
-                    spot_trading=True,
-                    perpetual_trading=True,
-                    margin_trading=True,
-                    options_trading=False,
-                    market_orders=True,
-                    limit_orders=True,
-                    stop_orders=True,
-                    trailing_stop=True,
-                    post_only=True,
-                    reduce_only=True,
-                    websocket_public=True,
-                    websocket_private=True,
-                    orderbook_depth=1000,
-                    rate_limit_per_second=20,
-                    order_rate_limit=10,
-                    max_leverage=125,
-                    min_order_size_usd=5.0,
-                    testnet_available=True,
-                )
+                ),
             )
 
         # Register Kraken adapter
@@ -233,7 +205,7 @@ class ExchangeFactory:
                     max_leverage=5,
                     min_order_size_usd=0.0,
                     testnet_available=False,  # Kraken has no testnet
-                )
+                ),
             )
 
         # Register Coinbase adapter
@@ -261,7 +233,7 @@ class ExchangeFactory:
                     min_order_size_usd=1.0,
                     testnet_available=True,
                     sandbox_mode=True,
-                )
+                ),
             )
 
     # ========================================================================
@@ -274,7 +246,7 @@ class ExchangeFactory:
         adapter_class: Type[ExchangeInterface],
         constructor: Optional[AdapterConstructor] = None,
         capabilities: Optional[ExchangeCapabilities] = None,
-        extra_params: Optional[Dict[str, Any]] = None
+        extra_params: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Register an exchange adapter
@@ -291,7 +263,7 @@ class ExchangeFactory:
             adapter_class=adapter_class,
             constructor=constructor,
             capabilities=capabilities or ExchangeCapabilities(),
-            extra_params=extra_params or {}
+            extra_params=extra_params or {},
         )
 
         logger.info(f"Registered adapter for {exchange.value}")
@@ -321,8 +293,7 @@ class ExchangeFactory:
         return list(self._registry.keys())
 
     def get_capabilities(
-        self,
-        exchange: ExchangeName
+        self, exchange: ExchangeName
     ) -> Optional[ExchangeCapabilities]:
         """
         Get capabilities for registered exchange
@@ -348,7 +319,7 @@ class ExchangeFactory:
         testnet: bool = True,
         passphrase: Optional[str] = None,
         initialize: bool = True,
-        **kwargs
+        **kwargs,
     ) -> ExchangeInterface:
         """
         Create exchange adapter instance
@@ -374,7 +345,7 @@ class ExchangeFactory:
             raise ValidationError(
                 message=f"Exchange '{exchange.value}' is not registered",
                 exchange=exchange.value,
-                field="exchange"
+                field="exchange",
             )
 
         # Build config
@@ -388,26 +359,16 @@ class ExchangeFactory:
             timeout=kwargs.pop("timeout", 30.0),
             max_retries=kwargs.pop("max_retries", 3),
             proxy=kwargs.pop("proxy", None),
-            default_product=kwargs.pop(
-                "default_product",
-                ProductType.LINEAR
-            )
+            default_product=kwargs.pop("default_product", ProductType.LINEAR),
         )
 
         # Create adapter
-        adapter = await self.create_from_config(
-            config,
-            initialize=initialize,
-            **kwargs
-        )
+        adapter = await self.create_from_config(config, initialize=initialize, **kwargs)
 
         return adapter
 
     async def create_from_config(
-        self,
-        config: ExchangeConfig,
-        initialize: bool = True,
-        **kwargs
+        self, config: ExchangeConfig, initialize: bool = True, **kwargs
     ) -> ExchangeInterface:
         """
         Create adapter from configuration
@@ -425,7 +386,7 @@ class ExchangeFactory:
         if not info:
             raise ValidationError(
                 message=f"Exchange '{config.exchange.value}' is not registered",
-                exchange=config.exchange.value
+                exchange=config.exchange.value,
             )
 
         # Merge extra params
@@ -478,7 +439,7 @@ class ExchangeFactory:
         api_key: str,
         api_secret: str,
         testnet: bool = True,
-        **kwargs
+        **kwargs,
     ) -> ExchangeInterface:
         """
         Get cached adapter or create new one
@@ -526,7 +487,7 @@ class ExchangeFactory:
                 api_key=api_key,
                 api_secret=api_secret,
                 testnet=testnet,
-                **kwargs
+                **kwargs,
             )
 
             # Cache it
@@ -540,7 +501,7 @@ class ExchangeFactory:
         exchange: ExchangeName,
         api_key: str,
         testnet: bool = True,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
     ) -> bool:
         """
         Remove adapter from cache
@@ -658,12 +619,13 @@ async def reset_exchange_factory() -> None:
 # CONVENIENCE FUNCTIONS
 # ============================================================================
 
+
 async def create_exchange(
     exchange: ExchangeName,
     api_key: str,
     api_secret: str,
     testnet: bool = True,
-    **kwargs
+    **kwargs,
 ) -> ExchangeInterface:
     """
     Convenience function to create exchange adapter
@@ -686,7 +648,7 @@ async def create_exchange(
         api_key=api_key,
         api_secret=api_secret,
         testnet=testnet,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -695,7 +657,7 @@ async def get_exchange(
     api_key: str,
     api_secret: str,
     testnet: bool = True,
-    **kwargs
+    **kwargs,
 ) -> ExchangeInterface:
     """
     Get cached exchange adapter (or create new)
@@ -718,7 +680,7 @@ async def get_exchange(
         api_key=api_key,
         api_secret=api_secret,
         testnet=testnet,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -748,11 +710,9 @@ __all__ = [
     # Factory
     "ExchangeFactory",
     "AdapterInfo",
-
     # Global factory functions
     "get_exchange_factory",
     "reset_exchange_factory",
-
     # Convenience functions
     "create_exchange",
     "get_exchange",
