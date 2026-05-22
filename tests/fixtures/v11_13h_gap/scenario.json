@@ -1,0 +1,39 @@
+{
+  "scenario_id": "v11-13h-gap",
+  "description": "Canonical replay of the v1.1 milestone audit-freshness gap: the v1.1 MILESTONE-AUDIT.md `audited:` frontmatter field predates the most recent v1.1 phase VERIFICATION.md filesystem mtime by ~21.91h, far exceeding the 1.0h threshold. The historical 'v1.1 13h-gap' label is from an initial planning estimate; the precise computed gap is 78890 seconds. /gsd-complete-milestone MUST refuse to archive in this scenario unless the operator passes --accept-stale-audit, in which case archive proceeds with a logged warning entry recording the stale-audit fact.",
+  "audit": {
+    "path": ".planning/milestones/v1.1-MILESTONE-AUDIT.md",
+    "frontmatter_field_name": "audited",
+    "frontmatter_field_name_drift_note": "REQUIREMENTS.md TOOL-03 uses the generic English term 'audited_at' but the actual frontmatter field in v1.0/v1.1 MILESTONE-AUDIT.md files and in ~/.claude/get-shit-done/templates/audit-milestone.md:172 is 'audited:'. The upstream SDK port must read the 'audited' key, NOT 'audited_at'. The mismatch between the requirement-doc prose and the canonical implementation field name is a known drift; this fixture and the TOOL-03 spec record it so the port lands on the right key.",
+    "audited": "2026-05-18T02:55:00Z",
+    "audited_iso_utc": "2026-05-18T02:55:00Z"
+  },
+  "verification": {
+    "path": ".planning/milestones/v1.1-phases/12-ci-recovery/12-VERIFICATION.md",
+    "source": "filesystem mtime (stat -c %y)",
+    "mtime_iso_utc": "2026-05-19T00:49:50Z",
+    "mtime_local_recorded": "2026-05-19 01:49:50 +0100 (BST)"
+  },
+  "gap": {
+    "seconds": 78890,
+    "hours": 21.91,
+    "threshold_hours": 1.0,
+    "exceeds_threshold": true
+  },
+  "expected_outcome": {
+    "default_invocation": "refuse_archive",
+    "default_exit_code": "non-zero",
+    "with_override_flag": "--accept-stale-audit",
+    "with_override_outcome": "archive_with_logged_warning",
+    "with_override_exit_code": 0,
+    "archive_log_required": true
+  },
+  "error_message_contract": {
+    "must_name": ["audited timestamp value", "VERIFICATION.md path"],
+    "must_mention_override": "--accept-stale-audit"
+  },
+  "source_anchors": {
+    "audit_frontmatter_line": 3,
+    "verification_mtime_command": "stat -c %y .planning/milestones/v1.1-phases/12-ci-recovery/12-VERIFICATION.md"
+  }
+}
