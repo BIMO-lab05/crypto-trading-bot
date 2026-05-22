@@ -181,10 +181,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Phase 14 WR-06 fix — validate `--out` resolves inside REPO_ROOT to
+    # prevent a caller passing `--out /etc/passwd` or `--out ../../sensitive`
+    # from overwriting arbitrary files. `parents=True` on the subsequent
+    # `mkdir` would also create intermediate directories the caller may
+    # not expect; constraining the resolved path inside REPO_ROOT keeps
+    # that side-effect contained.
+    out_path = (args.out if args.out is not None else DEFAULT_OUT).resolve()
+    if not out_path.is_relative_to(REPO_ROOT):
+        parser.error(
+            f"--out must resolve inside REPO_ROOT ({REPO_ROOT}); got {out_path}"
+        )
+
     allowlist = _load_allowlist()
     hits = collect_hits(allowlist)
 
-    out_path = args.out if args.out is not None else DEFAULT_OUT
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(hits, indent=2) + "\n", encoding="utf-8")
 
