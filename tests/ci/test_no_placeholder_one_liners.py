@@ -240,9 +240,16 @@ def _extract_candidate_one_liners(text: str) -> list[tuple[int, str]]:
     if heading_match is None:
         return sorted(candidates)
 
-    body_start = heading_match.end()
-    # Slice from after the heading line so subsequent _RE.search hits don't
-    # land on the heading itself.
+    # Skip to the start of the line AFTER the heading. ``heading_match.end()``
+    # lands at the first non-space char of the heading text itself; we want
+    # everything past the newline that terminates the heading line, so the
+    # body scan starts on the next physical line and never re-reads the
+    # heading text.
+    post_heading_nl = text.find("\n", heading_match.end())
+    if post_heading_nl == -1:
+        # Heading is the final line of the file -- nothing to scan.
+        return sorted(candidates)
+    body_start = post_heading_nl + 1
     body = text[body_start:]
 
     bold_match = _BOLD_SPAN_RE.search(body)
