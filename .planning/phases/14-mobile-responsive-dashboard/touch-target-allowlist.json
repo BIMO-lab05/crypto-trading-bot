@@ -1,0 +1,10 @@
+[
+  {
+    "selector": "button[data-testid='emergency-stop']",
+    "reason": "out-of-phase-14-scope; existing kill-switch button, not in 5 reflow surfaces; defer touch-target compliance to future a11y phase"
+  },
+  {
+    "selector": "a[href='/tournament']",
+    "reason": "out-of-phase-14-scope; existing nav link; defer touch-target compliance to future a11y phase"
+  }
+]
