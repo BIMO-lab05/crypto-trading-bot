@@ -1,275 +1,307 @@
-<!-- refreshed: 2026-05-12 -->
+<!-- refreshed: 2026-05-22 -->
 # Architecture
 
-**Analysis Date:** 2026-05-12
+**Analysis Date:** 2026-05-22
 
 ## System Overview
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                       React 18 + Vite frontend (:3000)                   │
-│                            `frontend/src/`                               │
-└────────────────────────────────┬────────────────────────────────────────┘
-                                 │ REST (JSON) + WebSocket
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    api-gateway (:8000) — routing + admin auth            │
-│                       `services/api-gateway/app/`                        │
-│  Proxies /api/<domain>/<resource> → downstream services. JWT + admin     │
-│  guard via `auth_middleware.py` (`get_current_admin_user`).              │
-└──┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬──────────────┘
-   │       │       │       │       │       │       │       │
-   ▼       ▼       ▼       ▼       ▼       ▼       ▼       ▼
- ┌────┐ ┌────┐  ┌────┐  ┌────┐  ┌────┐  ┌────┐  ┌────┐  ┌────┐
- │bybit│ │mkt │  │port│  │TA  │  │eng │  │noti│  │ml  │  │risk│
- │ 8001│ │8002│  │8003│  │8004│  │8005│  │8006│  │8007│  │8009│
- └──┬─┘ └──┬─┘  └──┬─┘  └──┬─┘  └──┬─┘  └──┬─┘  └──┬─┘  └──┬─┘
-    │      │       │       │       │       │       │       │
-    └──────┴───────┴───────┴───────┴───────┴───────┴───────┘
-                        Polling HTTP (sync, no pub/sub)
-                                 │
-   ┌─────────────────────────────┼─────────────────────────────────┐
-   ▼                             ▼                                  ▼
-┌────────────────────┐  ┌────────────────────┐         ┌────────────────────┐
-│ TimescaleDB        │  │ PostgreSQL          │         │ Redis (cache)      │
-│ `klines`, `tickers`│  │ portfolio.*,        │         │ Sparse use; mkt    │
-│ owned by mkt-data  │  │ trades, alerts      │         │ data caches in DB  │
-└────────────────────┘  └────────────────────┘         └────────────────────┘
-
-ml-retraining-service — cron-driven, no HTTP. Writes GRU artifacts to
-`services/ml-prediction-service/models/`.
-sentiment-analysis-service (:8008) — runs in compose but idle since
-`ENABLE_SENTIMENT_ANALYSIS=false` (commits c346483 / acae081 / fe941cf / c171bb0).
+┌─────────────────────────────────────────────────────────────────┐
+│                   React 18 Frontend (:3000)                     │
+│            `frontend/src/App.jsx` — 7 routes                   │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ HTTP REST
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              api-gateway (:8000)                                │
+│   `services/api-gateway/app/main.py`                           │
+│   ServiceProxy (httpx) routes to all upstream services         │
+└──┬──────────┬───────────┬───────────┬──────────────────────────┘
+   │          │           │           │
+   ▼          ▼           ▼           ▼
+bybit-     market-    technical-  trading-
+connector  data-svc   analysis   engine
+(:8001)    (:8002)    (:8004)    (:8005)
+   │          │           │           │
+   │    TimescaleDB   indicators  auto-trader
+   │    (candles)     (RSI,MACD…) loop
+   │                              │
+   └──────────────────────────────┘
+   bybit-connector is sole Bybit gateway
+   (Phase 13 BC-05/D-09, 2026-05-22)
 ```
+
+## Services
+
+| Service | Port | Entry Point | Purpose |
+|---------|------|-------------|---------|
+| api-gateway | 8000 | `services/api-gateway/app/main.py` | Frontend routing, auth, admin guard |
+| bybit-connector | 8001 | `services/bybit-connector/app/main.py` | Sole Bybit REST gateway + circuit breaker |
+| market-data-service | 8002 | `services/market-data-service/app/main.py` | Candle ingest → TimescaleDB |
+| portfolio-manager | 8003 | `services/portfolio-manager/app/main.py` | Positions, balances, P&L |
+| technical-analysis | 8004 | `services/technical-analysis/app/main.py` | TA indicators + GRU inference |
+| trading-engine | 8005 | `services/trading-engine/app/main.py` | Strategy + risk + order execution + auto-trader |
+| notification-service | 8006 | `services/notification-service/app/main.py` | Telegram + email alerts |
+| ml-prediction-service | 8007 | `services/ml-prediction-service/app/main.py` | Standalone GRU inference endpoints |
+| sentiment-analysis-service | 8008 | `services/sentiment-analysis-service/app/main.py` | News/social sentiment (idle) |
+| risk-metrics-service | 8009 | `services/risk-metrics-service/app/main.py` | Risk dashboards |
+| ml-retraining-service | — | `services/ml-retraining-service/app/main.py` | Cron-driven GRU retrain (no HTTP) |
+| tournament-harness | internal | `services/tournament-harness/app/main.py` | Tournament leaderboard read (SQLite) + CLI |
+
+**Note:** tournament-harness is a 12th service not in the CLAUDE.md service table. It exposes `GET /api/v1/tournaments` and `GET /api/v1/tournaments/{id}/runs` and has a CLI at `services/tournament-harness/app/cli.py`.
 
 ## Component Responsibilities
 
-| Component | Responsibility | File |
-|-----------|----------------|------|
-| api-gateway | Single ingress, JWT auth, admin guard, route to downstreams, OpenAPI surface | `services/api-gateway/app/main.py` |
-| bybit-connector | Bybit REST + WS client, rate-limit / circuit-breaker, vault auth | `services/bybit-connector/app/bybit_rest_client.py` |
-| market-data-service | Pull candles + tickers from Bybit on schedule, persist to TimescaleDB | `services/market-data-service/app/scheduler.py`, `repository.py` |
-| portfolio-manager | Positions, balances, P&L; writes `portfolio.*` tables | `services/portfolio-manager/app/services/performance_history.py` |
-| technical-analysis | 9 indicators, GRU inference, signal aggregator + voter | `services/technical-analysis/app/services/indicator_service.py` |
-| trading-engine | Strategy execution, risk caps, auto-trader loop, order placement | `services/trading-engine/app/auto_trader.py`, `aggregation/voter.py` |
-| notification-service | Telegram + email alerts, DLQ, alert rules | `services/notification-service/app/alert_manager.py` |
-| ml-prediction-service | Standalone GRU inference surface (parallel to in-TA inference) | `services/ml-prediction-service/app/inference/` |
-| ml-retraining-service | Cron-driven GRU retrain, writes new model artifacts | `services/ml-retraining-service/` |
-| risk-metrics-service | Drawdown / VaR / Sharpe dashboards | `services/risk-metrics-service/` |
-| sentiment-analysis-service | (Idle, flag-gated off) | `services/sentiment-analysis-service/` |
+| Component | Responsibility | Key File |
+|-----------|----------------|----------|
+| api-gateway | Auth, routing, admin guard, preflight carry-ins | `services/api-gateway/app/main.py` |
+| ServiceProxy | httpx-based reverse proxy to upstream services | `services/api-gateway/app/services/service_proxy.py` |
+| bybit-connector | Bybit REST API wrapper, rate limiting, circuit breaker, tape replay | `services/bybit-connector/app/main.py` |
+| BybitRestClient | Signs+sends Bybit REST requests | `services/bybit-connector/app/bybit_rest_client.py` |
+| market-data-service fetcher | Fetches klines/ticker from bybit-connector, writes TimescaleDB | `services/market-data-service/app/fetcher.py` |
+| signal_aggregator | Fetches 10 indicators concurrently (asyncio.gather), calls CoreAggregator | `services/trading-engine/app/signal_aggregator.py:707` |
+| CoreAggregator | Gatekeeper → validator → voter orchestration | `services/trading-engine/app/aggregation/aggregator_core.py` |
+| StrategyBase | ABC for all trading strategies | `services/trading-engine/app/strategies/base.py` |
+| auto_trader | Main trading loop, paper/live branch, kill-switch checks | `services/trading-engine/app/auto_trader.py` |
+| notification_client | aiohttp HTTP POSTs to notification-service | `services/trading-engine/app/services/notification_client.py` |
+| tournament-harness CLI | `start tournament`, `export-snapshot` commands | `services/tournament-harness/app/cli.py` |
 
 ## Pattern Overview
 
-**Overall:** Polling microservices over HTTP — a service-oriented architecture, **not** event-driven despite RabbitMQ being deployed.
+**Overall:** Event-driven microservices with synchronous HTTP transport
 
 **Key Characteristics:**
-- Synchronous HTTP between services. Each service has its own `app/` package, FastAPI app, lifespan, Dockerfile.
-- Per-service config via Pydantic Settings in `app/config.py` (each service maintains its own).
-- TimescaleDB doubles as cache (Redis present but underused — `redis-empty` is documented gotcha).
-- RabbitMQ broker is **provisioned** (compose + `rabbitmq_url` in bybit-connector config) but **no producers/consumers exist in the Python code today** — `grep -rn aio_pika|pika\.` returns zero hits outside config. All inter-service flow is HTTP.
-- Frontend talks to gateway only; never directly to downstream services.
+- All inter-service communication is synchronous HTTP (httpx / aiohttp). RabbitMQ is configured in env/compose but NOT used in any production code path — only a connectivity health-check ping exists at `services/trading-engine/app/core/health.py:421`.
+- Each service is an independent FastAPI app with its own `config.py`, `requirements.txt`, and `Dockerfile`.
+- Async throughout: Python `asyncio` + `httpx.AsyncClient` / `aiohttp.ClientSession`.
+- No AMQP publish/subscribe in production. The routing key `trade.events` appears only in a test fixture at `services/trading-engine/tests/integration/test_telegram_notifications.py`.
 
-## Layers (within trading-engine, the most layered service)
+## Layers (within trading-engine)
 
-**Aggregation layer:**
-- Purpose: Reduce N indicator + ML signals to single buy/sell/hold + confidence.
-- Location: `services/trading-engine/app/aggregation/`
-- Files: `voter.py`, `aggregator_core.py`, `enhanced_aggregator.py`, `confidence_guard.py`, `gatekeeper.py`, `market_regime.py`, `signal_cache.py`, `validator.py`.
-- Depends on: technical-analysis HTTP responses.
-- Used by: orchestration + auto-trader.
+**Entry / Lifespan:**
+- Purpose: Boot sequence, dependency wiring, LIVE preflight
+- Location: `services/trading-engine/app/main.py`, `services/trading-engine/app/lifespan/`
+- Contains: 4 composed `@asynccontextmanager` phases (`data.py`, `ml.py`, `strategy.py`, `risk.py`)
+- Depends on: config, all downstream modules
 
-**Orchestration layer:**
-- Purpose: Strategy registry, allocator, risk coordinator, conflict resolver.
-- Location: `services/trading-engine/app/orchestration/`
-- Files: `orchestrator.py`, `registry.py`, `allocation.py`, `risk_coordinator.py`, `conflict_resolver.py`, `signal_aggregator.py`, `performance_tracker.py`.
+**Handlers / Routers:**
+- Purpose: FastAPI route handlers, request/response mapping
+- Location: `services/trading-engine/app/handlers/`
+- Depends on: services layer
 
-**Execution layer:**
-- Purpose: Smart order routing, TWAP/VWAP slicing.
-- Location: `services/trading-engine/app/execution/`
-- Files: `smart_order_router.py`, `twap_vwap.py`, `execution_scheduler.py`, `orderbook_analyzer.py`.
+**Services:**
+- Purpose: Business logic, orchestration of domain objects
+- Location: `services/trading-engine/app/services/`
+- Depends on: domain models, aggregation, risk
 
-**Exchange adapters:**
-- Purpose: Multi-exchange abstraction. Bybit primary; binance/coinbase/kraken stubs.
-- Location: `services/trading-engine/app/exchanges/`
-- Files: `bybit_adapter.py`, `factory.py`, `router.py`, `manager.py`, `base.py`.
+**Domain:**
+- Purpose: Strategies, aggregation, risk, execution
+- Location: `services/trading-engine/app/strategies/`, `app/aggregation/`, `app/risk/`, `app/execution/`
 
-**Lifespan hooks:**
-- Purpose: Startup wiring (data feeds, ML models, risk state, strategy registry).
-- Location: `services/trading-engine/app/lifespan/` — `data.py`, `ml.py`, `risk.py`, `strategy.py`.
-
-**Handlers (FastAPI routers):**
-- Location: `services/trading-engine/app/handlers/` — `signals.py`, `trades.py`, `positions.py`, `risk_budget.py`, `trading_control.py`, `phase1.py`, `grid_trading.py`, `statistical_arbitrage.py`, etc.
+**External Clients:**
+- Purpose: HTTP calls to bybit-connector, technical-analysis, notification-service
+- Location: `services/trading-engine/app/services/notification_client.py`, signal_aggregator fetch functions
 
 ## Data Flow
 
-### Primary trading path (paper mode, current default)
+### Primary Trading Signal Path
 
-1. `market-data-service` scheduler pulls candles from Bybit mainnet → upsert `klines` / `tickers` in TimescaleDB (`services/market-data-service/app/scheduler.py`, `repository.py:26`).
-2. `trading-engine` auto-trader loop (`services/trading-engine/app/auto_trader.py:842`) wakes every cycle, checks `EMERGENCY_STOP` file and `settings.auto_trading_enabled`.
-3. For each validated symbol, engine HTTP-calls `technical-analysis` (:8004) — TA pulls candles from market-data, runs 9 indicators in `app/indicators/` plus GRU inference in `app/services/indicator_service.py`, returns aggregated signal.
-4. Engine routes signal through `aggregation/voter.py` → `aggregation/gatekeeper.py` → risk caps in `orchestration/risk_coordinator.py`.
-5. If pass, engine calls `bybit-connector` (:8001) for order placement; paper mode short-circuits to `app/paper_trading.py`.
-6. Filled order → engine HTTP-posts to `portfolio-manager` (:8003); portfolio writes `portfolio.performance_history` (`services/portfolio-manager/app/services/performance_history.py:106`).
-7. Alerts emitted to `notification-service` (:8006) → Telegram / email.
+1. **bybit-connector** receives REST from Bybit mainnet (`GET /api/v1/market/kline`, `GET /api/v1/market/ticker`)
+2. **market-data-service** fetcher (`services/market-data-service/app/fetcher.py:69`) polls bybit-connector every schedule tick → writes candles to TimescaleDB
+3. **trading-engine auto_trader** loop fires (when `safety/EMERGENCY_STOP` absent, `AUTO_TRADING_ENABLED=true`)
+4. `signal_aggregator.fetch_all_indicators()` (`services/trading-engine/app/signal_aggregator.py:707`) calls **technical-analysis** service concurrently via `asyncio.gather()` for 10 indicators
+5. Results pass through `CoreAggregator` (`services/trading-engine/app/aggregation/aggregator_core.py`): gatekeeper → validator → voter
+6. `StrategyBase.generate_signals()` (`services/trading-engine/app/strategies/base.py`) evaluates aggregated result
+7. Risk caps checked (per-trade 10% paper / 2% LIVE, 5% daily-loss circuit-breaker)
+8. Paper engine (`get_paper_engine()`) or live engine (`get_live_engine()`) called at `services/trading-engine/app/auto_trader.py:1836, 2412`
+9. **notification_client** POSTs trade event to **notification-service** via `aiohttp.ClientSession`
+10. **portfolio-manager** updated via HTTP
 
-### Standalone ML inference path
+### Market Data Ingest Path (Phase 13, 2026-05-22)
 
-- `ml-prediction-service` (:8007) is a parallel inference surface (`app/inference/`, `app/predictor_factory.py`). Currently called by ad-hoc clients / dashboards, not by trading-engine — engine reads GRU output via technical-analysis service. Two inference paths exist; the in-TA one is the live one.
+- **market-data-service/app/fetcher.py:69**: `self.base_url = base_url or settings.bybit_connector_url`
+- Default: `http://localhost:8001` (see `services/market-data-service/app/config.py:62`)
+- Calls `GET /api/v1/market/kline` and `GET /api/v1/market/ticker` on bybit-connector
+- Writes to TimescaleDB. market-data-service does NOT call Bybit directly.
 
-### Retraining path
+### Notification Path
 
-- `ml-retraining-service` has no HTTP port. Cron in container retrains GRU on schedule and writes artifacts to `services/ml-prediction-service/models/` (which the LSTM archive sits inside as `_archive_lstm/`).
+- trading-engine auto_trader → `notification_client._post(endpoint, data)` → `aiohttp.ClientSession.post(notification_service_url)` → notification-service → Telegram/email
+- No AMQP involved. Config field: `notification_service_url` in `services/trading-engine/app/config.py:43`
 
-**State Management:**
-- No in-memory shared state between services (each service is its own process).
-- Within trading-engine, state is held in module-level singletons (auto-trader loop instance, exchange manager, strategy registry) wired up by `app/lifespan/*.py`.
+## Voting Indicators
+
+`signal_aggregator.fetch_all_indicators()` (`services/trading-engine/app/signal_aggregator.py:734-755`) fetches these concurrently:
+
+| Indicator | Role | Source endpoint |
+|-----------|------|-----------------|
+| RSI | Voter | technical-analysis |
+| MACD | Voter | technical-analysis |
+| BOLLINGER_BANDS | Voter | technical-analysis |
+| SMA | Voter | technical-analysis |
+| EMA | Voter | technical-analysis |
+| TREND_FILTER | Gatekeeper (blocks signal if fails) | technical-analysis |
+| VOLUME_CONFIRMATION | Validator (reduces confidence if fails) | technical-analysis |
+| STOCHASTIC | Voter | technical-analysis |
+| ICHIMOKU | Voter | technical-analysis |
+| ADX | Regime gate | technical-analysis |
+| ATR | Non-voting (position sizing / stop-loss) | technical-analysis |
+
+**Disabled (commented out in signal_aggregator.py):** RSI_DIVERGENCE, SQZMOM_ENHANCED.
+**Do NOT exist:** OBV, VWAP — no files in `services/technical-analysis/app/indicators/` for these.
+
+**Note:** technical-analysis also has a minimal internal aggregator at `services/technical-analysis/app/handlers/analysis.py` (RSI + MACD + trend_filter only) exposed at `/api/v1/analysis/aggregated/{symbol}`. This is NOT the canonical aggregator used by the auto-trader.
 
 ## Key Abstractions
 
-**Indicator:**
-- Purpose: Stateless function `compute(df) -> Signal` over OHLCV DataFrame.
-- Examples: `services/technical-analysis/app/indicators/rsi.py`, `macd.py`, `squeeze_momentum.py`.
-- Pattern: One module per indicator; combined by `app/services/indicator_service.py`.
+**StrategyBase:**
+- Purpose: Contract all trading strategies must implement
+- File: `services/trading-engine/app/strategies/base.py`
+- Required methods: `analyze()`, `generate_signals()`, `calculate_position_size()`
+- Enums: `StrategyRiskLevel` (CONSERVATIVE/MODERATE/AGGRESSIVE/VERY_AGGRESSIVE), `StrategyCategory` (TREND_FOLLOWING/MEAN_REVERSION/MOMENTUM/BREAKOUT/ARBITRAGE/GRID/SCALPING/HYBRID)
+- Strategies live in: `services/trading-engine/app/strategies/`
 
-**Strategy:**
-- Purpose: Bundle of indicators + entry/exit rules + risk overlay.
-- Examples: `services/technical-analysis/app/strategies/squeeze_momentum_strategy.py`, `services/trading-engine/app/multi_symbol_trader.py`.
-- Pattern: `StrategyBase` contract (per `.claude/skills/trading-strategy-dev/SKILL.md`).
+**CoreAggregator:**
+- Purpose: Orchestrates gatekeeper → validator → voter pipeline
+- File: `services/trading-engine/app/aggregation/aggregator_core.py`
+- Sub-components: `gatekeeper.py`, `validator.py`, `voter.py`, `market_regime.py`, `confidence_guard.py`, `signal_cache.py`, `enhanced_aggregator.py`, `multi_timeframe.py`
 
-**Exchange adapter:**
-- Purpose: Abstract Bybit / Binance / Coinbase / Kraken behind one interface.
-- Pattern: `services/trading-engine/app/exchanges/base.py` defines contract; concrete adapters implement.
+**ServiceProxy (api-gateway):**
+- Purpose: httpx-based reverse proxy with timeout=30s
+- File: `services/api-gateway/app/services/service_proxy.py`
+- Service URL map: bybit, market-data, technical-analysis, trading-engine, portfolio-manager, risk-metrics, ml-prediction, sentiment-analysis
 
-**Circuit breaker:**
-- Purpose: Wrap downstream HTTP calls; trip on consecutive failures.
-- Implementation: `services/trading-engine/app/core/circuit_breaker.py` (Prometheus-instrumented).
+**BybitRestClient (bybit-connector):**
+- Purpose: Signs and sends Bybit API requests
+- File: `services/bybit-connector/app/bybit_rest_client.py`
+- Tape replay alternative: `services/bybit-connector/app/tape_replay_client.py` (test mode)
 
 ## Entry Points
 
-**api-gateway HTTP:**
+**API Gateway:**
 - Location: `services/api-gateway/app/main.py`
-- Triggers: Frontend or external clients hitting `:8000/api/<domain>/<resource>`.
-- Responsibilities: JWT verification, admin guard, proxy to downstream service.
+- Route domains: `/api/market/*`, `/api/analysis/*`, `/api/trading/*`, `/api/portfolio/*`, `/api/tournament/*`
+- Auth routes: `/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`
+- Includes `preflight_carry_ins_router`
 
-**trading-engine auto-trader:**
-- Location: `services/trading-engine/app/auto_trader.py`
-- Triggers: Lifespan-startup task launched by `services/trading-engine/app/main.py:262`, gated on `settings.auto_trading_enabled` AND absence of `EMERGENCY_STOP` file.
-- Responsibilities: Periodic signal poll → aggregate → execute.
+**bybit-connector boot:**
+- Live mode: `create_rest_client(settings, on_breaker_state_change=_update_breaker_gauge)` (`services/bybit-connector/app/main.py`)
+- Tape-replay mode: `if settings.market_data_source == "tape": app.state.rest_client = TapeReplayClient(...)`
+- Rate limits: market data 200/min, orders 10/min, account 20/min
 
-**market-data scheduler:**
-- Location: `services/market-data-service/app/scheduler.py`
-- Triggers: Lifespan task; runs every N seconds (default 5 min for ticker refresh).
-- Responsibilities: Pull from Bybit, upsert TimescaleDB.
+**trading-engine lifespan:**
+- Location: `services/trading-engine/app/main.py`
+- 4 composed `@asynccontextmanager` phases in `services/trading-engine/app/lifespan/`: `data.py`, `ml.py`, `strategy.py`, `risk.py`
+- LIVE preflight at `services/trading-engine/app/main.py:263-290`
+- Auto-trader boot (with EMERGENCY_STOP gate) at `services/trading-engine/app/main.py:296-338`
 
-**ml-retraining cron:**
-- Location: `services/ml-retraining-service/`
-- Triggers: Container-internal cron.
-- Responsibilities: Pull historical klines, retrain GRU per symbol, write new artifacts.
+**trading-engine routers:**
+- Mounted at `services/trading-engine/app/main.py:440-494`
+- Auto-stripped imports re-annotated `# noqa: F401` at `services/trading-engine/app/main.py:63-174` to survive autoflake
 
-## Risk Cap Enforcement
+**Frontend:**
+- Location: `frontend/src/main.jsx` (Vite entry) → `frontend/src/App.jsx` (React Router v6)
+- Routes: `/` (Dashboard), `/phase1` (Phase1Dashboard), `/phase3` (Phase3Dashboard), `/performance` (PerformanceDashboard), `/tournament` (TournamentDashboard), `/portfolio` (Portfolio), `/settings` (Settings)
 
-All caps live in `trading-engine`. Per-trade and daily-loss are non-negotiable per project rules.
+**Migrations:**
+- SQL migrations: `infrastructure/migrations/001–005_*.sql` (applied by `start-system` skill)
 
-**Per-trade cap:**
-- Config: `services/trading-engine/app/config.py:321` — `max_risk_per_trade`.
-- LIVE mode: 2% (hard requirement before flipping `TRADING_MODE=LIVE`).
-- Paper mode: 10% (per ADR-010, filed 2026-05-06, to clear Bybit min-notional on $100 balance).
-- Enforced in `services/trading-engine/app/orchestration/risk_coordinator.py` and position sizing in `app/position_sizing.py`.
+## Kill-Switch Flow
 
-**Daily-loss circuit breaker:**
-- Config: `services/trading-engine/app/config.py:364` — `max_daily_loss_pct` (5%).
-- Enforced in `services/trading-engine/app/core/circuit_breaker.py` + `app/orchestration/risk_coordinator.py`.
-- Trips: halts new entries for the trading day.
+Kill-switch is **file-based** using `safety/EMERGENCY_STOP` (host) / `/app/safety/EMERGENCY_STOP` (container).
 
-**Other circuit-breaker thresholds** (`app/config.py` lines 501-522):
-- `circuit_breaker_max_consecutive_losses`
-- `circuit_breaker_max_drawdown_pct`
-- `circuit_breaker_min_win_rate_pct`
-- `circuit_breaker_evaluation_trades`
+**Boot gate** (`services/trading-engine/app/main.py:314`):
+```
+if stop_file.is_file():
+    logger.critical("EMERGENCY_STOP file present — auto-trader NOT started")
+    # auto_trader.start() is skipped
+```
 
-**Auto-trader gate (EMERGENCY_STOP):**
-- File path config: `services/trading-engine/app/config.py:199` — `emergency_stop_file`, default `/app/EMERGENCY_STOP`.
-- Host path: `EMERGENCY_STOP` at repo root (currently exists as a directory on disk).
-- Compose bind-mount: **read-only** into trading-engine container.
-- Check sites:
-  - Boot: `services/trading-engine/app/main.py:284` — refuses to start auto-trader if file present.
-  - Loop: `services/trading-engine/app/auto_trader.py:842,877` — checks every iteration; broken-bind-mount detection at `:857` (catches the WSL race where mount silently fails and `EMERGENCY_STOP` looks present-but-empty).
-- Manual pause: `touch EMERGENCY_STOP` (host) OR `POST /api/portfolio/emergency-stop` (admin-guarded).
+**Loop gate** (`services/trading-engine/app/auto_trader.py:886`):
+```
+if self.emergency_stop_file.is_file():
+    # pause trading, wait for file removal
+```
 
-**LIVE-mode ack:**
-- Trading-engine refuses to boot in `TRADING_MODE=LIVE` without `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY`. Catches env drift on cloud hosts.
+**Broken bind-mount detection** (`services/trading-engine/app/auto_trader.py:859`): checks if safety dir is accessible; symptoms differ from missing file — important distinction.
 
-## Data Ownership
+**Activate:** `touch safety/EMERGENCY_STOP` or `POST /api/portfolio/emergency-stop` (admin-guarded).
+**Deactivate:** `rm safety/EMERGENCY_STOP` — auto-trader auto-restarts on next loop tick. If halted at boot, requires manual `POST /api/trading/start`.
+**Full stop:** `POST /api/trading/auto/stop`
 
-| Table / namespace | Owner service | DB |
-|---|---|---|
-| `klines`, `tickers` | market-data-service | TimescaleDB |
-| `portfolio.performance_history`, `portfolio.positions`, `portfolio.balances` | portfolio-manager | PostgreSQL |
-| `trades`, signal logs | trading-engine | PostgreSQL |
-| Alert state, DLQ | notification-service | PostgreSQL |
-| ML model artifacts | ml-retraining-service writes, ml-prediction + technical-analysis read | filesystem (`services/ml-prediction-service/models/`) |
+## Paper vs Live Decision Tree
 
-No service writes outside its owned namespace. Cross-service reads happen over HTTP, not direct DB queries — except trading-engine reads `klines` from TimescaleDB directly during backtest mode (`app/backtesting/`).
+```
+trading-engine boot
+    │
+    ├─ TRADING_MODE == "LIVE"? (services/trading-engine/app/main.py:263-290)
+    │       ├─ LIVE_TRADING_ACK == "I_UNDERSTAND_REAL_MONEY"? → NO → RuntimeError, refuse boot
+    │       └─ max_risk_per_trade > 0.02? → YES → RuntimeError, refuse boot
+    │
+    └─ auto_trader loop (app/auto_trader.py:1836, 2412)
+            ├─ trading_mode == "LIVE" → get_live_engine() → real orders via bybit-connector
+            └─ trading_mode == "PAPER" → get_paper_engine() → simulated orders internally
+```
 
-## Event Flows (RabbitMQ status)
-
-- **Provisioned but unused.** Compose runs `rabbitmq:3-management`. `bybit-connector/app/config.py:88-94` and `config_vault.py:138-153` expose `rabbitmq_*` settings and a `rabbitmq_url` property — but no `aio_pika` / `pika` import exists in any service's runtime code. Only config and tests reference RabbitMQ.
-- **Live topics:** none. The originally-planned `signals.*`, `orders.*`, `portfolio.*` exchanges are not declared at runtime.
-- **Sentiment removal impact:** since sentiment was the original consumer of any planned event flow, post-removal (`c346483`, `acae081`, `fe941cf`, `c171bb0`) there is no producer/consumer pair left to migrate. Treat RabbitMQ as dead infrastructure until a real pub/sub need re-emerges.
+**Current defaults:**
+- `trading_mode: "PAPER"` (`services/trading-engine/app/config.py:193`)
+- `max_risk_per_trade: 0.10` (10% — paper default per ADR-010, `services/trading-engine/app/config.py:321-332`)
+- `max_daily_loss_pct: 5.0` (`services/trading-engine/app/config.py:364-365`)
+- `BYBIT_TESTNET=false` — uses mainnet prices but simulated orders
+- `AUTO_TRADING_ENABLED=true` in `.env` (operator override; loop fires only if EMERGENCY_STOP absent)
 
 ## Architectural Constraints
 
-- **Threading:** Each service is single-event-loop asyncio. Workers (uvicorn `--workers`) are 1 in compose defaults. Heavy CPU (TA, ML inference) runs in the same loop — no thread-pool offload today.
-- **Global state:** Module-level singletons inside trading-engine for auto-trader, exchange manager, strategy registry — wired at lifespan startup. Tests must override via `app.dependency_overrides` (see `services/api-gateway/tests/conftest.py` `admin_client` fixture pattern).
-- **Circular imports:** None known after May 2026 refactor (`main.py` was shrunk; logic moved into `handlers/`, `lifespan/`, `aggregation/`).
-- **Two compose files:** `docker-compose.unified.yml` is **canonical** (16 services incl. DBs). `docker-compose.yml` is incomplete (missing postgres/timescaledb/redis/rabbitmq) — do not use.
-- **Mainnet/testnet split:** `BYBIT_TESTNET` controls price source only; `PAPER_TRADING_MODE` / `TRADING_MODE` control execution. Four-step LIVE flip required: `PAPER_TRADING_MODE=false`, `TRADING_MODE=LIVE`, mainnet keys with trade perms, `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY`.
+- **Threading:** Single-threaded asyncio event loop per service. `asyncio.gather()` used for concurrent HTTP in signal aggregator. CPU-heavy ML inference offloaded to thread pools in ml-prediction-service.
+- **Global state:** Each service has module-level singletons (settings, DB pool, HTTP clients) initialized in lifespan. See `services/trading-engine/app/lifespan/` for trading-engine's 4-phase approach.
+- **Circular imports / autoflake:** `services/trading-engine/app/main.py:63-174` imports annotated `# noqa: F401` — autoflake strips these on refactor but they are required for test patching via `app.main.<symbol>`. Do NOT remove them without re-adding `# noqa: F401`.
+- **RabbitMQ:** Configured in compose / env but idle. Only use: AMQP health-check ping (`services/trading-engine/app/core/health.py:421`). Do not assume queue-based messaging without adding publisher/subscriber code.
+- **TimescaleDB as cache:** market-data-service writes candles to TimescaleDB (not Redis). Redis is configured but empty in practice. If prices look stale, hit `POST /api/v1/collect/ticker/{symbol}` on port 8002.
+- **Testnet/mainnet DB contamination:** TimescaleDB has mixed testnet/mainnet history before 2026-04-25. Filter `is_mainnet=true` for backtests.
 
 ## Anti-Patterns
 
-### Treating `docker-compose.yml` as canonical
+### Bypassing StrategyBase for new strategies
 
-**What happens:** Some legacy docs reference `docker-compose.yml`. It boots services but omits DBs and broker, leading to silent connect-refused loops.
-**Why it's wrong:** Services fail health checks; you waste time debugging fake outages.
-**Do this instead:** Always `docker compose -f docker-compose.unified.yml up -d`.
+**What happens:** Defining a standalone strategy function without extending `StrategyBase`.
+**Why it's wrong:** auto_trader loop and strategy registry expect the full `analyze()` / `generate_signals()` / `calculate_position_size()` interface.
+**Do this instead:** Extend `StrategyBase` in `services/trading-engine/app/strategies/base.py` and register in the strategy registry.
 
-### Patching `builtins.open` for emergency-stop routes
+### Calling Bybit directly from services other than bybit-connector
 
-**What happens:** Tests mock `builtins.open` to assert `EMERGENCY_STOP` write, but the actual code uses `pathlib.Path.write_text`.
-**Why it's wrong:** `Path.write_text` goes through `_io.open` (C-level), bypassing the mock. Test passes vacuously.
-**Do this instead:** `mock.patch("pathlib.Path.write_text")` directly. See `services/api-gateway/tests/conftest.py`.
+**What happens:** A service opens its own HTTP session to Bybit APIs.
+**Why it's wrong:** Bypasses bybit-connector's circuit breaker, rate limiting, tape-replay mode, and centralized auth. Phase 13 explicitly centralized all Bybit access through bybit-connector.
+**Do this instead:** Call bybit-connector at `http://bybit-connector:8001/api/v1/market/*` (or via api-gateway).
 
-### Rounding sub-$1 prices to 2dp
+### Assuming RabbitMQ is the event bus
 
-**What happens:** Historical bug — TA service applied `round(price, 2)` to ADAUSDT-class assets, collapsing $0.4523 → $0.45 and producing flip-flop signal noise.
-**Why it's wrong:** 30+ losing trades attributable to it (commit `487d1bd`).
-**Do this instead:** `float(price)` on any price-domain field; preserve full precision.
+**What happens:** Code published to AMQP queue expecting downstream subscribers.
+**Why it's wrong:** No consumers exist in production code. All live inter-service messaging is synchronous HTTP.
+**Do this instead:** POST directly to the target service's HTTP API (e.g., notification_client pattern).
 
-### Re-adding symbols without data-presence check
+### Removing `# noqa: F401` imports in trading-engine/app/main.py
 
-**What happens:** XRP / DOGE were silently re-added during dev; market-data hadn't been backfilled.
-**Why it's wrong:** Engine quoted stale or empty candles.
-**Do this instead:** Validated symbol list is BTC, ETH, SOL, BNB, ADA. Confirm `klines` rows exist before adding a new one.
+**What happens:** Autoflake or a linter removes "unused" imports at `services/trading-engine/app/main.py:63-174`.
+**Why it's wrong:** Those imports register symbols under `app.main.*` that test mocks rely on for `monkeypatch` patching.
+**Do this instead:** Keep `# noqa: F401` annotation on all such imports.
 
 ## Error Handling
 
-**Strategy:** Per-service circuit breakers wrap downstream HTTP calls.
+**Strategy:** Exceptions in the auto-trader loop are caught, logged, and the loop continues with backoff. Unrecoverable startup errors raise `RuntimeError` and abort boot.
 
 **Patterns:**
-- `services/trading-engine/app/core/circuit_breaker.py` — three-state (closed / open / half-open) with Prometheus metrics on `circuit_breaker_state`, `circuit_breaker_calls_total`, `circuit_breaker_state_transitions_total`.
-- `services/bybit-connector/app/circuit_breaker.py` — wraps Bybit REST.
-- `services/market-data-service/app/circuit_breaker.py` — wraps upstream fetch.
-- Notification DLQ for failed Telegram/email: `services/notification-service/app/dlq.py`.
+- LIVE preflight: `raise RuntimeError(...)` on missing ACK or over-cap risk — intentional hard abort.
+- Circuit breaker in bybit-connector (`services/bybit-connector/app/circuit_breaker.py`) — auto-opens on repeated Bybit failures; state reported via Prometheus gauge.
+- HTTP 4xx/5xx from upstream services handled per-call in signal_aggregator; missing indicator falls back to neutral rather than crashing the loop.
 
 ## Cross-Cutting Concerns
 
-**Logging:** Structured logs per service; trading-engine logs to `/app/logs` (bind-mount race in WSL: if `PermissionError`, `docker compose up -d --force-recreate trading-engine`).
-**Validation:** Pydantic models per service in `app/models.py` or `app/models/`.
-**Authentication:** JWT at api-gateway. Downstream services trust gateway-set headers; admin routes go through `get_current_admin_user` dependency in `services/api-gateway/app/auth_middleware.py`. Plain `test_client` returns 403 on admin routes — tests must use `admin_client` fixture.
-**Secrets:** `.env` (gitignored) or HashiCorp Vault via `bybit-connector/app/config_vault.py`. Never commit `.env`.
-**Metrics:** Prometheus :9090 scrapes each service's `/metrics`. Grafana :3001 dashboards.
-**Health:** Every service exposes `GET /health` (liveness) and `GET /ready` (readiness).
+**Logging:** `shared/utils/structured_logging.py` — JSON structured logging, imported by most services.
+**Validation:** Input validation via `shared/utils/input_validation.py`; Pydantic models per service.
+**Authentication:** JWT-based auth in api-gateway (`services/api-gateway/app/auth.py`). Admin routes require `admin_client` fixture with `get_current_admin_user` override in tests.
+**Secrets:** Vault integration via `shared/vault_client.py`, `shared/vault_config.py`. Bybit keys in `.env` (gitignored).
+**Monitoring:** Prometheus metrics exposed at `/metrics` on each service. Grafana at `:3001`. Alert rules in `infrastructure/monitoring/prometheus/alerts/`.
 
 ---
 
-*Architecture analysis: 2026-05-12*
+*Architecture analysis: 2026-05-22*

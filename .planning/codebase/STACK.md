@@ -1,196 +1,175 @@
 # Technology Stack
 
-**Analysis Date:** 2026-05-12
+**Analysis Date:** 2026-05-22
 
 ## Languages
 
 **Primary:**
-- Python 3.12 — All 11 backend microservices (`services/*/app/`). Pinned via `pyproject.toml` (`requires-python = ">=3.12"`, black/mypy `target-version = py312`).
-- TypeScript / JavaScript (ES modules) — React dashboard at `frontend/src/`. Vite + JSX/TSX mix.
+- Python 3.12 — all 12 backend microservices (pinned in `pyproject.toml`: `requires-python = ">=3.12"`, `target-version = ['py312']`)
+- JavaScript/JSX — React frontend (`frontend/src/`)
 
 **Secondary:**
-- SQL — Schema + migrations at `infrastructure/migrations/` (003 portfolios ORM align, 004 positions ORM align) and `infrastructure/scripts/init-db.sql`, `init-timescale.sql`.
-- Bash — Operational scripts at repo root (`bootstrap.sh`, `health_check.sh`, `start_trading_engine.sh`, `monitor_*.sh`, `build-all.sh`).
-- Dockerfile — One per service under `services/<svc>/Dockerfile`; optimized template at `Dockerfile.optimized.template`.
+- TypeScript types referenced in frontend devDependencies (`@types/react`, `@types/react-dom`) but source uses `.jsx`/`.js`
+- SQL — schema migrations in `infrastructure/migrations/*.sql` and `infrastructure/scripts/init-db.sql`, `init-timescale.sql`
 
 ## Runtime
 
 **Environment:**
-- CPython 3.12 inside Docker images (per-service `Dockerfile`)
-- Node 18+ for the frontend build stage (Vite 5)
-- Docker Engine via Compose v2 — canonical file `docker-compose.unified.yml` (16 services incl. infra). `docker-compose.yml` is incomplete (missing DBs). Other compose files: `docker-compose.headless.yml`, `docker-compose.monitoring.yml`, `docker-compose.prod.yml`, `docker-compose.test.yml`.
+- Python 3.12 inside Docker containers; each service builds from its own `Dockerfile`
+- Node.js (version not pinned in `package.json`) for frontend dev/build; production frontend served by Nginx inside container
 
 **Package Manager:**
-- pip per service via `services/<svc>/requirements.txt` (no monorepo lockfile)
-- Shared base at `shared/requirements-base.txt`, vault extras at `shared/requirements-vault.txt`
-- npm for the frontend (`frontend/package.json`, `frontend/package-lock.json` assumed)
-- Build backend: `setuptools>=45` (`pyproject.toml` `[build-system]`)
+- Python: `pip` with per-service `requirements.txt` files; no lockfile — `pip install -r` at build time
+- Node: npm (implied by `package.json`; no `package-lock.json` version pinned)
+
+**Note:** `shared/requirements-base.txt` defines a base dependency set; individual service `requirements.txt` files take precedence and may specify different versions (e.g., api-gateway pins fastapi==0.109.0, ml-prediction-service pins fastapi==0.104.1).
 
 ## Frameworks
 
-**Core (backend, all services):**
-- FastAPI `0.109.0` (api-gateway, bybit-connector, market-data, portfolio-manager, technical-analysis, trading-engine, risk-metrics) / `0.104.1` (ml-prediction, ml-retraining, notification, sentiment) — async HTTP framework
-- Uvicorn `0.27.0` / `0.24.0` `[standard]` — ASGI server
-- Pydantic `2.5.3` / `2.5.0` / `2.13.3` (api-gateway upgraded for cp314 wheels) — data validation
-- pydantic-settings `2.1.0` / `2.14.0` — env-driven config
-- Starlette `0.35.1` — security headers (api-gateway)
+**Backend (per service):**
+- FastAPI — HTTP framework for all services. Version varies:
+  - `0.109.0` — api-gateway, bybit-connector, market-data-service, portfolio-manager, technical-analysis, trading-engine, risk-metrics-service (`services/*/requirements.txt`)
+  - `0.104.1` — ml-prediction-service, ml-retraining-service, notification-service, sentiment-analysis-service, tournament-harness (`services/*/requirements.txt`)
+- Uvicorn `[standard]` — ASGI server. `0.27.0` for 0.109 group; `0.24.0` for 0.104 group
+- Pydantic v2 — data validation; `2.13.3` in api-gateway (with cp314 wheels), `2.5.3` in most others, `2.5.0` in older group
+- pydantic-settings — `2.14.0` (api-gateway), `2.1.0` (most others)
+- SQLAlchemy `2.0.25`/`2.0.23`/`2.0.49` — ORM across services; versions drift. `services/trading-engine/requirements.txt`, `services/portfolio-manager/requirements.txt`
+- Alembic `1.13.1`/`1.13.0` — migrations (market-data, portfolio-manager, trading-engine, ml-retraining)
+- APScheduler `3.10.4` — background scheduling (market-data-service, portfolio-manager, ml-retraining-service)
 
 **Frontend:**
-- React `^18.2.0` + react-dom `^18.2.0`
-- Vite `^5.0.7` with `@vitejs/plugin-react`
-- React Router `^6.30.1`
-- TanStack Query `^5.12.2` — server state
-- Zustand `^4.4.7` — client state
-- axios `^1.6.2` — HTTP client
+- React `^18.2.0` — UI framework (`frontend/package.json`)
+- React Router DOM `^6.30.1` — client-side routing
+- Vite `^5.0.7` — build tool / dev server
+- Tailwind CSS `^3.3.6` — utility CSS
 - Recharts `^2.15.4` — charting
-- Tailwind CSS `^3.3.6` + PostCSS + autoprefixer
-- lucide-react `^0.294.0` — icons
-- date-fns `^2.30.0`
+- Zustand `^4.4.7` — state management
+- TanStack React Query `^5.12.2` — server state/fetching
+- Axios `^1.6.2` — HTTP client
 
 **Testing:**
-- pytest `7.4.x` + pytest-asyncio `0.23.x` + pytest-cov `4.1.0` + pytest-mock `3.12.0` (`pyproject.toml [tool.pytest.ini_options]`, `pytest.ini`)
-- respx `0.20.2` — httpx mocking (ml-prediction, notification)
-- pytest-httpx `0.30.0` — bybit-connector
-- freezegun `1.4.0` — time mocking (bybit-connector)
-- Vitest `^1.6.0` + `@vitest/coverage-v8` + `@testing-library/react` `^14.2.0` + jsdom `^24.0.0` — frontend
+- pytest `7.4.4` (most services), `7.4.3` (older group) — test runner
+- pytest-asyncio `0.23.3`/`0.21.1` — async test support
+- pytest-cov `4.1.0` — coverage
+- pytest-mock `3.12.0` — mocking
+- respx `0.22.0`/`0.20.2` — httpx mocking (`services/trading-engine/requirements.txt`)
+- freezegun `1.4.0` — time mocking (bybit-connector, trading-engine, portfolio-manager, market-data-service)
+- Vitest `^1.6.0` — frontend test runner
+- Testing Library React `^14.2.0` — frontend component tests
 
-**Build/Dev (Python tooling, configured in `pyproject.toml`):**
-- Black `>=23.9.0` (line-length 100, `target-version py312`)
-- isort `>=5.12.0` (black profile)
-- mypy `>=1.5.0` (`disallow_untyped_defs=true`, plugins: pydantic, sqlalchemy)
-- flake8 `>=6.1.0`
-- pylint `>=3.0.0`
-- bandit `>=1.7.5` (security)
-- safety `>=2.3.0`
-- ESLint `^8.55.0` + eslint-plugin-react — frontend
+**Build/Dev:**
+- Docker Compose — orchestration; `docker-compose.unified.yml` is canonical
+- black `24.1.1` / `23.12.1` — code formatter (line-length 100, pyproject.toml)
+- isort `5.13.2` — import sorter (black profile)
+- mypy `1.8.0` / `1.7.1` — static type checker (with pydantic + sqlalchemy plugins, pyproject.toml)
+- flake8 `7.0.0` / `6.1.0` — linter
+- bandit `1.7.6` — security linter (trading-engine)
+- pre-commit `3.6.0` — git hook framework (trading-engine)
 
 ## Key Dependencies
 
-**Exchange / market data:**
-- pybit `5.6.2` — official Bybit Python SDK (REST), in `services/bybit-connector/requirements.txt`
-- websockets `12.0` — Bybit WS streams (bybit-connector, market-data-service)
-- httpx `0.27.0` — async HTTP client across services
+**Exchange Interface:**
+- pybit `5.6.2` — official Bybit Python SDK (`services/bybit-connector/requirements.txt`); only bybit-connector uses it
 
-**Data / numerics:**
-- pandas `2.2.0` / `2.1.4` — TA, market-data, trading-engine, portfolio-manager, ml-*
-- numpy `1.26.3` / `1.26.2` — across services
-- scipy `1.11.4`/`1.12.0` — TA, trading-engine, portfolio-manager
-- statsmodels `0.14.1` — TA, trading-engine (ADF, cointegration)
-- scikit-learn `1.4.0`/`1.3.2` — TA, ml-prediction, ml-retraining, portfolio-manager (covariance shrinkage)
-- cvxpy `>=1.4.0` — portfolio optimization
-- ta `0.11.0` — TA library (RSI/MACD/BB/EMA/SMA); TA-Lib and pandas-ta explicitly removed (`services/technical-analysis/requirements.txt`)
-- pyarrow `15.0.0` — Parquet (market-data)
+**ML/AI:**
+- TensorFlow `2.16.1` (ml-prediction-service), `2.15.0` (ml-retraining-service, tournament-harness) — GRU model training and inference
+- scikit-learn `1.4.0` (technical-analysis), `1.3.2` (ml-prediction-service, ml-retraining-service, tournament-harness)
+- optuna `3.5.0` + optuna-dashboard `0.15.1` — Bayesian hyperparameter optimization (ml-prediction-service)
+- 16 trained GRU model files at `services/ml-prediction-service/models/*_60m_gru.keras` (trained 2025-12-10, currently gated off)
 
-**ML / inference:**
-- tensorflow `2.16.1` (ml-prediction-service), `2.15.0` (ml-retraining-service) — GRU models. 16 GRU models live under `services/ml-prediction-service/models/`. **LSTM stack deleted May 2026** (commits `324e162`, `9a0f584`); archived at `_archive_lstm/`. trading-engine intentionally has no `tensorflow` / `sklearn` import.
-- joblib `1.3.2` — lightweight model artifacts in trading-engine
-- optuna `3.5.0` + optuna-dashboard `0.15.1` — hyperparameter search (ml-prediction-service)
-- transformers `4.37.0` + torch `2.2.0` — sentiment-analysis (idle by default)
-- apscheduler `3.10.4` — ml-retraining cron
+**NLP (sentiment-analysis-service only):**
+- transformers `4.37.0` — HuggingFace NLP
+- torch `2.2.0` — PyTorch (ML-based sentiment, optional profile)
+- newsapi-python `0.2.7` — NewsAPI.org client
+- tweepy `4.14.0` — Twitter API v2
 
-**Databases / cache / messaging:**
-- asyncpg `0.29.0` / `0.31.0` (api-gateway cp314) — PostgreSQL/TimescaleDB async driver
-- psycopg2-binary `2.9.9` — sync fallback (market-data, trading-engine, portfolio-manager)
-- SQLAlchemy `2.0.25` / `2.0.49` (api-gateway cp314) `[asyncio]` — ORM
-- alembic `1.13.x` — migrations (market-data, trading-engine, portfolio-manager, ml-retraining)
-- aioredis `2.0.1` (async) + redis `5.0.1` (sync) — Redis client
-- pika `1.3.2` — RabbitMQ sync client (bybit-connector, market-data, portfolio-manager, technical-analysis, trading-engine)
-- aio_pika — optional async AMQP, probed via `try: import aio_pika` in `services/trading-engine/app/core/health.py:421-445`. Marked "(optional)" — current path is degraded if not present.
-- transitions `0.9.0` — order-lifecycle FSM (trading-engine)
+**Database Drivers:**
+- asyncpg `0.29.0`/`0.31.0` — async PostgreSQL/TimescaleDB driver (all data-touching services)
+- psycopg2-binary `2.9.9` — sync PostgreSQL driver (market-data, portfolio-manager, tournament-harness)
+- aioredis `2.0.1` — async Redis client
+- redis `5.0.1` — sync Redis client
 
-**Reliability / API gateway:**
-- tenacity `8.2.3` / `9.1.2` — retries
-- circuitbreaker `1.4.0` / `2.1.3`
-- slowapi `0.1.9` + limits `3.7.0` — Redis-backed rate limiting (api-gateway, bybit-connector, market-data)
+**Messaging:**
+- pika `1.3.2` — RabbitMQ AMQP client (bybit-connector, market-data, technical-analysis, trading-engine, portfolio-manager)
 
-**Auth / security (api-gateway only):**
-- pyjwt `>=2.10.1` `[crypto]` (replaces python-jose)
-- cryptography `>=46.0.0`
-- libpass `1.9.3` `[bcrypt]` (passlib successor)
-- bcrypt `5.0.0`
-- python-multipart `0.0.6`
-- email-validator `2.2.0`
+**HTTP Clients:**
+- httpx `0.27.0` — async HTTP (primary, most services)
+- aiohttp `3.9.3` — async HTTP (trading-engine only)
+
+**Data:**
+- pandas `2.2.0` (2.1.4 in older services) — data processing
+- numpy `1.26.3` (1.26.2 in older services) — numerical computing
+- ta `0.11.0` — technical analysis indicators (replaces TA-Lib and pandas-ta; `services/technical-analysis/requirements.txt`)
+- pyarrow `15.0.0` — Parquet columnar format (market-data-service)
+- scipy `1.11.4`/`1.12.0` — scientific computing
+- statsmodels `0.14.1` — statistical analysis (ADF, cointegration)
+- cvxpy `>=1.4.0` — convex optimization (portfolio-manager)
+- transitions `0.9.0` — finite state machine for order lifecycle (trading-engine)
+
+**Auth/Security:**
+- pyjwt `[crypto] >=2.10.1` — JWT handling (api-gateway)
+- python-jose `[cryptography] >=3.3.0` — temporary pin in api-gateway (migration to pyjwt in progress)
+- libpass `[bcrypt] 1.9.3` / passlib `[bcrypt]` — password hashing
+- cryptography `>=46.0.0` / `41.0.7` — base crypto
+- slowapi `0.1.9` + limits `3.7.0` — rate limiting (api-gateway, bybit-connector, market-data-service)
+
+**Secrets:**
+- hvac `2.1.0` — HashiCorp Vault client (`shared/requirements-vault.txt`); config_vault.py exists in bybit-connector but not wired into compose by default (falls back to env vars)
+
+**Monitoring:**
+- prometheus-client `0.19.0` — Prometheus metrics (all services expose `/metrics`)
+- sentry-sdk `1.40.0` — error tracking (api-gateway, trading-engine; in requirements but SENTRY_DSN not wired in compose)
+- python-json-logger `2.0.7` — structured JSON logging
+
+**Visualization (portfolio-manager):**
+- matplotlib `3.8.2` — chart generation
+- plotly `5.18.0` — interactive charts
+
+**Docker SDK (tournament-harness only):**
+- docker `7.0.0` — Python Docker SDK for launching experiment containers via `/var/run/docker.sock`
 
 **Notifications:**
-- python-json-logger `2.0.7` — structured logging across services
-- prometheus-client `0.19.0` — `/metrics` endpoints
-- pytz `2024.1` — quiet-hour scheduling (notification-service)
-- twilio `8.10.0` — optional SMS (notification-service)
-- newsapi-python `0.2.7` + tweepy `4.14.0` — sentiment news/social (idle service)
-- cachetools `5.3.2` — sentiment in-memory TTL cache
+- twilio `8.10.0` — SMS (notification-service, optional)
 
 ## Configuration
 
 **Environment:**
-- `.env` at repo root (gitignored) — operator overrides (e.g. `AUTO_TRADING_ENABLED=true`, Bybit keys)
-- `.env.example` / `.env.production.example` / `.env.test.example` — templates
-- `services/notification-service/.env` — Telegram/Slack/SMTP creds (gitignored, mounted via compose `env_file:`)
-- Loaded via `pydantic-settings` `BaseSettings` in each `services/<svc>/app/config.py`
-- HashiCorp Vault integration available — `shared/vault_client.py`, `shared/vault_config.py`, `shared/requirements-vault.txt`; production deploy points at `infrastructure/vault/`
+- All services load config via Pydantic `BaseSettings` from environment variables and optional `.env` file
+- `.env` at repo root and `services/notification-service/.env` (gitignored)
+- `docker-compose.unified.yml` injects all env vars into containers via `environment:` blocks
+- `.env.example` pattern; `.env` never committed
+
+**Key env flags:**
+- `BYBIT_API_KEY` / `BYBIT_API_SECRET` — Bybit credentials (bybit-connector only)
+- `BYBIT_TESTNET=false` — mainnet prices (compose default)
+- `MARKET_DATA_SOURCE=live` — live Bybit; `tape` for fixture replay
+- `PAPER_TRADING_MODE=true` — simulated orders
+- `TRADING_MODE=PAPER` — trading engine mode
+- `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY` — required to boot trading-engine in LIVE mode
+- `AUTO_TRADING_ENABLED=true` — operator override in host `.env`; compose default is `true` for trading-engine
+- `ENABLE_ML_PREDICTIONS=false` — GRU inference gated off
+- `ENABLE_SENTIMENT_ANALYSIS=false` — sentiment leg gated off
+- `EMERGENCY_STOP_FILE=/app/safety/EMERGENCY_STOP` — kill-switch file path
 
 **Build:**
-- Per-service `Dockerfile` (no shared base image; each service self-contained)
-- Optimized base reference: `Dockerfile.optimized.template`
-- `docker-compose.unified.yml` is canonical. Profile gates: `--profile monitoring` (Prometheus, Grafana), `--profile ml` (ml-prediction-service), `--profile analytics` (sentiment-analysis-service), `--profile tournament` (tournament-harness), `--profile production`
-- BuildKit known to hang on WSL2 — workaround `DOCKER_BUILDKIT=0 docker compose ... up --build`
-
-**Python tooling config in `pyproject.toml`:**
-- coverage `fail_under = 80`, branch coverage on, HTML to `htmlcov/`, XML to `coverage.xml`
-- pytest `testpaths = ["services/*/tests", "tests"]`, `-ra -q --strict-markers`, `slow` marker registered
-- mypy `strict_optional`, `strict_equality`, `warn_unreachable`, pydantic + sqlalchemy plugins
+- `pyproject.toml` — black/isort/mypy/bandit/pylint/coverage config
+- `pytest.ini` — test discovery, markers, asyncio mode, coverage config
+- `docker-compose.unified.yml` — canonical compose (16 services incl. DBs)
+- `docker-compose.yml` — incomplete (missing postgres/timescale/redis/rabbitmq); do not use for full stack
 
 ## Platform Requirements
 
 **Development:**
-- WSL2 + Docker Desktop on Windows host (project-specific gotchas in `crypto-trading-bot/CLAUDE.md`): Docker context must be `default` (Unix socket), not `desktop-linux`
-- Bind-mount race on WSL: `docker compose up -d --force-recreate <service>` if `/app/logs` shows `PermissionError`
-- ML training memory: BTC GRU training OOM-killed at default container limits — bump `deploy.resources.limits.memory` before retraining
-- Repo-relative `EMERGENCY_STOP` file must exist before `docker compose up` (bind-mounted RW to api-gateway, RO to trading-engine)
+- WSL2 + Docker Desktop (`docker context = default` Unix socket)
+- `DOCKER_BUILDKIT=0` required to avoid BuildKit hang on WSL2 (`make build-no-buildkit`)
+- `docker compose -f docker-compose.unified.yml up -d` — stack launch
+- Host can optionally install Python 3.12 for repo-level `pytest tests/`; api-gateway tests must run inside container due to fastapi version mismatch (host: 0.136, container: 0.109)
 
 **Production:**
-- Kubernetes manifests in `infrastructure/kubernetes/`, Helm chart in `infrastructure/helm/`
-- Oracle Cloud setup script: `oracle-cloud-setup.sh`
-- Production compose: `docker-compose.prod.yml`, `infrastructure/production/`
-
-## Containerized Services (canonical = `docker-compose.unified.yml`)
-
-| Container | Image | Port | Notes |
-|---|---|---|---|
-| `crypto-bot-postgres` | `postgres:15-alpine` | 5432 | App DB (`cryptobot`). Migrations 003/004 auto-applied. CPU 1.0 / 1G |
-| `crypto-bot-timescaledb` | `timescale/timescaledb:latest-pg15` | 5433 | Market data DB (`market_data`). CPU 2.0 / 2G |
-| `crypto-bot-redis` | `redis:7-alpine` | 6379 | `--appendonly yes`, `--maxmemory 256mb allkeys-lru`. CPU 0.5 / 512M |
-| `crypto-bot-rabbitmq` | `rabbitmq:3-management-alpine` | 5672, 15672 (mgmt) | vhost `cryptobot`. CPU 1.0 / 1G |
-| `crypto-bot-prometheus` | `prom/prometheus:latest` | 9090 | `--profile monitoring`. 15d TSDB retention |
-| `crypto-bot-grafana` | `grafana/grafana:latest` | 3001→3000 | `--profile monitoring`. Plugins: clock-panel, piechart-panel |
-| `crypto-bot-api-gateway` | local build | 8000 | Entry point. Mounts `./EMERGENCY_STOP:/app/EMERGENCY_STOP` (RW) |
-| `crypto-bot-frontend` | local build | 3000→80 | React/Vite dashboard. 256M |
-| `crypto-bot-bybit` | local build | 8001 | `BYBIT_TESTNET=false` default. Tape fixtures at `./tests/fixtures/tape:ro` |
-| `crypto-bot-market-data` | local build | 8002 | Reads/writes TimescaleDB (DB *is* cache; Redis empty in tests) |
-| `crypto-bot-portfolio` | local build | 8003 | `USE_DATABASE=true`; DATABASE_URL postgres |
-| `crypto-bot-ta` | local build | 8004 | Indicators + GRU client + aggregator |
-| `crypto-bot-trading` | local build | 8005 | Auto-trader; `EMERGENCY_STOP` RO mount. CPU 1.0 / 1G |
-| `crypto-bot-notification` | local build | 8006 | `env_file: services/notification-service/.env`. `NOTIFICATION_TEST_MODE=record` default |
-| `crypto-bot-ml-prediction` | local build | 8007 | `--profile ml`. Models at `./services/ml-prediction-service/models`. 2G limit |
-| `crypto-bot-tournament-harness` | local build | 8010 | `--profile tournament`. Mounts `/var/run/docker.sock` (privilege boundary — D-02). 2.0 CPU / 4G |
-| `crypto-bot-sentiment` | local build | 8008 | `--profile analytics`. Idle by default |
-| `crypto-bot-risk-metrics` | local build | 8009 | No DB; reads from trading-engine + portfolio-manager |
-
-`ml-retraining-service` is cron-driven via apscheduler — no HTTP port, not in `docker-compose.unified.yml` (run separately or via `auto_retrain_models.sh`).
-
-## Network / Volumes
-
-**Network:** `crypto-bot-network` (bridge, subnet `172.28.0.0/16`)
-
-**Named volumes (host-managed):**
-- `crypto-bot-postgres-data`
-- `crypto-bot-timescaledb-data`
-- `crypto-bot-redis-data`
-- `crypto-bot-rabbitmq-data`
-- `crypto-bot-prometheus-data`
-- `crypto-bot-grafana-data`
-
-Per-service log mounts: `./services/<svc>/logs:/app/logs`.
+- Docker Compose (local/dev) or Kubernetes (`infrastructure/kubernetes/`) with Helm (`infrastructure/helm/crypto-trading-bot/`)
+- Oracle Cloud setup script at `oracle-cloud-setup.sh`
+- Nginx serves frontend static build inside frontend container, port 80 → exposed :3000
 
 ---
 
-*Stack analysis: 2026-05-12*
+*Stack analysis: 2026-05-22*
