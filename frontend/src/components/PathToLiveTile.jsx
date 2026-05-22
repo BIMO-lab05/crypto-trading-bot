@@ -184,10 +184,10 @@ function PathToLiveTile() {
                 <div
                   key={chk.check}
                   data-testid={`path-to-live-check-${chk.check}`}
-                  className="flex items-center gap-3 py-0.5"
+                  className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-1 md:gap-3 py-0.5"
                 >
                   <span
-                    className="w-28 shrink-0 text-xs"
+                    className="w-full md:w-28 md:shrink-0 text-xs"
                     style={{
                       color: '#a09e98',
                       fontFamily: 'JetBrains Mono, monospace',
@@ -220,10 +220,10 @@ function PathToLiveTile() {
                 <div
                   key={ci.id}
                   data-testid={`path-to-live-carry-in-${ci.id}`}
-                  className="flex items-center gap-3 py-0.5"
+                  className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-1 md:gap-3 py-0.5"
                 >
                   <span
-                    className="w-20 shrink-0 text-xs font-semibold"
+                    className="w-full md:w-20 md:shrink-0 text-xs font-semibold"
                     style={{
                       color: '#a09e98',
                       fontFamily: 'JetBrains Mono, monospace',
