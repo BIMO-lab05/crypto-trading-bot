@@ -9,6 +9,7 @@ import TournamentSelector from '../components/TournamentSelector'
 import TournamentLeaderboard from '../components/TournamentLeaderboard'
 import TournamentFilterChips from '../components/TournamentFilterChips'
 import ContaminatedWindowWarning from '../components/ContaminatedWindowWarning'
+import SignificanceBadge from '../components/SignificanceBadge' // Phase 14 WR-01
 
 import '../pages/performance-theme.css'
 
@@ -80,6 +81,38 @@ function compareRows(a, b, col, dir) {
 function truncateSha(s) {
   if (!s || typeof s !== 'string') return ''
   return s.slice(0, 7)
+}
+
+// Phase 14 WR-01 — secondary-field formatters, mirrored from
+// TournamentLeaderboard.jsx so the mobile card renders the same numeric
+// shapes as the desktop table (zero information loss invariant from
+// CONTEXT.md line 9).
+const MINUS_SIGN = '−' // U+2212 minus, not ASCII hyphen
+const EMDASH = '—'
+
+function isFiniteNum(v) {
+  return typeof v === 'number' && Number.isFinite(v)
+}
+
+function fmtFixed(v, dp) {
+  if (!isFiniteNum(v)) return EMDASH
+  return v.toFixed(dp)
+}
+
+function fmtPercent(v, dp) {
+  if (!isFiniteNum(v)) return EMDASH
+  return `${(v * 100).toFixed(dp)}%`
+}
+
+function fmtSignedFixed(v, dp) {
+  if (!isFiniteNum(v)) return EMDASH
+  const sign = v >= 0 ? '+' : MINUS_SIGN
+  return `${sign}${Math.abs(v).toFixed(dp)}`
+}
+
+function fmtInt(v) {
+  if (!isFiniteNum(v)) return EMDASH
+  return String(Math.round(v))
 }
 
 export default function TournamentDashboard() {
@@ -495,6 +528,95 @@ export default function TournamentDashboard() {
                     >
                       {row?.architecture || '—'}
                     </span>
+                    {/* Phase 14 WR-01 — secondary fields restored to satisfy
+                        CONTEXT.md "Zero information loss" invariant. Mirror of
+                        the desktop COLUMNS at TournamentLeaderboard.jsx:52-67. */}
+                    <span style={{ color: C.text2 }}>Target Mode</span>
+                    <span
+                      style={{
+                        color: C.text,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        textAlign: 'right',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {row?.target_mode || EMDASH}
+                    </span>
+                    <span style={{ color: C.text2 }}>Dir. Acc.</span>
+                    <span
+                      style={{
+                        color:
+                          isFiniteNum(row?.dir_acc_corrected) && row.dir_acc_corrected > 0.05
+                            ? C.gain
+                            : C.text,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        textAlign: 'right',
+                        fontFeatureSettings: '"tnum" 1, "zero" 1',
+                      }}
+                    >
+                      {fmtPercent(row?.dir_acc_corrected, 2)}
+                    </span>
+                    <span style={{ color: C.text2 }}>R² Returns</span>
+                    <span
+                      style={{
+                        color:
+                          isFiniteNum(row?.r2_returns) && row.r2_returns < 0
+                            ? C.loss
+                            : isFiniteNum(row?.r2_returns) && row.r2_returns > 0
+                              ? C.gain
+                              : C.text,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        textAlign: 'right',
+                        fontFeatureSettings: '"tnum" 1, "zero" 1',
+                      }}
+                    >
+                      {fmtSignedFixed(row?.r2_returns, 4)}
+                    </span>
+                    <span style={{ color: C.text2 }}>Significance</span>
+                    <span style={{ textAlign: 'right' }}>
+                      {(() => {
+                        if (isFailed) {
+                          return (
+                            <span
+                              data-testid="significance-badge-none"
+                              style={{
+                                color: C.text3,
+                                fontFamily: 'JetBrains Mono, monospace',
+                                fontSize: 13,
+                              }}
+                            >
+                              {EMDASH}
+                            </span>
+                          )
+                        }
+                        const memberSet = ensembleMembersBySymbol?.[row?.symbol]
+                        const inEnsemble = memberSet && memberSet.has
+                          ? memberSet.has(row?.run_id)
+                          : false
+                        const sig = perSymbolSignificance?.[row?.symbol] ?? null
+                        const winGatePassed = Boolean(sig?.win_gate_passed)
+                        return (
+                          <SignificanceBadge
+                            inEnsemble={inEnsemble}
+                            winGatePassed={winGatePassed}
+                            significance={sig}
+                          />
+                        )
+                      })()}
+                    </span>
+                    <span style={{ color: C.text2 }}>Train Sec</span>
+                    <span
+                      style={{
+                        color: C.text,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        textAlign: 'right',
+                        fontFeatureSettings: '"tnum" 1, "zero" 1',
+                      }}
+                    >
+                      {fmtInt(row?.train_seconds)}
+                    </span>
                     <span style={{ color: C.text2 }}>Status</span>
                     <span
                       style={{
@@ -503,9 +625,30 @@ export default function TournamentDashboard() {
                         textAlign: 'right',
                       }}
                     >
-                      {status || '—'}
+                      {status || EMDASH}
                     </span>
                   </div>
+                  {/* Phase 14 WR-01 — failure_reason is operationally
+                      load-bearing for failed-run diagnosis on mobile; render
+                      it as a colored block below the meta-grid when present. */}
+                  {isFailed && row?.failure_reason ? (
+                    <div
+                      style={{
+                        marginTop: 4,
+                        padding: '6px 8px',
+                        background: 'rgba(251, 113, 133, 0.08)',
+                        border: `1px solid ${C.loss}`,
+                        borderRadius: 4,
+                        color: C.loss,
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: 11,
+                        lineHeight: 1.4,
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {row.failure_reason}
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
