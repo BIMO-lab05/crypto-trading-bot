@@ -56,22 +56,44 @@ def _validate_jwt_secret() -> str:
     Security requirements:
     - Production: MUST have JWT_SECRET_KEY set, minimum 32 characters
     - Staging: MUST have JWT_SECRET_KEY set, minimum 32 characters
-    - Development: Warns if using default, allows startup for local dev
+    - TRADING_MODE=LIVE (any case): hard-fail if JWT_SECRET_KEY missing/weak,
+      regardless of ENVIRONMENT. Closes CONCERNS.md JWT-Default-Insecure-In-Dev.
+    - PAPER_TRADING_MODE=false (any case): same hard-fail. Real-money traffic
+      must never be signed with the public-knowledge _DEV_ONLY_SECRET.
+    - Development + PAPER + no JWT_SECRET_KEY: warns and uses dev fallback.
 
     Returns:
         str: Validated JWT secret key
 
     Raises:
-        SystemExit: If production/staging environment lacks proper secret
+        SystemExit: If production/staging/LIVE/non-paper environment lacks
+            a properly configured secret. Exit code 1.
     """
     secret_key = os.environ.get("JWT_SECRET_KEY")
 
-    # Production and Staging require properly configured secrets
-    if IS_PRODUCTION or IS_STAGING:
+    # Mode-driven hard-fail conditions (match main.py:1125-1126 convention).
+    # Read fresh each call so monkeypatch.setenv in tests is honored.
+    trading_mode = os.environ.get("TRADING_MODE", "PAPER").upper()
+    paper_trading_mode = os.environ.get("PAPER_TRADING_MODE", "true").lower() == "true"
+    is_live_mode = trading_mode == "LIVE"
+    is_non_paper_mode = not paper_trading_mode
+
+    # Hard-fail if any of: production env, staging env, LIVE trading mode,
+    # or non-paper trading mode. Any single trigger refuses to issue
+    # forgeable tokens.
+    if IS_PRODUCTION or IS_STAGING or is_live_mode or is_non_paper_mode:
+        # Identify which condition tripped the gate for the operator log.
+        if IS_PRODUCTION or IS_STAGING:
+            trigger = f"ENVIRONMENT={ENVIRONMENT}"
+        elif is_live_mode:
+            trigger = f"TRADING_MODE={trading_mode}"
+        else:
+            trigger = f"PAPER_TRADING_MODE={os.environ.get('PAPER_TRADING_MODE')}"
+
         if not secret_key:
             logger.critical(
                 f"SECURITY FAILURE: JWT_SECRET_KEY environment variable is required "
-                f"in {ENVIRONMENT} environment. Application cannot start."
+                f"when {trigger}. Application cannot start."
             )
             logger.critical("Generate a secure key with: openssl rand -hex 64")
             sys.exit(1)
@@ -80,7 +102,7 @@ def _validate_jwt_secret() -> str:
         if len(secret_key) < 32:
             logger.critical(
                 f"SECURITY FAILURE: JWT_SECRET_KEY must be at least 32 characters "
-                f"in {ENVIRONMENT} environment. Current length: {len(secret_key)}"
+                f"when {trigger}. Current length: {len(secret_key)}"
             )
             logger.critical("Generate a secure key with: openssl rand -hex 64")
             sys.exit(1)
@@ -93,10 +115,10 @@ def _validate_jwt_secret() -> str:
                 "Ensure this is a cryptographically random value."
             )
 
-        logger.info(f"JWT secret key validated for {ENVIRONMENT} environment")
+        logger.info(f"JWT secret key validated ({trigger})")
         return secret_key
 
-    # Development environment - allow fallback with warnings
+    # Development environment with PAPER mode - allow fallback with warnings
     if secret_key:
         if len(secret_key) < 32:
             logger.warning(

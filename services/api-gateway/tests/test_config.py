@@ -138,27 +138,3 @@ class TestSettingsValidation:
         # Clean up
         del os.environ["SERVICE_PORT"]
         del os.environ["LOG_LEVEL"]
-
-
-class TestJWTSecretKeyWarning:
-    """Test JWT secret key security"""
-
-    def test_default_jwt_secret_is_insecure(self):
-        """Test that default JWT secret key is recognized as insecure"""
-        settings = Settings()
-
-        # This should trigger a security warning in production
-        # JWT secret is loaded from environment or default
-        assert isinstance(settings.jwt_secret_key, str)
-        assert len(settings.jwt_secret_key) > 0
-        """Test setting custom JWT secret key"""
-        import os
-
-        os.environ["JWT_SECRET_KEY"] = "custom-secure-secret-key-32-chars-min"
-        settings = Settings()
-
-        assert settings.jwt_secret_key != "your-secret-key-change-in-production"
-        assert len(settings.jwt_secret_key) >= 32
-
-        # Clean up
-        del os.environ["JWT_SECRET_KEY"]
