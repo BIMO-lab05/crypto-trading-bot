@@ -319,6 +319,7 @@ export default function TournamentDashboard() {
             onClick={onRefresh}
             disabled={isFetching}
             title="Re-read tournament snapshot from disk"
+            className="min-h-[44px] md:min-h-0 py-3 md:py-1"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -326,7 +327,8 @@ export default function TournamentDashboard() {
               background: 'transparent',
               border: `1px solid ${C.border}`,
               borderRadius: 4,
-              padding: '4px 12px',
+              paddingLeft: 12,
+              paddingRight: 12,
               color: isFetching ? C.text3 : C.text2,
               fontFamily: 'Manrope, system-ui, sans-serif',
               fontSize: 11,
