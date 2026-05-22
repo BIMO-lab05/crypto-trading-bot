@@ -32,7 +32,7 @@ Pure frontend layout work over existing components. No new compose services, no 
 - Hard zero-tolerance no-horizontal-scroll assertion: for each viewport, query `document.querySelectorAll("[data-testid]")` and fail if any element's `boundingBox.x + boundingBox.width > window.innerWidth`. No float tolerance — float-rounding edge cases get tracked as bugs.
 - Touch-target assertion: every `<button>`, `<a>`, `[role="button"]` has computed `min-height >= 44px` (WCAG 2.5.5 Level AAA tappable target).
 - PathToLiveTile banner state-token assertion: `[data-testid="path-to-live-banner"]` visible without scroll at both viewports.
-- Anti-`hidden`-on-mobile grep gate: new `tests/integration/test_no_mobile_hidden_data.py` walks `frontend/src/**/*.jsx` and fails on any element with `data-testid="(metric|tile|chip|row)-*"` that also has `display: none`, `hidden md:block`, or `md:hidden` (where `md:hidden` is the "hide on mobile" anti-pattern). Allowlist by exact `data-testid` string with `reason` field.
+- Anti-`hidden`-on-mobile grep gate: new `tests/integration/test_no_mobile_hidden_data.py` walks `frontend/src/**/*.jsx` and fails on any element with `data-testid="(metric|tile|chip|row)-*"` that also has `display: none` or `hidden (sm|md|lg|xl):block` (the "hide on mobile, show on desktop" anti-pattern). `md:hidden` (and the rest of the `<bp>:hidden` family) is **permitted** — it is "hide on desktop, show on mobile" and is load-bearing for `TournamentDashboard.jsx` dual-render (cards visible <768px via `md:hidden`, table visible ≥768px via `hidden md:table`). Allowlist by exact `data-testid` string with `reason` field.
 
 ### Claude's Discretion
 - Exact gap/padding values on reflowed grids (Tailwind utility selection)
