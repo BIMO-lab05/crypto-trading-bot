@@ -1,34 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Polish & Real-Time
-status: Awaiting next milestone
-stopped_at: Phase 14 UI-SPEC approved
-last_updated: "2026-05-23T01:49:45.896Z"
-last_activity: 2026-05-23 — Milestone v1.2 completed and archived
+milestone: v1.3
+milestone_name: TA + Engine Correctness
+status: planning
+last_updated: "2026-05-23T13:06:38.266Z"
+last_activity: 2026-05-23
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 19
-  completed_plans: 19
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-18 after v1.1 milestone close)
+See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Milestone complete
+**Current focus:** v1.3 TA + Engine Correctness — restore Validated-set parity + fix audit-surfaced correctness defects in TA + trading-engine + ML services. Paper-only. 9 phases (16–24), two parallel tracks.
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-23 — Milestone v1.2 completed and archived
+Status: Defining requirements
+Last activity: 2026-05-23 — Milestone v1.3 started
 
 ## Deferred Items
 
@@ -50,6 +49,8 @@ Items acknowledged and deferred at milestone close on 2026-05-18:
 
 - v1.0 milestone shipped 2026-05-15 (9 phases, 50 plans, 427 commits)
 - v1.1 milestone shipped 2026-05-18 (5 phases, 19 plans, 138 commits; Phase 11 umbrella superseded by Phase 11.1 harnesses-only split)
+- v1.2 milestone shipped 2026-05-23 (3 phases, 19 plans; Phases 13–15)
+- v1.3 milestone opened 2026-05-23 (planned 9 phases, two parallel tracks, paper-only — TA + Engine Correctness)
 
 ### Decisions
 
@@ -70,7 +71,7 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 |---|-------------|------|--------|-----------|
 | 260522-hv0 | Fix JWT default-secret hole — extend `_validate_jwt_secret()` hard-fail to `TRADING_MODE=LIVE` / `PAPER_TRADING_MODE=false`; remove dead `Settings.jwt_secret_key` Pydantic field with insecure default | 2026-05-22 | `e0c4aa6` | [260522-hv0-fix-jwt-default-secret-hole-extend-hard-](./quick/260522-hv0-fix-jwt-default-secret-hole-extend-hard-/) |
 
-## Open Operator Actions (carry into v1.2)
+## Open Operator Actions (carry into v1.3)
 
 | ID | Action | Blocks |
 |---|---|---|
@@ -90,4 +91,4 @@ Resume file: .planning/phases/14-mobile-responsive-dashboard/14-UI-SPEC.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 16 (AUDIT-01 Validated-set re-audit) with `/gsd:plan-phase 16` — this phase gates all other v1.3 phases since it reconciles which Validated REQs are actually implemented.

@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- 🟡 **v1.3 TA + Engine Correctness** — Validated-set re-audit, execution-cap enforcement, Bybit-adapter contract fix, order reconciliation, paper-engine honesty, TA aggregator widening, round(price,N) kill, ML purge + V0-pattern eradication, operator-log + API hygiene (Phases 16-24) — in progress
 - ✅ **v1.0** — Bootstrap & tape, integration suite, tournament harness, significance + auto-PR, ML post-V0 cleanup, dashboard safety + smoke (Phases 1, 2, 3, 4, 5, 6, 7, 7.1, 7.2) — shipped 2026-05-15
 - ✅ **v1.1 Path to LIVE** — Pre-LIVE preflight, ML re-enablement gate, path-to-LIVE dashboard tile, carry-in closure harnesses, CI recovery (Phases 8, 9, 10, 11.1, 12 — Phase 11 superseded by 11.1) — shipped 2026-05-18
 - ✅ **v1.2 Polish & Real-Time** — Bybit-connector centralization, mobile responsive dashboard, planning-tooling hardening (Phases 13, 14, 15) — shipped 2026-05-23
@@ -66,9 +67,22 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 
 </details>
 
-### 📋 v1.3 — Planning
+### 🟡 v1.3 TA + Engine Correctness — In Progress
 
-Milestone scope TBD. Run `/gsd:new-milestone` to define scope, requirements, and phase breakdown.
+- [ ] Phase 16: Validated-Set Re-Audit (AUDIT-01) — gates Track A + Track B
+- [ ] Phase 17: Execution-Cap Hard Enforcement (TE-CAP-01..05)
+- [ ] Phase 18: Bybit-Adapter Contract Fix (BC-FIX-01..03)
+- [ ] Phase 19: Order Reconciliation + Idempotency (RECON-01..02)
+- [ ] Phase 20: Paper-Engine Honesty (PAPER-01..03)
+- [ ] Phase 21: TA Aggregator Widening + Leakage Net (TA-AGG-01..04)
+- [ ] Phase 22: round(price, N) Epidemic Kill (PRICE-01..02)
+- [ ] Phase 23: ML Purge + V0-Pattern Eradication (ML-PURGE-01..05)
+- [ ] Phase 24: Operator-Log + API Hygiene (HYG-01..04)
+
+**Parallelization (after Phase 16 closes):**
+- Track A (execution): Phases 17 → 18 → 19 → 20 (sequential within track)
+- Track B (signal + ML): Phases 21, 22, 23 can run independently
+- Cross-cutting: Phase 24 can run any time after Phase 16
 
 ## Progress
 
@@ -92,3 +106,12 @@ Milestone scope TBD. Run `/gsd:new-milestone` to define scope, requirements, and
 | 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete | 2026-05-22 |
 | 14. Mobile Responsive Dashboard | v1.2 | 6/6 | Complete | 2026-05-22 |
 | 15. Planning-Tooling Hardening | v1.2 | 4/4 | Complete | 2026-05-23 |
+| 16. Validated-Set Re-Audit | v1.3 | 0/? | Pending | — |
+| 17. Execution-Cap Hard Enforcement | v1.3 | 0/? | Pending | — |
+| 18. Bybit-Adapter Contract Fix | v1.3 | 0/? | Pending | — |
+| 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
+| 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
+| 21. TA Aggregator Widening + Leakage Net | v1.3 | 0/? | Pending | — |
+| 22. round(price, N) Epidemic Kill | v1.3 | 0/? | Pending | — |
+| 23. ML Purge + V0-Pattern Eradication | v1.3 | 0/? | Pending | — |
+| 24. Operator-Log + API Hygiene | v1.3 | 0/? | Pending | — |

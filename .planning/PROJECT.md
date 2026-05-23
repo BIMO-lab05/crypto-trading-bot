@@ -8,33 +8,53 @@ A self-hosted, microservices-based crypto trading bot targeting Bybit (paper tra
 
 The bot must never lose money it wasn't authorized to risk. Every trade goes through enforced risk caps (per-trade, daily-loss, drawdown, kill-switch) backed by code that actually runs — and any "edge" claim must be backed by DSR/CPCV evidence on returns through the tournament harness, not raw R² on price levels.
 
-## Current State (post v1.1, 2026-05-18)
+## Current State (post v1.2, 2026-05-23)
 
-**Shipped v1.1 (2026-05-15 → 2026-05-18, 5 phases / 19 plans / 138 commits):**
+**Shipped v1.2 (2026-05-22 → 2026-05-23, 3 phases / 19 plans):**
 
-- Pre-LIVE preflight enforced in code at three layers: CLI (`scripts/preflight_live.py`), HTTP endpoint (`GET /api/preflight/live-readiness`), and trading-engine boot path (`LIVE_PREFLIGHT_REJECTED reason=cap_too_high` on `MAX_POSITION_RISK_PCT > 2`); PR-label CI gate (`live: requested`) + RUNBOOK Pre-LIVE Operator Checklist
-- ML re-enablement gate: idempotent ≥7-day evidence loop driver + trading-engine startup auto-flip on DSR>0.95 evidence within 14 days + 5-member `MLGateReason` enum + Telegram digest of disable-reason counts + CI grep gates
-- Path-to-LIVE dashboard tile (`PathToLiveTile.jsx` polling `/api/preflight/live-readiness` + `/api/preflight/carry-ins` every 5s; DO-NOT-FLIP → ALMOST → READY transitions; 24h continuous-PASS window logic; Playwright smoke)
-- Carry-in closure harnesses (5 operator-runnable scripts at `scripts/closure/liveclose-0[1-5]-*` + shared Draft 2020-12 JSON Schema + orchestrator + `LIVECLOSE-INDEX.md` index)
-- CI billing-failure detector workflow (cron every 6h, self-trigger-safe, direct Telegram + GitHub Issue path) + evidence scaffolds for the two operator-blocked CI carry-ins
+- Bybit-connector centralization (Phase 13): 20-violation inventory across 17 files closed; CI grep gate `tests/ci/test_no_bybit_bypass.py` + standalone workflow flipped GREEN; `rotate_secrets` + `shared/health_check` rerouted through connector; `binance.py` archived
+- Mobile responsive dashboard (Phase 14): single-column reflow ≤768px on Dashboard, PathToLiveTile, KeyMetricsStrip, TournamentDashboard; 44px tap targets; Playwright matrix @ iPhone-SE + iPad
+- Planning-tooling hardening (Phase 15): plan one-liner CI gate, umbrella→decimal auto-supersession SDK port spec, audit-refresh-after-last-phase lock
 
-**Open at v1.1 close (operator wall-clock only — no code debt; carries into v1.2):**
+**Open at v1.2 close (operator wall-clock only — no code debt; carries into v1.3):**
 
-- OP-01: LIVE-flip manual smoke (LIVECLOSE-05 harness execution under operator supervision)
-- OP-02: Apply migration 005 (`tournament_reader` role) — blocks LIVECLOSE-04 verdict
-- OP-03: Set `TOURNAMENT_READER_PASSWORD` + force-recreate tournament-harness — blocks LIVECLOSE-04 verdict
-- OP-04: Resolve GitHub Actions billing — blocks LIVECLOSE-02, CIRESTORE-01, CIRESTORE-02 evidence accrual
-- INFRA-02 checkpoint: Run `bash bootstrap.sh × 2` from fresh tmp clone (LIVECLOSE-01 harness execution)
-- LIVECLOSE-03 evidence accrual: ≥7-day forward-paper-test rows in `leaderboard` with `psr_ci_published=1`
+- OP-01..OP-05 + LIVECLOSE-01..03 + INFRA-02 checkpoint: same backlog as v1.1 close; ML-prediction container-exec verification (BC-07) + MOBILE-03 pytest matrix execution (blocked by pre-v1.2 INFRA-02 + OP-04); TOOL-02 + TOOL-03 SDK ports into `~/.claude/get-shit-done/workflows/complete-milestone.md` (designed-RED forcing functions)
+- Plus 17 tech-debt items aggregated in v1.2 milestone audit (mobile card visual hierarchy, focus-visible WCAG, hardcoded hex literals, vite_preview_server fixture, etc.) — carry as backlog candidates, NOT pre-committed to v1.3.
 
-## Current Milestone: v1.2 Polish & Real-Time
+**v1.3 forensic-audit findings (2026-05-23, three parallel agents over technical-analysis + trading-engine + ml-{prediction,retraining} + bybit-connector):**
 
-**Goal:** Centralize all market-data access through `services/bybit-connector/` (refactor every direct Bybit API call, hardcoded URL, or alternate market-data source elsewhere in the repo to route through the connector REST surface; CI grep gate locks the contract), ship mobile-friendly dashboard, and harden planning tooling (one-liner enforcement + umbrella→decimal auto-supersede + audit-refresh-after-last-phase lock) — pure code scope with no wall-clock dependencies. (Rescoped 2026-05-21 — original `/ws/metrics` push goal deferred to v2.)
+- **CRITICAL — Validated-set drift:** RISK-06 (maker-only) marked Validated but is a stub (`use_post_only=False` hard-coded at `trading-engine/app/auto_trader.py:544`). RISK-04 per-trade cap is advisory after boot — proposed risk calculated at `auto_trader.py:1697` but order NOT rejected on breach. ADR-010 paper 10% cap NOT in code (default stays 0.02 at `config.py:321`). LSTM "deleted" per CLAUDE.md but `ml-prediction-service/app/models/ensemble_model.py:15` carries live `from tensorflow.keras.layers import LSTM`.
+- **CRITICAL — LIVE-flip dead on arrival:** `trading-engine/app/exchanges/bybit_adapter.py:663` posts to `/api/v1/order/create`; bybit-connector exposes `/api/v1/order/place`. Same mismatch on `get_positions` (`/api/v1/position/list` vs `/api/v1/account/positions`). Both latent in paper mode, 404 the moment `PAPER_TRADING_MODE=false`.
+- **CRITICAL — V0 R² pattern survives in trainer:** `ml-retraining-service/app/core/model_trainer.py:430,623` calls `r2_score` on inverse-transformed price arrays at validation + evaluation; `verify_all_gru_models.py` gates on this metric. Forbidden per TOURN-07 / V0 finding.
+- **CRITICAL — Order reconciliation missing:** no polling / WS handler updates order state post-submit; `live_trading.py:493` `sync_positions_with_exchange()` runs once at startup only.
+- **CRITICAL — No retry idempotency key:** `bybit_adapter.py:346` 3-retry loop sends no `orderLinkId`; server-side 5xx after commit creates duplicate live orders.
+- **CRITICAL — emergency-stop HTTP endpoint UNAUTHENTICATED** at `services/trading-engine/app/handlers/orchestration.py:591`.
+- **HIGH — round(price,2) epidemic across 4 more strategies** (trend_following, support_resistance, momentum_breakout, research_optimized) beyond the two sqzmom hits already known; ADA SL/TP truncated to wrong tick.
+- **HIGH — TA aggregator uses only 3 of 13 implemented indicators** (RSI + MACD + Trend Filter at `technical-analysis/app/handlers/analysis.py:19-132`); ADX, Ichimoku, SQZMOM, RSI-Divergence, Volume Confirmation wasted.
+- **HIGH — Paper-engine has no SL/TP triggers, no slippage model, colliding order IDs** at `paper_trading.py:122,148,151`.
+- **HIGH — Stale "Sentiment 15%" log every cycle** at `auto_trader.py:1130,1261`; reality TA=0.40, ML=0.40, MTF=0.20, sentiment=0 (removed 2026-05-02).
+- **MEDIUM — MACD param divergence** (route 8/17/9 vs settings 5/35/5), **BB std divergence** (route 2.0 vs config 2.5), TA CORS wildcard with credentials, `feature_engineer.get_feature_names()` returns `[]`, legacy `/api/v1/market/*` duplicated at api-gateway.
 
-**Target features:**
-- Bybit-connector centralization: every direct Bybit API call (`pybit` imports, hardcoded `api.bybit.com` / `wss://stream.bybit` URLs) or alternate market-data source outside `services/bybit-connector/` is refactored through the connector REST surface; CI grep gate prevents new direct-Bybit imports outside the connector
-- Mobile-friendly responsive dashboard layout (single-column ≤768px; tile reflow; PathToLiveTile stacks; viewport meta + responsive tokens)
-- Planning-tooling fixes: plan-template one-liner validation (reject Rule/Task/placeholder), `gsd-sdk roadmap.analyze` umbrella→decimal auto-supersession, audit-refresh-after-last-phase workflow lock
+## Current Milestone: v1.3 TA + Engine Correctness
+
+**Goal:** Restore one-to-one parity between PROJECT.md's Validated set and actual code in `services/technical-analysis/` + `services/trading-engine/` + `services/ml-{prediction,retraining}-service/`. Fix the execution and signal correctness defects surfaced by the 2026-05-23 forensic audit. Paper-only — no LIVE flip. No new features. Every claim in PROJECT.md ships with `file:line` evidence after this milestone closes.
+
+**Target features (two parallel tracks, 9 phases):**
+
+*Track A — Execution hardening:*
+- **Phase 16 — Validated-set re-audit** (gates everything else): re-run trust-no-docs against every Validated REQ with `file:line` evidence; demote items lacking implementation
+- **Phase 17 — Execution-cap hard enforcement:** cap rejection in order loop, emergency-stop admin auth, RISK-06 maker/post-only implementation, ADR-010 paper 10% cap in code, kill bare-except in order path
+- **Phase 18 — Bybit-adapter contract fix:** fix dead endpoint paths in `bybit_adapter.py`, extend `TapeReplayClient` with order endpoints, add contract tests against bybit-connector router surface
+- **Phase 19 — Order reconciliation + idempotency:** polling or WS handler for order updates, `orderLinkId` on every place + retry
+- **Phase 20 — Paper-engine honesty:** SL/TP triggers in paper sim, slippage model, 48h max-hold + stop-loss-as-limit regression tests
+
+*Track B — Signal + ML correctness:*
+- **Phase 21 — TA aggregator widening + leakage net:** bring ADX + Volume + SQZMOM into vote, reconcile MACD/BB param divergence, look-ahead-leakage regression tests
+- **Phase 22 — round(price, N) epidemic kill:** fix all 6 surviving call sites, sub-$1 asset fixture suite, CI grep gate
+- **Phase 23 — ML purge + V0-pattern eradication:** remove price-level `r2_score` from trainer + verify script, archive LSTM (ensemble_model + lstm.py), fix `feature_engineer.get_feature_names()`, marker-age check, CI grep gate
+
+*Cross-cutting:*
+- **Phase 24 — Operator-log + API hygiene:** fix stale Sentiment log, DSR staleness enforcement, TA CORS lockdown, deprecate legacy `/api/v1/market/*` at api-gateway
 
 ## Requirements
 
@@ -108,15 +128,28 @@ The bot must never lose money it wasn't authorized to risk. Every trade goes thr
 
 ### Active
 
-<!-- v1.2 ratified scope. REQ-IDs assigned in .planning/REQUIREMENTS.md. -->
+<!-- v1.3 ratified scope. REQ-IDs assigned in .planning/REQUIREMENTS.md. -->
 
-**v1.2 Polish & Real-Time (ratified 2026-05-18)**
+**v1.3 TA + Engine Correctness (ratified 2026-05-23)**
 
-- **BC-NN (TBD, Phase 13)**: Bybit-connector market-data centralization — audit + refactor every direct Bybit API call or alternate market-data source outside `services/bybit-connector/`; CI grep gate. (Rescoped 2026-05-21; replaced WS-01..04 which is deferred to v2.)
-- **MOBILE-01..03**: Mobile-friendly responsive dashboard layout (≤768px breakpoint)
-- **TOOL-01..03**: Planning-tooling fixes (one-liner validation, umbrella auto-supersede, audit-refresh lock)
+> ⚠ Phase 16 (AUDIT-01) re-audits the Validated set above with `file:line` proof. Any item marked Validated but lacking implementation will be demoted at v1.3 close. Today's known drift: RISK-06 (stub), RISK-04 cap (advisory after boot), ADR-010 paper cap (not in code), LSTM-archived claim (false).
 
-### Future (deferred from v1.2)
+*Track A — Execution:*
+- **AUDIT-01 (Phase 16):** Re-audit Validated set with `file:line` evidence; demote items lacking implementation
+- **TE-CAP-01..05 (Phase 17):** Cap-rejection in order loop; emergency-stop admin auth; RISK-06 maker/post-only impl; ADR-010 paper cap in code; kill bare-except in order path
+- **BC-FIX-01..03 (Phase 18):** Fix `bybit_adapter.py` dead endpoint paths; extend `TapeReplayClient` with order endpoints; contract tests against bybit-connector
+- **RECON-01..02 (Phase 19):** Order-state polling/WS handler; `orderLinkId` on every place + retry
+- **PAPER-01..03 (Phase 20):** Paper-sim SL/TP triggers + slippage model; 48h max-hold + stop-loss-as-limit regression tests
+
+*Track B — Signal + ML:*
+- **TA-AGG-01..04 (Phase 21):** Bring ADX + Volume + SQZMOM into aggregator vote; reconcile MACD route/settings; reconcile BB std-dev; look-ahead-leakage regression tests
+- **PRICE-01..02 (Phase 22):** Fix `round(price, 2)` at all 6 surviving call sites; sub-$1 asset fixture suite; CI grep gate
+- **ML-PURGE-01..05 (Phase 23):** Remove price-level `r2_score` from trainer + verify; archive LSTM (ensemble_model + lstm.py); fix `feature_engineer.get_feature_names()`; marker-age check on `mlgate_auto_flip.json`; CI grep gate
+
+*Cross-cutting:*
+- **HYG-01..04 (Phase 24):** Fix stale Sentiment log; DSR staleness enforcement on auto-flip; TA CORS lockdown; deprecate legacy `/api/v1/market/*` at api-gateway
+
+### Future (deferred from v1.3)
 
 - Operator-action carry-overs (no code work owed): execute LIVECLOSE-01..05 harnesses + close CIRESTORE-01/02 after OP-04 resolves
 - Tournament-harness first cross-symbol expansion (XRP/AVAX) — gated on production validation
@@ -209,4 +242,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 — v1.2 Polish & Real-Time milestone ratified; v1.1 Path to LIVE shipped (17/19 deliverables: 12 complete + 5 harness-delivered + 2 operator-blocked on OP-04)*
+*Last updated: 2026-05-23 — v1.3 TA + Engine Correctness milestone ratified after 3-agent forensic audit; v1.2 Polish & Real-Time shipped (13/13 REQs satisfied + 3 deferred operator carry-ins / SDK ports). Validated-set drift documented under v1.3 Active block — Phase 16 (AUDIT-01) will reconcile.*
