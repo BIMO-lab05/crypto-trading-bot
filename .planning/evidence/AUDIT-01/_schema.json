@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crypto-trading-bot/.planning/evidence/AUDIT-01/_schema.json",
+  "title": "AUDIT-01 Validated-Set Re-Audit",
+  "description": "Machine-readable row contract for the Phase 16 trust-no-docs re-audit of every REQ in PROJECT.md ### Validated (pre-v1, v1.0, v1.1, v1.2) plus five synthetic CLAUDE-* IDs (per CONTEXT D-04). Plan 01 emits the seeded JSON with status=pending for every row; Plans 02/03/04/05 write per-track delta files; Plan 06 merges deltas into the canonical file with zero pending rows.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "rows"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "rows": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/row"}
+    }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["req_id", "era", "source", "claim", "status"],
+      "properties": {
+        "req_id": {"type": "string", "minLength": 3},
+        "era": {"enum": ["pre-v1", "v1.0", "v1.1", "v1.2"]},
+        "source": {"enum": ["PROJECT.md", "v1.0-REQUIREMENTS.md", "v1.1-REQUIREMENTS.md", "v1.2-REQUIREMENTS.md", "CLAUDE.md"]},
+        "claim": {"type": "string", "minLength": 5},
+        "evidence_file": {"type": ["string", "null"]},
+        "evidence_line_start": {"type": ["integer", "null"], "minimum": 0},
+        "evidence_line_end": {"type": ["integer", "null"], "minimum": 0},
+        "status": {"enum": ["pending", "satisfied", "drift", "missing"]},
+        "notes": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
