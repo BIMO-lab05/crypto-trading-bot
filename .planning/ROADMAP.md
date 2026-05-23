@@ -69,20 +69,91 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 
 ### 🟡 v1.3 TA + Engine Correctness — In Progress
 
-- [ ] Phase 16: Validated-Set Re-Audit (AUDIT-01) — gates Track A + Track B
-- [ ] Phase 17: Execution-Cap Hard Enforcement (TE-CAP-01..05)
-- [ ] Phase 18: Bybit-Adapter Contract Fix (BC-FIX-01..03)
-- [ ] Phase 19: Order Reconciliation + Idempotency (RECON-01..02)
-- [ ] Phase 20: Paper-Engine Honesty (PAPER-01..03)
-- [ ] Phase 21: TA Aggregator Widening + Leakage Net (TA-AGG-01..04)
-- [ ] Phase 22: round(price, N) Epidemic Kill (PRICE-01..02)
-- [ ] Phase 23: ML Purge + V0-Pattern Eradication (ML-PURGE-01..05)
-- [ ] Phase 24: Operator-Log + API Hygiene (HYG-01..04)
+**Milestone Goal:** Restore one-to-one parity between PROJECT.md's Validated set and actual code in `services/technical-analysis/` + `services/trading-engine/` + `services/ml-{prediction,retraining}-service/`. Fix execution and signal correctness defects surfaced by the 2026-05-23 forensic audit. Paper-only — no LIVE flip. No new features. Every claim in PROJECT.md ends v1.3 with `file:line` evidence or is demoted.
+
+- [ ] **Phase 16: Validated-Set Re-Audit** — Trust-no-docs sweep of every REQ in PROJECT.md `### Validated` (pre-v1, v1.0, v1.1, v1.2) with `file:line` evidence; demote drift items (RISK-04 cap advisory, RISK-06 stub, ADR-010 paper cap missing, LSTM-archived false). Gates Track A + Track B.
+- [ ] **Phase 17: Execution-Cap Hard Enforcement** — Cap-rejection in order loop, emergency-stop admin auth, RISK-06 maker/post-only implementation, ADR-010 paper 10% cap in code, kill bare-except in order path (TE-CAP-01..05)
+- [ ] **Phase 18: Bybit-Adapter Contract Fix** — Fix `bybit_adapter.py` dead endpoint paths (`/api/v1/order/create` → `/api/v1/order/place`; `/api/v1/position/list` → `/api/v1/account/positions`); extend `TapeReplayClient` with order endpoints; contract tests against bybit-connector router surface (BC-FIX-01..03)
+- [ ] **Phase 19: Order Reconciliation + Idempotency** — Order-state polling or WS handler post-submit; deterministic `orderLinkId` on every place + retry (RECON-01..02)
+- [ ] **Phase 20: Paper-Engine Honesty** — Paper-sim slippage model; SL/TP trigger evaluation; monotonic order IDs; 48h max-hold + stop-loss-as-limit regression tests (PAPER-01..03)
+- [ ] **Phase 21: TA Aggregator Widening + Leakage Net** — Bring ADX + Volume + SQZMOM into aggregator vote; reconcile MACD route/settings drift (5/35/5 canonical); reconcile BB std-dev drift (2.5 canonical); look-ahead-leakage regression suite (TA-AGG-01..04)
+- [ ] **Phase 22: round(price, N) Epidemic Kill** — Fix `round(price, 2)` at 6 surviving call sites; sub-$1 asset fixture suite; CI grep gate (PRICE-01..02)
+- [ ] **Phase 23: ML Purge + V0-Pattern Eradication** — Remove price-level `r2_score` from trainer + verify; archive LSTM (ensemble_model + lstm.py); fix `feature_engineer.get_feature_names()` returning `[]`; marker-age check on `mlgate_auto_flip.json`; CI grep gate vs r2_score on price-domain arrays (ML-PURGE-01..05)
+- [ ] **Phase 24: Operator-Log + API Hygiene** — Fix stale "Sentiment 15%" log lines; DSR staleness enforcement on auto-flip; TA CORS lockdown; deprecate legacy `/api/v1/market/*` at api-gateway (HYG-01..04)
 
 **Parallelization (after Phase 16 closes):**
 - Track A (execution): Phases 17 → 18 → 19 → 20 (sequential within track)
 - Track B (signal + ML): Phases 21, 22, 23 can run independently
 - Cross-cutting: Phase 24 can run any time after Phase 16
+
+## Phase Details
+
+> v1.0 phases (1–7.2), v1.1 phases (8–12), and v1.2 phases (13–15) detail sections live in their respective milestone archives under `.planning/milestones/`. Only the active v1.3 phases (16–24) carry full detail blocks below.
+
+### Phase 16: Validated-Set Re-Audit
+
+**Goal**: Trust-no-docs sweep of every REQ in PROJECT.md `### Validated` (pre-v1, v1.0, v1.1, v1.2). Produce `.planning/evidence/AUDIT-01/validated-reaudit.json` with `{req_id, claim, evidence_file, evidence_line_start, evidence_line_end, status}` where `status ∈ {satisfied, drift, missing}`. Rewrite PROJECT.md `### Validated` to reflect reality; demote drift/missing REQs to Active or Out of Scope with reason. Gates Track A + Track B — downstream phase sizing depends on truthful baseline.
+**Depends on**: Nothing
+**Requirements**: AUDIT-01
+
+**Plans:** 7 plans
+
+Plans:
+- [ ] 16-01-PLAN.md — Inventory + schema scaffolding (seed validated-reaudit.json with ~81 Validated REQs)
+- [ ] 16-02-PLAN.md — Track A audit: Risk + Preflight + MLGate + Observability + CLAUDE-PAPER-CAP-ADR010 (~17 rows)
+- [ ] 16-03-PLAN.md — Track B audit: ML + MLCL + TOURN + EXEC-03 + CLAUDE-LSTM-ARCHIVED + CLAUDE-SENTIMENT-REMOVED (~19 rows)
+- [ ] 16-04-PLAN.md — Track C1 audit: Infra + Dashboard + DASHLIVE + DATA + EXEC-01/02 + UI + TEST + CLAUDE-VALIDATED-SYMBOLS + CLAUDE-EXEC-MAINNET-PRICES (~24 rows)
+- [ ] 16-05-PLAN.md — Track C2 audit: BC + MOBILE + TOOL + LIVECLOSE + CIRESTORE (~21 rows)
+- [ ] 16-06-PLAN.md — Merge four track deltas into canonical validated-reaudit.json + write validated-reaudit.md with drift-to-downstream-phase mapping
+- [ ] 16-07-PLAN.md — Operator checkpoint:decision on demotions; rewrite PROJECT.md ### Validated; correct CLAUDE.md drift sentences; flip AUDIT-01 traceability to Complete
+
+### Phase 17: Execution-Cap Hard Enforcement
+
+**Goal**: Make every risk cap a binding gate in the order-submission path. Today `auto_trader.py:1697` computes proposed risk but never rejects; emergency-stop endpoint at `handlers/orchestration.py:591` has no auth; RISK-06 maker-only is `use_post_only=False` hard-coded at `auto_trader.py:544`; paper 10% cap (ADR-010) missing from `config.py:321` defaults; five bare-`except:` clauses around order submission swallow cap violations. This phase wires hard rejection, admin auth, post-only implementation, paper-cap config branch, and replaces bare-excepts with typed exception handling.
+**Depends on**: Phase 16
+**Requirements**: TE-CAP-01, TE-CAP-02, TE-CAP-03, TE-CAP-04, TE-CAP-05
+
+### Phase 18: Bybit-Adapter Contract Fix
+
+**Goal**: LIVE trading is dead-on-arrival because `bybit_adapter.place_order()` at `services/trading-engine/app/exchanges/bybit_adapter.py:663` posts to `/api/v1/order/create`; bybit-connector exposes `/api/v1/order/place` at `services/bybit-connector/app/main.py:587`. `get_positions()` at `bybit_adapter.py:568` calls `/api/v1/position/list`; connector exposes `/api/v1/account/positions` at `main.py:557`. `TapeReplayClient` lacks `place_order`/`cancel_order`/`get_wallet_balance` — tape-mode integration tests AttributeError on order paths. This phase corrects endpoint paths, extends tape client with order stubs, and adds a contract test that imports the connector router and validates every adapter call against the route table.
+**Depends on**: Phase 16, Phase 17
+**Requirements**: BC-FIX-01, BC-FIX-02, BC-FIX-03
+
+### Phase 19: Order Reconciliation + Idempotency
+
+**Goal**: Today no polling or WebSocket handler updates order state post-submit. `live_trading.py:493` `sync_positions_with_exchange()` runs once at startup. SUBMITTED→FILLED has no auto-updater; positions go stale. `bybit_adapter.py:346` 3-retry loop sends no `orderLinkId`; server-side 5xx after commit creates duplicate live orders. This phase implements either periodic polling or WS-private-channel reconciliation (decision in phase CONTEXT.md), and adds deterministic `orderLinkId` reused across retries within the 3-attempt window.
+**Depends on**: Phase 16, Phase 17, Phase 18
+**Requirements**: RECON-01, RECON-02
+
+### Phase 20: Paper-Engine Honesty
+
+**Goal**: Today `paper_trading.py:122` fills at `current_price` with no slippage; `paper_trading.py:148` sets `OrderStatus.FILLED` unconditionally; `paper_trading.py:151` `bybit_order_id = f"PAPER_{symbol}_{side}"` collides on concurrent same-symbol orders. No SL/TP trigger evaluation in paper or position-manager paths — paper positions with SL/TP set silently never exit. Jan 2026 fixes (48h max-hold, stop-loss-as-limit at commit `380a674`) have no regression tests. This phase adds a per-symbol slippage model (5bps majors / 10bps ADA/BNB defaults), implements SL/TP trigger evaluation on every tick, makes `bybit_order_id` monotonic, and lands regression tests for the Jan 2026 fixes.
+**Depends on**: Phase 16, Phase 17, Phase 18, Phase 19
+**Requirements**: PAPER-01, PAPER-02, PAPER-03
+
+### Phase 21: TA Aggregator Widening + Leakage Net
+
+**Goal**: Aggregator at `services/technical-analysis/app/handlers/analysis.py:19-132` combines only RSI + MACD + Trend Filter from 13 implemented indicators (ADX, Ichimoku, SQZMOM, RSI-Divergence, Volume Confirmation, ATR, Stochastic, Bollinger, SMA, EMA wasted). Param drift: route MACD `8/17/9` (`main.py:284-286`) vs settings `5/35/5` (`config.py:71-81`); BB std-dev route `2.0` (`main.py:306`) vs config `2.5` (`config.py:88`). No look-ahead-leakage regression tests. This phase widens the aggregator vote (ADX trend gate, SQZMOM regime overlay, Volume Confirmation veto), reconciles MACD + BB params to single source of truth, and lands a leakage regression suite covering all 13 indicators + aggregator.
+**Depends on**: Phase 16
+**Requirements**: TA-AGG-01, TA-AGG-02, TA-AGG-03, TA-AGG-04
+
+### Phase 22: round(price, N) Epidemic Kill
+
+**Goal**: Commit `487d1bd` fixed one site; the 2026-05-23 audit found 6 more sites where price-domain values are rounded to 2 decimals — fatal for sub-$1 assets (ADA at ~$0.40). `trend_following_strategy.py:1105-1184` (8 hits), `support_resistance_strategy.py:643-700` (4 hits), `momentum_breakout_strategy.py:1059-1116` (4 hits), `research_optimized_strategy.py:683` (1 hit), plus two known sqzmom hits. This phase replaces every `round(price, 2)` with `float(price)` (or per-symbol tick-size precision), adds a sub-$1 asset fixture suite, and lands a CI grep gate that prevents reintroduction.
+**Depends on**: Phase 16
+**Requirements**: PRICE-01, PRICE-02
+
+### Phase 23: ML Purge + V0-Pattern Eradication
+
+**Goal**: `ml-retraining-service/app/core/model_trainer.py:430,623` calls `r2_score` on inverse-transformed price arrays — the exact TOURN-07/V0 forbidden pattern. `verify_all_gru_models.py` gates on this metric, selecting wrong models. `ml-prediction-service/app/models/ensemble_model.py:15` carries live `from tensorflow.keras.layers import LSTM, Dense, Dropout`; `ml-retraining-service/app/core/models/lstm.py` is present in source tree (CLAUDE.md "LSTM deleted" is false). `feature_engineer.py:32,283` initializes `self.feature_names = []` and never populates — `get_feature_names()` returns empty always. `mlgate_auto_flip.json` marker write at `lifespan/ml.py:184-196` is best-effort with `OSError` swallowed; reader has no marker-age check. This phase removes price-level R², archives LSTM properly, fixes `feature_names` population, adds marker-age check + write-failure handling, and lands a CI grep gate against price-domain R².
+**Depends on**: Phase 16
+**Requirements**: ML-PURGE-01, ML-PURGE-02, ML-PURGE-03, ML-PURGE-04, ML-PURGE-05
+
+### Phase 24: Operator-Log + API Hygiene
+
+**Goal**: Cross-cutting cleanup. `auto_trader.py:1130,1261` log `"Technical 40% + ML 30% + Sentiment 15% + MTF 15%"` every cycle — wrong (ML is 0.40 not 0.30, sentiment is 0 not 0.15 after 2026-05-02 removal). `lifespan/ml.py:145+` reads DSR evidence but does not fail when rows are >14 days old. `services/technical-analysis/app/main.py:216-222` has `allow_origins=["*"]` with `allow_credentials=True` — security hole. `services/api-gateway/app/main.py:2320-2385` exposes legacy `/api/v1/market/*` routes duplicating the modern `/api/market/*` surface with no deprecation header. This phase sources aggregator weights from the constant, enforces DSR staleness, locks down TA CORS, and tags the legacy gateway routes for deprecation.
+**Depends on**: Phase 16
+**Requirements**: HYG-01, HYG-02, HYG-03, HYG-04
 
 ## Progress
 
@@ -106,7 +177,7 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 | 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete | 2026-05-22 |
 | 14. Mobile Responsive Dashboard | v1.2 | 6/6 | Complete | 2026-05-22 |
 | 15. Planning-Tooling Hardening | v1.2 | 4/4 | Complete | 2026-05-23 |
-| 16. Validated-Set Re-Audit | v1.3 | 0/? | Pending | — |
+| 16. Validated-Set Re-Audit | v1.3 | 0/7 | Pending | — |
 | 17. Execution-Cap Hard Enforcement | v1.3 | 0/? | Pending | — |
 | 18. Bybit-Adapter Contract Fix | v1.3 | 0/? | Pending | — |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
