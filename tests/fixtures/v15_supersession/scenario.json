@@ -1,0 +1,36 @@
+{
+  "scenario_id": "v15-phase-11-supersession",
+  "description": "Phase 11 (Carry-In Closure, umbrella) is wholly superseded by Phase 11.1 (Carry-In Closure Harnesses) which carries the full LIVECLOSE-01..05 requirement set. The umbrella's REQ set is empty (the umbrella was abandoned before requirements were listed under it), so the superset rule trivially fires: ∅ ⊆ {LIVECLOSE-01..05}. The verb must rewrite the umbrella's ROADMAP row from `[ ] Phase 11: Carry-In Closure` to `[⊘] Phase 11: Carry-In Closure — superseded by Phase 11.1`. Source-of-truth canonical anchor for upstream SDK port of `gsd-sdk query roadmap.analyze --apply`.",
+  "umbrella": {
+    "phase_id": "11",
+    "title": "Carry-In Closure",
+    "pre_supersession_status": " ",
+    "pre_supersession_requirements": []
+  },
+  "decimal_child": {
+    "phase_id": "11.1",
+    "title": "Carry-In Closure Harnesses",
+    "status": "x",
+    "requirements": [
+      "LIVECLOSE-01",
+      "LIVECLOSE-02",
+      "LIVECLOSE-03",
+      "LIVECLOSE-04",
+      "LIVECLOSE-05"
+    ]
+  },
+  "expected_outcome": {
+    "umbrella_post_supersession_status": "⊘",
+    "umbrella_post_supersession_annotation": "superseded by Phase 11.1",
+    "diff_lines_changed": 1
+  },
+  "idempotency": {
+    "second_apply_diff_lines": 0,
+    "verifier_command": "gsd-sdk query roadmap.analyze --apply"
+  },
+  "coverage_invariant": "Phase N.M's requirement set ⊇ Phase N's requirement set AND Phase N.M is complete AND Phase N is the immediate-decimal-parent (no integer-prefix collisions). Empty umbrella REQ set (∅ ⊆ any) trivially satisfies the superset check.",
+  "source_anchors": {
+    "roadmap": ".planning/ROADMAP.md (lines 35-36)",
+    "requirements_history": "git log -- .planning/REQUIREMENTS.md"
+  }
+}
