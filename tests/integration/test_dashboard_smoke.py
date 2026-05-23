@@ -86,10 +86,15 @@ def tile_audit():
     The JSON is read at runtime (NOT inlined into the test) so any Plan 03
     audit edit is picked up by the smoke without re-shipping the test file.
     """
+    # Phase 6 (DASH-01) shipped in v1.0 and was archived under
+    # .planning/milestones/v1.0-phases/ at v1.1 cutover (commit d1daa1a).
+    # AUDIT-01 (Phase 16, 2026-05-23) restored the file to the archive path
+    # and updated this reference; verdicts are frozen at v1.0 sign-off.
     audit_path = (
         Path(__file__).resolve().parents[2]
         / ".planning"
-        / "phases"
+        / "milestones"
+        / "v1.0-phases"
         / "06-dashboard-audit-safety-state"
         / "06-TILE-AUDIT.json"
     )
