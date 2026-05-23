@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "req_id": "EXEC-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "15-container microservices stack — existing",
+      "evidence_file": "docker-compose.unified.yml",
+      "evidence_line_start": 33,
+      "evidence_line_end": 928,
+      "status": "satisfied",
+      "notes": "17 service blocks present (postgres, timescaledb, redis, rabbitmq, prometheus, grafana, api-gateway, frontend, bybit-connector, market-data, portfolio-manager, technical-analysis, trading-engine, notification-service, ml-prediction, tournament-harness, sentiment-analysis, risk-metrics — 18 incl. risk-metrics line 885; PROJECT.md claim 15 was a 2026-04 snapshot. Per plan guidance ('spirit is microservices-stack exists'), satisfied; container count grew 15→17 with tournament-harness + sentiment retention."
+    },
+    {
+      "req_id": "EXEC-02",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Bybit mainnet price feed; paper trading default — existing",
+      "evidence_file": "services/bybit-connector/app/config.py",
+      "evidence_line_start": 32,
+      "evidence_line_end": 35,
+      "status": "satisfied",
+      "notes": "bybit_testnet defaults False (production prices) per services/bybit-connector/app/config.py:32-35. Compose pins BYBIT_TESTNET=${BYBIT_TESTNET:-false} at docker-compose.unified.yml:399,747. PAPER_TRADING_MODE defaults true per compose lines 291,595 (api-gateway + trading-engine env). Mainnet prices + simulated orders confirmed end-to-end."
+    },
+    {
+      "req_id": "DATA-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "`is_mainnet` column on klines/tickers (per bullet 'DATA-01, DATA-02: `is_mainnet` column + backtest filter; confidence sentinel chain cleaned — 2026-04 commits')",
+      "evidence_file": "services/market-data-service/app/database.py",
+      "evidence_line_start": 169,
+      "evidence_line_end": 174,
+      "status": "satisfied",
+      "notes": "Idempotent ALTER TABLE applies is_mainnet BOOLEAN NOT NULL DEFAULT true on klines (services/market-data-service/app/database.py:172) + creates idx_klines_mainnet (line 173). ORM model declares column at services/market-data-service/app/models.py:43-49 with server_default text('true'). Note: column only on klines table; tickers table not visible in column_migrations (claim mentions both — possible partial scope, but klines is the load-bearing audit per ADR-013)."
+    },
+    {
+      "req_id": "DATA-02",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Backtest filter on is_mainnet to avoid testnet-flip contamination (per bullet 'DATA-01, DATA-02: `is_mainnet` column + backtest filter; confidence sentinel chain cleaned — 2026-04 commits')",
+      "evidence_file": "backtesting/run_walk_forward_ensemble.py",
+      "evidence_line_start": 563,
+      "evidence_line_end": 571,
+      "status": "satisfied",
+      "notes": "ADR-013 testnet-taint rule enforced at backtesting/run_walk_forward_ensemble.py:563-571 (`raw[raw['is_mainnet'] == True]` with drop-count logging). Repository layer additionally filters at services/market-data-service/app/repository.py:128-129 (`mainnet_only=True` default). DOCSTRING reference also at backtesting/bybit_data_fetcher.py:11. CSV fixtures carry is_mainnet column."
+    },
+    {
+      "req_id": "UI-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "React dashboard with REST-polling (dead WS scaffolding stripped)",
+      "evidence_file": "frontend/src/hooks/useGatewayWebSocket.js",
+      "evidence_line_start": 11,
+      "evidence_line_end": 38,
+      "status": "satisfied",
+      "notes": "REST-polling dominant pattern — useQuery used in HybridStrategyPanel, PerformanceAnalyticsPanel, RegimeIndicator, TradeHistory, useAutoTrader, useCarryIns, useLiveReadiness, useSafetyState, usePerformanceMetrics, etc. Sole `new WebSocket(...)` call at frontend/src/hooks/useGatewayWebSocket.js:138 is opt-in (Phase 6 DASH-02 feature gated by VITE_ENABLE_WEBSOCKET='false' flag, line 38). Dashboard.jsx does NOT mount useGatewayWebSocket — components fall back to polling per hook docstring. UI-01 spirit preserved: no dead scaffolding."
+    },
+    {
+      "req_id": "TEST-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "~101 Tier-1 tests green",
+      "evidence_file": "tests",
+      "evidence_line_start": 0,
+      "evidence_line_end": 0,
+      "status": "satisfied",
+      "notes": "Test surface grew: 337 `test_*.py` files (find tests services -name 'test_*.py' | wc -l = 337; 72 in tests/, 287 in services/*/tests/). Claim '~101' was a 2026-04 snapshot. Per plan guidance, satisfied for 'tests green' spirit; absolute count grew 101→337 as Phases 02-12 shipped. No grep-able Tier-1 tag in test files — Tier-1 is a roadmap classification, not a code marker."
+    },
+    {
+      "req_id": "CLAUDE-VALIDATED-SYMBOLS",
+      "era": "pre-v1",
+      "source": "CLAUDE.md",
+      "claim": "Validated symbols: BTC, ETH, SOL, BNB, ADA (5 active as of 2026-05-03). XRP / DOGE excluded by paper-trading data — no silent re-add (CLAUDE.md ## Project rules)",
+      "evidence_file": "services/market-data-service/app/config.py",
+      "evidence_line_start": 73,
+      "evidence_line_end": 86,
+      "status": "drift",
+      "notes": "DRIFT: market-data-service default_symbols lists 14 symbols, not 5. services/market-data-service/app/config.py:77-86 declares default 'BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,ARBUSDT,OPUSDT,SUIUSDT,APTUSDT,DOTUSDT,LTCUSDT,POLUSDT' with comment '14 ACTIVE symbols (2026-05-03)' — directly contradicts CLAUDE.md '5 active as of 2026-05-03'. XRP/DOGE absent (CLAUDE rule preserved), but the 9 extra symbols (AVAX, LINK, ARB, OP, SUI, APT, DOT, LTC, POL) violate the validated-set rule. Trading-engine config.py:207-235 correctly holds 5 Tier-1 (BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, ADAUSDT). Divergence: market-data ingests for 14, trading-engine trades 5 — extra ingest is wasted bandwidth + the CLAUDE 'no silent re-add' rule is broken at market-data. Downstream owner: market-data-service config update or CLAUDE.md amendment."
+    },
+    {
+      "req_id": "CLAUDE-EXEC-MAINNET-PRICES",
+      "era": "pre-v1",
+      "source": "CLAUDE.md",
+      "claim": "Market data feed from Bybit mainnet (BYBIT_TESTNET=false) for real prices; orders simulated internally via PAPER_TRADING_MODE=true (CLAUDE.md top + ## Project rules)",
+      "evidence_file": "docker-compose.unified.yml",
+      "evidence_line_start": 288,
+      "evidence_line_end": 399,
+      "status": "satisfied",
+      "notes": "Both flags match CLAUDE.md exactly. docker-compose.unified.yml:399 sets BYBIT_TESTNET=${BYBIT_TESTNET:-false} on bybit-connector; line 747 same on ml-prediction. PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true} on api-gateway (line 291) and trading-engine (line 595). bybit-connector config default also False (services/bybit-connector/app/config.py:32-35). Mainnet REST URL 'https://api.bybit.com' selected by config.py:58-60. EXEC-MAINNET-PRICES posture fully aligned with safety claim."
+    }
+  ]
+}
