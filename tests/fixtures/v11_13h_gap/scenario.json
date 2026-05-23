@@ -5,7 +5,6 @@
     "path": ".planning/milestones/v1.1-MILESTONE-AUDIT.md",
     "frontmatter_field_name": "audited",
     "frontmatter_field_name_drift_note": "REQUIREMENTS.md TOOL-03 uses the generic English term 'audited_at' but the actual frontmatter field in v1.0/v1.1 MILESTONE-AUDIT.md files and in ~/.claude/get-shit-done/templates/audit-milestone.md:172 is 'audited:'. The upstream SDK port must read the 'audited' key, NOT 'audited_at'. The mismatch between the requirement-doc prose and the canonical implementation field name is a known drift; this fixture and the TOOL-03 spec record it so the port lands on the right key.",
-    "audited": "2026-05-18T02:55:00Z",
     "audited_iso_utc": "2026-05-18T02:55:00Z"
   },
   "verification": {
