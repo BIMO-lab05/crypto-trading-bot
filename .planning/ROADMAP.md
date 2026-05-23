@@ -96,15 +96,15 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 **Depends on**: Nothing
 **Requirements**: AUDIT-01
 
-**Plans:** 7 plans
+**Plans:** 6/7 plans executed
 
 Plans:
-- [ ] 16-01-PLAN.md — Inventory + schema scaffolding (seed validated-reaudit.json with ~81 Validated REQs)
-- [ ] 16-02-PLAN.md — Track A audit: Risk + Preflight + MLGate + Observability + CLAUDE-PAPER-CAP-ADR010 (~17 rows)
-- [ ] 16-03-PLAN.md — Track B audit: ML + MLCL + TOURN + EXEC-03 + CLAUDE-LSTM-ARCHIVED + CLAUDE-SENTIMENT-REMOVED (~19 rows)
-- [ ] 16-04-PLAN.md — Track C1 audit: Infra + Dashboard + DASHLIVE + DATA + EXEC-01/02 + UI + TEST + CLAUDE-VALIDATED-SYMBOLS + CLAUDE-EXEC-MAINNET-PRICES (~24 rows)
-- [ ] 16-05-PLAN.md — Track C2 audit: BC + MOBILE + TOOL + LIVECLOSE + CIRESTORE (~21 rows)
-- [ ] 16-06-PLAN.md — Merge four track deltas into canonical validated-reaudit.json + write validated-reaudit.md with drift-to-downstream-phase mapping
+- [x] 16-01-PLAN.md — Inventory + schema scaffolding (seed validated-reaudit.json with ~81 Validated REQs)
+- [x] 16-02-PLAN.md — Track A audit: Risk + Preflight + MLGate + Observability + CLAUDE-PAPER-CAP-ADR010 (~17 rows)
+- [x] 16-03-PLAN.md — Track B audit: ML + MLCL + TOURN + EXEC-03 + CLAUDE-LSTM-ARCHIVED + CLAUDE-SENTIMENT-REMOVED (~19 rows)
+- [x] 16-04-PLAN.md — Track C1 audit: Infra + Dashboard + DASHLIVE + DATA + EXEC-01/02 + UI + TEST + CLAUDE-VALIDATED-SYMBOLS + CLAUDE-EXEC-MAINNET-PRICES (~24 rows)
+- [x] 16-05-PLAN.md — Track C2 audit: BC + MOBILE + TOOL + LIVECLOSE + CIRESTORE (~21 rows)
+- [x] 16-06-PLAN.md — Merge four track deltas into canonical validated-reaudit.json + write validated-reaudit.md with drift-to-downstream-phase mapping
 - [ ] 16-07-PLAN.md — Operator checkpoint:decision on demotions; rewrite PROJECT.md ### Validated; correct CLAUDE.md drift sentences; flip AUDIT-01 traceability to Complete
 
 ### Phase 17: Execution-Cap Hard Enforcement
@@ -177,7 +177,7 @@ Plans:
 | 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete | 2026-05-22 |
 | 14. Mobile Responsive Dashboard | v1.2 | 6/6 | Complete | 2026-05-22 |
 | 15. Planning-Tooling Hardening | v1.2 | 4/4 | Complete | 2026-05-23 |
-| 16. Validated-Set Re-Audit | v1.3 | 0/7 | Pending | — |
+| 16. Validated-Set Re-Audit | v1.3 | 6/7 | In Progress|  |
 | 17. Execution-Cap Hard Enforcement | v1.3 | 0/? | Pending | — |
 | 18. Bybit-Adapter Contract Fix | v1.3 | 0/? | Pending | — |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |

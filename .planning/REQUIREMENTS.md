@@ -13,7 +13,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase. IDs der
 
 Gates everything else. Re-runs trust-no-docs against every REQ currently in PROJECT.md's `### Validated` section with `file:line` evidence. Anything claimed-but-not-implemented is demoted to Active or Out of Scope; the v1.3 phase plan downstream is sized against the true baseline, not the documented one.
 
-- [ ] **AUDIT-01**: For every REQ-ID in PROJECT.md `### Validated` (pre-v1, v1.0, v1.1, v1.2), produce `.planning/evidence/AUDIT-01/validated-reaudit.json` with `{req_id, claim, evidence_file, evidence_line_start, evidence_line_end, status}` where `status ∈ {satisfied, drift, missing}`. `satisfied` = literal code path enforces the REQ end-to-end. `drift` = partial implementation or divergence between docs and code (e.g. RISK-04 cap is advisory after boot, ADR-010 paper cap is 0.02 not 0.10, sentiment-removal log strings stale). `missing` = no implementing code found (e.g. RISK-06 maker-only `use_post_only=False` hard-coded). For every `drift` or `missing` row, file an issue ticket linking the audit row. PROJECT.md `### Validated` section is rewritten at AUDIT-01 close to reflect reality; demoted REQs move to Active or Out of Scope with reason.
+- [x] **AUDIT-01**: For every REQ-ID in PROJECT.md `### Validated` (pre-v1, v1.0, v1.1, v1.2), produce `.planning/evidence/AUDIT-01/validated-reaudit.json` with `{req_id, claim, evidence_file, evidence_line_start, evidence_line_end, status}` where `status ∈ {satisfied, drift, missing}`. `satisfied` = literal code path enforces the REQ end-to-end. `drift` = partial implementation or divergence between docs and code (e.g. RISK-04 cap is advisory after boot, ADR-010 paper cap is 0.02 not 0.10, sentiment-removal log strings stale). `missing` = no implementing code found (e.g. RISK-06 maker-only `use_post_only=False` hard-coded). For every `drift` or `missing` row, file an issue ticket linking the audit row. PROJECT.md `### Validated` section is rewritten at AUDIT-01 close to reflect reality; demoted REQs move to Active or Out of Scope with reason.
 
 ### Execution-Cap Hard Enforcement (TE-CAP)
 
@@ -138,7 +138,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUDIT-01 | Phase 16 | Pending |
+| AUDIT-01 | Phase 16 | Complete |
 | TE-CAP-01 | Phase 17 | Pending |
 | TE-CAP-02 | Phase 17 | Pending |
 | TE-CAP-03 | Phase 17 | Pending |

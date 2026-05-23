@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
-status: planning
-last_updated: "2026-05-23T13:06:38.266Z"
+status: executing
+stopped_at: Phase 14 UI-SPEC approved
+last_updated: "2026-05-23T17:20:20.987Z"
 last_activity: 2026-05-23
 progress:
-  total_phases: 0
+  total_phases: 9
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 7
+  completed_plans: 6
   percent: 0
 ---
 
@@ -20,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** v1.3 TA + Engine Correctness — restore Validated-set parity + fix audit-surfaced correctness defects in TA + trading-engine + ML services. Paper-only. 9 phases (16–24), two parallel tracks.
+**Current focus:** Phase 16 — Validated-Set Re-Audit
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-23 — Milestone v1.3 started
+Phase: 16 (Validated-Set Re-Audit) — EXECUTING
+Plan: 7 of 7 (Plan 06 complete; Plan 07 = operator checkpoint phase next)
+Status: Ready to execute Plan 07
+Last activity: 2026-05-23
 
 ## Deferred Items
 
@@ -58,6 +59,7 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 
 - ML predictions remain `ENABLE_ML_PREDICTIONS=false`; trading-engine auto-flip is *armed* (Phase 9) but no qualifying DSR>0.95 evidence row exists in `leaderboard` yet (LIVECLOSE-03 wall-clock).
 - Paper-mode per-trade cap relaxed to 10% (ADR-010); Phase 8 boot-path enforces ≤2% only in LIVE. Pre-LIVE checklist (RUNBOOK Pre-LIVE Operator Checklist) restores ≤2% before flip.
+- [Phase ?]: Plan 16-06 merge: 81/74/7/0
 
 ### Blockers/Concerns
 
@@ -85,9 +87,9 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 
 ## Session Continuity
 
-Last session: 2026-05-22T14:11:18.607Z
+Last session: 2026-05-23T17:19:54.366Z
 Stopped at: Phase 14 UI-SPEC approved
-Resume file: .planning/phases/14-mobile-responsive-dashboard/14-UI-SPEC.md
+Resume file: None
 
 ## Operator Next Steps
 
