@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Polish & Real-Time
-status: milestone_complete
-stopped_at: Milestone complete (Phase 15 was final phase)
-last_updated: 2026-05-23T01:31:44.813Z
-last_activity: 2026-05-22 -- Phase 15 execution started
+status: Awaiting next milestone
+stopped_at: Phase 14 UI-SPEC approved
+last_updated: "2026-05-23T01:49:45.896Z"
+last_activity: 2026-05-23 — Milestone v1.2 completed and archived
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 19
   completed_plans: 19
-  percent: 67
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-18 after v1.1 milestone close)
 
 ## Current Position
 
-Phase: 15
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-05-23
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-23 — Milestone v1.2 completed and archived
 
 ## Deferred Items
 
@@ -90,5 +90,4 @@ Resume file: .planning/phases/14-mobile-responsive-dashboard/14-UI-SPEC.md
 
 ## Operator Next Steps
 
-- Run `/gsd-new-milestone` to define v1.2 scope (or `/gsd-review-backlog` to triage carry-overs first).
-- Execute open LIVECLOSE harnesses + close OP-* carry-ins independently as wall-clock-bound operator work; commit evidence under `.planning/evidence/LIVECLOSE-*/` and `.planning/evidence/{OP-04,CIRESTORE-02}/`.
+- Start the next milestone with /gsd-new-milestone
