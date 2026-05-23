@@ -45,6 +45,7 @@ See:
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -103,15 +104,54 @@ def test_audit_freshness_check_unconditional_in_workflow() -> None:
 
     text = WORKFLOW_FILE.read_text()
 
-    # Token-presence wiring assertion. The workflow must reference both the
-    # frontmatter field name and the verification-doc name so the freshness
-    # comparison is structurally present in the workflow source.
-    assert "audited" in text and "VERIFICATION.md" in text, (
+    # Primary discriminator — the `--accept-stale-audit` override flag is the
+    # spec-mandated literal that distinguishes the unported workflow (token
+    # ABSENT, gate not wired) from the ported workflow (token PRESENT,
+    # operator-facing override flag in place per TOOL-03-spec.md §"Override
+    # flag" + §"Port path"). The previous token-only check using `audited` +
+    # `VERIFICATION.md` was a zero-signal assertion — both tokens already
+    # appear in unrelated prose elsewhere in the workflow (the "Out of Scope
+    # reasoning audited" success-criteria checkbox and the "From
+    # VERIFICATION.md files" retrospective-extraction prose), so the
+    # assertion passed both pre-port and post-port. The forcing function the
+    # spec promises was broken at source. Switching to `--accept-stale-audit`
+    # gives us a real RED→GREEN transition tied to the port.
+    assert "--accept-stale-audit" in text, (
         "audit-freshness gate not wired in complete-milestone workflow — "
-        "neither `audited` nor `VERIFICATION.md` token found near the archive "
-        "step. Per .planning/sdk-proposals/TOOL-03-spec.md the workflow MUST "
-        "compare the milestone audit's `audited:` frontmatter field against "
-        "the most recent VERIFICATION.md mtime."
+        "the `--accept-stale-audit` override flag is absent. Per "
+        ".planning/sdk-proposals/TOOL-03-spec.md §'Override flag' the "
+        "workflow MUST expose this flag as the sole sanctioned bypass for "
+        "the audit-freshness gate; it produces an archive log entry "
+        "recording the deliberate override. Silent-skip env vars are "
+        "forbidden — the only sanctioned bypass is this flag. Port the "
+        "workflow per TOOL-03-spec.md §'Port path' to flip this test GREEN."
+    )
+
+    # Structural anchor — locate at least one `<step name="...">…</step>`
+    # block whose body contains BOTH `audited` AND `VERIFICATION.md`. This
+    # pins the wiring to a real workflow step (not to any prose elsewhere in
+    # the document) while staying agnostic about the step's exact name (the
+    # spec says "Insert a step between" lines 87 and 415 but does not pin
+    # the step's `name=` attribute, so we cannot anchor on a literal step
+    # name without over-pinning). The unported workflow has no step block
+    # carrying both tokens together; the ported workflow MUST have one per
+    # TOOL-03-spec.md §"Port path".
+    step_block_re = re.compile(r'<step\s+name="[^"]+"\s*>(.*?)</step>', re.DOTALL)
+    step_bodies = [m.group(1) for m in step_block_re.finditer(text)]
+    audit_steps = [
+        body for body in step_bodies if "audited" in body and "VERIFICATION.md" in body
+    ]
+    assert audit_steps, (
+        "audit-freshness gate not wired in complete-milestone workflow — "
+        'no `<step name="...">` block contains BOTH the `audited` and '
+        "`VERIFICATION.md` tokens together. Per "
+        ".planning/sdk-proposals/TOOL-03-spec.md §'Port path' the workflow "
+        "MUST insert a new step (between the line-87 `roadmap.analyze` "
+        "readiness check and the line-415 `milestone.complete` archival) "
+        "whose body reads the `audited:` frontmatter field from the latest "
+        "MILESTONE-AUDIT.md and compares it against the most recent "
+        "VERIFICATION.md mtime. The two tokens must co-occur INSIDE the "
+        "step body — not scattered across unrelated prose."
     )
 
     # Forbidden-token absence assertion. Silent-skip env vars defeat the
