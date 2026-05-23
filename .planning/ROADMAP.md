@@ -72,7 +72,7 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 **Milestone Goal:** Restore one-to-one parity between PROJECT.md's Validated set and actual code in `services/technical-analysis/` + `services/trading-engine/` + `services/ml-{prediction,retraining}-service/`. Fix execution and signal correctness defects surfaced by the 2026-05-23 forensic audit. Paper-only — no LIVE flip. No new features. Every claim in PROJECT.md ends v1.3 with `file:line` evidence or is demoted.
 
 - [ ] **Phase 16: Validated-Set Re-Audit** — Trust-no-docs sweep of every REQ in PROJECT.md `### Validated` (pre-v1, v1.0, v1.1, v1.2) with `file:line` evidence; demote drift items (RISK-04 cap advisory, RISK-06 stub, ADR-010 paper cap missing, LSTM-archived false). Gates Track A + Track B.
-- [ ] **Phase 17: Execution-Cap Hard Enforcement** — Cap-rejection in order loop, emergency-stop admin auth, RISK-06 maker/post-only implementation, ADR-010 paper 10% cap in code, kill bare-except in order path (TE-CAP-01..05)
+- [ ] **Phase 17: Execution-Cap Hard Enforcement** — Track A AUDIT-01 found execution-cap enforcement (RISK-04/06 + ADR-010 paper-cap config) already satisfied; v1.3 Phase 17 scope shrinks to (a) emergency-stop HTTP admin auth (TE-CAP-02) + (b) bare-except cleanup in order path (TE-CAP-05). TE-CAP-01/03/04 demoted as audit-satisfied.
 - [ ] **Phase 18: Bybit-Adapter Contract Fix** — Fix `bybit_adapter.py` dead endpoint paths (`/api/v1/order/create` → `/api/v1/order/place`; `/api/v1/position/list` → `/api/v1/account/positions`); extend `TapeReplayClient` with order endpoints; contract tests against bybit-connector router surface (BC-FIX-01..03)
 - [ ] **Phase 19: Order Reconciliation + Idempotency** — Order-state polling or WS handler post-submit; deterministic `orderLinkId` on every place + retry (RECON-01..02)
 - [ ] **Phase 20: Paper-Engine Honesty** — Paper-sim slippage model; SL/TP trigger evaluation; monotonic order IDs; 48h max-hold + stop-loss-as-limit regression tests (PAPER-01..03)
@@ -109,9 +109,9 @@ Plans:
 
 ### Phase 17: Execution-Cap Hard Enforcement
 
-**Goal**: Make every risk cap a binding gate in the order-submission path. Today `auto_trader.py:1697` computes proposed risk but never rejects; emergency-stop endpoint at `handlers/orchestration.py:591` has no auth; RISK-06 maker-only is `use_post_only=False` hard-coded at `auto_trader.py:544`; paper 10% cap (ADR-010) missing from `config.py:321` defaults; five bare-`except:` clauses around order submission swallow cap violations. This phase wires hard rejection, admin auth, post-only implementation, paper-cap config branch, and replaces bare-excepts with typed exception handling.
+**Goal**: RISK caps Track A audit (Phase 16 AUDIT-01, 2026-05-23) found execution-cap enforcement (RISK-04 / RISK-06 + ADR-010 paper-cap config) already satisfied at file:line evidence (`services/trading-engine/app/auto_trader.py:332-344, 1962-1986`; `services/trading-engine/app/live_trading.py:290-360`; `services/trading-engine/app/config.py:321-332`). v1.3 Phase 17 scope shrinks to (a) **emergency-stop HTTP admin auth (TE-CAP-02)** — guard `POST /api/v1/orchestrator/emergency-stop` at `handlers/orchestration.py:591` against unauthenticated callers; (b) **bare-except cleanup in order path (TE-CAP-05)** — replace bare `except:` and broad `except Exception:` clauses in trading-engine order-submission path with typed exception handling that logs + re-raises (or controlled-returns on a known-recoverable type). TE-CAP-01 / TE-CAP-03 / TE-CAP-04 demoted as audit-satisfied; no code work owed.
 **Depends on**: Phase 16
-**Requirements**: TE-CAP-01, TE-CAP-02, TE-CAP-03, TE-CAP-04, TE-CAP-05
+**Requirements**: TE-CAP-02, TE-CAP-05
 
 ### Phase 18: Bybit-Adapter Contract Fix
 
