@@ -57,7 +57,7 @@ Refactored all 5 Bybit-bypass sites inside `services/ml-prediction-service/` to 
 
 ## What Changed
 
-**Task 1 — orderbook handler refactor (TDD):**
+**Orderbook handler refactor (TDD):**
 
 `services/ml-prediction-service/app/handlers/orderbook.py`:
 - Function renamed: `fetch_orderbook_from_bybit` → `fetch_orderbook_from_connector` (backward-compat alias kept at module bottom)
@@ -73,7 +73,7 @@ Refactored all 5 Bybit-bypass sites inside `services/ml-prediction-service/` to 
 - Test 3: `test_fetch_orderbook_raises_on_connector_failure` — asserts HTTPException(502) + V7 message scrub
 - Test 4: `test_fetch_orderbook_raises_on_http_error` — asserts HTTPException on 503 from connector
 
-**Task 2 — 4 download_*.py scripts refactor:**
+**4 download_*.py scripts refactor:**
 
 For each of `download_missing_symbols_data.py`, `download_final_4.py`, `download_op_sui_6months.py`, `download_suiusdt_12months.py`:
 - Module-level `BYBIT_CONNECTOR_URL = os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001")` (host-friendly default)
