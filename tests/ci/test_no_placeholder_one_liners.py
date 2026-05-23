@@ -236,7 +236,28 @@ def _extract_candidate_one_liners(text: str) -> list[tuple[int, str]]:
         candidates.append((line_no, m.group(0)))
 
     # 2. + 3. First bold-span OR first body line after first ``# `` heading.
-    heading_match = _MD_HEADING_RE.search(text)
+    #
+    # Strip YAML frontmatter before searching for the body heading. The
+    # frontmatter ``one-liner:`` rule above already scanned the whole text;
+    # here we want only the body's first ``# `` heading, which lives after
+    # the closing ``---`` of the frontmatter block. YAML uses ``#`` for
+    # comments (e.g. the GSD summary template uses ``# Dependency graph``,
+    # ``# Tech tracking``, ``# Metrics`` as section dividers inside the
+    # frontmatter); these look identical to markdown headings to a naive
+    # regex and would otherwise hijack the candidate-position search.
+    body_search_start = 0
+    if text.startswith("---\n") or text.startswith("---\r\n"):
+        # Find the closing ``---`` on its own line; allow trailing
+        # whitespace defensively.
+        closer = re.search(r"^---\s*$", text[4:], re.MULTILINE)
+        if closer is not None:
+            # ``closer.end()`` is relative to the slice starting at offset 4.
+            post_closer = 4 + closer.end()
+            next_nl = text.find("\n", post_closer)
+            if next_nl != -1:
+                body_search_start = next_nl + 1
+
+    heading_match = _MD_HEADING_RE.search(text, body_search_start)
     if heading_match is None:
         return sorted(candidates)
 
