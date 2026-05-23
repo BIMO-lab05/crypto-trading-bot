@@ -150,8 +150,15 @@ _ONE_LINER_FRONTMATTER_RE = re.compile(r"^one-liner:.*$", re.MULTILINE)
 
 # Match a bold-span only line: ``**Some prose.**`` with no nested asterisks
 # inside the span (the host SDK's extractOneLinerFromBody reads only the
-# outer bold span, per core.cjs:200-230).
-_BOLD_SPAN_RE = re.compile(r"^\*\*([^*\n]+)\*\*\s*$", re.MULTILINE)
+# outer bold span, per core.cjs:200-230). Allows leading horizontal
+# whitespace -- some GSD plan templates indent the bold-span one-liner
+# (e.g., inside list items or admonition blocks). Without this leading
+# `[ \t]*` an indented placeholder like `  **Task 1 -- title**` would
+# silently fall through to the plain-body fallback path, where
+# `raw_line.strip()` keeps the asterisks and the banned-pattern regex
+# `^Task\s+\d` then fails to fire (the candidate starts with `*`, not
+# `T`). Defensive coverage for WR-05.
+_BOLD_SPAN_RE = re.compile(r"^[ \t]*\*\*([^*\n]+)\*\*\s*$", re.MULTILINE)
 
 
 # ---------------------------------------------------------------------------
@@ -417,13 +424,19 @@ def test_grep_command_matches_pytest_scan() -> None:
         #
         # The Rule N / Task N alternatives allow zero or two leading
         # asterisks so the grep emits bold-span-wrapped candidate lines
-        # like ``**Task 1 -- title**``. The pytest scan extracts the inner
-        # text (sans asterisks) via _extract_candidate_one_liners and
-        # classifies against THAT, so the parity test below classifies
-        # grep hits against the same canonical extractor output to keep
-        # the two scans aligned. Inside ``[...]`` the ``*`` is literal --
-        # no shell-quoting headache.
-        r"(^[*]{0,2}Rule[[:space:]]+[0-9])|(^[*]{0,2}Task[[:space:]]+[0-9])|"
+        # like ``**Task 1 -- title**``. They also allow leading horizontal
+        # whitespace (`[ \t]*`) so indented bold-span one-liners like
+        # ``  **Task 1 -- title**`` (common inside list items / admonition
+        # blocks) are caught -- mirrors the WR-05 fix to the pytest-side
+        # _BOLD_SPAN_RE. Without the leading-whitespace allowance here, the
+        # pytest scan would catch indented bolds but the grep scan would
+        # miss them, causing parity drift. The pytest scan extracts the
+        # inner text (sans asterisks, sans leading whitespace) via
+        # _extract_candidate_one_liners and classifies against THAT, so
+        # the parity test below classifies grep hits against the same
+        # canonical extractor output to keep the two scans aligned. Inside
+        # ``[...]`` the ``*`` is literal -- no shell-quoting headache.
+        r"(^[ \t]*[*]{0,2}Rule[[:space:]]+[0-9])|(^[ \t]*[*]{0,2}Task[[:space:]]+[0-9])|"
         r"(^one-liner:[[:space:]]*$)|(<one-line summary>)|"
         r'(^one-liner:[[:space:]]*""[[:space:]]*$)',
         str(REPO_ROOT / ".planning" / "phases"),
