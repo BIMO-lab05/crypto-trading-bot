@@ -73,12 +73,38 @@ FIXTURE_AFTER = FIXTURE_DIR / "roadmap-after.md"
 SDK_SPEC = REPO_ROOT / ".planning" / "sdk-proposals" / "TOOL-02-spec.md"
 
 
-# Match a `roadmap.analyze --apply` invocation that is NOT inside a markdown
-# code-block comment or HTML comment. The leading character class rejects
-# lines starting with `#` (shell comment) or `<` (`<!-- ... -->` block).
-_APPLY_PATTERN = re.compile(r"^[^#<\n]*roadmap\.analyze\s+--apply", re.MULTILINE)
-# Match a `milestone.complete` archival invocation, similarly non-commented.
-_ARCHIVE_PATTERN = re.compile(r"^[^#<\n]*milestone\.complete", re.MULTILINE)
+# Match a `gsd-sdk query roadmap.analyze --apply` invocation that begins a
+# real shell-command line — not a prose mention inside backticks or admonition
+# blocks. The previous loose regex (`^[^#<\n]*roadmap\.analyze\s+--apply`)
+# matched any line whose start character was not `#` or `<`, which silently
+# anchored on prose `**Note:**` lines that mentioned the command in inline
+# backticks (e.g., the line-221 note in the current host workflow:
+# `**Note:** MILESTONES.md entry is now created automatically by
+# `gsd-sdk query milestone.complete`...`). Once the operator ports the SDK
+# and the `--apply` step lands at a position AFTER the line-221 prose mention
+# of `milestone.complete`, the ordering check would FAIL with a misleading
+# error blaming step order — even though the order is correct.
+#
+# New shape: require the line to BEGIN (after optional leading whitespace and
+# an optional shell variable-capture prefix like `RESULT=$(`) with literal
+# `gsd-sdk query roadmap.analyze --apply`. This excludes prose mentions
+# (where the command is wrapped in backticks somewhere in the middle of an
+# English sentence) but accepts both bare invocations and command-substitution
+# captures, which are the only two shapes the spec sanctions. `\b` after
+# `--apply` prevents accidentally matching a longer flag like
+# `--apply-nothing`.
+_APPLY_PATTERN = re.compile(
+    r"^[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=\$\()?\s*gsd-sdk\s+query\s+roadmap\.analyze\s+--apply\b",
+    re.MULTILINE,
+)
+# Same shape for the archival invocation. The `milestone.complete` literal is
+# followed by a positional argument (e.g. `"v1.0"`) in the spec; we accept any
+# trailing content after the command name. Excludes prose mentions of
+# `milestone.complete` inside backticks in admonition blocks.
+_ARCHIVE_PATTERN = re.compile(
+    r"^[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=\$\()?\s*gsd-sdk\s+query\s+milestone\.complete\b",
+    re.MULTILINE,
+)
 
 
 # ---------------------------------------------------------------------------
