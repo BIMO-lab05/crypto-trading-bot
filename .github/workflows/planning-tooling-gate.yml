@@ -39,8 +39,38 @@ name: Planning Tooling Gates (TOOL-01/02/03)
 on:
   pull_request:
     branches: [main]
+    # Path filter -- WR-06: avoid firing on every PR including doc-only or
+    # source-only changes that touch no planning artifact. The 3 jobs only
+    # need to run when the planning corpus, the test files, the fixtures,
+    # or this workflow file itself changes.
+    paths:
+      - '.planning/phases/**'
+      - '.planning/sdk-proposals/**'
+      - 'tests/ci/test_no_placeholder_one_liners.py'
+      - 'tests/ci/test_roadmap_analyze_supersession_wired.py'
+      - 'tests/ci/test_audit_freshness_gate.py'
+      - 'tests/fixtures/v11_13h_gap/**'
+      - 'tests/fixtures/v15_supersession/**'
+      - '.github/workflows/planning-tooling-gate.yml'
   push:
     branches: [main]
+    paths:
+      - '.planning/phases/**'
+      - '.planning/sdk-proposals/**'
+      - 'tests/ci/test_no_placeholder_one_liners.py'
+      - 'tests/ci/test_roadmap_analyze_supersession_wired.py'
+      - 'tests/ci/test_audit_freshness_gate.py'
+      - 'tests/fixtures/v11_13h_gap/**'
+      - 'tests/fixtures/v15_supersession/**'
+      - '.github/workflows/planning-tooling-gate.yml'
+
+# Least-privilege token scope -- WR-04. This workflow is read-only (clones
+# the repo, runs pytest). It does not push, comment on PRs, write to issues,
+# or modify any other resource. Default repo token permissions on public
+# repos and many org configs grant write-scope across multiple surfaces;
+# locking to contents:read is the principle-of-least-privilege baseline.
+permissions:
+  contents: read
 
 defaults:
   run:
