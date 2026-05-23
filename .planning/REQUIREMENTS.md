@@ -36,9 +36,9 @@ Dashboard is currently built for ≥1280px viewports. Operator increasingly chec
 
 Three recurring frictions from v1.0 and v1.1 retros — fix them in the tooling so they cannot regress. Pure planning-side code; no trading-engine impact.
 
-- [ ] **TOOL-01**: `gsd-sdk query plan.validate <plan-path>` rejects one-liner content matching `/^Rule \d/`, `/^Task \d/`, `/^one-liner:\s*$/`, `/<one-line summary>/`, or empty string. Pre-commit hook (or PR-time CI step) runs validator on every `*-PLAN.md` modified in diff; commit/CI fails with explicit error pointing at the bad line. Unit tests cover all 5 rejection patterns + 1 happy path.
-- [ ] **TOOL-02**: `gsd-sdk query roadmap.analyze` detects umbrella→decimal supersession: if Phase N.M's requirement set ⊇ Phase N's requirement set and Phase N.M is complete, ROADMAP.md auto-updates Phase N row to `Superseded by N.M` (status `[⊘]`). Idempotent. Output diff goes to stdout so the operator can review before commit. Wired into `/gsd-complete-milestone` workflow.
-- [ ] **TOOL-03**: `/gsd-complete-milestone` workflow refuses to archive if the latest `v[X.Y]-MILESTONE-AUDIT.md` `audited_at` timestamp predates the most recent phase's `VERIFICATION.md` modification time by >1h. Error names the stale audit timestamp and the offending phase. Override flag `--accept-stale-audit` for emergency closes (documented). Test fixture replays the v1.1 13h-gap scenario and asserts refusal.
+- [x] **TOOL-01**: `gsd-sdk query plan.validate <plan-path>` rejects one-liner content matching `/^Rule \d/`, `/^Task \d/`, `/^one-liner:\s*$/`, `/<one-line summary>/`, or empty string. Pre-commit hook (or PR-time CI step) runs validator on every `*-PLAN.md` modified in diff; commit/CI fails with explicit error pointing at the bad line. Unit tests cover all 5 rejection patterns + 1 happy path.
+- [x] **TOOL-02**: `gsd-sdk query roadmap.analyze` detects umbrella→decimal supersession: if Phase N.M's requirement set ⊇ Phase N's requirement set and Phase N.M is complete, ROADMAP.md auto-updates Phase N row to `Superseded by N.M` (status `[⊘]`). Idempotent. Output diff goes to stdout so the operator can review before commit. Wired into `/gsd-complete-milestone` workflow.
+- [x] **TOOL-03**: `/gsd-complete-milestone` workflow refuses to archive if the latest `v[X.Y]-MILESTONE-AUDIT.md` `audited_at` timestamp predates the most recent phase's `VERIFICATION.md` modification time by >1h. Error names the stale audit timestamp and the offending phase. Override flag `--accept-stale-audit` for emergency closes (documented). Test fixture replays the v1.1 13h-gap scenario and asserts refusal.
 
 ## Future Requirements
 
@@ -91,9 +91,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MOBILE-01 | Phase 14 | Complete |
 | MOBILE-02 | Phase 14 | Complete |
 | MOBILE-03 | Phase 14 | Complete |
-| TOOL-01 | Phase 15 | Pending |
-| TOOL-02 | Phase 15 | Pending |
-| TOOL-03 | Phase 15 | Pending |
+| TOOL-01 | Phase 15 | Complete |
+| TOOL-02 | Phase 15 | Complete |
+| TOOL-03 | Phase 15 | Complete |
 | WS-01..04 | — (rescoped, deferred to v2) | Deferred |
 
 **Coverage:**

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Polish & Real-Time
-status: ready_to_plan
-stopped_at: Phase 14 complete (6/6) — ready to discuss Phase 15
-last_updated: 2026-05-22T22:47:35.275Z
-last_activity: 2026-05-22 -- Phase 14 execution started
+status: milestone_complete
+stopped_at: Milestone complete (Phase 15 was final phase)
+last_updated: 2026-05-23T01:31:44.813Z
+last_activity: 2026-05-22 -- Phase 15 execution started
 progress:
   total_phases: 3
-  completed_phases: 1
-  total_plans: 15
-  completed_plans: 15
-  percent: 33
+  completed_phases: 2
+  total_plans: 19
+  completed_plans: 19
+  percent: 67
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-18 after v1.1 milestone close)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Phase 15 — planning tooling hardening
+**Current focus:** Milestone complete
 
 ## Current Position
 
 Phase: 15
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-22
+Status: Milestone complete
+Last activity: 2026-05-23
 
 ## Deferred Items
 
