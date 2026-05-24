@@ -1,12 +1,23 @@
 ---
 phase: 17-execution-cap-hard-enforcement
 verified: 2026-05-24T03:10:00Z
-status: gaps_found
-score: 12/14 must-haves verified
-overrides_applied: 0
+status: human_needed
+score: 13/14 must-haves verified
+overrides_applied: 1
+overrides_log:
+  - applied: 2026-05-24
+    by: orchestrator (autonomous gsd-execute-phase per user direction)
+    gap_resolved: "REQUIREMENTS.md TE-CAP-02 + TE-CAP-05 status flip"
+    closure_commit: "69d80da"
+    note: "Gap-1 closed inline via 4-line REQUIREMENTS.md edit. Gap-2 (live container 404 smoke) deferred to operator as STATE.md OP-06 per user direction; phase advances on code-level evidence."
+human_verification:
+  - item: "Live `POST http://localhost:8005/api/v1/orchestrator/emergency-stop` returns HTTP 404 against rebuilt trading-engine"
+    expected: "After `docker compose -f docker-compose.unified.yml up -d --build trading-engine` and container healthy, curl must return 404 (not 200). Source change landed in commit f2aaa77 but running container was built pre-Phase-17."
+    blocked_by: "OP-06 in STATE.md"
 gaps:
   - truth: "TE-CAP-02 / TE-CAP-05 status flipped to [x] Satisfied in .planning/REQUIREMENTS.md"
-    status: failed
+    status: resolved
+    closure_commit: "69d80da"
     reason: "Plan 02 Task 3 Step D + Plan 02 Verification Gate 3 explicitly required flipping `- [ ] **TE-CAP-05**` to `[x]` and `TE-CAP-05 | Phase 17 | Pending` to `Satisfied`. Plan 01 implicitly required the same for TE-CAP-02 (its success criteria state it as satisfied). Both REQ IDs still show `[ ]` / `Pending` in REQUIREMENTS.md. No `docs(17): mark TE-CAP-05 satisfied` commit exists in git log."
     artifacts:
       - path: ".planning/REQUIREMENTS.md"
