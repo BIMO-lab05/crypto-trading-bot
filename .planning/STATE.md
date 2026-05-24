@@ -84,6 +84,7 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 | INFRA-02 chk | Run `bootstrap.sh` × 2 from fresh tmp clone | LIVECLOSE-01 |
 | LIVECLOSE-03 accrual | Run `scripts/forward_paper_test/run_evidence_loop.py` for ≥7 trading days | LIVECLOSE-03 |
 | OP-05 | Force-recreate `crypto-bot-api-gateway` to load hardened `_validate_jwt_secret()` from quick-260522-hv0 (`docker compose -f docker-compose.unified.yml up -d --force-recreate api-gateway` with `JWT_SECRET_KEY` set via `openssl rand -hex 64`) | Pre-LIVE flip, OP-01 |
+| OP-06 | Rebuild + restart `crypto-bot-trading` so Phase 17 TE-CAP-02 route deletion takes effect at runtime (`docker compose -f docker-compose.unified.yml up -d --build trading-engine`), then verify with `curl -sS -X POST -o /dev/null -w "%{http_code}\n" http://localhost:8005/api/v1/orchestrator/emergency-stop` returns `404` (not `200`). Source change landed in commit `f2aaa77`; running container was built pre-Phase-17 so still serves the old route. Required for TE-CAP-02 runtime proof per 17-01-PLAN.md Task 3 gate 5. | Pre-merge / runtime TE-CAP-02 closure |
 
 ## Session Continuity
 
