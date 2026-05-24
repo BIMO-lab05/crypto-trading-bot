@@ -18,12 +18,20 @@ Lines 2..N:
 
 import json
 import logging
+import time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 EXPECTED_TAPE_VERSION = 1
+
+# Phase 18 BC-FIX-02 (D-07) — wallet balance fixture (co-located with tape root)
+WALLET_BALANCE_FIXTURE_NAME = "wallet_balance.json"
+DEFAULT_WALLET_BALANCE = {
+    "USDT": 100.0
+}  # D-07 locked default (per ADR-010 paper wallet)
 
 
 class TapeReplayClient:
@@ -52,6 +60,24 @@ class TapeReplayClient:
         # next test starts at fixture position 0 without restarting the connector.
         self._kline_cursor: Dict[str, int] = {sym: 0 for sym in self._klines}
         self._ticker_cursor: Dict[str, int] = {sym: 0 for sym in self._tickers}
+        # ------------------------------------------------------------------
+        # Phase 18 BC-FIX-02 — order-path state (D-05/D-06/D-07/D-08)
+        # Lazy-loaded balance: first get_wallet_balance / place_order call
+        # initialises from fixture (creating the fixture with the D-07
+        # default if absent) and tracks balance in-memory thereafter.
+        # ------------------------------------------------------------------
+        self._order_log: List[
+            Dict[str, Any]
+        ] = []  # D-08 in-memory order history (this session)
+        self._open_orders: Dict[
+            str, Dict[str, Any]
+        ] = {}  # order_id -> order dict (post-fill)
+        self._order_counter: int = (
+            0  # monotonic tie-breaker for sub-ms place_order calls (advisor note)
+        )
+        self._wallet_balance: Optional[Dict[str, float]] = (
+            None  # lazy-loaded from fixture
+        )
 
     def _load_fixtures(self) -> None:
         """Eagerly load all JSONL fixtures into memory at init.
@@ -118,6 +144,45 @@ class TapeReplayClient:
         )
 
     # =========================================================================
+    # WALLET STATE — Phase 18 BC-FIX-02 (D-07)
+    # =========================================================================
+
+    def _wallet_fixture_path(self) -> Path:
+        """Return the on-disk path of the wallet_balance.json fixture.
+
+        Lives next to the kline/ticker fixtures so tape-replay state for a
+        given test run is colocated. Path mirrors the tape root layout the
+        `--fixtures` flag (or settings.tape_fixtures_path) already points at.
+        """
+        return self.fixtures_path / WALLET_BALANCE_FIXTURE_NAME
+
+    def _load_wallet_balance(self) -> None:
+        """Initialise self._wallet_balance from fixture, creating it with the
+        D-07 default if it does not exist on disk.
+
+        Called lazily on first balance-touching method (get_wallet_balance /
+        place_order) so __init__ remains synchronous and inexpensive.
+        """
+        path = self._wallet_fixture_path()
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w") as fh:
+                json.dump(DEFAULT_WALLET_BALANCE, fh, indent=2)
+                fh.write("\n")
+            logger.warning(
+                "TAPE_REPLAY: created default wallet_balance.json at %s with %s",
+                path,
+                DEFAULT_WALLET_BALANCE,
+            )
+        with open(path, "r") as fh:
+            self._wallet_balance = json.load(fh)
+        logger.info(
+            "TAPE_REPLAY: loaded wallet balance %s from %s",
+            self._wallet_balance,
+            path,
+        )
+
+    # =========================================================================
     # ASYNC LIFECYCLE (mirrors BybitRestClient)
     # =========================================================================
 
@@ -134,6 +199,13 @@ class TapeReplayClient:
             len(self._kline_cursor),
             len(self._ticker_cursor),
         )
+        # Phase 18 BC-FIX-02 (D-08) — clear order-path session state too
+        self._order_log = []
+        self._open_orders = {}
+        self._order_counter = 0
+        # Reload wallet balance from fixture (operator may have edited the
+        # JSON between tests to seed a different starting position).
+        self._wallet_balance = None  # force lazy reload on next access
 
     async def close(self) -> None:
         """No-op: no HTTP client to close. Mirrors BybitRestClient.close()."""
@@ -196,6 +268,155 @@ class TapeReplayClient:
 
         # Bybit V5 returns descending (newest first); stored ascending -> reverse
         return list(reversed(klines))[:limit]
+
+    # =========================================================================
+    # ORDER PATH — Phase 18 BC-FIX-02 (D-05/D-06/D-07/D-08)
+    # Stub implementations so the LIVE adapter code path can be exercised
+    # against a recorded tape without reaching Bybit.
+    # =========================================================================
+
+    async def place_order(
+        self,
+        category: str,
+        symbol: str,
+        side: str,
+        order_type: str,
+        qty: str,
+        price: Optional[str] = None,
+        time_in_force: Optional[str] = None,
+        reduce_only: bool = False,
+        order_link_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Deterministic fake FILLED order per Phase 18 D-05.
+
+        Behaviour:
+          * Order ID shape: f"TAPE_{symbol}_{side}_{int(time*1000)}_{counter}"
+            — counter is monotonic per-instance so two sub-ms calls cannot
+            collide (advisor note + D-05).
+          * Fill price = self._tickers[symbol]["lastPrice"]; if symbol is not
+            in the loaded tickers, falls back to the limit `price` argument.
+          * Status returned as the literal string "Filled" — Bybit V5 wire
+            format. Downstream `bybit_adapter._parse_order` maps this to
+            OrderStatus.FILLED.
+          * Balance decremented by float(fill_price) * float(qty) on USDT
+            (D-07; all v1.3 paper-validated symbols are USDT-quoted).
+        """
+        ticker_entry = self._tickers.get(symbol, {})
+        fill_price_str = ticker_entry.get("lastPrice") or price
+        if fill_price_str is None:
+            logger.warning(
+                "TAPE_REPLAY place_order: no ticker for %s and no price given; "
+                "rejecting with empty result (mirrors unknown-symbol semantics)",
+                symbol,
+            )
+            return {"orderId": "", "orderLinkId": order_link_id, "orderStatus": "Rejected"}
+
+        if self._wallet_balance is None:
+            self._load_wallet_balance()
+
+        self._order_counter += 1
+        timestamp_ms = int(time.time() * 1000)
+        order_id = f"TAPE_{symbol}_{side}_{timestamp_ms}_{self._order_counter}"
+
+        fill_price_d = Decimal(str(fill_price_str))
+        qty_d = Decimal(str(qty))
+        notional = float(fill_price_d * qty_d)
+        if self._wallet_balance is not None and "USDT" in self._wallet_balance:
+            self._wallet_balance["USDT"] = float(
+                Decimal(str(self._wallet_balance["USDT"])) - Decimal(str(notional))
+            )
+
+        order_result = {
+            "orderId": order_id,
+            "orderLinkId": order_link_id,
+            "symbol": symbol,
+            "side": side,
+            "orderStatus": "Filled",
+            "avgPrice": str(fill_price_d),
+            "cumExecQty": str(qty_d),
+            "qty": str(qty_d),
+            "orderType": order_type,
+            "category": category,
+            "reduceOnly": reduce_only,
+            "timeInForce": time_in_force or "GTC",
+        }
+
+        self._order_log.append({**order_result, "kwargs": dict(kwargs)})
+        self._open_orders[order_id] = order_result
+
+        logger.info(
+            "TAPE_REPLAY place_order: %s %s qty=%s @ %s -> %s",
+            symbol,
+            side,
+            qty,
+            fill_price_d,
+            order_id,
+        )
+        return order_result
+
+    async def cancel_order(
+        self,
+        category: str,
+        symbol: str,
+        order_id: Optional[str] = None,
+        order_link_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """No-op cancellation per Phase 18 D-06.
+
+        Cancellation makes no sense in deterministic replay (all orders fill
+        immediately at the tape ticker), so return success without mutating
+        the order log or wallet balance.
+        """
+        target = order_id or order_link_id or ""
+        logger.info(
+            "TAPE_REPLAY cancel_order: no-op for %s (order_id=%s, link_id=%s)",
+            symbol,
+            order_id,
+            order_link_id,
+        )
+        return {"success": True, "order_id": target, "symbol": symbol}
+
+    async def get_wallet_balance(
+        self,
+        account_type: str = "UNIFIED",
+        coin: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Return Bybit-V5-shaped wallet balance per Phase 18 D-07.
+
+        Lazy-loads the in-memory balance dict from
+        tests/fixtures/tape_replay/wallet_balance.json on first call (writes
+        the D-07 default {"USDT": 100.0} if the file is missing).
+        """
+        if self._wallet_balance is None:
+            self._load_wallet_balance()
+        balance_view = dict(self._wallet_balance or DEFAULT_WALLET_BALANCE)
+        if coin:
+            coin_upper = coin.upper()
+            balance_view = {k: v for k, v in balance_view.items() if k == coin_upper}
+
+        coin_entries = [
+            {
+                "coin": k,
+                "walletBalance": str(v),
+                "availableToWithdraw": str(v),
+                "locked": "0",
+            }
+            for k, v in balance_view.items()
+        ]
+        return {
+            "list": [
+                {
+                    "accountType": account_type,
+                    "totalEquity": str(sum(balance_view.values())),
+                    "availableBalance": str(sum(balance_view.values())),
+                    "totalPositionIM": "0",
+                    "totalPerpUPL": "0",
+                    "coin": coin_entries,
+                }
+            ]
+        }
 
     # =========================================================================
     # OUT-OF-SCOPE FEEDS (D-02 — orderbook + funding deferred to Phase 5)
