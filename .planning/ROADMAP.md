@@ -113,6 +113,12 @@ Plans:
 **Depends on**: Phase 16
 **Requirements**: TE-CAP-02, TE-CAP-05
 
+**Plans:** 2 plans
+
+Plans:
+- [ ] 17-01-PLAN.md — TE-CAP-02: delete unauthenticated trading-engine /emergency-stop route + add 404 negative test + update auth-note comment (api-gateway becomes sole admin entry per D-01/D-02/D-12)
+- [ ] 17-02-PLAN.md — TE-CAP-05: rewrite 5 REQ-named broad-except sites in auto_trader.py per locked D-08 M/P/R taxonomy + D-10 caplog regression test for [RISK_GATE] PER_TRADE_CAP BREACH log survival
+
 ### Phase 18: Bybit-Adapter Contract Fix
 
 **Goal**: LIVE trading is dead-on-arrival because `bybit_adapter.place_order()` at `services/trading-engine/app/exchanges/bybit_adapter.py:663` posts to `/api/v1/order/create`; bybit-connector exposes `/api/v1/order/place` at `services/bybit-connector/app/main.py:587`. `get_positions()` at `bybit_adapter.py:568` calls `/api/v1/position/list`; connector exposes `/api/v1/account/positions` at `main.py:557`. `TapeReplayClient` lacks `place_order`/`cancel_order`/`get_wallet_balance` — tape-mode integration tests AttributeError on order paths. This phase corrects endpoint paths, extends tape client with order stubs, and adds a contract test that imports the connector router and validates every adapter call against the route table.
