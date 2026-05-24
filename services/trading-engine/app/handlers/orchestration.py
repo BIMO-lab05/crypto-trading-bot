@@ -588,40 +588,6 @@ async def get_risk_utilization():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/emergency-stop", summary="Emergency stop all strategies")
-async def emergency_stop(
-    reason: str = Query("Manual emergency stop", description="Reason for stop"),
-):
-    """
-    Trigger emergency stop for all trading
-
-    Immediately pauses all strategies and can optionally
-    close all open positions.
-    """
-    try:
-        # Stop via risk coordinator
-        coordinator = get_risk_coordinator()
-        result = coordinator.emergency_stop(reason)
-
-        # Also pause all strategies via orchestrator
-        orchestrator = get_strategy_orchestrator()
-        orchestrator.pause_all(reason)
-
-        logger.critical(f"EMERGENCY STOP triggered: {reason}")
-
-        return {
-            "success": True,
-            "message": "Emergency stop activated",
-            "reason": reason,
-            **result,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-    except Exception as e:
-        logger.error(f"Error triggering emergency stop: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # =============================================================================
 # STATUS ENDPOINT
 # =============================================================================
@@ -722,9 +688,16 @@ async def submit_signal(request: SignalSubmissionRequest):
 # This is the *gate* — the persistence flag (master switch lookup) is left to a
 # follow-up; the point is the gate sits in the path.
 #
-# Auth note: trading-engine has no auth middleware; all admin routes are
-# protected upstream at the api-gateway. We name the prefix `/admin/...` for
-# routing convention, but enforce nothing at this layer.
+# Auth note: trading-engine has no auth middleware. The previously-duplicated
+# `POST /api/v1/orchestrator/emergency-stop` route was DELETED in Phase 17
+# (TE-CAP-02, 2026-05-24) — the api-gateway admin-guarded route at
+# services/api-gateway/app/main.py:1747-1804 (Depends(get_current_admin_user))
+# is now the sole entry for kill-switch activation, and it is the sole writer
+# of the bind-mounted safety/EMERGENCY_STOP file (D-04). The `admin_indicator_router`
+# below uses the `/admin/...` prefix for routing convention and is protected by
+# its own rolling-confidence gate (see IndicatorRegistry below) — NOT by upstream
+# auth. Sibling `admin_force_signal_router` (at :839) is protected by a
+# `TRADING_MODE=LIVE` refusal gate. Phase 17 D-03 deliberately left these as-is.
 
 from app.config import get_settings
 from app.services.indicator_registry import (
