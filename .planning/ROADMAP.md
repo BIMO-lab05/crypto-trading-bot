@@ -132,6 +132,18 @@ Plans:
 **Depends on**: Phase 16, Phase 17
 **Requirements**: BC-FIX-01, BC-FIX-02, BC-FIX-03
 
+**Plans:** 0/3 plans complete
+
+Plans:
+**Wave 1** *(parallel — no file overlap)*
+
+- [ ] 18-01-PLAN.md — BC-FIX-01: correct 5 mismatched bybit_adapter endpoint strings against connector route table (place_order, get_positions, get_order_status, get_open_orders, get_ticker)
+- [ ] 18-02-PLAN.md — BC-FIX-02: extend TapeReplayClient with place_order/cancel_order/get_wallet_balance (deterministic FILLED stubs + in-memory balance/order state per D-05..D-08) + wallet fixture + regression tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 18-03-PLAN.md — BC-FIX-03: contract test asserting every adapter (method, path) is in the connector FastAPI route table (subprocess-loaded app.routes + regex over adapter source, D-09/D-10/D-11/D-12)
+
 ### Phase 19: Order Reconciliation + Idempotency
 
 **Goal**: Today no polling or WebSocket handler updates order state post-submit. `live_trading.py:493` `sync_positions_with_exchange()` runs once at startup. SUBMITTED→FILLED has no auto-updater; positions go stale. `bybit_adapter.py:346` 3-retry loop sends no `orderLinkId`; server-side 5xx after commit creates duplicate live orders. This phase implements either periodic polling or WS-private-channel reconciliation (decision in phase CONTEXT.md), and adds deterministic `orderLinkId` reused across retries within the 3-attempt window.
@@ -192,7 +204,7 @@ Plans:
 | 15. Planning-Tooling Hardening | v1.2 | 4/4 | Complete | 2026-05-23 |
 | 16. Validated-Set Re-Audit | v1.3 | 6/7 | In Progress|  |
 | 17. Execution-Cap Hard Enforcement | v1.3 | 2/2 | Complete    | 2026-05-24 |
-| 18. Bybit-Adapter Contract Fix | v1.3 | 0/? | Pending | — |
+| 18. Bybit-Adapter Contract Fix | v1.3 | 0/3 | Pending | — |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
 | 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
 | 21. TA Aggregator Widening + Leakage Net | v1.3 | 0/? | Pending | — |
