@@ -4,8 +4,8 @@ milestone: v1.3
 milestone_name: TA + Engine Correctness
 status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-05-24T00:48:45.370Z"
-last_activity: 2026-05-24 -- Phase 17 planning complete
+last_updated: "2026-05-24T00:54:41.482Z"
+last_activity: 2026-05-24 -- Phase 17 execution started
 progress:
   total_phases: 9
   completed_phases: 1
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Phase 16 — Validated-Set Re-Audit
+**Current focus:** Phase 17 — Execution-Cap Hard Enforcement
 
 ## Current Position
 
-Phase: 16 (Validated-Set Re-Audit) — EXECUTING
-Plan: 7 of 7 (Plan 06 complete; Plan 07 = operator checkpoint phase next)
-Status: Ready to execute
-Last activity: 2026-05-24 -- Phase 17 planning complete
+Phase: 17 (Execution-Cap Hard Enforcement) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 17
+Last activity: 2026-05-24 -- Phase 17 execution started
 
 ## Deferred Items
 
