@@ -1591,8 +1591,15 @@ class AutoTrader:
                 trades_rejected_min_notional_total.labels(
                     symbol=symbol, reason="min_qty"
                 ).inc()
-            except (OSError, ImportError) as e:
-                # Phase 17 TE-CAP-05 D-08 Category M — observable metric-emit failure
+            except (ImportError, ValueError, AttributeError) as e:
+                # Phase 17 TE-CAP-05 D-08 Category M — observable metric-emit failure.
+                # ImportError covers the deferred import at :1589.
+                # ValueError covers prometheus_client.Counter.labels() raising on
+                # label-name mismatch if the Counter definition in app.core.metrics
+                # is renamed without updating call sites here (real refactor risk).
+                # AttributeError covers a Counter→Histogram (or similar) metric-type
+                # swap that removes .labels() or .inc(). OSError dropped (counters
+                # are in-process; no I/O).
                 logger.warning("metrics emit failed (min_qty): %r", e)
             logger.info(
                 f"rejecting {symbol}: qty {qty_d} below min {spec.min_order_qty} "
@@ -1608,8 +1615,15 @@ class AutoTrader:
                 trades_rejected_min_notional_total.labels(
                     symbol=symbol, reason="min_notional"
                 ).inc()
-            except (OSError, ImportError) as e:
-                # Phase 17 TE-CAP-05 D-08 Category M — observable metric-emit failure
+            except (ImportError, ValueError, AttributeError) as e:
+                # Phase 17 TE-CAP-05 D-08 Category M — observable metric-emit failure.
+                # ImportError covers the deferred import at :1606.
+                # ValueError covers prometheus_client.Counter.labels() raising on
+                # label-name mismatch if the Counter definition in app.core.metrics
+                # is renamed without updating call sites here (real refactor risk).
+                # AttributeError covers a Counter→Histogram (or similar) metric-type
+                # swap that removes .labels() or .inc(). OSError dropped (counters
+                # are in-process; no I/O).
                 logger.warning("metrics emit failed (min_notional): %r", e)
             logger.info(
                 f"rejecting {symbol}: notional ${notional:.2f} below min "
