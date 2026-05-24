@@ -73,7 +73,7 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 
 - [ ] **Phase 16: Validated-Set Re-Audit** — Trust-no-docs sweep of every REQ in PROJECT.md `### Validated` (pre-v1, v1.0, v1.1, v1.2) with `file:line` evidence; demote drift items (RISK-04 cap advisory, RISK-06 stub, ADR-010 paper cap missing, LSTM-archived false). Gates Track A + Track B.
 - [x] **Phase 17: Execution-Cap Hard Enforcement** — Track A AUDIT-01 found execution-cap enforcement (RISK-04/06 + ADR-010 paper-cap config) already satisfied; v1.3 Phase 17 scope shrinks to (a) emergency-stop HTTP admin auth (TE-CAP-02) + (b) bare-except cleanup in order path (TE-CAP-05). TE-CAP-01/03/04 demoted as audit-satisfied. (completed 2026-05-24)
-- [ ] **Phase 18: Bybit-Adapter Contract Fix** — Fix `bybit_adapter.py` dead endpoint paths (`/api/v1/order/create` → `/api/v1/order/place`; `/api/v1/position/list` → `/api/v1/account/positions`); extend `TapeReplayClient` with order endpoints; contract tests against bybit-connector router surface (BC-FIX-01..03)
+- [x] **Phase 18: Bybit-Adapter Contract Fix** — Fix `bybit_adapter.py` dead endpoint paths (`/api/v1/order/create` → `/api/v1/order/place`; `/api/v1/position/list` → `/api/v1/account/positions`); extend `TapeReplayClient` with order endpoints; contract tests against bybit-connector router surface (BC-FIX-01..03) (completed 2026-05-24)
 - [ ] **Phase 19: Order Reconciliation + Idempotency** — Order-state polling or WS handler post-submit; deterministic `orderLinkId` on every place + retry (RECON-01..02)
 - [ ] **Phase 20: Paper-Engine Honesty** — Paper-sim slippage model; SL/TP trigger evaluation; monotonic order IDs; 48h max-hold + stop-loss-as-limit regression tests (PAPER-01..03)
 - [ ] **Phase 21: TA Aggregator Widening + Leakage Net** — Bring ADX + Volume + SQZMOM into aggregator vote; reconcile MACD route/settings drift (5/35/5 canonical); reconcile BB std-dev drift (2.5 canonical); look-ahead-leakage regression suite (TA-AGG-01..04)
@@ -132,7 +132,7 @@ Plans:
 **Depends on**: Phase 16, Phase 17
 **Requirements**: BC-FIX-01, BC-FIX-02, BC-FIX-03
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1** *(parallel — no file overlap)*
@@ -142,7 +142,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 18-03-PLAN.md — BC-FIX-03: contract test asserting every adapter (method, path) is in the connector FastAPI route table (subprocess-loaded app.routes + regex over adapter source, D-09/D-10/D-11/D-12)
+- [x] 18-03-PLAN.md — BC-FIX-03: contract test asserting every adapter (method, path) is in the connector FastAPI route table (subprocess-loaded app.routes + regex over adapter source, D-09/D-10/D-11/D-12)
 
 ### Phase 19: Order Reconciliation + Idempotency
 
@@ -204,7 +204,7 @@ Plans:
 | 15. Planning-Tooling Hardening | v1.2 | 4/4 | Complete | 2026-05-23 |
 | 16. Validated-Set Re-Audit | v1.3 | 6/7 | In Progress|  |
 | 17. Execution-Cap Hard Enforcement | v1.3 | 2/2 | Complete    | 2026-05-24 |
-| 18. Bybit-Adapter Contract Fix | v1.3 | 2/3 | In Progress|  |
+| 18. Bybit-Adapter Contract Fix | v1.3 | 3/3 | Complete   | 2026-05-24 |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
 | 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
 | 21. TA Aggregator Widening + Leakage Net | v1.3 | 0/? | Pending | — |
