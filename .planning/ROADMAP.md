@@ -132,13 +132,13 @@ Plans:
 **Depends on**: Phase 16, Phase 17
 **Requirements**: BC-FIX-01, BC-FIX-02, BC-FIX-03
 
-**Plans:** 0/3 plans complete
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1** *(parallel — no file overlap)*
 
-- [ ] 18-01-PLAN.md — BC-FIX-01: correct 5 mismatched bybit_adapter endpoint strings against connector route table (place_order, get_positions, get_order_status, get_open_orders, get_ticker)
-- [ ] 18-02-PLAN.md — BC-FIX-02: extend TapeReplayClient with place_order/cancel_order/get_wallet_balance (deterministic FILLED stubs + in-memory balance/order state per D-05..D-08) + wallet fixture + regression tests
+- [x] 18-01-PLAN.md — BC-FIX-01: correct 5 mismatched bybit_adapter endpoint strings against connector route table (place_order, get_positions, get_order_status, get_open_orders, get_ticker)
+- [x] 18-02-PLAN.md — BC-FIX-02: extend TapeReplayClient with place_order/cancel_order/get_wallet_balance (deterministic FILLED stubs + in-memory balance/order state per D-05..D-08) + wallet fixture + regression tests
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -204,7 +204,7 @@ Plans:
 | 15. Planning-Tooling Hardening | v1.2 | 4/4 | Complete | 2026-05-23 |
 | 16. Validated-Set Re-Audit | v1.3 | 6/7 | In Progress|  |
 | 17. Execution-Cap Hard Enforcement | v1.3 | 2/2 | Complete    | 2026-05-24 |
-| 18. Bybit-Adapter Contract Fix | v1.3 | 0/3 | Pending | — |
+| 18. Bybit-Adapter Contract Fix | v1.3 | 2/3 | In Progress|  |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
 | 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
 | 21. TA Aggregator Widening + Leakage Net | v1.3 | 0/? | Pending | — |

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
-status: ready_to_plan
-stopped_at: Phase 17 complete (2/2) — ready to discuss Phase 18
-last_updated: 2026-05-24T10:39:57.122Z
-last_activity: 2026-05-24 -- Phase 17 execution started
+status: executing
+stopped_at: Phase 17 context gathered
+last_updated: "2026-05-24T11:48:19.428Z"
+last_activity: 2026-05-24 -- Phase 18 execution started
 progress:
   total_phases: 9
-  completed_phases: 1
-  total_plans: 9
+  completed_phases: 2
+  total_plans: 12
   completed_plans: 9
-  percent: 11
+  percent: 22
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Phase 18 — bybit adapter contract fix
+**Current focus:** Phase 18 — Bybit-Adapter Contract Fix
 
 ## Current Position
 
-Phase: 18
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-24
+Phase: 18 (Bybit-Adapter Contract Fix) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 18
+Last activity: 2026-05-24 -- Phase 18 execution started
 
 ## Deferred Items
 
