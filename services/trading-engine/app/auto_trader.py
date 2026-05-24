@@ -26,8 +26,8 @@ UPDATED 2025-11-30 v2: Advanced trading enhancements
 """
 
 import asyncio
-import httpx
 import logging
+import aiohttp
 from pathlib import Path
 from typing import Optional, List, Dict, Set
 from datetime import datetime
@@ -2498,13 +2498,24 @@ class AutoTrader:
                     f"MANUAL INTERVENTION REQUIRED",
                     severity="critical",
                 )
-            except (httpx.HTTPError, asyncio.TimeoutError, RuntimeError) as notif_err:
+            except (
+                AttributeError,
+                aiohttp.ClientError,
+                asyncio.TimeoutError,
+                RuntimeError,
+            ) as notif_err:
                 # Phase 17 TE-CAP-05 D-08 Category R — observable notif-emit failure
                 # inside max-hold critical-error branch; outer except at :2482
                 # stays as-is per D-08 explicit text (already logs exc_info=True).
+                # AttributeError covers the current send_notification missing-method
+                # latent bug (NotificationClient exposes notify_* methods, not
+                # send_notification); aiohttp.ClientError covers the transport
+                # family the underlying NotificationClient is built on once that
+                # latent bug is fixed.
                 logger.error(
                     "notif emit failed inside max-hold critical-error branch for %s: %r",
-                    position.symbol, notif_err,
+                    position.symbol,
+                    notif_err,
                 )
 
             return False
@@ -3202,15 +3213,26 @@ class AutoTrader:
                         f"MANUAL INTERVENTION REQUIRED",
                         severity="critical",
                     )
-                except (httpx.HTTPError, asyncio.TimeoutError, RuntimeError) as notif_err:
+                except (
+                    AttributeError,
+                    aiohttp.ClientError,
+                    asyncio.TimeoutError,
+                    RuntimeError,
+                ) as notif_err:
                     # Phase 17 TE-CAP-05 D-08 Category R — observable notif-emit failure
                     # inside limit-stop both-orders-failed critical branch; outer except
                     # at :3199 stays as-is (already logs exc_info=True + falls back to
                     # _close_position last-resort).
+                    # AttributeError covers the current send_notification missing-method
+                    # latent bug (NotificationClient exposes notify_* methods, not
+                    # send_notification); aiohttp.ClientError covers the transport
+                    # family the underlying NotificationClient is built on once that
+                    # latent bug is fixed.
                     logger.error(
                         "notif emit failed inside limit-stop both-orders-failed critical "
                         "branch for %s: %r",
-                        position.symbol, notif_err,
+                        position.symbol,
+                        notif_err,
                     )
 
         except Exception as e:
