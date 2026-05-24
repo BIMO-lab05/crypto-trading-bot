@@ -191,7 +191,7 @@ Plans:
 | 14. Mobile Responsive Dashboard | v1.2 | 6/6 | Complete | 2026-05-22 |
 | 15. Planning-Tooling Hardening | v1.2 | 4/4 | Complete | 2026-05-23 |
 | 16. Validated-Set Re-Audit | v1.3 | 6/7 | In Progress|  |
-| 17. Execution-Cap Hard Enforcement | v1.3 | 2/2 | Complete   | 2026-05-24 |
+| 17. Execution-Cap Hard Enforcement | v1.3 | 2/2 | Complete    | 2026-05-24 |
 | 18. Bybit-Adapter Contract Fix | v1.3 | 0/? | Pending | — |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
 | 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
