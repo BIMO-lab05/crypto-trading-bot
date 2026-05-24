@@ -4,12 +4,12 @@ milestone: v1.3
 milestone_name: TA + Engine Correctness
 status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-05-24T00:00:27.635Z"
-last_activity: 2026-05-23
+last_updated: "2026-05-24T00:48:45.370Z"
+last_activity: 2026-05-24 -- Phase 17 planning complete
 progress:
   total_phases: 9
   completed_phases: 1
-  total_plans: 7
+  total_plans: 9
   completed_plans: 7
   percent: 11
 ---
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 Phase: 16 (Validated-Set Re-Audit) — EXECUTING
 Plan: 7 of 7 (Plan 06 complete; Plan 07 = operator checkpoint phase next)
-Status: Ready to execute Plan 07
-Last activity: 2026-05-23
+Status: Ready to execute
+Last activity: 2026-05-24 -- Phase 17 planning complete
 
 ## Deferred Items
 

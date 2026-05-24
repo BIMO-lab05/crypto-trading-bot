@@ -82,6 +82,7 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 - [ ] **Phase 24: Operator-Log + API Hygiene** — Fix stale "Sentiment 15%" log lines; DSR staleness enforcement on auto-flip; TA CORS lockdown; deprecate legacy `/api/v1/market/*` at api-gateway (HYG-01..04)
 
 **Parallelization (after Phase 16 closes):**
+
 - Track A (execution): Phases 17 → 18 → 19 → 20 (sequential within track)
 - Track B (signal + ML): Phases 21, 22, 23 can run independently
 - Cross-cutting: Phase 24 can run any time after Phase 16
@@ -99,6 +100,7 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 **Plans:** 6/7 plans executed
 
 Plans:
+
 - [x] 16-01-PLAN.md — Inventory + schema scaffolding (seed validated-reaudit.json with ~81 Validated REQs)
 - [x] 16-02-PLAN.md — Track A audit: Risk + Preflight + MLGate + Observability + CLAUDE-PAPER-CAP-ADR010 (~17 rows)
 - [x] 16-03-PLAN.md — Track B audit: ML + MLCL + TOURN + EXEC-03 + CLAUDE-LSTM-ARCHIVED + CLAUDE-SENTIMENT-REMOVED (~19 rows)
@@ -116,7 +118,12 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 17-01-PLAN.md — TE-CAP-02: delete unauthenticated trading-engine /emergency-stop route + add 404 negative test + update auth-note comment (api-gateway becomes sole admin entry per D-01/D-02/D-12)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 17-02-PLAN.md — TE-CAP-05: rewrite 5 REQ-named broad-except sites in auto_trader.py per locked D-08 M/P/R taxonomy + D-10 caplog regression test for [RISK_GATE] PER_TRADE_CAP BREACH log survival
 
 ### Phase 18: Bybit-Adapter Contract Fix
