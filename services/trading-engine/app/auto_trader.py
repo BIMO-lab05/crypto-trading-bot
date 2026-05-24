@@ -26,11 +26,12 @@ UPDATED 2025-11-30 v2: Advanced trading enhancements
 """
 
 import asyncio
+import httpx
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Set
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 
 from app.config import get_settings
@@ -1548,10 +1549,10 @@ class AutoTrader:
             qty_d = _Decimal(str(quantity))
             price_d = _Decimal(str(price))
             balance_d = _Decimal(str(balance))
-        except Exception:
-            # Defensive — bad inputs shouldn't crash the gate.
+        except (InvalidOperation, ValueError, TypeError) as e:
+            # Defensive — bad inputs shouldn't crash the gate. (Phase 17 TE-CAP-05 D-08 Category P)
             logger.warning(
-                f"min-notional gate: could not parse qty/price/balance for {symbol}, allowing"
+                "min-notional gate: parse failed for %s: %r — allowing", symbol, e
             )
             return True, None
 
@@ -1590,8 +1591,9 @@ class AutoTrader:
                 trades_rejected_min_notional_total.labels(
                     symbol=symbol, reason="min_qty"
                 ).inc()
-            except Exception:
-                pass
+            except (OSError, ImportError) as e:
+                # Phase 17 TE-CAP-05 D-08 Category M — observable metric-emit failure
+                logger.warning("metrics emit failed (min_qty): %r", e)
             logger.info(
                 f"rejecting {symbol}: qty {qty_d} below min {spec.min_order_qty} "
                 f"(notional ${notional:.2f}, balance ${balance_d:.2f}, "
@@ -1606,8 +1608,9 @@ class AutoTrader:
                 trades_rejected_min_notional_total.labels(
                     symbol=symbol, reason="min_notional"
                 ).inc()
-            except Exception:
-                pass
+            except (OSError, ImportError) as e:
+                # Phase 17 TE-CAP-05 D-08 Category M — observable metric-emit failure
+                logger.warning("metrics emit failed (min_notional): %r", e)
             logger.info(
                 f"rejecting {symbol}: notional ${notional:.2f} below min "
                 f"${spec.min_notional} (qty {qty_d}, balance ${balance_d:.2f}, "
@@ -2495,8 +2498,14 @@ class AutoTrader:
                     f"MANUAL INTERVENTION REQUIRED",
                     severity="critical",
                 )
-            except:
-                pass
+            except (httpx.HTTPError, asyncio.TimeoutError, RuntimeError) as notif_err:
+                # Phase 17 TE-CAP-05 D-08 Category R — observable notif-emit failure
+                # inside max-hold critical-error branch; outer except at :2482
+                # stays as-is per D-08 explicit text (already logs exc_info=True).
+                logger.error(
+                    "notif emit failed inside max-hold critical-error branch for %s: %r",
+                    position.symbol, notif_err,
+                )
 
             return False
 
@@ -3193,8 +3202,16 @@ class AutoTrader:
                         f"MANUAL INTERVENTION REQUIRED",
                         severity="critical",
                     )
-                except:
-                    pass
+                except (httpx.HTTPError, asyncio.TimeoutError, RuntimeError) as notif_err:
+                    # Phase 17 TE-CAP-05 D-08 Category R — observable notif-emit failure
+                    # inside limit-stop both-orders-failed critical branch; outer except
+                    # at :3199 stays as-is (already logs exc_info=True + falls back to
+                    # _close_position last-resort).
+                    logger.error(
+                        "notif emit failed inside limit-stop both-orders-failed critical "
+                        "branch for %s: %r",
+                        position.symbol, notif_err,
+                    )
 
         except Exception as e:
             logger.error(
