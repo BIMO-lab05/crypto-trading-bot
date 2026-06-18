@@ -22,7 +22,7 @@ scikit-learn==1.4.0       # ML algorithms
 statsmodels==0.14.1       # Statistical models
 
 # Database & Caching
-asyncpg==0.29.0           # Async PostgreSQL driver
+asyncpg==0.31.0           # Async PostgreSQL driver
 aioredis==2.0.1           # Redis for caching indicators
 redis==5.0.1              # Sync Redis client
 
