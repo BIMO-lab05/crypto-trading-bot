@@ -643,8 +643,26 @@ class BybitExchangeAdapter(ExchangeInterface):
                 "POST", "/api/v1/order/place", json_data=payload
             )
 
+            # Phase 18 WR-03: guard against silent rejection. Tape client
+            # (and real Bybit under some edge cases) can return
+            # {'orderId': '', 'orderStatus': 'Rejected'} on unroutable
+            # requests. Previously we hard-coded status = NEW and stored
+            # an empty exchange_order_id, so downstream cancel_order /
+            # get_order_status silently no-op'd against a nonexistent
+            # order and Phase 19 recon would look up phantoms.
+            raw_status = str(result.get("orderStatus") or "").lower()
+            raw_order_id = result.get("orderId") or ""
+            if raw_status == "rejected" or not raw_order_id:
+                raise OrderRejectedError(
+                    reason=(
+                        f"Exchange rejected order (orderId={raw_order_id!r}, "
+                        f"orderStatus={result.get('orderStatus')!r})"
+                    ),
+                    exchange="bybit",
+                )
+
             # Update order with result
-            order.exchange_order_id = result.get("orderId")
+            order.exchange_order_id = raw_order_id
             order.client_order_id = result.get("orderLinkId") or str(order.id)
             order.status = OrderStatus.NEW
             order.updated_at = datetime.now(timezone.utc)
