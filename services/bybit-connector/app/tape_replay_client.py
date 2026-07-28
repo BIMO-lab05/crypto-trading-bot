@@ -63,8 +63,9 @@ class TapeReplayClient:
         # ------------------------------------------------------------------
         # Phase 18 BC-FIX-02 — order-path state (D-05/D-06/D-07/D-08)
         # Lazy-loaded balance: first get_wallet_balance / place_order call
-        # initialises from fixture (creating the fixture with the D-07
-        # default if absent) and tracks balance in-memory thereafter.
+        # initialises from the on-disk fixture (BL-01: refuses init if
+        # missing — the runtime bind-mount is read-only) and tracks balance
+        # in-memory thereafter.
         # ------------------------------------------------------------------
         self._order_log: List[
             Dict[str, Any]
@@ -157,22 +158,26 @@ class TapeReplayClient:
         return self.fixtures_path / WALLET_BALANCE_FIXTURE_NAME
 
     def _load_wallet_balance(self) -> None:
-        """Initialise self._wallet_balance from fixture, creating it with the
-        D-07 default if it does not exist on disk.
+        """Initialise self._wallet_balance from the on-disk fixture.
 
         Called lazily on first balance-touching method (get_wallet_balance /
         place_order) so __init__ remains synchronous and inexpensive.
+
+        Phase 18 BL-01 fix: refuses init if the fixture is missing rather
+        than lazy-writing a default. The runtime bind-mount is read-only
+        (docker-compose.unified.yml:409 mounts tests/fixtures/tape as :ro),
+        so a lazy write would raise OSError inside the first request.
+        Mirrors the kline/ticker loader policy in _load_fixtures() — loud
+        FileNotFoundError beats a silent runtime crash later.
         """
         path = self._wallet_fixture_path()
         if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "w") as fh:
-                json.dump(DEFAULT_WALLET_BALANCE, fh, indent=2)
-                fh.write("\n")
-            logger.warning(
-                "TAPE_REPLAY: created default wallet_balance.json at %s with %s",
-                path,
-                DEFAULT_WALLET_BALANCE,
+            raise FileNotFoundError(
+                f"Wallet balance fixture missing at {path}. "
+                "Seed the file at tests/fixtures/tape/wallet_balance.json "
+                f"(e.g. {json.dumps(DEFAULT_WALLET_BALANCE)}). "
+                "The runtime bind-mount is read-only so this file must exist "
+                "on disk before tape-mode requests are served."
             )
         with open(path, "r") as fh:
             self._wallet_balance = json.load(fh)
@@ -310,7 +315,11 @@ class TapeReplayClient:
                 "rejecting with empty result (mirrors unknown-symbol semantics)",
                 symbol,
             )
-            return {"orderId": "", "orderLinkId": order_link_id, "orderStatus": "Rejected"}
+            return {
+                "orderId": "",
+                "orderLinkId": order_link_id,
+                "orderStatus": "Rejected",
+            }
 
         if self._wallet_balance is None:
             self._load_wallet_balance()
@@ -386,8 +395,10 @@ class TapeReplayClient:
         """Return Bybit-V5-shaped wallet balance per Phase 18 D-07.
 
         Lazy-loads the in-memory balance dict from
-        tests/fixtures/tape_replay/wallet_balance.json on first call (writes
-        the D-07 default {"USDT": 100.0} if the file is missing).
+        tests/fixtures/tape/wallet_balance.json on first call.
+        BL-01: raises FileNotFoundError if the fixture is missing (the
+        runtime bind-mount is read-only, so lazy-writing a default would
+        fail with OSError inside the request path).
         """
         if self._wallet_balance is None:
             self._load_wallet_balance()

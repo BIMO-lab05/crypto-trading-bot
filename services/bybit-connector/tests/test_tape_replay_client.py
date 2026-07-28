@@ -14,7 +14,6 @@ created by the parallel plan 01-01 (per plan rules §5).
 """
 
 import json
-import time
 import pytest
 from pathlib import Path
 
@@ -418,24 +417,32 @@ async def test_cancel_order_is_no_op_success(fake_tape_with_wallet: Path) -> Non
         category="linear", symbol="SOLUSDT", side="Buy", order_type="Market", qty="1"
     )
     log_len_before = len(client._order_log)
-    balance_before = client._wallet_balance.get("USDT") if client._wallet_balance else None
+    balance_before = (
+        client._wallet_balance.get("USDT") if client._wallet_balance else None
+    )
 
     result = await client.cancel_order(
         category="linear", symbol="SOLUSDT", order_id=placed["orderId"]
     )
-    assert result == {"success": True, "order_id": placed["orderId"], "symbol": "SOLUSDT"}, (
-        f"D-06: cancel_order must return success no-op shape, got {result!r}"
+    assert result == {
+        "success": True,
+        "order_id": placed["orderId"],
+        "symbol": "SOLUSDT",
+    }, f"D-06: cancel_order must return success no-op shape, got {result!r}"
+    assert len(client._order_log) == log_len_before, (
+        "D-06: cancel_order must not mutate _order_log"
     )
-    assert len(client._order_log) == log_len_before, "D-06: cancel_order must not mutate _order_log"
-    assert (client._wallet_balance.get("USDT") if client._wallet_balance else None) == balance_before, (
-        "D-06: cancel_order must not mutate balance"
-    )
+    assert (
+        client._wallet_balance.get("USDT") if client._wallet_balance else None
+    ) == balance_before, "D-06: cancel_order must not mutate balance"
 
 
 # ---- D-07: get_wallet_balance fixture load + lazy-write ------------------
 
 
-async def test_get_wallet_balance_loads_from_fixture(fake_tape_with_wallet: Path) -> None:
+async def test_get_wallet_balance_loads_from_fixture(
+    fake_tape_with_wallet: Path,
+) -> None:
     """D-07: get_wallet_balance returns the seeded $100 USDT default from the fixture."""
     from app.tape_replay_client import TapeReplayClient
 
@@ -443,19 +450,25 @@ async def test_get_wallet_balance_loads_from_fixture(fake_tape_with_wallet: Path
     balance = await client.get_wallet_balance()
     coin_entries = balance["list"][0]["coin"]
     usdt_entries = [c for c in coin_entries if c["coin"] == "USDT"]
-    assert len(usdt_entries) == 1, f"D-07: expected exactly one USDT entry, got {coin_entries!r}"
+    assert len(usdt_entries) == 1, (
+        f"D-07: expected exactly one USDT entry, got {coin_entries!r}"
+    )
     assert float(usdt_entries[0]["walletBalance"]) == 100.0, (
         f"D-07: fixture default must be 100 USDT, got {usdt_entries[0]['walletBalance']!r}"
     )
 
 
-async def test_get_wallet_balance_writes_default_if_fixture_missing(
+async def test_get_wallet_balance_raises_when_fixture_missing(
     fake_tape: Path,
 ) -> None:
-    """D-07: when wallet_balance.json is absent, first call writes the
-    default {"USDT": 100.0} to disk and then returns it.
+    """BL-01: when wallet_balance.json is absent, first call raises
+    FileNotFoundError instead of silently writing a default.
+
+    Previous behaviour lazy-wrote the D-07 default to disk on first call.
+    That crashed at runtime because docker-compose.unified.yml:409 mounts
+    tests/fixtures/tape as :ro. Loud FileNotFoundError beats an OSError
+    inside the request path — mirrors _load_fixtures() policy.
     """
-    import json as _json
     from app.tape_replay_client import TapeReplayClient
 
     wallet_path = fake_tape / "wallet_balance.json"
@@ -464,15 +477,14 @@ async def test_get_wallet_balance_writes_default_if_fixture_missing(
     )
 
     client = TapeReplayClient(fake_tape)
-    balance = await client.get_wallet_balance()
+    with pytest.raises(FileNotFoundError, match="wallet_balance"):
+        await client.get_wallet_balance()
 
-    assert wallet_path.exists(), "D-07: get_wallet_balance must write fixture if missing"
-    with open(wallet_path) as fh:
-        assert _json.load(fh) == {"USDT": 100.0}, (
-            "D-07: written fixture must be the canonical default"
-        )
-    usdt_entries = [c for c in balance["list"][0]["coin"] if c["coin"] == "USDT"]
-    assert float(usdt_entries[0]["walletBalance"]) == 100.0
+    # Fixture must NOT have been created by the failed call — the read-only
+    # mount policy means the loader must never touch disk on the write path.
+    assert not wallet_path.exists(), (
+        "BL-01: failed load must NOT write the fixture (read-only bind-mount)"
+    )
 
 
 # ---- D-08: reset() clears order-path state -------------------------------
