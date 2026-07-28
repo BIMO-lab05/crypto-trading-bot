@@ -55,11 +55,11 @@ class TapeReplayClient:
         self._klines: Dict[str, List[List[str]]] = {}  # symbol -> list of klines
         self._tickers: Dict[str, Dict[str, Any]] = {}  # symbol -> ticker dict
         self._load_fixtures()
-        # Cursor fields populated after _load_fixtures() so symbol keys are available.
-        # Per-test reset semantics (D-04): POST /admin/tape/reset zeroes these so the
-        # next test starts at fixture position 0 without restarting the connector.
-        self._kline_cursor: Dict[str, int] = {sym: 0 for sym in self._klines}
-        self._ticker_cursor: Dict[str, int] = {sym: 0 for sym in self._tickers}
+        # Phase 18 WR-05: kline/ticker cursors were declared, reset by
+        # reset(), and asserted by D-04 tests but never read by get_kline /
+        # get_ticker (which return the full loaded fixture on every call).
+        # Removed to avoid dead state that could mislead future readers into
+        # thinking there's a consumer-side advance.
         # ------------------------------------------------------------------
         # Phase 18 BC-FIX-02 — order-path state (D-05/D-06/D-07/D-08)
         # Lazy-loaded balance: first get_wallet_balance / place_order call
@@ -192,25 +192,24 @@ class TapeReplayClient:
     # =========================================================================
 
     def reset(self) -> None:
-        """Reset all in-memory cursors to fixture position 0 (D-04).
+        """Reset all in-memory session state to fixture-load defaults (D-04, D-08).
 
         Called by POST /admin/tape/reset between integration tests so the
-        recorded-tape data clock rewinds without restarting the connector.
+        connector state rewinds without a restart. Phase 18 WR-05 removed
+        the unused kline/ticker cursors, so reset() now only touches the
+        order-path session state (D-08) and forces a wallet reload from
+        the on-disk fixture.
         """
-        self._kline_cursor = {sym: 0 for sym in self._klines}
-        self._ticker_cursor = {sym: 0 for sym in self._tickers}
-        logger.warning(
-            "TAPE_REPLAY: cursors reset (klines=%d, tickers=%d)",
-            len(self._kline_cursor),
-            len(self._ticker_cursor),
-        )
-        # Phase 18 BC-FIX-02 (D-08) — clear order-path session state too
+        # Phase 18 BC-FIX-02 (D-08) — clear order-path session state
         self._order_log = []
         self._open_orders = {}
         self._order_counter = 0
         # Reload wallet balance from fixture (operator may have edited the
         # JSON between tests to seed a different starting position).
         self._wallet_balance = None  # force lazy reload on next access
+        logger.warning(
+            "TAPE_REPLAY: cursors reset (order_log cleared, wallet lazy-reload armed)"
+        )
 
     async def close(self) -> None:
         """No-op: no HTTP client to close. Mirrors BybitRestClient.close()."""

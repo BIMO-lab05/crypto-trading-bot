@@ -207,67 +207,74 @@ async def test_get_kline_returns_list_of_lists_v5_shape(fake_tape: Path) -> None
 # ===========================================================================
 
 
-def test_reset_zeroes_cursors_after_init(fake_tape: Path) -> None:
-    """D-04: post-init, calling reset() yields per-symbol cursor dicts at 0.
+def test_reset_clears_session_state_after_init(fake_tape_with_wallet: Path) -> None:
+    """D-04 (post-WR-05): post-init, calling reset() leaves the session
+    state at its zero baseline (empty order log, counter=0, wallet lazy).
 
-    Cursor dicts must contain one entry per loaded symbol (not empty), each
-    initialised to fixture position 0. This is the post-init steady-state.
+    Phase 18 WR-05 removed the unused kline/ticker cursor fields — they
+    were populated and reset by this method but never read by get_kline/
+    get_ticker. The remaining reset() contract is order-path session
+    state (D-08) + wallet lazy-reload.
     """
-    client = TapeReplayClient(fake_tape)
+    client = TapeReplayClient(fake_tape_with_wallet)
     client.reset()
 
-    # Both cursor dicts must be populated AND zero-valued.
-    assert client._kline_cursor == {sym: 0 for sym in client._klines}, (
-        "kline cursor must zero-init for every loaded kline symbol"
+    assert client._order_log == [], "post-init reset(): order log must be empty"
+    assert client._open_orders == {}, "post-init reset(): open orders must be empty"
+    assert client._order_counter == 0, "post-init reset(): counter must be 0"
+    # Wallet is lazy-reloaded — reset() arms the reload but does not touch disk.
+    assert client._wallet_balance is None, (
+        "post-init reset(): wallet balance must be armed for lazy reload"
     )
-    assert client._ticker_cursor == {sym: 0 for sym in client._tickers}, (
-        "ticker cursor must zero-init for every loaded ticker symbol"
-    )
-    # Sanity: fake_tape has SOLUSDT — confirm a non-empty dict was produced.
-    assert "SOLUSDT" in client._kline_cursor
-    assert "SOLUSDT" in client._ticker_cursor
+    # Sanity: fixture dicts still loaded (reset() must NOT touch _klines/_tickers).
+    assert "SOLUSDT" in client._klines
+    assert "SOLUSDT" in client._tickers
 
 
-def test_reset_rewinds_advanced_cursors(fake_tape: Path) -> None:
-    """D-04: cursors that have been advanced are rewound to 0 by reset().
+async def test_reset_rewinds_session_state_after_activity(
+    fake_tape_with_wallet: Path,
+) -> None:
+    """D-04 (post-WR-05): after place_order activity, reset() rewinds to baseline.
 
-    Simulates a test that consumed 7 candles + 3 ticker snapshots and verifies
-    the next test starts at fixture position 0.
+    Simulates a test that ran some orders and verifies the next test starts
+    at counter=0 with an empty order log.
     """
-    client = TapeReplayClient(fake_tape)
-    # Simulate cursor advance during a previous "test"
-    client._kline_cursor["SOLUSDT"] = 7
-    client._ticker_cursor["SOLUSDT"] = 3
+    client = TapeReplayClient(fake_tape_with_wallet)
+
+    await client.place_order(
+        category="linear",
+        symbol="SOLUSDT",
+        side="Buy",
+        order_type="Market",
+        qty="1",
+    )
+    assert client._order_counter == 1, "Precondition: counter should have incremented"
+    assert len(client._order_log) == 1, "Precondition: order log should have 1 entry"
 
     client.reset()
 
-    assert client._kline_cursor["SOLUSDT"] == 0, (
-        f"kline cursor must rewind to 0; got {client._kline_cursor['SOLUSDT']}"
+    assert client._order_counter == 0, (
+        f"counter must rewind to 0; got {client._order_counter}"
     )
-    assert client._ticker_cursor["SOLUSDT"] == 0, (
-        f"ticker cursor must rewind to 0; got {client._ticker_cursor['SOLUSDT']}"
-    )
+    assert client._order_log == [], "order log must be cleared by reset()"
 
 
-def test_reset_with_empty_symbol_dicts_does_not_raise(fake_tape: Path) -> None:
-    """D-04: reset() must be safe even when no symbols are loaded.
-
-    Edge case: defensive coverage for paths where the loader hasn't yet
-    populated symbol dicts. We construct via the normal loader (which
-    requires fixtures) and then manually clear the dicts to exercise the
-    empty path — direct construction with empty fixture dirs raises
-    FileNotFoundError per landmine §6, so we cannot test "empty fixtures"
-    via the public ctor.
+def test_reset_does_not_touch_fixture_dicts(fake_tape: Path) -> None:
+    """D-04 (post-WR-05): reset() must not disturb the loaded kline/ticker
+    fixtures — those are the immutable seed data for the test session.
     """
     client = TapeReplayClient(fake_tape)
-    client._klines = {}
-    client._tickers = {}
+    kline_snapshot = {k: list(v) for k, v in client._klines.items()}
+    ticker_snapshot = dict(client._tickers)
 
-    # Must not raise — empty cursors are a valid steady-state.
     client.reset()
 
-    assert client._kline_cursor == {}
-    assert client._ticker_cursor == {}
+    assert client._klines == kline_snapshot, (
+        "reset() must not mutate the loaded kline fixtures"
+    )
+    assert client._tickers == ticker_snapshot, (
+        "reset() must not mutate the loaded ticker fixtures"
+    )
 
 
 def test_reset_emits_grep_able_log_line(fake_tape: Path, caplog) -> None:
