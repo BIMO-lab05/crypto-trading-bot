@@ -455,7 +455,10 @@ class BybitExchangeAdapter(ExchangeInterface):
         Returns:
             Account balance information
         """
-        params = {"accountType": self._account_type}
+        # Phase 18 WR-02: connector route declares snake_case account_type
+        # (services/bybit-connector/app/main.py:536). camelCase key silently
+        # falls through to the FastAPI default — override was a no-op.
+        params = {"account_type": self._account_type}
         if asset:
             params["coin"] = asset.upper()
 
