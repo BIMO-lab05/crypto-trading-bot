@@ -12,20 +12,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # ENUMS FOR VALIDATION
 # ============================================================================
 
+
 class OrderSide(str, Enum):
     """Valid order sides for Bybit"""
+
     BUY = "Buy"
     SELL = "Sell"
 
 
 class OrderType(str, Enum):
     """Valid order types for Bybit"""
+
     MARKET = "Market"
     LIMIT = "Limit"
 
 
 class TimeInForce(str, Enum):
     """Valid time in force values for Bybit"""
+
     GTC = "GTC"  # Good Till Cancel
     IOC = "IOC"  # Immediate or Cancel
     FOK = "FOK"  # Fill or Kill
@@ -34,6 +38,7 @@ class TimeInForce(str, Enum):
 
 class Category(str, Enum):
     """Valid product categories for Bybit"""
+
     LINEAR = "linear"
     INVERSE = "inverse"
     OPTION = "option"
@@ -44,23 +49,54 @@ class Category(str, Enum):
 # REQUEST MODELS
 # ============================================================================
 
+
 class PlaceOrderRequest(BaseModel):
-    """Request model for placing an order with comprehensive validation"""
+    """Request model for placing an order with comprehensive validation.
+
+    Phase 18 BL-03: accepts BOTH camelCase (Bybit V5 wire format sent by
+    the trading-engine bybit_adapter) and snake_case (internal Python
+    callers / existing tests) via Pydantic v2 aliases + populate_by_name.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
     category: Category = Field(default=Category.LINEAR, description="Product category")
-    symbol: str = Field(..., min_length=6, max_length=20, description="Trading pair (e.g., BTCUSDT)")
+    symbol: str = Field(
+        ..., min_length=6, max_length=20, description="Trading pair (e.g., BTCUSDT)"
+    )
     side: OrderSide = Field(..., description="Buy or Sell")
-    order_type: OrderType = Field(..., description="Market or Limit")
+    order_type: OrderType = Field(..., alias="orderType", description="Market or Limit")
     qty: str = Field(..., description="Order quantity (as string for precision)")
-    price: Optional[str] = Field(None, description="Order price (required for Limit orders)")
-    time_in_force: TimeInForce = Field(default=TimeInForce.GTC, description="Time in force")
-    reduce_only: bool = Field(default=False, description="Reduce only flag")
-    order_link_id: Optional[str] = Field(None, max_length=36, description="User-defined order ID")
+    price: Optional[str] = Field(
+        None, description="Order price (required for Limit orders)"
+    )
+    time_in_force: TimeInForce = Field(
+        default=TimeInForce.GTC, alias="timeInForce", description="Time in force"
+    )
+    reduce_only: bool = Field(
+        default=False, alias="reduceOnly", description="Reduce only flag"
+    )
+    order_link_id: Optional[str] = Field(
+        None, alias="orderLinkId", max_length=36, description="User-defined order ID"
+    )
     # Conditional / bracket-order parameters (Bybit V5 native fields).
-    take_profit: Optional[str] = Field(None, description="Take-profit trigger price")
-    stop_loss: Optional[str] = Field(None, description="Stop-loss trigger price")
-    tpsl_mode: Optional[str] = Field(None, description="TP/SL mode: 'Full' or 'Partial'")
-    trigger_price: Optional[str] = Field(None, description="Conditional-order trigger price")
-    trigger_direction: Optional[int] = Field(None, description="Conditional trigger direction: 1=rise, 2=fall")
+    take_profit: Optional[str] = Field(
+        None, alias="takeProfit", description="Take-profit trigger price"
+    )
+    stop_loss: Optional[str] = Field(
+        None, alias="stopLoss", description="Stop-loss trigger price"
+    )
+    tpsl_mode: Optional[str] = Field(
+        None, alias="tpslMode", description="TP/SL mode: 'Full' or 'Partial'"
+    )
+    trigger_price: Optional[str] = Field(
+        None, alias="triggerPrice", description="Conditional-order trigger price"
+    )
+    trigger_direction: Optional[int] = Field(
+        None,
+        alias="triggerDirection",
+        description="Conditional trigger direction: 1=rise, 2=fall",
+    )
 
     @field_validator("symbol")
     @classmethod
@@ -112,7 +148,7 @@ class PlaceOrderRequest(BaseModel):
             raise ValueError("trigger_direction must be 1 (rise) or 2 (fall)")
         return v
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_order_requirements(self):
         """Validate order type requirements"""
         # Limit orders require price
@@ -128,6 +164,7 @@ class PlaceOrderRequest(BaseModel):
 
 class CancelOrderRequest(BaseModel):
     """Request model for cancelling an order"""
+
     category: Category = Field(default=Category.LINEAR, description="Product category")
     symbol: str = Field(..., min_length=6, max_length=20, description="Trading symbol")
     order_id: Optional[str] = Field(None, description="Order ID")
@@ -139,7 +176,7 @@ class CancelOrderRequest(BaseModel):
         """Validate and normalize symbol"""
         return v.upper()
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_id_provided(self):
         """Validate that at least one ID is provided"""
         if not self.order_id and not self.order_link_id:
@@ -150,6 +187,7 @@ class CancelOrderRequest(BaseModel):
 # ============================================================================
 # RESPONSE MODELS (Optional - for documentation)
 # ============================================================================
+
 
 class OrderResponse(BaseModel):
     """Standard order response from Bybit"""
