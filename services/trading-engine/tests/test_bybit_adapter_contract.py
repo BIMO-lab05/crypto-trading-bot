@@ -248,7 +248,18 @@ def test_phase_18_corrections_locked_in() -> None:
     fails to capture a call site (e.g. a future refactor introduces a URL
     constant the regex doesn't match), this test still catches the case
     where a 18-01 correction got reverted.
+
+    Phase 18 WR-06 adds a per-endpoint call-site count assertion because
+    the fifth correction — /order/realtime -> /order/open — replaced OLD at
+    TWO adapter call sites (get_order_status + get_open_orders). Without
+    a count check, an executor could revert one of the two sites and this
+    test would still pass (the forbidden string is absent when at least
+    one site has been corrected). Uses _extract_adapter_endpoints() rather
+    than raw source.count() so comment-only mentions of the path don't
+    double-count.
     """
+    from collections import Counter
+
     source = ADAPTER_PATH.read_text(encoding="utf-8")
 
     # OLD strings (Plan 18-01 removed these — must NOT appear)
@@ -275,4 +286,23 @@ def test_phase_18_corrections_locked_in() -> None:
         assert token in source, (
             f"BC-FIX-01 missing correction: expected endpoint string {token!r} not found in "
             f"{ADAPTER_PATH.name} — Plan 18-01 should have introduced this."
+        )
+
+    # WR-06: per-endpoint call-site counts (guards partial reverts).
+    endpoint_counts = Counter(
+        (method, path) for (method, path, _) in _extract_adapter_endpoints()
+    )
+    expected_counts: dict[Tuple[str, str], int] = {
+        ("POST", "/api/v1/order/place"): 1,
+        ("GET", "/api/v1/account/positions"): 1,
+        ("GET", "/api/v1/order/open"): 2,  # get_order_status + get_open_orders
+        ("GET", "/api/v1/market/ticker"): 1,
+    }
+    for (method, path), expected in expected_counts.items():
+        actual = endpoint_counts.get((method, path), 0)
+        assert actual == expected, (
+            f"BC-FIX-01 partial-revert guard: {method} {path} should be called "
+            f"exactly {expected} time(s) via self._request(...); found {actual}. "
+            f"If a legitimate refactor changed the call count, bump this "
+            f"expected value in {Path(__file__).name}."
         )
