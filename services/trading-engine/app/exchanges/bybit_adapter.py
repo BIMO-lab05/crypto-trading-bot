@@ -844,6 +844,13 @@ class BybitExchangeAdapter(ExchangeInterface):
         Returns:
             Order with current status
         """
+        # Phase 18 WR-04: connector /api/v1/order/open route only accepts
+        # category/symbol/limit; orderId/orderLinkId are echoed but ignored
+        # server-side (D-11 deferred query-schema drift). Send the filters
+        # anyway (harmless, future-compatible) but also filter client-side
+        # after the response so a symbol with multiple open orders returns
+        # the requested one, not the first entry the exchange happens to
+        # sort to the top.
         params = {
             "category": self._default_category,
             "symbol": symbol.upper(),
@@ -864,7 +871,22 @@ class BybitExchangeAdapter(ExchangeInterface):
                     order_id=order_id, client_order_id=client_order_id, exchange="bybit"
                 )
 
-            return self._parse_order(order_list[0])
+            # Client-side filter (WR-04): connector route ignores id filters
+            # so we must not just trust the first list entry.
+            def _matches(entry: Dict[str, Any]) -> bool:
+                if order_id and entry.get("orderId") != order_id:
+                    return False
+                if client_order_id and entry.get("orderLinkId") != client_order_id:
+                    return False
+                return True
+
+            filtered = [entry for entry in order_list if _matches(entry)]
+            if not filtered:
+                raise OrderNotFoundError(
+                    order_id=order_id, client_order_id=client_order_id, exchange="bybit"
+                )
+
+            return self._parse_order(filtered[0])
 
         except ExchangeError:
             raise
