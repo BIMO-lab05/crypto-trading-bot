@@ -664,12 +664,42 @@ class BybitExchangeAdapter(ExchangeInterface):
             # Update order with result
             order.exchange_order_id = raw_order_id
             order.client_order_id = result.get("orderLinkId") or str(order.id)
-            order.status = OrderStatus.NEW
+            # Phase 18 WR-01: propagate exchange-reported terminal status
+            # (D-05 promise: tape returns 'Filled' + avgPrice + cumExecQty).
+            # Previously status was hard-coded to NEW even when the exchange
+            # reported Filled, breaking the deterministic-FILLED contract at
+            # the adapter boundary. Reuse the same status_map _parse_order
+            # uses so behaviour stays consistent across code paths.
+            status_map = {
+                "Created": OrderStatus.PENDING,
+                "New": OrderStatus.NEW,
+                "PartiallyFilled": OrderStatus.PARTIALLY_FILLED,
+                "Filled": OrderStatus.FILLED,
+                "Cancelled": OrderStatus.CANCELLED,
+                "Rejected": OrderStatus.REJECTED,
+                "Expired": OrderStatus.EXPIRED,
+            }
+            order.status = status_map.get(
+                result.get("orderStatus", "New"), OrderStatus.NEW
+            )
+            cum_exec_qty = result.get("cumExecQty")
+            if cum_exec_qty is not None:
+                try:
+                    order.filled_quantity = Decimal(str(cum_exec_qty))
+                except (ArithmeticError, ValueError):
+                    pass
+            avg_price = result.get("avgPrice")
+            if avg_price is not None:
+                try:
+                    order.filled_price = Decimal(str(avg_price))
+                except (ArithmeticError, ValueError):
+                    pass
             order.updated_at = datetime.now(timezone.utc)
 
             logger.info(
                 f"Order placed: {order.symbol} {order.side.value} {order.quantity} "
-                f"@ {order.price or 'MARKET'} (id={order.exchange_order_id})"
+                f"@ {order.price or 'MARKET'} (id={order.exchange_order_id}, "
+                f"status={order.status.value})"
             )
 
             return order
