@@ -110,9 +110,24 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
 
         # Determine final signal
         final_signal = max(signal_weights, key=signal_weights.get)
-        confidence = (
-            signal_weights[final_signal] / total_weight if total_weight > 0 else 0.5
-        )
+
+        # Agreement-based confidence (audit 2026-07): for directional
+        # signals, measure agreement among DIRECTIONAL voters only
+        # (BUY vs SELL). The old share-of-total formula divided by
+        # buy+sell+hold weight, so HOLD voters structurally capped every
+        # aggregated signal near ~0.47 even with unanimous direction.
+        directional_weight = signal_weights["BUY"] + signal_weights["SELL"]
+        if final_signal in ("BUY", "SELL"):
+            confidence = (
+                signal_weights[final_signal] / directional_weight
+                if directional_weight > 0
+                else 0.0
+            )
+        else:
+            # HOLD keeps the original share-of-total formula.
+            confidence = (
+                signal_weights[final_signal] / total_weight if total_weight > 0 else 0.5
+            )
 
         return {
             "symbol": symbol,
@@ -275,12 +290,25 @@ async def get_multi_timeframe_analysis(
         total_timeframes = len(valid_results)
 
         # Determine overall recommendation
+        # Agreement-based confidence (audit 2026-07): for directional
+        # outcomes, confidence = winning direction's share of DIRECTIONAL
+        # votes only (BUY vs SELL) — HOLD timeframes no longer structurally
+        # cap directional confidence. HOLD keeps share-of-total.
+        directional_count = len(buy_timeframes) + len(sell_timeframes)
         if len(buy_timeframes) >= total_timeframes * 0.6:
             overall_signal = "BUY"
-            confidence = len(buy_timeframes) / total_timeframes
+            confidence = (
+                len(buy_timeframes) / directional_count
+                if directional_count > 0
+                else 0.0
+            )
         elif len(sell_timeframes) >= total_timeframes * 0.6:
             overall_signal = "SELL"
-            confidence = len(sell_timeframes) / total_timeframes
+            confidence = (
+                len(sell_timeframes) / directional_count
+                if directional_count > 0
+                else 0.0
+            )
         else:
             overall_signal = "HOLD"
             confidence = (

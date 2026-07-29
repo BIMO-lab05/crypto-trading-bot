@@ -21,14 +21,6 @@ ta==0.11.0                # Comprehensive TA library (RSI, MACD, BB, EMA, SMA, e
 scikit-learn==1.4.0       # ML algorithms
 statsmodels==0.14.1       # Statistical models
 
-# Database & Caching
-asyncpg==0.29.0           # Async PostgreSQL driver
-aioredis==2.0.1           # Redis for caching indicators
-redis==5.0.1              # Sync Redis client
-
-# Messaging
-pika==1.3.2               # RabbitMQ client
-
 # HTTP Client
 httpx==0.27.0             # HTTP client
 

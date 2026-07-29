@@ -3,7 +3,7 @@
 # Port: 8004
 
 # ============================================================================
-# Stage 1: Builder - Compile dependencies
+# Stage 1: Builder - install dependencies
 # ============================================================================
 FROM python:3.12-slim AS builder
 
@@ -14,17 +14,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /build
 
-# Install build dependencies (pandas, numpy require compilation)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    gfortran \
-    libopenblas-dev \
-    liblapack-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Copy requirements files
+COPY requirements.txt .
 
 # Copy and install Python dependencies
-COPY requirements.txt .
+# All deps have pre-built manylinux wheels; no gcc/g++ needed.
 # Make pip resilient on slow networks (audit 2026-04-29).
 ENV PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=10
 RUN pip install --user --no-cache-dir -r requirements.txt
@@ -51,6 +45,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install runtime dependencies for numpy/pandas
+# libopenblas0/libgomp1 only needed if system BLAS used; most wheels bundle BLAS statically.
+# Keeping for compatibility with edge platforms.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libopenblas0 \

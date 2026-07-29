@@ -215,8 +215,14 @@ async def prometheus_metrics_middleware(request: Request, call_next):
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
+    # SECURITY (2026-07-29 audit): "*" origins with allow_credentials=True is
+    # invalid per the CORS spec and makes Starlette reflect the caller's
+    # Origin for credentialed requests, allowing any site to make
+    # credentialed cross-origin calls. This internal service uses no cookie
+    # auth (reached server-to-server via the gateway / Bearer tokens), so we
+    # keep the permissive origin but disable credentialed CORS.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -281,16 +287,16 @@ async def rsi_endpoint(
 async def macd_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    # RESEARCH-OPTIMIZED 2025-11-28: 8/17/9 reduces lag for crypto (prev: 12/26/9)
-    fast: int = Query(default=8, ge=2, le=50, description="Fast EMA period (optimized)"),
-    slow: int = Query(default=17, ge=10, le=200, description="Slow EMA period (optimized)"),
-    signal: int = Query(default=9, ge=2, le=50, description="Signal line period"),
+    # RESEARCH-OPTIMIZED (Kang 2021): 5/35/5 achieves +11% annual vs -3.6% for standard.
+    fast: int = Query(default=5, ge=2, le=50, description="Fast EMA period (research: 5)"),
+    slow: int = Query(default=35, ge=10, le=200, description="Slow EMA period (research: 35)"),
+    signal: int = Query(default=5, ge=2, le=50, description="Signal line period (research: 5)"),
     limit: int = Query(default=200, ge=100, le=1000)
 ):
     """
     Calculate MACD (Moving Average Convergence Divergence)
 
-    RESEARCH-OPTIMIZED: Using 8/17/9 for faster response in crypto markets
+    RESEARCH-OPTIMIZED (Kang 2021): Using 5/35/5 optimal for crypto.
     MACD is a trend-following momentum indicator.
     - MACD crosses above Signal: Bullish (buy)
     - MACD crosses below Signal: Bearish (sell)
@@ -304,7 +310,8 @@ async def bollinger_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
     period: int = Query(default=20, ge=5, le=100),
-    std_dev: float = Query(default=2.0, ge=1.0, le=3.0),
+    # RESEARCH-OPTIMIZED: 2.5 SD better for crypto volatility (reduces false breakouts)
+    std_dev: float = Query(default=2.5, ge=1.0, le=4.0, description="Std dev (research: 2.5)"),
     limit: int = Query(default=200, ge=50, le=1000)
 ):
     """

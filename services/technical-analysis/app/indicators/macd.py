@@ -167,7 +167,11 @@ class MACDCalculator:
             result = {
                 "macd_line": float(macd_line.iloc[-1]),
                 "signal_line": float(signal_line.iloc[-1]),
-                "histogram": float(histogram.iloc[-1])
+                "histogram": float(histogram.iloc[-1]),
+                # Latest close — used by generate_signal() to scale the
+                # histogram into a price-relative confidence (audit 2026-07:
+                # the old |hist|/|macd_line| ratio was scale-free noise).
+                "current_price": float(df['close'].iloc[-1])
             }
 
             logger.debug(f"Calculated MACD: {result}")
@@ -196,14 +200,23 @@ class MACDCalculator:
         signal_line = macd_data["signal_line"]
         histogram = macd_data["histogram"]
 
+        # Price-scaled confidence (audit 2026-07): the old formula
+        # |hist| / (|macd_line| + 0.01) * 2 compared the histogram to the
+        # MACD line itself, which is scale-free noise — near a crossover
+        # |macd_line| -> 0 and confidence pinned at 1.0 regardless of move
+        # size. Instead scale the histogram by the asset's price: a
+        # histogram equal to 0.2% of price = full confidence.
+        current_price = float(macd_data.get("current_price", 0.0) or 0.0)
+        confidence_scale = max(current_price * 0.002, 1e-9)
+
         # Determine signal based on MACD position relative to signal line
         if histogram > 0:
             # MACD above signal line - bullish
             signal = SignalType.BUY
 
-            # Confidence based on histogram magnitude
-            # Larger positive histogram = stronger bullish signal
-            confidence = min(1.0, abs(histogram) / (abs(macd_line) + 0.01) * 2)
+            # Confidence based on histogram magnitude relative to price
+            # (0.2% of price histogram = full confidence)
+            confidence = min(1.0, abs(histogram) / confidence_scale)
 
             logger.info(f"MACD {macd_line:.2f} > Signal {signal_line:.2f} -> BUY (hist: {histogram:.2f}, conf: {confidence:.2f})")
 
@@ -211,8 +224,8 @@ class MACDCalculator:
             # MACD below signal line - bearish
             signal = SignalType.SELL
 
-            # Confidence based on histogram magnitude
-            confidence = min(1.0, abs(histogram) / (abs(macd_line) + 0.01) * 2)
+            # Confidence based on histogram magnitude relative to price
+            confidence = min(1.0, abs(histogram) / confidence_scale)
 
             logger.info(f"MACD {macd_line:.2f} < Signal {signal_line:.2f} -> SELL (hist: {histogram:.2f}, conf: {confidence:.2f})")
 

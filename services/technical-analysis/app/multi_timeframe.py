@@ -190,7 +190,11 @@ class MultiTimeframeAnalyzer:
             # For simplicity, using a single endpoint that returns aggregated signal
 
             url = f"{self.technical_analysis_url}/api/v1/indicators/signal/{symbol}"
-            params = {"interval": str(interval_minutes)}
+            # Normalize minute-denominated daily/weekly intervals to the
+            # letter codes market-data stores them under ("1440" -> "D",
+            # "10080" -> "W") — a raw "1440" query returns 0 rows.
+            from app.fetcher import normalize_interval
+            params = {"interval": normalize_interval(str(interval_minutes))}
 
             response = await self.http_client.get(url, params=params)
 

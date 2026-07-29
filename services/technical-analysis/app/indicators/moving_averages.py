@@ -77,6 +77,18 @@ class SMACalculator:
         """
         price_diff_pct = ((current_price - sma) / sma) * 100
 
+        # Data-error guard (audit 2026-07): a price more than 30% away from
+        # its own SMA is not a tradable divergence — it indicates corrupt
+        # input (e.g. testnet pollution). Do not emit a max-confidence
+        # directional signal on garbage; return HOLD with 0 confidence.
+        if abs(price_diff_pct) > 30:
+            logger.warning(
+                f"SMA signal suppressed: price {current_price:.2f} is "
+                f"{price_diff_pct:+.2f}% from SMA {sma:.2f} (>30% - "
+                f"treating as data error)"
+            )
+            return SignalType.HOLD, 0.0
+
         if price_diff_pct > 0:
             # Price above SMA - bullish
             signal = SignalType.BUY
@@ -203,6 +215,16 @@ class EMACalculator:
             Tuple of (SignalType, confidence)
         """
         price_diff_pct = ((current_price - ema) / ema) * 100
+
+        # Data-error guard (audit 2026-07): >30% divergence from the EMA is
+        # corrupt input, not signal — see SMACalculator.generate_signal.
+        if abs(price_diff_pct) > 30:
+            logger.warning(
+                f"EMA signal suppressed: price {current_price:.2f} is "
+                f"{price_diff_pct:+.2f}% from EMA {ema:.2f} (>30% - "
+                f"treating as data error)"
+            )
+            return SignalType.HOLD, 0.0
 
         if price_diff_pct > 0:
             # Price above EMA - bullish
