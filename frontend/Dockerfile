@@ -16,7 +16,12 @@ WORKDIR /app
 
 # Copy lockfile + package.json first so layer cache is reused on src-only edits.
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# Prefer the reproducible ci install; fall back to npm install when the lock
+# file is momentarily out of sync with package.json (the fallback updates the
+# lock inside the image layer only). Added 2026-07-29 alongside the
+# eslint-plugin-react-hooks devDependency, whose lock entry appears after the
+# next host `npm install`.
+RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
 # Copy the rest of the frontend source and produce dist/.
 COPY . .
