@@ -3,6 +3,7 @@ Bybit Connector Service - Request/Response Models
 Purpose: Pydantic models for input validation and type safety
 """
 
+import math
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -110,26 +111,34 @@ class PlaceOrderRequest(BaseModel):
     @field_validator("qty")
     @classmethod
     def validate_qty(cls, v: str) -> str:
-        """Validate quantity is a positive number"""
+        """Validate quantity is a positive, finite number"""
         try:
             qty_float = float(v)
-            if qty_float <= 0:
-                raise ValueError("Quantity must be positive")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             raise ValueError(f"Quantity must be a valid positive number: {e}")
+        # float() accepts "nan"/"inf"/"Infinity"; nan/inf slip past a bare
+        # `<= 0` check (nan comparisons are always False, inf > 0) and would be
+        # forwarded verbatim to the exchange. Reject non-finite values.
+        if not math.isfinite(qty_float):
+            raise ValueError("Quantity must be a finite number")
+        if qty_float <= 0:
+            raise ValueError("Quantity must be positive")
         return v
 
     @field_validator("price", "take_profit", "stop_loss", "trigger_price")
     @classmethod
     def validate_price(cls, v: Optional[str], info) -> Optional[str]:
-        """Validate price-shaped fields are positive numbers when present"""
+        """Validate price-shaped fields are positive, finite numbers when present"""
         if v is not None:
             try:
                 price_float = float(v)
-                if price_float <= 0:
-                    raise ValueError("Price must be positive")
-            except ValueError as e:
+            except (ValueError, TypeError) as e:
                 raise ValueError(f"Price must be a valid positive number: {e}")
+            # Reject nan/inf, which otherwise slip past the `<= 0` check.
+            if not math.isfinite(price_float):
+                raise ValueError("Price must be a finite number")
+            if price_float <= 0:
+                raise ValueError("Price must be positive")
         return v
 
     @field_validator("tpsl_mode")
