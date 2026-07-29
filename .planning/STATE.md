@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
 status: executing
-stopped_at: Phase 17 context gathered
-last_updated: "2026-05-24T11:48:19.428Z"
-last_activity: 2026-05-24 -- Phase 18 execution started
+stopped_at: Phase 18 complete (plans + code review + fixes committed); uncommitted out-of-band work pending triage
+last_updated: "2026-07-29T00:00:00.000Z"
+last_activity: 2026-07-29 -- resume: Phases 16/17/18 confirmed complete; ~2.3k uncommitted service-code insertions from two out-of-band sessions detected
 progress:
   total_phases: 9
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 9
-  percent: 22
+  completed_plans: 12
+  percent: 33
 ---
 
 # Project State
@@ -21,14 +21,68 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Phase 18 — Bybit-Adapter Contract Fix
+**Current focus:** Triage of uncommitted out-of-band work (2026-07-28 / 2026-07-29 sessions) before opening Phase 19
 
 ## Current Position
 
-Phase: 18 (Bybit-Adapter Contract Fix) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 18
-Last activity: 2026-05-24 -- Phase 18 execution started
+Phase: 18 (Bybit-Adapter Contract Fix) — COMPLETE (3/3 plans, 18-REVIEW.md + 18-REVIEW-FIX.md, 9/9 in-scope findings fixed, e2e verify commit `2aac085`)
+Plan: —
+Status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency), but see "Out-of-Band Work" below — Phase 19–24 premises need re-checking against uncommitted code first.
+Last activity: 2026-07-29 -- resume session; state reconciled
+
+Note: Phase 18 has no `18-VERIFICATION.md` while `workflow.verifier: true` and Phase 17 carries `17-VERIFICATION.md`. Gap, not a blocker.
+
+## Out-of-Band Work (detected 2026-07-29, UNCOMMITTED)
+
+Two audit/fix sessions ran outside GSD phase tracking and their output is **not committed**:
+
+- `FIXES_2026-07-28_COMPREHENSIVE.md` (untracked) — trading-engine cash-accounting repair (reduce_only honoring, SHORT close inversion, TP payout, partial exits, kill-switch on equity, 48h max-hold, LIVE stop-loss path, daily-loss rollover, consensus-gate HOLD counting, per-trade cap clamp + hard 2% LIVE), TA indicator fixes, testnet-pollution DB repair script, frontend fixes.
+- `AUDIT_2026-07-29_PRODUCTION_REVIEW.md` (untracked) — Bybit HMAC signature-over-transmitted-bytes fix (`bybit_rest_client.py`), auth on state-changing gateway endpoints (mode-gated), rate limiter, nan/inf validation in connector models, perf/UX/refactor items.
+
+Scale: 367 changed paths (314 modified, 52 untracked, 1 deleted); ~2,306 insertions / 967 deletions across `services/` + `frontend/` alone. Backups written to session scratchpad: `wip-2026-07-29.patch` (tracked modifications), `wip-code-only.patch` (services/frontend/tests/backtesting/scripts subset), `wip-untracked.tgz` (161 untracked paths incl. both standalone test harnesses, `scripts/repair_testnet_pollution.{sh,sql}`, `backtesting/validate_mr_rr_fix.py`, both audit reports). **Scratchpad is ephemeral — not a substitute for a commit.**
+
+**Validation status: INDEPENDENTLY VERIFIED 2026-07-29 — substantive claims hold.** Full record: `.planning/evidence/wip-verification-2026-07-29.md`. Confirmed by re-run: accounting harness 28/28, indicator harness 16/16, api-gateway 437/437 in-container, frontend build (2635 modules) + project lint (0 errors), 8/9 services 200, max mainnet BTC close exactly $82,791.20 with the $1.76M artefact gone. **No regression traceable to this work** — `test_repositories.py` and `test_pairs_trading.py` behave identically against a clean HEAD worktree; the 62 tests across WIP-modified + Phase-18 files all pass.
+
+Reporting discrepancy (not a defect): the reports' failure accounting is internally consistent — 9 pre-existing + 2 since-fixed = the 11 in `cowork_run/te_pytest2.log` — but `cowork_run/STATUS.txt` line 5a records `5a. trading-engine pytest FAILED (exit 2)` while the report presents that suite as validated. Both of the 2 since-fixed files are green on re-run here.
+
+Security gate verified: `auth_middleware.py:40-64` fails **closed** — auth becomes mandatory on `TRADING_MODE=LIVE`, `PAPER_TRADING_MODE=false`, or `ENVIRONMENT in {production, staging}`. Residual footgun: an explicit `REQUIRE_API_AUTH=false` overrides even LIVE; worth a boot-time hard-fail like the JWT one.
+
+**New problems found during verification** (neither report mentions them): `docker exec crypto-bot-trading pytest tests/` collects **zero** tests — 4 fatal collection errors (`tests/integration/conftest.py:47` `database` import via a host-only `parents[5]/shared` path with `/app/shared` empty; `test_bybit_adapter_wr01_wr04.py` + `test_exchanges.py` missing **PyJWT in the image**; `test_config_default_on_gate.py:48` `parents[3]` IndexError). Also: the new untracked `services/trading-engine/.dockerignore` excludes `tests/standalone/`, so the next rebuild deletes the accounting-harness evidence base from the container.
+
+Provenance: produced by an external "cowork" agent run on 2026-07-29 14:04–18:24, transferred in as tarballs (`_to_delete/*.tar.gz`), evidence logs in `cowork_run/`.
+
+### Overlap with planned phases (checked in working tree 2026-07-29)
+
+| REQ | Phase | Still owed? | Evidence |
+|---|---|---|---|
+| PAPER-01 (slippage model) | 20 | YES | no `slippage` symbol in `paper_trading.py` |
+| PAPER-02 (SL/TP trigger + monotonic id) | 20 | YES | `paper_trading.py:173` still `f"PAPER_{symbol}_{side}"`; no trigger evaluation |
+| PAPER-03 (Jan-2026 regression tests) | 20 | YES | `tests/test_jan_2026_fixes_regression.py` absent |
+| TA-AGG-01 (ADX/SQZMOM/Volume in vote) | 21 | YES | 0 ADX refs in `handlers/analysis.py` |
+| TA-AGG-02 (MACD 5/35/5 single source) | 21 | PARTIAL | `main.py:291-293` values are canonical 5/35/5 but still **hardcoded** `Query(default=…)`, not `settings.macd_*` — value drift gone, single-source requirement still owed |
+| TA-AGG-03 (BB std-dev 2.5) | 21 | PARTIAL | `main.py:314` `Query(default=2.5)` — same shape: right value, still not sourced from `settings.bollinger_std_dev` |
+| PRICE-01/02 (`round(price, 2)`) | 22 | YES | 17 matches remain under `services/` |
+| RECON-01/02 (reconciliation + orderLinkId) | 19 | YES | connector model accepts `orderLinkId`; no generator in adapter/engine |
+| HYG-01 (sentiment weight log) | 24 | YES | `auto_trader.py:1131,1262` still say "Sentiment 15%" |
+| HYG-03 (TA CORS lockdown) | 24 | YES | TA `main.py:224` still `allow_origins=["*"]` |
+
+Phase 18's committed files (`bybit_adapter.py`, `tape_replay_client.py`, `test_bybit_adapter_contract.py`) are **disjoint** from the uncommitted set; the one shared file (`bybit-connector/app/models.py`) is additive — Phase 18's camelCase aliases survive at `models.py:69-81`.
+
+**Consequence for planning:** Phase 20/21/24 *premise text* in ROADMAP.md cites line numbers and behaviors that the uncommitted work has already changed. Re-derive those premises before planning them.
+
+### New operator actions from the out-of-band reports
+
+| ID | Action | Source |
+|---|---|---|
+| OP-07 | Decide provenance + disposition of the 367 uncommitted paths (commit in groups / discard / partial) | resume 2026-07-29 |
+| OP-08 | `bash scripts/repair_testnet_pollution.sh` before trusting any signal or backtest | FIXES §5 |
+| OP-09 | Rebuild + restart `trading-engine technical-analysis market-data api-gateway frontend` (stale in-memory state = false pass) | FIXES §5 |
+| OP-10 | ~~Re-run claimed validation~~ — **DONE 2026-07-29**, see `.planning/evidence/wip-verification-2026-07-29.md` | FIXES §5 |
+| OP-11 | No frontend login flow — blocks any LIVE flip (auth gated open in local paper mode) | AUDIT §5 |
+| OP-12 | 9 pre-existing trading-engine test failures (2 adapter source-contract, 5 backtest source-marker, 2 stale `mock.patch` targets) | AUDIT §5 |
+| OP-14 | trading-engine image is missing **PyJWT** and `/app/shared` is empty — `docker exec crypto-bot-trading pytest tests/` collects zero tests. Add `PyJWT` to the image and fix the `shared/` copy, or the in-container suite (the CLAUDE.md-mandated env) stays unusable. | resume 2026-07-29 |
+| OP-15 | New untracked `services/trading-engine/.dockerignore` excludes `tests/standalone/` — next rebuild removes the 28-check accounting harness from the container. Decide: drop that line, or accept host-only harness runs. | resume 2026-07-29 |
+| OP-13 | `.planning/state/carry_ins.json` is mode `600`, owned by uid `999` (`systemd-journal`) — unreadable by the repo user. It aborted `git diff` this session and will likely break `gsd-sdk query init.resume` / next GSD command. Fix ownership (`sudo chown $USER:$USER .planning/state/carry_ins.json`) before running `/gsd:plan-phase 19`. | resume 2026-07-29 |
 
 ## Deferred Items
 
@@ -88,9 +142,9 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 
 ## Session Continuity
 
-Last session: 2026-05-24T00:00:27.599Z
-Stopped at: Phase 17 context gathered
-Resume file: .planning/phases/17-execution-cap-hard-enforcement/17-CONTEXT.md
+Last session: 2026-07-29 (resumed)
+Stopped at: Phase 18 closed out (commits `5faa32e`..`2aac085`). Resume surfaced 367 uncommitted paths from an external cowork run; operator chose verify-then-commit. Verification complete and passing — awaiting approval of commit groupings (OP-07), then re-scope Phases 20–22 against the settled tree.
+Resume file: .planning/evidence/wip-verification-2026-07-29.md
 
 ## Operator Next Steps
 
