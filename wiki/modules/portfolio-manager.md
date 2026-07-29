@@ -12,7 +12,7 @@ depends_on: [trading-engine, market-data-service, postgres]
 used_by: [api-gateway, frontend]
 tags: [module, service, portfolio, pnl]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 ---
 
 # portfolio-manager
@@ -66,18 +66,21 @@ Total ~17 application routes (excluding `/health`, `/metrics`, `/`).
 
 ## Position model / P&L
 
-Domain: `Portfolio` → `Dict[str, Asset]`, all `Decimal`. Asset carries `average_entry_price`, `current_price`, `unrealized_pnl`, `current_allocation_pct`, optional `target_allocation_pct`.
+Domain: `Portfolio` → `Dict[str, Asset]`, all `Decimal`. Asset carries `average_entry_price`, `current_price`, `unrealized_pnl`, `current_allocation_pct`, optional `target_allocation_pct`, and — **new 2026-07-29** — a `side` field (`LONG`/`SHORT`, `models/asset.py:27`).
 
-- **Unrealized P&L** = recomputed on every read via `update_asset_prices(prices)`.
-- **Realized P&L** = accumulated on SELL via `Portfolio.remove_asset()`.
+- **`GET /api/portfolio` and the snapshot scheduler now MIRROR the trading engine** via `sync_with_trading_engine()` (`handlers/portfolio.py:62`, `scheduler/performance_snapshot.py:258,311`) — the old `update_prices()` spot recompute is only a best-effort fallback when sync fails.
+- **Unrealized P&L is side-aware** (`Asset.update_valuation`, `models/asset.py:49–71`): a SHORT gains as price falls (`unrealized_pnl = total_cost − current_value`, inverse of LONG). Previously long-only, which inverted the sign of every short.
+- **Cash + realized P&L are pulled authoritatively from the engine** (`GET trading_engine_url/api/v1/performance` → `metrics.current_balance` / `realized_pnl`; `portfolio_manager.py:242–265`). **Equity = cash + unrealized** (`portfolio_manager.py:270`) — cash already reflects margin + realized.
 - **Total P&L** = `realized + unrealized`. Return % vs `initial_capital`.
-- Mark price source = `GET market_data_url/api/v1/ticker/{symbol}` → `last_price`. Fetched per-symbol in a loop (no batch).
+- Mark price source (fallback path only) = `GET market_data_url/api/v1/ticker/{symbol}` → `last_price`. Fetched per-symbol in a loop (no batch).
+
+> **Fixed 2026-07-29:** the old `sync_with_trading_engine` reconstructed every position as a spot LONG via `add_asset()`, deducting full notional from cash and ignoring `side`. A $100 book with two leveraged shorts showed cash ≈ $15 and a **phantom −84% return** with inverted short P&L. Sync now copies the engine's numbers directly (`portfolio_manager.py:190–291`).
 
 Concurrency: per-portfolio `asyncio.Lock` (`PortfolioManager.get_transaction_lock(pid)`) serializes the read-await-write window between cash check and price fetch — prevents concurrent BUY/SELL overdrawing cash.
 
 ## Internal deps
 
-- [[trading-engine]] — outbound: `GET /api/v1/positions?status=all` from `sync_with_trading_engine()`. **Direction is portfolio-manager → trading-engine**, opposite of what a `trade.result` event flow would imply.
+- [[trading-engine]] — outbound: `GET /api/v1/positions?status=all` **and `GET /api/v1/performance`** (for authoritative cash/realized P&L) from `sync_with_trading_engine()`. **Direction is portfolio-manager → trading-engine**, opposite of what a `trade.result` event flow would imply.
 - [[market-data-service]] — outbound: `GET /api/v1/ticker/{symbol}`. N sequential calls per refresh.
 - PostgreSQL (optional) — `asyncpg.Pool`, schema `portfolio`.
 
@@ -139,6 +142,14 @@ No `positions`, `balances`, `trades` tables consumed. Live position state is RAM
 4. Position ownership: trading-engine owns positions; portfolio-manager mirrors them on demand. The two stores can drift.
 
 See raw report: `wiki/.raw/agent-reports/portfolio-manager.md`.
+
+## Corrections 2026-07-29
+
+Reflects the 2026-07-29 production audit (verified in source):
+
+- **`sync_with_trading_engine` now faithfully mirrors the engine** (`portfolio_manager.py:190–291`): side-aware P&L via new `Asset.side` (`models/asset.py:27`) + sign-aware `update_valuation` (`models/asset.py:49–71`); pulls authoritative cash/realized/unrealized from the engine's `/api/v1/performance`; equity = cash + unrealized. Fixes the phantom −84% return and inverted short P&L from the old spot-LONG model that deducted full notional. See *Position model / P&L*.
+- **`GET /api/portfolio` + the snapshot scheduler use sync, not `update_prices`** (`handlers/portfolio.py:62`, `scheduler/performance_snapshot.py:258,311`).
+- **Optimization endpoints no longer mask 503/400 as 500** (`handlers/optimization.py:174–177`, `272–275`): `except HTTPException: raise` re-raises the intended status before the generic 500 handler — restores caller retry/backoff.
 
 ## Related
 

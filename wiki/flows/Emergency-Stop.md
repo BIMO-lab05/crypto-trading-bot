@@ -3,12 +3,12 @@ type: flow
 status: active
 tags: [flow, safety]
 created: 2026-05-05
-updated: 2026-05-19
+updated: 2026-07-29
 ---
 
 # Emergency Stop
 
-Two paths to halt auto-trading.
+Manual paths to halt auto-trading, plus the automated multi-threshold kill switch.
 
 ## File flag (manual)
 
@@ -35,6 +35,10 @@ POST /api/trading/auto/stop
 
 Disables auto-trader entirely (not just pause).
 
+## Automated kill switch
+
+The trading-engine also runs a multi-threshold `KillSwitch` that halts the loop on daily-loss, drawdown, consecutive-loss, or max-position-value breaches. Fixed 2026-07-28 (see [[../decisions/ADR-019-kill-switch-equity-and-streak]]): it is fed **equity** (cash + unrealized P&L), not raw cash, so opening a position no longer looks like a loss; the consecutive-loss streak only advances on trade **closes**; and the daily-loss window **auto-rolls per UTC day**. Auto-resets after `auto_reset_hours` (24h) or via `POST` deactivate.
+
 ## History
 
 - 2026-05-05 — original design: file-to-file bind of `./EMERGENCY_STOP:/app/EMERGENCY_STOP`
@@ -45,3 +49,4 @@ Disables auto-trader entirely (not just pause).
 - [[../concepts/Auto-Trader|Auto-Trader]]
 - [[../modules/api-gateway|api-gateway]]
 - [[../modules/trading-engine|trading-engine]]
+- [[../decisions/ADR-019-kill-switch-equity-and-streak]]

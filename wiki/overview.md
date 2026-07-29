@@ -2,7 +2,7 @@
 type: meta
 title: "Project Overview"
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 tags: [overview]
 ---
 
@@ -14,7 +14,7 @@ Autonomous Bybit crypto trading bot. **Paper-trading mode** (no real orders). Ma
 
 - Python 3.12 + FastAPI + asyncio per service
 - React 18 + Vite frontend
-- TimescaleDB (candles), PostgreSQL (app state), Redis (cache), RabbitMQ (events)
+- TimescaleDB (candles), PostgreSQL (app state), Redis (cache), RabbitMQ (deployed but idle — services talk via synchronous REST only; no AMQP pub/sub wired, see [[modules/Architecture-Overview]])
 - Docker Compose for local; Kubernetes manifests + Helm in `infrastructure/` for prod
 - ML: 16 GRU price-prediction models (currently gated OFF; LSTM deleted 2026-05)
 

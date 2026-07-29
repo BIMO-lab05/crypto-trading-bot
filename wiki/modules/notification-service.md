@@ -12,7 +12,7 @@ depends_on: [redis, postgres, slack-api, telegram-api, smtp, twilio]
 used_by: [trading-engine, ml-retraining-service, api-gateway]
 tags: [module, service, notification, alerting]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 ---
 
 # notification-service
@@ -58,7 +58,7 @@ Total ~30 routes (skipping `/health`, `/ready`).
 | Channel | Client | Transport | Notes |
 |---|---|---|---|
 | Telegram | `app/channels/telegram_client.py` + legacy `app/telegram_notifier.py` | httpx → `api.telegram.org` | HTML parse-mode, `rate_limit=20/min`, 3 retries |
-| Email | `app/channels/email_client.py` + legacy `app/email_notifier.py` | stdlib `smtplib` | Default `smtp.gmail.com:587`, HTML templates from `app/templates/template_engine.py` |
+| Email | `app/channels/email_client.py` + legacy `app/email_notifier.py` | stdlib `smtplib` | Default `smtp.gmail.com:587`, HTML templates from `app/templates/template_engine.py`. **SMTP now uses `timeout=30`** (`email_notifier.py:73`) — blocking `smtplib.SMTP()` with no timeout could hang the event loop indefinitely. |
 | Slack | `app/channels/slack_client.py` | httpx | Webhook URL **OR** Bot Token (`chat.postMessage`); per-severity routing to `#trading-critical`, `#trading-alerts`, `#bimo-performance` (added 2026-04, commits `6b79f52`, `1f53c33`, `4196fb6`) |
 | SMS | `app/channels/sms_client.py` | Twilio SDK | `twilio==8.10.0` |
 | Dashboard | (enum only) | — | Stored, never delivered (`alert_manager.py:162`) |
@@ -113,6 +113,7 @@ From `app/config.py` and `alerts.py:32-46`:
 - **Daily summary is Telegram-only** by design.
 - **Secrets:** `.env` under `services/notification-service/.env` holds real `TELEGRAM_BOT_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_WEBHOOK_URL`, `SMTP_PASSWORD`. Token redaction is installed at logger setup (`install_token_redaction()`).
 - **`app/main.py.bak`** still in tree — pre-DLQ snapshot, unused.
+- **`NOTIFICATION_TEST_MODE` default was silently swallowing every message (fixed 2026-07-29).** The compose default was `record`, which made `telegram_notifier.py` write each message to `tests/.notifications.log` and **`return True` (`telegram_sent=true`) without ever POSTing to Telegram** (`telegram_notifier.py:64–85`) — the operator got no alerts while the API reported success. Default is now empty (`docker-compose.unified.yml:702` `NOTIFICATION_TEST_MODE=${NOTIFICATION_TEST_MODE:-}`); `record` is opt-in. Real delivery is the default again.
 
 ## Contradictions vs project CLAUDE.md
 
@@ -128,6 +129,13 @@ From `app/config.py` and `alerts.py:32-46`:
 - [[api-gateway]] — proxies admin/notification routes
 - [[../concepts/Message-Queue-Topics]] — context for why MQ does not appear here
 - [[../flows/Order-Lifecycle]] — every notification fires from a step in this flow
+
+## Corrections 2026-07-29
+
+Reflects the 2026-07-29 production audit (verified in source):
+
+- **`NOTIFICATION_TEST_MODE` default changed `record` → '' (real delivery)** (`docker-compose.unified.yml:702`). The old `record` default diverted every Telegram message to `tests/.notifications.log` while reporting `telegram_sent=true` (`telegram_notifier.py:64–85`) — operators never received alerts.
+- **SMTP timeout added** (`email_notifier.py:73`, `timeout=30`) — blocking send with no timeout could hang the event loop.
 
 ## Source
 

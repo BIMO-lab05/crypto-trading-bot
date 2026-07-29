@@ -12,7 +12,7 @@ depends_on: [bybit-connector, timescaledb, redis]
 used_by: [technical-analysis, trading-engine, portfolio-manager, risk-metrics-service, ml-prediction-service, api-gateway, ml-retraining-service, notification-service]
 tags: [module, service, market-data, timescaledb]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 ---
 
 # market-data-service
@@ -37,9 +37,9 @@ All routes carry `/api/v1/` prefix when called direct. Gateway strips it (see co
 - `POST /api/v1/collect/bulk` — body `symbols`, `interval`, `days`. Max 10 symbols. 5/min.
 
 **Market Data** (no auth):
-- `GET /api/v1/klines/{symbol}` — `interval`, `start_time`, `end_time`, `limit` (1–10000), `mainnet_only` (default `True`). 300/min.
+- `GET /api/v1/klines/{symbol}` — `interval`, `start_time`, `end_time`, `limit` (1–10000), `mainnet_only` (default `True`). 300/min. **Interval now validated against a whitelist → 400 on bad values** (`handlers/query.py:24–31`); a bad interval used to silently return an empty series.
 - `GET /api/v1/ticker/{symbol}` — Redis-cached 5 s. 300/min.
-- `GET /api/v1/latest/{symbol}` — most recent kline, Redis-cached 60 s. 300/min.
+- `GET /api/v1/latest/{symbol}` — most recent kline, Redis-cached 60 s. 300/min. **`get_latest_kline` now filters `is_mainnet` too** (`repository.py:151–178`) — previously only `get_klines` filtered, so `/latest` could surface a testnet-polluted row.
 
 **Scheduler** (`X-API-Key` for mutation):
 - `GET /api/v1/scheduler/status`
@@ -79,7 +79,7 @@ A `klines_1h` continuous aggregate is defined in raw SQL inside `models.py` but 
 In-process `AsyncIOScheduler`. Three jobs, all `max_instances=1`:
 
 1. **`ticker_collection`** — every 5 min. Iterates 7 pairs, hits `BybitDataFetcher.get_ticker`, upserts `tickers`.
-2. **`kline_collection`** — every 5 min, +2 min offset. 7 pairs × 6 intervals (`1, 5, 15, 60, 240, D`) = 42 calls, last 200 candles each, `0.5 s` sleep between calls.
+2. **`kline_collection`** — every 5 min, +2 min offset. 7 pairs × 6 intervals (`1, 5, 15, 60, 240, D`) = 42 calls, last 200 candles each, `0.5 s` sleep between calls. **Still-forming (unclosed) candles are now dropped at ingest** (`scheduler.py:123–138`: keeps only `k["timestamp"] + interval_ms <= now_ms`) — no more repainting signals downstream.
 3. **`hourly_full_collection`** — `CronTrigger(minute=0)`. Backup full sweep (ticker → 2 s → kline).
 
 Hourly job overlaps the 5-min jobs at `:00` — same data fetched twice that minute.
@@ -116,13 +116,15 @@ Not wired. CLAUDE.md hint of `market.data.{symbol}` topic is **not implemented**
 
 ## Gotchas
 
-- **Mixed testnet/mainnet candle history before 2026-04-25 mid-day.** `is_mainnet` column added 2026-04-29 defaults to `true` — pre-flip testnet rows are mislabelled. `mainnet_only=true` query filter does **not** save you for pre-flip rows. Wipe `klines` / `tickers` manually before any historical analysis.
+- **Mixed testnet/mainnet candle history before 2026-04-25 mid-day — REPAIRED 2026-07-28.** `is_mainnet` column added 2026-04-29 defaulted to `true`, so pre-flip testnet rows (BTC @ $1.76M) were mislabelled and the `mainnet_only=true` filter passed them through. Fixed by the one-time `scripts/repair_testnet_pollution.sql` (+ `.sh`): demotes pre-cutoff and price-outlier rows to `is_mainnet=false` (~118k rows demoted; **max mainnet BTC close now ~$82,791, was ~$1.76M**). Run it once before trusting any historical signal/backtest; after that the `is_mainnet` filter is authoritative. Note: the `tickers` table has no `is_mainnet` column, so the script demotes ticker rows by cutoff timestamp only.
 - **Two symbol lists drift.** `config.default_symbols` (14) is referenced by Settings but `scheduler.TRADING_PAIRS` (7, includes XRP/DOGE) is what actually pulls data. DOGE/XRP candles arrive every 5 min despite the policy "still excluded" comment.
 - **Stale `:8003` in older docs.** Several `.env.example` and READMEs show `MARKET_DATA_URL=http://localhost:8003`. Correct port is **8002**. Compose envs are right; READMEs lag.
 - **`klines_1h` continuous aggregate is unbuilt.** SQL exists in `models.CREATE_HYPERTABLE_SQL` but `create_hypertables()` never runs it. Querying it errors.
 - **`bybit_connector_url` default in code is `:8002`** — same as this service's own port. Self-loop on standalone (non-compose) runs.
 - **Per-statement isolated transactions in `create_hypertables`.** History: monolithic transaction silently dropped the `is_mainnet` ALTER on first deploy because an earlier hypertable failure poisoned the txn. Don't refactor back.
 - **Hourly + 5-min jobs collide at `:00`.** Same data fetched twice. APScheduler `max_instances=1` is per-job, not cross-job.
+- **httpx pool leak fixed (2026-07-29).** Each scheduled run builds a fresh `BybitDataFetcher` (100-connection pool); the pool was never closed → socket/FD exhaustion over time. Now `try/finally: await fetcher.close()` in both collectors (`scheduler.py:88–93`, `168–170`).
+- **Graceful-shutdown crash fixed (2026-07-29).** A bad `logger` kwarg raised `TypeError` during shutdown, aborting scheduler/fetcher/Redis/DB cleanup (resource leaks every shutdown). Shutdown logging now uses valid `extra=` (`main.py:111`).
 
 ## Contradictions vs project CLAUDE.md
 
@@ -141,3 +143,14 @@ Not wired. CLAUDE.md hint of `market.data.{symbol}` topic is **not implemented**
 - [[bybit-connector]]
 - [[technical-analysis]]
 - [[trading-engine]]
+
+## Corrections 2026-07-29
+
+Reflects the 2026-07-28/29 data-integrity + audit campaign (verified in source):
+
+- **`get_latest_kline` now filters `is_mainnet`** (`repository.py:151–178`) — was mainnet-blind, unlike `get_klines`.
+- **Still-forming candles dropped at ingest** (`scheduler.py:123–138`).
+- **httpx connection-pool leak fixed** in both scheduler collectors (`scheduler.py:88–93,168–170`, `try/finally` close).
+- **Graceful-shutdown crash fixed** (bad logger kwarg → `TypeError`; `main.py:111`).
+- **Interval validation on query endpoints** (`handlers/query.py:24–31`, whitelist → 400).
+- **2026-04-25 testnet→mainnet DB pollution repaired** via `scripts/repair_testnet_pollution.sql` (~118k rows demoted; max mainnet BTC close ~$82,791, was ~$1.76M). See the pollution gotcha.

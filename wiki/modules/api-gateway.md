@@ -12,7 +12,7 @@ depends_on: [bybit-connector, market-data-service, technical-analysis, trading-e
 used_by: [frontend]
 tags: [module, service, gateway, auth]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 ---
 
 # api-gateway
@@ -27,6 +27,7 @@ Single-file FastAPI app (`app/main.py`, 2071 lines). Routes inline on `app`, no 
 
 - All `/api/<domain>/<resource>` routes delegate to backend services via [`ServiceProxy`](../../services/api-gateway/app/services/service_proxy.py) (single shared `httpx.AsyncClient`, 30s timeout, parallel `aggregate_health_checks`).
 - Authn via JWT bearer (`/auth/*`). Admin-only routes protected by `get_current_admin_user` Depends.
+- **Mode-gated auth on state-changing endpoints (added 2026-07-29, `auth_middleware.py:40–173`).** Trading start/stop, portfolio buy/sell, risk circuit-breaker reset, `signals/{s}/analyze`, ml train, and emergency-stop now require auth via `get_current_user_gated` + `api_auth_required()`. The gate is **ENFORCED in LIVE / production / staging / `REQUIRE_API_AUTH=true`** (fails closed) and **OPEN in local paper mode** (a synthetic `local-paper` principal keeps the tokenless dashboard working). An *invalid* token is rejected in every mode. `/auth/me` + `/auth/logout` stay strict (`get_current_active_user_strict`, always require a real token; `main.py:669,680`).
 - WebSocket `/ws` broadcasts `dashboard_update` every 2s (health + portfolio.balance) — fixed cadence, ignores subscriptions.
 - Fan-out aggregators (`/api/trading/signals/enhanced/{symbol}`, `/api/dashboard/{symbol}`, `/api/ml/predict/signal/{symbol}`) call multiple backends with `asyncio.gather` and compute consensus locally.
 - Prometheus metrics at `/metrics` (excluded from OpenAPI). Custom HTTP middleware records request count + duration histogram + active-request gauge with regex-normalized paths.
@@ -37,7 +38,7 @@ See [[../flows/Signal-Pipeline]] for end-to-end signal flow, [[../flows/Order-Li
 
 Counts (excluding `/health`, `/ready`, `/metrics`, `/`, `/docs`): ~73 HTTP routes + 1 WebSocket. Universal canonical pattern is `/api/<domain>/<resource>`. A v1 compatibility layer also exists — see [[../decisions/ADR-007-no-v1-api-prefix]].
 
-### Auth (rate limit 5/min)
+### Auth (rate limit 10/min — brute-force guard, now enforced)
 - `POST /auth/register` — `app/main.py:582`
 - `POST /auth/login` — JWT bearer issued. `app/main.py:603`
 - `GET  /auth/me` — requires bearer. `app/main.py:637`
@@ -57,14 +58,14 @@ Counts (excluding `/health`, `/ready`, `/metrics`, `/`, `/docs`): ~73 HTTP route
 - `GET  /api/trading/signals/enhanced/{symbol}` — fan-out across TA + ML + multi-tf + base signal, computes consensus locally. `:837`
 - `POST /api/trading/signals/{symbol}/analyze` — `:982`
 - `GET  /api/trading/positions|status|performance` — `:1002` / `:1023` / `:1033`
-- `POST /api/trading/start` and `/api/trading/stop` — auto-trader control. Added 2026-05-01 (frontend prod was 404'ing on these because Vite's dev proxy hid the gap). `:1049` / `:1060`
+- `POST /api/trading/start` and `/api/trading/stop` — auto-trader control. Added 2026-05-01 (frontend prod was 404'ing on these because Vite's dev proxy hid the gap). **Now `Depends(get_current_admin_user)` (mode-gated, 2026-07-29).** `:1436` / `:1455`
 - `GET  /api/trading/trades/history` — `:1071`
 - `GET  /api/trading/equity-curve|drawdown|returns-distribution|correlations|statistics` — Performance dashboard endpoints. Period whitelist `{1d,7d,30d,90d,all}`. `:1113`–`:1175`
 - `GET  /api/trading/phase1/metrics|health|latest` — `:1195`–`:1223`
 
 ### Portfolio → [[portfolio-manager]]
 - `GET  /api/portfolio[/balance|/holdings|/performance|/trades]` — `:1238`–`:1290`
-- `POST /api/portfolio/buy` and `/api/portfolio/sell` — symbol/quantity/price all required (validation bypass fix 2026-05-01). `:1313` / `:1354`
+- `POST /api/portfolio/buy` and `/api/portfolio/sell` — symbol/quantity/price all required (validation bypass fix 2026-05-01). **Now `Depends(get_current_active_user)` (mode-gated, 2026-07-29).** `:1714` / `:1760`
 - `POST /api/portfolio/emergency-stop` — **admin-only**, writes EMERGENCY_STOP file via `pathlib.Path.write_text`. `:1387`. See [[../decisions/ADR-005-emergency-stop-file-flag]] and [[../flows/Emergency-Stop]].
 
 ### Risk / metrics → [[risk-metrics-service]]
@@ -135,7 +136,7 @@ No other service makes outbound HTTP calls to the gateway.
 - `app/auth_models.py` — pydantic User/Token models, `_validate_jwt_secret()` with sys.exit in prod/staging, bcrypt rounds=14, in-memory `USERS_DB`. First registered user gets admin in development only.
 - `app/auth_middleware.py` — `get_current_user` / `get_current_active_user` / `get_current_admin_user` Depends. `optional_auth` returns User|None.
 - `app/config.py` — pydantic Settings; default backend URLs (port table fixed 2026-05-01 — comment at line 22 explains prior off-by-ones and a port collision at 8007).
-- `app/security/rate_limiter.py` — slowapi-backed RateLimitConfig + RateLimitMiddleware. Trading 10/min, auth 5/min, health 60/min, general 30/min.
+- `app/security/rate_limiter.py` — RateLimitConfig + RateLimitMiddleware. **Rewritten 2026-07-29 to ACTUALLY enforce (was a no-op that only tagged an `X-RateLimit-Category` header — `/auth/login` brute-force protection was unlimited).** Now per-client fixed-window counting → HTTP 429 + `Retry-After` (`rate_limiter.py:382–506`). **Method-aware** (`_get_rate_limit_key`, `:414–446`): only mutating (`POST`/`PUT`/`PATCH`/`DELETE`) requests on `/api/trading`, `/api/portfolio/buy`, `/api/portfolio/sell` get the strict `trading_write` bucket (60/min); read polls fall through to `general`. New limits (`:61–64`): `trading_write` 60/min, auth 10/min, health 1200/min, general 1200/min — recalibrated so the dashboard's ~250–300 read-polls/min are never throttled (the old 30/10 would have 429'd normal use the moment enforcement went live). slowapi decorators remain but are legacy; the middleware does the enforcing. (Docstrings inside the file still cite the old 10/5/60/30 values — stale, ignore.)
 - `app/security/input_validation.py` — `validate_symbol|quantity|price|interval|limit` + `ALLOWED_SYMBOLS` whitelist + SQL-injection blacklist.
 - `app/security/security_headers.py` — HSTS / CSP / X-Frame-Options=DENY middleware + strict CORS.
 - `Dockerfile` — multi-stage 3.12-slim, non-root `appuser`, `--workers 1` uvicorn.
@@ -181,3 +182,11 @@ No other service makes outbound HTTP calls to the gateway.
 - Concepts: [[../concepts/Risk-Model]] · [[../concepts/Trading-Mode-Flags]] · [[../concepts/Auto-Trader]] · [[../concepts/Test-Setup-Gotchas]] · [[../concepts/Message-Queue-Topics]]
 - Decisions: [[../decisions/ADR-003-bcrypt-sha256-prehash]] · [[../decisions/ADR-005-emergency-stop-file-flag]] · [[../decisions/ADR-007-no-v1-api-prefix]] · [[../decisions/ADR-001-LSTM-removed]]
 - Services: [[bybit-connector]] · [[market-data-service]] · [[technical-analysis]] · [[trading-engine]] · [[portfolio-manager]] · [[risk-metrics-service]] · [[ml-prediction-service]] · [[sentiment-analysis-service]] · [[notification-service]] · [[ml-retraining-service]] · [[frontend]]
+
+## Corrections 2026-07-29
+
+Reflects the 2026-07-29 production audit (verified in source):
+
+- **Mode-gated auth added to state-changing endpoints** (`auth_middleware.py:40–173`, wired in `main.py`): trading start/stop (`:1436/:1455`, admin), portfolio buy/sell (`:1714/:1760`, active), circuit-breaker reset (`:1974`, admin), emergency-stop (`:1798`, admin), `signals/{s}/analyze` (`:1020`, active), ml train (`:2134`, active). Enforced in LIVE/prod/staging or `REQUIRE_API_AUTH=true`, open in local paper mode. `/auth/me` + `/auth/logout` stay strict. See *Overview*. These were previously drivable by anyone on the network.
+- **Rate limiting is now real** (`rate_limiter.py`), method-aware, with recalibrated ceilings (trading_write 60, auth 10, health/general 1200). See the `rate_limiter.py` key-file entry. Was a no-op header-tagger.
+- **CORS credentialed-wildcard closed on the 8 cookieless backend services** (`allow_credentials=False` on market-data, technical-analysis, portfolio-manager, risk-metrics, notification, ml-prediction, ml-retraining, tournament-harness `main.py`). Note: the **api-gateway itself keeps `allow_credentials=True`** because it uses a scoped, non-wildcard origin allow-list (`security_headers.py:252–260`) — spec-valid; the audit item was about the wildcard-origin backends, not the gateway.

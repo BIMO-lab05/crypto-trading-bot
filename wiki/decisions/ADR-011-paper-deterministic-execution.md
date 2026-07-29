@@ -6,7 +6,7 @@ context: "Paper-trading fill semantics"
 deciders: []
 tags: [decision, adr, paper, trading]
 created: 2026-05-06
-updated: 2026-05-06
+updated: 2026-07-29
 ---
 
 # ADR-011: paper-trading executes deterministically (zero slippage, zero latency, always filled)
@@ -33,6 +33,8 @@ Paper-trading mode is intentionally **deterministic and frictionless**:
 
 Paper exists to validate **strategy plumbing**, not strategy edge under realistic execution.
 
+> **Fill semantics unchanged, accounting overhauled (2026-07-28).** The zero-slippage / zero-latency / always-filled *fill* contract described here still holds. What changed is the **accounting** behind the fill: closes now credit `margin_returned + realized_pnl − commission` for *both* sides (a winning SHORT no longer reduces the balance), `reduce_only` orders reject instead of flipping into a counter-trade, `position_id` targets a specific position, and partial closes / DCA scale-ins are supported. Those are correctness fixes to the P&L math, not a change to execution realism, and are documented separately in [[ADR-018-paper-engine-accounting-overhaul]]. Paper P&L is now *correct* but still *optimistic* (frictionless), so the caution below stands.
+
 ## Consequences
 
 - Backtests using the paper engine = optimistic; do not infer Sharpe from them
@@ -53,3 +55,4 @@ Paper exists to validate **strategy plumbing**, not strategy edge under realisti
 - [[ADR-004-paper-trading-default]]
 - [[ADR-006-mainnet-prices-paper-orders]]
 - [[ADR-010-max-risk-per-trade-paper-bump]]
+- [[ADR-018-paper-engine-accounting-overhaul]] (the 2026-07-28 accounting fixes)

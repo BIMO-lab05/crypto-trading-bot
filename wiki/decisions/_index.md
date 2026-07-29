@@ -2,7 +2,7 @@
 type: meta
 title: "Decisions Index"
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 tags: [index, decisions]
 ---
 
@@ -30,8 +30,22 @@ ADRs and design choices, captured from progress.md, CLAUDE.md, and code archaeol
 
 ## Risk
 
-- [[ADR-010-max-risk-per-trade-paper-bump]] — `max_risk_per_trade` 0.02 → 0.10 in paper mode for $100 balance min-notional clearance; LIVE remains ≤ 2%
-- [[ADR-011-paper-deterministic-execution]] — paper-trading fills with zero slippage / zero latency / always-filled; do not trust paper P&L for edge
+- [[ADR-010-max-risk-per-trade-paper-bump]] — `max_risk_per_trade` 0.02 → 0.10 in paper mode; cap now CLAMPS (not rejects) + hard 2% floor in LIVE (`min(cap,0.02)`)
+- [[ADR-011-paper-deterministic-execution]] — paper-trading fills with zero slippage / zero latency / always-filled; do not trust paper P&L for edge (accounting overhauled — see ADR-018)
+- [[ADR-019-kill-switch-equity-and-streak]] — kill switch fed equity not cash; consecutive-loss streak only on closes; daily-loss breaker auto-rolls per UTC day
+
+## Trading engine (2026-07-28/29 fix campaign)
+
+- [[ADR-018-paper-engine-accounting-overhaul]] — side-aware close accounting, `reduce_only` rejects instead of flipping, `position_id` targeting, partial close + DCA scale-in
+- [[ADR-020-directional-consensus-gate]] — consensus counts only indicators voting the chosen direction; agreement-based confidence; MACD aligned to TA 5-35-5
+- [[ADR-021-ta-data-integrity-gate]] — mainnet-only + candle validation + drop still-forming + interval normalization; testnet-pollution DB repair
+- [[ADR-023-bybit-request-signing-fix]] — sign the exact compact bytes transmitted (fixes retCode 10004 on every authenticated POST)
+- [[ADR-024-portfolio-manager-mirrors-engine]] — mirror the engine's authoritative cash/equity, side-aware P&L, no spot-buy reconstruction
+
+## Platform / security
+
+- [[ADR-022-mode-gated-api-auth]] — control-endpoint auth enforced in LIVE/prod, open in local paper, `REQUIRE_API_AUTH` override; real method-aware rate-limit enforcement
+- [[ADR-025-notification-real-delivery-default]] — `NOTIFICATION_TEST_MODE` default flipped from `record` to `''` (real delivery)
 
 ## Architecture (cont.)
 

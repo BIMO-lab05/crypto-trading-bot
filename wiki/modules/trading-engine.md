@@ -18,7 +18,7 @@ used_by:
   - api-gateway
 tags: [module, service, trading, risk, orchestration]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 ---
 
 # trading-engine
@@ -36,7 +36,7 @@ The trading-engine is the decision/execution centre. It pulls aggregated signals
 Owns:
 - The signal-poll loop ([[../flows/Signal-Pipeline]]) via `auto_trader.py`.
 - The simulated order book in `paper_trading.py` ([[../decisions/ADR-006-mainnet-prices-paper-orders]]).
-- All risk gates: 2 % per-trade, 5 % daily-loss, 48 h max-hold, SHORT circuit breaker. See [[../concepts/Risk-Model]].
+- All risk gates: per-trade cap (10 % paper default / hard 2 % floor in LIVE, **clamps** rather than rejects — fixed 2026-07-28), 5 % daily-loss (auto-rolls per UTC day), 48 h max-hold, SHORT circuit breaker. See [[../concepts/Risk-Model]].
 - ~150 HTTP endpoints across 9 mounted routers + ~50 inline routes — strategy / risk-budget / execution-routing / attribution / backtesting all funnel through this one service.
 
 Does **not** own:
@@ -136,11 +136,11 @@ Verified: this guard runs before any phase enters; missing/wrong ack aborts the 
 
 | Cap | Default | Source |
 |---|---|---|
-| Per-trade notional | 2 % of balance | `config.py:296` `max_risk_per_trade=0.02` |
-| Daily loss | 5 % | `config.py:306` `max_daily_loss_pct=5.0` |
+| Per-trade notional | **10 % paper / 2 % LIVE** | `config.py:321` `max_risk_per_trade=0.10` (bumped from 0.02 on 2026-05-06). LIVE clamps to 2 % (`auto_trader.py:1996`). Cap now **CLAMPS** position size instead of rejecting (`auto_trader.py:2003–2016`, `3782–3790`) — the old reject-and-skip starved the research/hybrid path (25–30 % allocations always exceeded the cap → 100 % rejects). |
+| Daily loss | 5 % | `config.py:364` `max_daily_loss_pct=5.0`; **auto-rolls on UTC date change** (`risk_manager.py:32–65`) — was lifetime (`reset_daily_pnl` had no caller). |
 | Total exposure | 80 % | `config.py:309` |
 | Max position size | 5 % | `config.py:290` |
-| Max hold time | 48 h | `config.py:370` `max_position_hold_hours=48`; enforced in `auto_trader.py:1890–2057` (Jan 2026 fix `380a674`) |
+| Max hold time | 48 h | `config.py:449` `max_position_hold_hours=48`; force-close now **routes through `_close_position`** (`auto_trader.py:2410–2457`) — paper: engine reduce-only, LIVE: `live_engine.close_position`. Was a dead path that raised `TypeError` on every invocation and in LIVE would have opened an opposite position. |
 | SHORT SL | 1.5 % | tighter than LONG (2 %) |
 | SHORT min confidence | 70 % | higher than LONG (65 %) |
 | SHORT max position | 3 % | smaller than LONG (5 %) |
@@ -154,8 +154,14 @@ Risk-budget recomputation happens in `init_risk` and on each auto-trader cycle t
 
 - Initial balance from `paper_initial_balance` (default $100). Commission 0.1 %.
 - Fills are deterministic at `current_price` — **no slippage model, no latency, no partial fill, always `OrderStatus.FILLED`**. The slippage manager (`app/trading_enhancements/slippage_manager.py`) is wired into `auto_trader` upstream but **not** invoked by `paper_trading.py` itself.
-- BUY: closes any open SHORT for the symbol first; otherwise opens LONG with margin = `order_value / leverage` (2025-12-18 leveraged-margin fix).
-- SELL: mirror — closes LONG or opens SHORT (auto-side-flip added 2025-12-03).
+- **Accounting rewritten 2026-07-28** (`paper_trading.py:129–383`, `execute_market_order`). Behaviour now:
+  - **Closes credit `margin_returned + realized_pnl − commission` on BOTH sides, any leverage** (`paper_trading.py:226–234`). Previously SHORT closes credited close-notional (a *winning* short REDUCED the balance — sign inverted) and leveraged LONG closes credited full notional while opens deducted margin only.
+  - **`reduce_only` is honored** (`paper_trading.py:190–197`, `278–285`): a reduce-only order with no matching open position is **REJECTED**, not flipped into a full-size counter-position. This was turning every stop-loss / trailing exit into a stop + random counter-trade.
+  - **`position_id` targets a specific position** (`paper_trading.py:186`) — no more `open_positions[0]` guesswork.
+  - **Partial closes** (`paper_trading.py:236–250`): an order smaller than remaining qty reduces the position and credits proportional margin + P&L (`reduce_position`).
+  - **Scale-in / DCA** (`paper_trading.py:287–332`): a same-side order with an explicit `position_id` averages into the SAME position (`scale_in`) instead of opening a duplicate.
+- BUY: closes an open SHORT for the symbol (close path returns — no auto-flip to LONG in the same call); otherwise opens LONG with margin = `order_value / leverage`.
+- SELL: mirror — closes an open LONG or opens SHORT.
 - Trade rows logged async via `asyncio.create_task(self.trade_repo.log_trade(...))` — fire-and-forget, only WARN on failure.
 - `bybit_order_id` synthesised as `f"PAPER_{symbol}_{side}"` — non-unique across orders.
 - `sync_balance_with_positions()` runs at boot (called from `init_data`) to deduct entry cost of every position the position-manager loaded from DB. Persistence model: positions + portfolio rows are durable; cash balance is reconstructed on every boot.
@@ -225,3 +231,14 @@ This contradicts the "event-driven" mental model in the task brief — see contr
 - Concepts: [[../concepts/Risk-Model]], [[../concepts/Trading-Mode-Flags]], [[../concepts/Auto-Trader]], [[../concepts/Validated-Symbols]], [[../concepts/Test-Setup-Gotchas]], [[../concepts/State-Persistence]], [[../concepts/Paper-Trading-Internals]]
 - ADRs: [[../decisions/ADR-002-trading-engine-lifespan-refactor]], [[../decisions/ADR-004-paper-trading-default]], [[../decisions/ADR-005-emergency-stop-file-flag]], [[../decisions/ADR-006-mainnet-prices-paper-orders]], [[../decisions/ADR-011-paper-deterministic-execution]], [[../decisions/ADR-016-http-not-events]]
 - Sibling services: [[bybit-connector]], [[market-data-service]], [[technical-analysis]], [[portfolio-manager]], [[risk-metrics-service]]
+
+## Corrections 2026-07-29
+
+Reflects the 2026-07-28 accounting/risk fix campaign (verified in source):
+
+- **Paper accounting overhaul** (`paper_trading.py`): closes credit margin+P&L−commission on both sides; SHORT P&L sign fixed; `reduce_only` honored (rejects, never flips); `position_id` targeting; partial closes and scale-in/DCA. Details in *Paper trading internals* above.
+- **Kill switch** (`trading_enhancements/kill_switch.py:151–204`): fed **equity** (cash + unrealized), not raw cash — opening a position no longer looks like an instant daily loss. Consecutive-loss streak updates **only on trade closes** (`is_trade_close=True`); position OPENs no longer reset the streak.
+- **Per-trade cap CLAMPS** (10 % paper / hard 2 % LIVE floor) instead of rejecting; **daily-loss auto-rolls per UTC day** (`risk_manager.py:32–65`). See risk-gates table.
+- **Consensus counts directional votes only** (`aggregation/aggregator_core.py:321–324`): a BUY's consensus = `buy_count`, not `max(buy,sell,hold)`. Previously 2 BUY + 3 HOLD passed a min-consensus-3 BUY gate.
+- **Max-hold force-close routes through the engine** (`auto_trader.py:2410–2457`) — was a dead `TypeError` path.
+- **VP mode** (`signal_aggregator.py:1145–1183`): `get_trading_signal_with_vp` now accepts `regime_analysis`; the volume-profile path previously raised `TypeError` on the kwarg and never traded.
