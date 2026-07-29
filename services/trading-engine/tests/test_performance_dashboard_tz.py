@@ -81,6 +81,12 @@ class TestEnsureUtc:
         """
         naive_closed_at = datetime(2026, 5, 19, 12, 0, 0)
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-        # Without _ensure_utc, this comparison raises
-        # "can't compare offset-naive and offset-aware datetimes".
-        assert _ensure_utc(naive_closed_at) >= cutoff
+        # The failure mode this guards is the TypeError "can't compare
+        # offset-naive and offset-aware datetimes" — NOT a specific ordering.
+        # FIX 2026-07-29: previously asserted `>= cutoff`, which is
+        # wall-clock-dependent (a fixed May date vs a rolling now-30d cutoff)
+        # and became False once real time advanced >30 days past the fixture
+        # date. Assert the comparison merely EVALUATES (no raise), matching
+        # the test's stated intent.
+        result = _ensure_utc(naive_closed_at) >= cutoff
+        assert isinstance(result, bool)

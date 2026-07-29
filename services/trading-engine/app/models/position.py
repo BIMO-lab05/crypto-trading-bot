@@ -85,10 +85,17 @@ class Position(PositionBase):
 
     @property
     def pnl_percentage(self) -> float:
-        """Calculate P&L as percentage"""
-        if self.entry_price == 0:
+        """Calculate P&L as percentage of the position's entry notional.
+
+        FIX 2026-07-28: closed positions report realized P&L (unrealized is
+        zeroed at close, which previously made every close log/notify +0.00%).
+        """
+        if self.entry_price == 0 or self.quantity == 0:
             return 0.0
-        return float((self.unrealized_pnl / (self.entry_price * self.quantity)) * 100)
+        notional = self.entry_price * self.quantity
+        if self.status == PositionStatus.CLOSED:
+            return float((self.realized_pnl / notional) * 100)
+        return float((self.unrealized_pnl / notional) * 100)
 
     @property
     def total_value(self) -> Decimal:
@@ -98,12 +105,23 @@ class Position(PositionBase):
         return self.entry_price * self.quantity
 
     def update_pnl(self, current_price: Decimal):
-        """Update unrealized P&L based on current price"""
+        """Update unrealized P&L based on current price.
+
+        FIX 2026-07-28: unrealized P&L is computed on the REMAINING quantity
+        (after partial exits), not the original full quantity. Previously a
+        position that had scaled out 66% still marked unrealized P&L on 100%
+        of the original size, overstating equity and exit checks.
+        """
         self.current_price = current_price
+        qty = (
+            self.remaining_quantity
+            if self.remaining_quantity is not None
+            else self.quantity
+        )
         if self.side == PositionSide.LONG:
-            self.unrealized_pnl = (current_price - self.entry_price) * self.quantity
+            self.unrealized_pnl = (current_price - self.entry_price) * qty
         else:  # SHORT
-            self.unrealized_pnl = (self.entry_price - current_price) * self.quantity
+            self.unrealized_pnl = (self.entry_price - current_price) * qty
 
     def check_stop_loss(self, current_price: Decimal) -> bool:
         """Check if stop loss is hit"""

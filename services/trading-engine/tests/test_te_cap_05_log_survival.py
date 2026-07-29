@@ -1,26 +1,25 @@
-"""TE-CAP-05 / D-10: regression guarantee that the CRITICAL BREACH log line survives.
+"""TE-CAP-05 / D-10: regression guarantee that the per-trade-cap log line survives.
 
-Phase 17 / TE-CAP-05 audits broad-except clauses on the cap-violation-adjacent
-order path in services/trading-engine/app/auto_trader.py:1500-3210. This test
-exercises the per-trade-cap breach path and asserts:
+updated 2026-07-28: the per-trade cap now CLAMPS the position size to the cap
+instead of REJECTING the trade (auto_trader.py "[RISK_GATE] PER_TRADE_CAP
+CLAMP", emitted at WARNING). This test exercises the over-cap path and asserts:
 
-1. PRIMARY (D-10): the literal `[RISK_GATE] PER_TRADE_CAP BREACH` CRITICAL
-   log line from auto_trader.py:1978-1984 appears in caplog.records — no
-   surrounding except site swallows it.
+1. PRIMARY (D-10): the literal `[RISK_GATE] PER_TRADE_CAP CLAMP` WARNING
+   log line appears in caplog.records — no surrounding except site swallows it.
 2. SECONDARY (D-10): the Prometheus counter
    `risk_limit_breaches_total.labels(breach_type="position_size")` increments
    by exactly 1 across the call (pattern from test_auto_trader_min_notional.py:
    210-231).
-3. Trader state: total_trades_rejected increments by 1 (cap-check side-effect
-   at auto_trader.py:1985).
+3. Trader state: the trade PROCEEDS at the clamped size — execute_market_order
+   is awaited with quantity == cap_value / entry_price (previously the cap
+   rejected the trade and the order was never submitted).
 
-HONEST FRAMING (Phase 17 D-10 + advisor analysis): the cap-check block at
-:1972-1986 has no intervening try/except today, so on current code the BREACH
-log already reaches caplog and this test PASSES on first run. The test ships
-as a forward-going regression guarantee — if any future code change introduces
-an intervening swallow on the cap-check → BREACH-log → return path, this test
-RED-s loudly. The honest "RED" is the failure mode it protects against, not a
-current bug.
+HONEST FRAMING (Phase 17 D-10 + advisor analysis): the cap-check block has no
+intervening try/except today, so on current code the CLAMP log already reaches
+caplog and this test PASSES on first run. The test ships as a forward-going
+regression guarantee — if any future code change introduces an intervening
+swallow on the cap-check → CLAMP-log → resize path, this test RED-s loudly.
+The honest "RED" is the failure mode it protects against, not a current bug.
 
 Per CLAUDE.md memory feedback_main_imports_autoflake.md: the `# noqa: F401`
 markers on `app.main` and `app.core.metrics` are load-bearing — autoflake
@@ -45,6 +44,7 @@ import app.main  # noqa: F401
 import app.core.metrics  # noqa: F401
 
 from app.auto_trader import AutoTrader
+from app.models import OrderStatus
 from app.models.enums import SignalAction
 from app.strategies.research_optimized_strategy import (
     MarketCondition,
@@ -63,7 +63,8 @@ def trader():
 
 
 def _make_trade_setup(entry_price: float = 60000.0) -> TradeSetup:
-    """Construct a TradeSetup whose sizing math will breach the per-trade cap.
+    """Construct a TradeSetup whose sizing math will exceed the per-trade cap
+    (updated 2026-07-28: the cap now CLAMPS instead of rejecting).
 
     With paper_engine.get_balance() = 100.0 and default max_risk_per_trade=0.02
     the cap is $2. We force position_value far above $2 by:
@@ -99,16 +100,18 @@ def _patch_breach_path_deps(monkeypatch, trader, *, balance: float = 100.0):
     for the cap-check path rather than the min-notional path.
     """
     # paper engine: get_balance drives `current_equity` at :1695 AND `balance`
-    # at :1844. execute_market_order MUST NOT be called on the breach path
-    # (cap-check returns at :1986 before submission) — install a defensive
-    # AsyncMock so any unexpected call surfaces with a clear assertion.
+    # at :1844. updated 2026-07-28: the cap now CLAMPS instead of rejecting,
+    # so the over-cap path DOES submit the (resized) order — install a normal
+    # FILLED-order AsyncMock so tests can inspect the submitted quantity.
     paper_engine = MagicMock()
     paper_engine.get_balance = MagicMock(return_value=balance)
-    paper_engine.execute_market_order = AsyncMock(
-        side_effect=AssertionError(
-            "execute_market_order called — cap-check did NOT reject as expected"
-        )
-    )
+    paper_engine.get_total_equity = MagicMock(return_value=balance)
+    filled_order = MagicMock()
+    filled_order.status = OrderStatus.FILLED
+    filled_order.filled_quantity = Decimal("0.0000333")
+    filled_order.filled_price = Decimal("60000")
+    filled_order.position_id = "test-pos-id"
+    paper_engine.execute_market_order = AsyncMock(return_value=(filled_order, None))
 
     # position manager: get_open_positions must return [] so the
     # "Already have open position" guard at :1851 doesn't short-circuit.
@@ -172,19 +175,24 @@ def _patch_breach_path_deps(monkeypatch, trader, *, balance: float = 100.0):
 
 
 @pytest.mark.asyncio
-async def test_per_trade_cap_breach_log_survives_to_caplog(trader, monkeypatch, caplog):
-    """D-10: force position_value > cap_value; assert the CRITICAL BREACH log
-    line at auto_trader.py:1978-1984 reaches caplog (no broad-except swallow)
-    AND the risk_limit_breaches_total counter increments.
-
-    On current code (Phase 17 land): cap-check block at :1972-1986 has no
-    intervening try/except — this test PASSES on first run. Forward-going
-    guarantee: any future code change introducing an intervening swallow on
-    the cap-check → BREACH-log → return path will RED this test.
+async def test_per_trade_cap_clamp_log_survives_to_caplog(trader, monkeypatch, caplog):
+    """D-10 (updated 2026-07-28): force position_value > cap_value; assert the
+    WARNING CLAMP log line reaches caplog (no broad-except swallow), the
+    risk_limit_breaches_total counter increments, and the trade PROCEEDS at
+    the clamped size (previously the cap rejected the trade outright).
     """
     paper_engine, position_mgr = _patch_breach_path_deps(
         monkeypatch, trader, balance=100.0
     )
+
+    # Side-effect free notification stub so the post-FILLED path doesn't
+    # explode — we assert on the cap-check behavior, not the post-fill
+    # bookkeeping.
+    trader.notification_client = MagicMock()
+    trader.notification_client.notify_trade_open = AsyncMock(
+        return_value={"success": True}
+    )
+    trader.kill_switch.update_metrics = MagicMock(return_value=[])
 
     trade_setup = _make_trade_setup(entry_price=60000.0)
 
@@ -192,24 +200,29 @@ async def test_per_trade_cap_breach_log_survives_to_caplog(trader, monkeypatch, 
 
     counter = metrics.risk_limit_breaches_total.labels(breach_type="position_size")
     before = counter._value.get()  # type: ignore[attr-defined]
-    rejected_before = trader.total_trades_rejected
 
     # Pin caplog filter to the module the log line is emitted from. auto_trader.py
     # uses `logger = logging.getLogger(__name__)`, so logger name = "app.auto_trader".
-    with caplog.at_level(logging.CRITICAL, logger="app.auto_trader"):
-        await trader._execute_trade_with_setup(
-            symbol="BTCUSDT", trade_setup=trade_setup
-        )
+    # The CLAMP line is emitted at WARNING (the old BREACH line was CRITICAL).
+    with caplog.at_level(logging.WARNING, logger="app.auto_trader"):
+        # Post-FILLED branches touch services not stubbed here; we only assert
+        # about the cap-check → CLAMP-log → submit path.
+        try:
+            await trader._execute_trade_with_setup(
+                symbol="BTCUSDT", trade_setup=trade_setup
+            )
+        except Exception:
+            pass
 
-    # Primary D-10 assertion: log line reached caplog.
+    # Primary D-10 assertion: CLAMP log line reached caplog.
     assert any(
-        "[RISK_GATE] PER_TRADE_CAP BREACH" in rec.message for rec in caplog.records
+        "[RISK_GATE] PER_TRADE_CAP CLAMP" in rec.message for rec in caplog.records
     ), (
-        f"CRITICAL BREACH log line swallowed; "
+        f"WARNING CLAMP log line swallowed; "
         f"got {len(caplog.records)} records: "
         f"{[(r.levelname, r.name, r.message[:80]) for r in caplog.records]!r}. "
-        f"This means a broad-except site on the cap-check → BREACH-log → "
-        f"return path is masking the log emit. Inspect Phase 17 D-09 table "
+        f"This means a broad-except site on the cap-check → CLAMP-log → "
+        f"resize path is masking the log emit. Inspect Phase 17 D-09 table "
         f"for the offending site."
     )
 
@@ -218,21 +231,30 @@ async def test_per_trade_cap_breach_log_survives_to_caplog(trader, monkeypatch, 
     assert after == before + 1, (
         f'risk_limit_breaches_total.labels(breach_type="position_size") '
         f"did not increment exactly once: before={before}, after={after}. "
-        f"Either the cap-check did not fire or the metric increment at "
-        f"auto_trader.py:1977 was swallowed."
+        f"Either the cap-check did not fire or the metric increment "
+        f"was swallowed."
     )
 
-    # Tertiary trader-state assertion: rejection counter bumped per :1985.
-    assert trader.total_trades_rejected == rejected_before + 1, (
-        f"total_trades_rejected did not increment: "
-        f"before={rejected_before}, after={trader.total_trades_rejected}"
+    # Tertiary (updated 2026-07-29): the trade must PROCEED at the clamped
+    # size. The clamp sets position_value = balance × cap_fraction and
+    # quantity = position_value / entry_price. Derive the expected value from
+    # the trader's ACTUAL settings rather than hardcoding a cap %, so the test
+    # is correct under both the 2% default and the ADR-010 paper relaxation
+    # (10%) the deployed container runs. In non-LIVE mode the cap fraction is
+    # simply max_risk_per_trade (LIVE additionally floors it at 2%).
+    cap_fraction = float(trader.settings.max_risk_per_trade)
+    if str(trader.settings.trading_mode).upper() == "LIVE":
+        cap_fraction = min(cap_fraction, 0.02)
+    expected_qty = (100.0 * cap_fraction) / 60000.0
+    paper_engine.execute_market_order.assert_awaited_once()
+    submitted_order = paper_engine.execute_market_order.await_args.args[0]
+    assert float(submitted_order.quantity) == pytest.approx(
+        expected_qty, rel=1e-6
+    ), (
+        f"Order quantity was not clamped to the per-trade cap: "
+        f"got {submitted_order.quantity}, expected {expected_qty} "
+        f"(cap_fraction={cap_fraction})"
     )
-
-    # Defensive: paper-engine submission must NOT have been called (the breach
-    # path returns at :1986 before reaching execute_market_order at :2033).
-    # The AsyncMock side_effect=AssertionError would have raised if it had
-    # been awaited; if we reach here it was not called — confirm explicitly.
-    paper_engine.execute_market_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -281,17 +281,32 @@ class PositionManager:
         if position.status != PositionStatus.OPEN:
             raise ValueError(f"Position {position_id} is not open")
 
-        # Update P&L with closing price
-        position.update_pnl(close_price)
+        # FIX 2026-07-28: realize P&L on the REMAINING quantity only, and
+        # ACCUMULATE into realized_pnl instead of overwriting it. Previously a
+        # position that had taken partial exits (TP1/TP2) had its realized P&L
+        # overwritten at close with a full-quantity mark — double counting the
+        # already-exited quantity and corrupting daily-P&L / circuit breakers.
+        remaining = (
+            position.remaining_quantity
+            if position.remaining_quantity is not None
+            else position.quantity
+        )
+        if position.side == PositionSide.LONG:
+            pnl_on_remaining = (close_price - position.entry_price) * remaining
+        else:  # SHORT
+            pnl_on_remaining = (position.entry_price - close_price) * remaining
 
-        # Mark as closed
-        position.realized_pnl = position.unrealized_pnl
+        position.current_price = close_price
+        position.realized_pnl += pnl_on_remaining
         position.unrealized_pnl = Decimal("0")
+        position.remaining_quantity = Decimal("0")
         position.status = PositionStatus.CLOSED
         position.closed_at = datetime.now(timezone.utc)
+        position.exit_price = close_price
+        position.exit_reason = reason
 
-        # Update risk manager daily P&L
-        self.risk_manager.update_daily_pnl(position.realized_pnl)
+        # Update risk manager daily P&L with THIS close's P&L only
+        self.risk_manager.update_daily_pnl(pnl_on_remaining)
 
         logger.info(
             f"✓ Position closed: {position_id} | "
@@ -339,6 +354,113 @@ class PositionManager:
             logger.info(f"Portfolio updated: total realized P&L = ${total_realized_pnl}")
         except Exception as e:
             logger.warning(f"Failed to close position in database: {e}")
+
+        return position
+
+    def reduce_position(
+        self,
+        position_id: UUID,
+        quantity: Decimal,
+        price: Decimal,
+        realized_pnl: Decimal,
+    ) -> Position:
+        """
+        Reduce an open position by a quantity (partial close). Added 2026-07-28.
+
+        The caller (paper/live engine) is responsible for cash accounting;
+        this method updates position state and daily P&L only.
+        """
+        position = self.positions.get(position_id)
+        if not position:
+            raise ValueError(f"Position {position_id} not found")
+        if position.status != PositionStatus.OPEN:
+            raise ValueError(f"Position {position_id} is not open")
+
+        remaining = (
+            position.remaining_quantity
+            if position.remaining_quantity is not None
+            else position.quantity
+        )
+        if quantity >= remaining:
+            raise ValueError(
+                f"reduce_position quantity {quantity} >= remaining {remaining}; "
+                f"use close_position for full closes"
+            )
+
+        position.remaining_quantity = remaining - quantity
+        position.realized_pnl += realized_pnl
+        position.update_pnl(price)
+
+        self.risk_manager.update_daily_pnl(realized_pnl)
+
+        logger.info(
+            f"✓ Position reduced: {position_id} | {position.symbol} "
+            f"-{quantity} @ {price} | Realized: {realized_pnl:+.4f} | "
+            f"Remaining: {position.remaining_quantity}"
+        )
+
+        import asyncio
+        try:
+            asyncio.create_task(
+                self.position_repo.update_price(
+                    position_id, price, position.unrealized_pnl
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist position reduction: {e}")
+
+        return position
+
+    def scale_in(
+        self,
+        position_id: UUID,
+        quantity: Decimal,
+        price: Decimal,
+    ) -> Position:
+        """
+        Add quantity to an open position at a new price (DCA averaging).
+        Added 2026-07-28: previously DCA safety orders opened DUPLICATE
+        positions with their own default stops instead of averaging in.
+
+        Entry price becomes the weighted average of remaining + added quantity.
+        The caller is responsible for cash accounting.
+        """
+        position = self.positions.get(position_id)
+        if not position:
+            raise ValueError(f"Position {position_id} not found")
+        if position.status != PositionStatus.OPEN:
+            raise ValueError(f"Position {position_id} is not open")
+        if quantity <= 0:
+            raise ValueError("scale_in quantity must be positive")
+
+        remaining = (
+            position.remaining_quantity
+            if position.remaining_quantity is not None
+            else position.quantity
+        )
+        new_remaining = remaining + quantity
+        position.entry_price = (
+            (position.entry_price * remaining) + (price * quantity)
+        ) / new_remaining
+        position.quantity = position.quantity + quantity
+        position.remaining_quantity = new_remaining
+        position.update_pnl(price)
+
+        logger.info(
+            f"✓ Position scaled in: {position_id} | {position.symbol} "
+            f"+{quantity} @ {price} | New avg entry: {position.entry_price:.6f} | "
+            f"Remaining: {position.remaining_quantity}"
+        )
+
+        import asyncio
+        try:
+            asyncio.create_task(
+                self.position_repo.update_price(
+                    position_id, price, position.unrealized_pnl
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist position scale-in: {e}")
 
         return position
 

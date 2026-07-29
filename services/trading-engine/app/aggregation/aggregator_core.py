@@ -311,6 +311,18 @@ class CoreAggregator:
 
         confidence = validate_confidence(confidence, source="aggregator_core.gate")
 
+        # ====================================================================
+        # FIX 2026-07-28: consensus must count the indicators that agree with
+        # the CHOSEN action. The voter returns max(buy, sell, hold) counts, so
+        # a BUY backed by only 2 indicators could pass min_consensus=3 because
+        # 3 other indicators voted HOLD (HOLD votes were counted as
+        # "consensus" for a directional trade).
+        # ====================================================================
+        if action == SignalAction.BUY:
+            consensus_count = buy_count
+        elif action == SignalAction.SELL:
+            consensus_count = sell_count
+
         meets_requirements = (
             consensus_count >= self.min_consensus
             and confidence >= self.min_confidence

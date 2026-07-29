@@ -29,20 +29,44 @@ class RiskManager:
         self.settings = get_settings()
         self.daily_pnl = Decimal("0")  # Track daily P&L
         self.trading_halted = False
+        # FIX 2026-07-28: track which UTC day the "daily" P&L belongs to.
+        # reset_daily_pnl() previously had NO caller, so daily_pnl accumulated
+        # for the lifetime of the process ("daily" loss cap was actually a
+        # lifetime cap that also silently reset on every restart).
+        from datetime import datetime, timezone
+        self._daily_pnl_date = datetime.now(timezone.utc).date()
         logger.info("RiskManager initialized")
         logger.info(f"  Max position size: {self.settings.max_position_size_pct}%")
         logger.info(f"  Max daily loss: {self.settings.max_daily_loss_pct}%")
         logger.info(f"  Default stop loss: {self.settings.default_stop_loss_pct}%")
         logger.info(f"  Default take profit: {self.settings.default_take_profit_pct}%")
 
+    def _roll_daily_window_if_needed(self):
+        """Auto-reset daily P&L when the UTC day changes (FIX 2026-07-28)."""
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date()
+        if today != self._daily_pnl_date:
+            logger.info(
+                f"New UTC trading day {today}: resetting daily P&L "
+                f"(was {self.daily_pnl} on {self._daily_pnl_date})"
+            )
+            self._daily_pnl_date = today
+            self.daily_pnl = Decimal("0")
+            # A daily-loss halt clears with the new day; a manual halt persists
+            # only if re-triggered by new losses.
+            self.trading_halted = False
+
     def reset_daily_pnl(self):
         """Reset daily P&L (call at start of each trading day)"""
+        from datetime import datetime, timezone
         logger.info(f"Resetting daily P&L (was: {self.daily_pnl})")
         self.daily_pnl = Decimal("0")
         self.trading_halted = False
+        self._daily_pnl_date = datetime.now(timezone.utc).date()
 
     def update_daily_pnl(self, pnl: Decimal):
         """Update daily P&L"""
+        self._roll_daily_window_if_needed()
         self.daily_pnl += pnl
         logger.info(f"Daily P&L updated: {self.daily_pnl}")
 
@@ -52,6 +76,7 @@ class RiskManager:
 
     def should_halt_trading(self) -> bool:
         """Check if trading should be halted"""
+        self._roll_daily_window_if_needed()
         if self.trading_halted:
             return True
 

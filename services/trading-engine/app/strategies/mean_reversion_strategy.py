@@ -234,9 +234,12 @@ class MeanReversionStrategy:
         # Target: Mean (SMA)
         target = sma_value
 
-        # Stop loss: Below current price by 1.5x the distance to mean
+        # Stop loss: below current price by 0.75x the distance to mean.
+        # FIX 2026-07-28: was 1.5x — risking 1.5R to make 1.0R (inverted
+        # risk/reward, negative expectancy below ~60% win rate before fees).
+        # At 0.75x the trade risks 0.75R for a 1.0R reward (R/R ~1.33).
         distance_to_mean = abs(current_price - sma_value)
-        stop_loss = current_price - (distance_to_mean * 1.5)
+        stop_loss = current_price - (distance_to_mean * 0.75)
 
         # Determine strength
         if len(indicators_aligned) >= 3 or "EXTREME" in str(indicators_aligned):
@@ -276,9 +279,12 @@ class MeanReversionStrategy:
         # Target: Mean (SMA)
         target = sma_value
 
-        # Stop loss: Above current price by 1.5x the distance to mean
+        # Stop loss: above current price by 0.75x the distance to mean.
+        # FIX 2026-07-28: was 1.5x — risking 1.5R to make 1.0R (inverted
+        # risk/reward, negative expectancy below ~60% win rate before fees).
+        # At 0.75x the trade risks 0.75R for a 1.0R reward (R/R ~1.33).
         distance_to_mean = abs(current_price - sma_value)
-        stop_loss = current_price + (distance_to_mean * 1.5)
+        stop_loss = current_price + (distance_to_mean * 0.75)
 
         # Determine strength
         if len(indicators_aligned) >= 3 or "EXTREME" in str(indicators_aligned):

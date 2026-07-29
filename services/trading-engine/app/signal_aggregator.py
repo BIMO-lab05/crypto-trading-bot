@@ -105,22 +105,20 @@ class SignalAggregator:
         self, symbol: str, interval: str = "60"
     ) -> Optional[IndicatorSignal]:
         """
-        Fetch MACD indicator with research-optimized parameters
+        Fetch MACD indicator using the TA service's research-optimized defaults
 
-        RESEARCH-BACKED PARAMETERS (2025 Crypto Trading Research):
-        - Standard 12-26-9: Good for stocks, slow for crypto
-        - Optimal 8-17-9: Best risk-adjusted returns for crypto day trading
-        - Academic research: ~70% profitable trades with 1.51 profit factor
+        Parameter drift fix (audit 2026-07): this client previously forced
+        8-17-9 while the TA service default is the Kang-2021 5-35-5
+        (see technical-analysis app/config.py and handlers/indicators.py).
+        We now omit fast/slow/signal so the single source of truth for MACD
+        parameters is the TA service's defaults (currently 5-35-5).
         """
         try:
             url = f"{self.base_url}/api/v1/indicators/macd/{symbol}"
-            # RESEARCH-OPTIMIZED (2025): 8-17-9 proven optimal for crypto day trading
-            # Balanced between responsiveness and accuracy
+            # No fast/slow/signal here on purpose — use TA service defaults
+            # (Kang 2021: 5-35-5) instead of drifting local overrides.
             params = {
                 "interval": interval,
-                "fast": 8,  # Research: Optimal for crypto volatility
-                "slow": 17,  # Research: Best risk-adjusted returns
-                "signal": 9,  # Research: Standard signal period works well
             }
 
             response = await self.client.get(url, params=params)
@@ -136,7 +134,7 @@ class SignalAggregator:
                     "macd_line": data["macd_line"],
                     "signal_line": data["signal_line"],
                     "parameters": data.get(
-                        "parameters", {"fast": 8, "slow": 17, "signal": 9}
+                        "parameters", {"fast": 5, "slow": 35, "signal": 5}
                     ),
                     "weight": 1.0,  # Balanced weight to avoid over-reliance on single indicator
                 },
@@ -1151,6 +1149,7 @@ class SignalAggregator:
         timeframes: Optional[List[str]] = None,
         enable_vp: bool = True,
         vp_lookback: int = 100,
+        regime_analysis=None,  # FIX 2026-07-28: accept pre-fetched regime
     ) -> TradingSignal:
         """
         Get trading signal with Volume Profile integration (Phase 3 - VP Strategy)
@@ -1158,12 +1157,17 @@ class SignalAggregator:
         Combines multi-timeframe confirmation with volume profile analysis
         for enhanced entry/exit levels and strategy selection.
 
+        FIX 2026-07-28: added `regime_analysis` parameter — auto_trader passes
+        it, and its absence made every VP-mode signal check raise TypeError
+        (swallowed by the catch-all upstream), so VP mode silently never traded.
+
         Args:
             symbol: Trading pair
             primary_interval: Primary timeframe
             timeframes: Timeframes for MTF analysis
             enable_vp: Enable volume profile analysis
             vp_lookback: Number of candles for VP calculation
+            regime_analysis: Pre-fetched market regime analysis (optional)
 
         Returns:
             TradingSignal with VP enhancements
@@ -1173,7 +1177,10 @@ class SignalAggregator:
 
         # Get multi-timeframe signal first (Phase 2)
         signal = await self.get_trading_signal_multi_timeframe(
-            symbol=symbol, primary_interval=primary_interval, timeframes=timeframes
+            symbol=symbol,
+            primary_interval=primary_interval,
+            timeframes=timeframes,
+            regime_analysis=regime_analysis,
         )
 
         # If VP not enabled, return MTF signal as-is

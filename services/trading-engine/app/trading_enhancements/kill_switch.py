@@ -153,16 +153,28 @@ class KillSwitch:
         current_balance: float,
         trade_pnl: float = 0.0,
         was_loss: bool = False,
-        position_value: float = 0.0
+        position_value: float = 0.0,
+        is_trade_close: bool = False,
     ) -> List[str]:
         """
         Update metrics and check thresholds
 
+        FIX 2026-07-28:
+        - `current_balance` should be EQUITY (cash + unrealized P&L). Feeding
+          raw cash made opening a position (margin deduction) look like an
+          instant "daily loss" >= the 5% threshold, false-triggering the switch.
+        - Consecutive-loss streak only updates on trade CLOSES
+          (`is_trade_close=True`). Previously every position OPEN (called with
+          was_loss=False) reset the streak, so the 5-consecutive-losses
+          breaker was structurally unreachable while the bot kept re-entering.
+
         Args:
-            current_balance: Current account balance
+            current_balance: Current account EQUITY (cash + unrealized P&L)
             trade_pnl: P&L from recent trade
             was_loss: Whether the trade was a loss
             position_value: Current position value
+            is_trade_close: True when called after a position close (streak
+                accounting only happens on closes)
 
         Returns:
             List of triggered threshold names (if any)
@@ -184,11 +196,12 @@ class KillSwitch:
             drawdown = self.state.peak_balance - current_balance
             self.state.current_drawdown_pct = (drawdown / self.state.peak_balance * 100) if drawdown > 0 else 0
 
-        # Update consecutive losses
-        if was_loss:
-            self.state.current_consecutive_losses += 1
-        else:
-            self.state.current_consecutive_losses = 0
+        # Update consecutive losses — ONLY on trade closes
+        if is_trade_close:
+            if was_loss:
+                self.state.current_consecutive_losses += 1
+            else:
+                self.state.current_consecutive_losses = 0
 
         # Check thresholds
         if self.state.current_daily_loss_pct >= self.config.max_daily_loss_pct:
