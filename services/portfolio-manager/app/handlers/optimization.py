@@ -171,6 +171,10 @@ async def optimize_portfolio(
             "message": result.message
         }
 
+    except HTTPException:
+        # Preserve intentional HTTP errors (e.g. 503 when price data is
+        # unavailable, 400 for bad input) instead of masking them as a 500.
+        raise
     except Exception as e:
         logger.error(f"Portfolio optimization error: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -265,6 +269,10 @@ async def get_efficient_frontier(
             "message": f"Generated {len(frontier_points)} efficient frontier points"
         }
 
+    except HTTPException:
+        # Preserve intentional HTTP errors (e.g. 503 when price data is
+        # unavailable, 400 for bad input) instead of masking them as a 500.
+        raise
     except Exception as e:
         logger.error(f"Efficient frontier generation error: {str(e)}", exc_info=True)
         raise HTTPException(

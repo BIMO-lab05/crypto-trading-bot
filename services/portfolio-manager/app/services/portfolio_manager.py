@@ -187,30 +187,108 @@ class PortfolioManager:
 
             logger.info(f"✓ Fetched {len(positions)} positions from Trading Engine")
 
-            # Update portfolio based on positions
+            # ================================================================
+            # REWRITTEN 2026-07-29: faithfully MIRROR the trading engine rather
+            # than reconstructing via spot-buy accounting. The old loop called
+            # portfolio.add_asset() (a spot BUY) for every position, which
+            #   (a) ignored position["side"] → SHORTs modeled as LONGs with
+            #       inverted P&L, and
+            #   (b) deducted the full notional from cash → a $100 book with two
+            #       leveraged shorts showed cash ≈ $15 and a phantom −84% return.
+            # The engine is the authoritative book (cash, realized/unrealized
+            # P&L, per-position side), so we copy its numbers directly.
+            # ================================================================
+            from app.models.asset import Asset
+            from app.models.enums import AssetType
+
+            new_assets: Dict[str, Asset] = {}
             for position in positions:
+                if position.get("status") != "OPEN":
+                    continue
                 symbol = position["symbol"]
-                quantity = Decimal(position["quantity"])
-                entry_price = Decimal(position["entry_price"])
-                current_price = Decimal(position.get("current_price", entry_price))
+                side = str(position.get("side", "LONG")).upper()
+                quantity = Decimal(str(position["quantity"]))
+                entry_price = Decimal(str(position["entry_price"]))
+                current_price = Decimal(str(position.get("current_price") or entry_price))
+                if current_price <= 0:
+                    fetched = await self._fetch_current_price(symbol)
+                    if fetched > 0:
+                        current_price = fetched
 
-                # Get current price from market data if needed
-                if current_price == entry_price:
-                    current_price = await self._fetch_current_price(symbol)
+                asset = new_assets.get(symbol)
+                if asset is None:
+                    asset = Asset(
+                        symbol=symbol,
+                        name=symbol,
+                        asset_type=AssetType.CRYPTO,
+                        quantity=quantity,
+                        side=side,
+                        average_entry_price=entry_price,
+                    )
+                    asset.total_cost = quantity * entry_price
+                    new_assets[symbol] = asset
+                else:
+                    total_qty = asset.quantity + quantity
+                    if total_qty > 0:
+                        asset.average_entry_price = (
+                            asset.total_cost + quantity * entry_price
+                        ) / total_qty
+                    asset.quantity = total_qty
+                    asset.total_cost = asset.quantity * asset.average_entry_price
+                asset.update_valuation(current_price)
 
-                # Update or create asset in portfolio
-                if position["status"] == "OPEN":
-                    if symbol not in portfolio.assets:
-                        portfolio.add_asset(
-                            symbol=symbol,
-                            name=symbol,  # Would ideally fetch full name
-                            quantity=quantity,
-                            price=entry_price
-                        )
-                    # Update price
-                    portfolio.update_asset_prices({symbol: current_price})
+            portfolio.assets = new_assets
 
-            logger.info(f"✓ Portfolio synced with Trading Engine")
+            # Pull the engine's AUTHORITATIVE cash + realized P&L so equity
+            # matches the real book exactly. Falls back to local sums if the
+            # performance endpoint is unavailable.
+            engine_cash = None
+            engine_realized = None
+            try:
+                perf_resp = await self.http_client.get(
+                    f"{settings.trading_engine_url}/api/v1/performance"
+                )
+                if perf_resp.status_code == 200:
+                    m = perf_resp.json().get("metrics", {})
+                    if m.get("current_balance") is not None:
+                        engine_cash = Decimal(str(m.get("current_balance")))
+                    engine_realized = Decimal(str(m.get("realized_pnl", "0")))
+            except Exception as perf_err:
+                logger.warning(f"Could not fetch engine performance: {perf_err}")
+
+            total_unrealized = sum(
+                (a.unrealized_pnl for a in portfolio.assets.values()), Decimal("0")
+            )
+            if engine_cash is not None:
+                portfolio.cash_balance = engine_cash
+            if engine_realized is not None:
+                portfolio.realized_pnl = engine_realized
+
+            # Futures/margin equity = cash + unrealized P&L (cash already
+            # reflects margin + realized). This is the dashboard's total value.
+            portfolio.unrealized_pnl = total_unrealized
+            portfolio.total_value = portfolio.cash_balance + total_unrealized
+            portfolio.total_pnl = portfolio.realized_pnl + total_unrealized
+            if portfolio.initial_capital > 0:
+                portfolio.total_return_pct = (
+                    (portfolio.total_value - portfolio.initial_capital)
+                    / portfolio.initial_capital
+                ) * Decimal("100")
+
+            # Exposure-based allocation (notional / equity). For leveraged
+            # positions this can exceed 100% — honest exposure, not a bug.
+            if portfolio.total_value > 0:
+                for a in portfolio.assets.values():
+                    a.current_allocation_pct = (
+                        a.current_value / portfolio.total_value
+                    ) * Decimal("100")
+
+            portfolio.last_updated = int(datetime.now().timestamp() * 1000)
+            logger.info(
+                f"✓ Portfolio mirrored from Trading Engine: "
+                f"equity=${portfolio.total_value:.2f} cash=${portfolio.cash_balance:.2f} "
+                f"unrealized=${total_unrealized:.2f} positions={len(portfolio.assets)}"
+            )
             return True
 
         except Exception as e:

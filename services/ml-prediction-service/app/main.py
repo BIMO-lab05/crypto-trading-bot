@@ -425,8 +425,14 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
+    # SECURITY (2026-07-29 audit): "*" origins with allow_credentials=True is
+    # invalid per the CORS spec and makes Starlette reflect the caller's
+    # Origin for credentialed requests, allowing any site to make
+    # credentialed cross-origin calls. This internal service uses no cookie
+    # auth (reached server-to-server via the gateway / Bearer tokens), so we
+    # keep the permissive origin but disable credentialed CORS.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -497,11 +503,13 @@ async def readiness_check():
         client = await get_http_client()
         response = await client.get(f"{settings.market_data_url}/health", timeout=5.0)
         market_data_ready = response.status_code == 200
-    except:
+    except Exception:
         market_data_ready = False
 
-    # Check if any models are loaded
-    models_loaded = len(gru_predictors) > 0
+    # Check if any models are ACTUALLY loaded. get_gru_predictor() registers a
+    # predictor object in gru_predictors even when its model file is missing
+    # (predictor.model stays None), so a bare len() overreports readiness.
+    models_loaded = any(p.model is not None for p in gru_predictors.values())
 
     return ReadyResponse(
         ready=tensorflow_ready and market_data_ready,

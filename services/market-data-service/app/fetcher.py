@@ -10,6 +10,7 @@ Fixed: 2025-12-11 - Added start/end time parameters and proper pagination
 import httpx
 import asyncio
 import logging
+import time
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
@@ -186,6 +187,29 @@ class BybitDataFetcher:
                 # Sort by timestamp ascending (oldest first) for consistency
                 # Bybit returns newest first, so we reverse the order
                 klines.sort(key=lambda x: x["timestamp"])
+
+                # Drop the still-forming (unclosed) candle.
+                # Bybit V5 returns klines newest-first, i.e. the current
+                # PARTIAL candle is the first element of the raw response;
+                # after the ascending sort above it becomes the LAST
+                # element. We do not rely on position though — we filter by
+                # time: a candle is closed only once
+                # `timestamp + interval_duration <= now`. Anything else is
+                # still forming and would poison indicators/backtests if
+                # persisted, so it is discarded here before storage.
+                interval_ms = get_interval_minutes(interval) * 60 * 1000
+                now_ms = int(time.time() * 1000)
+                closed_klines = [
+                    k for k in klines
+                    if k["timestamp"] + interval_ms <= now_ms
+                ]
+                dropped = len(klines) - len(closed_klines)
+                if dropped:
+                    logger.debug(
+                        f"Dropped {dropped} still-forming candle(s) for "
+                        f"{symbol} ({interval})"
+                    )
+                klines = closed_klines
 
                 logger.info(
                     f"Fetched {len(klines)} klines for {symbol} ({interval}) "

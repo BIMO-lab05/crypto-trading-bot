@@ -18,6 +18,18 @@ from app.cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
+# Valid Bybit V5 kline intervals. Reject anything else up front so a bad
+# `interval` doesn't silently return an empty series (which downstream
+# consumers can misread as "no data available" rather than "bad request").
+VALID_INTERVALS = {
+    "1", "3", "5", "15", "30", "60", "120", "240", "360", "720", "D", "W", "M",
+}
+
+
+def _validate_interval(interval: str) -> None:
+    if interval not in VALID_INTERVALS:
+        raise HTTPException(status_code=400, detail="Invalid interval")
+
 
 def get_fetcher(request: Request):
     """Get fetcher instance from app state"""
@@ -60,6 +72,7 @@ async def get_klines(
         symbol = symbol.upper()
         if not re.match(r'^[A-Z]{6,20}$', symbol):
             raise HTTPException(status_code=400, detail="Invalid symbol format")
+        _validate_interval(interval)
 
         klines = await KlineRepository.get_klines(
             symbol=symbol,
@@ -189,6 +202,7 @@ async def get_latest_kline(
         symbol = symbol.upper()
         if not re.match(r'^[A-Z]{6,20}$', symbol):
             raise HTTPException(status_code=400, detail="Invalid symbol format")
+        _validate_interval(interval)
 
         # Try cache first
         cache_key = f"latest_kline:{symbol}:{interval}"

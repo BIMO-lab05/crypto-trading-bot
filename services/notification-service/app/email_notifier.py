@@ -64,9 +64,13 @@ class EmailNotifier:
             mime_type = 'html' if html else 'plain'
             msg.attach(MIMEText(body, mime_type))
 
-            # Connect and send
+            # Connect and send.
+            # A timeout is mandatory: this method is invoked synchronously from
+            # the async notify_* endpoints in main.py, so a stalled SMTP server
+            # with no timeout would block the event loop indefinitely and hang
+            # the whole service (the enhanced EmailClient already uses timeout=30).
             logger.debug(f"Connecting to SMTP server {self.smtp_host}:{self.smtp_port}")
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30) as server:
                 server.starttls()
                 server.login(self.username, self.password)
                 server.send_message(msg)

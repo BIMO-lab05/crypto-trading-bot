@@ -591,8 +591,25 @@ class GRUPricePredictor:
             # Reshape for prediction [1, sequence_length, features]
             X = np.array([scaled_sequence])
 
+            # Guard: scaled input must be finite. inf survives the dropna() in
+            # _create_features and would propagate NaN through the network.
+            if not np.all(np.isfinite(X)):
+                raise ValueError(
+                    f"Non-finite feature input for {self.symbol} {self.interval}m; "
+                    "refusing to run inference on NaN/inf"
+                )
+
             # Step 4: Predict using GRU
             prediction = self.model.predict(X, verbose=0)[0]
+
+            # Guard: reject NaN/inf model output rather than emitting poisoned
+            # prices downstream (a NaN predicted_price would break trading logic
+            # and confidence-interval math silently).
+            if not np.all(np.isfinite(prediction)):
+                raise ValueError(
+                    f"GRU model produced non-finite output for {self.symbol} "
+                    f"{self.interval}m"
+                )
 
             # Update inference time
             inference_time = (time.time() - inference_start) * 1000
@@ -601,6 +618,13 @@ class GRUPricePredictor:
             # Step 5: Inverse scaling and build predictions
             close_idx = feature_cols.index("close")
             current_price = float(df.iloc[-1]["close"])
+
+            # Guard against a zero/non-finite last close, which would make the
+            # directional price_change_pct computation below divide by zero.
+            if not np.isfinite(current_price) or current_price == 0:
+                raise ValueError(
+                    f"Invalid current price ({current_price}) for {self.symbol}"
+                )
 
             # Build prediction points
             predictions = []

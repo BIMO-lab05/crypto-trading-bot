@@ -7,10 +7,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 import logging
+import time
 from typing import List
 import asyncio
 
-from app.fetcher import BybitDataFetcher
+from app.fetcher import BybitDataFetcher, get_interval_minutes
 from app.repository import KlineRepository, TickerRepository
 from app.config import get_settings
 
@@ -66,23 +67,30 @@ async def collect_ticker_data():
     success_count = 0
     error_count = 0
 
-    for symbol in _trading_pairs():
-        try:
-            # Fetch ticker data
-            ticker_data = await fetcher.get_ticker(symbol=symbol)
+    try:
+        for symbol in _trading_pairs():
+            try:
+                # Fetch ticker data
+                ticker_data = await fetcher.get_ticker(symbol=symbol)
 
-            if ticker_data:
-                # Save to database
-                await ticker_repo.save_ticker(ticker_data)
-                success_count += 1
-                logger.info(f"✅ Collected ticker for {symbol}")
-            else:
-                logger.warning(f"⚠️ No ticker data returned for {symbol}")
+                if ticker_data:
+                    # Save to database
+                    await ticker_repo.save_ticker(ticker_data)
+                    success_count += 1
+                    logger.info(f"✅ Collected ticker for {symbol}")
+                else:
+                    logger.warning(f"⚠️ No ticker data returned for {symbol}")
+                    error_count += 1
+
+            except Exception as e:
+                logger.error(f"❌ Error collecting ticker for {symbol}: {e}")
                 error_count += 1
-
-        except Exception as e:
-            logger.error(f"❌ Error collecting ticker for {symbol}: {e}")
-            error_count += 1
+    finally:
+        # Always release the httpx connection pool. A new BybitDataFetcher
+        # (100-connection pool) is created every scheduled run; without this
+        # close() the pools leaked every 5 minutes and eventually exhausted
+        # sockets / file descriptors.
+        await fetcher.close()
 
     logger.info(
         f"📊 Ticker collection complete: {success_count} success, {error_count} errors"
@@ -102,13 +110,34 @@ async def collect_kline_data():
     success_count = 0
     error_count = 0
 
-    for symbol in _trading_pairs():
+    try:
+      for symbol in _trading_pairs():
         for interval in KLINE_INTERVALS:
             try:
                 # Fetch kline data (last 200 candles)
                 klines = await fetcher.get_kline(
                     symbol=symbol, interval=interval, limit=200
                 )
+
+                # Defensive filter: fetcher.get_kline already discards the
+                # still-forming (unclosed) candle — Bybit returns it as the
+                # newest entry — but re-check here so a future fetcher
+                # change cannot silently re-introduce partial-candle
+                # pollution into the database. A candle is closed only when
+                # timestamp + interval_duration <= now.
+                if klines:
+                    interval_ms = get_interval_minutes(interval) * 60 * 1000
+                    now_ms = int(time.time() * 1000)
+                    n_before = len(klines)
+                    klines = [
+                        k for k in klines
+                        if k["timestamp"] + interval_ms <= now_ms
+                    ]
+                    if len(klines) < n_before:
+                        logger.debug(
+                            f"Dropped {n_before - len(klines)} still-forming "
+                            f"candle(s) for {symbol} ({interval}) before store"
+                        )
 
                 if klines:
                     # Add symbol and interval to each kline
@@ -136,6 +165,9 @@ async def collect_kline_data():
 
             # Small delay to avoid rate limits
             await asyncio.sleep(0.5)
+    finally:
+        # Always release the httpx connection pool (see collect_ticker_data).
+        await fetcher.close()
 
     logger.info(
         f"📈 Kline collection complete: {success_count} success, {error_count} errors"

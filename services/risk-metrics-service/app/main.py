@@ -18,6 +18,7 @@ from typing import List, Optional
 import httpx
 import logging
 import asyncio
+import os
 
 # Prometheus metrics imports
 from prometheus_client import (
@@ -229,8 +230,14 @@ app = FastAPI(
 # Add CORS middleware with restricted origins
 app.add_middleware(
     CORSMiddleware,
+    # SECURITY (2026-07-29 audit): "*" origins with allow_credentials=True is
+    # invalid per the CORS spec and makes Starlette reflect the caller's
+    # Origin for credentialed requests, allowing any site to make
+    # credentialed cross-origin calls. This internal service uses no cookie
+    # auth (reached server-to-server via the gateway / Bearer tokens), so we
+    # keep the permissive origin but disable credentialed CORS.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -376,7 +383,10 @@ async def health_check():
         try:
             await cache.client.ping()
             dependencies["redis_cache"] = True
-        except:
+        except Exception as e:
+            # Bare `except:` also swallowed asyncio.CancelledError (breaking
+            # cooperative shutdown) and KeyboardInterrupt; narrow to Exception.
+            logger.debug(f"Redis health ping failed: {e}")
             dependencies["redis_cache"] = False
     else:
         dependencies["redis_cache"] = False
@@ -960,9 +970,13 @@ async def reset_circuit_breaker(api_key: str = Depends(verify_admin_key)):
     if not engine.circuit_breaker_active:
         return {"message": "Circuit breaker is not active", "status": "ok"}
 
-    # Reset circuit breaker
-    engine.circuit_breaker_active = False
-    engine.circuit_breaker_tripped_at = None
+    # Reset circuit breaker via the state-machine reset method. Previously this
+    # only cleared the legacy `circuit_breaker_active` flag and `tripped_at`,
+    # leaving `circuit_breaker_state` at OPEN and `circuit_breaker_cooldown_until`
+    # in the future — so check_circuit_breaker() kept reporting is_tripped/
+    # can_trade=False and the "manual reset" never actually resumed trading
+    # until the cooldown expired on its own.
+    engine.reset_circuit_breaker()
 
     # Update gauge
     circuit_breaker_active_gauge.set(0)
@@ -1077,9 +1091,14 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
 
+    # SECURITY/CONFIG (2026-07-29 audit): reload was hardcoded to True, which
+    # is a development-only flag (spawns a file-watching reloader and is
+    # unsafe/wasteful in production). Default it to False and gate it behind
+    # an explicit opt-in env var, matching the other services which use
+    # reload=settings.debug.
     uvicorn.run(
         "app.main:app",
         host=settings.service_host,
         port=settings.service_port,
-        reload=True,
+        reload=os.getenv("UVICORN_RELOAD", "false").lower() == "true",
     )

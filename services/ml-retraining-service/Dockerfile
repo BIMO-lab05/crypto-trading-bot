@@ -21,14 +21,26 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ ./app/
 
+# Create a non-root user to run the service.
+# SECURITY (2026-07-29 audit): this service previously ran as root (no
+# USER directive), unlike every other service in the repo which drops to
+# `appuser`. Running the container as root broadens the blast radius of any
+# RCE/container-escape. Create the user and hand it ownership of the app
+# and model-storage directories.
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
 # Create directories for model storage
 RUN mkdir -p /app/models/production \
     /app/models/versions \
-    /app/models/backups
+    /app/models/backups \
+    && chown -R appuser:appuser /app
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
+
+# Drop privileges
+USER appuser
 
 # Expose service port
 EXPOSE 8009

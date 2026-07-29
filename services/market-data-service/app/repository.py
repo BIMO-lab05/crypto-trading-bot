@@ -148,14 +148,21 @@ class KlineRepository:
             return klines
     
     @staticmethod
-    async def get_latest_kline(symbol: str, interval: str) -> Optional[Kline]:
+    async def get_latest_kline(
+        symbol: str,
+        interval: str,
+        mainnet_only: bool = True
+    ) -> Optional[Kline]:
         """
         Get most recent kline for a symbol/interval
-        
+
         Args:
             symbol: Trading pair
             interval: Candlestick interval
-        
+            mainnet_only: If True (default), exclude rows tagged
+                ``is_mainnet=False`` — same audit-aligned filtering as
+                :meth:`get_klines`. Pass ``False`` to include testnet rows.
+
         Returns:
             Latest Kline or None
         """
@@ -165,7 +172,12 @@ class KlineRepository:
                     Kline.symbol == symbol,
                     Kline.interval == interval
                 )
-            ).order_by(desc(Kline.timestamp)).limit(1)
+            )
+
+            if mainnet_only:
+                query = query.where(Kline.is_mainnet.is_(True))
+
+            query = query.order_by(desc(Kline.timestamp)).limit(1)
             
             result = await session.execute(query)
             kline = result.scalar_one_or_none()
