@@ -20,10 +20,26 @@ const api = axios.create({
   },
 })
 
+// Throttle error logging: at most once per distinct URL+status per minute
+const errorLogTimestamps = new Map()
+const ERROR_LOG_INTERVAL_MS = 60000
+function shouldLogError(url, status) {
+  const key = `${url}|${status}`
+  const now = Date.now()
+  const last = errorLogTimestamps.get(key)
+  if (last !== undefined && now - last < ERROR_LOG_INTERVAL_MS) return false
+  errorLogTimestamps.set(key, now)
+  return true
+}
+
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    console.error('[useAutoTrader API] Error:', error.response?.data || error.message)
+    const url = error.config?.url || 'unknown'
+    const status = error.response?.status ?? 'network'
+    if (shouldLogError(url, status)) {
+      console.error('[useAutoTrader API] Error:', error.response?.data || error.message)
+    }
     return Promise.reject(error)
   }
 )
@@ -35,12 +51,7 @@ api.interceptors.response.use(
 export function useAutoTraderStatus() {
   return useQuery({
     queryKey: ['auto-trader', 'status'],
-    queryFn: async () => {
-      console.log('[useAutoTraderStatus] Fetching auto trader status...')
-      const response = await api.get('/trading/status')
-      console.log('[useAutoTraderStatus] Received data:', response)
-      return response
-    },
+    queryFn: () => api.get('/trading/status'),
     refetchInterval: 10000,
     staleTime: 8000,
     retry: 2,
@@ -56,12 +67,7 @@ export function useAutoTraderStatus() {
 export function usePerformanceAnalytics() {
   return useQuery({
     queryKey: ['auto-trader', 'performance-report'],
-    queryFn: async () => {
-      console.log('[usePerformanceAnalytics] Fetching performance report...')
-      const response = await api.get('/trading/performance')
-      console.log('[usePerformanceAnalytics] Received data:', response)
-      return response
-    },
+    queryFn: () => api.get('/trading/performance'),
     refetchInterval: 30000,
     staleTime: 25000,
     retry: 2,

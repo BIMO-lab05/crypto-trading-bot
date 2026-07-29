@@ -22,12 +22,16 @@ export function useMultipleSignals(symbols = [], interval = 60) {
   return useQuery({
     queryKey: ['signals', symbols, interval],
     queryFn: async () => {
-      const results = await Promise.all(
+      // Use allSettled so a single failing symbol doesn't reject the whole
+      // batch and blank the signals tile. Rejected entries are dropped.
+      const results = await Promise.allSettled(
         symbols.map(symbol => tradingAPI.getSignal(symbol, interval))
       )
-      // Convert array to object with symbol as key
-      return results.reduce((acc, data, index) => {
-        acc[symbols[index]] = data
+      // Convert array to object with symbol as key, skipping failures
+      return results.reduce((acc, result, index) => {
+        if (result.status === 'fulfilled' && result.value != null) {
+          acc[symbols[index]] = result.value
+        }
         return acc
       }, {})
     },

@@ -29,11 +29,28 @@ api.interceptors.request.use(
   }
 )
 
+// Throttle error logging: log at most once per distinct URL+status per minute
+// so a broken polled endpoint doesn't flood the console.
+const errorLogTimestamps = new Map()
+const ERROR_LOG_INTERVAL_MS = 60000
+function shouldLogError(url, status) {
+  const key = `${url}|${status}`
+  const now = Date.now()
+  const last = errorLogTimestamps.get(key)
+  if (last !== undefined && now - last < ERROR_LOG_INTERVAL_MS) return false
+  errorLogTimestamps.set(key, now)
+  return true
+}
+
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    console.error('API Error:', error.response?.data || error.message)
+    const url = error.config?.url || 'unknown'
+    const status = error.response?.status ?? 'network'
+    if (shouldLogError(url, status)) {
+      console.error('API Error:', error.response?.data || error.message)
+    }
     return Promise.reject(error)
   }
 )
@@ -51,11 +68,15 @@ export const portfolioAPI = {
   // to get closed positions from database instead of empty transactions
   getTradeHistory: (params) => api.get('/trading/trades/history', { params }),
 
-  // Execute buy order
-  buy: (symbol, quantity) => api.post('/portfolio/buy', { symbol, quantity }),
+  // Execute buy order.
+  // Gateway expects QUERY params (symbol, quantity, price) — not a JSON body.
+  // All three are required by the gateway (validated, no defaults).
+  buy: (symbol, quantity, price) =>
+    api.post('/portfolio/buy', null, { params: { symbol, quantity, price } }),
 
-  // Execute sell order
-  sell: (symbol, quantity) => api.post('/portfolio/sell', { symbol, quantity }),
+  // Execute sell order (query params, same contract as buy)
+  sell: (symbol, quantity, price) =>
+    api.post('/portfolio/sell', null, { params: { symbol, quantity, price } }),
 
   // Emergency stop all trading
   emergencyStop: () => api.post('/portfolio/emergency-stop'),
@@ -73,7 +94,8 @@ export const marketAPI = {
   // Get orderbook
   // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
   // NOTE 2025-12-04: market-data-service does not have orderbook endpoint
-  // TODO: Implement /api/v1/orderbook/{symbol} in market-data-service if needed
+  // TODO: no gateway route — do not mount (useOrderbook hook exists but is
+  // unused by any component; wire this up only after the gateway route exists)
   getOrderbook: (symbol) => api.get(`/market/orderbook/${symbol}`),
 }
 
@@ -100,8 +122,12 @@ export const tradingAPI = {
 
 // System health endpoint
 export const systemAPI = {
-  // Check system health
-  getHealth: () => api.get('/health'),
+  // Check system health.
+  // The gateway serves /health at the root (NOT /api/health), so this must
+  // bypass the shared instance's baseURL '/api'. Uses a bare axios call with
+  // baseURL '' and unwraps .data to match the shared interceptor's behavior.
+  getHealth: () =>
+    axios.get('/health', { baseURL: '', timeout: 20000 }).then((res) => res.data),
 }
 
 // Phase 3: ML Prediction endpoints
@@ -140,6 +166,10 @@ export const mlAPI = {
     }),
 
   // Retrain existing model
+  // BACKEND STATUS: NOT IMPLEMENTED - the gateway has no
+  // /api/ml/models/retrain/{symbol} route (only /api/ml/models/train).
+  // TODO: no gateway route — do not mount. Use trainModel() instead, which
+  // hits the existing /ml/models/train endpoint.
   retrainModel: (symbol, interval = 60, lookbackDays = 90) =>
     api.post(`/ml/models/retrain/${symbol}`, null, {
       params: { interval, lookback_days: lookbackDays }
@@ -189,7 +219,9 @@ export const enhancedTradingAPI = {
 
   // Get Phase 1 vs Phase 3 comparison
   // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
-  // TODO: Implement /api/v1/signals/compare/{symbol} in trading-engine
+  // TODO: no gateway route — do not mount (useSignalComparison hook exists in
+  // usePhase3.js but is unused by any component). Implement
+  // /api/v1/signals/compare/{symbol} in trading-engine before wiring this up.
   getSignalComparison: (symbol, interval = 60) =>
     api.get(`/trading/signals/compare/${symbol}`, { params: { interval } }),
 }

@@ -105,9 +105,11 @@ export function usePerformanceMetrics(options = {}) {
   // COMPUTED DATA FROM TRADE HISTORY
   // ============================================================================
 
-  // Extract trades array from response
+  // Extract trades array from response. Guard with Array.isArray so an
+  // unexpected object/error payload can't leak into downstream .sort/.filter.
   const trades = useMemo(() => {
-    return tradeHistoryData?.trades || tradeHistoryData || []
+    const raw = tradeHistoryData?.trades ?? tradeHistoryData
+    return Array.isArray(raw) ? raw : []
   }, [tradeHistoryData])
 
   // Get initial balance from portfolio. The portfolio-manager API returns
@@ -271,7 +273,8 @@ export function useEquityCurve(options = {}) {
 
   // Calculate equity curve from trades if backend doesn't provide it
   const calculatedCurve = useMemo(() => {
-    const trades = historyQuery.data?.trades || historyQuery.data || []
+    const raw = historyQuery.data?.trades ?? historyQuery.data
+    const trades = Array.isArray(raw) ? raw : []
     if (trades.length === 0) return []
     return calculateEquityCurve(trades, 10000)
   }, [historyQuery.data])
@@ -354,7 +357,8 @@ export function useReturnsDistribution(options = {}) {
   })
 
   const calculatedDistribution = useMemo(() => {
-    const trades = historyQuery.data?.trades || historyQuery.data || []
+    const raw = historyQuery.data?.trades ?? historyQuery.data
+    const trades = Array.isArray(raw) ? raw : []
     if (trades.length === 0) return { bins: [], stats: null }
     return calculateReturnsDistribution(trades, bins)
   }, [historyQuery.data, bins])

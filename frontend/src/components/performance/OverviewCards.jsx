@@ -329,7 +329,7 @@ const TodayPnLCard = ({ value, tradeCount, loading }) => {
   return (
     <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 hover:border-slate-600/50 transition-colors">
       <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide mb-2">
-        Today's P&L
+        Today&apos;s P&L
       </h3>
       <p className={`text-2xl font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
         {formatPnL(value)}

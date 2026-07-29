@@ -123,13 +123,22 @@ export default function ActiveTrades() {
             const stopLoss = parseFloat(position.stop_loss) || 0
             const takeProfit = parseFloat(position.take_profit) || 0
 
-            // Calculate distance to SL and TP
-            const distToSL = position.side === 'LONG'
-              ? ((currentPrice - stopLoss) / currentPrice * 100).toFixed(1)
-              : ((stopLoss - currentPrice) / currentPrice * 100).toFixed(1)
-            const distToTP = position.side === 'LONG'
-              ? ((takeProfit - currentPrice) / currentPrice * 100).toFixed(1)
-              : ((currentPrice - takeProfit) / currentPrice * 100).toFixed(1)
+            // Calculate distance to SL and TP.
+            // Guard division by zero: render '—' when currentPrice is 0/undefined.
+            const distToSL = currentPrice > 0
+              ? (position.side === 'LONG'
+                  ? ((currentPrice - stopLoss) / currentPrice * 100).toFixed(1)
+                  : ((stopLoss - currentPrice) / currentPrice * 100).toFixed(1))
+              : '—'
+            const distToTP = currentPrice > 0
+              ? (position.side === 'LONG'
+                  ? ((takeProfit - currentPrice) / currentPrice * 100).toFixed(1)
+                  : ((currentPrice - takeProfit) / currentPrice * 100).toFixed(1))
+              : '—'
+
+            // Guard NaN quantity (missing/garbage field) — render '—' instead of "NaN"
+            const quantityNum = Number.parseFloat(position.quantity)
+            const quantityDisplay = Number.isNaN(quantityNum) ? '—' : quantityNum.toFixed(6)
 
             return (
               <div key={position.id} className="p-4 hover:bg-slate-700/20 transition-colors">
@@ -147,7 +156,7 @@ export default function ActiveTrades() {
                     </div>
                     <div>
                       <span className="text-lg font-bold text-slate-100">
-                        {position.symbol.replace('USDT', '')}
+                        {position.symbol?.replace('USDT', '') ?? '—'}
                       </span>
                       <span className="text-slate-500 text-sm">/USDT</span>
                     </div>
@@ -177,7 +186,7 @@ export default function ActiveTrades() {
                   <div>
                     <p className="text-xs text-slate-500 mb-0.5">Position Size</p>
                     <p className="text-sm font-medium text-slate-200">
-                      {parseFloat(position.quantity).toFixed(6)}
+                      {quantityDisplay}
                     </p>
                   </div>
                 </div>
@@ -187,14 +196,14 @@ export default function ActiveTrades() {
                   <div className="bg-rose-500/10 rounded px-3 py-2 border border-rose-500/20">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-rose-400">Stop Loss</span>
-                      <span className="text-xs text-slate-500">{distToSL}% away</span>
+                      <span className="text-xs text-slate-500">{distToSL === '—' ? '—' : `${distToSL}% away`}</span>
                     </div>
                     <p className="text-sm font-medium text-rose-300">{formatPrice(stopLoss)}</p>
                   </div>
                   <div className="bg-emerald-500/10 rounded px-3 py-2 border border-emerald-500/20">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-emerald-400">Take Profit (Final)</span>
-                      <span className="text-xs text-slate-500">{distToTP}% away</span>
+                      <span className="text-xs text-slate-500">{distToTP === '—' ? '—' : `${distToTP}% away`}</span>
                     </div>
                     <p className="text-sm font-medium text-emerald-300">{formatPrice(takeProfit)}</p>
                   </div>

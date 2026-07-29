@@ -12,11 +12,27 @@ const api = axios.create({
   },
 })
 
+// Throttle error logging: at most once per distinct URL+status per minute
+const errorLogTimestamps = new Map()
+const ERROR_LOG_INTERVAL_MS = 60000
+function shouldLogError(url, status) {
+  const key = `${url}|${status}`
+  const now = Date.now()
+  const last = errorLogTimestamps.get(key)
+  if (last !== undefined && now - last < ERROR_LOG_INTERVAL_MS) return false
+  errorLogTimestamps.set(key, now)
+  return true
+}
+
 // Response interceptor to extract data
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    console.error('[usePositions API] Error:', error.response?.data || error.message)
+    const url = error.config?.url || 'unknown'
+    const status = error.response?.status ?? 'network'
+    if (shouldLogError(url, status)) {
+      console.error('[usePositions API] Error:', error.response?.data || error.message)
+    }
     return Promise.reject(error)
   }
 )
@@ -31,12 +47,7 @@ api.interceptors.response.use(
 export function usePositions() {
   return useQuery({
     queryKey: ['positions'],
-    queryFn: async () => {
-      console.log('[usePositions] Fetching trading positions...')
-      const response = await api.get('/trading/positions')
-      console.log('[usePositions] Received data:', response)
-      return response
-    },
+    queryFn: () => api.get('/trading/positions'),
     refetchInterval: 10000, // Refetch every 10 seconds (was 5s, increased to reduce load)
     staleTime: 8000, // Consider data fresh for 8 seconds
     retry: 2,
@@ -55,12 +66,7 @@ export function usePositions() {
 export function useTradingStatus() {
   return useQuery({
     queryKey: ['trading', 'status'],
-    queryFn: async () => {
-      console.log('[useTradingStatus] Fetching trading status...')
-      const response = await api.get('/trading/status')
-      console.log('[useTradingStatus] Received data:', response)
-      return response
-    },
+    queryFn: () => api.get('/trading/status'),
     refetchInterval: 15000, // Refetch every 15 seconds (was 5s, increased to reduce load)
     staleTime: 12000, // Consider data fresh for 12 seconds
     retry: 2,
@@ -78,12 +84,7 @@ export function useTradingStatus() {
 export function usePerformance() {
   return useQuery({
     queryKey: ['performance'],
-    queryFn: async () => {
-      console.log('[usePerformance] Fetching performance metrics...')
-      const response = await api.get('/trading/performance')
-      console.log('[usePerformance] Received data:', response)
-      return response
-    },
+    queryFn: () => api.get('/trading/performance'),
     refetchInterval: 10000, // Refetch every 10 seconds (was 5s, increased to reduce load)
     staleTime: 8000, // Consider data fresh for 8 seconds
     retry: 2,

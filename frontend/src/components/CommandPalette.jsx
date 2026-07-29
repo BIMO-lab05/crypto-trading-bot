@@ -77,7 +77,7 @@ export default function CommandPalette() {
         async run() {
           setBusy('start')
           try {
-            await api.post('/api/trading/start')
+            await api.post('/trading/start')
             toast('Auto-trader started')
           } catch (e) {
             toast.error(`Start failed: ${e?.response?.data?.detail || e.message}`)
@@ -94,7 +94,7 @@ export default function CommandPalette() {
         async run() {
           setBusy('stop')
           try {
-            await api.post('/api/trading/stop')
+            await api.post('/trading/stop')
             toast('Auto-trader stopped')
           } catch (e) {
             toast.error(`Stop failed: ${e?.response?.data?.detail || e.message}`)
@@ -113,7 +113,7 @@ export default function CommandPalette() {
           if (!confirm('Activate emergency stop? Halts auto-trader; positions remain open for review.')) return
           setBusy('emergency')
           try {
-            await api.post('/api/portfolio/emergency-stop', { reason: 'command-palette' })
+            await api.post('/portfolio/emergency-stop', { reason: 'command-palette' })
             toast.warn('Emergency stop activated')
           } catch (e) {
             toast.error(`Emergency stop failed: ${e?.response?.data?.detail || e.message}`)

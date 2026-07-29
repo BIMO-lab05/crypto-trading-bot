@@ -33,17 +33,27 @@ const analyticsClient = axios.create({
   },
 })
 
-// Request interceptor for logging and auth (future enhancement)
+// Request interceptor for auth (future enhancement)
 analyticsClient.interceptors.request.use(
-  (config) => {
-    console.log(`[analyticsApi] ${config.method?.toUpperCase()} ${config.url}`)
-    return config
-  },
+  (config) => config,
   (error) => {
     console.error('[analyticsApi] Request error:', error)
     return Promise.reject(error)
   }
 )
+
+// Throttle error logging: at most once per distinct URL+status per minute
+// so polled endpoints that fail don't flood the console.
+const errorLogTimestamps = new Map()
+const ERROR_LOG_INTERVAL_MS = 60000
+function shouldLogError(url, status) {
+  const key = `${url}|${status}`
+  const now = Date.now()
+  const last = errorLogTimestamps.get(key)
+  if (last !== undefined && now - last < ERROR_LOG_INTERVAL_MS) return false
+  errorLogTimestamps.set(key, now)
+  return true
+}
 
 // Response interceptor for error handling and data extraction
 analyticsClient.interceptors.response.use(
@@ -52,7 +62,11 @@ analyticsClient.interceptors.response.use(
     return response.data
   },
   (error) => {
-    console.error('[analyticsApi] Response error:', error.response?.data || error.message)
+    const url = error.config?.url || 'unknown'
+    const status = error.response?.status ?? 'network'
+    if (shouldLogError(url, status)) {
+      console.error('[analyticsApi] Response error:', error.response?.data || error.message)
+    }
     return Promise.reject(error)
   }
 )
@@ -187,7 +201,8 @@ export const analyticsAPI = {
  * @returns {Array} Equity curve data points
  */
 export function calculateEquityCurve(trades, initialBalance = 10000) {
-  if (!trades || trades.length === 0) {
+  // Guard against non-array payloads (e.g. an error object) before spreading/sorting
+  if (!Array.isArray(trades) || trades.length === 0) {
     return [{ timestamp: Date.now(), equity: initialBalance, pnl: 0 }]
   }
 

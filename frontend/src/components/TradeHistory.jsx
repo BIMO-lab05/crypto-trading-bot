@@ -256,7 +256,9 @@ export default function TradeHistory() {
                   <div>
                     <p className="text-xs text-slate-500 mb-0.5">Quantity</p>
                     <p className="text-sm font-medium text-slate-200">
-                      {parseFloat(trade.quantity).toFixed(6)}
+                      {Number.isNaN(Number.parseFloat(trade.quantity))
+                        ? '—'
+                        : Number.parseFloat(trade.quantity).toFixed(6)}
                     </p>
                   </div>
                 </div>

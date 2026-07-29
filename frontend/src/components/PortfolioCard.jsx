@@ -18,24 +18,13 @@ import TileState from './TileState'
 export default function PortfolioCard() {
   // Performance is the load-bearing query (06-TILE-AUDIT).
   const perfQuery = usePerformance()
-  const { data: performanceData, isLoading: performanceLoading, error: performanceError } = perfQuery
+  const { data: performanceData } = perfQuery
 
   // Fetch trading positions from trading-engine
-  const { data: positionsData, isLoading: positionsLoading, error: positionsError } = usePositions()
+  const { data: positionsData } = usePositions()
 
   // Fetch trading status
-  const { data: statusData, isLoading: statusLoading } = useTradingStatus()
-
-  // Debug logging for data flow
-  console.log('[PortfolioCard] Data state:', {
-    performanceData,
-    positionsData,
-    statusData,
-    performanceLoading,
-    positionsLoading,
-    performanceError: performanceError?.message,
-    positionsError: positionsError?.message
-  })
+  const { data: statusData } = useTradingStatus()
 
   // Loading and error states are now surfaced by <TileState/> below
   // (Plan 06-05, DASH-05).

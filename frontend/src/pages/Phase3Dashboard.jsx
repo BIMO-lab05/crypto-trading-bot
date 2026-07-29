@@ -305,12 +305,6 @@ export default function Phase3Dashboard() {
     return articles.length > 0 ? totalScore / articles.length : 0
   }
 
-  // Debug logging for data flow troubleshooting
-  console.log('[Phase3Dashboard] ML Data:', { raw: mlData, extracted: mlPrediction, loading: mlLoading, error: mlError })
-  console.log('[Phase3Dashboard] Sentiment Data:', { raw: sentimentData, extracted: sentiment, loading: sentimentLoading, error: sentimentError })
-  console.log('[Phase3Dashboard] MTF Data:', { raw: mtfData, extracted: mtf, loading: mtfLoading, error: mtfError })
-  console.log('[Phase3Dashboard] Enhanced Signal:', { raw: enhancedSignalData, extracted: enhancedSignal, loading: signalLoading, error: signalError })
-
   // Helper function to calculate combined sentiment from news and social data
   const calculateCombinedSentiment = (sentimentData) => {
     if (!sentimentData) return { label: 'NEUTRAL', score: 0 }
@@ -504,11 +498,11 @@ export default function Phase3Dashboard() {
                        'N/A'}
                     </p>
                     <p className="text-xs text-white/80">
-                      Score: {(enhancedSignal.metadata?.sentiment?.score ??
-                               enhancedSignal.components?.sentiment?.score) != null
-                        ? (enhancedSignal.metadata?.sentiment?.score ??
-                           enhancedSignal.components?.sentiment?.score).toFixed(2)
-                        : 'N/A'}
+                      Score: {(() => {
+                        const s = enhancedSignal.metadata?.sentiment?.score ??
+                          enhancedSignal.components?.sentiment?.score
+                        return s != null ? s.toFixed(2) : 'N/A'
+                      })()}
                     </p>
                   </div>
                 )}

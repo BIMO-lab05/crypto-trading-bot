@@ -4,18 +4,11 @@ import { portfolioAPI } from '../services/api'
 /**
  * Custom hook for fetching and managing portfolio data
  * Auto-refetches every 5 seconds for real-time updates
- *
- * UPDATED 2025-11-27: Added console.log debugging for data flow troubleshooting
  */
 export function usePortfolio() {
   return useQuery({
     queryKey: ['portfolio'],
-    queryFn: async () => {
-      console.log('[usePortfolio] Fetching portfolio data...')
-      const data = await portfolioAPI.getPortfolio()
-      console.log('[usePortfolio] Received data:', data)
-      return data
-    },
+    queryFn: portfolioAPI.getPortfolio,
     refetchInterval: 5000, // Refetch every 5 seconds
   })
 }
@@ -49,7 +42,8 @@ export function useBuyOrder() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ symbol, quantity }) => portfolioAPI.buy(symbol, quantity),
+    // Gateway requires symbol, quantity AND price as query params
+    mutationFn: ({ symbol, quantity, price }) => portfolioAPI.buy(symbol, quantity, price),
     onSuccess: () => {
       // Invalidate portfolio data to trigger refetch
       queryClient.invalidateQueries({ queryKey: ['portfolio'] })
@@ -65,7 +59,8 @@ export function useSellOrder() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ symbol, quantity }) => portfolioAPI.sell(symbol, quantity),
+    // Gateway requires symbol, quantity AND price as query params
+    mutationFn: ({ symbol, quantity, price }) => portfolioAPI.sell(symbol, quantity, price),
     onSuccess: () => {
       // Invalidate portfolio data to trigger refetch
       queryClient.invalidateQueries({ queryKey: ['portfolio'] })
