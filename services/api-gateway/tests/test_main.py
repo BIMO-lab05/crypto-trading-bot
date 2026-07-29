@@ -181,13 +181,13 @@ class TestTradingEngineRoutes:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_analyze_and_trade(self, test_client, mock_service_proxy):
-        """Test analyze and trade endpoint"""
+    async def test_analyze_and_trade(self, admin_client, mock_service_proxy):
+        """Test analyze and trade endpoint (auth required)"""
         mock_response = JSONResponse(content={"success": True, "data": {}})
         mock_service_proxy.proxy_request.return_value = mock_response
 
         with patch("app.main.get_proxy", return_value=mock_service_proxy):
-            response = test_client.post(
+            response = admin_client.post(
                 "/api/trading/signals/BTCUSDT/analyze?execute=false"
             )
 
@@ -246,13 +246,13 @@ class TestPortfolioRoutes:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_buy_asset(self, test_client, mock_service_proxy):
-        """Test buy transaction"""
+    async def test_buy_asset(self, admin_client, mock_service_proxy):
+        """Test buy transaction (auth required)"""
         mock_response = JSONResponse(content={"success": True, "transaction_id": "123"})
         mock_service_proxy.proxy_request.return_value = mock_response
 
         with patch("app.main.get_proxy", return_value=mock_service_proxy):
-            response = test_client.post(
+            response = admin_client.post(
                 "/api/portfolio/buy?symbol=BTCUSDT&quantity=1.0&price=45000"
             )
 
@@ -261,13 +261,13 @@ class TestPortfolioRoutes:
         assert call_kwargs["method"] == "POST"
 
     @pytest.mark.asyncio
-    async def test_sell_asset(self, test_client, mock_service_proxy):
-        """Test sell transaction"""
+    async def test_sell_asset(self, admin_client, mock_service_proxy):
+        """Test sell transaction (auth required)"""
         mock_response = JSONResponse(content={"success": True, "transaction_id": "124"})
         mock_service_proxy.proxy_request.return_value = mock_response
 
         with patch("app.main.get_proxy", return_value=mock_service_proxy):
-            response = test_client.post(
+            response = admin_client.post(
                 "/api/portfolio/sell?symbol=BTCUSDT&quantity=0.5&price=46000"
             )
 

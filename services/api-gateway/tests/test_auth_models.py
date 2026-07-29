@@ -266,14 +266,21 @@ class TestUserManagement:
         """Clear user database before each test"""
         USERS_DB.clear()
 
-    def test_create_user_success(self):
+    def test_create_user_success(self, monkeypatch):
         """Test successful user creation.
 
-        First-user auto-admin is now gated on IS_DEVELOPMENT (auth_models.py
-        line 445). The CI suite runs with ENVIRONMENT=test, so the first
-        user does NOT get admin privileges automatically — that path is
+        First-user auto-admin is gated on IS_DEVELOPMENT. updated 2026-07-29:
+        auth_models resolves ENVIRONMENT at IMPORT time, so relying on the
+        process env (ENVIRONMENT=test in CI, but 'development' when the suite
+        runs inside the deployed container per CLAUDE.md) made this test
+        environment-dependent. Pin the module flag so the non-dev path is
+        tested regardless of where the suite runs; the dev auto-admin path is
         covered by an explicit dev-environment test below.
         """
+        import app.auth_models as auth_models_mod
+
+        monkeypatch.setattr(auth_models_mod, "IS_DEVELOPMENT", False)
+
         user_create = UserCreate(
             username="newuser",
             email="new@example.com",
@@ -287,7 +294,7 @@ class TestUserManagement:
         assert user.email == "new@example.com"
         assert user.full_name == "New User"
         assert user.is_active is True
-        assert user.is_admin is False  # ENVIRONMENT=test → no auto-admin
+        assert user.is_admin is False  # non-dev environment → no auto-admin
         assert user.user_id.startswith("user_")
 
     def test_create_second_user_not_admin(self):
