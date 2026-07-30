@@ -1,5 +1,9 @@
 # Crypto Trading Bot - Helm Charts
 
+> Merged from `infrastructure/helm/QUICK_REFERENCE.md` on 2026-07-30.
+
+> **Deployment posture (2026-07-30):** These Helm charts exist and were exercised against a cluster once (2025-11-23), but the current project posture is **docker-compose-only for v1.x** — Kubernetes/Helm deployment is out of scope per `.planning/REQUIREMENTS.md`. The canonical way to run the stack is `docker compose -f docker-compose.unified.yml up -d` from the repo root. Keep this document for when/if a K8s deployment target returns.
+
 Production-ready Helm charts for deploying the Crypto Trading Bot microservices architecture to Kubernetes.
 
 ## Table of Contents
@@ -15,6 +19,7 @@ Production-ready Helm charts for deploying the Crypto Trading Bot microservices 
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
 - [Advanced Configuration](#advanced-configuration)
+- [Quick Reference](#quick-reference)
 
 ## Overview
 
@@ -319,6 +324,9 @@ helm install crypto-trading-bot ./crypto-trading-bot \
 ```bash
 cd scripts
 
+# Upgrade any environment
+./upgrade.sh [dev|staging|prod] [namespace] [release-name]
+
 # Upgrade development
 ./upgrade.sh dev crypto-bot crypto-trading-bot
 
@@ -459,6 +467,13 @@ kubectl logs -f -n crypto-bot -l app=api-gateway
 # Port forward for local testing
 kubectl port-forward -n crypto-bot svc/api-gateway 8000:8000
 curl http://localhost:8000/health
+
+# Health check all services
+for svc in api-gateway trading-engine portfolio-manager technical-analysis; do
+  kubectl run test-$svc --image=curlimages/curl --rm -i --restart=Never \
+    -n crypto-bot \
+    -- curl -s http://$svc:800x/health && echo "$svc: OK" || echo "$svc: FAIL"
+done
 ```
 
 ## Troubleshooting
@@ -476,6 +491,9 @@ kubectl describe pod <pod-name> -n crypto-bot
 
 # View pod logs
 kubectl logs <pod-name> -n crypto-bot
+
+# View previous container logs (for CrashLoopBackOff)
+kubectl logs <pod-name> -n crypto-bot --previous
 
 # Check events
 kubectl get events -n crypto-bot --sort-by='.lastTimestamp'
@@ -509,6 +527,9 @@ kubectl logs -n crypto-bot -l app=postgresql
 # Check service endpoints
 kubectl get endpoints -n crypto-bot
 
+# Check if pods are ready
+kubectl get pods -n crypto-bot -l app=service-name
+
 # Test service connectivity
 kubectl run test-svc --image=curlimages/curl --rm -i --restart=Never \
   -n crypto-bot \
@@ -532,6 +553,32 @@ kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller
 
 # Verify DNS
 nslookup api.cryptobot.example.com
+```
+
+#### 5. ImagePullBackOff
+
+```bash
+# Check image name
+kubectl describe pod pod-name -n crypto-bot | grep Image
+
+# Verify image pull secrets
+kubectl get secrets -n crypto-bot
+
+# Test image pull
+docker pull registry/image:tag
+```
+
+#### 6. Pending Pods
+
+```bash
+# Check node resources
+kubectl top nodes
+
+# Describe pod to see reason
+kubectl describe pod pod-name -n crypto-bot
+
+# Check PVC status
+kubectl get pvc -n crypto-bot
 ```
 
 ### Debug Mode
@@ -672,6 +719,10 @@ Access Grafana:
 # Port forward
 kubectl port-forward -n crypto-bot svc/grafana 3000:3000
 
+# Retrieve the admin password from the grafana-secret you created
+# (do not use a default password; rotate if one was ever set)
+kubectl get secret grafana-secret -n crypto-bot -o jsonpath='{.data.password}' | base64 -d
+
 # Open browser
 http://localhost:3000
 ```
@@ -740,6 +791,10 @@ kubectl get all,pvc,secrets,configmaps -n crypto-bot -o yaml > backup-k8s.yaml
 # Backup databases (example for PostgreSQL)
 kubectl exec -n crypto-bot postgresql-0 -- \
   pg_dump -U cryptobot cryptobot > backup-db.sql
+
+# Backup PostgreSQL with dated filename
+kubectl exec -n crypto-bot postgresql-0 -- \
+  pg_dump -U cryptobot cryptobot > backup-$(date +%Y%m%d).sql
 ```
 
 #### Restore
@@ -792,6 +847,18 @@ kubectl top pods -n crypto-bot
 2. Adjust resource requests/limits based on usage
 
 3. Enable vertical pod autoscaling (VPA) for automatic optimization
+
+```bash
+# View resource requests/limits
+kubectl describe nodes | grep -A 5 "Allocated resources"
+
+# Edit resource limits in place
+kubectl edit deployment api-gateway -n crypto-bot
+
+# Update HPA thresholds
+kubectl patch hpa api-gateway -n crypto-bot \
+  -p '{"spec":{"targetCPUUtilizationPercentage":60}}'
+```
 
 ### Database Performance
 
@@ -861,6 +928,316 @@ jobs:
           ./upgrade.sh prod crypto-bot-prod crypto-trading-bot
 ```
 
+## Quick Reference
+
+> Merged from `infrastructure/helm/QUICK_REFERENCE.md` (last updated 2025-11-23) on 2026-07-30. Daily-operations commands for a Helm-deployed cluster. Remember: current v1.x posture is compose-only — these apply only when a K8s deployment is active.
+
+### Monitoring Status
+
+```bash
+# Check pod status
+kubectl get pods -n crypto-bot
+
+# Watch pods
+kubectl get pods -n crypto-bot --watch
+
+# Check resource usage
+kubectl top pods -n crypto-bot
+kubectl top nodes
+
+# View HPA status
+kubectl get hpa -n crypto-bot
+
+# Check service status
+kubectl get svc -n crypto-bot
+
+# View ingress
+kubectl get ingress -n crypto-bot
+```
+
+### Logs
+
+```bash
+# View logs for specific service
+kubectl logs -f -n crypto-bot -l app=api-gateway
+
+# View logs for specific pod
+kubectl logs -f -n crypto-bot pod-name
+
+# View logs from all containers
+kubectl logs -f -n crypto-bot pod-name --all-containers
+
+# View previous container logs
+kubectl logs -n crypto-bot pod-name --previous
+
+# Tail last 100 lines
+kubectl logs -n crypto-bot pod-name --tail=100
+```
+
+### Debugging
+
+```bash
+# Describe pod
+kubectl describe pod pod-name -n crypto-bot
+
+# Get events
+kubectl get events -n crypto-bot --sort-by='.lastTimestamp'
+
+# Execute command in pod
+kubectl exec -it pod-name -n crypto-bot -- /bin/sh
+
+# Port forward to local
+kubectl port-forward -n crypto-bot svc/api-gateway 8000:8000
+```
+
+### Scaling
+
+```bash
+# Manual scaling
+kubectl scale deployment api-gateway --replicas=5 -n crypto-bot
+
+# Edit HPA
+kubectl edit hpa api-gateway -n crypto-bot
+
+# Disable autoscaling temporarily
+kubectl patch hpa api-gateway -n crypto-bot -p '{"spec":{"minReplicas":1,"maxReplicas":1}}'
+```
+
+### Configuration
+
+```bash
+# View current values
+helm get values crypto-trading-bot -n crypto-bot
+
+# View all values (including defaults)
+helm get values crypto-trading-bot -n crypto-bot --all
+
+# Update single value
+helm upgrade crypto-trading-bot ./crypto-trading-bot \
+  -n crypto-bot \
+  --reuse-values \
+  --set api-gateway.replicaCount=5
+
+# Update with new values file
+helm upgrade crypto-trading-bot ./crypto-trading-bot \
+  -n crypto-bot \
+  -f custom-values.yaml
+```
+
+### Secrets
+
+```bash
+# Create secret
+kubectl create secret generic my-secret \
+  --from-literal=key=value \
+  -n crypto-bot
+
+# View secrets (names only)
+kubectl get secrets -n crypto-bot
+
+# Decode secret
+kubectl get secret postgresql-secret -n crypto-bot -o jsonpath='{.data.password}' | base64 -d
+
+# Edit secret
+kubectl edit secret postgresql-secret -n crypto-bot
+
+# Delete secret
+kubectl delete secret my-secret -n crypto-bot
+```
+
+### Database Operations
+
+```bash
+# PostgreSQL
+kubectl exec -it postgresql-0 -n crypto-bot -- psql -U cryptobot
+
+# TimescaleDB
+kubectl exec -it timescaledb-0 -n crypto-bot -- psql -U timescale
+
+# Redis
+kubectl exec -it redis-0 -n crypto-bot -- redis-cli
+
+# RabbitMQ Management
+kubectl port-forward -n crypto-bot svc/rabbitmq 15672:15672
+# Open: http://localhost:15672
+```
+
+### Restart Services
+
+```bash
+# Restart deployment
+kubectl rollout restart deployment api-gateway -n crypto-bot
+
+# Restart all deployments
+kubectl rollout restart deployment --all -n crypto-bot
+
+# Check rollout status
+kubectl rollout status deployment api-gateway -n crypto-bot
+
+# View rollout history
+kubectl rollout history deployment api-gateway -n crypto-bot
+```
+
+### Emergency Operations
+
+```bash
+# Stop all trading (scale trading-engine to 0)
+kubectl scale deployment trading-engine --replicas=0 -n crypto-bot
+
+# Emergency pod deletion
+kubectl delete pod pod-name -n crypto-bot --force --grace-period=0
+
+# Drain node for maintenance
+kubectl drain node-name --ignore-daemonsets --delete-emptydir-data
+
+# Uncordon node after maintenance
+kubectl uncordon node-name
+```
+
+> Note (2026-07-30): in the current compose deployment the equivalent emergency stop is the kill-switch file (`touch safety/EMERGENCY_STOP`) or `POST /api/portfolio/emergency-stop` — see the repo root `RUNBOOK.md`.
+
+### Helm Commands
+
+```bash
+# List releases
+helm list -n crypto-bot
+
+# Get release info
+helm status crypto-trading-bot -n crypto-bot
+
+# Get manifest
+helm get manifest crypto-trading-bot -n crypto-bot
+
+# Get notes
+helm get notes crypto-trading-bot -n crypto-bot
+
+# Get hooks
+helm get hooks crypto-trading-bot -n crypto-bot
+
+# Dry-run upgrade
+helm upgrade crypto-trading-bot ./crypto-trading-bot \
+  -n crypto-bot \
+  -f values-prod.yaml \
+  --dry-run --debug
+```
+
+### Resource Cleanup
+
+```bash
+# Delete completed pods
+kubectl delete pods -n crypto-bot --field-selector=status.phase==Succeeded
+
+# Delete evicted pods
+kubectl delete pods -n crypto-bot --field-selector=status.phase==Failed
+
+# Delete old replica sets
+kubectl delete replicaset -n crypto-bot --all
+
+# Cleanup orphaned PVCs
+kubectl get pvc -n crypto-bot | grep Released | awk '{print $1}' | xargs kubectl delete pvc -n crypto-bot
+```
+
+### Networking
+
+```bash
+# View services
+kubectl get svc -n crypto-bot
+
+# View endpoints
+kubectl get endpoints -n crypto-bot
+
+# View network policies
+kubectl get networkpolicies -n crypto-bot
+
+# Test DNS
+kubectl run test-dns --image=busybox --rm -i --restart=Never \
+  -n crypto-bot \
+  -- nslookup api-gateway
+```
+
+### Prometheus Access
+
+```bash
+# Port forward
+kubectl port-forward -n crypto-bot svc/prometheus 9090:9090
+
+# Open browser
+http://localhost:9090
+```
+
+### Quick Health Check Script
+
+```bash
+#!/bin/bash
+# Save as health-check.sh
+
+NAMESPACE="crypto-bot"
+
+echo "=== Pod Status ==="
+kubectl get pods -n $NAMESPACE
+
+echo -e "\n=== Unhealthy Pods ==="
+kubectl get pods -n $NAMESPACE --field-selector=status.phase!=Running,status.phase!=Succeeded
+
+echo -e "\n=== HPA Status ==="
+kubectl get hpa -n $NAMESPACE
+
+echo -e "\n=== Resource Usage ==="
+kubectl top pods -n $NAMESPACE 2>/dev/null || echo "Metrics server not available"
+
+echo -e "\n=== Recent Events ==="
+kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp' | tail -10
+```
+
+### Environment Variables
+
+Common environment variables to set:
+
+```bash
+export KUBECONFIG=~/.kube/config
+export NAMESPACE=crypto-bot
+export RELEASE_NAME=crypto-trading-bot
+export HELM_CHART_PATH=./infrastructure/helm/crypto-trading-bot
+
+# Then use
+kubectl get pods -n $NAMESPACE
+helm status $RELEASE_NAME -n $NAMESPACE
+```
+
+### Aliases
+
+Add to ~/.bashrc or ~/.zshrc:
+
+```bash
+# Kubernetes aliases
+alias k='kubectl'
+alias kgp='kubectl get pods'
+alias kgs='kubectl get svc'
+alias kd='kubectl describe'
+alias kl='kubectl logs'
+alias ke='kubectl exec -it'
+
+# Namespace-specific
+alias kcb='kubectl -n crypto-bot'
+alias kcbp='kubectl get pods -n crypto-bot'
+alias kcbl='kubectl logs -n crypto-bot'
+
+# Helm aliases
+alias h='helm'
+alias hls='helm list'
+alias hst='helm status'
+alias hup='helm upgrade'
+```
+
+### Important Files
+
+```
+Main Chart: infrastructure/helm/crypto-trading-bot/
+Values:     infrastructure/helm/crypto-trading-bot/values-[env].yaml
+Scripts:    infrastructure/helm/scripts/
+Docs:       infrastructure/helm/README.md (this file)
+```
+
 ## Support
 
 - **Documentation**: https://docs.cryptobot.example.com
@@ -870,7 +1247,3 @@ jobs:
 ## License
 
 Apache License 2.0
-
----
-
-**Happy Trading!** 🚀📈

@@ -8,6 +8,16 @@
 
 ---
 
+> **STATUS: KEEP (annotated 2026-07-30).** This checklist covers pre-deploy verification (code quality, env/DB setup, secrets, validation, rollback) not duplicated elsewhere. **Failure triage lives in `/RUNBOOK.md`** (repo root) — symptom-indexed recovery for BuildKit hangs, bind-mount races, EMERGENCY_STOP recovery, market-data chain breaks. The **Pre-LIVE Operator Checklist** (per-trade cap <=2%, `TRADING_MODE=LIVE`, `LIVE_TRADING_ACK`, EMERGENCY_STOP absent, DSR gate) also lives in `/RUNBOOK.md` and is enforced by `scripts/preflight_live.py` — it supersedes the LIVE-transition fragments in this file.
+>
+> Reality notes (2026-07-30):
+> - Canonical deployment is **`docker compose -f docker-compose.unified.yml`** at repo root. The systemd, nginx/SSL, and Kubernetes sections below are aspirational/reference — not the current deployment path.
+> - Current risk caps: **10% per-trade in paper (ADR-010) / 2% hard cap in LIVE**, 5% daily-loss breaker. Values below that differ are historical suggestions.
+> - Price feed is **Bybit mainnet** (`BYBIT_TESTNET=false` since 2026-04-25); orders simulated via paper mode.
+> - Gateway routes have **no `/v1` prefix** (`/api/<domain>/...`); only service-internal routes keep `/api/v1`.
+
+---
+
 ## Table of Contents
 1. [Pre-Deployment Verification](#pre-deployment-verification)
 2. [Environment Setup](#environment-setup)
@@ -173,6 +183,8 @@ MAX_TOTAL_EXPOSURE_PCT=10.0
 SENTRY_DSN=${SENTRY_DSN}
 SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
 ```
+
+> ⚠️ 2026-07-30: `MAX_POSITION_SIZE_PCT=1.0` / `MAX_DAILY_LOSS_PCT=3.0` above are this document's historical suggestions. Canonical caps are per-trade <=2% in LIVE (enforced via `MAX_RISK_PER_TRADE=0.02`) and the **5%** daily-loss breaker. Flipping to LIVE also requires `PAPER_TRADING_MODE=false` **and** `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY` (trading-engine refuses to boot in LIVE without it) — this file predates that flag. Follow `/RUNBOOK.md` "Pre-LIVE Operator Checklist".
 
 ---
 
@@ -437,6 +449,8 @@ sudo ufw status verbose
 
 ### Systemd Service Setup (Production)
 
+> ⚠️ 2026-07-30: aspirational — the project deploys via `docker compose -f docker-compose.unified.yml` (see Docker Deployment below), not systemd.
+
 **Create systemd service file:**
 ```bash
 sudo nano /etc/systemd/system/trading-engine.service
@@ -590,6 +604,8 @@ docker exec trading-engine curl http://localhost:8005/health
 
 ### Kubernetes Deployment (Advanced)
 
+> ⚠️ 2026-07-30: reference only. `replicas: 3` is unsafe for trading-engine as-built — the paper engine and auto-trader are in-process singletons; multiple replicas would triple-trade. Run a single instance via `docker-compose.unified.yml`.
+
 **deployment.yaml:**
 ```yaml
 apiVersion: apps/v1
@@ -697,6 +713,8 @@ curl -X GET "http://localhost:8005/api/v1/signals/INVALID?interval=60" \
 
 # Expected: HTTP 400 or 404 with error message
 ```
+
+> ⚠️ 2026-07-30: endpoint drift. `/api/v1/paper-trading/balance` and `/api/v1/positions/open` are not in the current route surface — use `GET /api/v1/positions?status=open` and `GET /api/v1/performance` (balance). Default paper balance is **$100** (ADR-010), not $10,000. Live route list: `http://localhost:8005/docs`.
 
 ### Performance Validation
 ```bash
@@ -978,6 +996,8 @@ def send_email_alert(subject: str, message: str):
 ## Emergency Procedures
 
 ### Circuit Breaker - Emergency Stop Trading
+
+> ⚠️ 2026-07-30: the actual kill-switch is the file `safety/EMERGENCY_STOP` (`touch safety/EMERGENCY_STOP` halts within one auto-trader tick) or `POST /api/portfolio/emergency-stop` via the gateway (admin-guarded). `POST /api/v1/trading/emergency-stop` below is stale; the in-service stop is `POST /api/v1/trading/stop`. Recovery/re-arm procedure: `/RUNBOOK.md` "EMERGENCY_STOP recovery".
 ```bash
 # 1. Stop auto-trading immediately
 curl -X POST http://localhost:8005/api/v1/trading/emergency-stop \
@@ -1132,10 +1152,11 @@ htop  # or: top
 - [SECURITY_AUDIT.md](./SECURITY_AUDIT.md)
 - [.env.example](./.env.example)
 - [API Documentation](./docs/api/)
-- [Troubleshooting Guide](./docs/TROUBLESHOOTING.md)
+- Failure triage: `/RUNBOOK.md` (repo root)
+- [Troubleshooting Guide](./docs/TROUBLESHOOTING.md) *(verify path — may have moved in the 2026-07-30 docs restructure)*
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** 2025-11-10
-**Next Review:** 2025-12-10
+**Document Version:** 1.1 (annotated — KEEP)
+**Last Updated:** 2026-07-30 (annotations); base content 2025-11-10
+**Next Review:** before next production deploy

@@ -1,42 +1,41 @@
 # Automated Data Collection Scheduler - Setup Guide
 
-## 📋 Overview
+> Merged from `SCHEDULER_CUSTOMIZATION_GUIDE.md` on 2026-07-30.
+
+## Overview
 
 The scheduler automates market data collection from Bybit, eliminating the need for manual API calls. It collects:
 
 - **Ticker data** (current prices, 24h stats) - every 5 minutes
 - **Kline data** (candlesticks) for multiple timeframes - every 5 minutes
-- **Trading pairs**: BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT
+- **Trading pairs**: configured in `app/scheduler.py` (examples below use BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT)
 - **Timeframes**: 1m, 5m, 15m, 1h, 4h, Daily
 
----
+> Note (2026-07-30): market-data-service deliberately ingests a **wider symbol universe** than the trading-engine trades (research + cross-asset lookback). Position-taking is restricted to the 5 validated symbols BTC, ETH, SOL, BNB, ADA (as of 2026-05-03); XRP/DOGE are ingest-only.
 
-## 🚀 Installation
+Service runs on **port 8002** (see `docker-compose.unified.yml`, the canonical compose file).
+
+## Installation
 
 ### Step 1: Install APScheduler
 
-Due to PEP 668 restrictions, you need to install APScheduler using one of these methods:
+Due to PEP 668 restrictions, install APScheduler using one of these methods:
 
-**Option A: Using pip with --break-system-packages (recommended for WSL)**
+**Option A: pip with --break-system-packages (WSL)**
 ```bash
-cd /mnt/d/Bimo_max/crypto-trading-bot/services/market-data-service
+cd services/market-data-service
 pip3 install --break-system-packages apscheduler==3.10.4
 ```
 
-**Option B: Using system package manager**
+**Option B: System package manager**
 ```bash
 sudo apt install python3-apscheduler
 ```
 
-**Option C: Using virtual environment (best practice)**
+**Option C: Virtual environment (best practice)**
 ```bash
-# Create venv
 python3 -m venv venv
-
-# Activate venv
 source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
@@ -47,43 +46,29 @@ python3 -c "import apscheduler; print(f'APScheduler {apscheduler.__version__} in
 
 Expected output: `APScheduler 3.10.4 installed`
 
----
+## Usage
 
-## 🎯 Usage
+The scheduler is integrated into `app/main.py` (lifespan function) and starts automatically with the service.
 
-### Enable Scheduler in main.py
+**Manual control via API** (service port 8002):
 
-The scheduler has already been integrated into the main application. To activate it:
+```bash
+# Check scheduler status
+curl http://localhost:8002/api/v1/scheduler/status
 
-1. **Automatic Start** (on service startup):
-   - The scheduler starts automatically when the service starts
-   - Configured in `app/main.py` lifespan function
+# Start scheduler
+curl -X POST http://localhost:8002/api/v1/scheduler/start
 
-2. **Manual Control via API**:
+# Stop scheduler
+curl -X POST http://localhost:8002/api/v1/scheduler/stop
 
-   **Check scheduler status**:
-   ```bash
-   curl http://localhost:8003/api/v1/scheduler/status
-   ```
+# Trigger manual collection
+curl -X POST http://localhost:8002/api/v1/scheduler/collect
+```
 
-   **Start scheduler**:
-   ```bash
-   curl -X POST http://localhost:8003/api/v1/scheduler/start
-   ```
+Scheduler-control and collection endpoints require the `X-API-Key` header (see README).
 
-   **Stop scheduler**:
-   ```bash
-   curl -X POST http://localhost:8003/api/v1/scheduler/stop
-   ```
-
-   **Trigger manual collection**:
-   ```bash
-   curl -X POST http://localhost:8003/api/v1/scheduler/collect
-   ```
-
----
-
-## 📊 Collection Schedule
+## Collection Schedule
 
 | Job | Frequency | Description |
 |-----|-----------|-------------|
@@ -91,59 +76,9 @@ The scheduler has already been integrated into the main application. To activate
 | Kline Collection | Every 5 minutes (+2min offset) | Candlestick data for all pairs & timeframes |
 | Full Collection | Every hour (top of hour) | Comprehensive backup collection |
 
----
+## Configuration
 
-## 🔍 Monitoring
-
-### Check Logs
-
-The scheduler logs all collection activities:
-
-```bash
-# Watch live logs
-tail -f /path/to/logs/market-data-service.log
-
-# Or check service output
-docker logs -f market-data-service
-```
-
-**Expected log messages**:
-```
-🚀 Initializing data collection scheduler
-✅ Scheduled: Ticker collection every 5 minutes
-✅ Scheduled: Kline collection every 5 minutes
-🎯 Scheduler started successfully
-📊 Starting scheduled ticker data collection
-✅ Collected ticker for BTCUSDT
-📊 Ticker collection complete: 5 success, 0 errors
-```
-
-### Database Verification
-
-Check that data is being collected:
-
-```bash
-# Connect to database
-psql -h localhost -p 5432 -U cryptobot -d cryptobot
-
-# Check ticker data
-SELECT COUNT(*), symbol, MAX(timestamp) as latest
-FROM tickers
-GROUP BY symbol
-ORDER BY symbol;
-
-# Check kline data
-SELECT symbol, interval, COUNT(*) as count, MAX(timestamp) as latest
-FROM klines
-GROUP BY symbol, interval
-ORDER BY symbol, interval;
-```
-
----
-
-## ⚙️ Configuration
-
-### Customize Trading Pairs
+### Trading Pairs and Intervals
 
 Edit `app/scheduler.py`:
 
@@ -156,13 +91,7 @@ TRADING_PAIRS = [
     "XRPUSDT",
     # Add more pairs here
 ]
-```
 
-### Customize Collection Intervals
-
-Edit `app/scheduler.py`:
-
-```python
 KLINE_INTERVALS = [
     "1",    # 1 minute
     "5",    # 5 minutes
@@ -173,7 +102,7 @@ KLINE_INTERVALS = [
 ]
 ```
 
-### Adjust Collection Frequency
+### Collection Frequency
 
 Edit the IntervalTrigger in `start_scheduler()`:
 
@@ -186,37 +115,99 @@ _scheduler.add_job(
 )
 ```
 
----
+### Preset Profiles by Trading Style
 
-## 🧪 Testing
+| Profile | Pairs | Intervals | Frequency | Approx. volume |
+|---------|-------|-----------|-----------|----------------|
+| **Day trading** (high freq) | BTCUSDT, ETHUSDT, BNBUSDT | `1, 3, 5, 15` | every 1 min | ~4,320 ticker + ~1.7M kline rows/day, ~200 MB/day |
+| **Swing trading** (medium) | 6 majors (add ADA, SOL, XRP) | `15, 60, 240, D` | every 5 min | ~1,728 ticker + ~691K kline rows/day, ~80 MB/day |
+| **Position trading** (low) | 8 majors (add DOT, AVAX) | `240, D, W` | every 15 min | ~768 ticker + ~230K kline rows/day, ~30 MB/day |
+| **Minimal** (testing/dev) | BTCUSDT | `60, D` | every 30 min | ~48 ticker + ~9.6K kline rows/day, ~2 MB/day |
 
-### Test Manual Collection
+### Advanced Scheduling (cron triggers)
 
-Before enabling the scheduler, test manual collection:
+```python
+# Every weekday at 9 AM
+trigger=CronTrigger(day_of_week='mon-fri', hour=9, minute=0)
 
-```bash
-# Test ticker collection
-curl -X POST -H "X-API-Key: test-key-123" \
-  "http://localhost:8003/api/v1/collect/ticker/BTCUSDT"
+# Every Monday and Friday at 5 PM
+trigger=CronTrigger(day_of_week='mon,fri', hour=17, minute=0)
 
-# Test kline collection
-curl -X POST -H "X-API-Key: test-key-123" \
-  "http://localhost:8003/api/v1/collect/kline/BTCUSDT?interval=5&limit=100"
+# First day of every month at midnight
+trigger=CronTrigger(day=1, hour=0, minute=0)
 
-# Verify data in database
-psql -U cryptobot -d cryptobot -c "SELECT * FROM tickers ORDER BY timestamp DESC LIMIT 5;"
+# Every 4 hours during trading hours (9 AM - 5 PM)
+trigger=CronTrigger(hour='9,13,17', minute=0)
 ```
 
-### Test Scheduler
+Peak/off-peak split with multiple jobs:
+
+```python
+# Peak hours: more frequent collection
+_scheduler.add_job(
+    collect_ticker_data,
+    trigger=CronTrigger(hour='9-17', minute='*/5'),  # Every 5 min, 9AM-5PM
+    id='ticker_peak_hours',
+)
+
+# Off-peak: less frequent collection
+_scheduler.add_job(
+    collect_ticker_data,
+    trigger=CronTrigger(hour='0-8,18-23', minute='*/15'),  # Every 15 min, off-peak
+    id='ticker_off_peak',
+)
+```
+
+### Externalized Configuration
+
+```python
+# config.py
+SCHEDULER_CONFIG = {
+    "trading_pairs": ["BTCUSDT", "ETHUSDT", "BNBUSDT"],
+    "kline_intervals": ["1", "5", "15", "60"],
+    "ticker_frequency_minutes": 5,
+    "kline_frequency_minutes": 5,
+    "hourly_backup": True
+}
+
+# scheduler.py
+from app.config import SCHEDULER_CONFIG
+
+TRADING_PAIRS = SCHEDULER_CONFIG["trading_pairs"]
+KLINE_INTERVALS = SCHEDULER_CONFIG["kline_intervals"]
+
+_scheduler.add_job(
+    collect_ticker_data,
+    trigger=IntervalTrigger(minutes=SCHEDULER_CONFIG["ticker_frequency_minutes"]),
+    ...
+)
+```
+
+## Monitoring
+
+### Logs
 
 ```bash
-# Start the service
-python3 -m uvicorn app.main:app --port 8003
+# Watch live logs
+tail -f /path/to/logs/market-data-service.log
 
-# Check scheduler status
-curl http://localhost:8003/api/v1/scheduler/status
+# Or via docker
+docker compose -f docker-compose.unified.yml logs -f market-data-service
 
-# Expected response:
+# Only collection completions
+tail -f logs/market-data-service.log | grep "collection complete"
+```
+
+Expected log messages: scheduler init, per-job scheduling confirmations, `Ticker collection complete: 5 success, 0 errors`, etc.
+
+### Scheduler Status
+
+```bash
+curl http://localhost:8002/api/v1/scheduler/status | python3 -m json.tool
+```
+
+Expected response shape:
+```json
 {
   "running": true,
   "job_count": 3,
@@ -224,135 +215,130 @@ curl http://localhost:8003/api/v1/scheduler/status
     {
       "id": "ticker_collection",
       "name": "Ticker Data Collection",
-      "next_run": "2025-11-06 10:50:00",
+      "next_run": "...",
       "trigger": "interval[0:05:00]"
-    },
-    ...
+    }
   ]
 }
 ```
 
----
+### Database Verification
 
-## 🐛 Troubleshooting
+```bash
+psql -h localhost -p 5432 -U cryptobot -d cryptobot
+```
 
-### Issue: Scheduler not starting
+```sql
+-- Ticker data per symbol
+SELECT COUNT(*), symbol, MAX(timestamp) as latest
+FROM tickers GROUP BY symbol ORDER BY symbol;
 
-**Symptoms**: No scheduled jobs running, no collection logs
+-- Kline data per symbol/interval
+SELECT symbol, interval, COUNT(*) as count, MAX(timestamp) as latest
+FROM klines GROUP BY symbol, interval ORDER BY symbol, interval;
 
-**Solutions**:
-1. Check APScheduler is installed:
-   ```bash
-   python3 -c "import apscheduler"
-   ```
+-- Rows collected in the last 5 minutes
+SELECT COUNT(*) FILTER (WHERE timestamp > NOW() - INTERVAL '5 minutes') as recent,
+       COUNT(*) as total, symbol
+FROM tickers GROUP BY symbol;
+```
 
-2. Check service logs for errors:
-   ```bash
-   tail -100 /var/log/market-data-service/app.log
-   ```
+## Testing
 
-3. Verify Bybit Connector is healthy:
-   ```bash
-   curl http://localhost:8002/health
-   ```
+### Manual Collection
 
----
+```bash
+# Test ticker collection
+curl -X POST -H "X-API-Key: test-key-123" \
+  "http://localhost:8002/api/v1/collect/ticker/BTCUSDT"
 
-### Issue: Collections failing
+# Test kline collection
+curl -X POST -H "X-API-Key: test-key-123" \
+  "http://localhost:8002/api/v1/collect/kline/BTCUSDT?interval=5&limit=100"
 
-**Symptoms**: Error logs, empty database
+# Verify data in database
+psql -U cryptobot -d cryptobot -c "SELECT * FROM tickers ORDER BY timestamp DESC LIMIT 5;"
+```
 
-**Solutions**:
-1. Check Bybit Connector is running:
-   ```bash
-   curl http://localhost:8002/api/v1/market/ticker?category=linear&symbol=BTCUSDT
-   ```
+### Scheduler
 
-2. Check database connection:
-   ```bash
-   psql -h localhost -p 5432 -U cryptobot -d cryptobot -c "SELECT 1;"
-   ```
+```bash
+# Start the service
+python3 -m uvicorn app.main:app --port 8002
 
-3. Check API rate limits (Bybit limits: 10 req/s for market data)
+# Check scheduler status
+curl http://localhost:8002/api/v1/scheduler/status
+```
 
----
+## Performance Considerations
 
-### Issue: Duplicate data or missing data
+### API Rate Limits
+- Bybit allows **10 requests/second** for market data
+- Each collection cycle makes `(1 + pairs × intervals)` requests (e.g. 5 pairs × 6 intervals = 31 requests/cycle)
+- On rate-limit errors, increase the inter-request delay in `scheduler.py:collect_kline_data()`:
+  ```python
+  await asyncio.sleep(0.5)  # increase e.g. to 1.0
+  ```
 
-**Solutions**:
-1. Check for multiple service instances:
-   ```bash
-   ps aux | grep uvicorn
-   ```
-
-2. Verify unique constraints in database:
-   ```sql
-   SELECT * FROM pg_indexes WHERE tablename IN ('tickers', 'klines');
-   ```
-
-3. Check scheduler job execution:
-   ```bash
-   curl http://localhost:8003/api/v1/scheduler/status
-   ```
-
----
-
-## 📈 Performance Considerations
-
-### Data Volume Estimates
-
-- **Tickers**: 5 pairs × 12 collections/hour = 60 rows/hour = 1,440 rows/day
-- **Klines**: 5 pairs × 6 intervals × 200 candles = 6,000 rows per collection
-- **Storage**: ~10-20 MB per day for full collection
+### Data Volume & Storage
+- Tickers: ~200 bytes/record; klines: ~150 bytes/record
+- Default profile: ~1,440 ticker rows/day, ~6,000 kline rows per collection, ~10-20 MB/day
+- Recommended: clean old data regularly (keep last 30-90 days)
 
 ### Database Maintenance
 
-Run regular maintenance:
-
 ```sql
--- Analyze tables for query optimization
 ANALYZE tickers;
 ANALYZE klines;
-
--- Vacuum to reclaim space
 VACUUM ANALYZE tickers;
 VACUUM ANALYZE klines;
 
 -- Check table sizes
-SELECT
-    tablename,
-    pg_size_pretty(pg_total_relation_size(tablename::regclass)) as size
+SELECT tablename,
+       pg_size_pretty(pg_total_relation_size(tablename::regclass)) as size
 FROM pg_tables
 WHERE schemaname = 'public'
 ORDER BY pg_total_relation_size(tablename::regclass) DESC;
 ```
 
----
+## Troubleshooting
 
-## 🎉 Success Criteria
+### Scheduler not starting
+**Symptoms**: no scheduled jobs running, no collection logs
+1. Check APScheduler is installed: `python3 -c "import apscheduler"`
+2. Check service logs for errors
+3. Verify Bybit Connector is healthy: `curl http://localhost:8001/health`
 
-Your scheduler is working correctly when you see:
+### Collections failing
+**Symptoms**: error logs, empty database
+1. Check Bybit Connector: `curl "http://localhost:8001/api/v1/market/ticker?category=linear&symbol=BTCUSDT"`
+2. Check database connection: `psql -h localhost -p 5432 -U cryptobot -d cryptobot -c "SELECT 1;"`
+3. Check Bybit rate limits (10 req/s for market data)
 
-1. ✅ Scheduler status shows 3 running jobs
-2. ✅ Database shows increasing row counts for tickers and klines
-3. ✅ Logs show successful collections every 5 minutes
-4. ✅ No error messages in service logs
-5. ✅ Latest timestamps in database are recent (< 5 minutes old)
+### Duplicate or missing data
+1. Check for multiple service instances: `ps aux | grep uvicorn`
+2. Verify unique constraints: `SELECT * FROM pg_indexes WHERE tablename IN ('tickers', 'klines');`
+3. Check job execution: `curl http://localhost:8002/api/v1/scheduler/status`
 
----
+### Too much data
+Reduce frequency or number of pairs/intervals (e.g. 3 pairs × 4 intervals every 10 min instead of 5 × 6 every 5 min).
 
-## 🔄 Next Steps
+### Data gaps
+Add a redundant backup collection job:
+```python
+_scheduler.add_job(
+    collect_all_data,
+    trigger=IntervalTrigger(minutes=30),
+    id='backup_collection',
+)
+```
 
-Once the scheduler is running:
+## Health Checklist
 
-1. **Monitor for 24 hours** - Ensure stability
-2. **Add more trading pairs** - Expand coverage
-3. **Implement Technical Analysis Service** - Use collected data
-4. **Set up alerts** - Notify on collection failures
-5. **Create dashboards** - Visualize data collection metrics
+The scheduler is working correctly when:
 
----
-
-**Created**: 2025-11-06
-**Version**: 1.0.0
-**Status**: Ready for production
+1. Scheduler status shows 3 running jobs
+2. Database shows increasing row counts for tickers and klines
+3. Logs show successful collections every 5 minutes
+4. No error messages in service logs
+5. Latest timestamps in database are < 5 minutes old

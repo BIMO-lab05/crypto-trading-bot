@@ -14,7 +14,7 @@ Master catalog. Updated on every ingest.
 ## Folders
 
 - [[modules/_index|Modules]] — per-service pages (11 microservices + frontend)
-- [[components/_index|Components]] — reusable UI / utility units *(stub — unpopulated)*
+- [[components/_index|Components]] — reusable engine sub-systems (Volume-Profile, Multi-Timeframe-Blender)
 - [[decisions/_index|Decisions]] — ADRs 001–027 (single canonical ADR home since 2026-07-30)
 - [[dependencies/_index|Dependencies]] — external packages, models, infra *(stub — unpopulated)*
 - [[flows/_index|Flows]] — request paths, signal pipeline, order lifecycle

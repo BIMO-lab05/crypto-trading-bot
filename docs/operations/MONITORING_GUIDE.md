@@ -25,7 +25,7 @@ The crypto trading bot uses a comprehensive monitoring stack based on **Promethe
 | Component | Status | URL | Default Credentials |
 |-----------|--------|-----|---------------------|
 | **Prometheus** | ✅ Running | http://localhost:9090 | N/A |
-| **Grafana** | ✅ Running | http://localhost:3001 | admin / crypto-bot-admin |
+| **Grafana** | ✅ Running | http://localhost:3001 | see `.env` — **rotate the burned default** |
 | **Services** | ✅ 9/11 services exposing metrics | Various ports | N/A |
 
 ### Current Configuration
@@ -51,7 +51,7 @@ docker ps | grep -E "(prometheus|grafana)"
 
 # 2. Access Grafana
 open http://localhost:3001
-# Login: admin / crypto-bot-admin
+# Login: see `.env` — **rotate the burned default**
 
 # 3. Access Prometheus (for raw metrics)
 open http://localhost:9090

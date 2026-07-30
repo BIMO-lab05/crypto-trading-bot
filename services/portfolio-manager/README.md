@@ -1,25 +1,28 @@
 # Portfolio Manager Service
 
+> Merged from `QUICK_START_HISTORICAL_TRACKING.md` on 2026-07-30. Ports corrected to the current service map (portfolio-manager **8003**, market-data **8002**); older copies of this doc said 8006/8003.
+
 ## Overview
 
-The Portfolio Manager is a comprehensive portfolio tracking and management service that provides real-time portfolio analytics, performance metrics, and rebalancing recommendations. It integrates with the Trading Engine to track all positions and maintains accurate portfolio state.
+The Portfolio Manager is a comprehensive portfolio tracking and management service that provides real-time portfolio analytics, performance metrics, and rebalancing recommendations. It integrates with the Trading Engine to track all positions and maintains accurate portfolio state. The stack runs in **paper-trading mode** — balances and P&L are simulated.
 
 ## Features
 
-### 🎯 Core Capabilities
+### Core Capabilities
 - **Portfolio Tracking**: Real-time tracking of cash balance, positions, and total portfolio value
 - **Performance Analytics**: Comprehensive metrics including Sharpe ratio, Sortino ratio, max drawdown
+- **Historical Tracking**: Daily performance snapshots persisted to PostgreSQL (see below)
 - **Asset Management**: Individual asset tracking with P&L calculation and allocation monitoring
 - **Rebalancing**: Automatic detection of allocation drift with actionable recommendations
 - **Integration**: Seamless sync with Trading Engine for position updates
 
-### 📊 Performance Metrics
+### Performance Metrics
 - **Returns**: Total return, daily return, period-specific returns
 - **Risk Metrics**: Volatility, Sharpe ratio, Sortino ratio, maximum drawdown
 - **Trading Stats**: Win rate, profit factor, average win/loss
 - **Benchmarking**: Alpha and beta calculations vs benchmark (future)
 
-### 💼 Portfolio Management
+### Portfolio Management
 - **Multi-Asset Support**: Track multiple cryptocurrencies in one portfolio
 - **Cash Management**: Automatic cash balance tracking with transaction execution
 - **Position Sizing**: Tracks average entry prices and calculates unrealized P&L
@@ -29,21 +32,21 @@ The Portfolio Manager is a comprehensive portfolio tracking and management servi
 
 ```
 ┌─────────────────────────────────────────────┐
-│      Portfolio Manager (Port 8006)          │
+│      Portfolio Manager (Port 8003)          │
 ├─────────────────────────────────────────────┤
 │                                             │
-│  ┌──────────────┐  ┌──────────────┐       │
-│  │   Portfolio  │  │ Performance  │       │
-│  │    Manager   │  │  Calculator  │       │
-│  └──────┬───────┘  └──────┬───────┘       │
-│         │                  │               │
-│         ▼                  ▼               │
-│  ┌──────────────────────────────┐         │
-│  │    Portfolio State           │         │
-│  │  - Assets                    │         │
-│  │  - Cash Balance              │         │
-│  │  - Performance History       │         │
-│  └──────────────────────────────┘         │
+│  ┌──────────────┐  ┌──────────────┐        │
+│  │   Portfolio  │  │ Performance  │        │
+│  │    Manager   │  │  Calculator  │        │
+│  └──────┬───────┘  └──────┬───────┘        │
+│         │                  │                │
+│         ▼                  ▼                │
+│  ┌──────────────────────────────┐          │
+│  │    Portfolio State           │          │
+│  │  - Assets                    │          │
+│  │  - Cash Balance              │          │
+│  │  - Performance History       │          │
+│  └──────────────────────────────┘          │
 │                                             │
 └─────────────────────────────────────────────┘
          │                    │
@@ -51,7 +54,7 @@ The Portfolio Manager is a comprehensive portfolio tracking and management servi
   ┌─────────────┐    ┌─────────────┐
   │  Trading    │    │   Market    │
   │  Engine     │    │    Data     │
-  │  (8005)     │    │   (8003)    │
+  │  (8005)     │    │   (8002)    │
   └─────────────┘    └─────────────┘
 ```
 
@@ -62,7 +65,7 @@ The Portfolio Manager is a comprehensive portfolio tracking and management servi
 #### GET /health
 Health check with dependency status
 ```bash
-curl http://localhost:8006/health
+curl http://localhost:8003/health
 ```
 
 **Response**:
@@ -72,7 +75,7 @@ curl http://localhost:8006/health
   "service": "portfolio-manager",
   "trading_engine_connection": true,
   "market_data_connection": true,
-  "database_connection": false,
+  "database_connection": true,
   "timestamp": 1730332800000
 }
 ```
@@ -80,18 +83,7 @@ curl http://localhost:8006/health
 #### GET /status
 Service status
 ```bash
-curl http://localhost:8006/status
-```
-
-**Response**:
-```json
-{
-  "status": "running",
-  "portfolio_count": 1,
-  "total_value": "10000.0",
-  "active_positions": 0,
-  "timestamp": 1730332800000
-}
+curl http://localhost:8003/status
 ```
 
 ### Portfolio Endpoints
@@ -99,7 +91,7 @@ curl http://localhost:8006/status
 #### GET /api/v1/portfolio
 Get portfolio details
 ```bash
-curl "http://localhost:8006/api/v1/portfolio?portfolio_id=default"
+curl "http://localhost:8003/api/v1/portfolio?portfolio_id=default"
 ```
 
 **Response**:
@@ -120,33 +112,19 @@ curl "http://localhost:8006/api/v1/portfolio?portfolio_id=default"
 #### GET /api/v1/portfolios
 List all portfolios
 ```bash
-curl http://localhost:8006/api/v1/portfolios
+curl http://localhost:8003/api/v1/portfolios
 ```
 
 #### GET /api/v1/portfolio/balance
-Get portfolio balance
+Get portfolio balance (cash, total value, unrealized/realized/total P&L, return %)
 ```bash
-curl http://localhost:8006/api/v1/portfolio/balance
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "portfolio_id": "default",
-  "cash_balance": "10000.0",
-  "total_value": "10000.0",
-  "unrealized_pnl": "0",
-  "realized_pnl": "0",
-  "total_pnl": "0",
-  "total_return_pct": "0"
-}
+curl http://localhost:8003/api/v1/portfolio/balance
 ```
 
 #### GET /api/v1/portfolio/holdings
 Get all holdings
 ```bash
-curl http://localhost:8006/api/v1/portfolio/holdings
+curl http://localhost:8003/api/v1/portfolio/holdings
 ```
 
 **Response**:
@@ -173,12 +151,20 @@ curl http://localhost:8006/api/v1/portfolio/holdings
 ### Performance Endpoints
 
 #### GET /api/v1/performance
-Get performance metrics
+Get performance metrics (optionally with history)
 ```bash
-curl "http://localhost:8006/api/v1/performance?portfolio_id=default"
+curl "http://localhost:8003/api/v1/performance?portfolio_id=default"
+
+# With daily history and period stats
+curl "http://localhost:8003/api/v1/performance?include_daily=true&include_periods=true" | jq
 ```
 
-**Response**:
+**Query Parameters**:
+- `portfolio_id`: Portfolio ID (default: "default")
+- `include_daily`: Include daily history (boolean)
+- `include_periods`: Include period stats — week/month/year (boolean)
+
+**Response** (metrics portion):
 ```json
 {
   "success": true,
@@ -200,7 +186,7 @@ curl "http://localhost:8006/api/v1/performance?portfolio_id=default"
 #### GET /api/v1/performance/assets
 Get performance by asset
 ```bash
-curl http://localhost:8006/api/v1/performance/assets
+curl http://localhost:8003/api/v1/performance/assets
 ```
 
 ### Allocation Endpoints
@@ -208,27 +194,13 @@ curl http://localhost:8006/api/v1/performance/assets
 #### GET /api/v1/allocation
 Get portfolio allocation
 ```bash
-curl http://localhost:8006/api/v1/allocation
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "portfolio_id": "default",
-  "allocations": {
-    "BTCUSDT": "45.5",
-    "ETHUSDT": "30.2",
-    "cash": "24.3"
-  },
-  "needs_rebalancing": false
-}
+curl http://localhost:8003/api/v1/allocation
 ```
 
 #### GET /api/v1/rebalance
 Get rebalancing recommendations
 ```bash
-curl http://localhost:8006/api/v1/rebalance
+curl http://localhost:8003/api/v1/rebalance
 ```
 
 **Response**:
@@ -256,44 +228,15 @@ curl http://localhost:8006/api/v1/rebalance
 ### Transaction Endpoints
 
 #### POST /api/v1/transaction/buy
-Execute buy transaction
+Execute buy transaction (simulated — paper mode)
 ```bash
-curl -X POST "http://localhost:8006/api/v1/transaction/buy?symbol=BTCUSDT&quantity=0.1&price=67000"
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "transaction_id": "txn_1730332800000",
-  "symbol": "BTCUSDT",
-  "action": "BUY",
-  "quantity": "0.1",
-  "price": "67000",
-  "total_cost": "6700",
-  "message": "Bought 0.1 BTCUSDT"
-}
+curl -X POST "http://localhost:8003/api/v1/transaction/buy?symbol=BTCUSDT&quantity=0.1&price=67000"
 ```
 
 #### POST /api/v1/transaction/sell
-Execute sell transaction
+Execute sell transaction (simulated — paper mode)
 ```bash
-curl -X POST "http://localhost:8006/api/v1/transaction/sell?symbol=BTCUSDT&quantity=0.1"
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "transaction_id": "txn_1730332800001",
-  "symbol": "BTCUSDT",
-  "action": "SELL",
-  "quantity": "0.1",
-  "price": "67200",
-  "total_cost": "6720",
-  "realized_pnl": "20",
-  "message": "Sold 0.1 BTCUSDT"
-}
+curl -X POST "http://localhost:8003/api/v1/transaction/sell?symbol=BTCUSDT&quantity=0.1"
 ```
 
 ### Integration Endpoints
@@ -301,15 +244,97 @@ curl -X POST "http://localhost:8006/api/v1/transaction/sell?symbol=BTCUSDT&quant
 #### POST /api/v1/sync
 Sync with Trading Engine
 ```bash
-curl -X POST http://localhost:8006/api/v1/sync
+curl -X POST http://localhost:8003/api/v1/sync
 ```
 
-**Response**:
-```json
-{
-  "success": true,
-  "message": "Portfolio synced successfully"
-}
+### Admin / History Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/admin/snapshot` | POST | Trigger manual performance snapshot |
+| `/api/v1/admin/scheduler/status` | GET | Check snapshot scheduler |
+
+## Historical Performance Tracking
+
+Daily performance snapshots are persisted to PostgreSQL and served through `/api/v1/performance`.
+
+### Setup
+
+**1. Run database migration:**
+```bash
+psql -U cryptobot -d cryptobot -f infrastructure/migrations/002_performance_history.sql
+```
+Expected output:
+```
+NOTICE: Migration 002_performance_history.sql completed successfully
+NOTICE: Created: portfolio.performance_history table
+```
+
+**2. Enable database:**
+```bash
+export USE_DATABASE=true
+export DATABASE_URL="postgresql://cryptobot:cryptobot_dev_password@crypto-bot-postgres:5432/cryptobot"
+```
+
+**3. Install scheduler dependency:**
+```bash
+cd services/portfolio-manager
+pip install apscheduler==3.10.4
+```
+
+**4. Start the service** and look for:
+```
+✅ Database connection pool created
+✅ Performance History service initialized
+✅ Performance Snapshot Scheduler started
+✅ Portfolio Manager Service ready
+```
+
+**5. Verify:**
+```bash
+# Check scheduler status
+curl http://localhost:8003/api/v1/admin/scheduler/status
+
+# Trigger manual snapshot
+curl -X POST http://localhost:8003/api/v1/admin/snapshot
+
+# Get performance with history
+curl "http://localhost:8003/api/v1/performance?include_daily=true&include_periods=true"
+```
+
+### Useful SQL
+
+```sql
+-- Recent snapshots
+SELECT portfolio_id, timestamp, total_value, daily_pnl, roi_percent
+FROM portfolio.performance_history
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Week performance
+SELECT * FROM portfolio.get_period_stats('default', 7);
+
+-- Latest snapshot per portfolio
+SELECT * FROM portfolio.latest_performance;
+```
+
+### Troubleshooting History
+
+- **No automated snapshots at midnight**: check `curl http://localhost:8003/api/v1/admin/scheduler/status`, grep logs for "scheduler", verify DB connection via `/health`.
+- **`daily_performance` / `period_performance` null**: confirm `USE_DATABASE=true`, table exists (`\dt portfolio.performance_history`), data present (`SELECT COUNT(*) FROM portfolio.performance_history;`), and request includes `?include_daily=true&include_periods=true`.
+- **Database connection failed**: `docker ps | grep postgres`, `echo $DATABASE_URL`, `psql $DATABASE_URL -c "SELECT 1;"`.
+
+### Relevant Files
+
+```
+services/portfolio-manager/
+├── app/
+│   ├── services/performance_history.py     # Main history service
+│   ├── scheduler/performance_snapshot.py   # Daily snapshot scheduler
+│   └── handlers/performance.py             # API handler
+├── tests/test_performance_history.py       # 96% coverage
+└── docs/PERFORMANCE_TRACKING.md            # Full documentation
+
+infrastructure/migrations/002_performance_history.sql   # Schema
 ```
 
 ## Configuration
@@ -320,12 +345,12 @@ Create `.env` file:
 ```env
 # Service Configuration
 SERVICE_NAME=portfolio-manager
-SERVICE_PORT=8006
+SERVICE_PORT=8003
 LOG_LEVEL=INFO
 
 # External Service URLs
 TRADING_ENGINE_URL=http://localhost:8005
-MARKET_DATA_URL=http://localhost:8003
+MARKET_DATA_URL=http://localhost:8002
 
 # Portfolio Settings
 INITIAL_CAPITAL=10000.0
@@ -337,9 +362,9 @@ MAX_SINGLE_ASSET_PCT=20.0
 RISK_FREE_RATE=0.02
 BENCHMARK_SYMBOL=BTCUSDT
 
-# Database (Future)
-DATABASE_URL=postgresql://localhost:5432/trading_bot
-USE_DATABASE=false
+# Database (required for historical performance tracking)
+DATABASE_URL=postgresql://cryptobot:cryptobot_dev_password@crypto-bot-postgres:5432/cryptobot
+USE_DATABASE=true
 ```
 
 ## Installation
@@ -347,7 +372,7 @@ USE_DATABASE=false
 ### Prerequisites
 - Python 3.12+
 - Trading Engine running on port 8005
-- Market Data Service running on port 8003
+- Market Data Service running on port 8002
 
 ### Install Dependencies
 ```bash
@@ -356,45 +381,25 @@ pip install -r requirements.txt
 
 ### Start Service
 ```bash
-# Set PYTHONPATH
-export PYTHONPATH=/path/to/portfolio-manager
-
-# Run with uvicorn
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8006
-```
-
-Or use the convenience script:
-```bash
-PYTHONPATH=. python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8006 --reload
+PYTHONPATH=. python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
 ```
 
 ## How It Works
 
 ### Portfolio Tracking
 
-The Portfolio Manager maintains a complete portfolio state including:
-
 1. **Cash Balance**: Tracks available cash for trading
 2. **Asset Holdings**: Each asset with quantity, entry price, current price
 3. **P&L Calculation**: Real-time unrealized and realized P&L
-4. **Performance History**: Historical snapshots for trend analysis
+4. **Performance History**: Daily snapshots (midnight) for trend analysis
 
 ### Performance Calculation
 
-#### Sharpe Ratio
 ```python
-sharpe_ratio = (portfolio_return - risk_free_rate) / volatility
-```
-
-#### Sortino Ratio
-```python
+sharpe_ratio  = (portfolio_return - risk_free_rate) / volatility
 sortino_ratio = (portfolio_return - risk_free_rate) / downside_deviation
-```
-
-#### Maximum Drawdown
-```python
-drawdown = (current_value - peak_value) / peak_value
-max_drawdown = min(all_drawdowns)
+drawdown      = (current_value - peak_value) / peak_value
+max_drawdown  = min(all_drawdowns)
 ```
 
 ### Rebalancing Logic
@@ -410,26 +415,13 @@ max_drawdown = min(all_drawdowns)
 ### Complete Portfolio Management Flow
 
 ```bash
-# 1. Check service health
-curl http://localhost:8006/health
-
-# 2. Get current portfolio state
-curl http://localhost:8006/api/v1/portfolio
-
-# 3. Sync with Trading Engine
-curl -X POST http://localhost:8006/api/v1/sync
-
-# 4. Check holdings
-curl http://localhost:8006/api/v1/portfolio/holdings
-
-# 5. Get performance metrics
-curl http://localhost:8006/api/v1/performance
-
-# 6. Check allocation
-curl http://localhost:8006/api/v1/allocation
-
-# 7. Get rebalance recommendations
-curl http://localhost:8006/api/v1/rebalance
+curl http://localhost:8003/health                       # 1. Health
+curl http://localhost:8003/api/v1/portfolio             # 2. Portfolio state
+curl -X POST http://localhost:8003/api/v1/sync          # 3. Sync with Trading Engine
+curl http://localhost:8003/api/v1/portfolio/holdings    # 4. Holdings
+curl http://localhost:8003/api/v1/performance           # 5. Performance
+curl http://localhost:8003/api/v1/allocation            # 6. Allocation
+curl http://localhost:8003/api/v1/rebalance             # 7. Rebalance recommendations
 ```
 
 ### Python Integration
@@ -440,24 +432,21 @@ import asyncio
 
 async def manage_portfolio():
     async with httpx.AsyncClient() as client:
-        # Get portfolio
-        response = await client.get("http://localhost:8006/api/v1/portfolio")
+        response = await client.get("http://localhost:8003/api/v1/portfolio")
         portfolio = response.json()["portfolio"]
 
         print(f"Total Value: ${portfolio['total_value']}")
         print(f"Total P&L: ${portfolio['total_pnl']}")
         print(f"Return: {portfolio['total_return_pct']}%")
 
-        # Get performance metrics
-        response = await client.get("http://localhost:8006/api/v1/performance")
+        response = await client.get("http://localhost:8003/api/v1/performance")
         metrics = response.json()["metrics"]
 
         print(f"Sharpe Ratio: {metrics['sharpe_ratio']}")
         print(f"Win Rate: {metrics['win_rate']}%")
         print(f"Max Drawdown: {metrics['max_drawdown']}%")
 
-        # Check if rebalancing needed
-        response = await client.get("http://localhost:8006/api/v1/rebalance")
+        response = await client.get("http://localhost:8003/api/v1/rebalance")
         rebalance = response.json()
 
         if rebalance["needs_rebalancing"]:
@@ -470,34 +459,27 @@ asyncio.run(manage_portfolio())
 
 ## Testing
 
-### Manual Testing
 ```bash
-# Run all tests
+# Integration tests
 cd services/portfolio-manager
 bash test_integration.sh
-```
 
-### Unit Tests
-```bash
+# Unit tests
 pytest tests/ -v --cov=app
 ```
 
 ## Monitoring
 
-### Logs
 Service logs are written to `logs/service.log`:
 ```bash
 tail -f logs/service.log
 ```
 
-### Key Log Messages
-- `✓ Created default portfolio` - Portfolio initialized
-- `✓ Fetched N positions from Trading Engine` - Sync completed
-- `✓ Updated prices for N assets` - Price update successful
-- `✓ BUY: quantity symbol @ $price` - Buy transaction executed
-- `✓ SELL: quantity symbol @ $price` - Sell transaction executed
+Key log messages: portfolio initialized, `Fetched N positions from Trading Engine` (sync), `Updated prices for N assets`, BUY/SELL transaction confirmations.
 
 ## Performance Benchmarks
+
+(As measured 2025-11; latency, not trading performance)
 
 - **Portfolio State Update**: <10ms
 - **Performance Calculation**: <50ms (with historical data)
@@ -506,8 +488,6 @@ tail -f logs/service.log
 
 ## Future Enhancements
 
-- [ ] Database persistence (PostgreSQL)
-- [ ] Historical performance tracking
 - [ ] Multiple portfolio support
 - [ ] Custom allocation strategies
 - [ ] Portfolio optimization (mean-variance, Kelly criterion)
@@ -516,6 +496,7 @@ tail -f logs/service.log
 - [ ] Performance attribution analysis
 - [ ] Benchmark comparison (BTC, ETH, market indices)
 - [ ] WebSocket real-time updates
+- [ ] CSV export of historical snapshots
 
 ## License
 
@@ -526,5 +507,6 @@ Part of the Crypto Trading Bot project.
 For issues or questions:
 1. Check logs: `logs/service.log`
 2. Verify all services are running
-3. Review API documentation: http://localhost:8006/docs
-4. Check service health: http://localhost:8006/health
+3. Review API documentation: http://localhost:8003/docs
+4. Check service health: http://localhost:8003/health
+5. Full history docs: `docs/PERFORMANCE_TRACKING.md`

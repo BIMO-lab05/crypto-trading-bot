@@ -1,7 +1,12 @@
 # Kubernetes Deployment for Crypto Trading Bot
 
+> **Note (2026-07-30):** The Kubernetes deployment described here was validated once on **2025-11-23**. The **current posture is docker-compose-only for v1.x** — K8s is out of scope per `.planning/REQUIREMENTS.md` ("K8s deployment | docker-compose only for v1.x"). The canonical stack is `docker compose -f docker-compose.unified.yml up -d` from the repo root. This document is retained for a future K8s deployment target.
+
+> Merged from `infrastructure/kubernetes/DEPLOYMENT_GUIDE.md` (v1.0, created 2025-11-23) on 2026-07-30.
+
 ## 📋 Table of Contents
 - [Overview](#overview)
+- [Deployment Summary](#deployment-summary)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
@@ -11,8 +16,10 @@
 - [Monitoring](#monitoring)
 - [Scaling](#scaling)
 - [Troubleshooting](#troubleshooting)
+- [Update and Rollback](#update-and-rollback)
 - [Backup and Recovery](#backup-and-recovery)
 - [Security Best Practices](#security-best-practices)
+- [Deployment Checklist](#deployment-checklist)
 
 ## 🎯 Overview
 
@@ -23,6 +30,55 @@ This directory contains production-grade Kubernetes manifests for deploying the 
 - **Monitoring Stack**: Prometheus and Grafana
 - **Auto-scaling**: Horizontal Pod Autoscalers for critical services
 - **Ingress**: External access with TLS termination
+
+## 📊 Deployment Summary
+
+*(From the 2025-11-23 deployment guide.)*
+
+### Files Created: 58 Total
+
+| Category | Files | Lines | Purpose |
+|----------|-------|-------|---------|
+| YAML Manifests | 54 | 4,584 | Kubernetes resource definitions |
+| Shell Scripts | 3 | 587 | Deployment automation |
+| Documentation | 1 | 781 | Comprehensive README |
+| **TOTAL** | **58** | **5,952** | **Complete infrastructure** |
+
+### Infrastructure Components
+
+#### Microservices (10 Services)
+
+Canonical service ports (matching the compose stack; see repo root `CLAUDE.md`):
+
+| Service | Port | Purpose |
+|---|---|---|
+| api-gateway | 8000 | External API interface |
+| bybit-connector | 8001 | Exchange integration |
+| market-data-service | 8002 | Market data ingestion |
+| portfolio-manager | 8003 | Position tracking |
+| technical-analysis | 8004 | TA indicators |
+| trading-engine | 8005 | Core trading logic |
+| notification-service | 8006 | Alerts and notifications |
+| ml-prediction-service | 8007 | ML-based predictions |
+| sentiment-analysis-service | 8008 | Market sentiment |
+| risk-metrics-service | 8009 | Risk calculations |
+
+> ⚠️ Contradiction fixed 2026-07-30: the original 2025-11-23 deployment guide listed a different port order (trading-engine 8001, portfolio-manager 8002, technical-analysis 8003, bybit-connector 8004, market-data 8005, risk-metrics 8008, sentiment 8009). That order does not match the running compose stack or the rest of the docs. If you resurrect the K8s manifests, verify each Deployment's `containerPort` against the table above before deploying.
+
+#### Databases (4 Services)
+- **PostgreSQL** - Main application database (Port 5432, 10Gi storage)
+- **TimescaleDB** - Time-series market data (Port 5432, 50Gi storage)
+- **Redis** - Cache and session storage (Port 6379, 5Gi storage)
+- **RabbitMQ** - Message broker (Port 5672/15672, 5Gi storage)
+
+#### Monitoring (2 Services)
+- **Prometheus** - Metrics collection and alerting
+- **Grafana** - Visualization and dashboards
+
+#### Autoscaling (3 HPAs)
+- **API Gateway HPA** - 3-10 replicas, 70% CPU target
+- **Trading Engine HPA** - 2-8 replicas, 70% CPU target
+- **ML Prediction HPA** - 2-6 replicas, 75% CPU target
 
 ## 🔧 Prerequisites
 
@@ -59,6 +115,42 @@ sudo mv kustomize /usr/local/bin/
 # Verify installations
 kubectl version --client
 kustomize version
+
+# Verify cluster access
+kubectl cluster-info
+```
+
+### Cluster Setup (Cloud-Specific)
+
+```bash
+# For AWS EKS
+eksctl create cluster \
+  --name crypto-bot-cluster \
+  --region us-east-1 \
+  --nodegroup-name standard-workers \
+  --node-type t3.xlarge \
+  --nodes 3 \
+  --nodes-min 3 \
+  --nodes-max 10
+
+# For GCP GKE
+gcloud container clusters create crypto-bot-cluster \
+  --zone us-central1-a \
+  --num-nodes 3 \
+  --machine-type n1-standard-4 \
+  --enable-autoscaling \
+  --min-nodes 3 \
+  --max-nodes 10
+
+# For Azure AKS
+az aks create \
+  --resource-group crypto-bot-rg \
+  --name crypto-bot-cluster \
+  --node-count 3 \
+  --node-vm-size Standard_D4s_v3 \
+  --enable-cluster-autoscaler \
+  --min-count 3 \
+  --max-count 10
 ```
 
 ## 🚀 Quick Start
@@ -66,8 +158,8 @@ kustomize version
 ### 1. Build Docker Images
 
 ```bash
-# Navigate to project root
-cd /mnt/d/Bimo_max/crypto-trading-bot
+# Navigate to project root (repo checkout root)
+cd <repo-root>   # e.g. wherever crypto-trading-bot is cloned
 
 # Build all service images
 ./infrastructure/scripts/build-all-images.sh
@@ -75,6 +167,25 @@ cd /mnt/d/Bimo_max/crypto-trading-bot
 # Tag images for your registry
 docker tag crypto-bot/api-gateway:latest your-registry/crypto-bot/api-gateway:v1.0.0
 # ... repeat for all services
+```
+
+Build-and-push loop for all services:
+
+```bash
+export REGISTRY="your-registry.example.com"
+export VERSION="v1.0.0"
+
+for service in api-gateway trading-engine portfolio-manager technical-analysis \
+               bybit-connector market-data-service notification-service \
+               ml-prediction-service risk-metrics-service sentiment-analysis-service; do
+    docker build -t crypto-bot/${service}:latest ../../services/${service}/
+    docker tag crypto-bot/${service}:latest ${REGISTRY}/crypto-bot/${service}:${VERSION}
+    docker push ${REGISTRY}/crypto-bot/${service}:${VERSION}
+done
+
+# Update image references in kustomization
+sed -i "s|crypto-bot/|${REGISTRY}/crypto-bot/|g" kustomization/base/kustomization.yaml
+sed -i "s|newTag: latest|newTag: ${VERSION}|g" kustomization/base/kustomization.yaml
 ```
 
 ### 2. Configure Secrets
@@ -93,6 +204,90 @@ echo "secrets/*-prod.yaml" >> .gitignore
 
 # Example: Generate base64-encoded password
 echo -n "your-strong-password" | base64
+```
+
+#### Scripted Secret Generation (Database)
+
+```bash
+# Generate strong passwords
+POSTGRES_PASS=$(openssl rand -base64 32)
+TIMESCALE_PASS=$(openssl rand -base64 32)
+REDIS_PASS=$(openssl rand -base64 32)
+RABBITMQ_PASS=$(openssl rand -base64 32)
+
+# Base64 encode
+POSTGRES_PASS_B64=$(echo -n "$POSTGRES_PASS" | base64)
+TIMESCALE_PASS_B64=$(echo -n "$TIMESCALE_PASS" | base64)
+REDIS_PASS_B64=$(echo -n "$REDIS_PASS" | base64)
+RABBITMQ_PASS_B64=$(echo -n "$RABBITMQ_PASS" | base64)
+
+# Create secrets file
+cat > secrets/db-secrets-prod.yaml << EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secrets
+  namespace: crypto-bot
+type: Opaque
+data:
+  POSTGRES_PASSWORD: ${POSTGRES_PASS_B64}
+  TIMESCALE_PASSWORD: ${TIMESCALE_PASS_B64}
+  REDIS_PASSWORD: ${REDIS_PASS_B64}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASS_B64}
+  POSTGRES_URL: $(echo -n "postgresql://cryptobot:${POSTGRES_PASS}@postgres-service:5432/cryptobot" | base64)
+  TIMESCALE_URL: $(echo -n "postgresql://cryptobot:${TIMESCALE_PASS}@timescale-service:5432/market_data" | base64)
+  REDIS_URL: $(echo -n "redis://:${REDIS_PASS}@redis-service:6379/0" | base64)
+  RABBITMQ_URL: $(echo -n "amqp://cryptobot:${RABBITMQ_PASS}@rabbitmq-service:5672/cryptobot" | base64)
+EOF
+
+# Store passwords securely (optional - use password manager)
+cat > .secrets.env << EOF
+POSTGRES_PASSWORD=${POSTGRES_PASS}
+TIMESCALE_PASSWORD=${TIMESCALE_PASS}
+REDIS_PASSWORD=${REDIS_PASS}
+RABBITMQ_PASSWORD=${RABBITMQ_PASS}
+EOF
+
+chmod 600 .secrets.env
+```
+
+#### Scripted Secret Generation (API + Bybit)
+
+```bash
+# Generate JWT secret
+JWT_SECRET=$(openssl rand -base64 32)
+
+# Get external API keys (from your accounts)
+TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
+BYBIT_API_KEY="your-bybit-api-key"
+BYBIT_API_SECRET="your-bybit-api-secret"
+
+# Create API secrets
+cat > secrets/api-secrets-prod.yaml << EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-secrets
+  namespace: crypto-bot
+type: Opaque
+data:
+  JWT_SECRET_KEY: $(echo -n "$JWT_SECRET" | base64)
+  TELEGRAM_BOT_TOKEN: $(echo -n "$TELEGRAM_BOT_TOKEN" | base64)
+EOF
+
+# Create Bybit secrets
+cat > secrets/bybit-secrets-prod.yaml << EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bybit-secrets
+  namespace: crypto-bot
+type: Opaque
+data:
+  BYBIT_API_KEY: $(echo -n "$BYBIT_API_KEY" | base64)
+  BYBIT_API_SECRET: $(echo -n "$BYBIT_API_SECRET" | base64)
+  BYBIT_NETWORK: $(echo -n "testnet" | base64)  # Change to 'mainnet' for production
+EOF
 ```
 
 ### 3. Deploy to Kubernetes
@@ -117,8 +312,28 @@ chmod +x *.sh
 # Watch pods come up
 kubectl get pods -n crypto-bot -w
 
+# Check all resources
+kubectl get all -n crypto-bot
+
 # Check logs
 kubectl logs -f deployment/api-gateway -n crypto-bot
+```
+
+### 5. Access Services
+
+```bash
+# API Gateway
+kubectl port-forward -n crypto-bot svc/api-gateway-service 8000:8000
+# Access: http://localhost:8000/health
+
+# Grafana
+kubectl port-forward -n crypto-bot svc/grafana-service 3000:3000
+# Access: http://localhost:3000
+# Credentials: see .env / grafana secret; rotate the default immediately
+
+# Prometheus
+kubectl port-forward -n crypto-bot svc/prometheus-service 9090:9090
+# Access: http://localhost:9090
 ```
 
 ## 🏗️ Architecture
@@ -267,6 +482,37 @@ All configuration is managed through ConfigMaps and Secrets:
 - Bybit API key and secret
 - Testnet vs production configuration
 
+### Environment-Specific Settings
+
+#### Development
+- DEBUG logging
+- Paper trading mode
+- Bybit testnet
+- Reduced replica counts (1-2)
+- Relaxed resource limits
+
+#### Production
+- INFO logging
+- Paper trading (initially - switch to live carefully!)
+- Bybit mainnet (when ready)
+- High replica counts (2-10)
+- Strict resource limits
+- Auto-scaling enabled
+- Monitoring and alerting
+
+### Feature Flags
+
+Located in `configmaps/app-config.yaml`. The 2025-11-23 guide shipped these as:
+
+```yaml
+ENABLE_ML_PREDICTIONS: "true"    # STALE — see note below
+ENABLE_SENTIMENT_ANALYSIS: "true" # STALE — see note below
+ENABLE_NOTIFICATIONS: "true"
+ENABLE_AUTO_TRADING: "false"  # IMPORTANT: Enable only when ready!
+```
+
+> ⚠️ Contradiction date-stamped 2026-07-30: since 2026-05 the project defaults are `ENABLE_ML_PREDICTIONS=false` and `ENABLE_SENTIMENT_ANALYSIS=false` (ML gated off pending rebuild; sentiment removed from the signal pipeline). In the compose stack, sentiment-analysis-service sits behind the `analytics` profile and ml-prediction-service behind the `ml` profile. Mirror those defaults in any K8s ConfigMap before deploying.
+
 ### Customizing Configuration
 
 1. **Development Environment**:
@@ -291,6 +537,19 @@ All configuration is managed through ConfigMaps and Secrets:
    ./apply-all.sh production
    ```
 
+### Updating Configuration at Runtime
+
+```bash
+# Edit ConfigMap
+kubectl edit configmap app-config -n crypto-bot
+
+# Or update from file
+kubectl apply -f configmaps/app-config.yaml
+
+# Restart pods to pick up changes
+kubectl rollout restart deployment -n crypto-bot
+```
+
 ### Storage Classes
 
 Default storage class is `standard`. Update for your cloud provider:
@@ -308,6 +567,19 @@ storageClassName: pd-ssd  # or pd-standard
 **Azure AKS**:
 ```yaml
 storageClassName: managed-premium  # or managed-standard
+```
+
+Storage class helpers:
+
+```bash
+# Check available storage classes
+kubectl get storageclass
+
+# Set default storage class (example for AWS)
+kubectl patch storageclass gp3 -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+
+# Update PVCs if needed
+sed -i 's/storageClassName: standard/storageClassName: gp3/g' storage/*.yaml
 ```
 
 ## 📦 Deployment
@@ -342,35 +614,74 @@ kubectl kustomize kustomization/overlays/production
 
 ```bash
 # 1. Create namespace
-kubectl apply -f namespaces/
+kubectl apply -f namespaces/crypto-bot-namespace.yaml
 
-# 2. Create configmaps and secrets
-kubectl apply -f configmaps/
-kubectl apply -f secrets/
+# 2. Create configmaps
+kubectl apply -f configmaps/app-config.yaml
+kubectl apply -f configmaps/monitoring-config.yaml
 
-# 3. Create storage
+# 3. Create secrets (use prod versions in production)
+kubectl apply -f secrets/db-secrets-prod.yaml
+kubectl apply -f secrets/api-secrets-prod.yaml
+kubectl apply -f secrets/bybit-secrets-prod.yaml
+
+# 4. Create storage
 kubectl apply -f storage/
 
-# 4. Deploy databases
+# 5. Wait for PVCs to be bound
+kubectl wait --for=condition=bound pvc --all -n crypto-bot --timeout=120s
+
+# 6. Deploy databases
 kubectl apply -f databases/
 
-# 5. Wait for databases
-kubectl wait --for=condition=ready pod -l component=database -n crypto-bot --timeout=120s
+# 7. Wait for databases to be ready
+kubectl wait --for=condition=ready pod -l component=database -n crypto-bot --timeout=300s
 
-# 6. Deploy microservices
+# 8. Deploy microservices
 kubectl apply -f services/
 
-# 7. Setup ingress
+# 9. Wait for services to be ready
+kubectl wait --for=condition=ready pod -l component=microservice -n crypto-bot --timeout=300s
+
+# 10. Setup ingress
 kubectl apply -f ingress/
 
-# 8. Deploy monitoring
+# 11. Deploy monitoring
 kubectl apply -f monitoring/
 
-# 9. Enable autoscaling
+# 12. Enable autoscaling
 kubectl apply -f autoscaling/
 ```
 
+### Post-Deployment Verification
+
+```bash
+# Comprehensive health check
+./verify-deployment.sh --detailed
+
+# Check specific components
+kubectl get pods -n crypto-bot
+kubectl get svc -n crypto-bot
+kubectl get pvc -n crypto-bot
+kubectl get ingress -n crypto-bot
+kubectl get hpa -n crypto-bot
+
+# Test API Gateway
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -n crypto-bot -- \
+  curl http://api-gateway-service:8000/health
+
+# Test database connections
+kubectl run -it --rm debug --image=postgres:15-alpine --restart=Never -n crypto-bot -- \
+  psql -h postgres-service -U cryptobot -d cryptobot -c "SELECT 1"
+
+# Test Redis
+kubectl run -it --rm debug --image=redis:7-alpine --restart=Never -n crypto-bot -- \
+  redis-cli -h redis-service ping
+```
+
 ## 📊 Monitoring
+
+> For the full monitoring/alerting stack documentation, see `infrastructure/monitoring/README.md` and the living guides in `docs/operations/` (`MONITORING_GUIDE.md`, `ALERTING_GUIDE.md`, `ALERT_RUNBOOKS.md`).
 
 ### Access Prometheus
 
@@ -388,8 +699,42 @@ kubectl port-forward -n crypto-bot svc/prometheus-service 9090:9090
 kubectl port-forward -n crypto-bot svc/grafana-service 3000:3000
 
 # Open in browser: http://localhost:3000
-# Default credentials: admin/admin (change immediately!)
+# Credentials: see .env / grafana secret; rotate the default immediately
 ```
+
+### Key Metrics to Monitor
+
+1. **Service Health**
+   - Pod status and restarts
+   - Request latency (p50, p95, p99)
+   - Error rates
+
+2. **Trading Metrics**
+   - Active positions
+   - P&L (realized and unrealized)
+   - Trade execution latency
+   - Order fill rates
+
+3. **Resource Usage**
+   - CPU utilization per service
+   - Memory usage
+   - Disk I/O
+   - Network throughput
+
+4. **Database Metrics**
+   - Query performance
+   - Connection pool usage
+   - Replication lag (if applicable)
+
+### Alerts Configuration
+
+Pre-configured alerts in `configmaps/monitoring-config.yaml`:
+- High CPU usage (>80%)
+- High memory usage (>90%)
+- Service down
+- High error rate (>5%)
+- Trading engine stopped
+- Position loss threshold (-5%)
 
 ### View Metrics
 
@@ -421,6 +766,12 @@ kubectl logs --tail=100 <pod-name> -n crypto-bot
 
 # View logs from last hour
 kubectl logs --since=1h <pod-name> -n crypto-bot
+
+# Database logs
+kubectl logs -f statefulset/postgres -n crypto-bot
+
+# All services
+kubectl logs -f -l app=crypto-trading-bot -n crypto-bot --max-log-requests=20
 ```
 
 ## 🔄 Scaling
@@ -433,6 +784,11 @@ kubectl scale deployment api-gateway -n crypto-bot --replicas=5
 
 # Scale Trading Engine
 kubectl scale deployment trading-engine -n crypto-bot --replicas=3
+
+# Scale several microservices at once
+for svc in trading-engine portfolio-manager technical-analysis; do
+    kubectl scale deployment $svc -n crypto-bot --replicas=3
+done
 ```
 
 ### Auto-scaling
@@ -451,6 +807,9 @@ kubectl describe hpa api-gateway-hpa -n crypto-bot
 
 # Update HPA
 kubectl edit hpa api-gateway-hpa -n crypto-bot
+
+# Example: Change max replicas
+kubectl patch hpa api-gateway-hpa -n crypto-bot -p '{"spec":{"maxReplicas":15}}'
 ```
 
 ### Cluster Auto-scaling
@@ -460,11 +819,22 @@ For cloud providers, enable cluster autoscaler:
 **AWS EKS**:
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml
+
+# Scale node group directly
+eksctl scale nodegroup --cluster=crypto-bot-cluster --name=standard-workers --nodes=5
 ```
 
 **GCP GKE**:
 ```bash
 gcloud container clusters update CLUSTER_NAME --enable-autoscaling --min-nodes=3 --max-nodes=10
+
+# Resize directly
+gcloud container clusters resize crypto-bot-cluster --num-nodes=5 --zone=us-central1-a
+```
+
+**Azure AKS**:
+```bash
+az aks scale --resource-group crypto-bot-rg --name crypto-bot-cluster --node-count 5
 ```
 
 ## 🔧 Troubleshooting
@@ -486,7 +856,22 @@ kubectl describe pod <pod-name> -n crypto-bot
 # - Image pull errors
 ```
 
-#### 2. PVC Not Bound
+#### 2. Pods in CrashLoopBackOff
+
+```bash
+# Check pod logs (previous container)
+kubectl logs <pod-name> -n crypto-bot --previous
+
+# Describe pod for events
+kubectl describe pod <pod-name> -n crypto-bot
+
+# Common causes:
+# - Database connection failure → Check secrets and database readiness
+# - Missing environment variables → Check configmaps
+# - Resource limits too low → Adjust in deployment manifest
+```
+
+#### 3. PVC Not Bound
 
 ```bash
 # Check PVC status
@@ -498,10 +883,13 @@ kubectl get storageclass
 # Check events
 kubectl describe pvc <pvc-name> -n crypto-bot
 
-# Solution: Ensure storage class supports dynamic provisioning
+# Solutions:
+# - Verify storage class exists: kubectl get sc
+# - Check available storage: kubectl get pv
+# - Ensure storage class supports dynamic provisioning
 ```
 
-#### 3. Image Pull Errors
+#### 4. Image Pull Errors
 
 ```bash
 # Check pod status
@@ -519,7 +907,7 @@ kubectl create secret docker-registry regcred \
   --docker-password=<password>
 ```
 
-#### 4. Database Connection Failures
+#### 5. Database Connection Failures
 
 ```bash
 # Check database pod
@@ -533,7 +921,7 @@ kubectl run -it --rm debug --image=postgres:15-alpine --restart=Never -n crypto-
 kubectl get secret db-secrets -n crypto-bot -o yaml
 ```
 
-#### 5. Service Not Accessible
+#### 6. Service Not Accessible
 
 ```bash
 # Check service endpoints
@@ -547,6 +935,20 @@ kubectl run -it --rm debug --image=curlimages/curl --restart=Never -n crypto-bot
 kubectl describe svc api-gateway-service -n crypto-bot
 ```
 
+#### 7. Ingress Not Working
+
+```bash
+# Check ingress controller
+kubectl get pods -n ingress-nginx
+
+# Check ingress configuration
+kubectl describe ingress api-gateway-ingress -n crypto-bot
+
+# Test internal connectivity first
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -n crypto-bot -- \
+  curl http://api-gateway-service:8000/health
+```
+
 ### Debug Commands
 
 ```bash
@@ -555,6 +957,9 @@ kubectl get all -n crypto-bot
 
 # Get events
 kubectl get events -n crypto-bot --sort-by='.lastTimestamp' | tail -20
+
+# Interactive debug pod (network tooling)
+kubectl run -it --rm debug --image=nicolaka/netshoot --restart=Never -n crypto-bot -- /bin/bash
 
 # Execute command in pod
 kubectl exec -it <pod-name> -n crypto-bot -- /bin/sh
@@ -565,6 +970,64 @@ kubectl cp crypto-bot/<pod-name>:/path/to/file ./local-file
 # View resource usage
 kubectl describe resourcequota -n crypto-bot
 kubectl describe limitrange -n crypto-bot
+```
+
+### Emergency Procedures
+
+**Trading Engine Failure:**
+```bash
+# 1. Check status
+kubectl get pods -n crypto-bot -l service=trading-engine
+
+# 2. View logs
+kubectl logs -f deployment/trading-engine -n crypto-bot --tail=100
+
+# 3. Restart if needed
+kubectl rollout restart deployment/trading-engine -n crypto-bot
+```
+
+**Database Connection Issues:**
+```bash
+# 1. Verify database pods
+kubectl get pods -n crypto-bot -l component=database
+
+# 2. Test connectivity
+kubectl run -it --rm debug --image=postgres:15-alpine --restart=Never -n crypto-bot -- \
+  psql -h postgres-service -U cryptobot -d cryptobot
+
+# 3. Check secrets
+kubectl get secret db-secrets -n crypto-bot -o yaml
+```
+
+## 🔄 Update and Rollback
+
+### Rolling Update
+
+```bash
+# Update image version
+kubectl set image deployment/api-gateway api-gateway=crypto-bot/api-gateway:v1.1.0 -n crypto-bot
+
+# Monitor rollout
+kubectl rollout status deployment/api-gateway -n crypto-bot
+
+# Pause rollout (if issues)
+kubectl rollout pause deployment/api-gateway -n crypto-bot
+
+# Resume rollout
+kubectl rollout resume deployment/api-gateway -n crypto-bot
+```
+
+### Rollback
+
+```bash
+# View rollout history
+kubectl rollout history deployment/api-gateway -n crypto-bot
+
+# Rollback to previous version
+kubectl rollout undo deployment/api-gateway -n crypto-bot
+
+# Rollback to specific revision
+kubectl rollout undo deployment/api-gateway -n crypto-bot --to-revision=2
 ```
 
 ## 💾 Backup and Recovery
@@ -593,6 +1056,74 @@ kubectl exec -n crypto-bot <timescale-pod> -- \
 # Restore from backup
 kubectl exec -i -n crypto-bot <timescale-pod> -- \
   psql -U cryptobot market_data < timescale-backup-20251123.sql
+```
+
+#### Automated Backup Script
+
+```bash
+#!/bin/bash
+# backup-databases.sh
+
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="/backups"
+
+# PostgreSQL backup
+kubectl exec -n crypto-bot statefulset/postgres -- \
+  pg_dump -U cryptobot cryptobot | \
+  gzip > ${BACKUP_DIR}/postgres_${DATE}.sql.gz
+
+# TimescaleDB backup
+kubectl exec -n crypto-bot statefulset/timescale -- \
+  pg_dump -U cryptobot market_data | \
+  gzip > ${BACKUP_DIR}/timescale_${DATE}.sql.gz
+
+# Upload to cloud storage (example: AWS S3)
+aws s3 cp ${BACKUP_DIR}/ s3://crypto-bot-backups/$(date +%Y%m%d)/ --recursive
+
+# Clean up old backups (keep last 30 days)
+find ${BACKUP_DIR} -type f -mtime +30 -delete
+```
+
+#### Scheduled Backups (CronJob)
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: database-backup
+  namespace: crypto-bot
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: postgres:15-alpine
+            command: ["/bin/bash", "/scripts/backup-databases.sh"]
+            volumeMounts:
+            - name: backup-scripts
+              mountPath: /scripts
+          volumes:
+          - name: backup-scripts
+            configMap:
+              name: backup-scripts
+          restartPolicy: OnFailure
+```
+
+#### Disaster Recovery (Restore from gzip)
+
+```bash
+# Restore PostgreSQL
+gunzip < postgres_20251123_020000.sql.gz | \
+  kubectl exec -i -n crypto-bot statefulset/postgres -- \
+  psql -U cryptobot cryptobot
+
+# Restore TimescaleDB
+gunzip < timescale_20251123_020000.sql.gz | \
+  kubectl exec -i -n crypto-bot statefulset/timescale -- \
+  psql -U cryptobot market_data
 ```
 
 ### Volume Snapshots
@@ -684,6 +1215,23 @@ spec:
           component: database
 ```
 
+Default-deny policy:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: crypto-bot
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+EOF
+```
+
 ### 3. RBAC
 
 Configure Role-Based Access Control:
@@ -755,10 +1303,75 @@ metadata:
 # Scan image with Trivy
 trivy image crypto-bot/api-gateway:v1.0.0
 
+# Scan running images for high/critical vulnerabilities
+trivy image --severity HIGH,CRITICAL crypto-bot/api-gateway:v1.0.0
+
+# Check for vulnerability reports
+kubectl get vulnerabilityreports -n crypto-bot
+
 # Update imagePullPolicy
 kubectl patch deployment api-gateway -n crypto-bot \
   -p '{"spec":{"template":{"spec":{"containers":[{"name":"api-gateway","imagePullPolicy":"Always"}]}}}}'
 ```
+
+### Security Checklist (Pre-Production)
+
+- [ ] All secrets use strong, randomly generated passwords
+- [ ] Secrets are not committed to version control
+- [ ] TLS certificates configured for ingress
+- [ ] Network policies implemented
+- [ ] RBAC roles and bindings configured
+- [ ] Pod Security Standards enforced
+- [ ] Image scanning enabled
+- [ ] Regular security updates scheduled
+- [ ] Backup and disaster recovery tested
+- [ ] Monitoring and alerting configured
+
+## ✅ Deployment Checklist
+
+### Pre-Deployment
+- [ ] Kubernetes cluster is running and accessible
+- [ ] kubectl is configured and working
+- [ ] Docker images are built and pushed to registry
+- [ ] Secrets are created with real credentials
+- [ ] Storage class is configured for cloud provider
+- [ ] Monitoring tools are installed (metrics-server)
+- [ ] Backup strategy is in place
+
+### Deployment
+- [ ] Namespace created successfully
+- [ ] ConfigMaps applied
+- [ ] Secrets applied (production versions)
+- [ ] PVCs created and bound
+- [ ] Database pods are running
+- [ ] Database initialization completed
+- [ ] Microservice pods are running
+- [ ] All health checks passing
+- [ ] Ingress configured (if using)
+- [ ] Monitoring deployed (Prometheus, Grafana)
+- [ ] Autoscaling configured (HPA)
+
+### Post-Deployment
+- [ ] Health verification script passed
+- [ ] All pods are running (kubectl get pods -n crypto-bot)
+- [ ] Services are accessible
+- [ ] Logs show no critical errors
+- [ ] Metrics are being collected
+- [ ] Alerts are configured
+- [ ] Backup job is scheduled
+- [ ] Documentation is updated
+- [ ] Team is trained on operations
+
+### Production Readiness
+- [ ] TLS certificates installed
+- [ ] Network policies enabled
+- [ ] RBAC configured
+- [ ] Resource quotas set
+- [ ] Rate limiting configured
+- [ ] Emergency procedures documented
+- [ ] Monitoring dashboards created
+- [ ] On-call rotation established
+- [ ] Disaster recovery tested
 
 ## 📚 Additional Resources
 
@@ -773,8 +1386,15 @@ kubectl patch deployment api-gateway -n crypto-bot \
 For issues or questions:
 1. Check troubleshooting section above
 2. Review pod logs and events
-3. Run health verification script
-4. Contact DevOps team
+3. Run health verification script (`./verify-deployment.sh --detailed`)
+4. Check events: `kubectl get events -n crypto-bot --sort-by='.lastTimestamp'`
+
+## 📝 Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | 2025-11-23 | Initial release - Complete Kubernetes infrastructure (README + DEPLOYMENT_GUIDE) |
+| 1.1 | 2026-07-30 | Merged DEPLOYMENT_GUIDE.md into this README; added compose-only posture note; corrected stale port table, feature-flag defaults, dead `/mnt/d/...` paths, and removed printed default credentials |
 
 ## 📝 License
 

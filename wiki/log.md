@@ -11,6 +11,14 @@ status: current
 
 Append-only. New entries at TOP. Never edit past entries.
 
+## 2026-07-30 — Doc consolidation pass (merges)
+
+- **20 redundant reference docs merged into survivors** across services (trading-engine 7, risk-metrics 3, bybit-connector/market-data/portfolio-manager/sentiment 1 each), infrastructure (helm/k8s/monitoring 7), frontend (PriceChart quartet → `frontend/PRICECHART.md`), backtesting, docs/testing. Absorbed sources archived under `docs/archive/`; every survivor carries a "Merged from … 2026-07-30" marker.
+- **components/ un-stubbed**: [[components/Volume-Profile]] + [[components/Multi-Timeframe-Blender]] created from the trading-engine integration guides.
+- **~25 factual errors corrected during merge**: wrong ports in six service docs (e.g. portfolio-manager "8006", bybit-connector "8000", market-data "8003"), split-compose commands → unified, missing LIVE_TRADING_ACK in LIVE-flip steps, "$10,000" paper balance → $100, DOGEUSDT in SQZMOM whitelist flagged vs validated set, k8s `replicas: 3` unsafe for the singleton engine.
+- **Credentials scrubbed**: printed Grafana defaults removed from 6+ infra docs and `docs/operations/MONITORING_GUIDE.md` — default is burned, rotate it.
+- T1.2 kill criterion (baseline-worse-by-0.5σ) ported into `docs/runbooks/forward-paper-test.md`.
+
 ## 2026-07-30 — Vault restructure + index resync
 
 - **Repo docs restructured** (branch `docs/vault-restructure`): ~190 historical session/test/phase reports (Nov 2025 – May 2026) moved from repo root, `docs/`, `services/*/`, `infrastructure/`, `frontend/`, `scripts/`, `backtesting/`, `reports/` into `docs/archive/` (by theme: sessions-2025, testing-2025, strategy-2025, infrastructure-2025, audits, superseded, services/<name>, …). Living guides re-homed into `docs/{setup,operations,testing,security,deploy,reference,ml,architecture,strategy}/`. Repo root now carries 6 deliberate md files (was 73). 5 dead/broken-index files staged in `_to_delete/docs-cleanup-2026-07-30/`.

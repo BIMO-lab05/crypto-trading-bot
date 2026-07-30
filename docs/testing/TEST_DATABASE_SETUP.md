@@ -1,7 +1,7 @@
 # Test Database Setup and Troubleshooting Guide
 
-**Version:** 2.0
-**Last Updated:** 2025-11-22
+**Version:** 2.1
+**Last Updated:** 2026-07-30
 **Status:** Production-Ready - Optimized Health Checks
 
 ---
@@ -17,6 +17,119 @@ This document provides comprehensive setup instructions and troubleshooting for 
 | PostgreSQL | postgres:15-alpine | 5434 | General test database | ~15 seconds |
 | TimescaleDB | timescale/timescaledb:latest-pg15 | 5435 | Time-series test data | ~15 seconds |
 | Redis | redis:7-alpine | 6380 | Cache & message queue | ~10 seconds |
+
+---
+
+## Quick reference
+
+> Merged from `docs/testing/TEST_DB_QUICK_REFERENCE.md` on 2026-07-30.
+
+**Status:** ✅ OPERATIONAL | **Startup Time:** 15s | **Success Rate:** 91%
+
+### Quick commands
+
+```bash
+# Start databases
+./scripts/test-db-start.sh
+
+# Verify health (24 automated tests)
+./scripts/verify-test-db.sh
+
+# Stop databases
+./scripts/test-db-stop.sh
+
+# Quick status check
+docker ps --filter "name=crypto-bot-test"
+```
+
+### Connection strings
+
+```python
+# PostgreSQL (:5434)
+POSTGRES_URL = "postgresql://cryptobot_test:test_password_123@localhost:5434/cryptobot_test"
+
+# TimescaleDB (:5435)
+TIMESCALEDB_URL = "postgresql://cryptobot_test:test_password_123@localhost:5435/market_data_test"
+
+# Redis (:6380)
+REDIS_URL = "redis://localhost:6380/0"
+```
+
+### Manual connections
+
+```bash
+# PostgreSQL
+docker exec -it crypto-bot-test-postgres psql -U cryptobot_test -d cryptobot_test
+
+# TimescaleDB
+docker exec -it crypto-bot-test-timescaledb psql -U cryptobot_test -d market_data_test
+
+# Redis
+docker exec -it crypto-bot-test-redis redis-cli
+```
+
+### Common issues (quick fixes)
+
+| Symptom | Quick Fix |
+|---------|-----------|
+| "Port already in use" | `docker stop crypto-bot-test-postgres` |
+| "Connection refused" | Wait 15 seconds for health checks |
+| "Container exits" | `docker-compose -f docker-compose.test.yml down -v` then restart |
+| Slow startup | Check system RAM/CPU, increase `start_period` if needed |
+
+### Health check status
+
+```bash
+# Quick health check
+docker inspect crypto-bot-test-postgres --format='{{.State.Health.Status}}'
+# Expected: healthy
+
+# Connection test
+docker exec crypto-bot-test-postgres pg_isready -U cryptobot_test
+# Expected: /var/run/postgresql:5432 - accepting connections
+```
+
+### Performance at a glance
+
+| Metric | Target | Actual | Status |
+|--------|--------|--------|--------|
+| Startup time | <30s | 15s | ✅ |
+| Health check pass | <20s | 10s | ✅ |
+| Query latency (native) | <100ms | 10-30ms | ✅ |
+| Memory usage | <1GB | ~203MB | ✅ |
+
+### Test database specs
+
+| Database | Port | Image | Memory | Purpose |
+|----------|------|-------|--------|---------|
+| PostgreSQL | 5434 | postgres:15-alpine | 79MB | General tests |
+| TimescaleDB | 5435 | timescale/timescaledb | 118MB | Time-series tests |
+| Redis | 6380 | redis:7-alpine | 5MB | Cache/queue tests |
+
+### Configuration files
+
+- **docker-compose.test.yml** - Container definitions
+- **scripts/test-db-start.sh** - Startup script
+- **scripts/test-db-stop.sh** - Stop script
+- **scripts/verify-test-db.sh** - Verification script (24 automated tests)
+
+### Troubleshooting one-liners
+
+```bash
+# Reset everything
+docker-compose -f docker-compose.test.yml down -v && ./scripts/test-db-start.sh
+
+# Check logs
+docker logs crypto-bot-test-postgres --tail 50
+
+# Test connection from Python
+python -c "import psycopg2; psycopg2.connect('postgresql://cryptobot_test:test_password_123@localhost:5434/cryptobot_test')"
+
+# Monitor resource usage
+docker stats crypto-bot-test-postgres --no-stream
+```
+
+**Health-check resolution history:** see `docs/archive/infrastructure-2025/TEST_DB_HEALTH_CHECK_RESOLUTION.md` (moved to archive in the 2026-07-30 docs restructure; the quick reference previously linked it at `docs/testing/`).
 
 ---
 
