@@ -152,21 +152,58 @@ Plans:
 
 ### Phase 20: Paper-Engine Honesty
 
-**Goal**: Today `paper_trading.py:122` fills at `current_price` with no slippage; `paper_trading.py:148` sets `OrderStatus.FILLED` unconditionally; `paper_trading.py:151` `bybit_order_id = f"PAPER_{symbol}_{side}"` collides on concurrent same-symbol orders. No SL/TP trigger evaluation in paper or position-manager paths — paper positions with SL/TP set silently never exit. Jan 2026 fixes (48h max-hold, stop-loss-as-limit at commit `380a674`) have no regression tests. This phase adds a per-symbol slippage model (5bps majors / 10bps ADA/BNB defaults), implements SL/TP trigger evaluation on every tick, makes `bybit_order_id` monotonic, and lands regression tests for the Jan 2026 fixes.
+**Goal**: Paper fills are still frictionless and unidentifiable. `paper_trading.py:164` computes `order_value = current_price * quantity` with no slippage or spread; `:170-171` sets `OrderStatus.FILLED` / `filled_price=current_price` unconditionally, so there is no partial-fill or rejection path; `:173` sets `bybit_order_id = f"PAPER_{order.symbol}_{order.side.value}"`, which collides on concurrent same-symbol orders. This phase adds a per-symbol slippage model (5bps majors / 10bps ADA/BNB defaults), makes `bybit_order_id` monotonic, routes SL/TP fills through the slippage model, and lands the missing max-hold regression test.
 **Depends on**: Phase 16, Phase 17, Phase 18, Phase 19
-**Requirements**: PAPER-01, PAPER-02, PAPER-03
+**Requirements**: PAPER-01, PAPER-02 (partial), PAPER-03 (partial)
+
+> **Re-scoped 2026-07-30** against the settled tree (post-`fb764d5`). Two of the original premises no longer hold:
+>
+> - **"No SL/TP trigger evaluation in paper or position-manager paths" is false.** `position_manager.check_all_exit_conditions()` (`position_manager.py:589`) evaluates stop-loss (`:618`), trailing stop (`:622`), partial exits TP1/TP2/TP3 (`:626`) and legacy take-profit (`:633`). It is called from `auto_trader.py:2725` inside `_monitor_positions()` (`:2533`), which the trading loop invokes at `:916` and `:926`. The only gates between the price fetch and that call are `if was_closed: continue` (`:2604`) and an implausible-price guard (`:2650-2656`) — no mode gate, so it fires for paper positions on every tick. This wiring is **not** from the 2026-07 work: the call site was introduced in `0d0271c` (2025-11-30) and does not appear in `fb764d5`'s diff, so it predates the 2026-05-23 audit that wrote the premise.
+> - **Line references all moved** in the 737-line `auto_trader.py` rewrite: 48h max-hold `:2371` → `:2425`; stop-loss-as-limit `:2691-2698` → `_close_position_with_limit_order()` at `:3043` with `limit_buffer_pct=0.005` at `:3048`.
+>
+> Net effect: PAPER-01 is fully owed; PAPER-02 loses its trigger-evaluation half and keeps the monotonic-ID and slippage-on-trigger halves; PAPER-03 keeps the max-hold test and loses most of the stop-loss-as-limit test (already covered by `tests/unit/test_auto_trader.py:708-845`).
 
 ### Phase 21: TA Aggregator Widening + Leakage Net
 
-**Goal**: Aggregator at `services/technical-analysis/app/handlers/analysis.py:19-132` combines only RSI + MACD + Trend Filter from 13 implemented indicators (ADX, Ichimoku, SQZMOM, RSI-Divergence, Volume Confirmation, ATR, Stochastic, Bollinger, SMA, EMA wasted). Param drift: route MACD `8/17/9` (`main.py:284-286`) vs settings `5/35/5` (`config.py:71-81`); BB std-dev route `2.0` (`main.py:306`) vs config `2.5` (`config.py:88`). No look-ahead-leakage regression tests. This phase widens the aggregator vote (ADX trend gate, SQZMOM regime overlay, Volume Confirmation veto), reconciles MACD + BB params to single source of truth, and lands a leakage regression suite covering all 13 indicators + aggregator.
+**Goal**: Aggregator `get_aggregated_signal()` at `services/technical-analysis/app/handlers/analysis.py:19-141` still votes only RSI + MACD + Trend Filter (computed at `:42-44`, voted at `:71-88`) out of 13 indicator modules under `app/indicators/` — adx, atr, bollinger_bands, ichimoku, rsi_divergence, squeeze_momentum, sqzmom_enhanced, stochastic and moving_averages (SMA+EMA) are all unused by the vote. No look-ahead-leakage regression tests exist anywhere in TA. This phase widens the aggregator vote (ADX trend gate, SQZMOM regime overlay, Volume Confirmation veto), converts the route params from hardcoded literals to settings reads, and lands a leakage regression suite covering all 13 modules + the aggregator.
 **Depends on**: Phase 16
-**Requirements**: TA-AGG-01, TA-AGG-02, TA-AGG-03, TA-AGG-04
+**Requirements**: TA-AGG-01, TA-AGG-02 (reduced), TA-AGG-03 (reduced), TA-AGG-04
+
+> **Re-scoped 2026-07-30.** The param-*drift* half of this phase is already fixed; the single-source-of-truth half is not.
+>
+> - **MACD values now agree.** Route defaults are `Query(default=5/35/5)` at `main.py:291-293`, matching `config.py:71-82` (`default_macd_fast/slow/signal` = 5/35/5). The old `8/17/9` route drift is gone. The aggregator reads `settings.default_macd_*` (`analysis.py:36-38`) while the route hardcodes the same numbers as literals — so the values agree today by coincidence, not by construction, and drift can silently reopen.
+> - **BB std-dev values now agree.** Route default is `Query(default=2.5)` at `main.py:314`, matching `config.py:87-90` (`default_bb_std` = 2.5). Same structural weakness.
+> - **Requirement text names attributes that don't exist**: TA-AGG-02 says `settings.macd_*` (actual: `settings.default_macd_*`); TA-AGG-03 says `settings.bollinger_std_dev` and cites `config.py:88` (actual: `settings.default_bb_std` at `config.py:87-90`). Corrected in REQUIREMENTS.md.
+> - Checked and cleared: `round(rsi_value, 2)` at `analysis.py:137` is in the aggregator's response payload, but that dict (`:132-141`) carries no price-domain field — only signal, confidence, rsi, macd_signal, trend, timestamp. Not a PRICE-01 site.
+>
+> Net effect: TA-AGG-01 and TA-AGG-04 fully owed. TA-AGG-02/03 shrink from "reconcile a value conflict" to "remove the literal, read the setting, add a test that pins them together."
 
 ### Phase 22: round(price, N) Epidemic Kill
 
-**Goal**: Commit `487d1bd` fixed one site; the 2026-05-23 audit found 6 more sites where price-domain values are rounded to 2 decimals — fatal for sub-$1 assets (ADA at ~$0.40). `trend_following_strategy.py:1105-1184` (8 hits), `support_resistance_strategy.py:643-700` (4 hits), `momentum_breakout_strategy.py:1059-1116` (4 hits), `research_optimized_strategy.py:683` (1 hit), plus two known sqzmom hits. This phase replaces every `round(price, 2)` with `float(price)` (or per-symbol tick-size precision), adds a sub-$1 asset fixture suite, and lands a CI grep gate that prevents reintroduction.
+**Goal**: Commit `487d1bd` fixed one site. A full re-sweep on 2026-07-30 finds **22 surviving price-domain `round(…, 2)` call sites across 7 files** — fatal for sub-$1 assets (ADA at ~$0.40 rounds to 2dp and flip-flops). This phase replaces each with `float()` or tick-size-derived precision, adds a sub-$1 fixture suite, and lands a CI grep gate that prevents reintroduction.
 **Depends on**: Phase 16
-**Requirements**: PRICE-01, PRICE-02
+**Requirements**: PRICE-01 (widened), PRICE-02 (widened)
+
+> **Re-scoped 2026-07-30.** The original inventory was wrong in three ways — undercounted, misfiled, and scoped too narrowly to catch everything.
+>
+> Current sites, verified by `grep -rnE "round\([^)]*(price|stop_loss|take_profit|entry|target|level|support|resistance)[^)]*,\s*2\s*\)" services/`:
+>
+> | File | Sites | Original claim |
+> |---|---|---|
+> | `trading-engine/app/utils/support_resistance_detector.py:630,636,637,731,737,738` | 6 | **not listed at all** |
+> | `trading-engine/app/strategies/support_resistance_strategy.py:643(×2),682,692,700` | 5 | "`643-700` (4 hits)" |
+> | `trading-engine/app/strategies/momentum_breakout_strategy.py:1059(×2),1098,1108,1116` | 5 | "`1059-1116` (4 hits)" |
+> | `technical-analysis/app/strategies/squeeze_momentum_strategy.py:203,204,205` | 3 | "two known sqzmom hits" |
+> | `trading-engine/app/strategies/trend_following_strategy.py:1142(×2),1184` | 3 | "`1105-1184` (8 hits)" |
+> | `technical-analysis/backtesting/sqzmom_backtest.py:106,108` | 2 | — |
+> | `trading-engine/app/strategies/research_optimized_strategy.py:683` | 1 | "`683` (1 hit)" ✓ |
+>
+> - **`support_resistance_detector.py` (6 sites) was missed entirely** and lives in `app/utils/`, not `app/strategies/` — so PRICE-01's "all 6 strategy files" scope would not have covered it. PRICE-01 is widened to "all price-domain sites under `services/`, regardless of directory."
+> - **The sqzmom sites are in technical-analysis, not trading-engine** (3 in the strategy + 2 in `backtesting/`), so the fix spans two services.
+> - **Cleared as legitimate** (percentage / basis-point domain, not price): `ml-prediction-service/app/regime/regime_detector.py:304` (`price_vs_ema_pct`) and `trading-engine/app/analytics/post_trade_analysis.py:152` (`price_improvement_bps`). These belong in PRICE-02's allowlist with that justification.
+> - **PRICE-02's grep gate as written would not have caught this set.** Its primary pattern requires the literal `price`, so `round(stop_loss, 2)`, `round(take_profit, 2)` and `round(final_target, 2)` all escape it; the sibling-pattern list covers stop_loss and take_profit in prose but omits `final_target`. The corrected pattern is now written into PRICE-02 verbatim rather than described.
+> - **Tick-size precision is feasible**: `trading-engine/app/services/instruments_cache.py:52` already carries `tick_size: Decimal` sourced from the connector's `priceFilter.tickSize`, so PRICE-01's tick-size option does not require new plumbing.
+> - Precedent for the gate exists — `tests/ci/` already holds 4 governance gates (`test_no_bybit_bypass.py`, `test_audit_freshness_gate.py`, `test_no_placeholder_one_liners.py`, `test_roadmap_analyze_supersession_wired.py`).
 
 ### Phase 23: ML Purge + V0-Pattern Eradication
 

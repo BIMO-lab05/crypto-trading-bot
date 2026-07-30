@@ -56,19 +56,23 @@ Provenance: produced by an external "cowork" agent run on 2026-07-29 14:04–18:
 | REQ | Phase | Still owed? | Evidence |
 |---|---|---|---|
 | PAPER-01 (slippage model) | 20 | YES | no `slippage` symbol in `paper_trading.py` |
-| PAPER-02 (SL/TP trigger + monotonic id) | 20 | YES | `paper_trading.py:173` still `f"PAPER_{symbol}_{side}"`; no trigger evaluation |
+| PAPER-02 (SL/TP trigger + monotonic id) | 20 | PARTIAL | monotonic id owed (`paper_trading.py:173` still `f"PAPER_{symbol}_{side}"`). **Trigger evaluation exists and fires for paper** — `position_manager.check_all_exit_conditions()` (`:589`) via `auto_trader.py:2725` in `_monitor_positions()` (`:2533`), loop-driven at `:916`/`:926`, no mode gate. Predates this work (`0d0271c`, 2025-11-30) |
 | PAPER-03 (Jan-2026 regression tests) | 20 | YES | `tests/test_jan_2026_fixes_regression.py` absent |
 | TA-AGG-01 (ADX/SQZMOM/Volume in vote) | 21 | YES | 0 ADX refs in `handlers/analysis.py` |
 | TA-AGG-02 (MACD 5/35/5 single source) | 21 | PARTIAL | `main.py:291-293` values are canonical 5/35/5 but still **hardcoded** `Query(default=…)`, not `settings.macd_*` — value drift gone, single-source requirement still owed |
 | TA-AGG-03 (BB std-dev 2.5) | 21 | PARTIAL | `main.py:314` `Query(default=2.5)` — same shape: right value, still not sourced from `settings.bollinger_std_dev` |
-| PRICE-01/02 (`round(price, 2)`) | 22 | YES | 17 matches remain under `services/` |
+| PRICE-01/02 (`round(price, 2)`) | 22 | YES (widened) | **22** price-domain sites across 7 files, incl. `app/utils/support_resistance_detector.py` (6) which the 2026-05-23 audit missed entirely and PRICE-01's "strategy files" scope would not have covered |
 | RECON-01/02 (reconciliation + orderLinkId) | 19 | YES | connector model accepts `orderLinkId`; no generator in adapter/engine |
 | HYG-01 (sentiment weight log) | 24 | YES | `auto_trader.py:1131,1262` still say "Sentiment 15%" |
 | HYG-03 (TA CORS lockdown) | 24 | YES | TA `main.py:224` still `allow_origins=["*"]` |
 
 Phase 18's committed files (`bybit_adapter.py`, `tape_replay_client.py`, `test_bybit_adapter_contract.py`) are **disjoint** from the uncommitted set; the one shared file (`bybit-connector/app/models.py`) is additive — Phase 18's camelCase aliases survive at `models.py:69-81`.
 
-**Consequence for planning:** Phase 20/21/24 *premise text* in ROADMAP.md cites line numbers and behaviors that the uncommitted work has already changed. Re-derive those premises before planning them.
+**Consequence for planning:** ROADMAP premise text cites line numbers and behaviors the 2026-07 work has changed.
+
+- **Phases 20, 21, 22 re-scoped 2026-07-30** — see the `> Re-scoped` blocks in their ROADMAP detail sections and the annotated REQUIREMENTS entries. Summary: PAPER-02 and PAPER-03 shrink (trigger evaluation and stop-loss-as-limit coverage already exist); TA-AGG-02/03 shrink from value-reconciliation to remove-the-literal; PRICE-01/02 **grow** — 22 sites across 7 files, one file and one regex class previously uncovered.
+- **Phase 24 still un-re-scoped.** HYG-01 and HYG-03 confirmed still owed above, but the premise line numbers were not re-derived.
+- **Phase 23 likely stale too, not re-derived.** Its premise cites `ml-retraining-service/app/core/model_trainer.py:430,623` and `feature_engineer.py:32,283`, while `ml-prediction-service/app/main.py` and `ml_models/gru_model.py` were both modified in commit `0214482`. Re-verify before planning.
 
 ### New operator actions from the out-of-band reports
 
