@@ -760,7 +760,7 @@ top -bn1 | head -20
 - [Grafana Dashboards](http://localhost:3000)
 - [Prometheus Alerts](http://localhost:9090/alerts)
 - [AlertManager](http://localhost:9093)
-- [Monitoring Guide](/docs/MONITORING_GUIDE.md)
+- [Monitoring Guide](MONITORING_GUIDE.md)
 - [Operations Runbook](/docs/operations/RUNBOOK.md)
 
 ---

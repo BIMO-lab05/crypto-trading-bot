@@ -292,7 +292,7 @@ groups:
 
 ### Complete Alert List
 
-See [MONITORING_GUIDE.md](/docs/MONITORING_GUIDE.md#alerting-rules) for all 26 alert rules.
+See [MONITORING_GUIDE.md](MONITORING_GUIDE.md#alerting-rules) for all 26 alert rules.
 
 ### Adding Custom Alerts
 
@@ -807,7 +807,7 @@ After running `./test_alerts.sh all`:
 
 ## Resources
 
-- [MONITORING_GUIDE.md](/docs/MONITORING_GUIDE.md) - Comprehensive monitoring guide
+- [MONITORING_GUIDE.md](MONITORING_GUIDE.md) - Comprehensive monitoring guide
 - [ALERT_RUNBOOKS.md](/docs/operations/ALERT_RUNBOOKS.md) - Alert investigation procedures
 - [Prometheus Alerting](https://prometheus.io/docs/alerting/latest/overview/)
 - [AlertManager Configuration](https://prometheus.io/docs/alerting/latest/configuration/)

@@ -1,0 +1,110 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                   🔔 CONFIDENCE MONITOR - QUICK START                         ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 🚀 START MONITORING (Choose One)                                             │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  Option 1: Watch in Terminal (See alerts as they happen)                     │
+│  $ ./start_monitor.sh                                                         │
+│  Press Ctrl+C to stop                                                         │
+│                                                                               │
+│  Option 2: Run in Background (Work while it monitors)                        │
+│  $ ./start_monitor.sh background                                             │
+│  $ tail -f /tmp/confidence_monitor.log  # View alerts                        │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 📊 WHAT THE ALERTS MEAN                                                      │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  🟡 50-59% Confidence = "Getting Interesting"                                │
+│     → Market improving, not ready yet                                         │
+│     → Keep watching                                                           │
+│                                                                               │
+│  🟣 60-64% Confidence = "Getting Close"                                      │
+│     → High-quality setup forming                                              │
+│     → Trade likely in 5-30 minutes                                            │
+│                                                                               │
+│  🟢 65%+ Confidence = "TRADE READY!"                                         │
+│     → System WILL execute within 30 seconds                                   │
+│     → High-probability opportunity                                            │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 🎛️ CONTROL COMMANDS                                                          │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  Check if monitor is running:                                                │
+│  $ ./start_monitor.sh status                                                  │
+│                                                                               │
+│  Stop background monitor:                                                     │
+│  $ ./start_monitor.sh stop                                                    │
+│                                                                               │
+│  View recent alerts:                                                          │
+│  $ tail -20 /tmp/confidence_monitor.log                                       │
+│                                                                               │
+│  Find trade executions:                                                       │
+│  $ grep "EXECUTED" /tmp/confidence_monitor.log                                │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 💡 WHAT TO EXPECT                                                            │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  First Hour:                                                                  │
+│  • Likely NO alerts (market is ranging)                                       │
+│  • This is NORMAL and GOOD                                                    │
+│  • System is being selective                                                  │
+│                                                                               │
+│  When Market Activates:                                                       │
+│  • Yellow alerts → Confidence improving                                       │
+│  • Purple alerts → Trade coming soon                                          │
+│  • Green alerts → Trade executing NOW                                         │
+│  • 💰 notification → Trade executed!                                          │
+│                                                                               │
+│  Top Performers to Watch:                                                     │
+│  1. SOLUSDT (best: 60% win rate)                                              │
+│  2. BNBUSDT (2nd: 64.3% win rate)                                             │
+│  3. ADAUSDT (3rd: 75% win rate)                                               │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 🛠️ TROUBLESHOOTING                                                           │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  "Container not running" error:                                               │
+│  $ docker-compose up -d trading-engine                                        │
+│  Then try: ./start_monitor.sh                                                 │
+│                                                                               │
+│  No alerts appearing:                                                         │
+│  • This is normal - market has low confidence                                 │
+│  • Check raw signals: docker logs crypto-bot-trading | grep "Final Signal"   │
+│  • Patience - first alert could take hours                                    │
+│                                                                               │
+│  Monitor crashed or stuck:                                                    │
+│  $ ./start_monitor.sh stop                                                    │
+│  $ ./start_monitor.sh background  # Restart                                   │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ 📖 FULL DOCUMENTATION                                                        │
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  Read the complete guide:                                                     │
+│  $ cat CONFIDENCE_MONITOR_README.md                                           │
+│                                                                               │
+│  Or open in your browser/editor:                                              │
+│  CONFIDENCE_MONITOR_README.md                                                 │
+│                                                                               │
+└───────────────────────────────────────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  🎯 TL;DR: Run ./start_monitor.sh and wait for alerts!                       ║
+╚═══════════════════════════════════════════════════════════════════════════════╝

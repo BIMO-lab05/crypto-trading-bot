@@ -105,7 +105,7 @@ docker exec crypto-bot-test-postgres pg_isready -U cryptobot_test
 - **docker-compose.test.yml** - Container definitions
 - **scripts/test-db-start.sh** - Startup script
 - **scripts/verify-test-db.sh** - Verification script
-- **docs/TEST_DATABASE_SETUP.md** - Full documentation
+- **docs/testing/TEST_DATABASE_SETUP.md** - Full documentation
 
 ---
 

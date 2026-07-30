@@ -1,0 +1,209 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                     CRYPTO TRADING BOT - API TEST RESULTS                      ║
+║                           November 21, 2025                                    ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+YOUR REQUESTED TESTS:
+═══════════════════════════════════════════════════════════════════════════════════
+
+┌─ TEST 1 ─────────────────────────────────────────────────────────────────────────┐
+│ curl http://localhost:8000/api/market/ticker/BTCUSDT                             │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│ Status Code: 200 OK                                                      ✅ PASS  │
+│                                                                                    │
+│ Response:                                                                         │
+│ {                                                                                 │
+│   "ticker": {                                                                     │
+│     "symbol": "BTCUSDT",                                                         │
+│     "last_price": "183630.7",                                                    │
+│     "price_24h_pcnt": "0.489",                                                   │
+│     "volume_24h": "20371.338",                                                   │
+│     "high_price_24h": "196938.2",                                                │
+│     "low_price_24h": "121542.3"                                                  │
+│   }                                                                               │
+│ }                                                                                 │
+│                                                                                   │
+│ Analysis: Real-time Bitcoin price is being tracked correctly from Bybit         │
+│ Service Status: market-data service ✅ healthy, bybit-connector ✅ healthy      │
+└──────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ TEST 2 ─────────────────────────────────────────────────────────────────────────┐
+│ curl http://localhost:8000/api/signals/latest                                    │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│ Status Code: 404 Not Found                                              ❌ FAIL  │
+│                                                                                   │
+│ Response:                                                                         │
+│ {                                                                                 │
+│   "detail": "Not Found"                                                          │
+│ }                                                                                 │
+│                                                                                   │
+│ Analysis:                                                                        │
+│   • Endpoint /api/signals/latest does NOT exist                                  │
+│   • This is NOT a service availability issue - the route is missing             │
+│   • The correct endpoint is: /api/trading/signals/{symbol}                       │
+│                                                                                   │
+│ Root Causes:                                                                     │
+│   1. Wrong endpoint name used (signals/latest vs trading/signals)               │
+│   2. Backend service offline: trading-engine ❌ (even if endpoint existed)       │
+│                                                                                   │
+│ Solution:                                                                        │
+│   Use: curl http://localhost:8000/api/trading/signals/BTCUSDT                   │
+│   But first restart: docker-compose down && docker-compose up -d               │
+└──────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ TEST 3 ─────────────────────────────────────────────────────────────────────────┐
+│ curl http://localhost:8000/api/portfolio/balance                                 │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│ Status Code: 200 OK                                                      ✅ PASS  │
+│                                                                                    │
+│ Response:                                                                         │
+│ {                                                                                 │
+│   "success": true,                                                                │
+│   "portfolio_id": "default",                                                      │
+│   "cash_balance": "10000.0",                                                      │
+│   "total_value": "10000.0",                                                       │
+│   "unrealized_pnl": "0",                                                          │
+│   "realized_pnl": "0",                                                            │
+│   "total_pnl": "0",                                                               │
+│   "total_return_pct": "0",                                                        │
+│   "timestamp": 1763750386727                                                     │
+│ }                                                                                 │
+│                                                                                   │
+│ Analysis: Paper trading portfolio with $10,000 USDT, no open positions         │
+│ Service Status: portfolio-manager ✅ responding (despite health check issue)    │
+└──────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ TEST 4 ─────────────────────────────────────────────────────────────────────────┐
+│ curl http://localhost:8000/health                                                │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│ Status Code: 200 OK                                                      ✅ PASS  │
+│                                                                                    │
+│ System Status: DEGRADED (5 out of 9 services offline)                           │
+│                                                                                   │
+│ Backend Services:                                                                │
+│   ✅ bybit_connector      ✅ market_data          ✅ sentiment_analysis         │
+│   ✅ notification_service ❌ technical_analysis   ❌ trading_engine             │
+│   ❌ portfolio_manager*   ❌ risk_metrics        ❌ ml_prediction              │
+│                                                                                   │
+│   *portfolio_manager shows as down but is actually responding                   │
+│                                                                                   │
+│ Analysis: Health check working, but many backend services not running           │
+│ Impact: Cannot generate trading signals, no technical analysis, no ML predictions│
+└──────────────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+QUICK RESULT SUMMARY:
+╔═══════════════════════════╦═══════════════╦════════════════════════════════════╗
+║      ENDPOINT             ║  STATUS       ║        VERDICT                     ║
+╠═══════════════════════════╬═══════════════╬════════════════════════════════════╣
+║ /api/market/ticker/       ║ ✅ Working   ║ PASS - Valid market data          ║
+║ /api/signals/latest       ║ ❌ Not Found ║ FAIL - Endpoint doesn't exist     ║
+║ /api/portfolio/balance    ║ ✅ Working   ║ PASS - Portfolio tracking works   ║
+║ /health                   ║ ✅ Working   ║ PASS - Health check operational   ║
+╚═══════════════════════════╩═══════════════╩════════════════════════════════════╝
+
+PASS RATE: 3 out of 4 (75%)
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+DOCKER SERVICE STATUS:
+╔═══════════════════════════════════╦═════════════════╦══════════════════════════╗
+║         SERVICE                   ║     STATUS      ║        HEALTH            ║
+╠═══════════════════════════════════╬═════════════════╬══════════════════════════╣
+║ api-gateway (port 8000)           ║ Up 2 hours      ║ Unhealthy ⚠️             ║
+║ bybit-connector (port 8001)       ║ Up 2 hours      ║ Healthy ✅               ║
+║ market-data (port 8002)           ║ Up 2 hours      ║ Healthy ✅               ║
+║ portfolio-manager (port 8003)     ║ Up 2 hours      ║ Unhealthy ⚠️*            ║
+║ notification-service (port 8006)  ║ Up 2 hours      ║ Healthy ✅               ║
+║ sentiment-analysis (port 8008)    ║ Up 2 hours      ║ Healthy ✅               ║
+╠═══════════════════════════════════╬═════════════════╬══════════════════════════╣
+║ technical-analysis (port 8004)    ║ Not Started     ║ DOWN ❌                  ║
+║ trading-engine (port 8005)        ║ Not Started     ║ DOWN ❌                  ║
+║ ml-prediction (port 8007)         ║ Not Started     ║ DOWN ❌                  ║
+║ risk-metrics (port 8009)          ║ Not Started     ║ DOWN ❌                  ║
+╚═══════════════════════════════════╩═════════════════╩══════════════════════════╝
+
+* portfolio-manager responds correctly despite health check failure
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+WHAT'S WORKING:
+───────────────────────────────────────────────────────────────────────────────────
+  ✅ Market Data                 Real-time BTCUSDT ticker and OHLCV data
+  ✅ Portfolio Balance           $10,000 paper trading portfolio
+  ✅ Portfolio Tracking          Holdings, P&L, performance metrics
+  ✅ Portfolio Transactions      Buy/sell execution routes available
+  ✅ Sentiment Analysis          News, social, and combined sentiment
+  ✅ System Monitoring           Health check endpoint
+  ✅ API Gateway                 Request routing and aggregation
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+WHAT'S NOT WORKING:
+───────────────────────────────────────────────────────────────────────────────────
+  ❌ Trading Signals             Endpoint doesn't exist + service offline
+  ❌ Technical Analysis          RSI, MACD, Bollinger Bands unavailable
+  ❌ ML Price Predictions        LSTM/GRU predictions not running
+  ❌ Risk Metrics                VaR, Sharpe ratio, Max drawdown unavailable
+  ❌ Trading Engine              No signal generation or trade recommendations
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+WHY ENDPOINT /api/signals/latest FAILS:
+───────────────────────────────────────────────────────────────────────────────────
+
+Problem 1: ENDPOINT DOESN'T EXIST
+  Route /api/signals/latest is not defined in API Gateway
+  Correct route: /api/trading/signals/{symbol}
+
+Problem 2: SERVICE OFFLINE
+  Even if endpoint existed, trading-engine service is not running
+  Status: ❌ Container not visible in docker ps
+
+Problem 3: SOLUTION
+  Step 1: Restart services
+    $ docker-compose down
+    $ docker-compose up -d
+    $ sleep 30
+  
+  Step 2: Use correct endpoint
+    $ curl http://localhost:8000/api/trading/signals/BTCUSDT
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+OVERALL ASSESSMENT:
+───────────────────────────────────────────────────────────────────────────────────
+
+SYSTEM STATUS: 🟡 DEGRADED
+
+FUNCTIONALITY:
+  • Market Data Collection:        ✅ OPERATIONAL
+  • Portfolio Management:          ✅ OPERATIONAL  
+  • Sentiment Analysis:            ✅ OPERATIONAL
+  • Trading Signals:               ❌ OFFLINE
+  • Technical Analysis:            ❌ OFFLINE
+  • ML Predictions:                ❌ OFFLINE
+  • Risk Metrics:                  ❌ OFFLINE
+
+IMPACT:
+  Can monitor prices and portfolio, but cannot execute automated trades without
+  signal generation, technical analysis, and risk metrics services online.
+
+RECOMMENDED NEXT STEP:
+  1. Restart all services: docker-compose down && docker-compose up -d
+  2. Wait 30 seconds for startup
+  3. Retest endpoints to confirm recovery
+  4. Fix health checks for api-gateway and portfolio-manager
+
+═══════════════════════════════════════════════════════════════════════════════════
+
+DETAILED REPORTS GENERATED:
+  • API_ENDPOINT_TEST_REPORT.md        - Comprehensive analysis (400+ lines)
+  • API_TEST_QUICK_SUMMARY.txt         - Quick reference guide
+  • ENDPOINT_TEST_RESULTS.md           - Detailed endpoint analysis
+  • TEST_RESULTS_VISUAL.txt            - This file
+
+═══════════════════════════════════════════════════════════════════════════════════
+Test Date: November 21, 2025 | API Base: http://localhost:8000 | Status: 🟡 DEGRADED
+═══════════════════════════════════════════════════════════════════════════════════

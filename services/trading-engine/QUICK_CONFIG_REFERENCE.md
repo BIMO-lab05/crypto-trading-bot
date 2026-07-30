@@ -314,7 +314,7 @@ Adjust in `.env`:
 - Full Configuration Report: `CONFIG_STATUS_REPORT.md`
 - SQZMOM Strategy Guide: `SQZMOM_DEPLOYMENT_GUIDE.md`
 - Service README: `README.md`
-- Bybit API Setup: `../../docs/BYBIT_API_SETUP_GUIDE.md`
+- Bybit API Setup: `../../docs/setup/BYBIT_API_SETUP_GUIDE.md`
 
 ---
 

@@ -292,4 +292,4 @@ If outgrowing free tier:
 **See also:**
 - `/home/moha/.claude/plans/crystalline-watching-sphinx.md` — original plan + Phase 1 research
 - `CLAUDE.md` (repo root) — project rules, risk caps, Bybit flag matrix
-- `docs/DEPLOYMENT_RUNBOOK.md` — full Kubernetes deploy (alternative to this headless setup)
+- `docs/deploy/KUBERNETES_RUNBOOK.md` — full Kubernetes deploy (alternative to this headless setup)
