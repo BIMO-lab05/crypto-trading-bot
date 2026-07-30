@@ -9,7 +9,7 @@ The Technical Analysis Service provides REST API endpoints for calculating techn
 ```
 ┌─────────────────────┐
 │  Trading Engine     │
-│  (Port: TBD)        │
+│  (Port: 8004)       │
 └──────────┬──────────┘
            │
            ↓ GET /api/v1/indicators/*

@@ -1,6 +1,6 @@
 # Risk & Metrics Service
 
-**Port:** 8007
+**Port:** 8009
 **Version:** 1.0.0
 
 ## Overview
@@ -160,7 +160,7 @@ Max_DD = Max((Peak_Value - Trough_Value) / Peak_Value)
 import httpx
 
 # Get complete risk assessment
-response = httpx.get("http://localhost:8007/risk/scorecard")
+response = httpx.get("http://localhost:8009/risk/scorecard")
 scorecard = response.json()
 
 print(f"Risk Level: {scorecard['overall_risk_level']}")
@@ -169,7 +169,7 @@ print(f"Sharpe Ratio: {scorecard['performance_metrics']['sharpe_ratio']}")
 print(f"Current Drawdown: {scorecard['drawdown_metrics']['current_drawdown']*100}%")
 
 # Check if trading is allowed
-breaker = httpx.get("http://localhost:8007/circuit-breaker").json()
+breaker = httpx.get("http://localhost:8009/circuit-breaker").json()
 if not breaker['can_trade']:
     print(f"⚠️ Trading halted: {breaker['reason']}")
 ```
