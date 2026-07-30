@@ -2,7 +2,7 @@
 
 Autonomous Bybit crypto trading bot. 11 Python microservices + React frontend. Currently runs in **paper-trading mode** — real Bybit mainnet prices, simulated orders.
 
-**Last updated:** 2026-05-05 · **Mode:** paper-trading · **Status:** revived after dormancy ([revival plan](docs/REVIVAL_PLAN_2026-05-02.md))
+**Last updated:** 2026-07-30 · **Mode:** paper-trading · **Status:** actively developed — v1.3 milestone executing (docs reorganized 2026-07-30: living guides in [docs/](docs/README.md), history in docs/archive/)
 
 ---
 
@@ -206,7 +206,7 @@ crypto-trading-bot/
 │   ├── development/               # SETUP.md, TESTING.md
 │   ├── operations/                # RUNBOOK.md, alerting, disaster recovery
 │   ├── strategy/                  # Research plans, CPCV / DSR / vol-parity / funding-gate
-│   ├── REVIVAL_PLAN_2026-05-02.md # 6-phase stack revival
+│   ├── archive/               # historical reports (Nov 2025 – May 2026)
 │   └── accessibility-audit-2026-05-02.md
 ├── tests/                          # Repo-level integration + e2e
 ├── .claude/                        # Agents, hooks, skills (start-system, graphify, …)
@@ -225,7 +225,7 @@ crypto-trading-bot/
 | Topic | File |
 |---|---|
 | Project rules + Claude Code instructions | [CLAUDE.md](CLAUDE.md) |
-| Stack revival (post-dormancy) | [docs/REVIVAL_PLAN_2026-05-02.md](docs/REVIVAL_PLAN_2026-05-02.md) |
+| Docs map (living guides) | [docs/README.md](docs/README.md) |
 | Accessibility audit | [docs/accessibility-audit-2026-05-02.md](docs/accessibility-audit-2026-05-02.md) |
 | System architecture | [docs/architecture/SYSTEM_OVERVIEW.md](docs/architecture/SYSTEM_OVERVIEW.md) |
 | Dev setup | [docs/development/SETUP.md](docs/development/SETUP.md) |
