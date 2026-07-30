@@ -6,7 +6,6 @@ language: python
 port: 8000
 purpose: "Frontend → backend routing, auth, fan-out aggregation"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [bybit-connector, market-data-service, technical-analysis, trading-engine, portfolio-manager, risk-metrics-service, ml-prediction-service, sentiment-analysis-service]
 used_by: [frontend]

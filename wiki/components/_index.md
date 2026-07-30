@@ -1,5 +1,6 @@
 ---
 type: meta
+status: stub
 title: "Components Index"
 created: 2026-05-05
 updated: 2026-05-05

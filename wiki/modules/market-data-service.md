@@ -6,7 +6,6 @@ language: python
 port: 8002
 purpose: "Candle + ticker ingest into TimescaleDB; HTTP query surface for downstream services"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [bybit-connector, timescaledb, redis]
 used_by: [technical-analysis, trading-engine, portfolio-manager, risk-metrics-service, ml-prediction-service, api-gateway, ml-retraining-service, notification-service]

@@ -6,7 +6,6 @@ language: python
 port: 8007
 purpose: "Standalone GRU price-prediction + ensemble signal HTTP service"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [market-data-service, technical-analysis, redis]
 used_by: [api-gateway, trading-engine]

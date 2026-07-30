@@ -6,7 +6,6 @@ language: python
 port: 8009
 purpose: "Risk metrics (Sharpe/Sortino/Calmar/VaR/CVaR/drawdown), composite risk score, and the canonical circuit-breaker state machine. Misnamed as 'Risk dashboards' in CLAUDE.md — frontend renders dashboards, this service computes the numbers."
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [portfolio-manager, redis]
 used_by: [api-gateway, frontend, prometheus]

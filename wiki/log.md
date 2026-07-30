@@ -2,13 +2,24 @@
 type: meta
 title: "Operation Log"
 created: 2026-05-05
-updated: 2026-07-29
+updated: 2026-07-30
 tags: [meta, log]
+status: current
 ---
 
 # Operation Log
 
 Append-only. New entries at TOP. Never edit past entries.
+
+## 2026-07-30 — Vault restructure + index resync
+
+- **Repo docs restructured** (branch `docs/vault-restructure`): ~190 historical session/test/phase reports (Nov 2025 – May 2026) moved from repo root, `docs/`, `services/*/`, `infrastructure/`, `frontend/`, `scripts/`, `backtesting/`, `reports/` into `docs/archive/` (by theme: sessions-2025, testing-2025, strategy-2025, infrastructure-2025, audits, superseded, services/<name>, …). Living guides re-homed into `docs/{setup,operations,testing,security,deploy,reference,ml,architecture,strategy}/`. Repo root now carries 6 deliberate md files (was 73). 5 dead/broken-index files staged in `_to_delete/docs-cleanup-2026-07-30/`.
+- **ADR namespace unified**: `docs/decisions/` merged into `wiki/decisions/` — docs ADR-011/012 renumbered **ADR-026/027** with provenance notes; 2026-05-15 collision policy closed. Wiki is the single ADR home (001–027).
+- **Wiki resync**: `index.md` rebuilt (was frozen at 2026-05-05 listing 9 of 25 ADRs and 7 of 14 concepts); `concepts/_index` lists all 14 (orphans Aggregator-Strangler-Fig, Graphify-Shadow-Nodes now linked); `decisions/_index` adds ADR-014/017/026/027; `meta/_index.md` created; `hot.md` refreshed to 2026-07-30 (phase 20–24 re-scope, OP-14/15, `fb764d5`); module pages' lying duplicate `last_updated: 2026-05-05` removed.
+- **False claims fixed**: CLAUDE.md `_archive_lstm/` claim corrected (dir doesn't exist; LSTM spans 10+ files); "Last active Jan 2026" removed; sentiment "still runs in compose" → `analytics` profile; auto-trader resume semantics corrected **against code** (`auto_trader.py`: file-halt exits loop, no auto-restart) in CLAUDE.md and [[concepts/Auto-Trader]]; [[concepts/ML-Status]] and [[modules/sentiment-analysis-service]] updated.
+- **New source page**: [[sources/Archive-Distillation-2026-07-30]] — every load-bearing fact rescued from archived reports (walk-forward-tests-wrong-strategy, log growth, UPSERT failure, SOL-heavy revert check, Grafana creds, grid/ML verdicts, …).
+- **Graph hygiene**: `.graphifyignore` now excludes `docs/archive/`, `_to_delete/`, `.planning/{milestones,debug}/`. `docs/architecture/SYSTEM_OVERVIEW.md` rewritten from [[modules/Architecture-Overview]] (was 2025-10-30: 6 services, wrong ports, fictional event bus).
+- Lint: [[meta/lint-report-2026-07-30]] — 545/545 wikilinks resolved pre-restructure; re-verified post-edit.
 
 ## 2026-07-29 — Fix campaign + wiki resync
 

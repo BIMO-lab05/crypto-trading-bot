@@ -6,7 +6,6 @@ language: python
 port: 8006
 purpose: "Multi-channel alert fan-out: Telegram, Email, Slack, SMS"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [redis, postgres, slack-api, telegram-api, smtp, twilio]
 used_by: [trading-engine, ml-retraining-service, api-gateway]

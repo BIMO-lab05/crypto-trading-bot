@@ -6,7 +6,6 @@ language: python
 port: 8004
 purpose: "TA indicators + signal aggregator (no ML inference here despite CLAUDE.md tagline)"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [market-data-service]
 used_by: [trading-engine, api-gateway]

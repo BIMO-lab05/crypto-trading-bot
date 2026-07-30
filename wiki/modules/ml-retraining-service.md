@@ -6,7 +6,6 @@ language: python
 port: 8009
 purpose: "Automated GRU model retraining (FastAPI + APScheduler, weekly cron)"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [market-data-service, ml-prediction-service, notification-service]
 used_by: []

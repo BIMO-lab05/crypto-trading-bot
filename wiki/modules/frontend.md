@@ -6,7 +6,6 @@ language: typescript
 port: 3000
 purpose: "React 18 + Vite dashboard"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [api-gateway]
 used_by: []

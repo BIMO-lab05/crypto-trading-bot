@@ -6,7 +6,6 @@ language: python
 port: 8005
 purpose: "Strategy + risk + order execution"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on:
   - bybit-connector

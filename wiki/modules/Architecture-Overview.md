@@ -5,7 +5,7 @@ status: active
 purpose: "30-second architectural tour of the bot"
 tags: [overview, architecture]
 created: 2026-05-05
-updated: 2026-07-29
+updated: 2026-07-30
 depends_on: []
 used_by: []
 ---
@@ -31,4 +31,4 @@ Async microservices, each FastAPI + Python 3.12. Communicate via **synchronous R
 
 ## Reference docs
 
-Authoritative source: `docs/architecture/SYSTEM_OVERVIEW.md`. ADRs in `docs/architecture/DECISIONS.md`.
+`docs/architecture/SYSTEM_OVERVIEW.md` is the repo-facing mirror of this page (rewritten 2026-07-30). ADRs live in [[../decisions/_index|wiki/decisions/]].

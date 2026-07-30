@@ -6,7 +6,6 @@ language: python
 port: 8003
 purpose: "In-memory portfolio tracking, P&L computation, daily performance snapshots"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [trading-engine, market-data-service, postgres]
 used_by: [api-gateway, frontend]

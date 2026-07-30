@@ -2,8 +2,9 @@
 type: meta
 title: "Modules Index"
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-30
 tags: [index, modules]
+status: current
 ---
 
 # Modules
@@ -27,6 +28,10 @@ One page per service. Backend = `services/<name>/`; frontend = `frontend/`.
 ## Frontend
 
 - [[frontend]] — React 18 + Vite, port 3000
+
+## Not yet paged
+
+- `tournament-harness` — compose service (edge-measurement tournament runner); no module page yet
 
 ## Cross-module
 

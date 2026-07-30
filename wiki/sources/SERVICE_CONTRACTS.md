@@ -1,6 +1,6 @@
 ---
 type: source
-source_path: "docs/architecture/SERVICE_CONTRACTS.md"
+source_path: "docs/archive/superseded/SERVICE_CONTRACTS.md"  # moved 2026-07-30 (was docs/architecture/)
 ingested: 2026-05-05
 status: stale
 tags: [source, api-contracts]
@@ -8,7 +8,7 @@ created: 2026-05-05
 updated: 2026-05-05
 ---
 
-# Source: docs/architecture/SERVICE_CONTRACTS.md
+# Source: docs/archive/superseded/SERVICE_CONTRACTS.md (archived 2026-07-30; was docs/architecture/)
 
 ## Origin
 

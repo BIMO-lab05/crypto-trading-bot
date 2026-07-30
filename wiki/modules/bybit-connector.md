@@ -6,7 +6,6 @@ language: python
 port: 8001
 purpose: "Bybit REST wrapper (WS planned, not implemented)"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: []
 used_by: [api-gateway, market-data-service, trading-engine, portfolio-manager, technical-analysis, risk-metrics-service]
