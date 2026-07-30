@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
-status: executing
-stopped_at: Phase 18 complete (plans + code review + fixes committed); uncommitted out-of-band work pending triage
-last_updated: "2026-07-29T00:00:00.000Z"
-last_activity: 2026-07-29 -- resume: Phases 16/17/18 confirmed complete; ~2.3k uncommitted service-code insertions from two out-of-band sessions detected
+status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency), but see "Out-of-Band Work" below — Phase 19–24 premises need re-checking against uncommitted code first.
+stopped_at: Phase 18 closed out (commits `5faa32e`..`2aac085`). Resume surfaced 367 uncommitted paths from an external cowork run; operator chose verify-then-commit. Verification complete and passing — awaiting approval of commit groupings (OP-07), then re-scope Phases 20–22 against the settled tree.
+last_updated: "2026-07-30T01:45:34.699Z"
+last_activity: 2026-07-29 -- resume session; state reconciled
 progress:
   total_phases: 9
   completed_phases: 3
@@ -155,9 +155,9 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 
 ## Session Continuity
 
-Last session: 2026-07-29 (resumed)
+Last session: 2026-07-30T01:45:34.635Z
 Stopped at: Phase 18 closed out (commits `5faa32e`..`2aac085`). Resume surfaced 367 uncommitted paths from an external cowork run; operator chose verify-then-commit. Verification complete and passing — awaiting approval of commit groupings (OP-07), then re-scope Phases 20–22 against the settled tree.
-Resume file: .planning/evidence/wip-verification-2026-07-29.md
+Resume file: None
 
 ## Operator Next Steps
 
