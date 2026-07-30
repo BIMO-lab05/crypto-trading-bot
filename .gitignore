@@ -45,6 +45,21 @@ venv.bak/
 # allocates under .claude/worktrees/agent-<id>/; never committed to the
 # operator's tree).
 .claude/worktrees/
+# Claude Code / GSD machine-local tool state (backups of files already tracked
+# elsewhere, plus migration bookkeeping — nothing another clone needs).
+.claude/gsd-user-files-backup/
+.claude/gsd-migration-journal/
+
+# Semgrep CLI local login state. guardian.yml holds a live OAuth access_token
+# and refresh_token for the operator's Semgrep account — must never be
+# committed, especially in a public repo.
+.semgrep/
+
+# Operator-local Windows rollout runners (WSL/Windows-specific paths; not
+# portable to another clone). Logs under cowork_run/ already covered by *.log.
+cowork_run/
+RUN_FIXES.bat
+RUN_TE_TESTS.bat
 
 # ============================================================================
 # SECURITY: Environment and Secrets (CRITICAL - Never commit credentials)
