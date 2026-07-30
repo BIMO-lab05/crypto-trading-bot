@@ -24,6 +24,13 @@ On 2026-07-30 ~190 historical session/test/phase reports (Nov 2025 – May 2026)
 - **Accessibility audit 2026-05-02** (archived): charts invisible to screen readers, primary CTA contrast 2.43:1, unlabeled Settings inputs — becomes actionable with the frontend-login work.
 - **klines retention is 90 days** while walk-forward gates want 180-day windows — standing tension (`docs/architecture/DATA_PROFILE_KLINES.md`).
 
+## Verification pass (2026-07-30, against code on disk)
+
+- **SOL-heavy 60/20/20 — SUPERSEDED, not silently live.** `trading-engine/app/config.py:253` now carries a "BACKTEST-OPTIMIZED ALLOCATION (2026-01-19)": SOL 30%, BTC 25%, remainder ADA/BNB/ETH. ⚠️ **New finding:** those weights were optimized on Jan-2026 backtests — i.e., on the pre-ADR-018/021 corrupted measurement (broken accounting + testnet-polluted candles). The allocation itself deserves re-derivation on clean data.
+- **tensorflow dead-dep — FIXED.** Removed from trading-engine requirements 2026-05-02 (comment in `requirements.txt:19`).
+- **portfolio-manager UPSERT — FIXED.** `app/services/performance_history.py:137` now uses `ON CONFLICT (portfolio_id, ((timestamp AT TIME ZONE 'UTC')::date))` matching the `uniq_performance_portfolio_day` immutable-expression unique index from migration 002; the code comment documents the exact failure this repairs.
+- **Legacy ensemble endpoint — STILL PRESENT.** `ml-prediction-service/app/main.py` still builds an `EnsemblePredictor` (which imports LSTM — part of the ML-PURGE footprint). Behind the `ml` compose profile so inert by default; delete with Phase 23.
+
 ## Settled empirical verdicts (do not re-litigate)
 
 - **Grid trading v1**: 0.1% win rate on real 180-day data; every filter made it worse; crypto trends ~80% of the time vs grid's ranging requirement (`docs/archive/strategy-2025/GRID_TRADING_V1_FILTER_ANALYSIS.md`).
