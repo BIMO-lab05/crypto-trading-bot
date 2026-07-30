@@ -63,16 +63,25 @@ Provenance: produced by an external "cowork" agent run on 2026-07-29 14:04–18:
 | TA-AGG-03 (BB std-dev 2.5) | 21 | PARTIAL | `main.py:314` `Query(default=2.5)` — same shape: right value, still not sourced from `settings.bollinger_std_dev` |
 | PRICE-01/02 (`round(price, 2)`) | 22 | YES (widened) | **22** price-domain sites across 7 files, incl. `app/utils/support_resistance_detector.py` (6) which the 2026-05-23 audit missed entirely and PRICE-01's "strategy files" scope would not have covered |
 | RECON-01/02 (reconciliation + orderLinkId) | 19 | YES | connector model accepts `orderLinkId`; no generator in adapter/engine |
-| HYG-01 (sentiment weight log) | 24 | YES | `auto_trader.py:1131,1262` still say "Sentiment 15%" |
-| HYG-03 (TA CORS lockdown) | 24 | YES | TA `main.py:224` still `allow_origins=["*"]` |
+| HYG-01 (sentiment weight log) | 24 | PARTIAL (collapsed) | `auto_trader.py:1131,1262` are **comments**, not log lines. Runtime log at `enhanced_aggregator.py:372-374` already prints TA/ML/MTF sentiment-free from attributes `:64-66`. No `AGGREGATOR_WEIGHTS` constant exists |
+| HYG-02 (DSR staleness) | 24 | **SATISFIED** | Phase 9 MLGATE-02: `preflight/checks.py:65,327,343` + `lifespan/ml.py:151` `evidence_stale`. Only gap: 14 is a constant, not env-configurable |
+| HYG-03 (TA CORS lockdown) | 24 | PARTIAL (hole closed) | `main.py:225` now `allow_credentials=False` (commit `e091826`), so `["*"]` at `:224` is no longer a security hole — remaining work is hardening only |
 
 Phase 18's committed files (`bybit_adapter.py`, `tape_replay_client.py`, `test_bybit_adapter_contract.py`) are **disjoint** from the uncommitted set; the one shared file (`bybit-connector/app/models.py`) is additive — Phase 18's camelCase aliases survive at `models.py:69-81`.
 
 **Consequence for planning:** ROADMAP premise text cites line numbers and behaviors the 2026-07 work has changed.
 
-- **Phases 20, 21, 22 re-scoped 2026-07-30** — see the `> Re-scoped` blocks in their ROADMAP detail sections and the annotated REQUIREMENTS entries. Summary: PAPER-02 and PAPER-03 shrink (trigger evaluation and stop-loss-as-limit coverage already exist); TA-AGG-02/03 shrink from value-reconciliation to remove-the-literal; PRICE-01/02 **grow** — 22 sites across 7 files, one file and one regex class previously uncovered.
-- **Phase 24 still un-re-scoped.** HYG-01 and HYG-03 confirmed still owed above, but the premise line numbers were not re-derived.
-- **Phase 23 likely stale too, not re-derived.** Its premise cites `ml-retraining-service/app/core/model_trainer.py:430,623` and `feature_engineer.py:32,283`, while `ml-prediction-service/app/main.py` and `ml_models/gru_model.py` were both modified in commit `0214482`. Re-verify before planning.
+**All five remaining v1.3 phases (20, 21, 22, 23, 24) re-scoped 2026-07-30** — see the `> Re-scoped` blocks in their ROADMAP detail sections and the annotated REQUIREMENTS entries.
+
+| Phase | Direction | Why |
+|---|---|---|
+| 20 Paper-Engine Honesty | shrinks | SL/TP trigger evaluation already exists and fires for paper (predates this work); stop-loss-as-limit already covered by 3 tests. PAPER-01 fully owed |
+| 21 TA Aggregator | shrinks | MACD/BB **value** drift already gone; requirement becomes "remove the literal, read the setting". Two requirements named non-existent attributes |
+| 22 round(price, N) | **grows** | 22 sites across 7 files, not 6. `app/utils/support_resistance_detector.py` (6) missed entirely and outside the old scope; PRICE-02's regex would not have caught its own target set |
+| 23 ML Purge | **grows** | Premises intact (lines unchanged) but LSTM footprint is 10+ files not 2, `_archive_lstm/` doesn't exist, a third R² consumer omitted, and persisted model metadata carries the bad metric independently of the code |
+| 24 Operator-Log + API Hygiene | **shrinks hardest** | 3 of 4 premises dead: HYG-01's "log lines" are comments; HYG-02 already satisfied by Phase 9; HYG-03's security hole closed by `e091826`. HYG-04's inventory wrong (2 routes) and its Sunset date already past |
+
+Cross-cutting lesson for future audits: three premises pointed at **comments rather than code** (`auto_trader.py:1131,1262`; `enhanced_aggregator.py:63`), and two prescribed attribute or constant names that do not exist (`settings.macd_*`, `settings.bollinger_std_dev`, `AGGREGATOR_WEIGHTS`). Grep hits were recorded without checking whether the line was executable.
 
 ### New operator actions from the out-of-band reports
 
