@@ -1280,3 +1280,88 @@ deploys it will already run the new logic — but it remains the operator's call
 still cannot survive a restart — T-4 (resurrected quantity crediting margin that
 was never posted) is therefore **not** fixed by this change. It needs a
 migration.
+
+---
+
+## 9. Market-data staleness guard (DL-1 §7.7 follow-up)
+
+Quick task: `.planning/quick/260731-ps1-market-data-staleness-guard/`
+
+`66779e2` fixed *why* ingest stopped. This fixes *why nobody noticed for 17
+hours*.
+
+### 9.1 The deeper bug: a stale row blocked its own repair
+
+`handlers/query.py` only reached its live-fetch fallback when there was **no
+row at all**:
+
+```python
+ticker = await TickerRepository.get_latest_ticker(symbol)
+if not ticker:
+    ticker_data = await fetcher.get_ticker(symbol)   # live fallback
+    ...
+return {"data": ticker.to_dict(), "source": "database"}
+```
+
+Any row — however ancient — short-circuited it. The stale row was therefore both
+the wrong answer *and* the reason the right answer was never fetched. Had age
+been checked, the 17-hour outage would have **self-healed on the first read**.
+
+### 9.2 Changes
+
+1. **A stale stored row is now a cache miss.** It falls through to the live
+   fetch and is persisted, exactly as a missing row would be. Self-healing.
+2. **No age is served without being disclosed.** Ticker responses carry
+   `age_seconds` and `is_stale`. If the live re-fetch also fails, the stale row
+   is still served — better than a 500 — but flagged in the payload and logged
+   at ERROR.
+3. **`/ready` reports data freshness**, 503-ing when ingest has stalled, via a
+   new `TickerRepository.get_newest_row_age_seconds()` (one indexed `MAX`).
+4. Budget is `MARKET_DATA_STALENESS_SECONDS`, default **900 s** — three missed
+   5-minute cycles, i.e. unambiguous failure rather than jitter.
+
+### 9.3 Why `/ready` and deliberately NOT `/health`
+
+`docker-compose.unified.yml:459` wires the container healthcheck to `/health`,
+and `:552-554` declares **trading-engine `depends_on: market-data:
+service_healthy`** (ml-prediction likewise at `:757`). Failing `/health` on
+stale data would stop the trading engine from *booting* — the wrong failure
+mode. Stale prices should make a consumer refuse to **trade**, not refuse to
+**start**; and a process that is answering requests is, by definition, live.
+
+Nothing in any compose file consumes `/ready`, so this carries no boot-ordering
+blast radius while still giving Prometheus and operators a real signal.
+
+### 9.4 Verification
+
+```
+Baseline: 9 failed, 186 passed, 278 skipped
+After:    9 failed, 197 passed, 278 skipped     -> same failures, +11 new tests
+```
+
+Deployed (market-data only; trading engine untouched and still `Up 3 hours
+(healthy)`):
+
+```
+$ curl -s localhost:8002/ready
+{"status":"ready","bybit_connector":"ok",
+ "data_freshness":{"ok":true,"newest_row_age_seconds":148.1,"budget_seconds":900}}   HTTP 200
+
+$ curl -s localhost:8002/health
+{"status":"healthy",...}                                                             HTTP 200
+
+$ curl -s localhost:8002/api/v1/ticker/BTCUSDT
+{... "last_price":63017.6, "source":"database",
+     "age_seconds":190.5, "is_stale":false}
+
+$ docker inspect crypto-bot-market-data --format '{{.State.Health.Status}}'
+healthy
+```
+
+### 9.5 Still outstanding
+
+The **consumer side**: the trading engine does not yet refuse to trade on stale
+prices. It can now *see* staleness (`is_stale` on every ticker read) but nothing
+acts on it. That belongs in trading-engine and interacts with the open-position
+marking path — filed, not done here. Klines carry the same defect shape but a
+different cache contract; also deferred to keep this change reviewable.
