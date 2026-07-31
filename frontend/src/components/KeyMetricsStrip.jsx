@@ -1,6 +1,7 @@
 import React from 'react'
 import { usePositions, useTradingStatus, usePerformance } from '../hooks/usePositions'
 import TileState from './TileState'
+import { toFiniteNumber, PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 /**
  * KeyMetricsStrip — Editorial Trading Floor metric strip.
@@ -192,7 +193,11 @@ export default function KeyMetricsStrip() {
   const unrealizedPnL = positions.reduce((t, p) => t + parseFloat(p.unrealized_pnl || 0), 0)
   const portfolioLoading = positionsLoading || performanceLoading
 
-  const totalBalance = parseFloat(metrics.current_balance) || 100
+  // Shared with PortfolioCard so the two tiles cannot disagree on the same field.
+  const totalBalance = toFiniteNumber(
+    metrics.current_balance,
+    toFiniteNumber(metrics.initial_balance, PAPER_DEFAULT_BALANCE),
+  )
   const realizedPnL = parseFloat(metrics.realized_pnl) || 0
   const currentDrawdown = parseFloat(metrics.max_drawdown) || 0
   const winRate = parseFloat(metrics.win_rate) || 0

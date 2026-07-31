@@ -200,7 +200,7 @@ export const analyticsAPI = {
  * @param {number} initialBalance - Starting balance
  * @returns {Array} Equity curve data points
  */
-export function calculateEquityCurve(trades, initialBalance = 10000) {
+export function calculateEquityCurve(trades, initialBalance = 100) {
   // Guard against non-array payloads (e.g. an error object) before spreading/sorting
   if (!Array.isArray(trades) || trades.length === 0) {
     return [{ timestamp: Date.now(), equity: initialBalance, pnl: 0 }]

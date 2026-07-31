@@ -26,6 +26,7 @@ import {
   calculateReturnsDistribution,
   calculatePerformanceMetrics,
 } from '../services/analyticsApi'
+import { toFiniteNumber, PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 // ============================================================================
 // MAIN PERFORMANCE METRICS HOOK
@@ -112,20 +113,23 @@ export function usePerformanceMetrics(options = {}) {
     return Array.isArray(raw) ? raw : []
   }, [tradeHistoryData])
 
-  // Get initial balance from portfolio. The portfolio-manager API returns
-  // `total_value` and `cash_balance`; older shapes used `total_equity` /
-  // `balance.total`. Fall back to the paper-trading default ($100) so the
-  // equity curve and drawdown scale correctly when the API is unreachable.
+  // STARTING capital for the equity curve and drawdown denominator.
+  //
+  // This must be the account's *opening* balance, not its current value.
+  // It previously read `portfolioData.total_value` — a live figure that moves
+  // on every poll — which made the equity curve's origin translate vertically
+  // while the user watched, and seeded `peakEquity` with a number that already
+  // contained realized gains, deflating `maxDrawdownPercent`.
+  //
+  // `/trading/performance` serves the real thing as `metrics.initial_balance`
+  // (sourced from PAPER_INITIAL_BALANCE in the trading engine).
   const initialBalance = useMemo(() => {
-    const raw =
-      portfolioData?.total_value ??
-      portfolioData?.cash_balance ??
-      portfolioData?.total_equity ??
-      portfolioData?.balance?.total ??
-      100
-    const parsed = typeof raw === 'string' ? parseFloat(raw) : raw
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 100
-  }, [portfolioData])
+    const served = toFiniteNumber(
+      performanceSummary?.metrics?.initial_balance,
+      NaN,
+    )
+    return served > 0 ? served : PAPER_DEFAULT_BALANCE
+  }, [performanceSummary])
 
   // Calculate equity curve from trades
   const equityCurve = useMemo(() => {

@@ -1,6 +1,7 @@
 import React from 'react'
 import { usePositions, useTradingStatus, usePerformance } from '../hooks/usePositions'
 import TileState from './TileState'
+import { toFiniteNumber, PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 /**
  * PortfolioCard component displays current portfolio status
@@ -40,8 +41,10 @@ export default function PortfolioCard() {
   const tradingStatus = statusData?.status || {}
 
   // Get balance data from trading-engine performance (correct values!)
-  const cashBalance = parseFloat(metrics.current_balance) || 10000
-  const initialBalance = parseFloat(metrics.initial_balance) || 10000
+  // `toFiniteNumber`, not `||`: a real balance of 0 must render as 0, and the
+  // fallback must match the backend's $100 paper account rather than $10,000.
+  const initialBalance = toFiniteNumber(metrics.initial_balance, PAPER_DEFAULT_BALANCE)
+  const cashBalance = toFiniteNumber(metrics.current_balance, initialBalance)
   const totalPnl = parseFloat(metrics.total_pnl) || 0
   const roi = parseFloat(metrics.roi) || 0
 
