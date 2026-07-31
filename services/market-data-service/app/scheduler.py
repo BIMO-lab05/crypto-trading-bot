@@ -6,7 +6,10 @@ Purpose: Automated scheduled collection of market data from Bybit
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
+import errno
+import fcntl
 import logging
+import os
 import time
 from typing import List
 import asyncio
@@ -19,6 +22,73 @@ logger = logging.getLogger(__name__)
 
 # Global scheduler instance
 _scheduler: AsyncIOScheduler = None
+
+# Held for the process lifetime by whichever uvicorn worker owns the scheduler.
+# Kept at module scope so the fd is never garbage-collected (which would drop
+# the lock and let a second worker start a duplicate scheduler).
+_owner_lock_fd = None
+
+# Runs are dropped by APScheduler if they fire later than this many seconds
+# past their deadline. The default is 1 second, which this service cannot meet:
+# it serves heavy kline reads from technical-analysis, so the event loop
+# routinely delays a fire by 2-20s. That silently killed ingest entirely
+# (audit DL-1). Grace is set generous relative to each interval -- a busy loop
+# should *delay* a collection, never cancel it.
+_INTERVAL_JOB_GRACE_SECONDS = 240  # 5-minute jobs
+_HOURLY_JOB_GRACE_SECONDS = 1800  # hourly backup job
+
+_SCHEDULER_LOCK_PATH = "/tmp/market-data-scheduler.lock"
+
+
+def _claim_scheduler_ownership() -> bool:
+    """
+    Return True if this process should own the collection scheduler.
+
+    The service runs under `uvicorn --workers N`. Each worker is a separate
+    process with its own module state, so the `_scheduler is not None` guard
+    cannot see a sibling -- every worker used to start its own scheduler and
+    register the same three jobs, doubling Bybit API load and duplicating
+    ticker rows.
+
+    An flock on a shared path elects exactly one owner regardless of worker
+    count, without giving up the extra worker's read throughput. The lock is
+    released automatically when the process dies, so a crashed owner is
+    replaced on the next boot rather than leaving ingest permanently dead.
+    """
+    global _owner_lock_fd
+
+    # Already the owner. flock is per open-file-description, so re-acquiring on
+    # a second fd from this same process would conflict with the one we already
+    # hold and lock us out of our own scheduler -- which happens on any
+    # start -> stop -> start cycle via the /api/v1/scheduler/* endpoints.
+    if _owner_lock_fd is not None:
+        return True
+
+    try:
+        fd = os.open(_SCHEDULER_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError as exc:
+        # Never trade ingest for a lock we couldn't create. Degrading to
+        # "every worker schedules" is strictly better than "nobody does".
+        logger.warning(
+            f"Could not open scheduler lock {_SCHEDULER_LOCK_PATH} ({exc}); "
+            f"starting scheduler unconditionally in pid {os.getpid()}"
+        )
+        return True
+
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        os.close(fd)
+        if exc.errno in (errno.EACCES, errno.EAGAIN):
+            logger.info(
+                f"Scheduler owned by another worker; pid {os.getpid()} will "
+                f"serve reads only and run no collection jobs"
+            )
+            return False
+        raise
+
+    _owner_lock_fd = fd
+    return True
 
 
 # Trading pairs to collect data for.
@@ -111,60 +181,59 @@ async def collect_kline_data():
     error_count = 0
 
     try:
-      for symbol in _trading_pairs():
-        for interval in KLINE_INTERVALS:
-            try:
-                # Fetch kline data (last 200 candles)
-                klines = await fetcher.get_kline(
-                    symbol=symbol, interval=interval, limit=200
-                )
-
-                # Defensive filter: fetcher.get_kline already discards the
-                # still-forming (unclosed) candle — Bybit returns it as the
-                # newest entry — but re-check here so a future fetcher
-                # change cannot silently re-introduce partial-candle
-                # pollution into the database. A candle is closed only when
-                # timestamp + interval_duration <= now.
-                if klines:
-                    interval_ms = get_interval_minutes(interval) * 60 * 1000
-                    now_ms = int(time.time() * 1000)
-                    n_before = len(klines)
-                    klines = [
-                        k for k in klines
-                        if k["timestamp"] + interval_ms <= now_ms
-                    ]
-                    if len(klines) < n_before:
-                        logger.debug(
-                            f"Dropped {n_before - len(klines)} still-forming "
-                            f"candle(s) for {symbol} ({interval}) before store"
-                        )
-
-                if klines:
-                    # Add symbol and interval to each kline
-                    for kline in klines:
-                        kline["symbol"] = symbol
-                        kline["interval"] = interval
-
-                    # Bulk insert/update
-                    inserted = await kline_repo.bulk_upsert(klines)
-                    success_count += 1
-                    logger.info(
-                        f"✅ Collected {inserted} klines for {symbol} ({interval})"
+        for symbol in _trading_pairs():
+            for interval in KLINE_INTERVALS:
+                try:
+                    # Fetch kline data (last 200 candles)
+                    klines = await fetcher.get_kline(
+                        symbol=symbol, interval=interval, limit=200
                     )
-                else:
-                    logger.warning(
-                        f"⚠️ No kline data returned for {symbol} ({interval})"
+
+                    # Defensive filter: fetcher.get_kline already discards the
+                    # still-forming (unclosed) candle — Bybit returns it as the
+                    # newest entry — but re-check here so a future fetcher
+                    # change cannot silently re-introduce partial-candle
+                    # pollution into the database. A candle is closed only when
+                    # timestamp + interval_duration <= now.
+                    if klines:
+                        interval_ms = get_interval_minutes(interval) * 60 * 1000
+                        now_ms = int(time.time() * 1000)
+                        n_before = len(klines)
+                        klines = [
+                            k for k in klines if k["timestamp"] + interval_ms <= now_ms
+                        ]
+                        if len(klines) < n_before:
+                            logger.debug(
+                                f"Dropped {n_before - len(klines)} still-forming "
+                                f"candle(s) for {symbol} ({interval}) before store"
+                            )
+
+                    if klines:
+                        # Add symbol and interval to each kline
+                        for kline in klines:
+                            kline["symbol"] = symbol
+                            kline["interval"] = interval
+
+                        # Bulk insert/update
+                        inserted = await kline_repo.bulk_upsert(klines)
+                        success_count += 1
+                        logger.info(
+                            f"✅ Collected {inserted} klines for {symbol} ({interval})"
+                        )
+                    else:
+                        logger.warning(
+                            f"⚠️ No kline data returned for {symbol} ({interval})"
+                        )
+                        error_count += 1
+
+                except Exception as e:
+                    logger.error(
+                        f"❌ Error collecting klines for {symbol} ({interval}): {e}"
                     )
                     error_count += 1
 
-            except Exception as e:
-                logger.error(
-                    f"❌ Error collecting klines for {symbol} ({interval}): {e}"
-                )
-                error_count += 1
-
-            # Small delay to avoid rate limits
-            await asyncio.sleep(0.5)
+                # Small delay to avoid rate limits
+                await asyncio.sleep(0.5)
     finally:
         # Always release the httpx connection pool (see collect_ticker_data).
         await fetcher.close()
@@ -207,7 +276,10 @@ def start_scheduler():
         logger.warning("Scheduler already running")
         return
 
-    logger.info("🚀 Initializing data collection scheduler")
+    if not _claim_scheduler_ownership():
+        return
+
+    logger.info(f"🚀 Initializing data collection scheduler (pid {os.getpid()})")
 
     # Create AsyncIO scheduler
     _scheduler = AsyncIOScheduler()
@@ -220,6 +292,8 @@ def start_scheduler():
         name="Ticker Data Collection",
         replace_existing=True,
         max_instances=1,  # Only one instance at a time
+        misfire_grace_time=_INTERVAL_JOB_GRACE_SECONDS,
+        coalesce=True,
     )
     logger.info("✅ Scheduled: Ticker collection every 5 minutes")
 
@@ -231,6 +305,8 @@ def start_scheduler():
         name="Kline Data Collection",
         replace_existing=True,
         max_instances=1,
+        misfire_grace_time=_INTERVAL_JOB_GRACE_SECONDS,
+        coalesce=True,
     )
     logger.info("✅ Scheduled: Kline collection every 5 minutes (offset +2min)")
 
@@ -242,6 +318,8 @@ def start_scheduler():
         name="Hourly Full Data Collection",
         replace_existing=True,
         max_instances=1,
+        misfire_grace_time=_HOURLY_JOB_GRACE_SECONDS,
+        coalesce=True,
     )
     logger.info("✅ Scheduled: Full data collection every hour")
 
@@ -267,6 +345,19 @@ def stop_scheduler():
     logger.info("🛑 Stopping scheduler...")
     _scheduler.shutdown(wait=True)
     _scheduler = None
+
+    # Release ownership so a restarting worker can claim it immediately rather
+    # than waiting for this process to exit.
+    global _owner_lock_fd
+    if _owner_lock_fd is not None:
+        try:
+            fcntl.flock(_owner_lock_fd, fcntl.LOCK_UN)
+            os.close(_owner_lock_fd)
+        except OSError as exc:
+            logger.warning(f"Failed to release scheduler lock: {exc}")
+        finally:
+            _owner_lock_fd = None
+
     logger.info("✅ Scheduler stopped successfully")
 
 
@@ -278,7 +369,18 @@ def get_scheduler_status() -> dict:
         dict: Scheduler status including running jobs
     """
     if _scheduler is None:
-        return {"running": False, "jobs": []}
+        # Under `uvicorn --workers N` only one worker owns the scheduler, and
+        # this endpoint is served round-robin. Say *why* there is no scheduler
+        # here, so a non-owner worker answering the probe doesn't read as
+        # "ingest is down".
+        return {
+            "running": False,
+            "jobs": [],
+            "job_count": 0,
+            "scheduler_owner": False,
+            "pid": os.getpid(),
+            "detail": "This worker does not own the scheduler; another worker runs collection.",
+        }
 
     jobs = []
     for job in _scheduler.get_jobs():
@@ -291,7 +393,13 @@ def get_scheduler_status() -> dict:
             }
         )
 
-    return {"running": _scheduler.running, "jobs": jobs, "job_count": len(jobs)}
+    return {
+        "running": _scheduler.running,
+        "jobs": jobs,
+        "job_count": len(jobs),
+        "scheduler_owner": True,
+        "pid": os.getpid(),
+    }
 
 
 async def run_manual_collection():
