@@ -5,31 +5,37 @@ Tests trading simulation logic without real money or database
 
 import pytest
 
-# Skipped during PR #86 CI fix-up. The covered modules underwent significant
-# refactoring (paper-trading default balance reduced to $100, LSTM removal,
-# analytics API reshaping, validated-symbol set narrowed to SOL/BNB/ADA, etc.)
-# that drifted these tests away from the production code. Rewriting them is
-# tracked as follow-up work; they shipped passing on origin/main and no
-# behaviour change in this PR is masked by the skip — the runtime callers
-# already exercise the new APIs through the unit tests that still pass.
-pytestmark = pytest.mark.skip(reason="stale tests after PR #86 refactor; needs rewrite")
+# Un-skipped 2026-07-31. This module carried a blanket
+# `pytestmark = pytest.mark.skip(...)` from a PR #86 CI fix-up, disabling all
+# 15 tests. Of those, 8 already passed; the rest failed for three reasons,
+# none of which was a bug in the engine:
+#
+#   - order sizes and P&L amounts still scaled for a $10,000 account;
+#   - the mock_settings fixture predated leverage, so `default_leverage` was a
+#     Mock and `Decimal(str(...))` raised InvalidOperation;
+#   - one test asserted long-only behaviour that SHORT enforcement replaced
+#     (380a674). It has been rewritten to cover what actually matters now:
+#     a plain SELL opens a short, and a reduce_only SELL is rejected.
+#
+# This is the ledger the $100 capital guarantee rests on, so it gets to run.
 
-import pytest
-import asyncio
 from decimal import Decimal
-from datetime import datetime
 from uuid import uuid4
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "app"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "shared"))
 
 from app.paper_trading import PaperTradingEngine
 from app.models import (
-    Order, OrderCreate, OrderStatus, OrderSide, OrderType,
-    Position, PositionSide, PositionStatus
+    OrderCreate,
+    OrderStatus,
+    OrderSide,
+    OrderType,
+    PositionSide,
 )
 
 
@@ -42,6 +48,12 @@ class TestPaperTradingEngine:
         settings = Mock()
         settings.paper_initial_balance = 100.0
         settings.paper_commission_pct = 0.1  # 0.1%
+        # Leverage was added to the engine after these tests were written. A
+        # bare Mock() returns a Mock for it, so `Decimal(str(...))` in
+        # execute_market_order raised decimal.InvalidOperation -- which is what
+        # actually broke four of these tests. Pin 1x so the arithmetic below
+        # stays in notional terms and reads plainly.
+        settings.default_leverage = 1.0
         return settings
 
     @pytest.fixture
@@ -73,15 +85,30 @@ class TestPaperTradingEngine:
         return Mock()
 
     @pytest.fixture
-    def trading_engine(self, mock_settings, mock_position_manager, mock_risk_manager,
-                      mock_trade_repo, mock_portfolio_repo):
+    def trading_engine(
+        self,
+        mock_settings,
+        mock_position_manager,
+        mock_risk_manager,
+        mock_trade_repo,
+        mock_portfolio_repo,
+    ):
         """Create PaperTradingEngine with mocked dependencies"""
-        with patch('app.paper_trading.get_settings', return_value=mock_settings), \
-             patch('app.paper_trading.get_position_manager', return_value=mock_position_manager), \
-             patch('app.paper_trading.get_risk_manager', return_value=mock_risk_manager), \
-             patch('app.paper_trading.get_trade_repository', return_value=mock_trade_repo), \
-             patch('app.paper_trading.get_portfolio_repository', return_value=mock_portfolio_repo):
-
+        with (
+            patch("app.paper_trading.get_settings", return_value=mock_settings),
+            patch(
+                "app.paper_trading.get_position_manager",
+                return_value=mock_position_manager,
+            ),
+            patch("app.paper_trading.get_risk_manager", return_value=mock_risk_manager),
+            patch(
+                "app.paper_trading.get_trade_repository", return_value=mock_trade_repo
+            ),
+            patch(
+                "app.paper_trading.get_portfolio_repository",
+                return_value=mock_portfolio_repo,
+            ),
+        ):
             engine = PaperTradingEngine()
             return engine
 
@@ -106,13 +133,17 @@ class TestPaperTradingEngine:
         assert equity == Decimal("100.0")
         mock_position_manager.get_total_unrealized_pnl.assert_called_once()
 
-    def test_get_total_equity_with_unrealized_pnl(self, trading_engine, mock_position_manager):
+    def test_get_total_equity_with_unrealized_pnl(
+        self, trading_engine, mock_position_manager
+    ):
         """Test total equity includes unrealized P&L"""
-        mock_position_manager.get_total_unrealized_pnl.return_value = Decimal("500.50")
+        # Rescaled for the $100 paper account (was 500.50 against a $10,000
+        # balance, so the expected 10500.50 no longer matched).
+        mock_position_manager.get_total_unrealized_pnl.return_value = Decimal("5.50")
 
         equity = trading_engine.get_total_equity()
 
-        assert equity == Decimal("10500.50")
+        assert equity == Decimal("105.50")
 
     def test_calculate_commission(self, trading_engine):
         """Test commission calculation"""
@@ -129,7 +160,9 @@ class TestPaperTradingEngine:
         assert commission == Decimal("0.10")
 
     @pytest.mark.asyncio
-    async def test_execute_buy_order_success(self, trading_engine, mock_position_manager):
+    async def test_execute_buy_order_success(
+        self, trading_engine, mock_position_manager
+    ):
         """Test successful BUY order execution"""
         # Create mock position
         mock_position = Mock()
@@ -137,36 +170,40 @@ class TestPaperTradingEngine:
         mock_position_manager.create_position.return_value = mock_position
 
         # Create BUY order
+        # 0.001 BTC @ $50,000 = $50 notional, affordable on the $100 paper
+        # account. Was 0.1 BTC ($5,000), sized for the old $10,000 balance.
         order = OrderCreate(
             symbol="BTCUSDT",
             side=OrderSide.BUY,
-            quantity=Decimal("0.1"),
+            quantity=Decimal("0.001"),
             type=OrderType.MARKET,  # Fixed: 'type' not 'order_type'
-            strategy="test"
+            strategy="test",
         )
 
         # Execute order at $50,000
         executed_order, error = await trading_engine.execute_market_order(
-            order=order,
-            current_price=Decimal("50000.00")
+            order=order, current_price=Decimal("50000.00")
         )
 
         # Verify success
         assert error is None
         assert executed_order.status == OrderStatus.FILLED
         assert executed_order.filled_price == Decimal("50000.00")
-        assert executed_order.filled_quantity == Decimal("0.1")
+        assert executed_order.filled_quantity == Decimal("0.001")
 
-        # Verify balance deducted (50000 * 0.1 = 5000 + 5 commission = 5005)
-        assert trading_engine.balance == Decimal("4995.00")
+        # Balance deducted: margin (50 / 1x leverage) + 0.1% commission (0.05)
+        assert trading_engine.balance == Decimal("100.00") - Decimal("50.05")
 
         # Verify position created
+        # entry_signal_confidence was added to the create_position contract
+        # 2026-05-15 for post-hoc analysis; it is None when no signal supplied.
         mock_position_manager.create_position.assert_called_once_with(
             symbol="BTCUSDT",
             side=PositionSide.LONG,
             entry_price=Decimal("50000.00"),
-            quantity=Decimal("0.1"),
-            strategy="test"
+            quantity=Decimal("0.001"),
+            strategy="test",
+            entry_signal_confidence=None,
         )
 
     @pytest.mark.asyncio
@@ -177,13 +214,12 @@ class TestPaperTradingEngine:
             symbol="BTCUSDT",
             side=OrderSide.BUY,
             quantity=Decimal("1.0"),  # $50,000 + commission
-            type=OrderType.MARKET  # Fixed: 'type' not 'order_type'
+            type=OrderType.MARKET,  # Fixed: 'type' not 'order_type'
         )
 
         # Execute order
         executed_order, error = await trading_engine.execute_market_order(
-            order=order,
-            current_price=Decimal("50000.00")
+            order=order, current_price=Decimal("50000.00")
         )
 
         # Verify failure
@@ -195,7 +231,9 @@ class TestPaperTradingEngine:
         assert trading_engine.balance == Decimal("100.00")
 
     @pytest.mark.asyncio
-    async def test_execute_sell_order_success(self, trading_engine, mock_position_manager):
+    async def test_execute_sell_order_success(
+        self, trading_engine, mock_position_manager
+    ):
         """Test successful SELL order execution"""
         # First execute BUY to create position
         trading_engine.balance = Decimal("100.00")
@@ -206,8 +244,8 @@ class TestPaperTradingEngine:
         buy_order = OrderCreate(
             symbol="BTCUSDT",
             side=OrderSide.BUY,
-            quantity=Decimal("0.1"),
-            type=OrderType.MARKET  # Fixed: 'type' not 'order_type'
+            quantity=Decimal("0.001"),
+            type=OrderType.MARKET,  # Fixed: 'type' not 'order_type'
         )
 
         await trading_engine.execute_market_order(buy_order, Decimal("50000.00"))
@@ -217,72 +255,115 @@ class TestPaperTradingEngine:
         mock_open_position.id = mock_buy_position.id
         mock_open_position.symbol = "BTCUSDT"
         mock_open_position.side = PositionSide.LONG
-        mock_open_position.quantity = Decimal("0.1")
+        mock_open_position.quantity = Decimal("0.001")
+        mock_open_position.remaining_quantity = Decimal("0.001")
+        mock_open_position.entry_price = Decimal("50000.00")
         mock_position_manager.get_open_positions.return_value = [mock_open_position]
 
-        # Mock closed position with profit
+        # Mock closed position with profit (rescaled from 200.00 for the $100
+        # account: 0.001 BTC moving 50,000 -> 52,000 is a $2 gain)
         mock_closed_position = Mock()
         mock_closed_position.id = mock_buy_position.id
-        mock_closed_position.realized_pnl = Decimal("200.00")
+        mock_closed_position.realized_pnl = Decimal("2.00")
         mock_position_manager.close_position.return_value = mock_closed_position
 
         # Create SELL order
         sell_order = OrderCreate(
             symbol="BTCUSDT",
             side=OrderSide.SELL,
-            quantity=Decimal("0.1"),
-            type=OrderType.MARKET  # Fixed: 'type' not 'order_type'
+            quantity=Decimal("0.001"),
+            type=OrderType.MARKET,  # Fixed: 'type' not 'order_type'
         )
 
         # Execute SELL at higher price ($52,000)
         initial_balance = trading_engine.balance
         executed_order, error = await trading_engine.execute_market_order(
-            sell_order,
-            Decimal("52000.00")
+            sell_order, Decimal("52000.00")
         )
 
         # Verify success
         assert error is None
         assert executed_order.status == OrderStatus.FILLED
 
-        # Verify balance increased (52000 * 0.1 = 5200 - 5.20 commission = 5194.80)
-        expected_balance = initial_balance + Decimal("5194.80")
+        # Side-aware close (2026-07-28): credits margin_returned +
+        # realized_pnl - commission, NOT the raw close notional.
+        #   margin_returned = 50,000 * 0.001 / 1x leverage = 50.00
+        #   realized_pnl                                   =  2.00
+        #   commission      = 52,000 * 0.001 * 0.1%        =  0.052
+        expected_balance = initial_balance + Decimal("51.948")
         assert trading_engine.balance == expected_balance
 
         # Verify position closed
         mock_position_manager.close_position.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_execute_sell_order_no_position(self, trading_engine, mock_position_manager):
-        """Test SELL order fails when no position exists"""
-        # No open positions
-        mock_position_manager.get_open_positions.return_value = []
+    async def test_execute_sell_order_no_position_opens_short(
+        self, trading_engine, mock_position_manager
+    ):
+        """
+        A plain SELL with no open position OPENS A SHORT.
 
-        # Create SELL order
+        This test previously asserted the order failed with "No open LONG
+        position" -- the long-only behaviour that predates SHORT enforcement
+        (Jan 2026, commit 380a674). That expectation is obsolete, not broken:
+        the engine deliberately trades both directions now.
+        """
+        mock_position_manager.get_open_positions.return_value = []
+        mock_short = Mock()
+        mock_short.id = uuid4()
+        mock_position_manager.create_position.return_value = mock_short
+
         order = OrderCreate(
             symbol="BTCUSDT",
             side=OrderSide.SELL,
-            quantity=Decimal("0.1"),
-            type=OrderType.MARKET  # Fixed: 'type' not 'order_type'
+            quantity=Decimal("0.001"),
+            type=OrderType.MARKET,  # Fixed: 'type' not 'order_type'
         )
 
-        # Execute order
         executed_order, error = await trading_engine.execute_market_order(
-            order=order,
-            current_price=Decimal("50000.00")
+            order=order, current_price=Decimal("50000.00")
         )
 
-        # Verify failure
+        assert error is None
+        assert executed_order.status == OrderStatus.FILLED
+        assert (
+            mock_position_manager.create_position.call_args.kwargs["side"]
+            == PositionSide.SHORT
+        )
+
+    @pytest.mark.asyncio
+    async def test_reduce_only_sell_with_no_position_is_rejected(
+        self, trading_engine, mock_position_manager
+    ):
+        """
+        The safety property that replaced the old assertion.
+
+        A reduce_only SELL must never open a counter-position. Before the
+        2026-07-28 accounting overhaul this silently flipped every stop-loss
+        exit into a brand-new short.
+        """
+        mock_position_manager.get_open_positions.return_value = []
+
+        order = OrderCreate(
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            quantity=Decimal("0.001"),
+            type=OrderType.MARKET,
+            reduce_only=True,
+        )
+
+        executed_order, error = await trading_engine.execute_market_order(
+            order=order, current_price=Decimal("50000.00")
+        )
+
         assert error is not None
-        assert "No open LONG position" in error
         assert executed_order.status == OrderStatus.FAILED
+        mock_position_manager.create_position.assert_not_called()
 
     def test_can_open_position_success(self, trading_engine, mock_risk_manager):
         """Test can open position with sufficient balance"""
         can_open, reason = trading_engine.can_open_position(
-            symbol="BTCUSDT",
-            quantity=Decimal("0.1"),
-            price=Decimal("50000.00")
+            symbol="BTCUSDT", quantity=Decimal("0.001"), price=Decimal("50000.00")
         )
 
         assert can_open is True
@@ -293,7 +374,7 @@ class TestPaperTradingEngine:
         can_open, reason = trading_engine.can_open_position(
             symbol="BTCUSDT",
             quantity=Decimal("10.0"),  # Too large
-            price=Decimal("50000.00")
+            price=Decimal("50000.00"),
         )
 
         assert can_open is False
@@ -302,18 +383,21 @@ class TestPaperTradingEngine:
     def test_can_open_position_risk_limit(self, trading_engine, mock_risk_manager):
         """Test cannot open position when risk manager blocks"""
         # Mock risk manager rejection
-        mock_risk_manager.check_position_limits.return_value = (False, "Too many positions")
+        mock_risk_manager.check_position_limits.return_value = (
+            False,
+            "Too many positions",
+        )
 
         can_open, reason = trading_engine.can_open_position(
-            symbol="BTCUSDT",
-            quantity=Decimal("0.1"),
-            price=Decimal("50000.00")
+            symbol="BTCUSDT", quantity=Decimal("0.001"), price=Decimal("50000.00")
         )
 
         assert can_open is False
         assert reason == "Too many positions"
 
-    def test_get_performance_summary_no_trades(self, trading_engine, mock_position_manager):
+    def test_get_performance_summary_no_trades(
+        self, trading_engine, mock_position_manager
+    ):
         """Test performance summary with no trades"""
         summary = trading_engine.get_performance_summary()
 
@@ -327,7 +411,9 @@ class TestPaperTradingEngine:
         assert summary["losing_trades"] == 0
         assert summary["win_rate"] == 0.0
 
-    def test_get_performance_summary_with_trades(self, trading_engine, mock_position_manager):
+    def test_get_performance_summary_with_trades(
+        self, trading_engine, mock_position_manager
+    ):
         """Test performance summary with completed trades"""
         # Mock closed positions with wins and losses
         winning_pos = Mock()
@@ -340,7 +426,9 @@ class TestPaperTradingEngine:
         another_win.realized_pnl = Decimal("150.00")
 
         mock_position_manager.get_closed_positions.return_value = [
-            winning_pos, losing_pos, another_win
+            winning_pos,
+            losing_pos,
+            another_win,
         ]
 
         # Simulate balance change (started at 100, now at 125)
