@@ -1626,3 +1626,112 @@ audit, circular imports, broken imports. Three subagents were dispatched for it
 and none returned. Also unexamined: sentiment-analysis-service, and whether
 `cpcv.py` / `sharpe_metrics.py` / `returns_metrics.py` are wired into any real
 acceptance gate.
+
+---
+
+## 12. SEC-0 — the exchange connector bypasses the entire safety architecture
+
+Found by finishing the bybit-connector check the stalled auth agent had started
+and abandoned. Its own report said "NOT VERIFIED for bybit-connector — I never
+read that service", so this was verified from scratch.
+
+### 12.1 CORS was a red herring
+
+`services/bybit-connector/app/config.py:160-186` — `cors_origins` and
+`internal_service_origins` are both explicit lists, no wildcard, no reflection,
+and `main.py:429` carries the comment "never `*` with credentials". **CORS is
+clean.** The agent burned 106k tokens and stalled chasing a non-issue.
+
+### 12.2 What is actually there
+
+```
+$ curl -s localhost:8001/openapi.json
+securitySchemes: NONE
+routes with security: 0
+mutating routes: 4
+   POST /api/v1/order/place
+   POST /api/v1/order/cancel
+   POST /api/v1/status/circuit-breaker/reset
+   POST /admin/tape/reset
+```
+
+`docker-compose.unified.yml:391` maps `${BYBIT_PORT:-8001}:8001` with no
+`127.0.0.1:` prefix → bound `0.0.0.0`.
+
+`services/bybit-connector/app/main.py:586-622` — the handler takes
+`Depends(get_rest_client)` and nothing else. **No auth dependency. No
+`PAPER_TRADING_MODE` check. No `TRADING_MODE` check. No `LIVE_TRADING_ACK`
+check.** It passes its arguments straight to `client.place_order()`. The only
+protection is `@limiter.limit("10/minute")`.
+
+And:
+
+```
+$ docker exec crypto-bot-bybit printenv BYBIT_TESTNET
+false                       # -> MAINNET
+```
+
+### 12.3 Why this is worse than SEC-1
+
+The four-flag LIVE architecture — `PAPER_TRADING_MODE`, `TRADING_MODE`,
+mainnet keys, `LIVE_TRADING_ACK` — plus the kill switch, the per-trade cap, the
+daily-loss breaker and the exposure limits **all live in trading-engine**.
+
+This route does not go through trading-engine. A single unauthenticated HTTP
+POST to port 8001 reaches Bybit mainnet directly, bypassing every one of them.
+The safety model assumes the connector is only ever called by trusted internal
+callers; nothing enforces that assumption.
+
+### 12.4 Credentials are live
+
+```
+$ curl -s "localhost:8001/api/v1/account/balance?account_type=UNIFIED"
+{"detail":"[10002] Bybit API error: invalid request, please check your server
+ timestamp or recv_window param: req_timestamp[...],server_timestamp[...]"}
+```
+
+Bybit returned a **timestamp/signature-level** error (10002), not "invalid API
+key" (10003). Credentials are present and were transmitted to mainnet.
+
+**The one thing that decides how bad this is — and I deliberately did not test
+it — is whether those mainnet keys carry trade permission.** Placing a probe
+order to find out would be exactly the harm being described. This must be
+checked by the operator in the Bybit console.
+
+### 12.5 A second bug is currently masking the first
+
+The same probe exposes clock drift:
+
+```
+container clock is 1856 ms AHEAD of Bybit server   (1300 ms one minute earlier)
+Bybit accepts req_timestamp <= server_time + 1000ms  -> REJECTED
+```
+
+Two consequences, pulling in opposite directions:
+
+1. **Every authenticated Bybit call is currently failing.** Balance and position
+   sync from the real exchange are broken right now. Classic WSL2 clock drift,
+   which CLAUDE.md documents as an environment hazard.
+2. **It is accidentally suppressing SEC-0.** An attacker's `order/place` would
+   also be rejected with 10002.
+
+That is not mitigation. The drift is transient — an NTP sync, a container
+restart, or a host resume corrects the clock, and the moment it does, SEC-0 is
+live with no warning. Relying on a clock bug to prevent unauthorised mainnet
+orders is not a control.
+
+### 12.6 Recommended remediation, cheapest first
+
+1. **Bind published ports to loopback** — `127.0.0.1:${PORT}:${PORT}` for
+   bybit-connector (8001), portfolio-manager (8003) and trading-engine (8005).
+   One line each, no application code, kills SEC-0 and SEC-1 exposure outright.
+   Only the gateway (8000) and frontend (3000) need to be externally reachable.
+2. **Guard `order/place` at the point of exchange contact.** The connector
+   should refuse to place an order when `PAPER_TRADING_MODE=true` /
+   `TRADING_MODE != LIVE`. Safety flags belong at the boundary where real money
+   is touched, not only upstream of it.
+3. **Add service-to-service auth** on the internal services (shared secret or
+   mTLS) so that loopback binding is defence-in-depth rather than the only
+   control.
+4. **Fix the clock drift** independently — it is silently breaking real
+   exchange reads today.
