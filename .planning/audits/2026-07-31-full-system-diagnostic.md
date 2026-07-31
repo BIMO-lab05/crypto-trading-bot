@@ -1365,3 +1365,75 @@ prices. It can now *see* staleness (`is_stale` on every ticker read) but nothing
 acts on it. That belongs in trading-engine and interacts with the open-position
 marking path — filed, not done here. Klines carry the same defect shape but a
 different cache contract; also deferred to keep this change reviewable.
+
+---
+
+## 10. D-4 — restoring risk-manager and paper-trading coverage
+
+Quick task: `.planning/quick/260731-d4-restore-risk-test-coverage/`
+
+### 10.1 Why this before T-1 or T-4
+
+Two reasons, both about ordering rather than tidiness:
+
+1. `22285ae` changed `paper_trading.sync_balance_with_positions` — accounting
+   logic — **in a module whose unit tests were switched off**. Shipping into an
+   untested module is how the original defects got in.
+2. **T-2 is the largest money risk in this audit** (deployed ensemble path
+   enforces no per-trade cap). Changing risk caps with zero risk-manager
+   coverage is not defensible. This is its prerequisite.
+
+Zero deployment risk — no production file was touched.
+
+### 10.2 What the blanket skip was actually hiding
+
+Removing both `pytestmark` markers and running gave **36 passed / 11 failed**.
+The skip was disabling **36 working tests to hide 11 broken ones**, and not one
+of the 11 was a bug in production code:
+
+| Cause | Count |
+|---|---|
+| Stale $10,000 scaling | 6 |
+| Fixture predating leverage (`Decimal(str(Mock))` → `InvalidOperation`) | 4 |
+| Obsolete long-only assertion | 1 |
+
+The sharpest example is `test_calculate_position_size_basic`: it passes
+`account_balance=Decimal("100.00")` and asserted `0.02 BTC` — the answer for a
+$10,000 account. The risk manager correctly returned `0.0002`. Likewise the
+daily-loss tests fed a **$200 loss to a $100 account** (a 200% loss) and then
+asserted the 5% breaker had *not* fired. The risk manager was right every time;
+the expectations were stranded by the same $10,000 → $100 migration that this
+whole audit keeps rediscovering.
+
+### 10.3 One test rewritten rather than rescaled
+
+`test_execute_sell_order_no_position` asserted that a SELL with no open position
+fails with "No open LONG position" — long-only behaviour that SHORT enforcement
+(`380a674`) made obsolete. Replaced with two tests covering current intent:
+
+- a plain SELL with no position **opens a SHORT**;
+- a `reduce_only` SELL with no position is **rejected** — the property that stops
+  a stop-loss exit flipping into a brand-new counter-trade (the bug the
+  2026-07-28 overhaul fixed).
+
+### 10.4 Verification
+
+```
+Baseline: 36 failed, 1456 passed, 842 skipped
+After:    37 failed, 1503 passed, 795 skipped
+```
+
+Passed **+47**, skipped **−47** — exactly the restored tests.
+
+The extra failure is `test_signal_cache.py::test_cache_entries_isolated`, and it
+is **pre-existing flakiness, not a regression**: a wall-clock test with
+`ttl_seconds=2` and a 0.1 s margin, so `sleep()` overshoot under load can age
+`key2` past its TTL. It passes 3/3 in isolation. This change adds ~90 s of
+runtime, which raises the odds of tripping it. Filed, not fixed — a timing test
+with that margin should use a fake clock.
+
+### 10.5 What this unblocks
+
+T-2 can now be attempted with the risk manager under test. That remains an
+operator decision (it is a risk-cap change on a running engine, and **T-2 must
+land before T-3**), but the precondition that made it irresponsible is gone.
