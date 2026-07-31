@@ -388,7 +388,11 @@ services:
     container_name: crypto-bot-bybit
     hostname: bybit-connector
     ports:
-      - "${BYBIT_PORT:-8001}:8001"
+      # SEC-0: loopback-only. This service holds live mainnet credentials and
+      # exposes POST /api/v1/order/place with no authentication; published on
+      # 0.0.0.0 it was reachable from the LAN. Nothing outside this host needs
+      # it -- only api-gateway (8000) and the frontend (3000) face outward.
+      - "127.0.0.1:${BYBIT_PORT:-8001}:8001"
     environment:
       - SERVICE_NAME=bybit-connector
       - SERVICE_PORT=8001
@@ -397,6 +401,12 @@ services:
       - BYBIT_API_KEY=${BYBIT_API_KEY:-}
       - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
       - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
+      # SEC-0 order-placement guard. Defaults are the SAFE values: the
+      # connector refuses to touch the exchange unless all three are set for
+      # live trading, mirroring the trading-engine contract.
+      - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
+      - TRADING_MODE=${TRADING_MODE:-PAPER}
+      - LIVE_TRADING_ACK=${LIVE_TRADING_ACK:-}
       # Default 'live' — real Bybit REST/WS. Set MARKET_DATA_SOURCE=tape in .env
       # only when replaying tests/fixtures/tape/*.jsonl (integration tests, replay
       # debugging). Tape fixtures freeze prices and silently diverge from real
@@ -479,7 +489,9 @@ services:
     container_name: crypto-bot-portfolio
     hostname: portfolio-manager
     ports:
-      - "${PORTFOLIO_PORT:-8003}:8003"
+      # SEC-1: loopback-only. This service has no authentication on any route,
+      # including /api/v1/transaction/buy and /sell.
+      - "127.0.0.1:${PORTFOLIO_PORT:-8003}:8003"
     environment:
       - SERVICE_NAME=portfolio-manager
       - SERVICE_PORT=8003
@@ -575,7 +587,10 @@ services:
     container_name: crypto-bot-trading
     hostname: trading-engine
     ports:
-      - "${TRADING_PORT:-8005}:8005"
+      # SEC-1: loopback-only. 51 mutating routes, zero auth schemes -- verified
+      # against the live OpenAPI document. Every api-gateway guard was
+      # advisory while this was reachable from the LAN.
+      - "127.0.0.1:${TRADING_PORT:-8005}:8005"
     environment:
       - SERVICE_NAME=trading-engine
       - SERVICE_PORT=8005

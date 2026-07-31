@@ -449,6 +449,40 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ============================================================================
 
 
+def require_live_orders_permitted() -> None:
+    """
+    Refuse real order placement unless the service is explicitly in LIVE mode.
+
+    SEC-0 (2026-07-31): this service is the only component that can touch real
+    money, and it previously had no mode check at all. The LIVE safeguards --
+    PAPER_TRADING_MODE, TRADING_MODE, LIVE_TRADING_ACK, the kill switch, the
+    per-trade cap, the daily-loss breaker -- all live in trading-engine, and
+    the order routes here do not go through trading-engine. With
+    BYBIT_TESTNET=false and port 8001 published, a single unauthenticated POST
+    reached Bybit mainnet and bypassed every one of them.
+
+    Enforcing the flags here puts them at the point where money is actually
+    touched. Fail-closed: `live_orders_permitted` requires all three
+    conditions, so absent or malformed configuration refuses.
+
+    This is defence in depth, not a substitute for authentication -- the
+    service still has none. Bind port 8001 to loopback as well.
+    """
+    settings = get_settings()
+    permitted, reason = settings.live_orders_permitted
+    if not permitted:
+        logger.warning(f"Refused live order request: {reason}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Live order placement is disabled: {reason}. "
+                "This connector refuses to touch the exchange unless "
+                "PAPER_TRADING_MODE=false, TRADING_MODE=LIVE and "
+                "LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY are all set."
+            ),
+        )
+
+
 def get_rest_client(request: Request) -> BybitRestClient:
     """Dependency to get REST client from app state"""
     if (
@@ -590,6 +624,7 @@ async def place_order(
     request: Request,
     order: PlaceOrderRequest,
     client: BybitRestClient = Depends(get_rest_client),
+    _live_ok: None = Depends(require_live_orders_permitted),
 ):
     """
     Place a new order
@@ -641,6 +676,7 @@ async def cancel_order(
     request: Request,
     cancel_request: CancelOrderRequest,
     client: BybitRestClient = Depends(get_rest_client),
+    _live_ok: None = Depends(require_live_orders_permitted),
 ):
     """
     Cancel an order
