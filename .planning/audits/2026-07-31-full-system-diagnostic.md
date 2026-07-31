@@ -1437,3 +1437,192 @@ with that margin should use a fake clock.
 T-2 can now be attempted with the risk manager under test. That remains an
 operator decision (it is a risk-cap change on a running engine, and **T-2 must
 land before T-3**), but the precondition that made it irresponsible is gone.
+
+---
+
+## 11. Recovered coverage — the two stalled auditors
+
+§4.6 recorded the auth audit as partial and the ML/AI audit as not done, because
+both agents stalled. Both were resumed from their transcripts and asked to
+report verified findings only, with "NOT VERIFIED" required for anything they
+had not actually read. Between them they had already burned ~278k tokens of
+real investigation. The gaps in §4.6 are now **closed for Part A / auth**;
+Part B (dead code, dependencies, circular imports) remains genuinely not done.
+
+Every headline below was independently re-verified by me before being recorded.
+
+### 11.1 Authentication — the single worst finding in this audit
+
+**SEC-1 (CRITICAL) — trading-engine and portfolio-manager have NO
+authentication at all, and both publish host ports.**
+
+```
+$ grep -rn "Depends(get_current\|HTTPBearer\|Security(" \
+      services/trading-engine/app/ services/portfolio-manager/app/
+services/trading-engine/app/handlers/orchestration.py:694:# ... (a COMMENT referencing the gateway)
+```
+
+The only match in either service is a comment. Confirmed against the live
+schema:
+
+```
+$ curl -s localhost:8005/openapi.json | ...
+securitySchemes: NONE
+global security: NONE
+routes declaring security: 0
+mutating routes total: 51
+```
+
+`docker-compose.unified.yml:482` and `:578` map
+`${PORTFOLIO_PORT:-8003}:8003` and `${TRADING_PORT:-8005}:8005` with **no
+`127.0.0.1:` prefix**, so both bind `0.0.0.0` and are LAN-reachable.
+
+Every guard on the api-gateway is therefore **advisory**. `POST
+<host>:8005/api/v1/trading/start` bypasses all of it, as does
+`/api/v1/risk/budget/emergency/trigger`, `/emergency/clear`, the TWAP/VWAP
+execution routes, and portfolio-manager's `/api/v1/transaction/buy` and
+`/sell`. Today that risks a paper book; after a LIVE flip it is real money on
+an unauthenticated port.
+
+**SEC-2 (CRITICAL) — `REQUIRE_API_AUTH` is fail-open and outranks every other
+check.** `services/api-gateway/app/auth_middleware.py:50-52`:
+
+```python
+explicit = os.environ.get("REQUIRE_API_AUTH")
+if explicit is not None:
+    return explicit.strip().lower() in ("1", "true", "yes", "on")
+```
+
+That early return sits **above** the production/staging and LIVE branches
+(`:58-63`). Any unrecognised value — `enabled`, `TRUE!`, a stray comment —
+yields `False` and **disables authentication in production and in LIVE mode**.
+When auth is off, `get_current_user_gated` (`:148-155`) returns a principal with
+`is_admin=True`, so one misspelled env var silently converts every admin route
+to anonymous.
+
+Related, same function: `TRADING_MODE` is read with `.upper()` but **no
+`.strip()`** (`:55`), so `"LIVE "` with a trailing space — ordinary in a `.env`
+file — does not match `"LIVE"` and leaves auth open with real money.
+`PAPER_TRADING_MODE` is correctly fail-closed.
+
+**SEC-3 (HIGH) — the JWT signing key is a constant published in this repo.**
+`services/api-gateway/app/auth_models.py:49` defines
+`_DEV_ONLY_SECRET = "development-only-secret-not-for-production-use"`, returned
+as the signing key at `:138`. The hard-fail at `:84` only covers
+production/staging/LIVE/non-paper. So the combination
+`REQUIRE_API_AUTH=true` + `ENVIRONMENT=development` + paper — precisely what a
+cautious operator sets — enforces auth while signing tokens with a public
+string, letting anyone mint an admin JWT. Compounding: `auth_models.py:472-473`
+auto-grants admin to the first registered user in development, and
+`/auth/register` (`main.py:613`) is unauthenticated.
+
+**SEC-4 (HIGH) — the rate limiter is bypassed by a client-supplied header.**
+`services/api-gateway/app/security/rate_limiter.py:88-92` keys the limiter on
+the first IP in `X-Forwarded-For` with no trusted-proxy allowlist. Rotating that
+header yields unlimited buckets, defeating `auth_limit=10` on `/auth/login` —
+unlimited password brute force. The authenticated-user key path at `:83-85`
+reads `request.state.user`, which nothing ever sets, so *every* client falls
+through to the spoofable path. Enforcement is in-process
+(`_check_and_increment`, `:382-412`) and never touches Redis, despite a Redis
+URL being configured — so the limits also multiply by worker count.
+
+**SEC-5 (MEDIUM) — `Infinity` passes quantity validation on port 8003.**
+`services/portfolio-manager/app/utils/helpers.py:125-132` does `Decimal(value)`
+then rejects only `< 0`. `Decimal("Infinity") < 0` is `False`, so it passes and
+flows into `execute_transaction`. The gateway's bounds
+(`security/input_validation.py:102-107`) are not on that path, and
+portfolio-manager has no symbol allowlist at all.
+
+**Cleared:** api-gateway CORS is *not* permissive —
+`security_headers.py:252-257` is an explicit 4-origin list with no wildcard and
+no origin reflection, and `allow_credentials=True` is safe given that.
+
+### 11.2 ML/AI
+
+**ML-1 (CRITICAL) — catastrophic look-ahead leakage via shuffled split.**
+`services/ml-prediction-service/app/models/ensemble_model.py:181-183`:
+
+```python
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=test_size, random_state=42, stratify=y
+)
+```
+
+`stratify` **forces `shuffle=True`** in scikit-learn. This is time-series data:
+features include `close_lag_1..N` (`:82-84`) and rolling windows (`:86-92`), and
+the target is `future_direction = (close.shift(-1) > close)` (`:95`). Adjacent
+bars land on both sides of the split, so every reported accuracy/precision/recall
+from this model is meaningless. It is reached live by
+`GET /api/v1/predict/enhanced/{symbol}`, which retrains in-process on request
+because no `enhanced_ensemble_*.pkl` artifact exists.
+
+Two more leaks, both scaler-before-split:
+`gru_model.py:325` fits the feature scaler on the full frame before splitting at
+`:440-442`; `ml-retraining-service/app/core/model_trainer.py:202-203` fits both
+scalers inside `create_sequences` before the split at `:317` — even though that
+split correctly passes `shuffle=False`.
+
+**ML-2 (CRITICAL) — raw R² on price levels is the live prediction confidence.**
+Project rules forbid raw R² on price levels. `gru_model.py:651`:
+`base_confidence = float(self.training_stats.get("r2_score", 0.5))`. That R² is
+computed on **scaled close-price levels** (`:478`, target defined `:336-346`),
+and every model's metadata carries 0.77–0.9985 — so the confidence the trading
+API returns is pinned near 1.0 regardless of skill. This is not a reporting
+artifact; it is the number downstream consumers act on.
+
+Also `hyperparameter_optimizer.py:649` returns R² as the Optuna objective to
+maximise, and `scripts/check_ml_training_status.py:43-44` uses
+`TARGET_R2_SCORE = 0.99` / `ACCEPTABLE_R2_SCORE = 0.85` as a **production
+acceptance gate**.
+
+**ML-3 (HIGH) — predictions are inverse-scaled with the wrong range.**
+`gru_model.py:645-648` inverts using the *current request window's*
+`df["close"].max()/min()` rather than the `price_scaler` loaded at `:145` —
+which is loaded and then never used. Predicted prices are wrong by an amount
+that varies per request.
+
+**ML-4 (HIGH) — the ML gate is real but not universal.**
+The load-bearing branch is genuine and fail-closed:
+`signal_aggregator.py:1124` gates on `enable_ml_predictions` and falls back to
+Phase-1, and `enhanced_aggregator.py:161` neutralises to 0.0 on error. But
+`infrastructure/kubernetes/configmaps/app-config.yaml:91`,
+`staging/configmap.yaml:73` and `.env.production.example:118` all set
+`ENABLE_ML_PREDICTIONS=true` — "off by default" holds for the compose path only.
+Separately, `auto_trader.py:165` binds `settings` at **import** time, before the
+lifespan auto-flip (`lifespan/ml.py:173-177`) runs, so `self.enable_ml` can
+disagree with the live setting; the aggregator re-check saves it, but the
+operator-facing log then claims ML ran when it did not.
+
+**ML-5 (MEDIUM) — model provenance is worse than "stale".** CLAUDE.md says GRU
+models are stale since 2025-12-10. Per the authoritative `last_trained` field in
+each metadata sidecar, 6 of 16 are newer — trained **2026-04-25/26**, which is
+exactly the testnet→mainnet flip boundary CLAUDE.md warns about. Those six are
+BTC, ETH, SOL, BNB, ADA and XRP: **the five actively-traded symbols were trained
+on contaminated candles.** Newer, but not better.
+
+Loader behaviour: a missing metadata sidecar is a warning that still returns
+success (`gru_model.py:159-164`), leaving confidence silently at 0.5; missing
+scalers are skipped silently and blow up later at predict time with
+`NotFittedError`.
+
+### 11.3 Documentation corrections
+
+- **`_archive_lstm/` DOES exist.** CLAUDE.md and `wiki/hot.md:18` both state it
+  "does not exist anywhere in the tree". Verified:
+  `services/ml-prediction-service/models/_archive_lstm/` holds **27
+  `*_lstm.keras` artifacts**. It is inert — the loader globs
+  `*_60m_gru.keras` non-recursively (`config.py:151`) — but the claim is false.
+- **technical-analysis does NOT do GRU inference.** CLAUDE.md's service table
+  says it does; `grep -rn "gru\|GRU\|keras\|tensorflow" services/technical-analysis/app/`
+  returns zero hits. There is no ungated ML leg via TA.
+- LSTM is not merely a leftover: `ml-retraining-service/app/core/models/__init__.py:8-12`
+  registers it in a live `REGISTRY` selected at `model_trainer.py:332`, so
+  `architecture="lstm"` remains a working, selectable training path.
+
+### 11.4 Still not done
+
+Part B in full — orphan modules, cross-service duplication, dependency/CVE
+audit, circular imports, broken imports. Three subagents were dispatched for it
+and none returned. Also unexamined: sentiment-analysis-service, and whether
+`cpcv.py` / `sharpe_metrics.py` / `returns_metrics.py` are wired into any real
+acceptance gate.
