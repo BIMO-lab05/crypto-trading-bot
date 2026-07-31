@@ -87,6 +87,18 @@ class Settings(BaseSettings):
     default_interval: str = Field(default="60")  # 1 hour
     fetch_historical_days: int = Field(default=30)  # Fetch last 30 days on startup
 
+    # Data freshness
+    #
+    # Ticker collection runs every 5 minutes, so three consecutive missed
+    # cycles is unambiguous failure rather than jitter. Beyond this age a
+    # stored row is treated as a cache miss (triggering a live re-fetch) and
+    # /ready reports the service as not ready.
+    #
+    # This exists because ingest once stopped for 17 hours while every read
+    # kept returning the last stored row as current, with HTTP 200 and a green
+    # /health -- see .planning/audits/2026-07-31-full-system-diagnostic.md DL-1.
+    market_data_staleness_seconds: int = Field(default=900, ge=60)
+
     # Caching
     cache_ttl_ticker: int = Field(default=5)  # 5 seconds for ticker
     cache_ttl_kline: int = Field(default=60)  # 1 minute for kline
