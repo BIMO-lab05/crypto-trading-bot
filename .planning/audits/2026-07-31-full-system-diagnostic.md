@@ -1195,3 +1195,88 @@ $ docker logs crypto-bot-market-data | grep -ci "missed by"
 
 Owner election stable across both cycles: pid 8 reports `scheduler_owner: true`
 with future `next_run` times; pid 9 declines cleanly.
+
+---
+
+## 8. DL-2 / T-8 root cause and fix (restart cash fabrication)
+
+Quick task: `.planning/quick/260731-ooe-fix-restart-balance-rebase/`
+
+### 8.1 Why "just read cash_balance" was the wrong fix
+
+The obvious repair — seed from the persisted `portfolios.cash_balance` — is
+incomplete. That column is written **only on position close**
+(`position_manager.py:348`, inside `close_position`), never on open. So it is
+accurate as of `portfolios.updated_at`; any position opened after that write has
+had its margin debited in memory but never persisted. Seeding blindly from it
+would have *under*-counted instead of over-counting.
+
+Correct reconstruction:
+
+```
+balance = portfolios.cash_balance
+          - (margin + commission) for positions opened AFTER portfolios.updated_at
+```
+
+### 8.2 That made T-8 a prerequisite, not a separate nicety
+
+The reconstruction needs a real `Position.opened_at`, and
+`position_manager.py:782-792` never restored it — the model's
+`default_factory=now()` won, so every position reported the restart time:
+
+```
+DB:  826f5b17... opened_at 2026-07-29 20:00:42.322091
+API: "opened_at": "2026-07-31T14:26:08.069372Z"     <- restart time
+```
+
+Both `opened_at` and `realized_pnl` exist in the live schema and were simply not
+read. Independently of DL-2 this defeats the 48h max-hold force-close
+(`auto_trader.py:2429-2430`): a position survives indefinitely as long as the
+service restarts inside each window — the 185h SOLUSDT failure the Jan 2026 fix
+(`380a674`) was written for.
+
+### 8.3 Changes
+
+1. `position_manager.load_positions_from_db` — restore `opened_at` and
+   `realized_pnl`. Added `_as_utc()` because both columns are
+   `timestamp without time zone`, so SQLAlchemy returns naive datetimes and
+   comparing them against `datetime.now(timezone.utc)` raises `TypeError`.
+2. `paper_trading.sync_balance_with_positions` — now `async`; seeds from the
+   persisted ledger and deducts only post-write positions. Retains the old
+   reconstruction as a fallback when the portfolio row is unreadable, but logs
+   it at ERROR — that path fabricates cash and must never be silent.
+3. `lifespan/data.py:61` — `await` the now-async call.
+
+### 8.4 Magnitude
+
+For the live book's shape, the two formulas differ by **$14.25 on a $100
+account**:
+
+```
+OLD formula (initial - cost)   = 94.95
+NEW formula (persisted ledger) = 80.70266802
+cash invented by OLD           = 14.24733198
+```
+
+### 8.5 Verification
+
+Added `tests/unit/test_restart_balance_restore.py` — 7 tests covering: restore
+from the persisted ledger, deduct only post-write positions, loud fallback when
+the ledger is unreadable, naive-timestamp handling, and `_as_utc` itself. The
+first test pins `94.95` explicitly so a regression to the par-based
+reconstruction fails rather than passing on a near-miss.
+
+One defect found in my own test during review: the guard assertion used `5.005`
+where the real cost is `5.05`, which made it vacuous. Corrected.
+
+**Not deployed.** Deploying needs a trading-engine restart, which mutates the
+live paper book. The fix makes future restarts safe, and the restart that
+deploys it will already run the new logic — but it remains the operator's call.
+
+### 8.6 Still outstanding
+
+`remaining_quantity`, `tp1_hit/2/3`, `highest_price` and `lowest_price` are
+**not columns in the live `positions` table** (DL-6), so partial-exit state
+still cannot survive a restart — T-4 (resurrected quantity crediting margin that
+was never posted) is therefore **not** fixed by this change. It needs a
+migration.
