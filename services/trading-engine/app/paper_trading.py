@@ -17,7 +17,7 @@ from app.models import (
     PositionSide,
     PositionStatus,
 )
-from app.position_manager import get_position_manager
+from app.position_manager import get_position_manager, _as_utc
 from app.risk_manager import get_risk_manager
 from app.repositories import get_trade_repository, get_portfolio_repository
 
@@ -77,35 +77,95 @@ class PaperTradingEngine:
         logger.info(f"  Commission: {self.settings.paper_commission_pct}%")
         logger.info("  Database persistence: ENABLED")
 
-    def sync_balance_with_positions(self):
+    def _open_position_cost(self, positions) -> Decimal:
+        """Margin + commission actually debited when these positions opened."""
+        leverage = Decimal(str(self.settings.default_leverage))
+        total = Decimal("0")
+        for pos in positions:
+            qty = (
+                pos.remaining_quantity
+                if pos.remaining_quantity is not None
+                else pos.quantity
+            )
+            position_value = pos.entry_price * qty
+            total += (position_value / leverage) + (
+                position_value * self.commission_pct
+            )
+        return total
+
+    async def sync_balance_with_positions(self):
         """
-        Sync cash balance with open positions loaded from database.
-        Call this after positions are loaded from database to deduct their cost.
+        Restore cash balance after a restart.
 
         FIX 2026-07-28: deduct MARGIN (notional / leverage) + commission, matching
         the open-leg accounting in execute_market_order. Previously this deducted
         full notional, so every restart with open positions understated cash.
+
+        FIX 2026-07-31 (audit DL-2): the previous form was
+        `initial_balance - open_position_cost`, which reconstructs cash from par
+        and therefore discards every realized P&L and every commission ever paid
+        on a closed leg. Measured across the 14:26 restart with zero trades in
+        between, it invented $2.78 out of nothing -- exactly realized P&L plus
+        the commissions of the two closed legs. Because auto_trader seeds the
+        kill switch from this number, a drawdown breaker approaching its
+        threshold was quietly re-armed toward par by any restart or crash-loop.
+
+        The persisted `portfolios.cash_balance` is the true running ledger, but
+        it is written only on position *close* (position_manager.close_position),
+        never on open. So it is accurate as of `portfolios.updated_at`, and any
+        position opened after that timestamp has had its margin debited in
+        memory but never persisted. Reconstruct as:
+
+            cash_balance - cost(positions opened after portfolios.updated_at)
         """
         open_positions = self.position_manager.get_open_positions()
-        if not open_positions:
-            logger.info("No open positions to sync balance with")
+
+        portfolio = None
+        try:
+            portfolio = await self.portfolio_repo.get_or_create(
+                portfolio_id="paper_trading"
+            )
+        except Exception as exc:
+            logger.error(f"Could not read persisted portfolio balance: {exc}")
+
+        if portfolio is None or portfolio.cash_balance is None:
+            # Degrade to the old reconstruction, but never silently -- this
+            # path fabricates cash and the operator needs to know it ran.
+            self.balance = self.initial_balance - self._open_position_cost(
+                open_positions
+            )
+            logger.error(
+                "⚠️  Falling back to reconstructing cash from initial_balance; "
+                "realized P&L and past commissions are NOT reflected. "
+                f"Balance set to ${self.balance:.2f}"
+            )
             return
 
-        leverage = Decimal(str(self.settings.default_leverage))
-        total_position_cost = Decimal("0")
-        for pos in open_positions:
-            qty = pos.remaining_quantity if pos.remaining_quantity is not None else pos.quantity
-            position_value = pos.entry_price * qty
-            margin = position_value / leverage
-            commission = position_value * self.commission_pct
-            total_position_cost += margin + commission
+        persisted_cash = Decimal(str(portfolio.cash_balance))
+        last_write = _as_utc(portfolio.updated_at)
 
-        # Adjust balance
-        self.balance = self.initial_balance - total_position_cost
+        # Only positions opened after the last persisted write still owe their
+        # margin against that figure; anything older is already reflected in it.
+        unpersisted = [
+            pos
+            for pos in open_positions
+            if last_write is None
+            or (pos.opened_at is not None and _as_utc(pos.opened_at) > last_write)
+        ]
+        unpersisted_cost = self._open_position_cost(unpersisted)
+        self.balance = persisted_cash - unpersisted_cost
 
-        logger.info(f"Balance synced with {len(open_positions)} open positions:")
-        logger.info(f"  Total margin + commission: ${total_position_cost:.2f}")
-        logger.info(f"  Adjusted balance: ${self.balance:.2f}")
+        logger.info(
+            f"Balance restored from persisted ledger: ${persisted_cash:.2f} "
+            f"(as of {last_write})"
+        )
+        logger.info(
+            f"  Open positions: {len(open_positions)}, "
+            f"of which opened after last write: {len(unpersisted)}"
+        )
+        if unpersisted:
+            logger.info(f"  Unpersisted margin + commission: ${unpersisted_cost:.2f}")
+        logger.info(f"  Restored balance: ${self.balance:.2f}")
 
     def get_balance(self) -> Decimal:
         """Get current account balance"""
@@ -305,9 +365,7 @@ class PaperTradingEngine:
                     return executed_order, error_msg
 
                 self.balance -= total_cost
-                self.position_manager.scale_in(
-                    pos.id, order.quantity, current_price
-                )
+                self.position_manager.scale_in(pos.id, order.quantity, current_price)
                 executed_order.position_id = pos.id
 
                 logger.info(

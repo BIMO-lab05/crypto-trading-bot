@@ -58,7 +58,7 @@ async def init_data():
                 from app.paper_trading import get_paper_engine
 
                 paper_engine = get_paper_engine()
-                paper_engine.sync_balance_with_positions()
+                await paper_engine.sync_balance_with_positions()
                 logger.info(
                     f"Paper trading balance synced: ${paper_engine.get_balance():.2f}"
                 )

@@ -14,10 +14,28 @@ from typing import List, Optional, Dict, Tuple
 from decimal import Decimal
 from uuid import UUID
 from datetime import datetime, timezone
-from app.models import Position, PositionCreate, PositionStatus, PositionSide
+from app.models import Position, PositionStatus, PositionSide
 from app.risk_manager import get_risk_manager
 from app.repositories import get_position_repository, get_portfolio_repository
-from app.atr_stops import get_atr_calculator, ATRStopCalculator
+from app.atr_stops import get_atr_calculator
+
+
+def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """
+    Normalise a DB timestamp to timezone-aware UTC.
+
+    `positions.opened_at` is `timestamp without time zone`, so SQLAlchemy hands
+    back a naive datetime. Comparing that against `datetime.now(timezone.utc)`
+    -- which the max-hold check and the balance reconciliation both do --
+    raises TypeError. Values are stored as UTC, so attach UTC rather than
+    assuming the container's local zone.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +71,7 @@ class PositionManager:
         take_profit_1: Optional[Decimal] = None,
         take_profit_2: Optional[Decimal] = None,
         take_profit_3: Optional[Decimal] = None,
-        entry_signal_confidence: Optional[float] = None  # CRITICAL FIX 2025-12-05
+        entry_signal_confidence: Optional[float] = None,  # CRITICAL FIX 2025-12-05
     ) -> Position:
         """
         Create a new position
@@ -108,7 +126,7 @@ class PositionManager:
             take_profit_1=take_profit_1,
             take_profit_2=take_profit_2,
             take_profit_3=take_profit_3,
-            entry_signal_confidence=entry_signal_confidence  # CRITICAL FIX 2025-12-05
+            entry_signal_confidence=entry_signal_confidence,  # CRITICAL FIX 2025-12-05
         )
 
         # Store position in memory
@@ -126,6 +144,7 @@ class PositionManager:
 
         # Persist to database (async, non-blocking)
         import asyncio
+
         try:
             asyncio.create_task(
                 self.position_repo.create(position, portfolio_id="paper_trading")
@@ -145,7 +164,9 @@ class PositionManager:
 
     def get_open_positions(self) -> List[Position]:
         """Get all open positions"""
-        return [pos for pos in self.positions.values() if pos.status == PositionStatus.OPEN]
+        return [
+            pos for pos in self.positions.values() if pos.status == PositionStatus.OPEN
+        ]
 
     def update_positions_with_tp_levels(self) -> int:
         """
@@ -171,13 +192,25 @@ class PositionManager:
                 risk_distance = abs(position.entry_price - position.stop_loss)
 
                 if position.side == PositionSide.LONG:
-                    position.take_profit_1 = position.entry_price + (risk_distance * Decimal("0.8"))
-                    position.take_profit_2 = position.entry_price + (risk_distance * Decimal("1.3"))
-                    position.take_profit_3 = position.entry_price + (risk_distance * Decimal("2.0"))
+                    position.take_profit_1 = position.entry_price + (
+                        risk_distance * Decimal("0.8")
+                    )
+                    position.take_profit_2 = position.entry_price + (
+                        risk_distance * Decimal("1.3")
+                    )
+                    position.take_profit_3 = position.entry_price + (
+                        risk_distance * Decimal("2.0")
+                    )
                 else:  # SHORT
-                    position.take_profit_1 = position.entry_price - (risk_distance * Decimal("0.8"))
-                    position.take_profit_2 = position.entry_price - (risk_distance * Decimal("1.3"))
-                    position.take_profit_3 = position.entry_price - (risk_distance * Decimal("2.0"))
+                    position.take_profit_1 = position.entry_price - (
+                        risk_distance * Decimal("0.8")
+                    )
+                    position.take_profit_2 = position.entry_price - (
+                        risk_distance * Decimal("1.3")
+                    )
+                    position.take_profit_3 = position.entry_price - (
+                        risk_distance * Decimal("2.0")
+                    )
 
                 logger.info(
                     f"Updated {position.symbol} with TP levels: "
@@ -190,12 +223,14 @@ class PositionManager:
 
     def get_closed_positions(self) -> List[Position]:
         """Get all closed positions"""
-        return [pos for pos in self.positions.values() if pos.status == PositionStatus.CLOSED]
+        return [
+            pos
+            for pos in self.positions.values()
+            if pos.status == PositionStatus.CLOSED
+        ]
 
     def update_position_price(
-        self,
-        position_id: UUID,
-        current_price: Decimal
+        self, position_id: UUID, current_price: Decimal
     ) -> Position:
         """
         Update position with current price and recalculate P&L
@@ -222,6 +257,7 @@ class PositionManager:
 
         # Update price in database (async, non-blocking)
         import asyncio
+
         try:
             asyncio.create_task(
                 self.position_repo.update_price(
@@ -234,9 +270,7 @@ class PositionManager:
         return position
 
     def check_position_exit(
-        self,
-        position_id: UUID,
-        current_price: Decimal
+        self, position_id: UUID, current_price: Decimal
     ) -> tuple[bool, Optional[str]]:
         """
         Check if position should be closed
@@ -258,10 +292,7 @@ class PositionManager:
         return self.risk_manager.should_close_position(position, current_price)
 
     def close_position(
-        self,
-        position_id: UUID,
-        close_price: Decimal,
-        reason: Optional[str] = None
+        self, position_id: UUID, close_price: Decimal, reason: Optional[str] = None
     ) -> Position:
         """
         Close a position
@@ -317,13 +348,11 @@ class PositionManager:
 
         # Close position in database (async, non-blocking)
         import asyncio
+
         try:
             asyncio.create_task(
                 self.position_repo.close(
-                    position_id,
-                    close_price,
-                    position.realized_pnl,
-                    exit_reason=reason
+                    position_id, close_price, position.realized_pnl, exit_reason=reason
                 )
             )
 
@@ -338,6 +367,7 @@ class PositionManager:
             total_realized_pnl = self.get_total_realized_pnl()
             try:
                 from app.paper_trading import get_paper_engine
+
                 _cash_now = get_paper_engine().get_balance()
             except Exception:
                 # Best-effort: if the engine isn't available, skip the cash
@@ -351,7 +381,9 @@ class PositionManager:
                         realized_pnl=total_realized_pnl,
                     )
                 )
-            logger.info(f"Portfolio updated: total realized P&L = ${total_realized_pnl}")
+            logger.info(
+                f"Portfolio updated: total realized P&L = ${total_realized_pnl}"
+            )
         except Exception as e:
             logger.warning(f"Failed to close position in database: {e}")
 
@@ -400,6 +432,7 @@ class PositionManager:
         )
 
         import asyncio
+
         try:
             asyncio.create_task(
                 self.position_repo.update_price(
@@ -453,6 +486,7 @@ class PositionManager:
         )
 
         import asyncio
+
         try:
             asyncio.create_task(
                 self.position_repo.update_price(
@@ -466,10 +500,7 @@ class PositionManager:
 
     def get_total_exposure(self) -> Decimal:
         """Calculate total exposure from open positions"""
-        return sum(
-            pos.entry_price * pos.quantity
-            for pos in self.get_open_positions()
-        )
+        return sum(pos.entry_price * pos.quantity for pos in self.get_open_positions())
 
     def get_total_unrealized_pnl(self) -> Decimal:
         """Calculate total unrealized P&L from open positions"""
@@ -484,7 +515,7 @@ class PositionManager:
         return {
             "total": len(self.positions),
             "open": len(self.get_open_positions()),
-            "closed": len(self.get_closed_positions())
+            "closed": len(self.get_closed_positions()),
         }
 
     # ============================================================================
@@ -495,7 +526,7 @@ class PositionManager:
         self,
         position_id: UUID,
         current_price: Decimal,
-        atr_value: Optional[float] = None
+        atr_value: Optional[float] = None,
     ) -> Tuple[Position, Optional[Dict]]:
         """
         Update position with trailing stop and check for partial exits
@@ -544,10 +575,7 @@ class PositionManager:
         return position, partial_exit
 
     def execute_partial_exit(
-        self,
-        position_id: UUID,
-        exit_info: Dict,
-        exit_price: Decimal
+        self, position_id: UUID, exit_info: Dict, exit_price: Decimal
     ) -> Tuple[Position, Decimal]:
         """
         Execute a partial exit for a position
@@ -587,9 +615,7 @@ class PositionManager:
         return position, partial_pnl
 
     def check_all_exit_conditions(
-        self,
-        position_id: UUID,
-        current_price: Decimal
+        self, position_id: UUID, current_price: Decimal
     ) -> Tuple[bool, str, Optional[Dict]]:
         """
         Check all exit conditions for a position
@@ -644,7 +670,7 @@ class PositionManager:
         tp2: Optional[Decimal] = None,
         tp3: Optional[Decimal] = None,
         trailing_stop: Optional[Decimal] = None,
-        enable_trailing: bool = False
+        enable_trailing: bool = False,
     ) -> Position:
         """
         Set stop loss and take profit levels for a position
@@ -697,7 +723,7 @@ class PositionManager:
         quantity: Decimal,
         atr_value: float,
         strategy: Optional[str] = None,
-        entry_signal_confidence: Optional[float] = None  # CRITICAL FIX 2025-12-05
+        entry_signal_confidence: Optional[float] = None,  # CRITICAL FIX 2025-12-05
     ) -> Position:
         """
         Create a position with ATR-based stop levels
@@ -721,9 +747,7 @@ class PositionManager:
         """
         atr_calc = get_atr_calculator()
         stop_levels = atr_calc.calculate_stops(
-            float(entry_price),
-            atr_value,
-            side.value
+            float(entry_price), atr_value, side.value
         )
 
         # Create position with ATR-based stops
@@ -742,7 +766,7 @@ class PositionManager:
             trailing_stop_enabled=False,  # Enabled after TP1
             strategy=strategy,
             entry_signal_confidence=entry_signal_confidence,  # CRITICAL FIX 2025-12-05
-            status=PositionStatus.OPEN
+            status=PositionStatus.OPEN,
         )
 
         # Store position
@@ -757,6 +781,7 @@ class PositionManager:
 
         # Persist to database
         import asyncio
+
         try:
             asyncio.create_task(
                 self.position_repo.create(position, portfolio_id="paper_trading")
@@ -784,11 +809,26 @@ class PositionManager:
                     side=PositionSide(db_pos.side),
                     entry_price=Decimal(str(db_pos.entry_price)),
                     quantity=Decimal(str(db_pos.quantity)),
-                    current_price=Decimal(str(db_pos.current_price or db_pos.entry_price)),
-                    stop_loss=Decimal(str(db_pos.stop_loss)) if db_pos.stop_loss else None,
-                    take_profit=Decimal(str(db_pos.take_profit)) if db_pos.take_profit else None,
+                    current_price=Decimal(
+                        str(db_pos.current_price or db_pos.entry_price)
+                    ),
+                    stop_loss=Decimal(str(db_pos.stop_loss))
+                    if db_pos.stop_loss
+                    else None,
+                    take_profit=Decimal(str(db_pos.take_profit))
+                    if db_pos.take_profit
+                    else None,
                     strategy=db_pos.strategy,
-                    status=PositionStatus.OPEN
+                    status=PositionStatus.OPEN,
+                    # Restore the real open time. Omitting it let the model's
+                    # `default_factory=now()` win, which handed every position a
+                    # fresh 48h max-hold window on each restart -- a position
+                    # could be held forever as long as the service restarted
+                    # inside each window (the 185h SOLUSDT failure mode). It is
+                    # also the reference point the paper engine uses to decide
+                    # which positions post-date the last persisted cash balance.
+                    opened_at=_as_utc(db_pos.opened_at),
+                    realized_pnl=Decimal(str(db_pos.realized_pnl or 0)),
                 )
                 # Use the DB position_id
                 position.id = db_pos.position_id
