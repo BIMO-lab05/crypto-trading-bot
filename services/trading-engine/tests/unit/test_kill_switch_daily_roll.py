@@ -130,6 +130,84 @@ class TestHaltReleaseSemantics:
         assert ks.state.is_active is True
 
 
+class TestRollDoesNotWeakenCumulativeControls:
+    """
+    The daily reset is only safe because cumulative breakers still backstop it.
+    A first cut of this roll rebased peak_balance and zeroed the loss streak,
+    which silently deleted both. These pin that it stays deleted-proof.
+    """
+
+    def test_peak_balance_survives_the_roll(self):
+        """
+        peak_balance is the all-time high-water mark behind the 20% drawdown
+        breaker. Rebasing it daily would measure drawdown from each morning's
+        open, so a slow bleed would never trip it.
+        """
+        ks = _switch()
+        ks.update_metrics(current_balance=120.0)  # new peak
+        assert ks.state.peak_balance == 120.0
+
+        with _on_date(ks.state.daily_window_date + timedelta(days=1)):
+            ks.update_metrics(current_balance=110.0)
+
+        assert ks.state.peak_balance == 120.0, "all-time peak must not rebase daily"
+
+    def test_slow_multiday_bleed_still_trips_the_drawdown_breaker(self):
+        """
+        The scenario the regression would have hidden: ~4% a day, never a 5%
+        single-day loss, but a deepening true drawdown. The 20% breaker must
+        still fire.
+        """
+        ks = _switch(max_daily_loss_pct=5.0)
+        day0 = ks.state.daily_window_date
+
+        balance = 100.0
+        for offset in range(1, 8):
+            balance *= 0.96
+            with _on_date(day0 + timedelta(days=offset)):
+                ks.update_metrics(current_balance=balance)
+
+        assert balance < 80.0
+        assert ks.state.current_drawdown_pct >= 20.0
+        assert ks.state.is_active is True
+        assert ks.state.activation_reason == KillSwitchReason.MAX_DRAWDOWN
+
+    def test_loss_streak_survives_the_roll(self):
+        """
+        Consecutive losses is a streak breaker for a broken strategy, not a
+        daily metric. Zeroing it each midnight means four losses a day forever
+        never reaches five in a row.
+        """
+        ks = _switch()
+        for _ in range(3):
+            ks.update_metrics(current_balance=99.0, was_loss=True, is_trade_close=True)
+        assert ks.state.current_consecutive_losses == 3
+
+        with _on_date(ks.state.daily_window_date + timedelta(days=1)):
+            ks.update_metrics(current_balance=99.0)
+
+        assert ks.state.current_consecutive_losses == 3
+
+    def test_halt_is_retained_when_another_threshold_still_holds(self):
+        """
+        Releasing a daily-loss halt must not release a halt that drawdown also
+        justifies. The first cut called deactivate(force=True) after blanking
+        triggered_thresholds, which bypassed exactly this guard.
+        """
+        ks = _switch()
+        ks.update_metrics(current_balance=120.0)  # peak 120
+        ks.update_metrics(current_balance=90.0)  # -25% drawdown AND daily loss
+
+        assert ks.state.is_active is True
+        assert "max_drawdown" in ks.state.triggered_thresholds
+
+        with _on_date(ks.state.daily_window_date + timedelta(days=1)):
+            ks.update_metrics(current_balance=90.0)
+
+        assert ks.state.is_active is True, "drawdown halt must outlive the daily roll"
+        assert "max_drawdown" in ks.state.triggered_thresholds
+
+
 class TestWindowAnchoring:
     def test_initialize_balance_anchors_the_window(self):
         """Boot must not leave the window unset, or the first tick looks like a roll."""

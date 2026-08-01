@@ -458,30 +458,60 @@ class KillSwitch:
 
         previous = self.state.daily_window_date
         self.state.daily_window_date = today
+
+        # ONLY the daily-scoped state is rebased.
         self.state.initial_balance = current_balance
         self.state.current_daily_loss_pct = 0.0
-        self.state.current_consecutive_losses = 0
-        self.state.peak_balance = current_balance
-        self.state.triggered_thresholds = []
+
+        # Deliberately NOT reset here, because neither is a daily metric and
+        # resetting them would quietly delete the cumulative protections that
+        # make a daily reset safe in the first place:
+        #
+        #   peak_balance -- the all-time high-water mark behind the 20%
+        #       max-drawdown breaker. Rebasing it daily would measure drawdown
+        #       from each morning's open, so an account bleeding 4% a day
+        #       forever would never trip the drawdown breaker. That breaker is
+        #       precisely the backstop for repeated daily-loss resets.
+        #
+        #   current_consecutive_losses -- a streak breaker for a broken
+        #       strategy. Zeroing it each midnight means a bot losing four
+        #       trades every day never reaches five in a row.
+        #
+        # Drop only the daily-loss entry from the triggered list; a drawdown or
+        # consecutive-loss trigger is still live and must keep blocking.
+        self.state.triggered_thresholds = [
+            t for t in self.state.triggered_thresholds if t != "daily_loss_limit"
+        ]
 
         logger.info(
             f"KillSwitch daily window rolled {previous} -> {today}; "
-            f"baseline rebased to {current_balance:.2f}"
+            f"daily baseline rebased to {current_balance:.2f} "
+            f"(peak_balance {self.state.peak_balance:.2f} and loss streak "
+            f"{self.state.current_consecutive_losses} carried over)"
         )
 
-        # A daily-loss halt is by definition scoped to its day, so release it.
-        # A manual halt is NOT released -- an operator stop must survive
+        # A daily-loss halt is scoped to its day, so release it -- but only if
+        # nothing else still justifies the halt. force=False makes deactivate()
+        # refuse while any other threshold remains in triggered_thresholds, so
+        # an account that is also in max drawdown stays halted.
+        #
+        # A manual halt is never released: an operator stop must survive
         # midnight. (Audit T-27 records RiskManager getting this wrong; do not
-        # reproduce that here.)
+        # reproduce it here.)
         if (
             self.state.is_active
             and not self.state.manual_override
             and self.state.activation_reason == KillSwitchReason.DAILY_LOSS_LIMIT
         ):
-            logger.info(
-                "Releasing automatic daily-loss halt: new UTC day, baseline reset"
-            )
-            self.deactivate(force=True)
+            if self.deactivate(force=False):
+                logger.info(
+                    "Released automatic daily-loss halt: new UTC day, baseline reset"
+                )
+            else:
+                logger.warning(
+                    "Daily window rolled but halt retained: other thresholds "
+                    f"still triggered: {self.state.triggered_thresholds}"
+                )
 
     def reset_daily_metrics(self):
         """Reset daily metrics (call at start of trading day)"""
