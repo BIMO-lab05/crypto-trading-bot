@@ -20,14 +20,14 @@ import logging
 from enum import Enum
 from typing import Optional, List, Dict, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from decimal import Decimal
+from datetime import datetime, date, timezone  # noqa: F401  (timezone used in daily roll)
 
 logger = logging.getLogger(__name__)
 
 
 class KillSwitchReason(Enum):
     """Reasons for kill switch activation"""
+
     DAILY_LOSS_LIMIT = "daily_loss_limit"
     MAX_DRAWDOWN = "max_drawdown"
     MAX_POSITION_VALUE = "max_position_value"
@@ -55,22 +55,24 @@ class KillSwitchConfig:
     - Max drawdown: 15% (aggressive protection)
     - Consecutive losses: 5 (max 9 seen in history - stop at 5)
     """
+
     # Tiered thresholds (2025-12-02 research-backed)
-    drawdown_alert_pct: float = 5.0          # Alert level - reduce size 25%
-    drawdown_reduce_pct: float = 10.0        # Reduce position sizes by 50%
-    drawdown_pause_pct: float = 15.0         # Pause new trades
-    max_daily_loss_pct: float = 5.0          # Stop if daily loss exceeds 5%
-    max_drawdown_pct: float = 20.0           # Hard stop at 20%
-    max_position_value: float = 100000.0     # Stop if single position exceeds value
-    max_consecutive_losses: int = 5          # Stop after 5 consecutive losses
-    confirmation_delay_seconds: int = 5      # Delay before manual activation
-    auto_reset_hours: int = 24               # Auto-reset after 24 hours (require review)
-    require_multi_threshold: bool = False    # Single threshold can trigger (safer)
+    drawdown_alert_pct: float = 5.0  # Alert level - reduce size 25%
+    drawdown_reduce_pct: float = 10.0  # Reduce position sizes by 50%
+    drawdown_pause_pct: float = 15.0  # Pause new trades
+    max_daily_loss_pct: float = 5.0  # Stop if daily loss exceeds 5%
+    max_drawdown_pct: float = 20.0  # Hard stop at 20%
+    max_position_value: float = 100000.0  # Stop if single position exceeds value
+    max_consecutive_losses: int = 5  # Stop after 5 consecutive losses
+    confirmation_delay_seconds: int = 5  # Delay before manual activation
+    auto_reset_hours: int = 24  # Auto-reset after 24 hours (require review)
+    require_multi_threshold: bool = False  # Single threshold can trigger (safer)
 
 
 @dataclass
 class KillSwitchState:
     """Current state of the kill switch"""
+
     is_active: bool = False
     activation_time: Optional[datetime] = None
     activation_reason: Optional[KillSwitchReason] = None
@@ -85,6 +87,14 @@ class KillSwitchState:
     peak_balance: float = 0.0
     initial_balance: float = 0.0
     current_balance: float = 0.0
+
+    # UTC date the current daily window belongs to. Without this,
+    # `initial_balance` was set once at boot and never rolled, so
+    # `current_daily_loss_pct` measured cumulative loss since process start
+    # rather than loss within a day -- turning the 5% daily breaker into an
+    # all-time breaker that halted the bot permanently. See the roll in
+    # `_roll_daily_window_if_needed`.
+    daily_window_date: Optional[date] = None
 
 
 class KillSwitch:
@@ -146,6 +156,9 @@ class KillSwitch:
         self.state.initial_balance = balance
         self.state.current_balance = balance
         self.state.peak_balance = balance
+        # Anchor the daily window to the boot date, so the first roll happens
+        # at the next UTC midnight rather than on the first update_metrics call.
+        self.state.daily_window_date = datetime.now(timezone.utc).date()
         logger.info(f"KillSwitch balance initialized: ${balance:.2f}")
 
     def update_metrics(
@@ -181,6 +194,10 @@ class KillSwitch:
         """
         triggered = []
 
+        # Roll the daily window BEFORE any threshold maths, so a new UTC day
+        # is measured from that day's opening equity.
+        self._roll_daily_window_if_needed(current_balance)
+
         # Update balance
         self.state.current_balance = current_balance
         if current_balance > self.state.peak_balance:
@@ -189,12 +206,16 @@ class KillSwitch:
         # Calculate daily loss percentage
         if self.state.initial_balance > 0:
             daily_pnl = current_balance - self.state.initial_balance
-            self.state.current_daily_loss_pct = -(daily_pnl / self.state.initial_balance * 100) if daily_pnl < 0 else 0
+            self.state.current_daily_loss_pct = (
+                -(daily_pnl / self.state.initial_balance * 100) if daily_pnl < 0 else 0
+            )
 
         # Calculate drawdown percentage
         if self.state.peak_balance > 0:
             drawdown = self.state.peak_balance - current_balance
-            self.state.current_drawdown_pct = (drawdown / self.state.peak_balance * 100) if drawdown > 0 else 0
+            self.state.current_drawdown_pct = (
+                (drawdown / self.state.peak_balance * 100) if drawdown > 0 else 0
+            )
 
         # Update consecutive losses — ONLY on trade closes
         if is_trade_close:
@@ -238,11 +259,14 @@ class KillSwitch:
         # Check if should activate
         if self._should_auto_activate(triggered):
             self._activate(
-                KillSwitchReason.DAILY_LOSS_LIMIT if "daily_loss_limit" in triggered
-                else KillSwitchReason.MAX_DRAWDOWN if "max_drawdown" in triggered
-                else KillSwitchReason.CONSECUTIVE_LOSSES if "consecutive_losses" in triggered
+                KillSwitchReason.DAILY_LOSS_LIMIT
+                if "daily_loss_limit" in triggered
+                else KillSwitchReason.MAX_DRAWDOWN
+                if "max_drawdown" in triggered
+                else KillSwitchReason.CONSECUTIVE_LOSSES
+                if "consecutive_losses" in triggered
                 else KillSwitchReason.MAX_POSITION_VALUE,
-                {"triggered_thresholds": triggered}
+                {"triggered_thresholds": triggered},
             )
 
         return triggered
@@ -330,15 +354,14 @@ class KillSwitch:
             elapsed = (datetime.now() - self._pending_manual_activation).total_seconds()
             if elapsed >= self.config.confirmation_delay_seconds:
                 self._pending_manual_activation = None
-                self._activate(
-                    KillSwitchReason.MANUAL_ACTIVATION,
-                    {"reason": reason}
-                )
+                self._activate(KillSwitchReason.MANUAL_ACTIVATION, {"reason": reason})
                 self.state.manual_override = True
                 return True
             else:
                 remaining = self.config.confirmation_delay_seconds - elapsed
-                logger.info(f"Confirm again in {remaining:.1f}s to activate kill switch")
+                logger.info(
+                    f"Confirm again in {remaining:.1f}s to activate kill switch"
+                )
                 return False
 
     def confirm_manual_activation(self) -> bool:
@@ -351,8 +374,7 @@ class KillSwitch:
         if elapsed >= self.config.confirmation_delay_seconds:
             self._pending_manual_activation = None
             self._activate(
-                KillSwitchReason.MANUAL_ACTIVATION,
-                {"reason": "Manual confirmation"}
+                KillSwitchReason.MANUAL_ACTIVATION, {"reason": "Manual confirmation"}
             )
             self.state.manual_override = True
             return True
@@ -398,9 +420,67 @@ class KillSwitch:
         if self.state.activation_time is None:
             return
 
-        elapsed_hours = (datetime.now() - self.state.activation_time).total_seconds() / 3600
+        elapsed_hours = (
+            datetime.now() - self.state.activation_time
+        ).total_seconds() / 3600
         if elapsed_hours >= self.config.auto_reset_hours:
             logger.info(f"KillSwitch auto-reset after {elapsed_hours:.1f} hours")
+            self.deactivate(force=True)
+
+    def _roll_daily_window_if_needed(self, current_balance: float) -> None:
+        """
+        Start a new daily window when the UTC date changes.
+
+        FIX 2026-08-01. `initial_balance` was set once by `initialize_balance()`
+        at boot and never rolled, so `current_daily_loss_pct` was really
+        *cumulative loss since process start*. `AutoTrader.reset_daily_metrics()`
+        existed to fix that and had zero callers -- nothing scheduled it. The
+        result: the 5% DAILY breaker behaved as an all-time 5% breaker, and once
+        crossed the bot halted permanently with no path back.
+
+        Observed live before this fix: daily_loss_pct 8.42% against a
+        peak_balance of 83.48 -- itself a figure fabricated by the restart
+        rebase bug (audit DL-2) -- with trading halted and unable to recover.
+        The tell was daily_loss_pct and drawdown_pct being exactly equal: two
+        different formulas can only coincide when both their baselines are
+        frozen.
+
+        UTC deliberately, matching `RiskManager._roll_daily_window_if_needed`.
+        """
+        today = datetime.now(timezone.utc).date()
+
+        if self.state.daily_window_date is None:
+            self.state.daily_window_date = today
+            return
+
+        if self.state.daily_window_date == today:
+            return
+
+        previous = self.state.daily_window_date
+        self.state.daily_window_date = today
+        self.state.initial_balance = current_balance
+        self.state.current_daily_loss_pct = 0.0
+        self.state.current_consecutive_losses = 0
+        self.state.peak_balance = current_balance
+        self.state.triggered_thresholds = []
+
+        logger.info(
+            f"KillSwitch daily window rolled {previous} -> {today}; "
+            f"baseline rebased to {current_balance:.2f}"
+        )
+
+        # A daily-loss halt is by definition scoped to its day, so release it.
+        # A manual halt is NOT released -- an operator stop must survive
+        # midnight. (Audit T-27 records RiskManager getting this wrong; do not
+        # reproduce that here.)
+        if (
+            self.state.is_active
+            and not self.state.manual_override
+            and self.state.activation_reason == KillSwitchReason.DAILY_LOSS_LIMIT
+        ):
+            logger.info(
+                "Releasing automatic daily-loss halt: new UTC day, baseline reset"
+            )
             self.deactivate(force=True)
 
     def reset_daily_metrics(self):
@@ -409,6 +489,7 @@ class KillSwitch:
         self.state.current_daily_loss_pct = 0.0
         self.state.current_consecutive_losses = 0
         self.state.triggered_thresholds = []
+        self.state.daily_window_date = datetime.now(timezone.utc).date()
         logger.info("KillSwitch daily metrics reset")
 
     def register_callback(self, callback: Callable):
@@ -419,8 +500,12 @@ class KillSwitch:
         """Get current kill switch status"""
         return {
             "is_active": self.state.is_active,
-            "activation_time": self.state.activation_time.isoformat() if self.state.activation_time else None,
-            "activation_reason": self.state.activation_reason.value if self.state.activation_reason else None,
+            "activation_time": self.state.activation_time.isoformat()
+            if self.state.activation_time
+            else None,
+            "activation_reason": self.state.activation_reason.value
+            if self.state.activation_reason
+            else None,
             "manual_override": self.state.manual_override,
             "metrics": {
                 "daily_loss_pct": round(self.state.current_daily_loss_pct, 2),
