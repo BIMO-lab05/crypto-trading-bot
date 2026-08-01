@@ -156,3 +156,33 @@ class TestAsUtc:
 
     def test_passes_none_through(self):
         assert _as_utc(None) is None
+
+
+class TestModuleLevelImportsSurvive:
+    """
+    The repo's autoflake hook has stripped a needed import three times during
+    this work. Each time the failure surfaced only at runtime -- once as a
+    NameError inside the very balance-restore path these tests cover, which
+    silently degraded it to the fabricating fallback in production.
+
+    Grepping for the symbol is not enough: the usage matches even when the
+    import is gone. These execute the resolution instead.
+    """
+
+    def test_repositories_can_resolve_its_config_default(self):
+        import app.repositories as repositories
+
+        # Fails with NameError if `from app.config import get_settings` was
+        # stripped -- exactly the production failure of 2026-08-01.
+        assert Decimal(str(repositories.get_settings().paper_initial_balance)) > 0
+
+    def test_performance_tracker_can_resolve_its_config_default(self):
+        from app.performance_tracker import _default_initial_balance
+
+        assert _default_initial_balance() > 0
+
+    def test_kill_switch_can_resolve_utc_date(self):
+        from app.trading_enhancements import kill_switch
+
+        # Fails if `timezone` was stripped from the datetime import.
+        assert kill_switch.datetime.now(kill_switch.timezone.utc) is not None

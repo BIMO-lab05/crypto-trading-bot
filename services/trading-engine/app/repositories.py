@@ -11,6 +11,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 
 # Import local database module (works in Docker without shared directory)
+from app.config import get_settings  # noqa: F401  (used in get_or_create default)
 from app.database.connection import db_manager
 from app.database.models import (
     Position as DBPosition,
