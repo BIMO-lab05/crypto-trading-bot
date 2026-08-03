@@ -338,9 +338,20 @@ class AutoTrader:
         # trigger). Earlier code hard-coded 50%/50%/20 with the comment
         # "RELAXED FOR SAMPLE COLLECTION" — that left CLAUDE.md's documented
         # 5%/10% safety claims as fiction. Restored 2026-04-28.
+        # FIX 2026-08-03 (capital audit): max_position_value used to keep its
+        # flat 100000.0 dataclass default because only max_daily_loss_pct was
+        # passed here — on the $100 account that arm of the kill switch could
+        # never fire. It is now derived from equity by KillSwitchConfig's
+        # default_factory; passing it explicitly as well is redundant by design,
+        # because the audit's actual complaint was that the OMISSION at this
+        # call site was invisible to anyone reading it.
         self.kill_switch = get_kill_switch(
             KillSwitchConfig(
                 max_daily_loss_pct=self.settings.max_daily_loss_pct,
+                max_position_value=(
+                    self.settings.paper_initial_balance
+                    * (self.settings.max_total_exposure_pct / 100.0)
+                ),
             )
         )
 
@@ -3036,9 +3047,7 @@ class AutoTrader:
                 logger.debug(f"Notification failed (non-critical): {notify_err}")
 
         except Exception as e:
-            logger.error(
-                f"[MONITOR] Post-close bookkeeping failed: {e}", exc_info=True
-            )
+            logger.error(f"[MONITOR] Post-close bookkeeping failed: {e}", exc_info=True)
 
     async def _close_position_with_limit_order(
         self,
@@ -3177,9 +3186,7 @@ class AutoTrader:
                 type=OrderType.LIMIT,
                 price=Decimal(str(limit_price)),
                 quantity=remaining_qty,
-                time_in_force=TimeInForce.IOC
-                if hasattr(TimeInForce, "IOC")
-                else None,
+                time_in_force=TimeInForce.IOC if hasattr(TimeInForce, "IOC") else None,
                 reduce_only=True,
                 position_id=position.id,
                 strategy="stop_loss_limit",
@@ -3361,11 +3368,7 @@ class AutoTrader:
             executed, exec_err = await paper_engine.execute_market_order(
                 order, Decimal(str(current_price))
             )
-            if (
-                executed is None
-                or executed.status != OrderStatus.FILLED
-                or exec_err
-            ):
+            if executed is None or executed.status != OrderStatus.FILLED or exec_err:
                 logger.error(
                     f"[MONITOR] Partial exit order failed for {position.symbol} "
                     f"{level}: {exec_err}"
@@ -3767,9 +3770,7 @@ class AutoTrader:
                     )
                     self.total_trades_rejected += 1
                     return
-                short_min_conf = getattr(
-                    self.settings, "short_min_confidence", 0.0
-                )
+                short_min_conf = getattr(self.settings, "short_min_confidence", 0.0)
                 if confidence < short_min_conf:
                     logger.warning(
                         f"[RISK_GATE] ❌ SHORT confidence {confidence:.2f} < "

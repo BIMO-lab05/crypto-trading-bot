@@ -37,6 +37,61 @@ class KillSwitchReason(Enum):
     ANOMALY_DETECTED = "anomaly_detected"
 
 
+# ---------------------------------------------------------------------------
+# Derived defaults
+# ---------------------------------------------------------------------------
+# Mirrors `app.config.Settings` Field defaults. Used ONLY when `get_settings()`
+# cannot be constructed (e.g. a host-run test session where `.env` is parsed by
+# a different pydantic-settings version than the container pins). Keeping the
+# fallback equal to the stock configuration means a settings failure degrades to
+# the correct threshold rather than silently restoring the inert one.
+_FALLBACK_PAPER_BALANCE_USD = 100.0  # config.py paper_initial_balance
+_FALLBACK_TOTAL_EXPOSURE_PCT = 80.0  # config.py max_total_exposure_pct
+
+
+def _default_max_position_value() -> float:
+    """Per-position runaway tripwire, derived from account equity.
+
+    FIX 2026-08-03 (capital audit). This was a flat `100000.0`, and
+    `auto_trader.py` only ever overrode `max_daily_loss_pct`, so on the real
+    $100 account no position could ever reach the threshold and this arm of the
+    kill switch was PERMANENTLY DEAD.
+
+    Derivation — `equity x max_total_exposure_pct`, i.e. $80 on a $100 account:
+
+      * NOT `equity x max_position_size_pct` ($10). `position_value` here is a
+        SINGLE position's notional at open (`auto_trader.py:2102`), already
+        clamped to `balance x max_risk_per_trade` = $10 by the per-trade cap
+        gate. A $10 threshold would therefore trip on EVERY normal max-size
+        trade and silently halt the bot.
+      * The total-exposure ceiling is the right shape: a *single* position may
+        never legitimately consume the account's entire exposure budget, so $80
+        is definitionally a runaway, while sitting 8x above a normal $10 trade.
+
+    Resolved lazily at dataclass instantiation via `default_factory`, never at
+    module import, so importing this module does not pull in settings.
+    """
+    try:
+        from app.config import get_settings
+
+        settings = get_settings()
+        equity_usd = float(settings.paper_initial_balance)
+        exposure_pct = float(settings.max_total_exposure_pct)
+    except Exception as exc:  # settings must never make the kill switch unbuildable
+        logger.error(
+            "KillSwitch: could not read Settings for max_position_value (%s). "
+            "Falling back to the declared defaults "
+            "($%.2f x %.1f%%). Verify the service configuration.",
+            exc,
+            _FALLBACK_PAPER_BALANCE_USD,
+            _FALLBACK_TOTAL_EXPOSURE_PCT,
+        )
+        equity_usd = _FALLBACK_PAPER_BALANCE_USD
+        exposure_pct = _FALLBACK_TOTAL_EXPOSURE_PCT
+
+    return equity_usd * (exposure_pct / 100.0)
+
+
 @dataclass
 class KillSwitchConfig:
     """
@@ -62,7 +117,13 @@ class KillSwitchConfig:
     drawdown_pause_pct: float = 15.0  # Pause new trades
     max_daily_loss_pct: float = 5.0  # Stop if daily loss exceeds 5%
     max_drawdown_pct: float = 20.0  # Hard stop at 20%
-    max_position_value: float = 100000.0  # Stop if single position exceeds value
+    # Stop if a SINGLE position's notional exceeds this. Derived from account
+    # equity ($80 on the $100 account) — see `_default_max_position_value()`.
+    # The default_factory is required, not cosmetic: `KillSwitch.__init__` does
+    # `config or KillSwitchConfig()` and two test modules construct
+    # `KillSwitchConfig()` with no arguments, so a fix applied only at the
+    # `auto_trader.py` call site would leave those paths inert.
+    max_position_value: float = field(default_factory=_default_max_position_value)
     max_consecutive_losses: int = 5  # Stop after 5 consecutive losses
     confirmation_delay_seconds: int = 5  # Delay before manual activation
     auto_reset_hours: int = 24  # Auto-reset after 24 hours (require review)
