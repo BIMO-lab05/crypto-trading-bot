@@ -152,10 +152,42 @@ def test_check_cap_live_rejects_3pct():
 
 
 def test_check_cap_live_accepts_2pct():
-    """LIVE mode with cap == 2% must PASS."""
-    settings = Settings(trading_mode="LIVE", max_risk_per_trade=0.02)
+    """LIVE mode with cap == 2% must PASS.
+
+    The floor is pinned explicitly: as of the 2026-07-30 audit (F-2) the check
+    covers ``ensemble_min_position_pct`` too, and its shipped default (0.05) is
+    above the LIVE-strict limit. See ``test_check_cap_live_rejects_floor_above_cap``.
+    """
+    settings = Settings(
+        trading_mode="LIVE", max_risk_per_trade=0.02, ensemble_min_position_pct=0.02
+    )
     result = check_cap(settings)
     assert result.status == "PASS"
+
+
+def test_check_cap_live_rejects_floor_above_cap():
+    """Audit 2026-07-30, F-2: a compliant cap is not sufficient on its own.
+
+    ``ensemble_min_position_pct`` is a *floor* on ensemble position size. When it
+    exceeds the LIVE-strict cap, every ensemble trade sizes at the floor and the
+    2% cap is never reached — while ``max_risk_per_trade`` alone reads compliant.
+    """
+    settings = Settings(
+        trading_mode="LIVE", max_risk_per_trade=0.02, ensemble_min_position_pct=0.05
+    )
+    result = check_cap(settings)
+    assert result.status == "FAIL"
+    assert "ensemble_min_position_pct" in result.detail
+    assert "0.05" in result.detail
+    assert "0.02" in result.detail
+
+
+def test_check_cap_paper_allows_floor_above_cap():
+    """PAPER keeps the ADR-010 relaxation — the floor check is LIVE-only."""
+    settings = Settings(
+        trading_mode="PAPER", max_risk_per_trade=0.02, ensemble_min_position_pct=0.05
+    )
+    assert check_cap(settings).status == "PASS"
 
 
 # ============================================================================
@@ -413,6 +445,9 @@ def test_run_all_overall_unknown_when_no_fail_but_unknown(monkeypatch, tmp_path)
     settings = Settings(
         trading_mode="LIVE",
         max_risk_per_trade=0.02,
+        # Floor pinned to the LIVE-strict cap: check_cap covers it as of the
+        # 2026-07-30 audit (F-2) and the shipped default (0.05) exceeds it.
+        ensemble_min_position_pct=0.02,
         emergency_stop_file=str(tmp_path / "no-stop-file"),
     )
     report = run_all(settings)
@@ -431,6 +466,9 @@ def test_run_all_overall_pass_when_all_pass(monkeypatch, tmp_path):
     settings = Settings(
         trading_mode="LIVE",
         max_risk_per_trade=0.02,
+        # Floor pinned to the LIVE-strict cap: check_cap covers it as of the
+        # 2026-07-30 audit (F-2) and the shipped default (0.05) exceeds it.
+        ensemble_min_position_pct=0.02,
         emergency_stop_file=str(tmp_path / "no-stop-file"),
     )
     report = run_all(settings)

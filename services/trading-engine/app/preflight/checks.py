@@ -73,7 +73,16 @@ _DSR_EVIDENCE_STALENESS_DAYS = 14
 def check_cap(settings: Settings | None = None) -> CheckResult:
     """Per-trade cap must be <= 0.02 (2%) in LIVE mode.
 
-    PAPER skips the cap check by design (ADR-010 paper-relaxed 10%).
+    Covers both knobs that determine ensemble position size:
+
+    * ``max_risk_per_trade`` — the cap itself.
+    * ``ensemble_min_position_pct`` — the *floor*. A floor above the cap means
+      every ensemble trade sizes at the floor and the cap is never reached, so a
+      compliant ``max_risk_per_trade`` alone is not sufficient. Added after the
+      2026-07-30 audit (F-2), which found the shipped 5% floor silently
+      overriding the LIVE-strict 2% cap while this check reported PASS.
+
+    PAPER skips both by design (ADR-010 paper-relaxed 10%).
     """
     s = settings or get_settings()
     if s.trading_mode != "LIVE":
@@ -94,10 +103,24 @@ def check_cap(settings: Settings | None = None) -> CheckResult:
                 f"{_LIVE_STRICT_CAP} (LIVE-strict per PREFLIGHT-02)"
             ),
         )
+    if s.ensemble_min_position_pct > _LIVE_STRICT_CAP:
+        return CheckResult(
+            check="cap",
+            status="FAIL",
+            detail=(
+                f"ensemble_min_position_pct={s.ensemble_min_position_pct} > "
+                f"{_LIVE_STRICT_CAP} (LIVE-strict per PREFLIGHT-02); the sizing "
+                f"floor would override the per-trade cap on every ensemble trade"
+            ),
+        )
     return CheckResult(
         check="cap",
         status="PASS",
-        detail=(f"max_risk_per_trade={s.max_risk_per_trade} <= {_LIVE_STRICT_CAP}"),
+        detail=(
+            f"max_risk_per_trade={s.max_risk_per_trade} and "
+            f"ensemble_min_position_pct={s.ensemble_min_position_pct} "
+            f"<= {_LIVE_STRICT_CAP}"
+        ),
     )
 
 
