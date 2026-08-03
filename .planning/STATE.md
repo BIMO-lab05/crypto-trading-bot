@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
-status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency), but see "Out-of-Band Work" below — Phase 19–24 premises need re-checking against uncommitted code first.
-stopped_at: Phase 18 closed out (commits `5faa32e`..`2aac085`). Resume surfaced 367 uncommitted paths from an external cowork run; operator chose verify-then-commit. Verification complete and passing — awaiting approval of commit groupings (OP-07), then re-scope Phases 20–22 against the settled tree.
-last_updated: "2026-07-30T01:45:34.699Z"
-last_activity: 2026-07-29 -- resume session; state reconciled
+status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). Blocking first: quick task 260730-vwn is implemented in the working tree but uncommitted and has no SUMMARY.
+stopped_at: Quick task 260730-vwn (ensemble-leg wiring F-1 + LIVE sizing-floor escape F-2) implemented, verified green, NOT committed and no SUMMARY written. Resume 2026-08-04 re-verified 48/48 targeted tests and proved no regression against HEAD app code.
+last_updated: "2026-08-04"
+last_activity: 2026-08-04 -- resume session; 260730-vwn verified, state reconciled against commits a690164..e8fa391
 progress:
   total_phases: 9
   completed_phases: 3
@@ -27,8 +27,33 @@ See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 Phase: 18 (Bybit-Adapter Contract Fix) — COMPLETE (3/3 plans, 18-REVIEW.md + 18-REVIEW-FIX.md, 9/9 in-scope findings fixed, e2e verify commit `2aac085`)
 Plan: —
-Status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency), but see "Out-of-Band Work" below — Phase 19–24 premises need re-checking against uncommitted code first.
-Last activity: 2026-07-29 -- resume session; state reconciled
+Status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). **Uncommitted quick task 260730-vwn sits in the tree first** — see "Uncommitted Work" below.
+Last activity: 2026-08-04 -- resume session: verified 260730-vwn, reconciled STATE.md against commits `a690164`..`e8fa391`
+
+## Uncommitted Work (detected 2026-08-04)
+
+Quick task **260730-vwn — fix-ensemble-legs-live-cap** (`.planning/quick/260730-vwn-fix-ensemble-legs-live-cap/260730-vwn-PLAN.md`, `status: planned`, source `.planning/audits/2026-07-30-strategy-audit.md`) is **fully implemented in the working tree, uncommitted, with no SUMMARY**.
+
+Working-tree changes (9 modified + 1 untracked, +334/-76, all under `services/trading-engine/`):
+
+| File | Change |
+|---|---|
+| `app/models/signal.py` | `IndicatorSignal.numeric_value()` added (`:20`) |
+| `app/strategies/simple_rsi_strategy.py` | reads via `numeric_value()` (`:56`, `:65`) |
+| `app/strategies/mean_reversion_strategy.py` | neutral fallbacks dropped, BB derived from bands, `UnboundLocalError` fixed (+171/-…) |
+| `app/strategies/multi_strategy_ensemble.py` | clamp reordered to `min(cap, max(floor, scaled))` (`:305`) + clamp log (`:309`) |
+| `app/preflight/checks.py` | `check_cap` FAILs on `ensemble_min_position_pct > _LIVE_STRICT_CAP` (`:106`) |
+| `app/main.py` | boot refusal mirrors the floor gate, reuses `LIVE_PREFLIGHT_REJECTED` literal (`:291`) |
+| `tests/strategies/test_ensemble_leg_wiring.py` | **untracked**, new |
+| `tests/strategies/test_multi_strategy_ensemble_sizing.py`, `tests/test_preflight_checks.py`, `tests/test_preflight_lifespan.py` | extended |
+
+**Verification 2026-08-04 (host, `services/trading-engine`, `MAX_TOTAL_EXPOSURE_PCT=80.0 PAPER_INITIAL_BALANCE=100.0`, `--no-cov`):**
+
+- Targeted: **48/48 pass** (`test_ensemble_leg_wiring` 8, `test_multi_strategy_ensemble_sizing` 8, `test_preflight_checks` 25, `test_preflight_lifespan` 7).
+- Full suite: **36 failed / 1542 passed / 795 skipped**. Failure families: `test_repositories` 21, `test_pairs_trading` 11, `test_connector_contract` 2, `test_handler_endpoints` 1, `test_main` 1.
+- **No regression traceable to 260730-vwn.** Proved by stashing only `services/trading-engine/app` (HEAD app code, same `.env`, same tests): `test_main.py::TestLifespan::test_lifespan_startup` fails identically. `test_repositories` (21) and `test_handler_endpoints` (1) fail only in whole-suite runs and pass in a 5-file run — cross-test pollution, pre-existing. `test_pairs_trading` (11) and `test_connector_contract` (2) fail at clean HEAD too.
+
+**New defect found (not vwn's):** `test_main.py::TestLifespan::test_lifespan_startup` fails at HEAD with `app/config.py:688 ValueError: Symbol 'BTCUSDT' in trading_symbols but missing from symbol_allocations`. The operator `.env` has `trading_symbols` entries with no matching `symbol_allocations`. Filed as OP-16.
 
 Note: Phase 18 has no `18-VERIFICATION.md` while `workflow.verifier: true` and Phase 17 carries `17-VERIFICATION.md`. Gap, not a blocker.
 
@@ -55,7 +80,7 @@ Provenance: produced by an external "cowork" agent run on 2026-07-29 14:04–18:
 
 | REQ | Phase | Still owed? | Evidence |
 |---|---|---|---|
-| PAPER-01 (slippage model) | 20 | YES | no `slippage` symbol in `paper_trading.py` |
+| PAPER-01 (slippage model) | 20 | **NO — SHIPPED 2026-08-03** | commit `fb45efe` added `app/paper_slippage.py`; `paper_trading.py`, `auto_trader.py`, `config.py`, `main.py`, `backtesting/backtest_engine.py` all reference slippage. Phase 20 shrinks again past its 2026-07-30 re-scope. **CLAUDE.md §2 still says "no slippage model" — stale, predates `fb45efe`.** |
 | PAPER-02 (SL/TP trigger + monotonic id) | 20 | PARTIAL | monotonic id owed (`paper_trading.py:173` still `f"PAPER_{symbol}_{side}"`). **Trigger evaluation exists and fires for paper** — `position_manager.check_all_exit_conditions()` (`:589`) via `auto_trader.py:2725` in `_monitor_positions()` (`:2533`), loop-driven at `:916`/`:926`, no mode gate. Predates this work (`0d0271c`, 2025-11-30) |
 | PAPER-03 (Jan-2026 regression tests) | 20 | YES | `tests/test_jan_2026_fixes_regression.py` absent |
 | TA-AGG-01 (ADX/SQZMOM/Volume in vote) | 21 | YES | 0 ADX refs in `handlers/analysis.py` |
@@ -78,7 +103,7 @@ Phase 18's committed files (`bybit_adapter.py`, `tape_replay_client.py`, `test_b
 | 20 Paper-Engine Honesty | shrinks | SL/TP trigger evaluation already exists and fires for paper (predates this work); stop-loss-as-limit already covered by 3 tests. PAPER-01 fully owed |
 | 21 TA Aggregator | shrinks | MACD/BB **value** drift already gone; requirement becomes "remove the literal, read the setting". Two requirements named non-existent attributes |
 | 22 round(price, N) | **grows** | 22 sites across 7 files, not 6. `app/utils/support_resistance_detector.py` (6) missed entirely and outside the old scope; PRICE-02's regex would not have caught its own target set |
-| 23 ML Purge | **grows** | Premises intact (lines unchanged) but LSTM footprint is 10+ files not 2, `_archive_lstm/` doesn't exist, a third R² consumer omitted, and persisted model metadata carries the bad metric independently of the code |
+| 23 ML Purge | **grows** | Premises intact (lines unchanged) but LSTM footprint is 10+ files not 2, a third R² consumer omitted, and persisted model metadata carries the bad metric independently of the code. *(Corrected 2026-08-03 `ceaba5e`: `_archive_lstm/` **does** exist — `services/ml-prediction-service/models/_archive_lstm/`, 27 `*_lstm.keras`, 41 MB. The old "doesn't exist" wording was unverified.)* |
 | 24 Operator-Log + API Hygiene | **shrinks hardest** | 3 of 4 premises dead: HYG-01's "log lines" are comments; HYG-02 already satisfied by Phase 9; HYG-03's security hole closed by `e091826`. HYG-04's inventory wrong (2 routes) and its Sunset date already past |
 
 Cross-cutting lesson for future audits: three premises pointed at **comments rather than code** (`auto_trader.py:1131,1262`; `enhanced_aggregator.py:63`), and two prescribed attribute or constant names that do not exist (`settings.macd_*`, `settings.bollinger_std_dev`, `AGGREGATOR_WEIGHTS`). Grep hits were recorded without checking whether the line was executable.
@@ -87,7 +112,7 @@ Cross-cutting lesson for future audits: three premises pointed at **comments rat
 
 | ID | Action | Source |
 |---|---|---|
-| OP-07 | Decide provenance + disposition of the 367 uncommitted paths (commit in groups / discard / partial) | resume 2026-07-29 |
+| OP-07 | ~~Decide provenance + disposition of the 367 uncommitted paths~~ — **DONE**: dispositioned across commits `d923a9b`..`e8fa391`; tree is now down to the 10 `260730-vwn` paths | resume 2026-07-29 |
 | OP-08 | `bash scripts/repair_testnet_pollution.sh` before trusting any signal or backtest | FIXES §5 |
 | OP-09 | Rebuild + restart `trading-engine technical-analysis market-data api-gateway frontend` (stale in-memory state = false pass) | FIXES §5 |
 | OP-10 | ~~Re-run claimed validation~~ — **DONE 2026-07-29**, see `.planning/evidence/wip-verification-2026-07-29.md` | FIXES §5 |
@@ -95,7 +120,8 @@ Cross-cutting lesson for future audits: three premises pointed at **comments rat
 | OP-12 | 9 pre-existing trading-engine test failures (2 adapter source-contract, 5 backtest source-marker, 2 stale `mock.patch` targets) | AUDIT §5 |
 | OP-14 | trading-engine image is missing **PyJWT** and `/app/shared` is empty — `docker exec crypto-bot-trading pytest tests/` collects zero tests. Add `PyJWT` to the image and fix the `shared/` copy, or the in-container suite (the CLAUDE.md-mandated env) stays unusable. | resume 2026-07-29 |
 | OP-15 | New untracked `services/trading-engine/.dockerignore` excludes `tests/standalone/` — next rebuild removes the 28-check accounting harness from the container. Decide: drop that line, or accept host-only harness runs. | resume 2026-07-29 |
-| OP-13 | `.planning/state/carry_ins.json` is mode `600`, owned by uid `999` (`systemd-journal`) — unreadable by the repo user. It aborted `git diff` this session and will likely break `gsd-sdk query init.resume` / next GSD command. Fix ownership (`sudo chown $USER:$USER .planning/state/carry_ins.json`) before running `/gsd:plan-phase 19`. | resume 2026-07-29 |
+| OP-16 | `.env` has `trading_symbols` entries with no matching `symbol_allocations` — `app/config.py:688` raises at lifespan startup, so `test_main.py::TestLifespan::test_lifespan_startup` fails on the host and the engine would refuse to boot with this `.env`. Add the missing allocation for `BTCUSDT` (and re-check the other 4 validated symbols) or trim `trading_symbols`. | resume 2026-08-04 |
+| OP-13 | **STILL OPEN 2026-08-04** — `.planning/state/carry_ins.json` is mode `600`, owned by uid `999` (`systemd-journal`) — unreadable by the repo user. It aborted `git diff` this session and will likely break `gsd-sdk query init.resume` / next GSD command. Fix ownership (`sudo chown $USER:$USER .planning/state/carry_ins.json`) before running `/gsd:plan-phase 19`. | resume 2026-07-29 |
 
 ## Deferred Items
 
@@ -127,6 +153,10 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 - ML predictions remain `ENABLE_ML_PREDICTIONS=false`; trading-engine auto-flip is *armed* (Phase 9) but no qualifying DSR>0.95 evidence row exists in `leaderboard` yet (LIVECLOSE-03 wall-clock).
 - Paper-mode per-trade cap relaxed to 10% (ADR-010); Phase 8 boot-path enforces ≤2% only in LIVE. Pre-LIVE checklist (RUNBOOK Pre-LIVE Operator Checklist) restores ≤2% before flip.
 - [Phase ?]: Plan 16-06 merge: 81/74/7/0
+- Daily-loss breaker raised 5% → **12%** per ADR-028 (`56d3f8d`, propagated `ceaba5e`): at a 10% per-trade cap a 5% daily limit tripped on the first full loss, so it measured one trade rather than a day. Coherence fix — it *allows more* daily loss, not less.
+- Paper engine now has a real slippage model (`fb45efe`, PAPER-01, `app/paper_slippage.py`). Reported paper P&L gets **worse** — that is the point. Every pre-2026-08-03 Sharpe in the repo was measured through a frictionless engine.
+- CLAUDE.md cut 26.7KB → 17.3KB, 43 personas parked to `.claude/_parked/2026-08-03/agents/`, path-scoped rules added (`e0d3366`).
+- `_archive_lstm/` **does exist** at `services/ml-prediction-service/models/_archive_lstm/` (27 files, 41 MB) — the earlier "does not exist" claim was corrected in `ceaba5e`. Phase 23's premise changes accordingly.
 
 ### Blockers/Concerns
 
@@ -139,6 +169,13 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260522-hv0 | Fix JWT default-secret hole — extend `_validate_jwt_secret()` hard-fail to `TRADING_MODE=LIVE` / `PAPER_TRADING_MODE=false`; remove dead `Settings.jwt_secret_key` Pydantic field with insecure default | 2026-05-22 | `e0c4aa6` | [260522-hv0-fix-jwt-default-secret-hole-extend-hard-](./quick/260522-hv0-fix-jwt-default-secret-hole-extend-hard-/) |
+| 260731-mxf | Fix paper capital reporting — source paper-capital defaults from config; reconcile frontend paper-balance fallbacks to $100 | 2026-07-31 | `e77fe02`, `ed5af06` | [260731-mxf-fix-paper-capital-reporting](./quick/260731-mxf-fix-paper-capital-reporting/) |
+| 260731-nx4 | Fix market-data ingest — restore the dead collection scheduler | 2026-07-31 | `66779e2` | [260731-nx4-fix-market-data-ingest](./quick/260731-nx4-fix-market-data-ingest/) |
+| 260731-ooe | Fix restart balance rebase — restore paper balance from the persisted ledger | 2026-07-31 | `22285ae` | [260731-ooe-fix-restart-balance-rebase](./quick/260731-ooe-fix-restart-balance-rebase/) |
+| 260731-ps1 | Market-data staleness guard — reject stale rows, report freshness on `/ready` | 2026-07-31 | `a2e3d46` | [260731-ps1-market-data-staleness-guard](./quick/260731-ps1-market-data-staleness-guard/) |
+| 260801-nui | Kill-switch daily roll — give the kill switch a real daily window; stop the roll deleting cumulative breakers | 2026-08-01 | `d923a9b`, `f5362e3` | [260801-nui-kill-switch-daily-roll](./quick/260801-nui-kill-switch-daily-roll/) |
+| 260730-vwn | Fix dead ensemble legs (F-1) + LIVE sizing-floor cap escape (F-2) | **UNCOMMITTED** | — | [260730-vwn-fix-ensemble-legs-live-cap](./quick/260730-vwn-fix-ensemble-legs-live-cap/) |
+| 260803-4mt | Make the $100 account invariant real and enforced — add `shared/account.py` as declaration of record; AST invariant + Settings-drift tests; take the inert kill-switch `max_position_value` arm live; fix live dashboard $10k drawdown baseline and stat-arb 1000× sizing; drop two dead env keys | 2026-08-03 | `e44fdce` | [260803-4mt-enforce-100-account-invariant](./quick/260803-4mt-enforce-100-account-invariant/) |
 
 ## Open Operator Actions (carry into v1.3)
 
@@ -155,9 +192,13 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 
 ## Session Continuity
 
-Last session: 2026-07-30T01:45:34.635Z
-Stopped at: Phase 18 closed out (commits `5faa32e`..`2aac085`). Resume surfaced 367 uncommitted paths from an external cowork run; operator chose verify-then-commit. Verification complete and passing — awaiting approval of commit groupings (OP-07), then re-scope Phases 20–22 against the settled tree.
+Last session: 2026-08-04
+Stopped at: Session resumed. Detected quick task **260730-vwn** (fix ensemble legs F-1 + LIVE cap escape F-2) fully implemented in the working tree but **uncommitted and without a SUMMARY**. Re-verified this session: 48/48 tests green (`test_ensemble_leg_wiring` 8, `test_multi_strategy_ensemble_sizing` 8, `test_preflight_checks` 25, `test_preflight_lifespan` 7). Awaiting operator decision: commit 260730-vwn + write SUMMARY, or reassess.
 Resume file: None
+
+Blocking-adjacent: OP-13 still open — `.planning/state/carry_ins.json` is mode `600` owned by uid `999`, which aborts any whole-tree `git diff` / `git add -A`.
+
+Prior session (2026-07-30): Phase 18 closed out (commits `5faa32e`..`2aac085`); 367 uncommitted cowork paths verified and dispositioned.
 
 ## Operator Next Steps
 
