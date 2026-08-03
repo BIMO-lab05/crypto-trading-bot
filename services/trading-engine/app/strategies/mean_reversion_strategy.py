@@ -27,15 +27,17 @@ logger = logging.getLogger(__name__)
 
 class MeanReversionSignalStrength(Enum):
     """Strength of mean reversion signal"""
+
     VERY_STRONG = "VERY_STRONG"  # Multiple indicators at extremes
-    STRONG = "STRONG"             # 2 indicators at extremes
-    MODERATE = "MODERATE"         # 1 indicator at extreme
-    WEAK = "WEAK"                 # Near extremes but not quite
+    STRONG = "STRONG"  # 2 indicators at extremes
+    MODERATE = "MODERATE"  # 1 indicator at extreme
+    WEAK = "WEAK"  # Near extremes but not quite
 
 
 @dataclass
 class MeanReversionSignal:
     """Mean reversion trading signal"""
+
     action: SignalAction
     confidence: float
     strength: MeanReversionSignalStrength
@@ -91,13 +93,15 @@ class MeanReversionStrategy:
         logger.info("MeanReversionStrategy initialized")
         logger.info(f"  RSI thresholds: {self.RSI_OVERSOLD}/{self.RSI_OVERBOUGHT}")
         logger.info(f"  Deviation threshold: {self.MEAN_DEVIATION_THRESHOLD} ATR")
-        logger.info(f"  Min confidence: {self.MIN_CONFIDENCE} (ADJUSTED for ranging market)")
+        logger.info(
+            f"  Min confidence: {self.MIN_CONFIDENCE} (ADJUSTED for ranging market)"
+        )
 
     def generate_signal(
         self,
         indicators: Dict[str, IndicatorSignal],
         current_price: float,
-        capital: float = 10000.0
+        capital: float = 10000.0,
     ) -> Optional[MeanReversionSignal]:
         """
         Generate mean reversion signal
@@ -111,17 +115,26 @@ class MeanReversionStrategy:
             MeanReversionSignal or None if no setup
         """
         # Extract indicator values
-        rsi_signal = indicators.get('RSI')
-        bb_signal = indicators.get('BOLLINGER_BANDS')
-        sma_signal = indicators.get('SMA')
-        atr_signal = indicators.get('ATR')
+        rsi_signal = indicators.get("RSI")
+        bb_signal = indicators.get("BOLLINGER_BANDS")
+        sma_signal = indicators.get("SMA")
+        atr_signal = indicators.get("ATR")
 
         # Need at least RSI and one other indicator
         if not rsi_signal:
             return None
 
-        # Get RSI value from metadata
-        rsi_value = rsi_signal.metadata.get('value', 50.0) if rsi_signal.metadata else 50.0
+        # RSI reading lives on .value. This used to read metadata['value'] and
+        # fall back to 50.0 — a perfectly neutral RSI — so a payload the leg
+        # could not actually read scored as a calm market instead of surfacing.
+        # Audit 2026-07-30 F-1: fail closed rather than fabricate an input.
+        rsi_value = rsi_signal.numeric_value()
+        if rsi_value is None:
+            return None
+
+        bb_position = self._bollinger_position(bb_signal, current_price)
+        sma_value = sma_signal.numeric_value() if sma_signal else None
+        atr_value = atr_signal.numeric_value() if atr_signal else None
 
         # Count oversold signals (BUY opportunities)
         oversold_signals = []
@@ -135,9 +148,10 @@ class MeanReversionStrategy:
             oversold_signals.append("RSI_OVERSOLD")
             oversold_confidence += 0.20
 
-        # Check Bollinger Bands lower band
-        if bb_signal and bb_signal.metadata:
-            bb_position = bb_signal.metadata.get('position', 0.5)  # 0 = at lower, 1 = at upper
+        # Check Bollinger Bands lower band (0 = at lower, 1 = at upper).
+        # None means no bands were published — skip the check rather than score
+        # a fabricated mid-band 0.5.
+        if bb_position is not None:
             if bb_position <= 0.1:  # At or below lower band
                 oversold_signals.append("BB_LOWER")
                 oversold_confidence += 0.25
@@ -146,19 +160,15 @@ class MeanReversionStrategy:
                 oversold_confidence += 0.15
 
         # Check price deviation from SMA
-        if sma_signal and atr_signal and sma_signal.metadata and atr_signal.metadata:
-            sma_value = sma_signal.metadata.get('value')
-            atr_value = atr_signal.metadata.get('value')
+        if sma_value and atr_value and atr_value > 0:
+            deviation = (current_price - sma_value) / atr_value
 
-            if sma_value and atr_value:
-                deviation = (current_price - sma_value) / atr_value if atr_value > 0 else 0
-
-                if deviation <= -self.EXTREME_DEVIATION_THRESHOLD:
-                    oversold_signals.append("PRICE_EXTREME_BELOW_SMA")
-                    oversold_confidence += 0.25
-                elif deviation <= -self.MEAN_DEVIATION_THRESHOLD:
-                    oversold_signals.append("PRICE_BELOW_SMA")
-                    oversold_confidence += 0.15
+            if deviation <= -self.EXTREME_DEVIATION_THRESHOLD:
+                oversold_signals.append("PRICE_EXTREME_BELOW_SMA")
+                oversold_confidence += 0.25
+            elif deviation <= -self.MEAN_DEVIATION_THRESHOLD:
+                oversold_signals.append("PRICE_BELOW_SMA")
+                oversold_confidence += 0.15
 
         # Count overbought signals (SELL opportunities)
         overbought_signals = []
@@ -173,8 +183,7 @@ class MeanReversionStrategy:
             overbought_confidence += 0.20
 
         # Check Bollinger Bands upper band
-        if bb_signal and bb_signal.metadata:
-            bb_position = bb_signal.metadata.get('position', 0.5)
+        if bb_position is not None:
             if bb_position >= 0.9:  # At or above upper band
                 overbought_signals.append("BB_UPPER")
                 overbought_confidence += 0.25
@@ -183,44 +192,104 @@ class MeanReversionStrategy:
                 overbought_confidence += 0.15
 
         # Check price deviation from SMA (overbought)
-        if sma_signal and atr_signal and sma_signal.metadata and atr_signal.metadata:
-            sma_value = sma_signal.metadata.get('value')
-            atr_value = atr_signal.metadata.get('value')
+        if sma_value and atr_value and atr_value > 0:
+            deviation = (current_price - sma_value) / atr_value
 
-            if sma_value and atr_value:
-                deviation = (current_price - sma_value) / atr_value if atr_value > 0 else 0
+            if deviation >= self.EXTREME_DEVIATION_THRESHOLD:
+                overbought_signals.append("PRICE_EXTREME_ABOVE_SMA")
+                overbought_confidence += 0.25
+            elif deviation >= self.MEAN_DEVIATION_THRESHOLD:
+                overbought_signals.append("PRICE_ABOVE_SMA")
+                overbought_confidence += 0.15
 
-                if deviation >= self.EXTREME_DEVIATION_THRESHOLD:
-                    overbought_signals.append("PRICE_EXTREME_ABOVE_SMA")
-                    overbought_confidence += 0.25
-                elif deviation >= self.MEAN_DEVIATION_THRESHOLD:
-                    overbought_signals.append("PRICE_ABOVE_SMA")
-                    overbought_confidence += 0.15
+        # Stop/target anchors. These previously read sma_value / atr_value, which
+        # were only bound inside the deviation branch above — an UnboundLocalError
+        # waiting for the first fire that skipped it. Resolve them once, here.
+        #
+        # The mean is the whole point of a mean-reversion trade: it is the target,
+        # and the stop is placed relative to the distance to it. Anchoring it to
+        # current_price (the old fallback) collapses that distance to zero, giving
+        # a target equal to entry and a degenerate stop. Prefer the Bollinger
+        # middle band when SMA is absent — it is an SMA — and refuse to signal
+        # when neither is available.
+        anchor_sma = sma_value or self._bollinger_middle(bb_signal)
+        if not anchor_sma or anchor_sma == current_price:
+            return None
+        anchor_atr = atr_value if atr_value else current_price * 0.02
 
         # Determine if we have a valid signal
-        if len(oversold_signals) >= self.MIN_INDICATORS_ALIGNED and oversold_confidence >= self.MIN_CONFIDENCE:
+        if (
+            len(oversold_signals) >= self.MIN_INDICATORS_ALIGNED
+            and oversold_confidence >= self.MIN_CONFIDENCE
+        ):
             # BUY signal (market oversold, expect bounce)
             return self._create_buy_signal(
                 current_price=current_price,
                 indicators_aligned=oversold_signals,
                 confidence=min(0.95, oversold_confidence),
-                sma_value=sma_value if sma_signal and sma_signal.metadata else current_price,
-                atr_value=atr_value if atr_signal and atr_signal.metadata else current_price * 0.02
+                sma_value=anchor_sma,
+                atr_value=anchor_atr,
             )
 
-        elif len(overbought_signals) >= self.MIN_INDICATORS_ALIGNED and overbought_confidence >= self.MIN_CONFIDENCE:
+        elif (
+            len(overbought_signals) >= self.MIN_INDICATORS_ALIGNED
+            and overbought_confidence >= self.MIN_CONFIDENCE
+        ):
             # SELL signal (market overbought, expect drop)
             return self._create_sell_signal(
                 current_price=current_price,
                 indicators_aligned=overbought_signals,
                 confidence=min(0.95, overbought_confidence),
-                sma_value=sma_value if sma_signal and sma_signal.metadata else current_price,
-                atr_value=atr_value if atr_signal and atr_signal.metadata else current_price * 0.02
+                sma_value=anchor_sma,
+                atr_value=anchor_atr,
             )
 
         else:
             # No valid mean reversion setup
             return None
+
+    @staticmethod
+    def _bollinger_middle(bb_signal: Optional[IndicatorSignal]) -> Optional[float]:
+        """The Bollinger middle band — an SMA, usable as the reversion target when
+        the SMA indicator itself is unavailable."""
+        if not bb_signal:
+            return None
+        middle = (bb_signal.metadata or {}).get("middle_band")
+        return None if middle is None else float(middle)
+
+    @staticmethod
+    def _bollinger_position(
+        bb_signal: Optional[IndicatorSignal], current_price: float
+    ) -> Optional[float]:
+        """Where price sits across the Bollinger channel: 0 = lower band, 1 = upper.
+
+        The aggregator publishes `upper_band` / `middle_band` / `lower_band` and
+        no `position` key, so the previous `metadata.get('position', 0.5)` always
+        returned a fabricated mid-band reading (audit 2026-07-30 F-1). Honour an
+        explicit `position` if some producer supplies one, else derive it.
+
+        Returns None when the channel cannot be determined — callers must skip
+        the Bollinger checks rather than assume a neutral position. Values
+        outside [0, 1] are returned as-is: price beyond a band is meaningful.
+        """
+        if not bb_signal:
+            return None
+        metadata = bb_signal.metadata or {}
+
+        explicit = metadata.get("position")
+        if explicit is not None:
+            return float(explicit)
+
+        upper = metadata.get("upper_band")
+        lower = metadata.get("lower_band")
+        if upper is None or lower is None:
+            return None
+
+        span = float(upper) - float(lower)
+        if span <= 0:
+            return None
+
+        return (current_price - float(lower)) / span
 
     def _create_buy_signal(
         self,
@@ -228,7 +297,7 @@ class MeanReversionStrategy:
         indicators_aligned: List[str],
         confidence: float,
         sma_value: float,
-        atr_value: float
+        atr_value: float,
     ) -> MeanReversionSignal:
         """Create BUY mean reversion signal"""
         # Target: Mean (SMA)
@@ -253,7 +322,7 @@ class MeanReversionStrategy:
             f"Mean reversion BUY: {len(indicators_aligned)} oversold signals",
             f"Indicators: {', '.join(indicators_aligned)}",
             f"Expected reversion to mean: ${target:.2f}",
-            f"Risk/Reward: {(target - current_price) / (current_price - stop_loss):.2f}"
+            f"Risk/Reward: {(target - current_price) / (current_price - stop_loss):.2f}",
         ]
 
         return MeanReversionSignal(
@@ -264,7 +333,7 @@ class MeanReversionStrategy:
             target=target,
             stop_loss=stop_loss,
             indicators_aligned=indicators_aligned,
-            reasoning=reasoning
+            reasoning=reasoning,
         )
 
     def _create_sell_signal(
@@ -273,7 +342,7 @@ class MeanReversionStrategy:
         indicators_aligned: List[str],
         confidence: float,
         sma_value: float,
-        atr_value: float
+        atr_value: float,
     ) -> MeanReversionSignal:
         """Create SELL mean reversion signal"""
         # Target: Mean (SMA)
@@ -298,7 +367,7 @@ class MeanReversionStrategy:
             f"Mean reversion SELL: {len(indicators_aligned)} overbought signals",
             f"Indicators: {', '.join(indicators_aligned)}",
             f"Expected reversion to mean: ${target:.2f}",
-            f"Risk/Reward: {(current_price - target) / (stop_loss - current_price):.2f}"
+            f"Risk/Reward: {(current_price - target) / (stop_loss - current_price):.2f}",
         ]
 
         return MeanReversionSignal(
@@ -309,5 +378,5 @@ class MeanReversionStrategy:
             target=target,
             stop_loss=stop_loss,
             indicators_aligned=indicators_aligned,
-            reasoning=reasoning
+            reasoning=reasoning,
         )
