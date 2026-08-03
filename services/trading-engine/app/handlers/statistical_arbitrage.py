@@ -28,10 +28,10 @@ from datetime import datetime
 from fastapi import HTTPException
 import pandas as pd
 
+from app.config import get_settings
 from app.managers import (
     StatisticalArbitrageManager,
     StrategyAllocation,
-    PortfolioPerformance
 )
 
 logger = logging.getLogger(__name__)
@@ -46,19 +46,20 @@ def get_stat_arb_manager() -> Optional[StatisticalArbitrageManager]:
 
 
 async def initialize_stat_arb_manager(
-    total_capital: float = 100000.0,
+    total_capital: Optional[float] = None,
     pairs_allocation: float = 0.4,
     funding_allocation: float = 0.4,
     triangular_allocation: float = 0.2,
     enable_pairs: bool = True,
     enable_funding: bool = True,
-    enable_triangular: bool = True
+    enable_triangular: bool = True,
 ) -> Dict[str, Any]:
     """
     Initialize Statistical Arbitrage Manager
 
     Args:
-        total_capital: Total capital for statistical arbitrage
+        total_capital: Total capital for statistical arbitrage. Defaults to the
+            configured paper-trading balance (PAPER_INITIAL_BALANCE, $100).
         pairs_allocation: Allocation for pairs trading (0-1)
         funding_allocation: Allocation for funding rate arbitrage (0-1)
         triangular_allocation: Allocation for triangular arbitrage (0-1)
@@ -74,19 +75,24 @@ async def initialize_stat_arb_manager(
     """
     global _stat_arb_manager
 
+    # FIX 2026-08-03 (capital audit A2): was 100000.0, 1000x the real account.
+    # Resolved in the body, not the signature: Python evaluates parameter
+    # defaults at MODULE IMPORT, so `= get_settings().paper_initial_balance`
+    # would create an import-time settings dependency and freeze the value.
+    if total_capital is None:
+        total_capital = get_settings().paper_initial_balance
+
     try:
         # Validate allocations
         total_allocation = pairs_allocation + funding_allocation + triangular_allocation
         if abs(total_allocation - 1.0) > 0.001:
-            raise ValueError(
-                f"Allocations must sum to 1.0, got {total_allocation:.3f}"
-            )
+            raise ValueError(f"Allocations must sum to 1.0, got {total_allocation:.3f}")
 
         # Create allocation
         allocation = StrategyAllocation(
             pairs_trading=pairs_allocation,
             funding_rate=funding_allocation,
-            triangular=triangular_allocation
+            triangular=triangular_allocation,
         )
 
         # Initialize manager
@@ -95,7 +101,7 @@ async def initialize_stat_arb_manager(
             allocation=allocation,
             enable_pairs=enable_pairs,
             enable_funding=enable_funding,
-            enable_triangular=enable_triangular
+            enable_triangular=enable_triangular,
         )
 
         logger.info(
@@ -112,15 +118,15 @@ async def initialize_stat_arb_manager(
                 "allocation": {
                     "pairs_trading": pairs_allocation,
                     "funding_rate": funding_allocation,
-                    "triangular": triangular_allocation
+                    "triangular": triangular_allocation,
                 },
                 "enabled_strategies": {
                     "pairs": enable_pairs,
                     "funding": enable_funding,
-                    "triangular": enable_triangular
-                }
+                    "triangular": enable_triangular,
+                },
             },
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except ValueError as e:
@@ -137,7 +143,7 @@ async def add_pairs_strategy(
     entry_threshold: float = 2.0,
     exit_threshold: float = 0.5,
     lookback_period: int = 60,
-    stop_loss_z: float = 3.0
+    stop_loss_z: float = 3.0,
 ) -> Dict[str, Any]:
     """
     Add a pairs trading strategy
@@ -158,8 +164,7 @@ async def add_pairs_strategy(
     """
     if _stat_arb_manager is None:
         raise HTTPException(
-            status_code=400,
-            detail="Manager not initialized. Call /initialize first."
+            status_code=400, detail="Manager not initialized. Call /initialize first."
         )
 
     try:
@@ -170,7 +175,7 @@ async def add_pairs_strategy(
             entry_threshold=entry_threshold,
             exit_threshold=exit_threshold,
             stop_threshold=stop_loss_z,  # Fixed: use stop_threshold not stop_loss_threshold
-            lookback_period=lookback_period
+            lookback_period=lookback_period,
         )
 
         if not strategy_id:
@@ -188,9 +193,9 @@ async def add_pairs_strategy(
                 "entry_threshold": entry_threshold,
                 "exit_threshold": exit_threshold,
                 "lookback_period": lookback_period,
-                "stop_loss_z": stop_loss_z
+                "stop_loss_z": stop_loss_z,
             },
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except ValueError as e:
@@ -205,7 +210,7 @@ async def calibrate_pairs_strategy(
     strategy_id: str,
     historical_data_x: List[float],
     historical_data_y: List[float],
-    timestamps: Optional[List[str]] = None
+    timestamps: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Calibrate a pairs trading strategy with historical data
@@ -224,8 +229,7 @@ async def calibrate_pairs_strategy(
     """
     if _stat_arb_manager is None:
         raise HTTPException(
-            status_code=400,
-            detail="Manager not initialized. Call /initialize first."
+            status_code=400, detail="Manager not initialized. Call /initialize first."
         )
 
     try:
@@ -242,7 +246,7 @@ async def calibrate_pairs_strategy(
         success = _stat_arb_manager.calibrate_pairs_strategy(
             strategy_id=strategy_id,
             historical_data_x=series_x,
-            historical_data_y=series_y
+            historical_data_y=series_y,
         )
 
         if success:
@@ -255,12 +259,12 @@ async def calibrate_pairs_strategy(
                     "status": "success",
                     "strategy_id": strategy_id,
                     "calibrated": True,
-                    "is_cointegrated": status['is_cointegrated'],
-                    "hedge_ratio": status['hedge_ratio'],
-                    "half_life": status['half_life'],
-                    "spread_mean": status['spread_mean'],
-                    "spread_std": status['spread_std'],
-                    "timestamp": datetime.now().isoformat()
+                    "is_cointegrated": status["is_cointegrated"],
+                    "hedge_ratio": status["hedge_ratio"],
+                    "half_life": status["half_life"],
+                    "spread_mean": status["spread_mean"],
+                    "spread_std": status["spread_std"],
+                    "timestamp": datetime.now().isoformat(),
                 }
 
         return {
@@ -268,14 +272,11 @@ async def calibrate_pairs_strategy(
             "strategy_id": strategy_id,
             "calibrated": False,
             "message": "Pair is not cointegrated",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except KeyError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Strategy {strategy_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Strategy {strategy_id} not found")
     except ValueError as e:
         logger.error(f"Validation error calibrating strategy: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -288,7 +289,7 @@ async def add_funding_strategy(
     symbol: str,
     min_funding_rate: float = 0.0003,
     max_basis_pct: float = 2.0,
-    position_size_pct: float = 0.2
+    position_size_pct: float = 0.2,
 ) -> Dict[str, Any]:
     """
     Add a funding rate arbitrage strategy
@@ -307,8 +308,7 @@ async def add_funding_strategy(
     """
     if _stat_arb_manager is None:
         raise HTTPException(
-            status_code=400,
-            detail="Manager not initialized. Call /initialize first."
+            status_code=400, detail="Manager not initialized. Call /initialize first."
         )
 
     try:
@@ -316,7 +316,7 @@ async def add_funding_strategy(
             symbol=symbol,
             min_funding_rate=min_funding_rate,
             max_basis_pct=max_basis_pct,
-            position_size_pct=position_size_pct
+            position_size_pct=position_size_pct,
         )
 
         if not strategy_id:
@@ -325,7 +325,9 @@ async def add_funding_strategy(
         logger.info(f"Added funding strategy: {strategy_id}")
 
         # Calculate annualized yield for display
-        annualized_yield = (min_funding_rate * 365 * 3) * 100  # 3 funding payments per day
+        annualized_yield = (
+            min_funding_rate * 365 * 3
+        ) * 100  # 3 funding payments per day
 
         return {
             "status": "success",
@@ -336,9 +338,9 @@ async def add_funding_strategy(
                 "min_funding_rate": min_funding_rate,
                 "min_annualized_yield_pct": annualized_yield,
                 "max_basis_pct": max_basis_pct,
-                "position_size_pct": position_size_pct
+                "position_size_pct": position_size_pct,
             },
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except ValueError as e:
@@ -353,7 +355,7 @@ async def setup_triangular_arbitrage(
     assets: List[str],
     min_profit_threshold: float = 0.005,
     trading_fee: float = 0.0005,
-    max_latency_ms: float = 100.0
+    max_latency_ms: float = 100.0,
 ) -> Dict[str, Any]:
     """
     Setup triangular arbitrage strategy
@@ -372,8 +374,7 @@ async def setup_triangular_arbitrage(
     """
     if _stat_arb_manager is None:
         raise HTTPException(
-            status_code=400,
-            detail="Manager not initialized. Call /initialize first."
+            status_code=400, detail="Manager not initialized. Call /initialize first."
         )
 
     try:
@@ -381,7 +382,7 @@ async def setup_triangular_arbitrage(
             assets=assets,
             min_profit_threshold=min_profit_threshold,
             trading_fee=trading_fee,
-            max_latency_ms=max_latency_ms
+            max_latency_ms=max_latency_ms,
         )
 
         if not success:
@@ -401,9 +402,9 @@ async def setup_triangular_arbitrage(
                     "assets": assets,
                     "min_profit_threshold": min_profit_threshold,
                     "trading_fee": trading_fee,
-                    "max_latency_ms": max_latency_ms
+                    "max_latency_ms": max_latency_ms,
                 },
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         raise ValueError("Triangular strategy not configured")
@@ -434,8 +435,7 @@ async def generate_signals(market_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     if _stat_arb_manager is None:
         raise HTTPException(
-            status_code=400,
-            detail="Manager not initialized. Call /initialize first."
+            status_code=400, detail="Manager not initialized. Call /initialize first."
         )
 
     try:
@@ -443,55 +443,55 @@ async def generate_signals(market_data: Dict[str, Any]) -> Dict[str, Any]:
 
         # Convert signals to serializable format
         serializable_signals = {
-            'pairs': [
+            "pairs": [
                 {
-                    'strategy_id': s['strategy_id'],
-                    'signal': {
-                        'action': s['signal'].action,
-                        'z_score': s['signal'].z_score,
-                        'spread': s['signal'].spread,
-                        'position_size_x': s['signal'].position_size_x,
-                        'position_size_y': s['signal'].position_size_y,
-                        'confidence': s['signal'].confidence,
-                        'reason': s['signal'].reason
+                    "strategy_id": s["strategy_id"],
+                    "signal": {
+                        "action": s["signal"].action,
+                        "z_score": s["signal"].z_score,
+                        "spread": s["signal"].spread,
+                        "position_size_x": s["signal"].position_size_x,
+                        "position_size_y": s["signal"].position_size_y,
+                        "confidence": s["signal"].confidence,
+                        "reason": s["signal"].reason,
                     },
-                    'timestamp': s['timestamp'].isoformat()
+                    "timestamp": s["timestamp"].isoformat(),
                 }
-                for s in signals['pairs']
+                for s in signals["pairs"]
             ],
-            'funding': [
+            "funding": [
                 {
-                    'strategy_id': s['strategy_id'],
-                    'signal': {
-                        'action': s['signal'].action,
-                        'symbol': s['signal'].symbol,
-                        'funding_rate': s['signal'].funding_rate,
-                        'annualized_yield': s['signal'].annualized_yield,
-                        'basis_pct': s['signal'].basis_pct,
-                        'spot_position_size': s['signal'].spot_position_size,
-                        'futures_position_size': s['signal'].futures_position_size,
-                        'confidence': s['signal'].confidence,
-                        'reason': s['signal'].reason
+                    "strategy_id": s["strategy_id"],
+                    "signal": {
+                        "action": s["signal"].action,
+                        "symbol": s["signal"].symbol,
+                        "funding_rate": s["signal"].funding_rate,
+                        "annualized_yield": s["signal"].annualized_yield,
+                        "basis_pct": s["signal"].basis_pct,
+                        "spot_position_size": s["signal"].spot_position_size,
+                        "futures_position_size": s["signal"].futures_position_size,
+                        "confidence": s["signal"].confidence,
+                        "reason": s["signal"].reason,
                     },
-                    'timestamp': s['timestamp'].isoformat()
+                    "timestamp": s["timestamp"].isoformat(),
                 }
-                for s in signals['funding']
+                for s in signals["funding"]
             ],
-            'triangular': [
+            "triangular": [
                 {
-                    'strategy_id': s['strategy_id'],
-                    'signal': {
-                        'path': ' -> '.join(s['signal'].path.symbols),
-                        'net_profit_pct': s['signal'].net_profit_pct,
-                        'execution_amount': s['signal'].execution_amount,
-                        'estimated_latency_ms': s['signal'].estimated_latency_ms,
-                        'confidence': s['signal'].confidence,
-                        'reason': s['signal'].reason
+                    "strategy_id": s["strategy_id"],
+                    "signal": {
+                        "path": " -> ".join(s["signal"].path.symbols),
+                        "net_profit_pct": s["signal"].net_profit_pct,
+                        "execution_amount": s["signal"].execution_amount,
+                        "estimated_latency_ms": s["signal"].estimated_latency_ms,
+                        "confidence": s["signal"].confidence,
+                        "reason": s["signal"].reason,
                     },
-                    'timestamp': s['timestamp'].isoformat()
+                    "timestamp": s["timestamp"].isoformat(),
                 }
-                for s in signals['triangular']
-            ]
+                for s in signals["triangular"]
+            ],
         }
 
         total_signals = sum(len(s) for s in signals.values())
@@ -500,17 +500,19 @@ async def generate_signals(market_data: Dict[str, Any]) -> Dict[str, Any]:
             "status": "success",
             "total_signals": total_signals,
             "signals_by_type": {
-                "pairs": len(signals['pairs']),
-                "funding": len(signals['funding']),
-                "triangular": len(signals['triangular'])
+                "pairs": len(signals["pairs"]),
+                "funding": len(signals["funding"]),
+                "triangular": len(signals["triangular"]),
             },
             "signals": serializable_signals,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Error generating signals: {e}")
-        raise HTTPException(status_code=500, detail=f"Signal generation failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Signal generation failed: {str(e)}"
+        )
 
 
 async def get_performance() -> Dict[str, Any]:
@@ -525,8 +527,7 @@ async def get_performance() -> Dict[str, Any]:
     """
     if _stat_arb_manager is None:
         raise HTTPException(
-            status_code=400,
-            detail="Manager not initialized. Call /initialize first."
+            status_code=400, detail="Manager not initialized. Call /initialize first."
         )
 
     try:
@@ -540,21 +541,25 @@ async def get_performance() -> Dict[str, Any]:
                 "total_profit": performance.total_profit,
                 "return_on_capital_pct": (
                     performance.total_profit / performance.total_capital * 100
-                ) if performance.total_capital > 0 else 0.0,
+                )
+                if performance.total_capital > 0
+                else 0.0,
                 "total_trades": performance.total_trades,
                 "winning_trades": performance.winning_trades,
                 "losing_trades": performance.losing_trades,
                 "win_rate": performance.win_rate,
                 "sharpe_ratio": performance.sharpe_ratio,
-                "max_drawdown": performance.max_drawdown
+                "max_drawdown": performance.max_drawdown,
             },
             "strategies_performance": performance.strategies_performance,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Error getting performance: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get performance: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get performance: {str(e)}"
+        )
 
 
 async def get_status() -> Dict[str, Any]:
@@ -571,7 +576,7 @@ async def get_status() -> Dict[str, Any]:
         return {
             "status": "not_initialized",
             "message": "Statistical Arbitrage Manager not initialized",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     try:
@@ -580,7 +585,7 @@ async def get_status() -> Dict[str, Any]:
         return {
             "status": "active",
             "manager_status": status,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
@@ -604,7 +609,7 @@ async def reset_manager() -> Dict[str, Any]:
         return {
             "status": "success",
             "message": "Manager was not initialized",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     try:
@@ -614,7 +619,7 @@ async def reset_manager() -> Dict[str, Any]:
         return {
             "status": "success",
             "message": "Statistical Arbitrage Manager reset successfully",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:

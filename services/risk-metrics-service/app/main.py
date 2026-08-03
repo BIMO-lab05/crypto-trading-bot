@@ -309,6 +309,34 @@ async def performance_tracking_middleware(request: Request, call_next):
 # === HELPER FUNCTIONS ===
 
 
+def require_total_value(portfolio: dict) -> Decimal:
+    """Portfolio total value, or a loud 503.
+
+    BEHAVIOUR CHANGE 2026-08-03 (capital audit, B2). All seven call sites used
+    to fall back to a hardcoded 10000 when the portfolio-manager response had no
+    ``total_value``. On the real $100 account that fallback was wrong by 100x,
+    and it fed LIVE VaR / CVaR / drawdown / circuit-breaker figures — a silently
+    wrong risk number is worse than an error, because it looks like an answer.
+
+    Failing with 503 is the SAME failure class these endpoints already handle:
+    every enclosing function does ``portfolio_data = await
+    fetch_portfolio_data()`` followed by ``if not portfolio_data: raise
+    HTTPException(503, ...)``. This only extends that contract to a portfolio
+    dict that is present but missing the field. (All seven enclosing functions
+    were re-read to confirm the guard exists before this change.)
+    """
+    total_value = portfolio.get("total_value")
+    if total_value is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Portfolio total_value missing — refusing to compute risk "
+                "metrics against a placeholder account size"
+            ),
+        )
+    return Decimal(str(total_value))
+
+
 async def fetch_portfolio_data() -> dict:
     """
     Fetch portfolio data from portfolio manager service
@@ -526,7 +554,7 @@ async def get_risk_scorecard():
 
         portfolio = portfolio_data.get("portfolio", {})
         positions = portfolio.get("holdings", [])
-        total_capital = Decimal(str(portfolio.get("total_value", 10000)))
+        total_capital = require_total_value(portfolio)
 
         # Update portfolio value gauge
         portfolio_value_gauge.set(float(total_capital))
@@ -664,7 +692,7 @@ async def get_capital_metrics():
 
     portfolio = portfolio_data.get("portfolio", {})
     positions = portfolio.get("holdings", [])
-    total_capital = Decimal(str(portfolio.get("total_value", 10000)))
+    total_capital = require_total_value(portfolio)
 
     metrics = engine.calculate_capital_metrics(total_capital, positions)
 
@@ -701,7 +729,7 @@ async def get_exposure_metrics():
 
     portfolio = portfolio_data.get("portfolio", {})
     positions = portfolio.get("holdings", [])
-    total_capital = Decimal(str(portfolio.get("total_value", 10000)))
+    total_capital = require_total_value(portfolio)
 
     metrics = engine.calculate_exposure_metrics(positions, total_capital)
 
@@ -737,7 +765,7 @@ async def get_drawdown_metrics():
         raise HTTPException(status_code=503, detail="Unable to fetch portfolio data")
 
     portfolio = portfolio_data.get("portfolio", {})
-    total_capital = Decimal(str(portfolio.get("total_value", 10000)))
+    total_capital = require_total_value(portfolio)
 
     # In production, would fetch historical values from database
     historical_values = [(datetime.now(), total_capital)]
@@ -785,7 +813,7 @@ async def get_value_at_risk(confidence_level: float = 0.95, time_horizon_days: i
         raise HTTPException(status_code=503, detail="Unable to fetch portfolio data")
 
     portfolio = portfolio_data.get("portfolio", {})
-    total_capital = Decimal(str(portfolio.get("total_value", 10000)))
+    total_capital = require_total_value(portfolio)
 
     # In production, would fetch historical returns from database
     returns = engine.historical_returns if engine.historical_returns else []
@@ -850,7 +878,7 @@ async def get_performance_metrics():
 
     # Reuse already-fetched portfolio data to avoid duplicate network call
     portfolio = portfolio_data.get("portfolio", {})
-    total_capital = Decimal(str(portfolio.get("total_value", 10000)))
+    total_capital = require_total_value(portfolio)
     historical_values = [(datetime.now(), total_capital)]
     drawdown_metrics = engine.calculate_drawdown_metrics(
         total_capital, historical_values
@@ -937,7 +965,7 @@ async def get_circuit_breaker_status():
         daily_pnl = daily_return_pct / 100.0
 
     # Get drawdown
-    total_capital = Decimal(str(portfolio.get("total_value", 10000)))
+    total_capital = require_total_value(portfolio)
     historical_values = [(datetime.now(), total_capital)]
     drawdown_metrics = engine.calculate_drawdown_metrics(
         total_capital, historical_values

@@ -284,9 +284,25 @@ async def lifespan(app: FastAPI):
                 f"max_risk_per_trade={settings.max_risk_per_trade} > 0.02. "
                 "Restore the LIVE-strict cap before flipping the mode."
             )
+        # Same gate, applied to the sizing FLOOR. A floor above the cap means the
+        # cap is never reached — every ensemble trade sizes at the floor. The
+        # shipped default (0.05) is 2.5x the LIVE-strict cap, and until the
+        # 2026-07-30 audit (F-2) it passed this gate untouched.
+        if settings.ensemble_min_position_pct > 0.02:
+            logger.critical(
+                "LIVE_PREFLIGHT_REJECTED reason=floor_too_high "
+                f"floor={settings.ensemble_min_position_pct} limit=0.02"
+            )
+            raise RuntimeError(
+                f"Refusing to boot: TRADING_MODE=LIVE with "
+                f"ensemble_min_position_pct={settings.ensemble_min_position_pct} "
+                "> 0.02. The sizing floor overrides the per-trade cap; lower it "
+                "before flipping the mode."
+            )
         logger.info(
             f"LIVE preflight cap check passed: max_risk_per_trade="
-            f"{settings.max_risk_per_trade} <= 0.02"
+            f"{settings.max_risk_per_trade} and ensemble_min_position_pct="
+            f"{settings.ensemble_min_position_pct} <= 0.02"
         )
 
     # 4 phase context managers run in order on enter, reverse on exit (cm stack
@@ -1060,8 +1076,12 @@ async def get_sqzmom_signal(
 @app.post("/api/v1/strategies/sqzmom/trade/{symbol}", tags=["SQZMOM Strategy"])
 async def execute_sqzmom_trade(
     symbol: str,
-    account_balance: float = Query(
-        default=10000.0, description="Account balance for position sizing"
+    account_balance: Optional[float] = Query(
+        default=None,
+        description=(
+            "Account balance for position sizing. Defaults to the configured "
+            "paper-trading balance (PAPER_INITIAL_BALANCE)."
+        ),
     ),
     force: bool = Query(
         default=False, description="Force execution even if auto_trading is disabled"
@@ -1078,12 +1098,20 @@ async def execute_sqzmom_trade(
 
     Args:
         symbol: Trading pair (must be in enabled list)
-        account_balance: Account balance for position sizing (default: $10,000)
+        account_balance: Account balance for position sizing. Defaults to the
+            configured paper-trading balance (PAPER_INITIAL_BALANCE, $100).
         force: Force execution even if auto_trading disabled (for manual approval)
 
     Returns:
         Trade execution result with details
     """
+    # FIX 2026-08-03 (capital audit): was Query(default=10000.0) — a 100x
+    # overstatement of the real account. Resolved in the body, not in the
+    # signature: Python evaluates parameter defaults at MODULE IMPORT, so
+    # `= get_settings().paper_initial_balance` would create an import-time
+    # settings dependency and freeze the value at first import.
+    if account_balance is None:
+        account_balance = get_settings().paper_initial_balance
 
     # Check if symbol is enabled
     if not sqzmom_strategy.is_symbol_enabled(symbol):
@@ -1290,8 +1318,12 @@ async def backtest_equity_curve_endpoint(
 
 @app.post("/api/v1/statistical-arbitrage/initialize", tags=["Statistical Arbitrage"])
 async def stat_arb_initialize_endpoint(
-    total_capital: float = Query(
-        default=100000.0, description="Total capital to allocate"
+    total_capital: Optional[float] = Query(
+        default=None,
+        description=(
+            "Total capital to allocate. Defaults to the configured "
+            "paper-trading balance (PAPER_INITIAL_BALANCE)."
+        ),
     ),
     pairs_allocation: float = Query(
         default=0.4, description="Pairs trading allocation (0.0-1.0)"
@@ -1310,7 +1342,8 @@ async def stat_arb_initialize_endpoint(
     Allocations must sum to 1.0.
 
     Args:
-        total_capital: Total capital to manage (default: $100,000)
+        total_capital: Total capital to manage. Defaults to the configured
+            paper-trading balance (PAPER_INITIAL_BALANCE, $100).
         pairs_allocation: Percentage for pairs trading (default: 40%)
         funding_allocation: Percentage for funding rate arbitrage (default: 40%)
         triangular_allocation: Percentage for triangular arbitrage (default: 20%)
@@ -1318,6 +1351,14 @@ async def stat_arb_initialize_endpoint(
     Returns:
         Initialization status and configuration
     """
+    # FIX 2026-08-03 (capital audit A2): was Query(default=100000.0), 1000x the
+    # real account. This value is passed EXPLICITLY to
+    # initialize_stat_arb_manager below, so it shadowed the handler's own
+    # default — correcting only the handler would have been a runtime no-op.
+    # Resolved in the body, not the signature (import-time default evaluation).
+    if total_capital is None:
+        total_capital = get_settings().paper_initial_balance
+
     return await initialize_stat_arb_manager(
         total_capital=total_capital,
         pairs_allocation=pairs_allocation,

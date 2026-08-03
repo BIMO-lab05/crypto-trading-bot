@@ -207,14 +207,24 @@ def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 def calculate_equity_curve_from_trades(
-    trades: List[Any], initial_balance: float = 10000.0
+    trades: List[Any], initial_balance: float
 ) -> List[Dict[str, Any]]:
     """
     Calculate equity curve from list of trades
 
+    FIX 2026-08-03 (capital audit A1). `initial_balance` used to default to
+    10000.0. `get_performance_summary()` omitted the argument while its two
+    sibling endpoints passed the real balance, so the max-drawdown that endpoint
+    reported was computed against a $10,000 baseline on a $100 account — the two
+    disagreed by 100x within a single file. The default is now REMOVED rather
+    than corrected, so omitting the argument is a TypeError instead of a
+    silently wrong number. (Zero callers outside this module; verified by
+    repo-wide grep.)
+
     Args:
         trades: List of trade/position objects
-        initial_balance: Starting portfolio value
+        initial_balance: Starting portfolio value. REQUIRED — source it from
+            `paper_engine.get_initial_balance()`.
 
     Returns:
         List of equity curve data points
@@ -488,7 +498,14 @@ async def get_performance_summary(
             cvar_95 = abs(sum(cvar_pnls) / len(cvar_pnls)) if cvar_pnls else 0.0
 
             # Max Drawdown
-            equity_curve = calculate_equity_curve_from_trades(filtered_positions)
+            # FIX 2026-08-03 (capital audit A1): this call omitted
+            # initial_balance and silently used the old 10000.0 default, so this
+            # endpoint's max_drawdown was computed on a $10,000 baseline while
+            # the sibling endpoints used the real balance. Mirror the siblings.
+            initial_balance = float(paper_engine.get_initial_balance())
+            equity_curve = calculate_equity_curve_from_trades(
+                filtered_positions, initial_balance
+            )
             drawdown_series = calculate_drawdown_series(equity_curve)
             max_drawdown = max(
                 (d["drawdown_percent"] for d in drawdown_series), default=0.0

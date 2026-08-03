@@ -17,9 +17,9 @@ Date: 2025-12-11
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Dict, List, Optional, Any, Tuple, Callable
+from typing import Dict, List, Optional, Any, Tuple
 from collections import defaultdict
 import statistics
 import math
@@ -29,8 +29,6 @@ from app.strategies.base import (
     StrategyBase,
     StrategySignal,
     SignalType,
-    AnalysisResult,
-    MarketCondition
 )
 
 # Configure logging
@@ -41,9 +39,11 @@ logger = logging.getLogger(__name__)
 # DATA STRUCTURES
 # =============================================================================
 
+
 @dataclass
 class BacktestCandle:
     """OHLCV candle for backtesting"""
+
     timestamp: datetime
     open: float
     high: float
@@ -64,13 +64,14 @@ class BacktestCandle:
             "h": self.high,
             "l": self.low,
             "c": self.close,
-            "v": self.volume
+            "v": self.volume,
         }
 
 
 @dataclass
 class BacktestTrade:
     """Record of a backtested trade"""
+
     trade_id: str
     strategy_id: str
     symbol: str
@@ -122,15 +123,25 @@ class BacktestTrade:
 @dataclass
 class BacktestResult:
     """Results from a backtest run"""
+
     strategy_id: str
     symbol: str
     start_date: datetime
     end_date: datetime
 
-    # Capital tracking
-    initial_capital: float = 10000.0
-    final_capital: float = 10000.0
-    peak_capital: float = 10000.0
+    # Capital tracking.
+    # FIX 2026-08-03 (capital audit, B5). These carried `= 10000.0` defaults.
+    # `final_capital` and `peak_capital` are RESULTS of a run: that they had a
+    # capital default AT ALL was the defect, and changing 10000.0 -> 100.0 would
+    # have preserved it in a prettier form. They are now REQUIRED, so a result
+    # object can never silently report a capital figure no run produced.
+    # Safe: the only construction site of this class is
+    # `StrategyBacktester._calculate_results()` below, which passes all three
+    # explicitly. (Verified by repo-wide grep — the other `BacktestResult`
+    # symbols in this repo are unrelated classes in other modules.)
+    initial_capital: float
+    final_capital: float
+    peak_capital: float
 
     # Trade statistics
     total_trades: int = 0
@@ -208,12 +219,18 @@ class BacktestResult:
 # CONFIGURATION
 # =============================================================================
 
+
 @dataclass
 class BacktestConfig:
     """Configuration for backtesting"""
 
-    # Capital settings
-    initial_capital: float = 10000.0
+    # Capital settings.
+    # FIX 2026-08-03 (capital audit): was 10000.0, 100x the real account.
+    # Declared as None and resolved in __post_init__ rather than as
+    # `= get_settings().paper_initial_balance`, because a dataclass field
+    # default is evaluated at MODULE IMPORT — that form would create an
+    # import-time settings dependency and freeze the value at first import.
+    initial_capital: Optional[float] = None
     position_size_pct: float = 5.0  # Default position size
     max_positions: int = 5
 
@@ -239,6 +256,27 @@ class BacktestConfig:
     walk_forward_windows: int = 5  # Number of windows
     in_sample_pct: float = 0.7  # In-sample percentage
 
+    #: Mirrors config.py `paper_initial_balance`. Used only when `get_settings()`
+    #: cannot be constructed (e.g. a host-run test session whose `.env` is parsed
+    #: by a different pydantic-settings version than the container pins).
+    _FALLBACK_INITIAL_CAPITAL_USD = 100.0
+
+    def __post_init__(self) -> None:
+        if self.initial_capital is not None:
+            return
+        try:
+            from app.config import get_settings
+
+            self.initial_capital = get_settings().paper_initial_balance
+        except Exception as exc:  # a backtest must not be unbuildable
+            logger.error(
+                "BacktestConfig: could not read Settings for initial_capital "
+                "(%s). Falling back to the declared default ($%.2f).",
+                exc,
+                self._FALLBACK_INITIAL_CAPITAL_USD,
+            )
+            self.initial_capital = self._FALLBACK_INITIAL_CAPITAL_USD
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {
@@ -254,6 +292,7 @@ class BacktestConfig:
 # =============================================================================
 # STRATEGY BACKTESTER
 # =============================================================================
+
 
 class StrategyBacktester:
     """
@@ -291,7 +330,7 @@ class StrategyBacktester:
        - Detect overfitting
 
     Usage:
-        config = BacktestConfig(initial_capital=10000)
+        config = BacktestConfig(initial_capital=100)
         backtester = StrategyBacktester(config)
 
         # Load historical data
@@ -367,7 +406,7 @@ class StrategyBacktester:
         strategy: StrategyBase,
         symbol: str,
         candles: List[BacktestCandle],
-        risk_per_trade_pct: Optional[float] = None
+        risk_per_trade_pct: Optional[float] = None,
     ) -> BacktestResult:
         """
         Run a full backtest on historical data
@@ -405,7 +444,7 @@ class StrategyBacktester:
                 break
 
             # Get historical data up to this point
-            historical_candles = candles[:i+1]
+            historical_candles = candles[: i + 1]
             current_candle = candles[i]
             current_price = Decimal(str(current_candle.close))
 
@@ -430,9 +469,7 @@ class StrategyBacktester:
                 # Process signals
                 for signal in signals:
                     await self._process_signal(
-                        signal,
-                        current_candle,
-                        risk_per_trade_pct
+                        signal, current_candle, risk_per_trade_pct
                     )
 
             except Exception as e:
@@ -457,7 +494,7 @@ class StrategyBacktester:
                     position_id,
                     last_candle.close,
                     last_candle.timestamp,
-                    "END_OF_BACKTEST"
+                    "END_OF_BACKTEST",
                 )
 
         # Stop strategy
@@ -480,7 +517,7 @@ class StrategyBacktester:
         symbol: str,
         candles: List[BacktestCandle],
         n_windows: Optional[int] = None,
-        in_sample_pct: Optional[float] = None
+        in_sample_pct: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Run walk-forward analysis
@@ -541,7 +578,7 @@ class StrategyBacktester:
             out_sample_results.append(out_result)
 
             logger.info(
-                f"Window {window+1}/{n_windows}: "
+                f"Window {window + 1}/{n_windows}: "
                 f"IS Sharpe={in_result.sharpe_ratio:.2f}, "
                 f"OOS Sharpe={out_result.sharpe_ratio:.2f}"
             )
@@ -552,11 +589,10 @@ class StrategyBacktester:
         )
 
     def _aggregate_walk_forward_results(
-        self,
-        in_sample: List[BacktestResult],
-        out_sample: List[BacktestResult]
+        self, in_sample: List[BacktestResult], out_sample: List[BacktestResult]
     ) -> Dict[str, Any]:
         """Aggregate walk-forward analysis results"""
+
         def avg_metric(results: List[BacktestResult], attr: str) -> float:
             values = [getattr(r, attr) for r in results]
             return statistics.mean(values) if values else 0.0
@@ -588,10 +624,12 @@ class StrategyBacktester:
             "robustness_score": robustness,
             "overfitting_detected": efficiency < 0.5 and is_sharpe > 1.0,
             "recommendation": (
-                "ROBUST" if efficiency >= 0.7 and robustness >= 0.6
-                else "MARGINAL" if efficiency >= 0.5
+                "ROBUST"
+                if efficiency >= 0.7 and robustness >= 0.6
+                else "MARGINAL"
+                if efficiency >= 0.5
                 else "LIKELY_OVERFIT"
-            )
+            ),
         }
 
     # =========================================================================
@@ -602,7 +640,7 @@ class StrategyBacktester:
         self,
         signal: StrategySignal,
         candle: BacktestCandle,
-        risk_per_trade_pct: Optional[float] = None
+        risk_per_trade_pct: Optional[float] = None,
     ) -> None:
         """Process a trading signal"""
         # Check if we should open a new position
@@ -613,6 +651,7 @@ class StrategyBacktester:
 
             # Check fill probability
             import random
+
             if random.random() > self.config.fill_rate:
                 return
 
@@ -624,8 +663,11 @@ class StrategyBacktester:
             for pos_id, pos in list(self._positions.items()):
                 if pos["symbol"] == signal.symbol:
                     matching_exit = (
-                        (signal.signal_type == SignalType.EXIT_LONG and pos["side"] == "LONG") or
-                        (signal.signal_type == SignalType.EXIT_SHORT and pos["side"] == "SHORT")
+                        signal.signal_type == SignalType.EXIT_LONG
+                        and pos["side"] == "LONG"
+                    ) or (
+                        signal.signal_type == SignalType.EXIT_SHORT
+                        and pos["side"] == "SHORT"
                     )
                     if matching_exit:
                         await self._close_position(
@@ -636,7 +678,7 @@ class StrategyBacktester:
         self,
         signal: StrategySignal,
         candle: BacktestCandle,
-        risk_per_trade_pct: Optional[float] = None
+        risk_per_trade_pct: Optional[float] = None,
     ) -> None:
         """Open a new position"""
         self._trade_counter += 1
@@ -650,14 +692,22 @@ class StrategyBacktester:
         position_value = self._capital * (risk_pct / 100)
 
         # Apply slippage
-        slippage_mult = (1 + self.config.slippage_pct / 100) if side == "LONG" else (1 - self.config.slippage_pct / 100)
+        slippage_mult = (
+            (1 + self.config.slippage_pct / 100)
+            if side == "LONG"
+            else (1 - self.config.slippage_pct / 100)
+        )
         entry_price = candle.close * slippage_mult
 
         # Calculate quantity
         quantity = position_value / entry_price
 
         # Calculate fee
-        fee_pct = self.config.maker_fee_pct if self.config.use_limit_orders else self.config.taker_fee_pct
+        fee_pct = (
+            self.config.maker_fee_pct
+            if self.config.use_limit_orders
+            else self.config.taker_fee_pct
+        )
         fee = position_value * (fee_pct / 100)
 
         # Calculate stop loss and take profit prices
@@ -690,7 +740,7 @@ class StrategyBacktester:
             "take_profit": tp_price,
             "entry_fee": fee,
             "max_favorable": entry_price,
-            "max_adverse": entry_price
+            "max_adverse": entry_price,
         }
 
         logger.debug(
@@ -699,11 +749,7 @@ class StrategyBacktester:
         )
 
     async def _close_position(
-        self,
-        position_id: str,
-        exit_price: float,
-        exit_time: datetime,
-        reason: str
+        self, position_id: str, exit_price: float, exit_time: datetime, reason: str
     ) -> None:
         """Close a position and record trade"""
         if position_id not in self._positions:
@@ -720,7 +766,11 @@ class StrategyBacktester:
             pnl = (pos["entry_price"] - actual_exit) * pos["quantity"]
 
         # Calculate exit fee
-        fee_pct = self.config.maker_fee_pct if self.config.use_limit_orders else self.config.taker_fee_pct
+        fee_pct = (
+            self.config.maker_fee_pct
+            if self.config.use_limit_orders
+            else self.config.taker_fee_pct
+        )
         exit_value = actual_exit * pos["quantity"]
         exit_fee = exit_value * (fee_pct / 100)
 
@@ -749,7 +799,7 @@ class StrategyBacktester:
             slippage=slippage,
             exit_reason=reason,
             max_favorable_excursion=pos["max_favorable"],
-            max_adverse_excursion=pos["max_adverse"]
+            max_adverse_excursion=pos["max_adverse"],
         )
 
         self._trades.append(trade)
@@ -828,7 +878,9 @@ class StrategyBacktester:
             self._peak_capital = equity
             self._current_drawdown = 0.0
         else:
-            self._current_drawdown = (self._peak_capital - equity) / self._peak_capital * 100
+            self._current_drawdown = (
+                (self._peak_capital - equity) / self._peak_capital * 100
+            )
 
         if self._current_drawdown > self._max_drawdown:
             self._max_drawdown = self._current_drawdown
@@ -836,12 +888,16 @@ class StrategyBacktester:
         # Check for halt condition
         if self._current_drawdown >= self.config.max_drawdown_halt_pct:
             self._halted = True
-            logger.warning(f"Backtest halted: max drawdown {self._current_drawdown:.1f}%")
+            logger.warning(
+                f"Backtest halted: max drawdown {self._current_drawdown:.1f}%"
+            )
 
     def _check_daily_loss_limit(self, date) -> None:
         """Check if daily loss limit exceeded"""
         date_str = date.strftime("%Y-%m-%d")
-        daily_loss_pct = abs(self._daily_pnl[date_str]) / self.config.initial_capital * 100
+        daily_loss_pct = (
+            abs(self._daily_pnl[date_str]) / self.config.initial_capital * 100
+        )
 
         if daily_loss_pct >= self.config.daily_loss_limit_pct:
             # Close all positions for the day
@@ -852,10 +908,7 @@ class StrategyBacktester:
     # =========================================================================
 
     def _calculate_results(
-        self,
-        strategy_id: str,
-        symbol: str,
-        candles: List[BacktestCandle]
+        self, strategy_id: str, symbol: str, candles: List[BacktestCandle]
     ) -> BacktestResult:
         """Calculate comprehensive backtest results"""
         result = BacktestResult(
@@ -867,7 +920,7 @@ class StrategyBacktester:
             final_capital=self._capital,
             peak_capital=self._peak_capital,
             trades=self._trades,
-            equity_curve=self._equity_curve
+            equity_curve=self._equity_curve,
         )
 
         # Trade statistics
@@ -887,13 +940,19 @@ class StrategyBacktester:
 
         result.gross_profit = sum(wins) if wins else 0.0
         result.gross_loss = sum(losses) if losses else 0.0
-        result.profit_factor = result.gross_profit / result.gross_loss if result.gross_loss > 0 else float('inf')
+        result.profit_factor = (
+            result.gross_profit / result.gross_loss
+            if result.gross_loss > 0
+            else float("inf")
+        )
 
         result.avg_win = statistics.mean(wins) if wins else 0.0
         result.avg_loss = statistics.mean(losses) if losses else 0.0
         result.largest_win = max(wins) if wins else 0.0
         result.largest_loss = max(losses) if losses else 0.0
-        result.avg_trade = result.total_pnl / result.total_trades if result.total_trades > 0 else 0.0
+        result.avg_trade = (
+            result.total_pnl / result.total_trades if result.total_trades > 0 else 0.0
+        )
 
         # Drawdown
         result.max_drawdown_pct = self._max_drawdown
@@ -905,21 +964,35 @@ class StrategyBacktester:
         if result.daily_returns and len(result.daily_returns) > 1:
             daily_mean = statistics.mean(result.daily_returns)
             daily_std = statistics.stdev(result.daily_returns)
-            daily_rf = self.config.risk_free_rate_annual / self.config.trading_days_per_year
+            daily_rf = (
+                self.config.risk_free_rate_annual / self.config.trading_days_per_year
+            )
 
             if daily_std > 0:
-                result.sharpe_ratio = (daily_mean - daily_rf) / daily_std * math.sqrt(self.config.trading_days_per_year)
+                result.sharpe_ratio = (
+                    (daily_mean - daily_rf)
+                    / daily_std
+                    * math.sqrt(self.config.trading_days_per_year)
+                )
 
                 # Sortino (downside deviation)
                 negative_returns = [r for r in result.daily_returns if r < 0]
                 if negative_returns:
-                    downside_std = math.sqrt(sum(r**2 for r in negative_returns) / len(negative_returns))
+                    downside_std = math.sqrt(
+                        sum(r**2 for r in negative_returns) / len(negative_returns)
+                    )
                     if downside_std > 0:
-                        result.sortino_ratio = (daily_mean - daily_rf) / downside_std * math.sqrt(self.config.trading_days_per_year)
+                        result.sortino_ratio = (
+                            (daily_mean - daily_rf)
+                            / downside_std
+                            * math.sqrt(self.config.trading_days_per_year)
+                        )
 
         # Calmar ratio
         if result.max_drawdown_pct > 0:
-            annual_return = result.total_pnl_pct * (365 / max(1, (result.end_date - result.start_date).days))
+            annual_return = result.total_pnl_pct * (
+                365 / max(1, (result.end_date - result.start_date).days)
+            )
             result.calmar_ratio = annual_return / result.max_drawdown_pct
 
         # Streaks
@@ -927,7 +1000,9 @@ class StrategyBacktester:
 
         # Time statistics
         if self._trades:
-            result.avg_hold_time_hours = statistics.mean(t.hold_time_hours for t in self._trades if t.hold_time_hours > 0)
+            result.avg_hold_time_hours = statistics.mean(
+                t.hold_time_hours for t in self._trades if t.hold_time_hours > 0
+            )
             days = (result.end_date - result.start_date).days or 1
             result.avg_trades_per_day = result.total_trades / days
 
@@ -957,9 +1032,8 @@ class StrategyBacktester:
 # COMPARISON UTILITIES
 # =============================================================================
 
-def compare_backtest_results(
-    results: List[BacktestResult]
-) -> Dict[str, Any]:
+
+def compare_backtest_results(results: List[BacktestResult]) -> Dict[str, Any]:
     """
     Compare multiple backtest results
 
@@ -972,16 +1046,17 @@ def compare_backtest_results(
     if not results:
         return {}
 
-    comparison = {
-        "count": len(results),
-        "by_metric": {},
-        "rankings": {}
-    }
+    comparison = {"count": len(results), "by_metric": {}, "rankings": {}}
 
     # Metrics to compare
     metrics = [
-        "total_pnl_pct", "sharpe_ratio", "sortino_ratio",
-        "win_rate", "profit_factor", "max_drawdown_pct", "calmar_ratio"
+        "total_pnl_pct",
+        "sharpe_ratio",
+        "sortino_ratio",
+        "win_rate",
+        "profit_factor",
+        "max_drawdown_pct",
+        "calmar_ratio",
     ]
 
     for metric in metrics:
@@ -994,7 +1069,11 @@ def compare_backtest_results(
         comparison["rankings"][metric] = ranked
 
     # Overall ranking (by Sharpe)
-    comparison["best_overall"] = comparison["rankings"]["sharpe_ratio"][0] if comparison["rankings"]["sharpe_ratio"] else None
+    comparison["best_overall"] = (
+        comparison["rankings"]["sharpe_ratio"][0]
+        if comparison["rankings"]["sharpe_ratio"]
+        else None
+    )
 
     return comparison
 
@@ -1003,11 +1082,17 @@ def compare_backtest_results(
 # FACTORY FUNCTION
 # =============================================================================
 
+
 def create_backtester(
-    initial_capital: float = 10000.0,
-    config_overrides: Optional[Dict[str, Any]] = None
+    initial_capital: Optional[float] = None,
+    config_overrides: Optional[Dict[str, Any]] = None,
 ) -> StrategyBacktester:
-    """Factory function to create backtester"""
+    """Factory function to create backtester.
+
+    `initial_capital=None` defers to `BacktestConfig.__post_init__`, which
+    sources the configured paper-trading balance (PAPER_INITIAL_BALANCE, $100).
+    FIX 2026-08-03 (capital audit): the default was 10000.0.
+    """
     config = BacktestConfig(initial_capital=initial_capital)
 
     if config_overrides:
