@@ -18,6 +18,7 @@ from app.models import (
     PositionStatus,
 )
 from app.position_manager import get_position_manager, _as_utc
+from app.paper_slippage import build_slippage_model
 from app.risk_manager import get_risk_manager
 from app.repositories import get_trade_repository, get_portfolio_repository
 
@@ -53,8 +54,18 @@ class PaperTradingEngine:
     1. Virtual account balance
     2. Simulated order execution
     3. Commission simulation
-    4. Position tracking
-    5. Balance sync with database positions on startup
+    4. Per-symbol slippage simulation (PAPER-01)
+    5. Position tracking
+    6. Balance sync with database positions on startup
+
+    Fill semantics (2026-08-03, PAPER-01): fills are no longer frictionless.
+    Every market order fills at an adverse, per-symbol, tick-quantized price —
+    BUY pays up, SELL gets less — so entry and exit both cost, for LONG and
+    SHORT alike. The per-symbol basis-point figures and the sourcing for each
+    (tick-derived half-spread floor, plus a taker-impact/latency allowance
+    that is an ESTIMATE needing calibration) are documented in
+    ``app/paper_slippage.py``. This supersedes the zero-slippage half of
+    ADR-011; that ADR needs amending.
     """
 
     def __init__(self):
@@ -65,6 +76,7 @@ class PaperTradingEngine:
             self.initial_balance
         )  # Will be adjusted in sync_balance_with_positions
         self.commission_pct = Decimal(str(self.settings.paper_commission_pct / 100))
+        self.slippage = build_slippage_model(self.settings)
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
 
@@ -75,6 +87,7 @@ class PaperTradingEngine:
         logger.info("Paper Trading Engine initialized")
         logger.info(f"  Initial balance: ${self.initial_balance}")
         logger.info(f"  Commission: {self.settings.paper_commission_pct}%")
+        logger.info(f"  Slippage: {self.slippage.describe()}")
         logger.info("  Database persistence: ENABLED")
 
     def _open_position_cost(self, positions) -> Decimal:
@@ -194,7 +207,7 @@ class PaperTradingEngine:
 
         Args:
             order: Order to execute
-            current_price: Current market price
+            current_price: Reference market price (the ticker, NOT the fill)
 
         Returns:
             Tuple of (executed_order, error_message)
@@ -221,14 +234,28 @@ class PaperTradingEngine:
         #   * Same-side order with explicit position_id scales INTO the
         #     position (DCA averaging) instead of opening a duplicate.
         # ====================================================================
-        order_value = current_price * order.quantity
+        # ====================================================================
+        # SLIPPAGE (PAPER-01, 2026-08-03)
+        #
+        # `current_price` is the reference ticker; `fill_price` is what the
+        # order actually gets. Resolved ONCE here and used for every price
+        # downstream — notional, commission, filled_price, realized P&L, the
+        # price handed to position_manager, and the trade log. If any of those
+        # kept using `current_price`, the model would be wired but never bite:
+        # get_performance_summary() reads realized P&L off the *positions*, so
+        # a fill price that stops at the cash ledger changes nothing reported.
+        # The only surviving uses of `current_price` below are log strings.
+        # ====================================================================
+        fill_price = self.slippage.fill_price(order.symbol, order.side, current_price)
+
+        order_value = fill_price * order.quantity
         commission = self.calculate_commission(order_value)
         leverage = Decimal(str(self.settings.default_leverage))
 
         executed_order = Order(
             **order.model_dump(),
             status=OrderStatus.FILLED,
-            filled_price=current_price,
+            filled_price=fill_price,
             filled_quantity=order.quantity,
             bybit_order_id=f"PAPER_{order.symbol}_{order.side.value}",
         )
@@ -279,14 +306,17 @@ class PaperTradingEngine:
                 executed_order.status = OrderStatus.FAILED
                 return executed_order, error_msg
 
-            close_value = current_price * close_qty
+            close_value = fill_price * close_qty
             close_commission = self.calculate_commission(close_value)
 
-            # Price-based P&L on the quantity actually closed
+            # Price-based P&L on the quantity actually closed, at the SLIPPED
+            # exit price. A SELL close fills below the ticker and a BUY close
+            # (covering a short) fills above it, so the exit costs on both
+            # sides — the SHORT leg is the one this repo has inverted before.
             if target.side == PositionSide.LONG:
-                realized_pnl = (current_price - target.entry_price) * close_qty
+                realized_pnl = (fill_price - target.entry_price) * close_qty
             else:  # SHORT
-                realized_pnl = (target.entry_price - current_price) * close_qty
+                realized_pnl = (target.entry_price - fill_price) * close_qty
 
             # Margin posted at open for this quantity, now returned
             margin_returned = (target.entry_price * close_qty) / leverage
@@ -297,7 +327,7 @@ class PaperTradingEngine:
             if full_close:
                 closed_position = self.position_manager.close_position(
                     target.id,
-                    current_price,
+                    fill_price,
                     reason=f"Market {order.side.value.lower()} order "
                     f"({target.side.value} close)"
                     + (f" [{order.strategy}]" if order.strategy else ""),
@@ -305,7 +335,7 @@ class PaperTradingEngine:
                 executed_order.position_id = closed_position.id
             else:
                 self.position_manager.reduce_position(
-                    target.id, close_qty, current_price, realized_pnl
+                    target.id, close_qty, fill_price, realized_pnl
                 )
                 executed_order.position_id = target.id
 
@@ -313,7 +343,8 @@ class PaperTradingEngine:
 
             logger.info(
                 f"✓ {target.side.value} {'closed' if full_close else 'reduced'}: "
-                f"{close_qty} {order.symbol} @ {current_price} | "
+                f"{close_qty} {order.symbol} @ {fill_price} "
+                f"(ref {current_price}) | "
                 f"Margin returned: ${margin_returned:.4f} | P&L: ${realized_pnl:.4f} | "
                 f"Commission: ${close_commission:.4f} | Balance: ${self.balance:.4f}"
             )
@@ -325,7 +356,7 @@ class PaperTradingEngine:
                     symbol=order.symbol,
                     side=order.side.value,
                     quantity=close_qty,
-                    price=current_price,
+                    price=fill_price,
                     commission=close_commission,
                     strategy=order.strategy,
                     signal_confidence=order.entry_signal_confidence,
@@ -365,12 +396,13 @@ class PaperTradingEngine:
                     return executed_order, error_msg
 
                 self.balance -= total_cost
-                self.position_manager.scale_in(pos.id, order.quantity, current_price)
+                self.position_manager.scale_in(pos.id, order.quantity, fill_price)
                 executed_order.position_id = pos.id
 
                 logger.info(
                     f"✓ {pos.side.value} scaled in: +{order.quantity} {order.symbol} "
-                    f"@ {current_price} | New avg entry: {pos.entry_price} | "
+                    f"@ {fill_price} (ref {current_price}) | "
+                    f"New avg entry: {pos.entry_price} | "
                     f"Balance: ${self.balance:.4f}"
                 )
 
@@ -381,7 +413,7 @@ class PaperTradingEngine:
                         symbol=order.symbol,
                         side=order.side.value,
                         quantity=order.quantity,
-                        price=current_price,
+                        price=fill_price,
                         commission=commission,
                         strategy=order.strategy,
                         signal_confidence=order.entry_signal_confidence,
@@ -410,7 +442,7 @@ class PaperTradingEngine:
         position = self.position_manager.create_position(
             symbol=order.symbol,
             side=open_side,
-            entry_price=current_price,
+            entry_price=fill_price,
             quantity=order.quantity,
             strategy=order.strategy,
             entry_signal_confidence=order.entry_signal_confidence,
@@ -419,7 +451,8 @@ class PaperTradingEngine:
         executed_order.position_id = position.id
 
         logger.info(
-            f"✓ {open_side.value} opened: {order.quantity} {order.symbol} @ {current_price} | "
+            f"✓ {open_side.value} opened: {order.quantity} {order.symbol} "
+            f"@ {fill_price} (ref {current_price}) | "
             f"Position: ${order_value} | Margin: ${margin_required} ({leverage}x leverage) "
             f"+ Commission: ${commission} | Balance: ${self.balance}"
         )
@@ -431,7 +464,7 @@ class PaperTradingEngine:
                 symbol=order.symbol,
                 side=order.side.value,
                 quantity=order.quantity,
-                price=current_price,
+                price=fill_price,
                 commission=commission,
                 strategy=order.strategy,
                 signal_confidence=order.entry_signal_confidence,

@@ -86,6 +86,12 @@ def fresh_engine(leverage=None):
     import app.risk_manager as rm_mod
     rm_mod._risk_manager = None if hasattr(rm_mod, "_risk_manager") else None
     engine = PaperTradingEngine()
+    # PAPER-01 (2026-08-03): paper fills are adverse per-symbol by default.
+    # This harness pins the 2026-07-28 *accounting* arithmetic (which side is
+    # credited, margin vs notional, no double-counted realized P&L), not fill
+    # realism, so it opts out of slippage explicitly -- the same escape hatch
+    # an A/B run uses. Fill realism lives in tests/unit/test_paper_slippage.py.
+    engine.slippage.enabled = False
     # Fresh position manager wired into the engine
     engine.position_manager = PositionManager()
     pm_mod._position_manager = engine.position_manager

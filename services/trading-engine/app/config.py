@@ -577,6 +577,28 @@ class Settings(BaseSettings):
         description="Commission percentage for paper trading",
     )
 
+    # Paper slippage (PAPER-01, 2026-08-03). ON by default: a frictionless
+    # paper fill overstates every P&L figure the engine reports. Set
+    # PAPER_SLIPPAGE_ENABLED=false only for an explicit A/B comparison against
+    # the old zero-slippage behaviour. Per-symbol figures and their sourcing
+    # live in app/paper_slippage.py.
+    paper_slippage_enabled: bool = Field(
+        default=True,
+        description="Apply an adverse per-symbol slippage model to paper fills",
+    )
+    paper_slippage_bps_by_symbol: Dict[str, float] = Field(
+        default_factory=dict,
+        description=(
+            "Per-symbol one-way slippage in basis points, merged over the "
+            "built-in table in app/paper_slippage.py (JSON env override)"
+        ),
+    )
+    paper_slippage_default_bps: float = Field(
+        default=10.0,
+        ge=0.0,
+        description="Slippage in bps for symbols absent from the per-symbol table",
+    )
+
     # =========================================================================
     # LEVERAGE CONFIGURATION (Added 2025-12-15)
     # =========================================================================

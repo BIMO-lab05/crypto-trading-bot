@@ -54,6 +54,17 @@ class TestPaperTradingEngine:
         # actually broke four of these tests. Pin 1x so the arithmetic below
         # stays in notional terms and reads plainly.
         settings.default_leverage = 1.0
+        # PAPER-01 (2026-08-03): the paper engine now fills at an adverse,
+        # per-symbol price by default. This suite pins the 2026-07-28
+        # *accounting* arithmetic -- margin returned, commission, which side
+        # gets credited -- not fill realism, and slippage would perturb every
+        # expected figure below without testing anything new. So it opts out
+        # explicitly, using the same escape hatch an A/B run would use.
+        # Fill realism (and the fact that the production default is ON) is
+        # pinned in tests/unit/test_paper_slippage.py.
+        settings.paper_slippage_enabled = False
+        settings.paper_slippage_bps_by_symbol = {}
+        settings.paper_slippage_default_bps = 10.0
         return settings
 
     @pytest.fixture
