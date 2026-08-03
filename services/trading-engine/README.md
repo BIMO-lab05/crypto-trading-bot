@@ -22,7 +22,7 @@ The Trading Engine is the core decision-making service of the crypto trading bot
 - **Default Paper Mode**: starts in paper trading mode by default
 - **Risk Limits** (current, per `wiki/concepts/Risk-Model.md`):
   - Per-trade cap: **10% in paper mode** (relaxed per ADR-010, 2026-05-06, to clear Bybit min-notional on a $100 balance) / **2% hard cap in LIVE** (non-negotiable; clamps, does not reject — fixed 2026-07-28)
-  - **5% daily loss** circuit breaker (auto-rolls per UTC day)
+  - **12% daily loss** circuit breaker, ADR-028 (auto-rolls per UTC day)
   - Total exposure and per-position size caps (`config.py`; 80% / 5% as of 2026-07-29)
 - **Signal Validation**: minimum confidence (0.6) and consensus (3 indicators). Since 2026-07-28 consensus counts **directional votes only** (a BUY's consensus = buy votes, HOLDs no longer count toward it)
 - **Emergency Stop**: kill-switch file `safety/EMERGENCY_STOP` (container: `/app/safety/EMERGENCY_STOP`) + manual/automatic halt endpoints

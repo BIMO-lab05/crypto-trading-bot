@@ -41,7 +41,7 @@ Prometheus :9090, Grafana :3001.
 ## Critical concepts
 
 - [[concepts/Trading-Mode-Flags|Trading Mode Flags]] — 4-step gate to LIVE
-- [[concepts/Risk-Model|Risk Model]] — 2% per trade, 5% daily loss circuit breaker
+- [[concepts/Risk-Model|Risk Model]] — 10% per trade in paper / 2% LIVE, 12% daily loss circuit breaker (ADR-028)
 - [[concepts/ML-Status|ML Status]] — GRU off pending DSR > 0.95 acceptance
 - [[concepts/Validated-Symbols|Validated Symbols]] — BTC/ETH/SOL/BNB/ADA
 - [[concepts/Auto-Trader|Auto-Trader]] — armed by .env override; EMERGENCY_STOP file gates loop

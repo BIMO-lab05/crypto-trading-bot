@@ -14,7 +14,7 @@ Cross-cutting domain ideas, lifecycles, and rules. All 14 pages.
 ## Trading & risk
 
 - [[Trading-Mode-Flags]] — paper vs live; 4 flags must align (incl. `LIVE_TRADING_ACK`)
-- [[Risk-Model]] — per-trade cap (10% paper / 2% LIVE), 5% daily-loss breaker, kill switch
+- [[Risk-Model]] — per-trade cap (10% paper / 2% LIVE), 12% daily-loss breaker (ADR-028), kill switch
 - [[Auto-Trader]] — armed by .env override; EMERGENCY_STOP halt exits loop (manual restart); risk-halt auto-resumes
 - [[Paper-Trading-Internals]] — simulated fill mechanics, accounting model (post ADR-018)
 - [[Validated-Symbols]] — BTC/ETH/SOL/BNB/ADA trading whitelist vs 14-symbol research universe

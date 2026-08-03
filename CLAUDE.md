@@ -57,7 +57,8 @@ Autonomous Bybit crypto trading bot. 11 Python microservices + React frontend. *
 - **Python 3.12** + FastAPI + asyncio per service. **React 18 + Vite** frontend.
 - **TimescaleDB** (candles), **PostgreSQL** (app state), **Redis** (cache), **RabbitMQ** (deployed but *nothing wires AMQP* — the mesh is synchronous REST, see ADR-016).
 - **Docker Compose** local; Kubernetes + Helm in `infrastructure/`.
-- **ML gated off** (`ENABLE_ML_PREDICTIONS=false`). V0 directional-accuracy had look-ahead leakage; post-fix (`c56765c`) models score chance-level. Re-enable only after rebuild on a returns target with DSR > 0.95. LSTM removal is **incomplete** — `_archive_lstm/` does not exist, `ensemble_model.py:15` still imports LSTM, references span 10+ files (ML-PURGE-02, Phase 23).
+- **ML gated off** (`ENABLE_ML_PREDICTIONS=false`). V0 directional-accuracy had look-ahead leakage; post-fix (`c56765c`) models score chance-level. Re-enable only after rebuild on a returns target with DSR > 0.95.
+- **LSTM removal is incomplete.** `_archive_lstm/` **does exist** — at `services/ml-prediction-service/models/_archive_lstm/`, holding **27 `*_lstm.keras` files, 41 MB**. `ensemble_model.py:15` still does `from tensorflow.keras.layers import LSTM`, and `:192-195` still trains an LSTM leg. References span 10+ files (ML-PURGE-02, Phase 23). *(This file asserted the archive directory did not exist from an unverified claim until 2026-08-03 — corrected against the filesystem. Do not restore the old wording.)*
 
 | Service | Port | Purpose |
 |---|---|---|
