@@ -19,12 +19,31 @@ Where:
 """
 
 import logging
+import os
+import sys
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 import json
+
+# ---------------------------------------------------------------------------
+# Repo root on sys.path so `shared.account` resolves however this module is
+# invoked. Mirrors the existing bootstrap in `backtesting/run_walk_forward.py`
+# and `backtesting/_probe_phase1_gates.py` — not a new pattern.
+#
+# This file is HOST-RUN ONLY: repo-root `backtesting/` appears in no compose
+# service and no Dockerfile copies it, so unlike code under `services/*/app/**`
+# it MAY import the declaration of record directly instead of going through a
+# service's Settings. See the table in `shared/account.py`.
+# ---------------------------------------------------------------------------
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +52,9 @@ logger = logging.getLogger(__name__)
 class RiskOfRuinConfig:
     """Configuration for risk of ruin calculations"""
 
-    # Capital settings
-    initial_capital: float = 10000.0
+    # Capital settings.
+    # FIX 2026-08-03 (capital audit): was 10000.0, 100x the real account.
+    initial_capital: float = PAPER_INITIAL_BALANCE
     ruin_threshold: float = 0.50  # Define ruin as losing 50% of capital
 
     # Trade statistics (will be calculated from historical trades if not provided)
@@ -165,7 +185,7 @@ class RiskOfRuinCalculator:
     Calculates the probability of losing a significant portion of trading capital.
 
     Usage:
-        config = RiskOfRuinConfig(initial_capital=10000)
+        config = RiskOfRuinConfig(initial_capital=PAPER_INITIAL_BALANCE)
         calculator = RiskOfRuinCalculator(config)
 
         # Historical trades
@@ -515,7 +535,7 @@ class RiskOfRuinCalculator:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    config = RiskOfRuinConfig(initial_capital=10000)
+    config = RiskOfRuinConfig(initial_capital=PAPER_INITIAL_BALANCE)
     calculator = RiskOfRuinCalculator(config)
 
     # Example trades
