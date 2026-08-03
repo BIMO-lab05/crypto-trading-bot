@@ -40,7 +40,7 @@ def test_declared_defaults_match_the_real_env_keys_and_units():
     """DEFAULTS is env-independent and mirrors trading-engine config.py."""
     assert account.DEFAULTS["PAPER_INITIAL_BALANCE"] == 100.0  # USD
     assert account.DEFAULTS["MAX_RISK_PER_TRADE"] == 0.10  # fraction
-    assert account.DEFAULTS["MAX_DAILY_LOSS_PCT"] == 5.0  # percent
+    assert account.DEFAULTS["MAX_DAILY_LOSS_PCT"] == 12.0  # percent -- ADR-028
     assert account.DEFAULTS["MAX_POSITION_SIZE_PCT"] == 10.0  # percent
     assert account.DEFAULTS["MIN_NOTIONAL_USD"] == 5.0  # USD
     assert account.DEFAULTS["TAKER_FEE_PER_SIDE"] == 0.00055  # fraction
@@ -53,7 +53,7 @@ def test_constants_resolve_to_the_declared_defaults_with_no_env_set(monkeypatch)
 
     assert reloaded.PAPER_INITIAL_BALANCE == 100.0
     assert reloaded.MAX_RISK_PER_TRADE == 0.10
-    assert reloaded.MAX_DAILY_LOSS_PCT == 5.0
+    assert reloaded.MAX_DAILY_LOSS_PCT == 12.0  # ADR-028
     assert reloaded.MAX_POSITION_SIZE_PCT == 10.0
 
 
@@ -96,7 +96,7 @@ def test_non_numeric_env_value_is_loud(monkeypatch):
 
 
 def test_unit_conversion_helpers():
-    assert account.max_daily_loss_fraction() == pytest.approx(0.05)
+    assert account.max_daily_loss_fraction() == pytest.approx(0.12)  # ADR-028
     assert account.max_position_size_fraction() == pytest.approx(0.10)
 
 
@@ -117,19 +117,46 @@ def test_risk_budget_usd_accepts_an_explicit_equity():
 # ---------------------------------------------------------------------------
 
 
-def test_risk_cap_conflict_warning_fires_at_defaults():
+def test_no_risk_cap_conflict_at_defaults():
+    """ADR-028 reconciled the caps: 10%/trade against a 12%/day breaker.
+
+    Before ADR-028 the defaults were 10% vs 5%, so a single maximally-sized
+    loser tripped the daily breaker and this warning fired at rest. It must now
+    be silent — an always-on warning trains the operator to ignore the channel.
+    """
+    conflict = [
+        p
+        for p in account.capital_config_warnings()
+        if p.startswith("RISK CAP CONFLICT")
+    ]
+    assert not conflict, f"caps are reconciled per ADR-028, got {conflict}"
+
+
+def test_risk_cap_conflict_warning_fires_when_caps_actually_conflict(monkeypatch):
     """THE F2 REGRESSION GUARD. Do not delete.
 
-    0.10 (fraction) vs 5.0 (percent) must be normalised before comparison. If
-    somebody "simplifies" this back to `MAX_RISK_PER_TRADE > MAX_DAILY_LOSS_PCT`
-    the comparison becomes `0.10 > 5.0` -> False and this test goes red.
+    `MAX_RISK_PER_TRADE` is a FRACTION (0.10) and `MAX_DAILY_LOSS_PCT` is a
+    PERCENT (12.0). They must be normalised to a common unit before comparison.
+    If somebody "simplifies" this back to
+    `MAX_RISK_PER_TRADE > MAX_DAILY_LOSS_PCT` the comparison becomes
+    `0.15 > 4.0` -> False, the warning goes silent, and this test goes red.
+
+    Uses an explicitly conflicting config rather than the shipped defaults so
+    the guard survives future risk-policy changes (it broke once already, when
+    ADR-028 moved the default from 5.0 to 12.0).
     """
-    problems = account.capital_config_warnings()
-    assert problems, "capital_config_warnings() must not be empty at defaults"
-    conflict = [p for p in problems if p.startswith("RISK CAP CONFLICT")]
-    assert len(conflict) == 1, f"expected exactly one conflict warning, got {problems}"
-    assert "10.0%" in conflict[0]
-    assert "5.0%" in conflict[0]
+    monkeypatch.setenv("MAX_RISK_PER_TRADE", "0.15")  # fraction -> 15%
+    monkeypatch.setenv("MAX_DAILY_LOSS_PCT", "4.0")  # percent  -> 4%
+    reloaded = importlib.reload(account)
+
+    conflict = [
+        p
+        for p in reloaded.capital_config_warnings()
+        if p.startswith("RISK CAP CONFLICT")
+    ]
+    assert len(conflict) == 1, f"expected exactly one conflict warning, got {conflict}"
+    assert "15.0%" in conflict[0]
+    assert "4.0%" in conflict[0]
 
 
 def test_conflict_warning_clears_when_the_caps_are_reconciled(monkeypatch):
@@ -144,15 +171,35 @@ def test_conflict_warning_clears_when_the_caps_are_reconciled(monkeypatch):
 
 
 def test_assert_capital_is_sane_does_not_raise_at_current_defaults():
-    """The 10%-vs-5% conflict WARNS. It must never be a boot blocker.
+    """Capital-config problems WARN. They must never be a boot blocker.
 
-    Resolving it is an operator risk-policy decision (recovery-plan step 5,
-    pending an ADR) and is explicitly out of scope. Turning it into a raise here
-    would change trading behaviour by refusing to boot.
+    A raise here would change trading behaviour by refusing to boot the engine.
+    Post-ADR-028 the risk-cap conflict is resolved, so the surviving warning at
+    defaults is FEE DRAG — which is a standing fact about Bybit's fee schedule,
+    not a misconfiguration, and must not escalate either.
     """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         account.assert_capital_is_sane()  # must not raise
+
+    messages = [str(w.message) for w in caught]
+    assert not any("RISK CAP CONFLICT" in m for m in messages), (
+        f"caps are reconciled per ADR-028; got {messages}"
+    )
+    # The warning channel must still be wired — proven by the FEE DRAG notice.
+    assert any("FEE DRAG" in m for m in messages), f"expected FEE DRAG, got {messages}"
+
+
+def test_assert_capital_is_sane_still_warns_on_a_real_conflict(monkeypatch):
+    """A genuinely conflicting config must warn — and still not raise."""
+    monkeypatch.setenv("MAX_RISK_PER_TRADE", "0.15")
+    monkeypatch.setenv("MAX_DAILY_LOSS_PCT", "4.0")
+    reloaded = importlib.reload(account)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        reloaded.assert_capital_is_sane()  # must not raise
+
     assert any("RISK CAP CONFLICT" in str(w.message) for w in caught)
 
 

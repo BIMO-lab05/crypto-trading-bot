@@ -362,7 +362,18 @@ class Settings(BaseSettings):
         ),
     )
     max_daily_loss_pct: float = Field(
-        default=5.0, ge=1.0, le=20.0, description="Maximum daily loss as % of capital"
+        default=12.0,
+        ge=1.0,
+        le=20.0,
+        description=(
+            "Maximum daily loss as % of capital. Reads MAX_DAILY_LOSS_PCT env. "
+            "Raised 2026-08-03 from 5.0 to 12.0 per ADR-028: at the ADR-010 "
+            "per-trade cap of 10% ($10 on a $100 balance), a 5% daily limit "
+            "($5) tripped on the FIRST full loss, so the breaker measured one "
+            "trade rather than a day. 12% ($12) lets it fire on ~2 losers. "
+            "This ALLOWS MORE daily loss -- it is a coherence fix, not a "
+            "tightening. Reconcile with max_risk_per_trade before LIVE."
+        ),
     )
     max_total_exposure_pct: float = Field(
         default=80.0,

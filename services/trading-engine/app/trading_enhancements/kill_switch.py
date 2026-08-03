@@ -115,7 +115,12 @@ class KillSwitchConfig:
     drawdown_alert_pct: float = 5.0  # Alert level - reduce size 25%
     drawdown_reduce_pct: float = 10.0  # Reduce position sizes by 50%
     drawdown_pause_pct: float = 15.0  # Pause new trades
-    max_daily_loss_pct: float = 5.0  # Stop if daily loss exceeds 5%
+    # ADR-028 (2026-08-03): was 5.0. At the ADR-010 per-trade cap of 10% ($10 on
+    # a $100 balance) a 5% daily limit ($5) tripped on the FIRST full loss, so it
+    # measured one trade rather than a day. Kept in sync with
+    # `Settings.max_daily_loss_pct`, which `auto_trader.py:343` passes in — this
+    # default only applies to bare `KillSwitchConfig()` construction.
+    max_daily_loss_pct: float = 12.0  # Stop if daily loss exceeds 12%
     max_drawdown_pct: float = 20.0  # Hard stop at 20%
     # Stop if a SINGLE position's notional exceeds this. Derived from account
     # equity ($80 on the $100 account) — see `_default_max_position_value()`.

@@ -97,7 +97,7 @@ DEFAULTS: dict[str, float] = {
     # env key                  # declared default   # unit
     "PAPER_INITIAL_BALANCE": 100.0,  # USD
     "MAX_RISK_PER_TRADE": 0.10,  # fraction
-    "MAX_DAILY_LOSS_PCT": 5.0,  # percent
+    "MAX_DAILY_LOSS_PCT": 12.0,  # percent -- ADR-028, was 5.0
     "MAX_POSITION_SIZE_PCT": 10.0,  # percent
     "MIN_NOTIONAL_USD": 5.0,  # USD
     "TAKER_FEE_PER_SIDE": 0.00055,  # fraction

@@ -9,7 +9,7 @@ tags: [index, decisions]
 
 # Decisions
 
-ADRs and design choices. **Single canonical ADR home since 2026-07-30** — the former `docs/decisions/` side-channel was merged in (its ADR-011/012 renumbered to [[ADR-026-monitoring-disposition|ADR-026]] / [[ADR-027-extended-backtest-disposition|ADR-027]]), resolving the namespace collision flagged 2026-05-15. Complete set: ADR-001 – ADR-027 (ADR-012 intentionally absent — renumbered to ADR-016 on 2026-05-15).
+ADRs and design choices. **Single canonical ADR home since 2026-07-30** — the former `docs/decisions/` side-channel was merged in (its ADR-011/012 renumbered to [[ADR-026-monitoring-disposition|ADR-026]] / [[ADR-027-extended-backtest-disposition|ADR-027]]), resolving the namespace collision flagged 2026-05-15. Complete set: ADR-001 – ADR-028 (ADR-012 intentionally absent — renumbered to ADR-016 on 2026-05-15).
 
 ## Architecture
 
@@ -38,6 +38,7 @@ ADRs and design choices. **Single canonical ADR home since 2026-07-30** — the 
 - [[ADR-011-paper-deterministic-execution]] — paper-trading fills with zero slippage / zero latency / always-filled; do not trust paper P&L for edge (accounting overhauled — see ADR-018)
 - [[ADR-019-kill-switch-equity-and-streak]] — kill switch fed equity not cash; consecutive-loss streak only on closes; daily-loss breaker auto-rolls per UTC day
 - [[ADR-017-risk-metrics-paper-mode-alignment]] — risk-metrics-service aligned to paper-mode semantics (2026-05-19)
+- [[ADR-028-daily-loss-breaker-reconciliation]] — daily-loss breaker 5% → 12% to match ADR-010's 10%/trade cap; at 5% a single max-size loser tripped it, so it measured one trade not a day. **Allows more daily loss, not less** — a coherence fix. Also: `.env`'s `MAX_DAILY_LOSS=0.10` was dead (wrong key name *and* fails `ge=1.0`), and `MAX_DAILY_LOSS_PCT` / `MAX_TOTAL_EXPOSURE_PCT` were never passed to the container at all (2026-08-03)
 
 ## Strategy & sizing
 
