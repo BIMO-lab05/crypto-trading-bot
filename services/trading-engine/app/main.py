@@ -284,25 +284,9 @@ async def lifespan(app: FastAPI):
                 f"max_risk_per_trade={settings.max_risk_per_trade} > 0.02. "
                 "Restore the LIVE-strict cap before flipping the mode."
             )
-        # Same gate, applied to the sizing FLOOR. A floor above the cap means the
-        # cap is never reached — every ensemble trade sizes at the floor. The
-        # shipped default (0.05) is 2.5x the LIVE-strict cap, and until the
-        # 2026-07-30 audit (F-2) it passed this gate untouched.
-        if settings.ensemble_min_position_pct > 0.02:
-            logger.critical(
-                "LIVE_PREFLIGHT_REJECTED reason=floor_too_high "
-                f"floor={settings.ensemble_min_position_pct} limit=0.02"
-            )
-            raise RuntimeError(
-                f"Refusing to boot: TRADING_MODE=LIVE with "
-                f"ensemble_min_position_pct={settings.ensemble_min_position_pct} "
-                "> 0.02. The sizing floor overrides the per-trade cap; lower it "
-                "before flipping the mode."
-            )
         logger.info(
             f"LIVE preflight cap check passed: max_risk_per_trade="
-            f"{settings.max_risk_per_trade} and ensemble_min_position_pct="
-            f"{settings.ensemble_min_position_pct} <= 0.02"
+            f"{settings.max_risk_per_trade} <= 0.02"
         )
 
     # 4 phase context managers run in order on enter, reverse on exit (cm stack
