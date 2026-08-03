@@ -55,6 +55,13 @@ SCANNED_FILES = (
     "backtesting/backtest_engine.py",
     "backtesting/run_walk_forward.py",
     "backtesting/run_walk_forward_ensemble.py",
+    # Added 2026-08-03, second pass. THIS is the script that actually produced
+    # comprehensive/grid/sr/trend_FINAL_RESULTS.log — not backtest_engine.py.
+    # It carries its own `PatchedBacktestEngine` wrapping the trading-engine
+    # service's backtester, with `initial_equity` hardcoded to 10000.0. The
+    # first pass fixed a plausible-looking engine and left the real source
+    # untouched. Verify provenance before believing a fix landed.
+    "scripts/test_all_strategies_csv.py",
 )
 
 # ---------------------------------------------------------------------------
