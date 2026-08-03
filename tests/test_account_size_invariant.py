@@ -47,6 +47,14 @@ SCANNED_FILES = (
     "backtesting/simulators/risk_of_ruin.py",
     "backtesting/simulators/monte_carlo.py",
     "services/technical-analysis/backtesting/sqzmom_backtest.py",
+    # Added 2026-08-03. The capital audit caught `simulators/` but MISSED the
+    # engine and runners that actually produce the walk-forward evidence — five
+    # $10,000 sites across these three files. Every number in
+    # `*_FINAL_RESULTS.log` was computed on a 100x account as a direct result.
+    # Absence from a scan list is not evidence of correctness.
+    "backtesting/backtest_engine.py",
+    "backtesting/run_walk_forward.py",
+    "backtesting/run_walk_forward_ensemble.py",
 )
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,11 @@ _REPO_ROOT = os.path.abspath(os.path.join(_HERE, ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+# 2026-08-03: capital sourced from the declaration of record. Was 10000.0 —
+# missed by the capital audit, so every walk-forward result predating this
+# answered a question about a 100x account. Do NOT let autoflake strip this.
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
+
 from backtesting.backtest_engine import BacktestEngine, BacktestResult  # noqa: E402
 from backtesting.data_downloader import HistoricalDataDownloader  # noqa: E402
 from backtesting.prod_indicators import (  # noqa: E402
@@ -259,7 +264,7 @@ def run_one_fold(
     fold_id: int,
     oos_data: pd.DataFrame,
     strategy_func: Callable,
-    initial_capital: float = 10000.0,
+    initial_capital: float = PAPER_INITIAL_BALANCE,
 ) -> FoldResult:
     engine = BacktestEngine(initial_capital=initial_capital, **_engine_kwargs())
     result: BacktestResult = engine.run_backtest(
@@ -402,7 +407,7 @@ async def main():
         # IS Sharpe (no fitting — strategy is rule-based; we just measure
         # that the SAME strategy applied to the IS slice would have produced
         # similar returns; ratio detects regime drift).
-        is_engine = BacktestEngine(initial_capital=10000.0)
+        is_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
         is_engine.run_backtest(
             is_slice, phase1_strategy_prod, strategy_name=f"phase1_is_{k}"
         )

@@ -50,6 +50,11 @@ _TE_PATH = os.path.join(_REPO_ROOT, "services", "trading-engine")
 sys.path.insert(0, _REPO_ROOT)
 sys.path.insert(0, _HERE)
 
+# 2026-08-03: capital sourced from the declaration of record. Was 10000.0 —
+# missed by the capital audit, so every walk-forward result predating this
+# answered a question about a 100x account. Do NOT let autoflake strip this.
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
+
 # ============================================================================
 # PHASE 1: load TA indicators (their `from app.models import SignalType`
 # resolves against TA's own `app` package).
@@ -590,13 +595,13 @@ async def run_symbol(symbol: str, out_dir: str, progress_log) -> Optional[Dict]:
 
     for k, (is_slice, oos_slice) in enumerate(folds):
         # In-sample (rule-based: same strategy applied to IS slice).
-        is_engine = BacktestEngine(initial_capital=10000.0)
+        is_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
         is_engine.run_backtest(is_slice, strategy, strategy_name=f"ensemble_is_{k}")
         is_sharpe = calc_sharpe(is_engine.equity_curve)
         is_sharpes.append(is_sharpe)
 
         # Out-of-sample.
-        oos_engine = BacktestEngine(initial_capital=10000.0)
+        oos_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
         oos_result = oos_engine.run_backtest(
             oos_slice, strategy, strategy_name=f"ensemble_oos_{k}"
         )
