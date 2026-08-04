@@ -1,0 +1,148 @@
+# Phase 15 (TOOL-01, TOOL-02, TOOL-03): grep-gate workflow pinning the 3
+# planning-tooling-hardening contracts. One workflow file, three named jobs,
+# each surfacing as a required PR check. Mirrors `.github/workflows/bybit-bypass-gate.yml`
+# (Phase 13 BC-03) "one contract per visible PR check" precedent — per
+# .planning/phases/15-planning-tooling-hardening/15-PATTERNS.md §
+# "`.github/workflows/planning-tooling-gate.yml`" the chosen shape is the
+# 3-jobs-in-one-file variant over 3 separate workflow files (less filename
+# sprawl, same per-job PR-check surface).
+#
+# Per-job test files (in-repo, committed by Plans 15-01/02/03):
+#   - tests/ci/test_no_placeholder_one_liners.py (TOOL-01)
+#   - tests/ci/test_roadmap_analyze_supersession_wired.py (TOOL-02)
+#   - tests/ci/test_audit_freshness_gate.py (TOOL-03)
+#
+# Asymmetric SKIP behavior (per 15-PATTERNS.md §2 recommendation a):
+# The TOOL-02 wiring test (test_roadmap_analyze_apply_wired_before_archive) and
+# the TOOL-03 wiring test (test_audit_freshness_check_unconditional_in_workflow)
+# target the operator-side SDK workflow file at
+# ~/.claude/get-shit-done/workflows/complete-milestone.md, which is NOT present
+# on GitHub Actions runners. Those wiring tests pytest.skip in CI — the SKIP-is-PASS
+# state IS the contract per 15-PATTERNS.md. The two in-repo fixture-validation
+# tests in each TOOL-02/03 module run unconditionally and must pass.
+#
+# TOOL-01 is the only fully-enforcing-in-CI gate of the three — it scans the
+# in-repo .planning/phases/ tree, so it fires identically on the runner and
+# locally. The gate is intentionally RED on main as of Plan 15-01 landing
+# (one real Phase 13 placeholder at 13-04-SUMMARY.md:60); that RED state IS
+# the contract — milestone-close cleanup will flip it GREEN. The CI workflow
+# must surface the failure (no allowlist entries hiding the existing hit).
+#
+# Security note: this workflow does NOT interpolate any user-controlled event
+# payload (issue/PR title/body, commit message, head ref) into shell commands.
+# It uses only first-party Actions (actions/checkout@v4, actions/setup-python@v5)
+# and pytest invocation against in-repo Python test files. No command-injection
+# surface per the standard GH workflow security guide.
+
+name: Planning Tooling Gates (TOOL-01/02/03)
+
+on:
+  pull_request:
+    branches: [main]
+    # Path filter -- WR-06: avoid firing on every PR including doc-only or
+    # source-only changes that touch no planning artifact. The 3 jobs only
+    # need to run when the planning corpus, the test files, the fixtures,
+    # or this workflow file itself changes.
+    paths:
+      - '.planning/phases/**'
+      - '.planning/sdk-proposals/**'
+      - 'tests/ci/test_no_placeholder_one_liners.py'
+      - 'tests/ci/test_roadmap_analyze_supersession_wired.py'
+      - 'tests/ci/test_audit_freshness_gate.py'
+      - 'tests/fixtures/v11_13h_gap/**'
+      - 'tests/fixtures/v15_supersession/**'
+      - '.github/workflows/planning-tooling-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.planning/phases/**'
+      - '.planning/sdk-proposals/**'
+      - 'tests/ci/test_no_placeholder_one_liners.py'
+      - 'tests/ci/test_roadmap_analyze_supersession_wired.py'
+      - 'tests/ci/test_audit_freshness_gate.py'
+      - 'tests/fixtures/v11_13h_gap/**'
+      - 'tests/fixtures/v15_supersession/**'
+      - '.github/workflows/planning-tooling-gate.yml'
+
+# Least-privilege token scope -- WR-04. This workflow is read-only (clones
+# the repo, runs pytest). It does not push, comment on PRs, write to issues,
+# or modify any other resource. Default repo token permissions on public
+# repos and many org configs grant write-scope across multiple surfaces;
+# locking to contents:read is the principle-of-least-privilege baseline.
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tool-01-grep-gate:
+    name: TOOL-01 placeholder one-liner grep gate (PLAN.md + SUMMARY.md)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest==7.4.4
+
+      - name: Run TOOL-01 placeholder grep gate
+        # IMPORTANT: do NOT add `continue-on-error: true`. Failures must block
+        # PR merge -- that is the entire point of the gate. The gate is RED on
+        # main at Plan 15-01 landing on exactly one real Phase 13 placeholder
+        # (13-04-SUMMARY.md:60); milestone-close cleanup flips it GREEN.
+        run: pytest tests/ci/test_no_placeholder_one_liners.py -v
+
+  tool-02-wiring-gate:
+    name: TOOL-02 roadmap.analyze supersession wiring + fixture validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest==7.4.4
+
+      - name: Run TOOL-02 wiring + supersession-fixture gate
+        # test_roadmap_analyze_apply_wired_before_archive SKIPs in CI runners
+        # (~/.claude/get-shit-done/ is not installed); test_supersession_fixture_present
+        # + test_supersession_fixture_diff_is_one_line run unconditionally and
+        # must pass. The asymmetric SKIP-in-CI behavior IS the contract per
+        # 15-PATTERNS.md §2 — do NOT vendor the workflow file into the repo to
+        # "fix" the SKIP (that would couple the repo to operator-host paths).
+        run: pytest tests/ci/test_roadmap_analyze_supersession_wired.py -v
+
+  tool-03-freshness-gate:
+    name: TOOL-03 audit-freshness wiring + 13h-gap fixture validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest==7.4.4
+
+      - name: Run TOOL-03 audit-freshness + 13h-gap fixture gate
+        # test_audit_freshness_check_unconditional_in_workflow SKIPs in CI
+        # runners (host SDK absent); test_audit_freshness_fixture_present +
+        # test_audit_freshness_gap_above_threshold +
+        # test_audit_freshness_field_name_drift_documented run unconditionally
+        # and must pass. Same asymmetric-SKIP contract as TOOL-02 — the SKIP IS
+        # the design, not a flakiness.
+        run: pytest tests/ci/test_audit_freshness_gate.py -v

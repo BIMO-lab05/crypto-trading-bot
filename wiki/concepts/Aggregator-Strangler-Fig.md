@@ -3,7 +3,7 @@ type: concept
 status: in-progress
 tags: [trading-engine, refactor, strangler-fig]
 created: 2026-05-06
-updated: 2026-05-06
+updated: 2026-07-29
 ---
 
 # Signal Aggregator Strangler-Fig — Actual State
@@ -12,13 +12,13 @@ updated: 2026-05-06
 
 ## What lives where
 
-`services/trading-engine/app/signal_aggregator.py` (**1262 lines**)
+`services/trading-engine/app/signal_aggregator.py` (**1335 lines**)
 - Holds the canonical `SignalAggregator` class (25 methods)
 - 14 of those are `fetch_<indicator>` methods that call the technical-analysis HTTP API directly: RSI, MACD, BB, SMA, EMA, ATR, Stochastic, Trend Filter, Volume Confirmation, RSI Divergence, Ichimoku Cloud, Enhanced SQZMOM, plus orchestration
 - Composes a `CoreAggregator` instance for the *aggregation* step only (line 47)
-- Module-level `get_aggregator()` / `close_aggregator()` singleton accessors at lines 1262 and 1270
+- Module-level `get_aggregator()` / `close_aggregator()` singleton accessors at lines 1322 and 1330
 
-`services/trading-engine/app/aggregation/aggregator_core.py` (621 lines)
+`services/trading-engine/app/aggregation/aggregator_core.py` (699 lines)
 - `CoreAggregator` class — 9 methods, all about combining already-fetched indicators into a final signal
 - Knows nothing about HTTP fetching; consumes `IndicatorSignal` objects produced upstream
 - Does *not* expose a singleton
@@ -75,3 +75,8 @@ Hold the retirement until a dedicated session that has the docker stack running.
 - [[../decisions/ADR-016-http-not-events]] (this whole pipeline is the HTTP mesh in question)
 - [[../flows/Signal-Pipeline]]
 - [[../modules/trading-engine]]
+
+## Corrections 2026-07-29
+
+- File-size drift only: `signal_aggregator.py` 1262→1335 lines, `aggregator_core.py` 621→699 lines, singleton accessors now at lines 1322/1330 (was 1262/1270). Method counts (25 / 14 fetchers / 9) and the strangler narrative are unchanged.
+- Note (not documented on this page, so no text changed): the 2026-07-28 signal-gating fixes live in `aggregator_core.py` — directional `consensus_count` now counts only votes for the chosen action (HOLD votes excluded, `:314-324`) — and `signal_aggregator.py:104-137` — MACD now uses the TA-service default 5-35-5, not a local 8-17-9.

@@ -10,18 +10,13 @@ Responsibilities:
 """
 
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 from decimal import Decimal
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import asyncpg
 from asyncpg.pool import Pool
 
-from app.models import (
-    DailyPerformance,
-    PeriodPerformance,
-    PerformanceMetrics
-)
-from app.config import settings
+from app.models import DailyPerformance, PeriodPerformance, PerformanceMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +62,7 @@ class PerformanceHistory:
         total_value: Decimal,
         cash_balance: Decimal,
         positions_value: Decimal,
-        snapshot_type: str = "DAILY"
+        snapshot_type: str = "DAILY",
     ) -> bool:
         """
         Store daily performance snapshot in database
@@ -98,7 +93,9 @@ class PerformanceHistory:
             daily_pnl = await self._calculate_daily_pnl(portfolio_id, total_value)
 
             # Calculate daily return percentage
-            daily_return_pct = await self._calculate_daily_return(portfolio_id, total_value)
+            daily_return_pct = await self._calculate_daily_return(
+                portfolio_id, total_value
+            )
 
             # Insert snapshot into database
             async with self.db_pool.acquire() as conn:
@@ -128,7 +125,16 @@ class PerformanceHistory:
                     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
                 )
-                ON CONFLICT (portfolio_id, date_trunc('day', timestamp))
+                -- Must match the expression in the uniq_performance_portfolio_day
+                -- unique index (migration 002): Postgres requires the conflict
+                -- target to be a semantic match for an existing constraint /
+                -- unique index. date_trunc('day', timestamptz) is only STABLE,
+                -- so it cannot back a unique index; the index instead uses the
+                -- IMMUTABLE UTC-anchored cast. The ON CONFLICT clause must use
+                -- the same expression — anything else fails with
+                -- "there is no unique or exclusion constraint matching the ON
+                -- CONFLICT specification".
+                ON CONFLICT (portfolio_id, ((timestamp AT TIME ZONE 'UTC')::date))
                 DO UPDATE SET
                     total_value = EXCLUDED.total_value,
                     cash_balance = EXCLUDED.cash_balance,
@@ -171,7 +177,7 @@ class PerformanceHistory:
                     metrics.winning_trades,
                     metrics.losing_trades,
                     snapshot_type,
-                    datetime.now(timezone.utc)
+                    datetime.now(timezone.utc),
                 )
 
                 logger.info(
@@ -184,14 +190,12 @@ class PerformanceHistory:
         except Exception as e:
             logger.error(
                 f"Failed to save performance snapshot for {portfolio_id}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             raise
 
     async def get_daily_performance(
-        self,
-        portfolio_id: str,
-        days: int = 30
+        self, portfolio_id: str, days: int = 30
     ) -> List[DailyPerformance]:
         """
         Retrieve daily performance for last N days
@@ -237,17 +241,19 @@ class PerformanceHistory:
 
                 for row in rows:
                     # Calculate cumulative return
-                    if row['roi_percent']:
-                        cumulative_return = Decimal(str(row['roi_percent']))
+                    if row["roi_percent"]:
+                        cumulative_return = Decimal(str(row["roi_percent"]))
 
                     daily_performance.append(
                         DailyPerformance(
-                            date=row['date'].strftime('%Y-%m-%d'),
-                            portfolio_value=str(row['total_value']),
-                            daily_pnl=str(row['daily_pnl'] or Decimal("0")),
-                            daily_return_pct=str(row['daily_return_percent'] or Decimal("0")),
+                            date=row["date"].strftime("%Y-%m-%d"),
+                            portfolio_value=str(row["total_value"]),
+                            daily_pnl=str(row["daily_pnl"] or Decimal("0")),
+                            daily_return_pct=str(
+                                row["daily_return_percent"] or Decimal("0")
+                            ),
                             cumulative_return_pct=str(cumulative_return),
-                            trades_count=row['total_trades'] or 0
+                            trades_count=row["total_trades"] or 0,
                         )
                     )
 
@@ -261,14 +267,14 @@ class PerformanceHistory:
         except Exception as e:
             logger.error(
                 f"Failed to retrieve daily performance for {portfolio_id}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             return []
 
     async def calculate_period_performance(
         self,
         portfolio_id: str,
-        period: str  # 'week', 'month', 'year', 'all'
+        period: str,  # 'week', 'month', 'year', 'all'
     ) -> Optional[PeriodPerformance]:
         """
         Calculate performance for specific period
@@ -291,15 +297,15 @@ class PerformanceHistory:
 
         # Map period to days
         period_days = {
-            'week': 7,
-            'month': 30,
-            'year': 365,
-            'all': 10000  # Large number to get all data
+            "week": 7,
+            "month": 30,
+            "year": 365,
+            "all": 10000,  # Large number to get all data
         }
 
         if period not in period_days:
             logger.warning(f"Invalid period: {period}, defaulting to 'month'")
-            period = 'month'
+            period = "month"
 
         days = period_days[period]
 
@@ -312,7 +318,7 @@ class PerformanceHistory:
 
                 row = await conn.fetchrow(query, portfolio_id, days)
 
-                if not row or not row['start_value']:
+                if not row or not row["start_value"]:
                     logger.warning(
                         f"No performance data found for {portfolio_id} "
                         f"in period {period}"
@@ -326,16 +332,16 @@ class PerformanceHistory:
 
                 period_perf = PeriodPerformance(
                     period=period,
-                    start_date=row['start_date'].strftime('%Y-%m-%d'),
-                    end_date=row['end_date'].strftime('%Y-%m-%d'),
-                    start_value=str(row['start_value']),
-                    end_value=str(row['end_value']),
-                    total_return=str(row['total_return']),
-                    total_return_pct=str(row['return_percent']),
-                    volatility=float(row['volatility']) if row['volatility'] else None,
+                    start_date=row["start_date"].strftime("%Y-%m-%d"),
+                    end_date=row["end_date"].strftime("%Y-%m-%d"),
+                    start_value=str(row["start_value"]),
+                    end_value=str(row["end_value"]),
+                    total_return=str(row["total_return"]),
+                    total_return_pct=str(row["return_percent"]),
+                    volatility=float(row["volatility"]) if row["volatility"] else None,
                     sharpe_ratio=None,  # Would need risk-free rate calculation
                     max_drawdown=None,  # Would need peak tracking
-                    trades_count=row['total_trades'] or 0
+                    trades_count=row["total_trades"] or 0,
                 )
 
                 logger.info(
@@ -348,14 +354,12 @@ class PerformanceHistory:
         except Exception as e:
             logger.error(
                 f"Failed to calculate period performance for {portfolio_id}: {e}",
-                exc_info=True
+                exc_info=True,
             )
             return None
 
     async def _calculate_daily_pnl(
-        self,
-        portfolio_id: str,
-        current_value: Decimal
+        self, portfolio_id: str, current_value: Decimal
     ) -> Optional[Decimal]:
         """
         Calculate P&L change from previous day
@@ -392,9 +396,7 @@ class PerformanceHistory:
             return None
 
     async def _calculate_daily_return(
-        self,
-        portfolio_id: str,
-        current_value: Decimal
+        self, portfolio_id: str, current_value: Decimal
     ) -> Optional[Decimal]:
         """
         Calculate daily return percentage
@@ -414,7 +416,7 @@ class PerformanceHistory:
                 result = await conn.fetchval(
                     "SELECT portfolio.calculate_daily_return($1, $2)",
                     portfolio_id,
-                    current_value
+                    current_value,
                 )
 
                 return Decimal(str(result)) if result is not None else None
@@ -424,10 +426,7 @@ class PerformanceHistory:
             return None
 
     async def _get_extreme_days(
-        self,
-        conn: asyncpg.Connection,
-        portfolio_id: str,
-        days: int
+        self, conn: asyncpg.Connection, portfolio_id: str, days: int
     ) -> tuple[Optional[Dict], Optional[Dict]]:
         """
         Get best and worst performing days in period
@@ -467,7 +466,7 @@ class PerformanceHistory:
 
             row = await conn.fetchrow(query, portfolio_id, days)
 
-            return (row['best_day'], row['worst_day'])
+            return (row["best_day"], row["worst_day"])
 
         except Exception as e:
             logger.error(f"Failed to get extreme days: {e}")

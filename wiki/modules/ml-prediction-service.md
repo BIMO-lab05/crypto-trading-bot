@@ -6,13 +6,12 @@ language: python
 port: 8007
 purpose: "Standalone GRU price-prediction + ensemble signal HTTP service"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [market-data-service, technical-analysis, redis]
 used_by: [api-gateway, trading-engine]
 tags: [module, service, ml, gru, inference]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 ---
 
 # ml-prediction-service
@@ -68,6 +67,8 @@ Trained 2025-12-09/10. Stale by ~150 days as of 2026-05-05. Every model returns 
 
 `ENABLE_ML_PREDICTIONS` is **not read by this service**. The flag lives on the [[trading-engine|trading-engine]] consumer side (compose default `false`). When false: signal-aggregator + auto-trader skip the ML leg, but `/api/ml/...` via [[api-gateway|gateway]] still returns predictions. See [[../concepts/Feature-Flags]].
 
+**Container gated off by default (verified 2026-07-29).** The `ml-prediction` service IS defined in `docker-compose.unified.yml` (line ~733) but sits behind an opt-in Compose **`ml` profile** (`profiles:` at line ~773), so a plain `docker compose up` does not start it — the RAM-constrained default runs the core trading flow without it. `trading-engine.depends_on` excludes it; runtime fan-out calls get connection-refused and the aggregator downgrades to non-ML signals. Bring it up with `docker compose --profile ml up -d`. (The audit's "8/9 services HTTP 200, ml-prediction intentionally absent" reflects this profile gating.)
+
 ## Internal deps
 
 - [[market-data-service]] — historical klines for inference + training (`MARKET_DATA_URL`); default in config wrongly points at port 8003 (portfolio), env override required
@@ -93,6 +94,8 @@ None. Service does not connect to PostgreSQL or TimescaleDB. Only state is Redis
 
 - Models 5 months stale; predictions chance-level on log-returns post-leakage fix (commit `c56765c`).
 - Re-enable blocked on rebuild + DSR > 0.95 acceptance gate.
+- **NaN/inf guards added (2026-07-29, `ml_models/gru_model.py:594–623`):** inference is refused on non-finite scaled input and non-finite model output (no more poisoned predictions), and the `price_change_pct` divisor (`current_price`) is guarded against divide-by-zero.
+- **`/ready` now reflects real model availability** (`main.py:512`): `models_loaded = any(p.model is not None ...)`. A missing model file leaves `predictor.model = None`, so the old bare `len(gru_predictors)` overreported "models loaded" even when nothing usable was resident.
 - Three handler routers (`orderbook`, `sentiment`, `regime`) defined but never `include_router`'d — ~16 endpoints of dead code.
 - `app/main.py.bak` retains references to deleted `LSTMPricePredictor`.
 
@@ -108,3 +111,11 @@ See [[../concepts/ML-Status]] for full lifecycle context.
 - [[ml-retraining-service]]
 - [[market-data-service]]
 - [[api-gateway]]
+
+## Corrections 2026-07-29
+
+Reflects the 2026-07-29 production audit (verified in source):
+
+- **NaN/inf guards** on ML predict path (`ml_models/gru_model.py:594–623`) — rejects non-finite input/output, guards the `current_price` divisor.
+- **`/ready` reflects real model availability** (`main.py:512`) — was overreporting when model files were missing.
+- **Container gated off by default**: defined in `docker-compose.unified.yml` but behind an opt-in `ml` Compose profile; not started by a plain `docker compose up`. See *Feature flag gating*.

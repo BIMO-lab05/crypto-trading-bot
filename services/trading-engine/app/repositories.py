@@ -11,6 +11,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 
 # Import local database module (works in Docker without shared directory)
+from app.config import get_settings  # noqa: F401  (used in get_or_create default)
 from app.database.connection import db_manager
 from app.database.models import (
     Position as DBPosition,
@@ -355,7 +356,7 @@ class PortfolioRepository:
         self,
         portfolio_id: str = "paper_trading",
         name: str = "Paper Trading Portfolio",
-        initial_balance: Decimal = Decimal("10000"),
+        initial_balance: Optional[Decimal] = None,
     ) -> DBPortfolio:
         """
         Get existing portfolio or create if doesn't exist
@@ -363,11 +364,17 @@ class PortfolioRepository:
         Args:
             portfolio_id: Portfolio identifier
             name: Portfolio name
-            initial_balance: Initial balance for new portfolio
+            initial_balance: Initial balance for new portfolio. Defaults to the
+                configured paper-trading balance (``PAPER_INITIAL_BALANCE``).
+                The previous hardcoded $10,000 default is what wrote the stale
+                `portfolios.initial_balance = 10000` row on 2026-04-27.
 
         Returns:
             Portfolio object
         """
+        if initial_balance is None:
+            initial_balance = Decimal(str(get_settings().paper_initial_balance))
+
         try:
             async with self.db.get_async_session() as session:
                 # Try to get existing portfolio

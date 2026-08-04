@@ -132,7 +132,13 @@ class BollingerBandsCalculator:
             # Price at or below lower band - Strong BUY
             # Updated: Threshold widened from 0.1 to 0.15
             signal = SignalType.BUY
-            confidence = 1.0 - price_position * 4  # Higher confidence at lower band
+            # Monotone 0.7 -> 1.0 as position falls from 0.15 to 0 (audit
+            # 2026-07: the old `1.0 - position * 4` dropped to 0.4 at
+            # position 0.15, BELOW the moderate zone's 0.7 at its boundary —
+            # a discontinuity where a "stronger" signal had lower
+            # confidence). This ties the strong-zone floor (0.7) to the
+            # moderate zone's ceiling for a continuous confidence curve.
+            confidence = 0.7 + ((0.15 - price_position) / 0.15) * 0.3
             logger.info(f"Price {price:.2f} at lower band {lower:.2f} -> Strong BUY (pos: {price_position:.2f})")
 
         elif price_position <= 0.35:

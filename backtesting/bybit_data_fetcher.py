@@ -1,82 +1,155 @@
 #!/usr/bin/env python3
 """
 Bybit Historical Data Fetcher
-Downloads OHLCV data directly from Bybit API for backtesting
-Uses public API endpoints - no authentication required
+Downloads OHLCV data for backtesting via the bybit-connector service.
+
+Phase 13 (BC-02): routes through ``$BYBIT_CONNECTOR_URL/api/v1/market/kline``
+(default ``http://localhost:8001``). bybit-connector handles testnet/mainnet
+selection internally via its own ``BYBIT_TESTNET`` env, so this fetcher no
+longer accepts a ``testnet`` constructor parameter.
+
+NOTE on the ``is_mainnet`` filter (CLAUDE.md backtest data-integrity rule):
+that filter lives on the ``klines`` table query layer (see
+``backtesting/run_walk_forward_ensemble.py:563-566``), not in this fetcher.
+This refactor does not touch the filter elsewhere in the backtest pipeline.
 """
 
 import asyncio
+import os
+import sys
 import httpx
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 import logging
 from typing import Optional
-import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# Phase 13 BC-02: bybit-connector endpoint. Host-friendly default; the compose
+# stack overrides this to ``http://bybit-connector:8001`` via environment.
+BYBIT_CONNECTOR_URL = os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001")
+
+
+def _print_connector_unreachable(target_url: str, err: BaseException) -> None:
+    """Shared operator-readable error block (used by both sync + async probes)."""
+    print(
+        f"\nERROR: bybit-connector is not reachable at {target_url}.\n"
+        f"  Cause: {err!r}\n"
+        f"  Fix:   Run `docker compose -f docker-compose.unified.yml up -d bybit-connector`\n"
+        f"  (or set BYBIT_CONNECTOR_URL if running against a non-default host).\n",
+        file=sys.stderr,
+    )
+
+
+def assert_connector_reachable_sync(target_url: Optional[str] = None) -> None:
+    """D-04 sync probe — used at ``__main__`` startup.
+
+    Calls ``sys.exit(2)`` with an operator-readable error if the bybit-connector
+    health endpoint is unreachable. Synchronous (uses ``httpx.Client``) so it can
+    run before ``asyncio.run(main())`` without leaking a running loop.
+    """
+    target = target_url or BYBIT_CONNECTOR_URL
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(f"{target}/health")
+            response.raise_for_status()
+    except Exception as e:
+        _print_connector_unreachable(target, e)
+        sys.exit(2)
+
+
+async def assert_connector_reachable(target_url: Optional[str] = None) -> None:
+    """D-04 async probe — used inside async library callers (e.g. fetch_klines).
+
+    Calls ``sys.exit(2)`` with an operator-readable error if the bybit-connector
+    health endpoint is unreachable. Async to share the caller's event loop.
+    """
+    target = target_url or BYBIT_CONNECTOR_URL
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{target}/health")
+            response.raise_for_status()
+    except Exception as e:
+        _print_connector_unreachable(target, e)
+        sys.exit(2)
+
+
 class BybitDataFetcher:
     """
-    Fetches historical market data directly from Bybit API
-    Uses public REST API v5 for kline data
+    Fetches historical market data via the bybit-connector service.
+    Uses the V5 kline list shape that bybit-connector preserves through its
+    JSON wrapper.
     """
 
-    def __init__(self, testnet: bool = False):
+    def __init__(self, base_url: Optional[str] = None):
         """
-        Initialize Bybit data fetcher
+        Initialize fetcher routed to bybit-connector.
 
         Args:
-            testnet: Use testnet API (default: False for mainnet)
+            base_url: Optional override of ``$BYBIT_CONNECTOR_URL``. Falls back
+                to the env var, then to ``http://localhost:8001``.
         """
-        # Bybit API v5 endpoints
-        if testnet:
-            self.base_url = "https://api-testnet.bybit.com"
-        else:
-            self.base_url = "https://api.bybit.com"
+        self.base_url = base_url or BYBIT_CONNECTOR_URL
+        self.client = httpx.AsyncClient(timeout=30.0, base_url=self.base_url)
 
-        self.client = httpx.AsyncClient(timeout=30.0)
-
-        # Bybit rate limits: 10 requests per second for public endpoints
+        # Bybit rate limits: 10 requests per second for public endpoints.
+        # bybit-connector adds an extra hop but the upstream cap still applies.
         self.rate_limit_delay = 0.15  # 150ms between requests (safe margin)
+
+        # D-04 fail-fast: gate so we only probe the connector ONCE per fetcher
+        # instance. The probe runs lazily on the first call to ``fetch_klines``
+        # (which is the entry point library callers hit) — keeps construction
+        # cheap while still surfacing an operator-readable error before any
+        # business-critical I/O.
+        self._reachability_checked = False
 
     async def close(self):
         """Close HTTP client"""
         await self.client.aclose()
 
-    async def get_klines(
+    async def fetch_klines(
         self,
         symbol: str,
         interval: str,
-        start_time: int,
-        end_time: int,
-        limit: int = 200
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+        limit: int = 200,
     ) -> list:
         """
-        Get kline/candlestick data from Bybit
+        Get kline/candlestick data via bybit-connector.
 
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
             interval: Kline interval (1, 3, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M)
-            start_time: Start timestamp in milliseconds
-            end_time: End timestamp in milliseconds
+            start_time: Start timestamp in milliseconds (optional)
+            end_time: End timestamp in milliseconds (optional)
             limit: Number of candles to fetch (max 200)
 
         Returns:
-            List of kline data
+            List of kline rows (Bybit V5 shape preserved by the connector wrapper).
         """
-        endpoint = f"{self.base_url}/v5/market/kline"
+        # D-04 fail-fast on first use (class-level path). Library callers that
+        # import this class directly get the same operator-readable hint as
+        # ``__main__`` callers — without re-probing on every batch.
+        if not self._reachability_checked:
+            await assert_connector_reachable(self.base_url)
+            self._reachability_checked = True
+
+        endpoint = "/api/v1/market/kline"
 
         params = {
             "category": "linear",  # USDT perpetual
             "symbol": symbol,
             "interval": interval,
-            "start": start_time,
-            "end": end_time,
-            "limit": limit
+            "limit": limit,
         }
+        if start_time is not None:
+            params["start"] = start_time
+        if end_time is not None:
+            params["end"] = end_time
 
         try:
             response = await self.client.get(endpoint, params=params)
@@ -84,20 +157,38 @@ class BybitDataFetcher:
 
             data = response.json()
 
-            # Bybit API v5 response format
-            if data.get("retCode") != 0:
-                error_msg = data.get("retMsg", "Unknown error")
-                logger.error(f"Bybit API error: {error_msg}")
+            # bybit-connector wrapper shape: {"success": bool, "data": {"list": [...]}}
+            if not data.get("success"):
+                logger.error(f"bybit-connector kline error: {data}")
                 return []
 
-            # Extract klines from result
-            klines = data.get("result", {}).get("list", [])
+            # Extract klines (V5 row list preserved through the wrapper)
+            klines = data.get("data", {}).get("list", [])
 
             return klines
 
         except Exception as e:
             logger.error(f"Error fetching klines: {e}")
             return []
+
+    # Backwards-compatible alias — older download_*.py call sites use get_klines().
+    # Keeps the public surface intact while routing through fetch_klines (which
+    # also runs the first-call reachability probe).
+    async def get_klines(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: int,
+        end_time: int,
+        limit: int = 200,
+    ) -> list:
+        return await self.fetch_klines(
+            symbol=symbol,
+            interval=interval,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+        )
 
     def convert_interval_to_minutes(self, interval: str) -> int:
         """
@@ -123,7 +214,7 @@ class BybitDataFetcher:
         symbol: str,
         interval: str = "60",  # 1 hour
         days: int = 90,
-        output_file: Optional[str] = None
+        output_file: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Download historical OHLCV data from Bybit
@@ -137,14 +228,18 @@ class BybitDataFetcher:
         Returns:
             DataFrame with columns: timestamp, open, high, low, close, volume
         """
-        logger.info(f"Downloading {days} days of {symbol} data at {interval}m interval from Bybit...")
+        logger.info(
+            f"Downloading {days} days of {symbol} data at {interval}m interval from Bybit..."
+        )
 
         # Calculate time range
         end_time = int(time.time() * 1000)  # Current time in ms
         interval_minutes = self.convert_interval_to_minutes(interval)
         start_time = end_time - (days * 24 * 60 * 60 * 1000)  # days ago in ms
 
-        logger.info(f"Time range: {datetime.fromtimestamp(start_time/1000)} to {datetime.fromtimestamp(end_time/1000)}")
+        logger.info(
+            f"Time range: {datetime.fromtimestamp(start_time / 1000)} to {datetime.fromtimestamp(end_time / 1000)}"
+        )
 
         all_klines = []
         current_end = end_time
@@ -162,7 +257,9 @@ class BybitDataFetcher:
             batch_duration_ms = max_candles_per_request * interval_minutes * 60 * 1000
             batch_start = max(start_time, current_end - batch_duration_ms)
 
-            logger.info(f"Fetching batch: {datetime.fromtimestamp(batch_start/1000)} to {datetime.fromtimestamp(current_end/1000)}")
+            logger.info(
+                f"Fetching batch: {datetime.fromtimestamp(batch_start / 1000)} to {datetime.fromtimestamp(current_end / 1000)}"
+            )
 
             # Fetch klines
             klines = await self.get_klines(
@@ -170,7 +267,7 @@ class BybitDataFetcher:
                 interval=interval,
                 start_time=batch_start,
                 end_time=current_end,
-                limit=max_candles_per_request
+                limit=max_candles_per_request,
             )
 
             if not klines:
@@ -183,7 +280,9 @@ class BybitDataFetcher:
             all_klines.extend(klines)
             candles_downloaded += len(klines)
 
-            logger.info(f"Downloaded {len(klines)} candles (total: {candles_downloaded})")
+            logger.info(
+                f"Downloaded {len(klines)} candles (total: {candles_downloaded})"
+            )
 
             # Move to next batch (go backwards in time)
             # Use the timestamp of the oldest candle in this batch
@@ -196,7 +295,9 @@ class BybitDataFetcher:
 
             # Safety check to prevent infinite loops
             if len(klines) < 10 and current_end > start_time:
-                logger.warning("Received very few candles, might have reached data limit")
+                logger.warning(
+                    "Received very few candles, might have reached data limit"
+                )
                 break
 
         if not all_klines:
@@ -205,31 +306,36 @@ class BybitDataFetcher:
 
         # Convert to DataFrame
         # Bybit kline format: [startTime, openPrice, highPrice, lowPrice, closePrice, volume, turnover]
-        df = pd.DataFrame(all_klines, columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
-        ])
+        df = pd.DataFrame(
+            all_klines,
+            columns=["timestamp", "open", "high", "low", "close", "volume", "turnover"],
+        )
 
         # Convert data types
-        df['timestamp'] = pd.to_numeric(df['timestamp'])
-        df['open'] = pd.to_numeric(df['open'])
-        df['high'] = pd.to_numeric(df['high'])
-        df['low'] = pd.to_numeric(df['low'])
-        df['close'] = pd.to_numeric(df['close'])
-        df['volume'] = pd.to_numeric(df['volume'])
+        df["timestamp"] = pd.to_numeric(df["timestamp"])
+        df["open"] = pd.to_numeric(df["open"])
+        df["high"] = pd.to_numeric(df["high"])
+        df["low"] = pd.to_numeric(df["low"])
+        df["close"] = pd.to_numeric(df["close"])
+        df["volume"] = pd.to_numeric(df["volume"])
 
         # Remove duplicates and sort
-        df = df.drop_duplicates(subset=['timestamp'])
-        df = df.sort_values('timestamp')
+        df = df.drop_duplicates(subset=["timestamp"])
+        df = df.sort_values("timestamp")
 
         # Convert timestamp to datetime
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
         # Keep only required columns
-        df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+        df = df[["timestamp", "open", "high", "low", "close", "volume"]]
 
         logger.info(f"Total candles downloaded: {len(df)}")
-        logger.info(f"Date range: {df.iloc[0]['timestamp']} to {df.iloc[-1]['timestamp']}")
-        logger.info(f"Price range: ${df['close'].min():.2f} to ${df['close'].max():.2f}")
+        logger.info(
+            f"Date range: {df.iloc[0]['timestamp']} to {df.iloc[-1]['timestamp']}"
+        )
+        logger.info(
+            f"Price range: ${df['close'].min():.2f} to ${df['close'].max():.2f}"
+        )
 
         # Save to CSV if requested
         if output_file:
@@ -243,7 +349,7 @@ class BybitDataFetcher:
         symbols: list,
         interval: str = "60",
         days: int = 90,
-        output_dir: str = "backtesting/data"
+        output_dir: str = "backtesting/data",
     ):
         """
         Download data for multiple symbols
@@ -255,20 +361,18 @@ class BybitDataFetcher:
             output_dir: Directory to save CSV files
         """
         import os
+
         os.makedirs(output_dir, exist_ok=True)
 
         for symbol in symbols:
-            logger.info(f"\n{'='*80}")
+            logger.info(f"\n{'=' * 80}")
             logger.info(f"Downloading {symbol}")
-            logger.info(f"{'='*80}\n")
+            logger.info(f"{'=' * 80}\n")
 
             output_file = f"{output_dir}/{symbol}_{interval}m_{days}d_bybit.csv"
 
             df = await self.download_historical_data(
-                symbol=symbol,
-                interval=interval,
-                days=days,
-                output_file=output_file
+                symbol=symbol, interval=interval, days=days, output_file=output_file
             )
 
             logger.info(f"✓ {symbol} complete: {len(df)} candles\n")
@@ -281,48 +385,73 @@ async def main():
     """Main entry point"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Download historical data from Bybit API")
-    parser.add_argument('--symbol', type=str, default='BTCUSDT', help='Trading pair (default: BTCUSDT)')
-    parser.add_argument('--interval', type=str, default='60', help='Interval in minutes (default: 60)')
-    parser.add_argument('--days', type=int, default=90, help='Days of historical data (default: 90)')
-    parser.add_argument('--output', type=str, help='Output CSV file')
-    parser.add_argument('--testnet', action='store_true', help='Use testnet API')
-    parser.add_argument('--multiple', nargs='+', help='Download multiple symbols')
+    parser = argparse.ArgumentParser(
+        description=(
+            "Download historical data via bybit-connector "
+            "(routed at $BYBIT_CONNECTOR_URL, default http://localhost:8001)."
+        )
+    )
+    parser.add_argument(
+        "--symbol", type=str, default="BTCUSDT", help="Trading pair (default: BTCUSDT)"
+    )
+    parser.add_argument(
+        "--interval", type=str, default="60", help="Interval in minutes (default: 60)"
+    )
+    parser.add_argument(
+        "--days", type=int, default=90, help="Days of historical data (default: 90)"
+    )
+    parser.add_argument("--output", type=str, help="Output CSV file")
+    parser.add_argument(
+        "--connector-url",
+        type=str,
+        default=None,
+        help=(
+            "Override $BYBIT_CONNECTOR_URL for this run. bybit-connector chooses "
+            "testnet vs mainnet via its own BYBIT_TESTNET env — there is no "
+            "--testnet flag here any more."
+        ),
+    )
+    parser.add_argument("--multiple", nargs="+", help="Download multiple symbols")
 
     args = parser.parse_args()
 
-    fetcher = BybitDataFetcher(testnet=args.testnet)
+    fetcher = BybitDataFetcher(base_url=args.connector_url)
 
     try:
         if args.multiple:
             # Download multiple symbols
             await fetcher.download_multiple_symbols(
-                symbols=args.multiple,
-                interval=args.interval,
-                days=args.days
+                symbols=args.multiple, interval=args.interval, days=args.days
             )
         else:
             # Download single symbol
-            output_file = args.output or f"backtesting/data/{args.symbol}_{args.interval}m_{args.days}d_bybit.csv"
+            output_file = (
+                args.output
+                or f"backtesting/data/{args.symbol}_{args.interval}m_{args.days}d_bybit.csv"
+            )
 
             df = await fetcher.download_historical_data(
                 symbol=args.symbol,
                 interval=args.interval,
                 days=args.days,
-                output_file=output_file
+                output_file=output_file,
             )
 
             if not df.empty:
-                print("\n" + "="*80)
+                print("\n" + "=" * 80)
                 print("DOWNLOAD COMPLETE")
-                print("="*80)
+                print("=" * 80)
                 print(f"Symbol: {args.symbol}")
                 print(f"Interval: {args.interval} minutes")
                 print(f"Total Candles: {len(df)}")
-                print(f"Date Range: {df.iloc[0]['timestamp']} to {df.iloc[-1]['timestamp']}")
-                print(f"Price Range: ${df['close'].min():.2f} to ${df['close'].max():.2f}")
+                print(
+                    f"Date Range: {df.iloc[0]['timestamp']} to {df.iloc[-1]['timestamp']}"
+                )
+                print(
+                    f"Price Range: ${df['close'].min():.2f} to ${df['close'].max():.2f}"
+                )
                 print(f"File: {output_file}")
-                print("="*80)
+                print("=" * 80)
 
                 # Show first and last few rows
                 print("\nFirst 5 candles:")
@@ -335,4 +464,8 @@ async def main():
 
 
 if __name__ == "__main__":
+    # D-04 fail-fast (CLI path): probe the bybit-connector before doing any work.
+    # The class-level path (BybitDataFetcher.fetch_klines) also runs a
+    # first-call probe for library callers that import the class directly.
+    assert_connector_reachable_sync()
     asyncio.run(main())

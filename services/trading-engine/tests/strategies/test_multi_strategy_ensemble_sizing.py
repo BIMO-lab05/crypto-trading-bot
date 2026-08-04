@@ -178,6 +178,37 @@ def test_ensemble_default_settings_hit_cap_at_documented_ceiling(
     )
 
 
+@pytest.mark.parametrize("confidence", [0.11, 0.20, 0.99])
+def test_cap_wins_when_floor_exceeds_it(ensemble_module, monkeypatch, confidence):
+    """Audit 2026-07-30, finding F-2: the cap must be the last word.
+
+    The cascade used to read `max(floor, min(cap, scaled))`, applying the floor
+    *after* the clamp — so whenever `floor > cap` the cap was discarded entirely.
+    With the LIVE cap at 0.02 and the shipped default floor at 0.05, every LIVE
+    trade sized at 5%: 2.5x the non-negotiable per-trade cap, at any confidence.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "max_risk_per_trade", 0.02, raising=False)
+    monkeypatch.setattr(settings, "ensemble_min_position_pct", 0.05, raising=False)
+    monkeypatch.setattr(
+        settings, "ensemble_confidence_size_multiplier", 3.7, raising=False
+    )
+
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    agg = _build_aggregator_signal(SignalAction.BUY, confidence=confidence)
+    _stub_legs(monkeypatch, ensemble_module, agg)
+    out = ens.generate_signal(agg, current_price=100.0, capital=100.0)
+
+    assert out is not None
+    assert out.position_size_pct == pytest.approx(0.02), (
+        f"floor 0.05 must not override cap 0.02 at conf {confidence}; "
+        f"got {out.position_size_pct}"
+    )
+
+
 def test_ensemble_cap_from_settings_overrides_class_constant(
     ensemble_module, monkeypatch
 ):

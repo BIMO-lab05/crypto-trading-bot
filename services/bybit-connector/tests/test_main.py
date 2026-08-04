@@ -3,6 +3,7 @@ Bybit Connector Service - FastAPI Main Application Tests
 Purpose: Comprehensive tests for FastAPI endpoints, CORS, and error handling
 """
 
+import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, patch
 from fastapi import status
@@ -191,6 +192,29 @@ class TestAccountEndpoints:
 # ============================================================================
 
 
+@pytest.fixture
+def permit_live_orders():
+    """
+    Bypass the SEC-0 order-placement guard for tests about order *mechanics*.
+
+    `require_live_orders_permitted` refuses order placement unless
+    PAPER_TRADING_MODE=false, TRADING_MODE=LIVE and
+    LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY are all set — which is the whole
+    point of the guard, and correct default behaviour. These tests predate it
+    and cover request/response handling, not the safety gate, so they opt out
+    explicitly rather than the guard being weakened for them.
+
+    The gate itself is covered by tests/test_order_placement_guard.py,
+    including an assertion that both money-touching routes still declare it.
+    """
+    from app.main import app, require_live_orders_permitted
+
+    app.dependency_overrides[require_live_orders_permitted] = lambda: None
+    yield
+    app.dependency_overrides.pop(require_live_orders_permitted, None)
+
+
+@pytest.mark.usefixtures("permit_live_orders")
 class TestTradingEndpoints:
     """Test trading-related endpoints"""
 
@@ -767,6 +791,7 @@ class TestErrorHandling:
 # ============================================================================
 
 
+@pytest.mark.usefixtures("permit_live_orders")
 class TestEndpointIntegration:
     """Test endpoint integration and workflows"""
 

@@ -55,6 +55,11 @@ _REPO_ROOT = os.path.abspath(os.path.join(_HERE, ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+# 2026-08-03: capital sourced from the declaration of record. Was 10000.0 —
+# missed by the capital audit, so every walk-forward result predating this
+# answered a question about a 100x account. Do NOT let autoflake strip this.
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
+
 from backtesting.backtest_engine import BacktestEngine, BacktestResult  # noqa: E402
 from backtesting.data_downloader import HistoricalDataDownloader  # noqa: E402
 from backtesting.prod_indicators import (  # noqa: E402
@@ -144,7 +149,15 @@ def phase1_strategy_prod(row, position, idx, data: pd.DataFrame):
     atr = ATR(period=14).calculate(high_list, low_list, close_list, current_price)
 
     if not position:
-        if rsi_val < 20 and current_price > ema_20:
+        # Mean-reversion entry: RSI extreme on the SAME side as the short EMA
+        # (oversold dump below EMA20 = BUY; overbought rally above EMA20 = SELL).
+        # Higher-timeframe direction is enforced by TrendFilter + ADX direction
+        # below — those veto if the major trend opposes the reversion trade.
+        # Prior polarity (rsi<20 AND price>ema20) was contradictory under real
+        # price action: RSI(9) only dips <20 on sharp drops, when price has
+        # already broken EMA20 down — zero trades on 16,200 bars (5 symbols x
+        # 180d, 2026-05-19 walk-forward run).
+        if rsi_val < 20 and current_price < ema_20:
             if trend.get("trend") == "BEARISH":
                 return None
             if direction == "BEARISH":
@@ -162,7 +175,7 @@ def phase1_strategy_prod(row, position, idx, data: pd.DataFrame):
                     "strategy": "phase1_prod",
                 },
             }
-        if rsi_val > 80 and current_price < ema_20:
+        if rsi_val > 80 and current_price > ema_20:
             if trend.get("trend") == "BULLISH":
                 return None
             if direction == "BULLISH":
@@ -251,7 +264,7 @@ def run_one_fold(
     fold_id: int,
     oos_data: pd.DataFrame,
     strategy_func: Callable,
-    initial_capital: float = 10000.0,
+    initial_capital: float = PAPER_INITIAL_BALANCE,
 ) -> FoldResult:
     engine = BacktestEngine(initial_capital=initial_capital, **_engine_kwargs())
     result: BacktestResult = engine.run_backtest(
@@ -394,7 +407,7 @@ async def main():
         # IS Sharpe (no fitting — strategy is rule-based; we just measure
         # that the SAME strategy applied to the IS slice would have produced
         # similar returns; ratio detects regime drift).
-        is_engine = BacktestEngine(initial_capital=10000.0)
+        is_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
         is_engine.run_backtest(
             is_slice, phase1_strategy_prod, strategy_name=f"phase1_is_{k}"
         )

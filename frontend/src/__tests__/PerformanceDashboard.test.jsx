@@ -42,9 +42,11 @@ const createWrapper = () => {
     },
   })
 
-  return ({ children }) => (
+  const QueryWrapper = ({ children }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   )
+  QueryWrapper.displayName = 'QueryWrapper'
+  return QueryWrapper
 }
 
 /**

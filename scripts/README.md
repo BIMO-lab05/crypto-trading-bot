@@ -557,7 +557,7 @@ python3 scripts/monitor.py --interval 60
 # NO CRITICAL ALERTS
 
 # 6. Review documentation
-cat docs/DEPLOYMENT_RUNBOOK.md
+cat docs/deploy/KUBERNETES_RUNBOOK.md
 # FOLLOW PRODUCTION CHECKLIST
 
 # Only then: Enable live trading
@@ -849,7 +849,7 @@ pip install httpx asyncio  # For Python scripts
 
 - [System Status](../SYSTEM_STATUS_COMPLETE.md) - Complete system assessment
 - [Trading Engine Capabilities](../docs/TRADING_ENGINE_CAPABILITIES.md) - API reference
-- [Deployment Runbook](../docs/DEPLOYMENT_RUNBOOK.md) - Operations guide
+- [Kubernetes Runbook](../docs/deploy/KUBERNETES_RUNBOOK.md) - Operations guide
 - [Health Check Guide](../dashboard/README.md#troubleshooting) - Dashboard troubleshooting
 
 ---

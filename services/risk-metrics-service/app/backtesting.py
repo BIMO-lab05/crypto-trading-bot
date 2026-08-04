@@ -123,7 +123,9 @@ class BacktestEngine:
         historical_data: List[Dict],
         start_date: datetime,
         end_date: datetime,
-        initial_capital: Decimal = Decimal("10000")
+        # FIX 2026-08-03 (capital audit): was Decimal("10000"), 100x the
+        # real account. See backtest_models.BacktestConfig.initial_capital.
+        initial_capital: Decimal = Decimal("100")
     ) -> StrategyComparison:
         """
         Compare multiple risk limit configurations

@@ -16,6 +16,13 @@ import TileState from './TileState'
  *
  * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/> per
  * audit verdict FIXED. Inline isLoading/error early-returns removed.
+ *
+ * UPDATED 2026-05-19 (debug dashboard-cold-load-timeout): removed
+ * per-request `timeout: 5000` override that was aborting the call on
+ * cold first paint of /. Inherits the 20s default from services/api.js
+ * (intentional, bumped from 10s on 2025-11-30). Backend cold-path
+ * latency for this endpoint is <100ms; the previous 5s budget was
+ * losing to bundle-parse + paint + concurrent-fanout, not to backend.
  */
 
 // Fetch trade history from trading engine.
@@ -27,7 +34,6 @@ import TileState from './TileState'
 const fetchTradeHistory = async () => {
   return await api.get('/trading/trades/history', {
     params: { limit: 50 },
-    timeout: 5000,
   })
 }
 
@@ -250,7 +256,9 @@ export default function TradeHistory() {
                   <div>
                     <p className="text-xs text-slate-500 mb-0.5">Quantity</p>
                     <p className="text-sm font-medium text-slate-200">
-                      {parseFloat(trade.quantity).toFixed(6)}
+                      {Number.isNaN(Number.parseFloat(trade.quantity))
+                        ? '—'
+                        : Number.parseFloat(trade.quantity).toFixed(6)}
                     </p>
                   </div>
                 </div>

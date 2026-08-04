@@ -207,67 +207,74 @@ async def test_get_kline_returns_list_of_lists_v5_shape(fake_tape: Path) -> None
 # ===========================================================================
 
 
-def test_reset_zeroes_cursors_after_init(fake_tape: Path) -> None:
-    """D-04: post-init, calling reset() yields per-symbol cursor dicts at 0.
+def test_reset_clears_session_state_after_init(fake_tape_with_wallet: Path) -> None:
+    """D-04 (post-WR-05): post-init, calling reset() leaves the session
+    state at its zero baseline (empty order log, counter=0, wallet lazy).
 
-    Cursor dicts must contain one entry per loaded symbol (not empty), each
-    initialised to fixture position 0. This is the post-init steady-state.
+    Phase 18 WR-05 removed the unused kline/ticker cursor fields — they
+    were populated and reset by this method but never read by get_kline/
+    get_ticker. The remaining reset() contract is order-path session
+    state (D-08) + wallet lazy-reload.
     """
-    client = TapeReplayClient(fake_tape)
+    client = TapeReplayClient(fake_tape_with_wallet)
     client.reset()
 
-    # Both cursor dicts must be populated AND zero-valued.
-    assert client._kline_cursor == {sym: 0 for sym in client._klines}, (
-        "kline cursor must zero-init for every loaded kline symbol"
+    assert client._order_log == [], "post-init reset(): order log must be empty"
+    assert client._open_orders == {}, "post-init reset(): open orders must be empty"
+    assert client._order_counter == 0, "post-init reset(): counter must be 0"
+    # Wallet is lazy-reloaded — reset() arms the reload but does not touch disk.
+    assert client._wallet_balance is None, (
+        "post-init reset(): wallet balance must be armed for lazy reload"
     )
-    assert client._ticker_cursor == {sym: 0 for sym in client._tickers}, (
-        "ticker cursor must zero-init for every loaded ticker symbol"
-    )
-    # Sanity: fake_tape has SOLUSDT — confirm a non-empty dict was produced.
-    assert "SOLUSDT" in client._kline_cursor
-    assert "SOLUSDT" in client._ticker_cursor
+    # Sanity: fixture dicts still loaded (reset() must NOT touch _klines/_tickers).
+    assert "SOLUSDT" in client._klines
+    assert "SOLUSDT" in client._tickers
 
 
-def test_reset_rewinds_advanced_cursors(fake_tape: Path) -> None:
-    """D-04: cursors that have been advanced are rewound to 0 by reset().
+async def test_reset_rewinds_session_state_after_activity(
+    fake_tape_with_wallet: Path,
+) -> None:
+    """D-04 (post-WR-05): after place_order activity, reset() rewinds to baseline.
 
-    Simulates a test that consumed 7 candles + 3 ticker snapshots and verifies
-    the next test starts at fixture position 0.
+    Simulates a test that ran some orders and verifies the next test starts
+    at counter=0 with an empty order log.
     """
-    client = TapeReplayClient(fake_tape)
-    # Simulate cursor advance during a previous "test"
-    client._kline_cursor["SOLUSDT"] = 7
-    client._ticker_cursor["SOLUSDT"] = 3
+    client = TapeReplayClient(fake_tape_with_wallet)
+
+    await client.place_order(
+        category="linear",
+        symbol="SOLUSDT",
+        side="Buy",
+        order_type="Market",
+        qty="1",
+    )
+    assert client._order_counter == 1, "Precondition: counter should have incremented"
+    assert len(client._order_log) == 1, "Precondition: order log should have 1 entry"
 
     client.reset()
 
-    assert client._kline_cursor["SOLUSDT"] == 0, (
-        f"kline cursor must rewind to 0; got {client._kline_cursor['SOLUSDT']}"
+    assert client._order_counter == 0, (
+        f"counter must rewind to 0; got {client._order_counter}"
     )
-    assert client._ticker_cursor["SOLUSDT"] == 0, (
-        f"ticker cursor must rewind to 0; got {client._ticker_cursor['SOLUSDT']}"
-    )
+    assert client._order_log == [], "order log must be cleared by reset()"
 
 
-def test_reset_with_empty_symbol_dicts_does_not_raise(fake_tape: Path) -> None:
-    """D-04: reset() must be safe even when no symbols are loaded.
-
-    Edge case: defensive coverage for paths where the loader hasn't yet
-    populated symbol dicts. We construct via the normal loader (which
-    requires fixtures) and then manually clear the dicts to exercise the
-    empty path — direct construction with empty fixture dirs raises
-    FileNotFoundError per landmine §6, so we cannot test "empty fixtures"
-    via the public ctor.
+def test_reset_does_not_touch_fixture_dicts(fake_tape: Path) -> None:
+    """D-04 (post-WR-05): reset() must not disturb the loaded kline/ticker
+    fixtures — those are the immutable seed data for the test session.
     """
     client = TapeReplayClient(fake_tape)
-    client._klines = {}
-    client._tickers = {}
+    kline_snapshot = {k: list(v) for k, v in client._klines.items()}
+    ticker_snapshot = dict(client._tickers)
 
-    # Must not raise — empty cursors are a valid steady-state.
     client.reset()
 
-    assert client._kline_cursor == {}
-    assert client._ticker_cursor == {}
+    assert client._klines == kline_snapshot, (
+        "reset() must not mutate the loaded kline fixtures"
+    )
+    assert client._tickers == ticker_snapshot, (
+        "reset() must not mutate the loaded ticker fixtures"
+    )
 
 
 def test_reset_emits_grep_able_log_line(fake_tape: Path, caplog) -> None:
@@ -296,4 +303,226 @@ def test_reset_emits_grep_able_log_line(fake_tape: Path, caplog) -> None:
     )
     assert matching[0].levelno >= logging.WARNING, (
         f"reset() log line must be WARNING or higher; got {matching[0].levelname}"
+    )
+
+
+# ===========================================================================
+# Phase 18 BC-FIX-02: order-path stubs (D-05/D-06/D-07/D-08)
+# These tests lock in the locked semantics from 18-CONTEXT.md so future
+# refactors of place_order/cancel_order/get_wallet_balance cannot silently
+# weaken the integration-test contract the trading-engine LIVE adapter
+# relies on in tape mode.
+# ===========================================================================
+
+
+@pytest.fixture
+def fake_tape_with_wallet(fake_tape: Path) -> Path:
+    """Extends fake_tape with the D-07 wallet balance fixture file."""
+    import json as _json
+
+    wallet_path = fake_tape / "wallet_balance.json"
+    wallet_path.write_text(_json.dumps({"USDT": 100.0}) + "\n")
+    return fake_tape
+
+
+# ---- D-05: place_order returns deterministic FILLED order -----------------
+
+
+async def test_place_order_returns_filled_order(fake_tape_with_wallet: Path) -> None:
+    """D-05: place_order returns a Filled order dict at the current tape
+    ticker price. fake_tape SOLUSDT ticker has lastPrice="100.5".
+    """
+    from app.tape_replay_client import TapeReplayClient
+
+    client = TapeReplayClient(fake_tape_with_wallet)
+    result = await client.place_order(
+        category="linear",
+        symbol="SOLUSDT",
+        side="Buy",
+        order_type="Market",
+        qty="1",
+    )
+    assert result["orderStatus"] == "Filled", (
+        f"D-05: status must be 'Filled', got {result.get('orderStatus')!r}"
+    )
+    assert result["avgPrice"] == "100.5", (
+        f"D-05: fill price must equal tape ticker lastPrice 100.5, got {result.get('avgPrice')!r}"
+    )
+    assert result["cumExecQty"] == "1", (
+        f"D-05: filled qty must equal requested qty (1), got {result.get('cumExecQty')!r}"
+    )
+    assert result["symbol"] == "SOLUSDT"
+    assert result["side"] == "Buy"
+    assert result["orderId"].startswith("TAPE_SOLUSDT_Buy_"), (
+        f"D-05: order ID must start with TAPE_SOLUSDT_Buy_, got {result.get('orderId')!r}"
+    )
+
+
+async def test_place_order_id_is_deterministic_and_monotonic(
+    fake_tape_with_wallet: Path,
+) -> None:
+    """D-05 + advisor note: two consecutive place_order calls in the same
+    millisecond must produce DIFFERENT order IDs.
+    """
+    from app.tape_replay_client import TapeReplayClient
+
+    client = TapeReplayClient(fake_tape_with_wallet)
+    r1 = await client.place_order(
+        category="linear", symbol="SOLUSDT", side="Buy", order_type="Market", qty="1"
+    )
+    r2 = await client.place_order(
+        category="linear", symbol="SOLUSDT", side="Buy", order_type="Market", qty="1"
+    )
+    assert r1["orderId"] != r2["orderId"], (
+        f"D-05: two place_order calls must produce distinct order IDs "
+        f"(got {r1['orderId']} == {r2['orderId']})"
+    )
+    parts1 = r1["orderId"].split("_")
+    parts2 = r2["orderId"].split("_")
+    assert len(parts1) == 5 and len(parts2) == 5, (
+        f"D-05: order ID shape must be TAPE_<symbol>_<side>_<ts_ms>_<counter>, "
+        f"got {r1['orderId']!r} / {r2['orderId']!r}"
+    )
+    counter1 = int(parts1[-1])
+    counter2 = int(parts2[-1])
+    assert counter2 > counter1, (
+        f"D-05: counter must be monotonic (r2={counter2} > r1={counter1})"
+    )
+
+
+async def test_place_order_decrements_balance(
+    fake_tape_with_wallet: Path,
+) -> None:
+    """D-07: place_order decrements in-memory USDT balance by fill_price*qty.
+    Starting balance 100 USDT, BUY 0.5 SOLUSDT at fill price 100.5 -> new
+    balance 100 - 50.25 = 49.75.
+    """
+    from app.tape_replay_client import TapeReplayClient
+
+    client = TapeReplayClient(fake_tape_with_wallet)
+    await client.place_order(
+        category="linear", symbol="SOLUSDT", side="Buy", order_type="Market", qty="0.5"
+    )
+    balance = await client.get_wallet_balance(account_type="UNIFIED", coin="USDT")
+    coin_entry = balance["list"][0]["coin"][0]
+    assert coin_entry["coin"] == "USDT"
+    assert float(coin_entry["walletBalance"]) == pytest.approx(49.75, abs=0.01), (
+        f"D-07: balance must decrement by qty*price (100 - 0.5*100.5 = 49.75), "
+        f"got {coin_entry['walletBalance']!r}"
+    )
+
+
+# ---- D-06: cancel_order is a no-op success --------------------------------
+
+
+async def test_cancel_order_is_no_op_success(fake_tape_with_wallet: Path) -> None:
+    """D-06: cancel_order returns success no-op without mutating order log or balance."""
+    from app.tape_replay_client import TapeReplayClient
+
+    client = TapeReplayClient(fake_tape_with_wallet)
+    placed = await client.place_order(
+        category="linear", symbol="SOLUSDT", side="Buy", order_type="Market", qty="1"
+    )
+    log_len_before = len(client._order_log)
+    balance_before = (
+        client._wallet_balance.get("USDT") if client._wallet_balance else None
+    )
+
+    result = await client.cancel_order(
+        category="linear", symbol="SOLUSDT", order_id=placed["orderId"]
+    )
+    assert result == {
+        "success": True,
+        "order_id": placed["orderId"],
+        "symbol": "SOLUSDT",
+    }, f"D-06: cancel_order must return success no-op shape, got {result!r}"
+    assert len(client._order_log) == log_len_before, (
+        "D-06: cancel_order must not mutate _order_log"
+    )
+    assert (
+        client._wallet_balance.get("USDT") if client._wallet_balance else None
+    ) == balance_before, "D-06: cancel_order must not mutate balance"
+
+
+# ---- D-07: get_wallet_balance fixture load + lazy-write ------------------
+
+
+async def test_get_wallet_balance_loads_from_fixture(
+    fake_tape_with_wallet: Path,
+) -> None:
+    """D-07: get_wallet_balance returns the seeded $100 USDT default from the fixture."""
+    from app.tape_replay_client import TapeReplayClient
+
+    client = TapeReplayClient(fake_tape_with_wallet)
+    balance = await client.get_wallet_balance()
+    coin_entries = balance["list"][0]["coin"]
+    usdt_entries = [c for c in coin_entries if c["coin"] == "USDT"]
+    assert len(usdt_entries) == 1, (
+        f"D-07: expected exactly one USDT entry, got {coin_entries!r}"
+    )
+    assert float(usdt_entries[0]["walletBalance"]) == 100.0, (
+        f"D-07: fixture default must be 100 USDT, got {usdt_entries[0]['walletBalance']!r}"
+    )
+
+
+async def test_get_wallet_balance_raises_when_fixture_missing(
+    fake_tape: Path,
+) -> None:
+    """BL-01: when wallet_balance.json is absent, first call raises
+    FileNotFoundError instead of silently writing a default.
+
+    Previous behaviour lazy-wrote the D-07 default to disk on first call.
+    That crashed at runtime because docker-compose.unified.yml:409 mounts
+    tests/fixtures/tape as :ro. Loud FileNotFoundError beats an OSError
+    inside the request path — mirrors _load_fixtures() policy.
+    """
+    from app.tape_replay_client import TapeReplayClient
+
+    wallet_path = fake_tape / "wallet_balance.json"
+    assert not wallet_path.exists(), (
+        "Precondition: fake_tape (without _with_wallet) must NOT have wallet json"
+    )
+
+    client = TapeReplayClient(fake_tape)
+    with pytest.raises(FileNotFoundError, match="wallet_balance"):
+        await client.get_wallet_balance()
+
+    # Fixture must NOT have been created by the failed call — the read-only
+    # mount policy means the loader must never touch disk on the write path.
+    assert not wallet_path.exists(), (
+        "BL-01: failed load must NOT write the fixture (read-only bind-mount)"
+    )
+
+
+# ---- D-08: reset() clears order-path state -------------------------------
+
+
+async def test_reset_clears_order_state(fake_tape_with_wallet: Path) -> None:
+    """D-08: after place_order mutates state, reset() clears _order_log,
+    _open_orders, _order_counter, and reloads _wallet_balance from fixture.
+    """
+    from app.tape_replay_client import TapeReplayClient
+
+    client = TapeReplayClient(fake_tape_with_wallet)
+    await client.place_order(
+        category="linear", symbol="SOLUSDT", side="Buy", order_type="Market", qty="0.5"
+    )
+
+    assert len(client._order_log) == 1, "Precondition: order should be in log"
+    assert client._order_counter == 1, "Precondition: counter incremented"
+    assert client._wallet_balance is not None
+    assert client._wallet_balance["USDT"] != 100.0, (
+        "Precondition: balance should have been decremented from default"
+    )
+
+    client.reset()
+
+    assert client._order_log == [], "D-08: reset() must clear _order_log"
+    assert client._open_orders == {}, "D-08: reset() must clear _open_orders"
+    assert client._order_counter == 0, "D-08: reset() must reset _order_counter to 0"
+
+    balance = await client.get_wallet_balance(account_type="UNIFIED", coin="USDT")
+    usdt = float(balance["list"][0]["coin"][0]["walletBalance"])
+    assert usdt == 100.0, (
+        f"D-08: reset() must reload wallet to fixture default 100; got {usdt}"
     )

@@ -297,8 +297,14 @@ async def prometheus_metrics_middleware(request: Request, call_next):
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
+    # SECURITY (2026-07-29 audit): "*" origins with allow_credentials=True is
+    # invalid per the CORS spec and makes Starlette reflect the caller's
+    # Origin for credentialed requests, allowing any site to make
+    # credentialed cross-origin calls. This internal service uses no cookie
+    # auth (reached server-to-server via the gateway / Bearer tokens), so we
+    # keep the permissive origin but disable credentialed CORS.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -20,6 +20,11 @@ class Asset(BaseModel):
 
     # Holdings
     quantity: Decimal = Field(default=Decimal("0"), ge=0, description="Quantity held")
+    # Position direction. LONG profits when price rises; SHORT profits when it
+    # falls. Added 2026-07-29: the portfolio-manager previously modeled every
+    # position as a spot LONG, so leveraged SHORTs synced from the trading
+    # engine had their unrealized P&L sign inverted on the dashboard.
+    side: str = Field(default="LONG", description="Position side: LONG or SHORT")
     average_entry_price: Decimal = Field(default=Decimal("0"), ge=0, description="Average purchase price")
     current_price: Decimal = Field(default=Decimal("0"), ge=0, description="Current market price")
 
@@ -42,12 +47,22 @@ class Asset(BaseModel):
         }
 
     def update_valuation(self, current_price: Decimal) -> None:
-        """Update asset valuation with new price"""
+        """Update asset valuation with new price (side-aware).
+
+        FIX 2026-07-29: P&L is now computed with respect to `side`. For a SHORT
+        the position gains value as price falls, so unrealized P&L is
+        cost − value (the inverse of a LONG). Previously this was long-only,
+        which inverted the sign for every short position mirrored from the
+        trading engine.
+        """
         self.current_price = current_price
         self.current_value = self.quantity * current_price
 
         if self.total_cost > 0:
-            self.unrealized_pnl = self.current_value - self.total_cost
+            if str(self.side).upper() == "SHORT":
+                self.unrealized_pnl = self.total_cost - self.current_value
+            else:
+                self.unrealized_pnl = self.current_value - self.total_cost
             self.unrealized_pnl_pct = (self.unrealized_pnl / self.total_cost) * Decimal("100")
         else:
             self.unrealized_pnl = Decimal("0")

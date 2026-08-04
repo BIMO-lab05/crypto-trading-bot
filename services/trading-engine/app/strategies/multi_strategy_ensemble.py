@@ -287,16 +287,29 @@ class MultiStrategyEnsemble:
         #   floor   = settings.ensemble_min_position_pct
         #   cap     = settings.max_risk_per_trade  (via self.MAX_POSITION_PCT property)
         #   scaled  = confidence × cap × settings.ensemble_confidence_size_multiplier
-        #   size    = max(floor, min(cap, scaled))
+        #   size    = min(cap, max(floor, scaled))
         # Defaults (5% floor, 3.7x mult, 10% cap) put typical-confidence
         # ensemble fires at ≥5% notional and reach the cap by conf ≈ 0.27.
+        #
+        # Order matters: the cap is applied LAST so it always wins. This read
+        # max(floor, min(cap, scaled)) until the 2026-07-30 audit (F-2), which
+        # discarded the cap whenever floor > cap — under the LIVE-strict 2% cap
+        # the shipped 5% floor sized every trade at 2.5x the cap, at any
+        # confidence. Preflight only inspected max_risk_per_trade, so it passed.
         from app.config import get_settings
 
         _settings = get_settings()
         cap = self.MAX_POSITION_PCT
         floor = _settings.ensemble_min_position_pct
         scaled = confidence * cap * _settings.ensemble_confidence_size_multiplier
-        position_size_pct = max(floor, min(cap, scaled))
+        position_size_pct = min(cap, max(floor, scaled))
+
+        if floor > cap:
+            logger.warning(
+                f"[ENSEMBLE] ensemble_min_position_pct={floor} exceeds per-trade cap "
+                f"{cap}; sizing clamped to the cap. Lower the floor — this config "
+                f"is rejected outright in LIVE."
+            )
 
         reasoning = [
             f"Ensemble {action.value}: score={weighted_score:+.3f}, conf={confidence:.2%}",

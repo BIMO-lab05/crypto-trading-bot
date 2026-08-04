@@ -4,7 +4,7 @@ Lightweight cron-based health monitor for the trading bot. Runs every 15 minutes
 logs failures. **No `claude` invocation. No `gh` invocation. No `git` write.**
 
 Tier-2 (autonomous agentic diagnosis + auto-PR via the Claude CLI print-mode flag) was
-deleted in Phase 5 (MLCL-03, ADR-011, 2026-05-13). This directory now contains only the
+deleted in Phase 5 (MLCL-03, ADR-026 (formerly docs ADR-011), 2026-05-13). This directory now contains only the
 tier-1 health checker and operator helpers.
 
 ```
@@ -102,15 +102,15 @@ failure log and decides what to do.
 - `logs/monitor_tier1_failures.jsonl` — structured JSONL of all tier-1 failure events
 - `logs/monitor_cron.log` — raw cron stdout/stderr
 
-## What is NOT here (by design, per ADR-011)
+## What is NOT here (by design, per ADR-026)
 
 - **`tier2_escalate.sh`** — deleted. Invoked the Claude CLI in autonomous mode.
-  High attack surface (STRIDE T-05-03-01..06). See ADR-011.
+  High attack surface (STRIDE T-05-03-01..06). See ADR-026.
 - **`tier2_mission.md`** — deleted. Was the mission prompt fed to the claude subprocess.
 - **`auto_pr_janitor.sh`** — deleted. Was the stale-PR janitor using `gh` CLI.
 - **Auto-merge** — never was, never will be. You review.
 - **Autonomous LLM invocation of any kind** — confirmed absent. The grep gate at
   `tests/security/test_no_unattended_claude_p_in_ci.py` enforces this invariant in CI.
 
-See `docs/decisions/ADR-011-monitoring-disposition.md` for the full disposition record and
+See `wiki/decisions/ADR-026-monitoring-disposition.md` for the full disposition record and
 the threat analysis that motivated it.

@@ -155,5 +155,12 @@ def test_schema_version_returns_max(tmp_path):
     db_path = tmp_path / "lb.db"
     run_migrations(db_path, MIGRATIONS_DIR)
     db = LeaderboardDB(db_path)
-    assert db.schema_version() == 1
+    # schema_version() returns MAX(version) — must equal the highest migration
+    # file on disk (currently 0002_mlgate_evidence_columns.sql). Update this
+    # alongside any new ####_*.sql added to services/tournament-harness/migrations/.
+    expected = max(
+        int(p.stem.split("_", 1)[0])
+        for p in MIGRATIONS_DIR.glob("[0-9][0-9][0-9][0-9]_*.sql")
+    )
+    assert db.schema_version() == expected
     db.close()

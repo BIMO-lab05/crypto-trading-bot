@@ -20,16 +20,28 @@ class Settings(BaseSettings):
     market_data_url: str = "http://localhost:8002"
 
     # Risk Management Parameters
+    #
+    # Defaults align with PAPER-mode operating range (ADR-010, ADR-017):
+    #   - trading-engine paper: max_risk_per_trade=0.10 (10%/trade)
+    #   - ensemble sizing produces 5-10% positions per symbol
+    #   - 5 active symbols → expected gross 25-50% under normal operation
+    # Older 0.02/0.20 defaults were sized for the pre-ADR-010 2%/trade era
+    # and caused the CB to false-trip every loop in paper mode (observed
+    # 2026-05-19: real exposure 32.5% > old 24% trip threshold).
+    #
+    # For LIVE mode, override via env vars in deployment config:
+    #   MAX_POSITION_SIZE=0.02 (matches 2% LIVE per-trade cap)
+    #   MAX_EXPOSURE=0.20 (matches tighter live risk budget)
     max_portfolio_risk: float = 0.05  # 5% max portfolio risk
-    max_position_size: float = 0.02   # 2% max per position
+    max_position_size: float = 0.10  # 10% per-position alert threshold (paper)
     max_drawdown_threshold: float = 0.10  # 10% max drawdown before alert
-    max_daily_loss: float = 0.05      # 5% daily loss limit
-    max_exposure: float = 0.20        # 20% max total exposure
+    max_daily_loss: float = 0.05  # 5% daily loss limit
+    max_exposure: float = 0.50  # 50% max gross exposure (paper)
 
     # Performance Metrics
-    risk_free_rate: float = 0.04      # 4% annual risk-free rate
+    risk_free_rate: float = 0.04  # 4% annual risk-free rate
     target_sharpe_ratio: float = 1.5  # Target Sharpe ratio
-    lookback_period_days: int = 30    # Lookback period for metrics
+    lookback_period_days: int = 30  # Lookback period for metrics
 
     # Circuit Breakers - Advanced Configuration
     enable_circuit_breaker: bool = True
@@ -37,8 +49,12 @@ class Settings(BaseSettings):
 
     # Circuit Breaker State Machine Settings
     circuit_breaker_half_open_max_requests: int = 1  # Max requests in HALF_OPEN state
-    circuit_breaker_failure_threshold: int = 3  # Consecutive failures before extending cooldown
-    circuit_breaker_cooldown_multiplier: float = 2.0  # Multiply cooldown on repeated failures
+    circuit_breaker_failure_threshold: int = (
+        3  # Consecutive failures before extending cooldown
+    )
+    circuit_breaker_cooldown_multiplier: float = (
+        2.0  # Multiply cooldown on repeated failures
+    )
     circuit_breaker_max_cooldown: int = 3600  # Maximum cooldown period (1 hour)
 
     # Circuit Breaker Trip Thresholds (can differ from alerting thresholds)

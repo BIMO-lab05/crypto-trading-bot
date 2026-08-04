@@ -116,6 +116,7 @@ def test_safety_state_returns_full_d08_schema(test_client, mock_proxy):
         "auto_trading_enabled",
         "emergency_stop",
         "ml_predictions_enabled",
+        "sentiment_analysis_enabled",
         "kill_switch",
         "last_updated_at",
     ):
@@ -324,3 +325,43 @@ def test_proxy_returns_jsonresponse_decoded_via_body_decode(test_client, mock_pr
     assert body["emergency_stop"]["mtime"] == "2026-05-13T11:00:00+00:00"
     assert body["kill_switch"]["tripped"] is True
     assert body["kill_switch"]["daily_pnl_pct"] == pytest.approx(-7.4)
+
+
+def test_sentiment_analysis_enabled_reads_env_true(test_client, mock_proxy):
+    """When ENABLE_SENTIMENT_ANALYSIS=true env is set, the response field
+    sentiment_analysis_enabled is True. Regression guard for the env-read
+    site (debug session phase3-feature-flag-ungated, 2026-05-19); a future
+    autoflake/refactor that drops the env read would silently default the
+    flag to False and the Phase3 frontend gate would stay shut even when
+    the operator has flipped sentiment ON. This test catches that drift."""
+    mock_proxy.proxy_request.side_effect = _route_proxy(
+        _default_status_payload(), _default_budget_payload()
+    )
+    with patch.dict(os.environ, {"ENABLE_SENTIMENT_ANALYSIS": "true"}):
+        resp = test_client.get("/api/config/safety-state")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["sentiment_analysis_enabled"] is True, (
+        "ENABLE_SENTIMENT_ANALYSIS=true env must surface as "
+        "sentiment_analysis_enabled=True in the response"
+    )
+
+
+def test_sentiment_analysis_enabled_defaults_false(test_client, mock_proxy):
+    """When ENABLE_SENTIMENT_ANALYSIS env is unset, the response field
+    sentiment_analysis_enabled defaults to False (matches the compose default
+    and the Phase3 frontend's `enabled: sentimentAnalysisEnabled === true`
+    gate semantics)."""
+    mock_proxy.proxy_request.side_effect = _route_proxy(
+        _default_status_payload(), _default_budget_payload()
+    )
+    # Explicitly remove the env var to test default. patch.dict with clear=False
+    # then pop the key if present.
+    env_override = {
+        k: v for k, v in os.environ.items() if k != "ENABLE_SENTIMENT_ANALYSIS"
+    }
+    with patch.dict(os.environ, env_override, clear=True):
+        resp = test_client.get("/api/config/safety-state")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["sentiment_analysis_enabled"] is False, (
+        "Unset ENABLE_SENTIMENT_ANALYSIS env must default to False (compose default)"
+    )

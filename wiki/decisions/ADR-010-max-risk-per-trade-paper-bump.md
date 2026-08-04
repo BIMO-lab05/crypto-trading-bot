@@ -6,7 +6,7 @@ context: "$100 paper balance + 2% cap = $2/trade — too small for meaningful pa
 deciders: [operator]
 tags: [decision, adr, risk, paper-trading]
 created: 2026-05-06
-updated: 2026-05-06
+updated: 2026-07-29
 ---
 
 # ADR-010: max_risk_per_trade bumped 0.02 → 0.10 for paper-trading sizing
@@ -21,10 +21,18 @@ Outcome: most signals were either rejected by the min-notional gate or executed 
 
 `services/trading-engine/app/config.py:321` default `max_risk_per_trade` raised from `0.02` to `0.10` (10% of balance).
 
-This is **paper-mode only**. The cap is read by `auto_trader.py:1837` and gates final notional. At $100 balance, max trade = $10 notional, which clears Bybit minimums for the validated symbols and produces a measurable PnL distribution.
+This is **paper-mode only**. The cap is read in the sizing path and gates final notional. At $100 balance, max trade = $10 notional, which clears Bybit minimums for the validated symbols and produces a measurable PnL distribution.
+
+### Enforcement semantics (updated 2026-07-28)
+
+The cap no longer **rejects-and-skips** an oversized trade. Two changes landed in the fix campaign:
+
+- **CLAMP instead of reject.** When the final notional exceeds `balance × cap_fraction`, the trade is resized *down* to the cap (`position_value = cap_value`, quantity recomputed) rather than dropped. The reject idiom was starving the research/hybrid entry path of 100 % of its signals — symbol allocations (25–30 %) always exceeded the 10 % cap, so every correctly-signalled trade on that path was thrown away, leaving only weaker-gated paths to trade. Clamping keeps the cap enforced *and* lets valid trades through. A `risk_limit_breaches_total{breach_type="position_size"}` metric still increments so the clamp is observable. See `auto_trader.py:1989-2022` and `auto_trader.py:3782-3796`.
+- **HARD 2 % floor in LIVE.** When `TRADING_MODE=LIVE`, the cap fraction is forced to `min(cap_fraction, 0.02)` at runtime — the 10 % paper relaxation can no longer silently carry into LIVE if an env override forgets to restore it. This is a code-level guard, not just operator discipline. See `auto_trader.py:1995-1996` and `auto_trader.py:3785-3786`.
 
 The cap remains **non-negotiable for live trading**. When `TRADING_MODE=LIVE`:
-- The pre-live operational checklist must verify `MAX_RISK_PER_TRADE` is back to ≤ 0.02 (or whatever post-paper analysis justifies), AND
+- The runtime `min(cap, 0.02)` clamp enforces ≤ 2 % regardless of `MAX_RISK_PER_TRADE`.
+- The pre-live operational checklist should still set `MAX_RISK_PER_TRADE` back to ≤ 0.02 for clarity, AND
 - A follow-up ADR documents the live-time cap with capital basis.
 
 ## Consequences
@@ -36,8 +44,10 @@ The cap remains **non-negotiable for live trading**. When `TRADING_MODE=LIVE`:
 
 ## Related
 
-- `services/trading-engine/app/config.py:321-332`
-- `services/trading-engine/app/auto_trader.py:1832-1850` (cap-enforcement gate)
+- `services/trading-engine/app/config.py:321-337` (default `max_risk_per_trade=0.10`)
+- `services/trading-engine/app/auto_trader.py:1989-2022` (cap CLAMP + LIVE floor, research/hybrid path)
+- `services/trading-engine/app/auto_trader.py:3782-3796` (cap CLAMP + LIVE floor, second sizing path)
 - ADR-004 paper-trading-default
 - ADR-006 mainnet-prices-paper-orders
+- [[ADR-018-paper-engine-accounting-overhaul]] (companion accounting fixes)
 - `CLAUDE.md` § Project rules

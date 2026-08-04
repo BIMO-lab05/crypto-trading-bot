@@ -32,8 +32,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional
-from uuid import UUID, uuid4
+from typing import Any, Dict, List, Optional
 
 import httpx
 from pydantic import BaseModel
@@ -64,10 +63,7 @@ from app.exchanges.errors import (
     ConnectionError,
     DataUnavailableError,
     ExchangeError,
-    InsufficientBalanceError,
-    InvalidQuantityError,
     InvalidSymbolError,
-    OrderAlreadyCancelledError,
     OrderNotFoundError,
     OrderRejectedError,
     RateLimitError,
@@ -83,6 +79,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # RATE LIMITER
 # ============================================================================
+
 
 class RateLimiter:
     """
@@ -144,6 +141,7 @@ class RateLimiter:
 # BYBIT ADAPTER CONFIGURATION
 # ============================================================================
 
+
 class BybitAdapterConfig(BaseModel):
     """
     Configuration specific to Bybit adapter
@@ -155,6 +153,7 @@ class BybitAdapterConfig(BaseModel):
         default_category: Default product category (linear, inverse, spot)
         account_type: Bybit account type (UNIFIED, CONTRACT, etc.)
     """
+
     connector_url: str = "http://localhost:8001"
     default_category: str = "linear"
     account_type: str = "UNIFIED"
@@ -165,6 +164,7 @@ class BybitAdapterConfig(BaseModel):
 # ============================================================================
 # BYBIT EXCHANGE ADAPTER
 # ============================================================================
+
 
 class BybitExchangeAdapter(ExchangeInterface):
     """
@@ -202,7 +202,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         self,
         config: ExchangeConfig,
         connector_url: str = "http://localhost:8001",
-        account_type: str = "UNIFIED"
+        account_type: str = "UNIFIED",
     ):
         """
         Initialize Bybit adapter
@@ -232,7 +232,6 @@ class BybitExchangeAdapter(ExchangeInterface):
             perpetual_trading=True,
             margin_trading=False,
             options_trading=True,
-
             # Order types
             market_orders=True,
             limit_orders=True,
@@ -240,20 +239,16 @@ class BybitExchangeAdapter(ExchangeInterface):
             trailing_stop=True,
             post_only=True,
             reduce_only=True,
-
             # WebSocket
             websocket_public=True,
             websocket_private=True,
             orderbook_depth=200,
-
             # Rate limits (conservative)
             rate_limit_per_second=10,
             order_rate_limit=10,
-
             # Trading
             max_leverage=100,
             min_order_size_usd=1.0,
-
             # Environment
             testnet_available=True,
             sandbox_mode=False,
@@ -284,12 +279,9 @@ class BybitExchangeAdapter(ExchangeInterface):
         self._client = httpx.AsyncClient(
             base_url=self._connector_url,
             timeout=httpx.Timeout(
-                connect=5.0,
-                read=self._config.timeout,
-                write=10.0,
-                pool=10.0
+                connect=5.0, read=self._config.timeout, write=10.0, pool=10.0
             ),
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
         )
 
         # Verify connectivity with health check
@@ -297,13 +289,11 @@ class BybitExchangeAdapter(ExchangeInterface):
             health_ok = await self.health_check()
             if not health_ok:
                 raise ConnectionError(
-                    message="Bybit connector health check failed",
-                    exchange="bybit"
+                    message="Bybit connector health check failed", exchange="bybit"
                 )
         except httpx.HTTPError as e:
             raise ConnectionError(
-                message=f"Failed to connect to bybit-connector: {e}",
-                exchange="bybit"
+                message=f"Failed to connect to bybit-connector: {e}", exchange="bybit"
             )
 
         # Validate credentials by fetching balance
@@ -349,7 +339,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
         json_data: Optional[Dict[str, Any]] = None,
-        retries: int = 3
+        retries: int = 3,
     ) -> Dict[str, Any]:
         """
         Make HTTP request to bybit-connector with retry logic
@@ -368,10 +358,7 @@ class BybitExchangeAdapter(ExchangeInterface):
             ExchangeError: On request failure
         """
         if not self._client:
-            raise ConnectionError(
-                message="Adapter not initialized",
-                exchange="bybit"
-            )
+            raise ConnectionError(message="Adapter not initialized", exchange="bybit")
 
         # Apply rate limiting
         await self._rate_limiter.wait_and_acquire()
@@ -382,10 +369,7 @@ class BybitExchangeAdapter(ExchangeInterface):
             try:
                 # Make request
                 response = await self._client.request(
-                    method=method,
-                    url=endpoint,
-                    params=params,
-                    json=json_data
+                    method=method, url=endpoint, params=params, json=json_data
                 )
 
                 # Parse response.
@@ -398,7 +382,9 @@ class BybitExchangeAdapter(ExchangeInterface):
                 data = response.json()
 
                 if response.status_code >= 400:
-                    detail = data.get("detail") or data.get("message") or "Unknown error"
+                    detail = (
+                        data.get("detail") or data.get("message") or "Unknown error"
+                    )
                     # Caller infrastructure expects a numeric retCode; reuse
                     # the HTTP status as a proxy when Bybit's code isn't
                     # available through this layer.
@@ -408,10 +394,11 @@ class BybitExchangeAdapter(ExchangeInterface):
 
             except httpx.TimeoutException as e:
                 last_error = TimeoutError(
-                    message=f"Request timed out: {e}",
-                    exchange="bybit"
+                    message=f"Request timed out: {e}", exchange="bybit"
                 )
-                logger.warning(f"Request timeout (attempt {attempt + 1}/{retries}): {e}")
+                logger.warning(
+                    f"Request timeout (attempt {attempt + 1}/{retries}): {e}"
+                )
 
             except httpx.HTTPStatusError as e:
                 # Map HTTP status to exception
@@ -421,13 +408,12 @@ class BybitExchangeAdapter(ExchangeInterface):
                     raise AuthenticationError(exchange="bybit")
                 elif e.response.status_code == 403:
                     raise AuthenticationError(
-                        message="Permission denied",
-                        exchange="bybit"
+                        message="Permission denied", exchange="bybit"
                     )
                 else:
                     last_error = ExchangeError(
                         message=f"HTTP {e.response.status_code}: {e.response.text}",
-                        exchange="bybit"
+                        exchange="bybit",
                     )
 
             except RateLimitError as e:
@@ -442,14 +428,13 @@ class BybitExchangeAdapter(ExchangeInterface):
 
             except Exception as e:
                 last_error = ConnectionError(
-                    message=f"Request failed: {e}",
-                    exchange="bybit"
+                    message=f"Request failed: {e}", exchange="bybit"
                 )
                 logger.warning(f"Request error (attempt {attempt + 1}/{retries}): {e}")
 
             # Exponential backoff before retry
             if attempt < retries - 1:
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
 
         # All retries exhausted
         if last_error:
@@ -460,10 +445,7 @@ class BybitExchangeAdapter(ExchangeInterface):
     # ACCOUNT METHODS
     # ========================================================================
 
-    async def get_balance(
-        self,
-        asset: Optional[str] = None
-    ) -> AccountBalance:
+    async def get_balance(self, asset: Optional[str] = None) -> AccountBalance:
         """
         Get account balance from bybit-connector
 
@@ -473,15 +455,16 @@ class BybitExchangeAdapter(ExchangeInterface):
         Returns:
             Account balance information
         """
-        params = {"accountType": self._account_type}
+        # Phase 18 WR-02: connector route declares snake_case account_type
+        # (services/bybit-connector/app/main.py:536). camelCase key silently
+        # falls through to the FastAPI default — override was a no-op.
+        params = {"account_type": self._account_type}
         if asset:
             params["coin"] = asset.upper()
 
         try:
             result = await self._request(
-                "GET",
-                "/api/v1/account/balance",
-                params=params
+                "GET", "/api/v1/account/balance", params=params
             )
 
             # Parse response into AccountBalance
@@ -492,8 +475,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         except Exception as e:
             logger.error(f"Failed to get balance: {e}")
             raise ConnectionError(
-                message=f"Failed to get balance: {e}",
-                exchange="bybit"
+                message=f"Failed to get balance: {e}", exchange="bybit"
             )
 
     def _parse_balance(self, data: Dict[str, Any]) -> AccountBalance:
@@ -512,11 +494,13 @@ class BybitExchangeAdapter(ExchangeInterface):
 
         for account in coin_list:
             for coin_data in account.get("coin", []):
-                assets.append(AssetBalance(
-                    asset=coin_data.get("coin", ""),
-                    free=Decimal(str(coin_data.get("availableToWithdraw", "0"))),
-                    locked=Decimal(str(coin_data.get("locked", "0")))
-                ))
+                assets.append(
+                    AssetBalance(
+                        asset=coin_data.get("coin", ""),
+                        free=Decimal(str(coin_data.get("availableToWithdraw", "0"))),
+                        locked=Decimal(str(coin_data.get("locked", "0"))),
+                    )
+                )
 
         # Get total equity (first account)
         total_equity = Decimal("0")
@@ -539,13 +523,11 @@ class BybitExchangeAdapter(ExchangeInterface):
             used_margin=used_margin,
             unrealized_pnl=unrealized_pnl,
             assets=assets,
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
 
     async def get_positions(
-        self,
-        symbol: Optional[str] = None,
-        product_type: Optional[ProductType] = None
+        self, symbol: Optional[str] = None, product_type: Optional[ProductType] = None
     ) -> List[UnifiedPosition]:
         """
         Get open positions
@@ -564,9 +546,7 @@ class BybitExchangeAdapter(ExchangeInterface):
 
         try:
             result = await self._request(
-                "GET",
-                "/api/v1/position/list",
-                params=params
+                "GET", "/api/v1/account/positions", params=params
             )
 
             # Parse positions
@@ -583,14 +563,11 @@ class BybitExchangeAdapter(ExchangeInterface):
         except Exception as e:
             logger.error(f"Failed to get positions: {e}")
             raise ConnectionError(
-                message=f"Failed to get positions: {e}",
-                exchange="bybit"
+                message=f"Failed to get positions: {e}", exchange="bybit"
             )
 
     def _parse_position(
-        self,
-        data: Dict[str, Any],
-        category: str
+        self, data: Dict[str, Any], category: str
     ) -> Optional[UnifiedPosition]:
         """
         Parse Bybit position into unified model
@@ -633,13 +610,15 @@ class BybitExchangeAdapter(ExchangeInterface):
             quantity=abs(size),
             entry_price=Decimal(str(data.get("avgPrice", "0"))),
             mark_price=Decimal(str(data.get("markPrice", "0"))),
-            liquidation_price=Decimal(str(data.get("liqPrice", "0"))) if data.get("liqPrice") else None,
+            liquidation_price=Decimal(str(data.get("liqPrice", "0")))
+            if data.get("liqPrice")
+            else None,
             unrealized_pnl=Decimal(str(data.get("unrealisedPnl", "0"))),
             realized_pnl=Decimal(str(data.get("cumRealisedPnl", "0"))),
             leverage=int(data.get("leverage", 1)),
             margin=Decimal(str(data.get("positionIM", "0"))),
             margin_mode=data.get("tradeMode", "cross"),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
 
     # ========================================================================
@@ -661,20 +640,66 @@ class BybitExchangeAdapter(ExchangeInterface):
 
         try:
             result = await self._request(
-                "POST",
-                "/api/v1/order/create",
-                json_data=payload
+                "POST", "/api/v1/order/place", json_data=payload
             )
 
+            # Phase 18 WR-03: guard against silent rejection. Tape client
+            # (and real Bybit under some edge cases) can return
+            # {'orderId': '', 'orderStatus': 'Rejected'} on unroutable
+            # requests. Previously we hard-coded status = NEW and stored
+            # an empty exchange_order_id, so downstream cancel_order /
+            # get_order_status silently no-op'd against a nonexistent
+            # order and Phase 19 recon would look up phantoms.
+            raw_status = str(result.get("orderStatus") or "").lower()
+            raw_order_id = result.get("orderId") or ""
+            if raw_status == "rejected" or not raw_order_id:
+                raise OrderRejectedError(
+                    reason=(
+                        f"Exchange rejected order (orderId={raw_order_id!r}, "
+                        f"orderStatus={result.get('orderStatus')!r})"
+                    ),
+                    exchange="bybit",
+                )
+
             # Update order with result
-            order.exchange_order_id = result.get("orderId")
+            order.exchange_order_id = raw_order_id
             order.client_order_id = result.get("orderLinkId") or str(order.id)
-            order.status = OrderStatus.NEW
+            # Phase 18 WR-01: propagate exchange-reported terminal status
+            # (D-05 promise: tape returns 'Filled' + avgPrice + cumExecQty).
+            # Previously status was hard-coded to NEW even when the exchange
+            # reported Filled, breaking the deterministic-FILLED contract at
+            # the adapter boundary. Reuse the same status_map _parse_order
+            # uses so behaviour stays consistent across code paths.
+            status_map = {
+                "Created": OrderStatus.PENDING,
+                "New": OrderStatus.NEW,
+                "PartiallyFilled": OrderStatus.PARTIALLY_FILLED,
+                "Filled": OrderStatus.FILLED,
+                "Cancelled": OrderStatus.CANCELLED,
+                "Rejected": OrderStatus.REJECTED,
+                "Expired": OrderStatus.EXPIRED,
+            }
+            order.status = status_map.get(
+                result.get("orderStatus", "New"), OrderStatus.NEW
+            )
+            cum_exec_qty = result.get("cumExecQty")
+            if cum_exec_qty is not None:
+                try:
+                    order.filled_quantity = Decimal(str(cum_exec_qty))
+                except (ArithmeticError, ValueError):
+                    pass
+            avg_price = result.get("avgPrice")
+            if avg_price is not None:
+                try:
+                    order.filled_price = Decimal(str(avg_price))
+                except (ArithmeticError, ValueError):
+                    pass
             order.updated_at = datetime.now(timezone.utc)
 
             logger.info(
                 f"Order placed: {order.symbol} {order.side.value} {order.quantity} "
-                f"@ {order.price or 'MARKET'} (id={order.exchange_order_id})"
+                f"@ {order.price or 'MARKET'} (id={order.exchange_order_id}, "
+                f"status={order.status.value})"
             )
 
             return order
@@ -683,10 +708,7 @@ class BybitExchangeAdapter(ExchangeInterface):
             raise
         except Exception as e:
             logger.error(f"Failed to place order: {e}")
-            raise OrderRejectedError(
-                reason=str(e),
-                exchange="bybit"
-            )
+            raise OrderRejectedError(reason=str(e), exchange="bybit")
 
     def _order_to_bybit(self, order: UnifiedOrder) -> Dict[str, Any]:
         """
@@ -750,7 +772,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         self,
         symbol: str,
         order_id: Optional[str] = None,
-        client_order_id: Optional[str] = None
+        client_order_id: Optional[str] = None,
     ) -> UnifiedOrder:
         """
         Cancel an order
@@ -765,8 +787,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         """
         if not order_id and not client_order_id:
             raise ValidationError(
-                message="Either order_id or client_order_id required",
-                exchange="bybit"
+                message="Either order_id or client_order_id required", exchange="bybit"
             )
 
         payload = {
@@ -781,9 +802,7 @@ class BybitExchangeAdapter(ExchangeInterface):
 
         try:
             result = await self._request(
-                "POST",
-                "/api/v1/order/cancel",
-                json_data=payload
+                "POST", "/api/v1/order/cancel", json_data=payload
             )
 
             # Build cancelled order response
@@ -797,7 +816,7 @@ class BybitExchangeAdapter(ExchangeInterface):
                 order_type=OrderType.MARKET,  # Placeholder
                 quantity=Decimal("0"),  # Will be updated
                 status=OrderStatus.CANCELLED,
-                updated_at=datetime.now(timezone.utc)
+                updated_at=datetime.now(timezone.utc),
             )
 
         except ExchangeError:
@@ -805,16 +824,14 @@ class BybitExchangeAdapter(ExchangeInterface):
         except Exception as e:
             logger.error(f"Failed to cancel order: {e}")
             raise OrderNotFoundError(
-                order_id=order_id,
-                client_order_id=client_order_id,
-                exchange="bybit"
+                order_id=order_id, client_order_id=client_order_id, exchange="bybit"
             )
 
     async def get_order_status(
         self,
         symbol: str,
         order_id: Optional[str] = None,
-        client_order_id: Optional[str] = None
+        client_order_id: Optional[str] = None,
     ) -> UnifiedOrder:
         """
         Get order status
@@ -827,6 +844,13 @@ class BybitExchangeAdapter(ExchangeInterface):
         Returns:
             Order with current status
         """
+        # Phase 18 WR-04: connector /api/v1/order/open route only accepts
+        # category/symbol/limit; orderId/orderLinkId are echoed but ignored
+        # server-side (D-11 deferred query-schema drift). Send the filters
+        # anyway (harmless, future-compatible) but also filter client-side
+        # after the response so a symbol with multiple open orders returns
+        # the requested one, not the first entry the exchange happens to
+        # sort to the top.
         params = {
             "category": self._default_category,
             "symbol": symbol.upper(),
@@ -838,31 +862,37 @@ class BybitExchangeAdapter(ExchangeInterface):
             params["orderLinkId"] = client_order_id
 
         try:
-            result = await self._request(
-                "GET",
-                "/api/v1/order/realtime",
-                params=params
-            )
+            result = await self._request("GET", "/api/v1/order/open", params=params)
 
             # Parse order from result
             order_list = result.get("list", [])
             if not order_list:
                 raise OrderNotFoundError(
-                    order_id=order_id,
-                    client_order_id=client_order_id,
-                    exchange="bybit"
+                    order_id=order_id, client_order_id=client_order_id, exchange="bybit"
                 )
 
-            return self._parse_order(order_list[0])
+            # Client-side filter (WR-04): connector route ignores id filters
+            # so we must not just trust the first list entry.
+            def _matches(entry: Dict[str, Any]) -> bool:
+                if order_id and entry.get("orderId") != order_id:
+                    return False
+                if client_order_id and entry.get("orderLinkId") != client_order_id:
+                    return False
+                return True
+
+            filtered = [entry for entry in order_list if _matches(entry)]
+            if not filtered:
+                raise OrderNotFoundError(
+                    order_id=order_id, client_order_id=client_order_id, exchange="bybit"
+                )
+
+            return self._parse_order(filtered[0])
 
         except ExchangeError:
             raise
         except Exception as e:
             logger.error(f"Failed to get order status: {e}")
-            raise OrderNotFoundError(
-                order_id=order_id,
-                exchange="bybit"
-            )
+            raise OrderNotFoundError(order_id=order_id, exchange="bybit")
 
     def _parse_order(self, data: Dict[str, Any]) -> UnifiedOrder:
         """
@@ -902,18 +932,20 @@ class BybitExchangeAdapter(ExchangeInterface):
         updated_time = data.get("updatedTime", "")
 
         try:
-            created_at = datetime.fromtimestamp(
-                int(created_time) / 1000,
-                tz=timezone.utc
-            ) if created_time else datetime.now(timezone.utc)
+            created_at = (
+                datetime.fromtimestamp(int(created_time) / 1000, tz=timezone.utc)
+                if created_time
+                else datetime.now(timezone.utc)
+            )
         except (ValueError, TypeError):
             created_at = datetime.now(timezone.utc)
 
         try:
-            updated_at = datetime.fromtimestamp(
-                int(updated_time) / 1000,
-                tz=timezone.utc
-            ) if updated_time else datetime.now(timezone.utc)
+            updated_at = (
+                datetime.fromtimestamp(int(updated_time) / 1000, tz=timezone.utc)
+                if updated_time
+                else datetime.now(timezone.utc)
+            )
         except (ValueError, TypeError):
             updated_at = datetime.now(timezone.utc)
 
@@ -931,16 +963,16 @@ class BybitExchangeAdapter(ExchangeInterface):
             reduce_only=data.get("reduceOnly", False),
             status=status_map.get(data.get("orderStatus", "New"), OrderStatus.NEW),
             filled_quantity=Decimal(str(data.get("cumExecQty", "0"))),
-            filled_price=Decimal(str(data.get("avgPrice", "0"))) if data.get("avgPrice") else None,
+            filled_price=Decimal(str(data.get("avgPrice", "0")))
+            if data.get("avgPrice")
+            else None,
             commission=Decimal(str(data.get("cumExecFee", "0"))),
             created_at=created_at,
-            updated_at=updated_at
+            updated_at=updated_at,
         )
 
     async def get_open_orders(
-        self,
-        symbol: Optional[str] = None,
-        product_type: Optional[ProductType] = None
+        self, symbol: Optional[str] = None, product_type: Optional[ProductType] = None
     ) -> List[UnifiedOrder]:
         """
         Get all open orders
@@ -958,11 +990,7 @@ class BybitExchangeAdapter(ExchangeInterface):
             params["symbol"] = symbol.upper()
 
         try:
-            result = await self._request(
-                "GET",
-                "/api/v1/order/realtime",
-                params=params
-            )
+            result = await self._request("GET", "/api/v1/order/open", params=params)
 
             orders = []
             for order_data in result.get("list", []):
@@ -992,17 +1020,10 @@ class BybitExchangeAdapter(ExchangeInterface):
         Returns:
             Ticker data
         """
-        params = {
-            "category": self._default_category,
-            "symbol": symbol.upper()
-        }
+        params = {"category": self._default_category, "symbol": symbol.upper()}
 
         try:
-            result = await self._request(
-                "GET",
-                "/api/v1/market/tickers",
-                params=params
-            )
+            result = await self._request("GET", "/api/v1/market/ticker", params=params)
 
             ticker_list = result.get("list", [])
             if not ticker_list:
@@ -1013,13 +1034,25 @@ class BybitExchangeAdapter(ExchangeInterface):
                 exchange=ExchangeName.BYBIT,
                 symbol=data.get("symbol", symbol),
                 last_price=Decimal(str(data.get("lastPrice", "0"))),
-                bid_price=Decimal(str(data.get("bid1Price", "0"))) if data.get("bid1Price") else None,
-                ask_price=Decimal(str(data.get("ask1Price", "0"))) if data.get("ask1Price") else None,
-                high_24h=Decimal(str(data.get("highPrice24h", "0"))) if data.get("highPrice24h") else None,
-                low_24h=Decimal(str(data.get("lowPrice24h", "0"))) if data.get("lowPrice24h") else None,
-                volume_24h=Decimal(str(data.get("volume24h", "0"))) if data.get("volume24h") else None,
-                change_24h=float(data.get("price24hPcnt", "0")) * 100 if data.get("price24hPcnt") else None,
-                timestamp=datetime.now(timezone.utc)
+                bid_price=Decimal(str(data.get("bid1Price", "0")))
+                if data.get("bid1Price")
+                else None,
+                ask_price=Decimal(str(data.get("ask1Price", "0")))
+                if data.get("ask1Price")
+                else None,
+                high_24h=Decimal(str(data.get("highPrice24h", "0")))
+                if data.get("highPrice24h")
+                else None,
+                low_24h=Decimal(str(data.get("lowPrice24h", "0")))
+                if data.get("lowPrice24h")
+                else None,
+                volume_24h=Decimal(str(data.get("volume24h", "0")))
+                if data.get("volume24h")
+                else None,
+                change_24h=float(data.get("price24hPcnt", "0")) * 100
+                if data.get("price24hPcnt")
+                else None,
+                timestamp=datetime.now(timezone.utc),
             )
 
         except ExchangeError:
@@ -1027,16 +1060,10 @@ class BybitExchangeAdapter(ExchangeInterface):
         except Exception as e:
             logger.error(f"Failed to get ticker: {e}")
             raise DataUnavailableError(
-                data_type="ticker",
-                exchange="bybit",
-                symbol=symbol
+                data_type="ticker", exchange="bybit", symbol=symbol
             )
 
-    async def get_orderbook(
-        self,
-        symbol: str,
-        depth: int = 25
-    ) -> OrderBook:
+    async def get_orderbook(self, symbol: str, depth: int = 25) -> OrderBook:
         """
         Get orderbook for symbol
 
@@ -1050,21 +1077,18 @@ class BybitExchangeAdapter(ExchangeInterface):
         params = {
             "category": self._default_category,
             "symbol": symbol.upper(),
-            "limit": min(depth, 200)
+            "limit": min(depth, 200),
         }
 
         try:
             result = await self._request(
-                "GET",
-                "/api/v1/market/orderbook",
-                params=params
+                "GET", "/api/v1/market/orderbook", params=params
             )
 
             # Parse bids
             bids = [
                 OrderBookLevel(
-                    price=Decimal(str(level[0])),
-                    quantity=Decimal(str(level[1]))
+                    price=Decimal(str(level[0])), quantity=Decimal(str(level[1]))
                 )
                 for level in result.get("b", [])
             ]
@@ -1072,8 +1096,7 @@ class BybitExchangeAdapter(ExchangeInterface):
             # Parse asks
             asks = [
                 OrderBookLevel(
-                    price=Decimal(str(level[0])),
-                    quantity=Decimal(str(level[1]))
+                    price=Decimal(str(level[0])), quantity=Decimal(str(level[1]))
                 )
                 for level in result.get("a", [])
             ]
@@ -1083,7 +1106,7 @@ class BybitExchangeAdapter(ExchangeInterface):
                 symbol=symbol,
                 bids=bids,
                 asks=asks,
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(timezone.utc),
             )
 
         except ExchangeError:
@@ -1091,16 +1114,10 @@ class BybitExchangeAdapter(ExchangeInterface):
         except Exception as e:
             logger.error(f"Failed to get orderbook: {e}")
             raise DataUnavailableError(
-                data_type="orderbook",
-                exchange="bybit",
-                symbol=symbol
+                data_type="orderbook", exchange="bybit", symbol=symbol
             )
 
-    async def get_trades(
-        self,
-        symbol: str,
-        limit: int = 100
-    ) -> List[Trade]:
+    async def get_trades(self, symbol: str, limit: int = 100) -> List[Trade]:
         """
         Get recent trades
 
@@ -1114,35 +1131,36 @@ class BybitExchangeAdapter(ExchangeInterface):
         params = {
             "category": self._default_category,
             "symbol": symbol.upper(),
-            "limit": min(limit, 1000)
+            "limit": min(limit, 1000),
         }
 
         try:
             result = await self._request(
-                "GET",
-                "/api/v1/market/recent-trade",
-                params=params
+                "GET", "/api/v1/market/recent-trade", params=params
             )
 
             trades = []
             for trade_data in result.get("list", []):
                 try:
                     timestamp = datetime.fromtimestamp(
-                        int(trade_data.get("time", 0)) / 1000,
-                        tz=timezone.utc
+                        int(trade_data.get("time", 0)) / 1000, tz=timezone.utc
                     )
                 except (ValueError, TypeError):
                     timestamp = datetime.now(timezone.utc)
 
-                trades.append(Trade(
-                    exchange=ExchangeName.BYBIT,
-                    symbol=symbol,
-                    trade_id=trade_data.get("execId", ""),
-                    price=Decimal(str(trade_data.get("price", "0"))),
-                    quantity=Decimal(str(trade_data.get("size", "0"))),
-                    side=OrderSide.BUY if trade_data.get("side") == "Buy" else OrderSide.SELL,
-                    timestamp=timestamp
-                ))
+                trades.append(
+                    Trade(
+                        exchange=ExchangeName.BYBIT,
+                        symbol=symbol,
+                        trade_id=trade_data.get("execId", ""),
+                        price=Decimal(str(trade_data.get("price", "0"))),
+                        quantity=Decimal(str(trade_data.get("size", "0"))),
+                        side=OrderSide.BUY
+                        if trade_data.get("side") == "Buy"
+                        else OrderSide.SELL,
+                        timestamp=timestamp,
+                    )
+                )
 
             return trades
 
@@ -1158,7 +1176,7 @@ class BybitExchangeAdapter(ExchangeInterface):
         interval: str,
         limit: int = 100,
         start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None
+        end_time: Optional[datetime] = None,
     ) -> List[Kline]:
         """
         Get kline data
@@ -1177,7 +1195,7 @@ class BybitExchangeAdapter(ExchangeInterface):
             "category": self._default_category,
             "symbol": symbol.upper(),
             "interval": interval,
-            "limit": min(limit, 1000)
+            "limit": min(limit, 1000),
         }
 
         if start_time:
@@ -1186,39 +1204,35 @@ class BybitExchangeAdapter(ExchangeInterface):
             params["end"] = int(end_time.timestamp() * 1000)
 
         try:
-            result = await self._request(
-                "GET",
-                "/api/v1/market/kline",
-                params=params
-            )
+            result = await self._request("GET", "/api/v1/market/kline", params=params)
 
             klines = []
             for kline_data in result.get("list", []):
                 try:
                     # Bybit returns: [timestamp, open, high, low, close, volume, turnover]
                     open_time = datetime.fromtimestamp(
-                        int(kline_data[0]) / 1000,
-                        tz=timezone.utc
+                        int(kline_data[0]) / 1000, tz=timezone.utc
                     )
                     # Close time is open time + interval
                     interval_seconds = self._parse_interval(interval)
                     close_time = datetime.fromtimestamp(
-                        int(kline_data[0]) / 1000 + interval_seconds,
-                        tz=timezone.utc
+                        int(kline_data[0]) / 1000 + interval_seconds, tz=timezone.utc
                     )
 
-                    klines.append(Kline(
-                        exchange=ExchangeName.BYBIT,
-                        symbol=symbol,
-                        interval=interval,
-                        open_time=open_time,
-                        open=Decimal(str(kline_data[1])),
-                        high=Decimal(str(kline_data[2])),
-                        low=Decimal(str(kline_data[3])),
-                        close=Decimal(str(kline_data[4])),
-                        volume=Decimal(str(kline_data[5])),
-                        close_time=close_time
-                    ))
+                    klines.append(
+                        Kline(
+                            exchange=ExchangeName.BYBIT,
+                            symbol=symbol,
+                            interval=interval,
+                            open_time=open_time,
+                            open=Decimal(str(kline_data[1])),
+                            high=Decimal(str(kline_data[2])),
+                            low=Decimal(str(kline_data[3])),
+                            close=Decimal(str(kline_data[4])),
+                            volume=Decimal(str(kline_data[5])),
+                            close_time=close_time,
+                        )
+                    )
                 except (IndexError, ValueError, TypeError) as e:
                     logger.warning(f"Failed to parse kline: {e}")
                     continue
@@ -1263,11 +1277,12 @@ class BybitExchangeAdapter(ExchangeInterface):
 # FACTORY FUNCTION
 # ============================================================================
 
+
 def create_bybit_adapter(
     api_key: str,
     api_secret: str,
     testnet: bool = True,
-    connector_url: str = "http://localhost:8001"
+    connector_url: str = "http://localhost:8001",
 ) -> BybitExchangeAdapter:
     """
     Factory function to create Bybit adapter
@@ -1285,7 +1300,7 @@ def create_bybit_adapter(
         exchange=ExchangeName.BYBIT,
         api_key=api_key,
         api_secret=api_secret,
-        testnet=testnet
+        testnet=testnet,
     )
 
     return BybitExchangeAdapter(config, connector_url=connector_url)

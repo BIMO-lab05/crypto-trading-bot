@@ -19,6 +19,9 @@ on:
       - 'services/trading-engine/app/preflight/**'
       - 'services/trading-engine/app/handlers/preflight.py'
       - 'tests/e2e/test_path_to_live_smoke.py'
+      - 'tests/e2e/test_responsive_dashboard.py'   # Phase 14 MOBILE-03
+      - 'frontend/tailwind.config.js'              # Phase 14 MOBILE-01 (breakpoint tokens)
+      - 'scripts/audit_responsive.py'              # Phase 14 MOBILE-01 (responsive audit script)
       - '.planning/state/carry_ins.json'
   workflow_dispatch:
 
@@ -47,6 +50,27 @@ jobs:
           pip install playwright httpx
           playwright install --with-deps chromium
 
+      # Phase 14 CR-01 fix: Build the frontend bundle BEFORE the stack boot.
+      # The frontend Dockerfile is a multi-stage build (node:20-alpine builder
+      # -> nginx:alpine runtime) which produces dist/ inside the image, so this
+      # step is defense-in-depth for cache-thrashed CI runners and for any
+      # downstream consumer that still relies on host-side dist/ (e.g. local
+      # `docker compose build` after manual edits). Without this step, an older
+      # single-stage Dockerfile or a misconfigured build context would copy
+      # whatever stale dist/ existed in CI checkout -- gitignored, so empty.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend bundle
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
       - name: Boot stack via bootstrap.sh (paper mode, tape source)
         env:
           MARKET_DATA_SOURCE: tape
@@ -67,10 +91,17 @@ jobs:
           } >> .env
           bash bootstrap.sh
 
-      - name: Run smoke
+      - name: Run smoke (Path-to-LIVE)
         run: |
           pip install pytest-playwright
           pytest tests/e2e/test_path_to_live_smoke.py --screenshot=only-on-failure --video=retain-on-failure -v
+
+      - name: Run smoke (Responsive)
+        # Phase 14 MOBILE-03: iPhone SE (375x667) + iPad portrait (768x1024) viewports
+        # parametrized inside the test file via browser_context_args (indirect=True).
+        # pytest-playwright already installed in previous step; pip cache reused.
+        run: |
+          pytest tests/e2e/test_responsive_dashboard.py --screenshot=only-on-failure --video=retain-on-failure -v
 
       - name: Collect logs
         if: always()

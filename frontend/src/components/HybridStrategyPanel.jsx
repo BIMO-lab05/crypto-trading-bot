@@ -49,11 +49,49 @@ export default function HybridStrategyPanel() {
     currentRegime = 'RANGING'
     regimeColor = 'text-emerald-400'
     regimeIcon = '↔️'
+  } else {
+    // Fallback: ENSEMBLE mode does not emit hybrid_strategy_stats. Sum the
+    // trending vs mean-reverting categories from regime_detector_stats so
+    // the tile reflects live engine state instead of the placeholder.
+    const dist =
+      status.regime_detector_stats?.regime_distribution ||
+      status.regime_distribution ||
+      {}
+    const trendingKeys = ['STRONG_TREND', 'TRENDING', 'WEAK_TREND']
+    const meanRevKeys = ['MEAN_REVERTING', 'RANGING', 'RANGE_BOUND']
+    const trendCount = trendingKeys.reduce((s, k) => s + (dist[k] || 0), 0)
+    const meanRevCount = meanRevKeys.reduce((s, k) => s + (dist[k] || 0), 0)
+    const total = trendCount + meanRevCount
+    if (total > 0 && trendCount > meanRevCount * 1.5) {
+      currentRegime = 'TRENDING'
+      regimeColor = 'text-blue-400'
+      regimeIcon = '📈'
+    } else if (total > 0 && meanRevCount > trendCount * 1.5) {
+      currentRegime = 'RANGING'
+      regimeColor = 'text-emerald-400'
+      regimeIcon = '↔️'
+    }
   }
 
-  // Active strategy based on current majority
-  const activeStrategy = trendPct > meanRevPct ? 'Trend-Following' : 'Mean Reversion'
-  const activeStrategyColor = trendPct > meanRevPct ? 'text-blue-400' : 'text-emerald-400'
+  // Active strategy based on current majority. When hybrid stats are empty
+  // (ENSEMBLE mode) we fall through both branches and surface the engine's
+  // configured strategy_mode so the user sees the actual strategy in use.
+  let activeStrategy = 'Mean Reversion'
+  let activeStrategyColor = 'text-emerald-400'
+  if (trendPct > 0 || meanRevPct > 0) {
+    activeStrategy = trendPct > meanRevPct ? 'Trend-Following' : 'Mean Reversion'
+    activeStrategyColor = trendPct > meanRevPct ? 'text-blue-400' : 'text-emerald-400'
+  } else if (status.strategy_mode) {
+    const modeLabels = {
+      ensemble: 'Ensemble (RSI + Multi-Indicator + Mean-Rev)',
+      research: 'Research',
+      hybrid: 'Hybrid',
+      grid_trading: 'Grid Trading',
+      standard: 'Standard',
+    }
+    activeStrategy = modeLabels[status.strategy_mode] || status.strategy_mode
+    activeStrategyColor = 'text-cyan-400'
+  }
 
   return (
     <div data-testid="hybrid-strategy-panel" style={{ display: 'contents' }}>

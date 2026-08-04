@@ -1,260 +1,292 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-05-12
+**Analysis Date:** 2026-05-22
 
 ## Directory Layout
 
 ```
 crypto-trading-bot/
-├── services/                     # 11 Python microservices + tournament-harness
-│   ├── api-gateway/              # :8000 ingress + auth
-│   ├── bybit-connector/          # :8001 Bybit REST/WS wrapper
-│   ├── market-data-service/      # :8002 candle ingest
-│   ├── portfolio-manager/        # :8003 positions/P&L
-│   ├── technical-analysis/       # :8004 indicators + GRU inference + signal agg
-│   ├── trading-engine/           # :8005 strategy/risk/execution + auto-trader
-│   ├── notification-service/     # :8006 Telegram/email + DLQ
-│   ├── ml-prediction-service/    # :8007 standalone GRU inference surface
-│   ├── sentiment-analysis-service/  # :8008 idle (flag-gated off)
-│   ├── risk-metrics-service/     # :8009 drawdown/VaR/Sharpe
-│   ├── ml-retraining-service/    # cron-only, no HTTP
-│   └── tournament-harness/       # internal eval harness (non-runtime)
-├── frontend/                     # React 18 + Vite, :3000
-│   └── src/                      # App.jsx, main.jsx, components/, pages/, hooks/, services/, contexts/, utils/
-├── infrastructure/               # Prod deploy
-│   ├── kubernetes/               # k8s manifests
-│   ├── helm/                     # Helm charts
-│   ├── monitoring/               # Prometheus/Grafana config
-│   ├── vault/                    # HashiCorp Vault config
-│   ├── migrations/               # DB migrations
-│   ├── database/                 # SQL init
-│   └── production/               # Prod-only compose/configs
-├── backtesting/                  # Backtest engine (Phase 1 metrics, CPCV, DSR/PSR)
-├── shared/                       # Cross-service Python utilities
-├── config/                       # Shared YAML/JSON config
-├── database/                     # Schema / migration scripts (root-level)
-├── data/                         # Local data dumps (gitignored)
-├── docs/                         # Architecture, ops, strategy, security docs
-│   ├── architecture/             # SYSTEM_OVERVIEW.md (canonical)
-│   ├── development/              # SETUP.md, etc.
-│   ├── operations/               # Runbooks
-│   ├── strategy/                 # Strategy design docs
-│   ├── security/                 # Audit reports
-│   ├── testing/                  # Test strategy
-│   └── deploy/                   # Deploy guides
-├── wiki/                         # Obsidian knowledge base (co-located vault)
-│   ├── hot.md                    # ≤500-word recent-context cache
-│   ├── index.md                  # Master catalog
-│   ├── modules/                  # Per-service stub pages (Stage 1 ingest in flight)
-│   ├── concepts/                 # Cross-cutting patterns
-│   ├── flows/                    # Data paths
-│   ├── decisions/                # ADR-001 … ADR-009 (decisions live here, not docs/)
-│   └── sources/                  # Ingested doc summaries
-├── tests/                        # Repo-level integration + e2e
-│   ├── e2e/
-│   ├── integration/
-│   ├── smoke/
-│   ├── unit/
-│   ├── performance/
-│   ├── security/
-│   ├── fixtures/
-│   └── scripts/
-├── scripts/                      # Operational scripts (backups, daily-loss check, infra checks, automated trading loops)
-├── reports/                      # Generated audit/test reports
-├── logs/                         # Runtime logs (gitignored)
-├── backups/                      # DB backup outputs (gitignored)
-├── .planning/                    # GSD workflow artifacts
-│   ├── PROJECT.md
-│   ├── REQUIREMENTS.md
-│   ├── ROADMAP.md
-│   ├── STATE.md
-│   ├── codebase/                 # ← these mapping docs live here
-│   ├── phases/                   # Per-phase plans + verifications
-│   └── todos/
-├── .claude/                      # Claude Code config
-│   ├── agents/                   # 87 agent persona definitions (includes 54 personas + GSD agents)
-│   ├── hooks/                    # Intelligent router + GSD hooks (gsd-context-monitor.js, gsd-workflow-guard.js, gsd-phase-boundary.sh, etc.)
-│   ├── skills/                   # Project skills (backtest, deploy, start-system, trading-strategy-dev, verify-stack)
-│   ├── commands/                 # GSD slash commands
-│   └── get-shit-done/            # GSD core
-├── .github/                      # GitHub Actions workflows
-├── .obsidian/                    # Obsidian vault config (for wiki/)
-├── .serena/                      # Serena MCP cache
-├── .audit/                       # Audit-tool state
-├── EMERGENCY_STOP                # Kill-switch file. RO bind-mount → trading-engine /app/EMERGENCY_STOP. Currently exists as directory at repo root.
-├── docker-compose.unified.yml    # CANONICAL — 16 services incl. DBs/broker. Use this.
-├── docker-compose.yml            # INCOMPLETE — missing postgres/timescale/redis/rabbitmq. Do not use.
-├── docker-compose.prod.yml       # Prod overlay
-├── docker-compose.test.yml       # Test overlay
-├── docker-compose.headless.yml   # Headless variant
-├── docker-compose.monitoring.yml # Prometheus/Grafana overlay
-├── pyproject.toml                # Root Python project metadata
-├── pytest.ini                    # Root pytest config
-├── .flake8, .pre-commit-config.yaml, .ruff_cache
-├── CLAUDE.md                     # Project rules (load-bearing — read before editing)
-├── progress.md                   # Running session log — APPEND at end of session; no architecture decisions here (those go to wiki/decisions/)
-├── README.md, RUNBOOK.md, GETTING_STARTED.md
-└── bootstrap.sh, build-all.sh, health_check.sh, check_services.sh, monitor_*.sh
+├── services/                   # 12 Python FastAPI microservices
+│   ├── api-gateway/            # :8000 — routing, auth
+│   ├── bybit-connector/        # :8001 — Bybit REST gateway
+│   ├── market-data-service/    # :8002 — candle ingest
+│   ├── portfolio-manager/      # :8003 — positions, P&L
+│   ├── technical-analysis/     # :8004 — TA indicators + GRU
+│   ├── trading-engine/         # :8005 — strategy, risk, auto-trader
+│   ├── notification-service/   # :8006 — Telegram + email
+│   ├── ml-prediction-service/  # :8007 — GRU inference endpoints
+│   ├── sentiment-analysis-service/  # :8008 — idle
+│   ├── risk-metrics-service/   # :8009 — risk dashboards
+│   ├── ml-retraining-service/  # no HTTP — cron GRU retrain
+│   └── tournament-harness/     # internal — tournament leaderboard + CLI
+├── shared/                     # Cross-service libraries (not an installed package)
+│   ├── database/               # DB connection, ORM models, repositories
+│   ├── utils/                  # circuit_breaker, structured_logging, rate_limiter, etc.
+│   ├── tests/fixtures/         # Shared test DB fixtures
+│   ├── health_check.py         # Shared health-check helper
+│   ├── vault_client.py         # Vault secret access
+│   └── vault_config.py         # Vault config loader
+├── frontend/                   # React 18 + Vite app (:3000)
+│   └── src/
+│       ├── App.jsx             # Router root — 7 routes
+│       ├── main.jsx            # Vite entry point
+│       ├── pages/              # Route-level page components
+│       ├── components/         # Shared UI components
+│       ├── contexts/           # React context providers
+│       ├── hooks/              # Custom React hooks
+│       ├── services/           # API client functions (axios/fetch wrappers)
+│       ├── utils/              # Utility functions
+│       └── styles/             # CSS modules / theme files
+├── infrastructure/
+│   ├── migrations/             # SQL migrations 001–005 (applied by start-system)
+│   ├── kubernetes/             # K8s manifests (deployments, services, secrets, HPA)
+│   ├── helm/                   # Helm chart: crypto-trading-bot/
+│   ├── monitoring/             # Prometheus config, Grafana dashboards, alertmanager
+│   ├── production/             # Kustomize prod overlay + deploy scripts
+│   ├── backup/                 # DB backup/restore scripts
+│   ├── config/                 # postgresql.conf, redis.conf
+│   ├── scripts/                # DB init SQL, secret rotation, Vault setup
+│   └── vault/                  # Vault HCL config
+├── docs/
+│   ├── architecture/           # SYSTEM_OVERVIEW.md, SERVICE_CONTRACTS.md
+│   ├── decisions/              # ADRs (ADR-001 through ADR-010)
+│   ├── runbooks/               # Operational runbooks (LIVECLOSE-05.md, etc.)
+│   ├── deploy/                 # Deployment guides
+│   ├── development/            # Dev setup (SETUP.md)
+│   ├── operations/             # Operational docs
+│   ├── security/               # Security audit, checklists
+│   ├── strategy/               # Strategy research docs
+│   └── testing/                # Testing strategy, test DB setup
+├── tests/                      # Repo-level integration + e2e tests
+├── backtesting/                # Backtesting engine + walk-forward scripts
+├── shared/                     # (see above)
+├── scripts/                    # Root-level operational scripts
+├── safety/                     # Kill-switch directory (bind-mounted into containers)
+│   └── EMERGENCY_STOP          # File presence = trading paused
+├── config/                     # Root-level config overrides
+├── data/                       # Persistent data directory
+├── logs/                       # Runtime logs
+├── reports/                    # Generated reports
+├── graphify-out/               # Graphify knowledge graph output
+├── wiki/                       # Obsidian vault (hot.md, index.md, domain subdirs)
+├── .planning/                  # GSD workflow state
+│   ├── codebase/               # Codebase map documents (this dir)
+│   ├── phases/                 # Per-phase plans (13-bybit-connector…, etc.)
+│   ├── state/                  # carry_ins.json, task tracking
+│   ├── todos/                  # GSD todo lists
+│   └── STATE.md, PROJECT.md, REQUIREMENTS.md, ROADMAP.md, MILESTONES.md
+├── .claude/                    # Claude agent config
+│   ├── skills/                 # Project skills (backtest, deploy, start-system, etc.)
+│   ├── agents/                 # 54 agent personas
+│   └── hooks/                  # intelligent-router hook
+├── docker-compose.unified.yml  # CANONICAL compose (16 services incl. DBs)
+├── docker-compose.yml          # INCOMPLETE — missing postgres/timescale/redis/rabbitmq
+├── pyproject.toml              # Python tooling config (ruff, pytest)
+├── pytest.ini                  # Pytest config
+├── Makefile                    # Build/test/lint shortcuts
+└── _archive_exchanges/         # Archived exchange integrations (non-Bybit)
 ```
 
-> **Canonical compose:** `docker-compose.unified.yml` is the single source of truth for local stack. The plain `docker-compose.yml` is a legacy stub missing DB + broker definitions — do not use it.
+## Per-Service Layout Convention
 
-## Directory Purposes
+Every Python microservice follows this layout:
 
-**`services/<name>/`:**
-- Purpose: One self-contained Python microservice per directory.
-- Contains: `app/` package, `tests/`, `requirements.txt`, `Dockerfile`.
-- Key files: `app/main.py` (FastAPI entrypoint), `app/config.py` (Pydantic Settings), `app/models.py` (Pydantic schemas).
+```
+services/<service-name>/
+├── app/
+│   ├── main.py            # FastAPI app factory, lifespan, router mounts, health/ready
+│   ├── config.py          # Pydantic BaseSettings — all env vars and defaults
+│   ├── models.py          # Pydantic request/response models (some services)
+│   ├── handlers/          # FastAPI router modules (one file per domain area)
+│   ├── services/          # Business logic / orchestration
+│   └── <domain>/          # Domain-specific subdirs (varies per service)
+├── tests/
+│   ├── conftest.py        # Pytest fixtures (TestClient, mock clients)
+│   ├── unit/              # Unit tests (where present)
+│   └── integration/       # Integration tests
+├── Dockerfile             # Service-specific Dockerfile
+├── requirements.txt       # Service dependencies
+└── pytest.ini             # Service pytest config
+```
 
-**`services/<name>/app/`:**
-- Standard layout: `main.py`, `config.py`, `models.py` (or `models/`), `handlers/` (FastAPI routers), `services/` (business logic), plus service-specific subdirs (e.g. trading-engine has `aggregation/`, `orchestration/`, `execution/`, `exchanges/`, `lifespan/`).
+**trading-engine** is significantly larger and extends this with:
+```
+services/trading-engine/app/
+├── aggregation/           # CoreAggregator + gatekeeper/validator/voter
+├── analytics/             # P&L analytics
+├── backtesting/           # In-process backtest engine
+├── core/                  # health.py, metrics, db
+├── database/              # SQLAlchemy models and session
+├── exchanges/             # Exchange interface abstractions
+├── execution/             # Order execution layer
+├── lifespan/              # 4-phase async boot (data/ml/strategy/risk)
+├── managers/              # Position manager, trade manager
+├── models/                # Domain models (trade, signal, position)
+├── monitoring/            # Prometheus counters/histograms
+├── orchestration/         # Orchestration helpers
+├── preflight/             # LIVE boot checks
+├── risk/                  # correlation, kelly, vol_targeting, funding_gate, etc.
+├── services/              # notification_client, portfolio_client, etc.
+├── strategies/            # StrategyBase + concrete strategies
+│   └── arbitrage/         # Arbitrage strategy implementations
+├── trading_enhancements/  # Enhancements layer (position sizing, etc.)
+└── utils/                 # statistical/ (returns_metrics, sharpe_metrics, cpcv)
+```
 
-**`frontend/src/`:**
-- Purpose: React 18 + Vite SPA, talks to api-gateway only.
-- Contains: `App.jsx`, `main.jsx`, `components/`, `pages/`, `hooks/`, `services/`, `contexts/`, `utils/`, `__tests__/`.
-
-**`infrastructure/`:**
-- Purpose: Production deploy artifacts.
-- Contains: `kubernetes/`, `helm/`, `monitoring/`, `vault/`, `migrations/`, `database/`, `production/`, `setup_databases.sh`.
-
-**`backtesting/`:**
-- Purpose: Offline strategy evaluation. Phase-1 metrics, CPCV, PSR/DSR.
-- Note: Filter `is_mainnet=true` to avoid testnet-flip contamination from 2026-04-25.
-
-**`wiki/`:**
-- Purpose: Obsidian knowledge base, co-located with repo.
-- Read order: `hot.md` → `index.md` → `<domain>/_index.md` → individual pages.
-- All pages have YAML frontmatter (`type`, `status`, `tags`) and `[[Wikilinks]]`.
-- **Stage 1 ingest in flight** (per `wiki/hot.md`): module pages in `wiki/modules/` are stubs being filled — one per service plus `Architecture-Overview.md`.
-
-**`docs/`:**
-- Purpose: Long-form architecture / ops / strategy / security docs.
-- Note: `docs/architecture/DECISIONS.md` was stale and removed; ADRs now live in `wiki/decisions/` (ADR-001 through ADR-009).
-
-**`.planning/`:**
-- Purpose: GSD workflow state. Phase plans, verification reports, current STATE, codebase maps.
-- Mapping docs (this file) live in `.planning/codebase/`.
-
-**`.claude/agents/`:**
-- Purpose: Agent persona definitions for Claude Code.
-- Count: 87 `.md` files — includes the documented 54 personas (api-designer, code-reviewer, security-engineer, etc.) plus the GSD agent fleet (`gsd-*`).
-
-**`.claude/hooks/`:**
-- Purpose: Lifecycle hooks (SessionStart, PreToolUse, Stop, etc.).
-- Key files: `intelligent-agent-router.sh`, `auto-agent-launcher.sh`, `agent-selector.sh`, and the GSD enforcement set (`gsd-context-monitor.js`, `gsd-workflow-guard.js`, `gsd-phase-boundary.sh`, `gsd-prompt-guard.js`, `gsd-read-guard.js`, `gsd-read-injection-scanner.js`, `gsd-validate-commit.sh`, `gsd-statusline.js`).
-
-**`services/ml-prediction-service/models/_archive_lstm/`:**
-- Purpose: Archived LSTM models (deleted from active inference May 2026). GRU is the live family. Do not depend on these artifacts.
-
-**`progress.md`:**
-- Purpose: Running session log. Append a brief note at end of each session.
-- **Do not** put architecture decisions here — those belong in `wiki/decisions/` as ADRs.
+**bybit-connector** flat app:
+```
+services/bybit-connector/app/
+├── main.py
+├── config.py
+├── bybit_rest_client.py   # Signs + sends Bybit REST requests
+├── tape_replay_client.py  # Test-mode fake client
+├── circuit_breaker.py     # HTTP circuit breaker
+├── auth.py                # Bybit HMAC signing
+├── models.py
+└── exceptions.py
+```
 
 ## Key File Locations
 
 **Entry Points:**
-- `services/<svc>/app/main.py`: FastAPI app construction + lifespan registration.
-- `services/trading-engine/app/auto_trader.py`: Auto-trader loop (gated on `EMERGENCY_STOP` + `auto_trading_enabled`).
-- `frontend/src/main.jsx`: React app mount.
-- `bootstrap.sh`: Fresh-clone bootstrap (tmp-dir safe per project rules).
+- `services/<name>/app/main.py` — FastAPI app for each service
+- `frontend/src/main.jsx` — Vite/React entry
+- `frontend/src/App.jsx` — React Router v6, 7 routes
+- `services/tournament-harness/app/cli.py` — tournament CLI
 
 **Configuration:**
-- `services/<svc>/app/config.py`: Pydantic Settings per service.
-- `.env` / `.env.example`: Service env vars (gitignored).
-- `docker-compose.unified.yml`: Service wiring, env propagation, bind-mounts.
-- `pytest.ini`, `pyproject.toml`, `.flake8`, `.pre-commit-config.yaml`: Root tooling config.
+- `services/<name>/app/config.py` — Pydantic BaseSettings per service
+- `docker-compose.unified.yml` — canonical Docker Compose (use this, not `docker-compose.yml`)
+- `pyproject.toml` — ruff, pytest, mypy tool config
+- `pytest.ini` — repo-level pytest config
 
 **Core Logic:**
-- `services/trading-engine/app/aggregation/voter.py`: 9-indicator vote aggregation.
-- `services/trading-engine/app/auto_trader.py`: Main trading loop.
-- `services/trading-engine/app/orchestration/risk_coordinator.py`: Risk cap enforcement.
-- `services/technical-analysis/app/services/indicator_service.py`: Indicator dispatch + GRU inference.
-- `services/portfolio-manager/app/services/performance_history.py`: P&L persistence.
-- `services/market-data-service/app/scheduler.py` + `repository.py`: Candle ingest.
+- `services/trading-engine/app/signal_aggregator.py:707` — canonical 10-indicator fetch
+- `services/trading-engine/app/aggregation/aggregator_core.py` — gatekeeper/validator/voter
+- `services/trading-engine/app/auto_trader.py` — auto-trader loop
+- `services/trading-engine/app/strategies/base.py` — StrategyBase ABC
+- `services/bybit-connector/app/bybit_rest_client.py` — Bybit REST client
+- `services/market-data-service/app/fetcher.py` — candle ingest from bybit-connector
+- `services/api-gateway/app/services/service_proxy.py` — ServiceProxy (httpx)
+
+**Shared Utilities:**
+- `shared/utils/structured_logging.py` — JSON logger
+- `shared/utils/circuit_breaker.py` — generic circuit breaker
+- `shared/utils/rate_limiter.py` — rate limiter
+- `shared/utils/graceful_shutdown.py` — shutdown handler
+- `shared/database/connection.py` — DB pool
+- `shared/database/models.py` — shared ORM models
 
 **Testing:**
-- `tests/` (root): Integration + e2e + smoke + system tests.
-- `services/<svc>/tests/`: Per-service unit tests.
+- `tests/` — repo-level integration + e2e tests
+- `services/<name>/tests/` — per-service unit + integration tests
+- `shared/tests/fixtures/database.py` — shared DB test fixtures
+- `services/api-gateway/tests/conftest.py` — `admin_client` fixture (required for admin-guarded routes)
+
+**Migrations:**
+- `infrastructure/migrations/001_initial_schema.sql`
+- `infrastructure/migrations/002_performance_history.sql`
+- `infrastructure/migrations/003_portfolios_orm_align.sql`
+- `infrastructure/migrations/004_positions_orm_align.sql`
+- `infrastructure/migrations/005_tournament_reader.sql`
+
+**Runbooks / ADRs:**
+- `docs/runbooks/` — operational runbooks (LIVECLOSE-05.md, forward-paper-test.md, SERVICE_CONTRACTS.md)
+- `docs/decisions/` — ADR-001 through ADR-010
+
+**Kill-Switch:**
+- `safety/EMERGENCY_STOP` — create file to halt trading; remove to resume
 
 ## Naming Conventions
 
 **Files:**
-- Python: `snake_case.py` (e.g. `risk_coordinator.py`, `auto_trader.py`).
-- React: `PascalCase.jsx` for components, `camelCase.js` for hooks/utils.
+- Python: `snake_case.py` (e.g., `signal_aggregator.py`, `auto_trader.py`)
+- React: `PascalCase.jsx` for components/pages (e.g., `Dashboard.jsx`, `PerformanceDashboard.jsx`), `camelCase.js` for utilities
 
 **Directories:**
-- Services: `kebab-case` (e.g. `trading-engine`, `market-data-service`).
-- Python packages: `snake_case` (e.g. `aggregation/`, `orchestration/`).
+- Service names: `kebab-case` (e.g., `trading-engine`, `bybit-connector`)
+- Python modules within services: `snake_case` (e.g., `handlers/`, `aggregation/`)
+- React: lowercase for utility dirs (`hooks/`, `utils/`, `contexts/`), PascalCase not used at dir level
 
-**Backup files:**
-- `*.bak` (e.g. `main.py.bak`, `main.py.backup_20251119_231853`) — pre-refactor snapshots left in tree. Ignore.
+**Compose service names:** Same as directory names (e.g., `trading-engine`, `bybit-connector`) — used in `docker compose logs -f <name>`.
 
 ## Where to Add New Code
 
-**New service:**
-- Create `services/<kebab-name>/` with `app/`, `tests/`, `requirements.txt`, `Dockerfile`.
-- Register in `docker-compose.unified.yml` (canonical) and add to api-gateway routing if it should be reachable from the frontend.
-- Add a stub page under `wiki/modules/<name>.md` and link from `wiki/modules/_index.md`.
+**New trading indicator:**
+- Implementation: `services/technical-analysis/app/indicators/<name>.py`
+- Register handler: `services/technical-analysis/app/handlers/analysis.py` or add dedicated router
+- Add to signal_aggregator fetch: `services/trading-engine/app/signal_aggregator.py:734-755` (tasks dict)
 
-**New indicator:**
-- Implementation: `services/technical-analysis/app/indicators/<name>.py` (stateless `compute(df) -> Signal`).
-- Wire-in: `services/technical-analysis/app/services/indicator_service.py`.
-- Tests: `services/technical-analysis/tests/test_<name>.py`.
-- Validate per `.claude/skills/trading-strategy-dev/SKILL.md` (no look-ahead leakage, honors risk caps).
+**New trading strategy:**
+- Extend `StrategyBase`: `services/trading-engine/app/strategies/<name>.py`
+- Required methods: `analyze()`, `generate_signals()`, `calculate_position_size()`
+- Register in strategy registry (grep `get_strategy` or `register_strategy` in `services/trading-engine/app/`)
 
-**New strategy:**
-- Implementation: `services/technical-analysis/app/strategies/<name>_strategy.py` extending `StrategyBase`.
-- Backtest before deploying: `.claude/skills/backtest/SKILL.md` (default 90d window).
-
-**New FastAPI route on existing service:**
-- Handler: `services/<svc>/app/handlers/<domain>.py`.
-- Register in `services/<svc>/app/main.py` via `app.include_router(...)`.
-- If admin-only, depend on `get_current_admin_user` (gateway only) and use `admin_client` fixture in tests.
+**New API endpoint on existing service:**
+- Handler: `services/<name>/app/handlers/<domain>.py`
+- Mount router in: `services/<name>/app/main.py`
+- Gateway proxy: `services/api-gateway/app/services/service_proxy.py` (if exposed externally)
 
 **New shared utility:**
-- Cross-service: `shared/<module>.py`.
-- Service-local: `services/<svc>/app/utils/<module>.py`.
+- File: `shared/utils/<name>.py`
+- Add to: `shared/utils/__init__.py` if needed
 
-**New frontend page/component:**
-- Page: `frontend/src/pages/<Name>.jsx`.
-- Reusable component: `frontend/src/components/<Name>.jsx`.
-- API client: `frontend/src/services/<domain>Api.js`.
+**New risk module (trading-engine):**
+- File: `services/trading-engine/app/risk/<name>.py`
+- Wire in lifespan: `services/trading-engine/app/lifespan/risk.py`
 
-**New test:**
-- Unit (service-local): `services/<svc>/tests/test_<thing>.py`.
-- Integration / e2e: `tests/integration/` or `tests/e2e/`.
-- api-gateway tests **must run inside container** (`docker exec crypto-bot-api-gateway pytest`) — host pip has fastapi 0.136 (401), container pins 0.109 (403).
+**New DB migration:**
+- File: `infrastructure/migrations/006_<description>.sql`
+- Apply via: `start-system` skill or manually via `psql`
 
-**New ADR:**
-- `wiki/decisions/ADR-<NNN>-<slug>.md`. Link from `wiki/decisions/_index.md`.
-- Do not write architecture decisions into `progress.md` or `docs/architecture/DECISIONS.md` (the latter doesn't exist).
+**New frontend page:**
+- Page component: `frontend/src/pages/<PageName>.jsx`
+- Add route in: `frontend/src/App.jsx` (React Router v6 `<Route>`)
+
+**New frontend component:**
+- File: `frontend/src/components/<ComponentName>.jsx`
 
 ## Special Directories
 
-**`EMERGENCY_STOP` (at repo root):**
-- Purpose: Kill-switch sentinel. Presence halts auto-trader at next loop iteration.
-- Generated: Manual (`touch EMERGENCY_STOP`) or via `POST /api/portfolio/emergency-stop`.
-- Currently present as a directory (created by accident at some point — works either way for the file-exists check).
-- Mount: read-only bind-mount into `trading-engine` at `/app/EMERGENCY_STOP`.
-- Committed: No (gitignored content; the path itself is intentional).
+**`safety/`:**
+- Purpose: Kill-switch directory, bind-mounted into trading-engine container at `/app/safety/`
+- `EMERGENCY_STOP` file presence pauses auto-trader
+- Committed: No (contents excluded); directory committed as empty
 
-**`logs/`, `backups/`, `data/`, `htmlcov/`, `graphify-out/`:**
-- Generated: Yes (runtime / tooling outputs).
-- Committed: No.
-
-**`_archive_lstm/` (under `services/ml-prediction-service/models/`):**
-- Purpose: Frozen LSTM artifacts pre-GRU migration.
-- Generated: Once, May 2026.
-- Committed: Models are large — typically gitignored, with the directory tree retained for shape.
+**`_archive_exchanges/`:**
+- Purpose: Archived non-Bybit exchange integrations
+- Generated: No — manually archived
+- Committed: Yes (historical reference, not used in build)
 
 **`wiki/`:**
-- Generated: No (hand-curated knowledge base).
-- Committed: Yes.
+- Purpose: Obsidian knowledge vault — `hot.md` (recent cache), `index.md` (master catalog), domain subdirs
+- Generated: No — hand-maintained
+- Committed: Yes
 
-**`.serena/`, `.audit/`, `.claudian/`, `.playwright-mcp/`, `.ruff_cache/`, `.pytest_cache/`:**
-- Generated: Tooling caches / state.
-- Committed: Usually gitignored.
+**`.planning/`:**
+- Purpose: GSD workflow state — phase plans, codebase maps, todos, carry-ins, project state
+- Read by: `/gsd-plan-phase`, `/gsd-execute-phase` commands
+- Committed: Yes — planning artifacts are version-controlled
+
+**`graphify-out/`:**
+- Purpose: Output from `/graphify` skill knowledge graph runs
+- Generated: Yes
+- Committed: Not critical — regenerable
+
+**`htmlcov/`:**
+- Purpose: Coverage HTML reports
+- Generated: Yes — `pytest --cov`
+- Committed: No (gitignored)
+
+**`logs/`:**
+- Purpose: Runtime service logs (bind-mounted from containers)
+- Generated: Yes
+- Committed: No
+
+**`.claude/skills/`:**
+- Purpose: Project-specific Claude skills (backtest, deploy, start-system, trading-strategy-dev, verify-stack)
+- Each skill has `SKILL.md` + optional `rules/*.md`
 
 ---
 
-*Structure analysis: 2026-05-12*
+*Structure analysis: 2026-05-22*

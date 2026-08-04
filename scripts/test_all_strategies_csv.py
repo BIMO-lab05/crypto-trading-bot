@@ -21,28 +21,42 @@ Date: 2025-12-08
 
 import sys
 from pathlib import Path as _Path
+
 _REPO_ROOT = _Path(__file__).resolve().parent.parent
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import pandas as pd
 import numpy as np
 
 # Add project root to path for imports
-PROJECT_ROOT = str(_REPO_ROOT / '')
-sys.path.insert(0, os.path.join(PROJECT_ROOT, 'services', 'trading-engine'))
+PROJECT_ROOT = str(_REPO_ROOT / "")
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "services", "trading-engine"))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+# THIS script produced comprehensive/grid/sr/trend_FINAL_RESULTS.log (Dec 2025),
+# not backtesting/backtest_engine.py. Its own PatchedBacktestEngine wraps the
+# trading-engine service's backtester, and initial_equity was hardcoded 10000.0
+# below -- a 100x account. Sourced from the declaration of record as of
+# 2026-08-03. Do NOT let autoflake strip this import.
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
 
 # Import backtesting framework
-from app.backtesting.backtest_engine import BacktestConfig, BacktestResult, Position, Trade
+from app.backtesting.backtest_engine import (
+    BacktestConfig,
+    BacktestResult,
+    Position,
+    Trade,
+)
 from app.backtesting.strategy_base import StrategyBase, Signal, SignalType, OHLCV
 from app.backtesting.performance_metrics import calculate_all_metrics
 
 # Configure logging
 logging.basicConfig(
-    level=logging.WARNING,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.WARNING, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -51,8 +65,16 @@ DATA_DIR = os.path.join(PROJECT_ROOT, "data", "historical")
 LOG_FILE = "/tmp/all_strategies_csv_test.log"
 
 SYMBOLS = [
-    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'ADAUSDT',
-    'APTUSDT', 'DOTUSDT', 'LTCUSDT', 'POLUSDT', 'AVAXUSDT',
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "ADAUSDT",
+    "APTUSDT",
+    "DOTUSDT",
+    "LTCUSDT",
+    "POLUSDT",
+    "AVAXUSDT",
 ]
 
 # Performance thresholds
@@ -64,6 +86,7 @@ MAX_DRAWDOWN = 15.0
 # =============================================================================
 # PATCHED BACKTEST ENGINE - Properly syncs position state with strategy
 # =============================================================================
+
 
 class PatchedBacktestEngine:
     """
@@ -99,7 +122,7 @@ class PatchedBacktestEngine:
         self,
         strategy: StrategyBase,
         data: List[OHLCV],
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> BacktestResult:
         self.reset()
         self._strategy = strategy
@@ -143,7 +166,7 @@ class PatchedBacktestEngine:
             trades=[t.to_dict() for t in self._trades],
             initial_equity=self.config.initial_equity,
             start_date=data[0].timestamp,
-            end_date=data[-1].timestamp
+            end_date=data[-1].timestamp,
         )
 
         return BacktestResult(
@@ -155,10 +178,12 @@ class PatchedBacktestEngine:
             equity_curve=self._equity_curve,
             equity_timestamps=self._equity_timestamps,
             signals_generated=self._signals_generated,
-            signals_executed=self._signals_executed
+            signals_executed=self._signals_executed,
         )
 
-    def _process_signal(self, signal: Signal, bar: OHLCV, strategy: StrategyBase) -> None:
+    def _process_signal(
+        self, signal: Signal, bar: OHLCV, strategy: StrategyBase
+    ) -> None:
         if signal.signal_type == SignalType.BUY:
             if not self._position:
                 self._open_position(signal, bar, "long", strategy)
@@ -172,8 +197,12 @@ class PatchedBacktestEngine:
             if self._position and self._position.side == "short":
                 self._close_position(bar, signal.metadata.get("exit_reason", "signal"))
 
-    def _open_position(self, signal: Signal, bar: OHLCV, side: str, strategy: StrategyBase) -> None:
-        position_size_pct = self.config.position_size_pct * signal.position_size_pct / 100
+    def _open_position(
+        self, signal: Signal, bar: OHLCV, side: str, strategy: StrategyBase
+    ) -> None:
+        position_size_pct = (
+            self.config.position_size_pct * signal.position_size_pct / 100
+        )
         position_value = self._cash * (position_size_pct / 100)
 
         slippage_amount = bar.close * (self.config.slippage_pct / 100)
@@ -192,10 +221,10 @@ class PatchedBacktestEngine:
             quantity=quantity,
             entry_time=bar.timestamp,
             stop_loss=signal.stop_loss,
-            take_profit=signal.take_profit
+            take_profit=signal.take_profit,
         )
 
-        self._cash -= (position_value + commission)
+        self._cash -= position_value + commission
         strategy.update_position(side, entry_price)
         self._signals_executed += 1
 
@@ -235,7 +264,7 @@ class PatchedBacktestEngine:
             pnl_pct=pnl_pct,
             commission=commission * 2,
             slippage=slippage_amount * 2,
-            exit_reason=exit_reason
+            exit_reason=exit_reason,
         )
         self._trades.append(trade)
 
@@ -281,6 +310,7 @@ class PatchedBacktestEngine:
 # RESULT DATA CLASS
 # =============================================================================
 
+
 @dataclass
 class StrategyTestResult:
     strategy_name: str
@@ -301,10 +331,10 @@ class StrategyTestResult:
         if self.error:
             return False
         return (
-            self.win_rate >= MIN_WIN_RATE and
-            self.sharpe_ratio >= MIN_SHARPE and
-            self.max_drawdown <= MAX_DRAWDOWN and
-            self.total_trades >= 10
+            self.win_rate >= MIN_WIN_RATE
+            and self.sharpe_ratio >= MIN_SHARPE
+            and self.max_drawdown <= MAX_DRAWDOWN
+            and self.total_trades >= 10
         )
 
 
@@ -312,24 +342,27 @@ class StrategyTestResult:
 # DATA LOADING
 # =============================================================================
 
+
 def load_csv_data(symbol: str) -> Tuple[List[OHLCV], pd.DataFrame]:
     csv_file = os.path.join(DATA_DIR, f"{symbol}_180days_20251208.csv")
     if not os.path.exists(csv_file):
         raise FileNotFoundError(f"CSV file not found: {csv_file}")
 
     df = pd.read_csv(csv_file)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
 
     bars = []
     for _, row in df.iterrows():
-        bars.append(OHLCV(
-            timestamp=row['timestamp'].to_pydatetime(),
-            open=float(row['open']),
-            high=float(row['high']),
-            low=float(row['low']),
-            close=float(row['close']),
-            volume=float(row['volume']),
-        ))
+        bars.append(
+            OHLCV(
+                timestamp=row["timestamp"].to_pydatetime(),
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                volume=float(row["volume"]),
+            )
+        )
 
     return bars, df
 
@@ -337,6 +370,7 @@ def load_csv_data(symbol: str) -> Tuple[List[OHLCV], pd.DataFrame]:
 # =============================================================================
 # STRATEGY ADAPTERS
 # =============================================================================
+
 
 class RSIMomentumAdapter(StrategyBase):
     """RSI Momentum - Buy oversold, sell overbought"""
@@ -368,32 +402,42 @@ class RSIMomentumAdapter(StrategyBase):
             if self._prev_rsi <= self._oversold and rsi > self._oversold:
                 signal = Signal(
                     signal_type=SignalType.BUY,
-                    symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                    symbol=self.symbol,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
                     confidence=0.7,
                     stop_loss=bar.close - (atr * 2.0),
                     take_profit=bar.close + (atr * 3.0),
-                    metadata={"rsi": rsi}
+                    metadata={"rsi": rsi},
                 )
             elif self._prev_rsi >= self._overbought and rsi < self._overbought:
                 signal = Signal(
                     signal_type=SignalType.SELL,
-                    symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                    symbol=self.symbol,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
                     confidence=0.7,
                     stop_loss=bar.close + (atr * 2.0),
                     take_profit=bar.close - (atr * 3.0),
-                    metadata={"rsi": rsi}
+                    metadata={"rsi": rsi},
                 )
         elif self.is_long() and rsi >= self._overbought:
             signal = Signal(
                 signal_type=SignalType.CLOSE_LONG,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.7, metadata={"exit": "overbought"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.7,
+                metadata={"exit": "overbought"},
             )
         elif self.is_short() and rsi <= self._oversold:
             signal = Signal(
                 signal_type=SignalType.CLOSE_SHORT,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.7, metadata={"exit": "oversold"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.7,
+                metadata={"exit": "oversold"},
             )
 
         self._prev_rsi = rsi
@@ -433,34 +477,44 @@ class EMACrossoverAdapter(StrategyBase):
                 if not self.has_position():
                     signal = Signal(
                         signal_type=SignalType.BUY,
-                        symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                        symbol=self.symbol,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
                         confidence=0.65,
                         stop_loss=bar.close - (atr * 2.0),
                         take_profit=bar.close + (atr * 3.0),
-                        metadata={"fast": fast, "slow": slow}
+                        metadata={"fast": fast, "slow": slow},
                     )
                 elif self.is_short():
                     signal = Signal(
                         signal_type=SignalType.CLOSE_SHORT,
-                        symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                        confidence=0.7, metadata={"exit": "bullish_crossover"}
+                        symbol=self.symbol,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
+                        confidence=0.7,
+                        metadata={"exit": "bullish_crossover"},
                     )
             # Bearish crossover
             elif self._prev_fast >= self._prev_slow and fast < slow:
                 if not self.has_position():
                     signal = Signal(
                         signal_type=SignalType.SELL,
-                        symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                        symbol=self.symbol,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
                         confidence=0.65,
                         stop_loss=bar.close + (atr * 2.0),
                         take_profit=bar.close - (atr * 3.0),
-                        metadata={"fast": fast, "slow": slow}
+                        metadata={"fast": fast, "slow": slow},
                     )
                 elif self.is_long():
                     signal = Signal(
                         signal_type=SignalType.CLOSE_LONG,
-                        symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                        confidence=0.7, metadata={"exit": "bearish_crossover"}
+                        symbol=self.symbol,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
+                        confidence=0.7,
+                        metadata={"exit": "bearish_crossover"},
                     )
 
         self._prev_fast, self._prev_slow = fast, slow
@@ -494,32 +548,42 @@ class BollingerMeanReversionAdapter(StrategyBase):
         if bar.close <= lower and not self.has_position():
             signal = Signal(
                 signal_type=SignalType.BUY,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
                 confidence=0.65,
                 stop_loss=bar.close - (atr * 1.5),
                 take_profit=middle,
-                metadata={"bb_lower": lower}
+                metadata={"bb_lower": lower},
             )
         elif bar.close >= upper and not self.has_position():
             signal = Signal(
                 signal_type=SignalType.SELL,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
                 confidence=0.65,
                 stop_loss=bar.close + (atr * 1.5),
                 take_profit=middle,
-                metadata={"bb_upper": upper}
+                metadata={"bb_upper": upper},
             )
         elif self.is_long() and bar.close >= middle:
             signal = Signal(
                 signal_type=SignalType.CLOSE_LONG,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.7, metadata={"exit": "reached_middle"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.7,
+                metadata={"exit": "reached_middle"},
             )
         elif self.is_short() and bar.close <= middle:
             signal = Signal(
                 signal_type=SignalType.CLOSE_SHORT,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.7, metadata={"exit": "reached_middle"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.7,
+                metadata={"exit": "reached_middle"},
             )
 
         return signal
@@ -527,7 +591,7 @@ class BollingerMeanReversionAdapter(StrategyBase):
     def _calc_bb(self):
         if len(self._prices) < self._period:
             return None
-        p = self._prices[-self._period:]
+        p = self._prices[-self._period :]
         m = sum(p) / len(p)
         s = np.std(p)
         return (m - self._std * s, m, m + self._std * s)
@@ -561,35 +625,53 @@ class RSIBBComboAdapter(StrategyBase):
         lower, middle, upper = bb
         signal = None
 
-        if rsi < self._oversold and bar.close <= lower * 1.01 and not self.has_position():
+        if (
+            rsi < self._oversold
+            and bar.close <= lower * 1.01
+            and not self.has_position()
+        ):
             signal = Signal(
                 signal_type=SignalType.BUY,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
                 confidence=0.75,
                 stop_loss=bar.close - (atr * 2.0),
                 take_profit=bar.close + (atr * 3.0),
-                metadata={"rsi": rsi, "bb_lower": lower}
+                metadata={"rsi": rsi, "bb_lower": lower},
             )
-        elif rsi > self._overbought and bar.close >= upper * 0.99 and not self.has_position():
+        elif (
+            rsi > self._overbought
+            and bar.close >= upper * 0.99
+            and not self.has_position()
+        ):
             signal = Signal(
                 signal_type=SignalType.SELL,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
                 confidence=0.75,
                 stop_loss=bar.close + (atr * 2.0),
                 take_profit=bar.close - (atr * 3.0),
-                metadata={"rsi": rsi, "bb_upper": upper}
+                metadata={"rsi": rsi, "bb_upper": upper},
             )
         elif self.is_long() and (rsi > self._overbought or bar.close >= middle):
             signal = Signal(
                 signal_type=SignalType.CLOSE_LONG,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.7, metadata={"exit": "target"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.7,
+                metadata={"exit": "target"},
             )
         elif self.is_short() and (rsi < self._oversold or bar.close <= middle):
             signal = Signal(
                 signal_type=SignalType.CLOSE_SHORT,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.7, metadata={"exit": "target"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.7,
+                metadata={"exit": "target"},
             )
 
         return signal
@@ -597,7 +679,7 @@ class RSIBBComboAdapter(StrategyBase):
     def _calc_bb(self):
         if len(self._prices) < self._bb_period:
             return None
-        p = self._prices[-self._bb_period:]
+        p = self._prices[-self._bb_period :]
         m = sum(p) / len(p)
         s = np.std(p)
         return (m - self._bb_std * s, m, m + self._bb_std * s)
@@ -634,33 +716,43 @@ class MACDHistogramAdapter(StrategyBase):
                 if not self.has_position():
                     signal = Signal(
                         signal_type=SignalType.BUY,
-                        symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                        symbol=self.symbol,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
                         confidence=0.7,
                         stop_loss=bar.close - (atr * 2.0),
                         take_profit=bar.close + (atr * 3.0),
-                        metadata={"histogram": hist}
+                        metadata={"histogram": hist},
                     )
                 elif self.is_short():
                     signal = Signal(
                         signal_type=SignalType.CLOSE_SHORT,
-                        symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                        confidence=0.7, metadata={"exit": "hist_flip"}
+                        symbol=self.symbol,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
+                        confidence=0.7,
+                        metadata={"exit": "hist_flip"},
                     )
             elif self._prev_hist > 0 and hist < 0:
                 if not self.has_position():
                     signal = Signal(
                         signal_type=SignalType.SELL,
-                        symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                        symbol=self.symbol,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
                         confidence=0.7,
                         stop_loss=bar.close + (atr * 2.0),
                         take_profit=bar.close - (atr * 3.0),
-                        metadata={"histogram": hist}
+                        metadata={"histogram": hist},
                     )
                 elif self.is_long():
                     signal = Signal(
                         signal_type=SignalType.CLOSE_LONG,
-                        symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                        confidence=0.7, metadata={"exit": "hist_flip"}
+                        symbol=self.symbol,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
+                        confidence=0.7,
+                        metadata={"exit": "hist_flip"},
                     )
 
         self._prev_hist = hist
@@ -684,7 +776,9 @@ class MACDHistogramAdapter(StrategyBase):
         slow_ema = ema_s(self._prices, self._slow)
 
         min_len = min(len(fast_ema), len(slow_ema))
-        macd_line = [fast_ema[-(min_len - i)] - slow_ema[-(min_len - i)] for i in range(min_len)]
+        macd_line = [
+            fast_ema[-(min_len - i)] - slow_ema[-(min_len - i)] for i in range(min_len)
+        ]
 
         if len(macd_line) < self._signal:
             return None, None, None
@@ -724,48 +818,64 @@ class TripleEMAAdapter(StrategyBase):
             if not self.has_position():
                 signal = Signal(
                     signal_type=SignalType.BUY,
-                    symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                    symbol=self.symbol,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
                     confidence=0.7,
                     stop_loss=bar.close - (atr * 2.0),
                     take_profit=bar.close + (atr * 3.5),
-                    metadata={"alignment": "bullish"}
+                    metadata={"alignment": "bullish"},
                 )
             elif self.is_short():
                 signal = Signal(
                     signal_type=SignalType.CLOSE_SHORT,
-                    symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                    confidence=0.7, metadata={"exit": "bullish_alignment"}
+                    symbol=self.symbol,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    confidence=0.7,
+                    metadata={"exit": "bullish_alignment"},
                 )
         # Bearish: price < e1 < e2 < e3
         elif bar.close < e1 < e2 < e3:
             if not self.has_position():
                 signal = Signal(
                     signal_type=SignalType.SELL,
-                    symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                    symbol=self.symbol,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
                     confidence=0.7,
                     stop_loss=bar.close + (atr * 2.0),
                     take_profit=bar.close - (atr * 3.5),
-                    metadata={"alignment": "bearish"}
+                    metadata={"alignment": "bearish"},
                 )
             elif self.is_long():
                 signal = Signal(
                     signal_type=SignalType.CLOSE_LONG,
-                    symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                    confidence=0.7, metadata={"exit": "bearish_alignment"}
+                    symbol=self.symbol,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    confidence=0.7,
+                    metadata={"exit": "bearish_alignment"},
                 )
 
         # Exit on middle EMA break
         if self.is_long() and bar.close < e2:
             signal = Signal(
                 signal_type=SignalType.CLOSE_LONG,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.65, metadata={"exit": "ema2_break"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.65,
+                metadata={"exit": "ema2_break"},
             )
         elif self.is_short() and bar.close > e2:
             signal = Signal(
                 signal_type=SignalType.CLOSE_SHORT,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.65, metadata={"exit": "ema2_break"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.65,
+                metadata={"exit": "ema2_break"},
             )
 
         return signal
@@ -799,32 +909,42 @@ class StochasticRSIAdapter(StrategyBase):
         if stoch_rsi < self._oversold and not self.has_position():
             signal = Signal(
                 signal_type=SignalType.BUY,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
                 confidence=0.7,
                 stop_loss=bar.close - (atr * 2.0),
                 take_profit=bar.close + (atr * 3.0),
-                metadata={"stoch_rsi": stoch_rsi}
+                metadata={"stoch_rsi": stoch_rsi},
             )
         elif stoch_rsi > self._overbought and not self.has_position():
             signal = Signal(
                 signal_type=SignalType.SELL,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
                 confidence=0.7,
                 stop_loss=bar.close + (atr * 2.0),
                 take_profit=bar.close - (atr * 3.0),
-                metadata={"stoch_rsi": stoch_rsi}
+                metadata={"stoch_rsi": stoch_rsi},
             )
         elif self.is_long() and stoch_rsi > self._overbought:
             signal = Signal(
                 signal_type=SignalType.CLOSE_LONG,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.7, metadata={"exit": "overbought"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.7,
+                metadata={"exit": "overbought"},
             )
         elif self.is_short() and stoch_rsi < self._oversold:
             signal = Signal(
                 signal_type=SignalType.CLOSE_SHORT,
-                symbol=self.symbol, price=bar.close, timestamp=bar.timestamp,
-                confidence=0.7, metadata={"exit": "oversold"}
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                confidence=0.7,
+                metadata={"exit": "oversold"},
             )
 
         return signal
@@ -839,13 +959,16 @@ class StochasticRSIAdapter(StrategyBase):
             if idx < self._rsi_period:
                 continue
 
-            prices_slice = self._prices[:idx + 1]
+            prices_slice = self._prices[: idx + 1]
             if len(prices_slice) < self._rsi_period + 1:
                 continue
 
-            deltas = [prices_slice[j] - prices_slice[j-1] for j in range(1, len(prices_slice))]
-            gains = [d if d > 0 else 0 for d in deltas[-self._rsi_period:]]
-            losses = [-d if d < 0 else 0 for d in deltas[-self._rsi_period:]]
+            deltas = [
+                prices_slice[j] - prices_slice[j - 1]
+                for j in range(1, len(prices_slice))
+            ]
+            gains = [d if d > 0 else 0 for d in deltas[-self._rsi_period :]]
+            losses = [-d if d < 0 else 0 for d in deltas[-self._rsi_period :]]
 
             avg_gain = sum(gains) / self._rsi_period
             avg_loss = sum(losses) / self._rsi_period
@@ -872,9 +995,10 @@ class StochasticRSIAdapter(StrategyBase):
 # TESTING FUNCTIONS
 # =============================================================================
 
+
 def create_config() -> BacktestConfig:
     return BacktestConfig(
-        initial_equity=10000.0,
+        initial_equity=PAPER_INITIAL_BALANCE,
         commission_pct=0.1,
         slippage_pct=0.05,
         position_size_pct=2.0,
@@ -884,7 +1008,9 @@ def create_config() -> BacktestConfig:
     )
 
 
-def run_test(strategy_class, symbol: str, bars: List[OHLCV], config: BacktestConfig) -> StrategyTestResult:
+def run_test(
+    strategy_class, symbol: str, bars: List[OHLCV], config: BacktestConfig
+) -> StrategyTestResult:
     try:
         strategy = strategy_class(symbol)
         engine = PatchedBacktestEngine(config)
@@ -909,10 +1035,17 @@ def run_test(strategy_class, symbol: str, bars: List[OHLCV], config: BacktestCon
         return StrategyTestResult(
             strategy_name=strategy_class.__name__.replace("Adapter", ""),
             symbol=symbol,
-            win_rate=0, total_return=0, sharpe_ratio=0, max_drawdown=0,
-            total_trades=0, winning_trades=0, losing_trades=0,
-            profit_factor=0, avg_win=0, avg_loss=0,
-            error=str(e)
+            win_rate=0,
+            total_return=0,
+            sharpe_ratio=0,
+            max_drawdown=0,
+            total_trades=0,
+            winning_trades=0,
+            losing_trades=0,
+            profit_factor=0,
+            avg_win=0,
+            avg_loss=0,
+            error=str(e),
         )
 
 
@@ -939,8 +1072,12 @@ def test_all():
     print("=" * 80)
     print("COMPREHENSIVE STRATEGY TESTING - CSV DATA (PATCHED ENGINE)")
     print("=" * 80)
-    print(f"\nTesting {len(strategies)} strategies on {len(SYMBOLS)} symbols (180 days)")
-    print(f"Criteria: Win Rate >{MIN_WIN_RATE}%, Sharpe >{MIN_SHARPE}, Drawdown <{MAX_DRAWDOWN}%")
+    print(
+        f"\nTesting {len(strategies)} strategies on {len(SYMBOLS)} symbols (180 days)"
+    )
+    print(
+        f"Criteria: Win Rate >{MIN_WIN_RATE}%, Sharpe >{MIN_SHARPE}, Drawdown <{MAX_DRAWDOWN}%"
+    )
     print("\nExcluded:")
     for name, reason in excluded.items():
         print(f"  - {name}: {reason}")
@@ -977,9 +1114,11 @@ def test_all():
                 print(f"  {symbol}: ERROR - {result.error[:40]}")
             else:
                 status = "[OK]" if result.passes_criteria() else "[--]"
-                print(f"  {symbol}: {result.win_rate:5.1f}% WR, {result.total_return:+8.2f}% ret, "
-                      f"{result.sharpe_ratio:5.2f} Sharpe, {result.max_drawdown:5.1f}% DD, "
-                      f"{result.total_trades:4d} trades {status}")
+                print(
+                    f"  {symbol}: {result.win_rate:5.1f}% WR, {result.total_return:+8.2f}% ret, "
+                    f"{result.sharpe_ratio:5.2f} Sharpe, {result.max_drawdown:5.1f}% DD, "
+                    f"{result.total_trades:4d} trades {status}"
+                )
 
         valid = [r for r in all_results[strat_name] if not r.error]
         if valid:
@@ -990,8 +1129,10 @@ def test_all():
             total_t = sum(r.total_trades for r in valid)
             passes = sum(1 for r in valid if r.passes_criteria())
             status = "PASS" if passes >= len(valid) * 0.6 else "FAIL"
-            print(f"  {'AVERAGE':<8}: {avg_wr:5.1f}% WR, {avg_ret:+8.2f}% ret, "
-                  f"{avg_sharpe:5.2f} Sharpe, {avg_dd:5.1f}% DD, {total_t:4d} total")
+            print(
+                f"  {'AVERAGE':<8}: {avg_wr:5.1f}% WR, {avg_ret:+8.2f}% ret, "
+                f"{avg_sharpe:5.2f} Sharpe, {avg_dd:5.1f}% DD, {total_t:4d} total"
+            )
             print(f"  Status: {status} ({passes}/{len(valid)} passed)")
         print()
 
@@ -1003,14 +1144,18 @@ def print_comparison(all_results: Dict[str, List[StrategyTestResult]]):
     print("STRATEGY COMPARISON")
     print("=" * 100)
     print()
-    print(f"{'Strategy':<25} {'Win Rate':>10} {'Return':>12} {'Sharpe':>10} {'Drawdown':>10} {'Trades':>8} {'Status':>10}")
+    print(
+        f"{'Strategy':<25} {'Win Rate':>10} {'Return':>12} {'Sharpe':>10} {'Drawdown':>10} {'Trades':>8} {'Status':>10}"
+    )
     print("-" * 100)
 
     scores = []
     for name, results in all_results.items():
         valid = [r for r in results if not r.error]
         if not valid:
-            print(f"{name:<25} {'N/A':>10} {'N/A':>12} {'N/A':>10} {'N/A':>10} {'N/A':>8} {'ERROR':>10}")
+            print(
+                f"{name:<25} {'N/A':>10} {'N/A':>12} {'N/A':>10} {'N/A':>10} {'N/A':>8} {'ERROR':>10}"
+            )
             continue
 
         avg_wr = sum(r.win_rate for r in valid) / len(valid)
@@ -1019,10 +1164,26 @@ def print_comparison(all_results: Dict[str, List[StrategyTestResult]]):
         avg_dd = sum(r.max_drawdown for r in valid) / len(valid)
         total_t = sum(r.total_trades for r in valid)
 
-        status = "PASS" if (avg_wr >= MIN_WIN_RATE and avg_sharpe >= MIN_SHARPE and avg_dd <= MAX_DRAWDOWN and total_t >= 50) else "FAIL"
-        print(f"{name:<25} {avg_wr:>9.1f}% {avg_ret:>+11.2f}% {avg_sharpe:>10.2f} {avg_dd:>9.1f}% {total_t:>8} {status:>10}")
+        status = (
+            "PASS"
+            if (
+                avg_wr >= MIN_WIN_RATE
+                and avg_sharpe >= MIN_SHARPE
+                and avg_dd <= MAX_DRAWDOWN
+                and total_t >= 50
+            )
+            else "FAIL"
+        )
+        print(
+            f"{name:<25} {avg_wr:>9.1f}% {avg_ret:>+11.2f}% {avg_sharpe:>10.2f} {avg_dd:>9.1f}% {total_t:>8} {status:>10}"
+        )
 
-        score = (avg_wr / 100) * 0.3 + avg_sharpe * 0.3 + (avg_ret / 100) * 0.2 + (1 - avg_dd / 100) * 0.2
+        score = (
+            (avg_wr / 100) * 0.3
+            + avg_sharpe * 0.3
+            + (avg_ret / 100) * 0.2
+            + (1 - avg_dd / 100) * 0.2
+        )
         scores.append((name, score, status, avg_wr, avg_sharpe, avg_ret, total_t))
 
     print("-" * 100)
@@ -1030,27 +1191,34 @@ def print_comparison(all_results: Dict[str, List[StrategyTestResult]]):
     scores.sort(key=lambda x: x[1], reverse=True)
     print("\nTOP PERFORMERS:")
     for i, (name, score, status, wr, sharpe, ret, trades) in enumerate(scores[:5], 1):
-        print(f"  {i}. {name}: score={score:.3f}, {wr:.1f}% WR, {sharpe:.2f} Sharpe, {ret:+.1f}% ret, {trades} trades ({status})")
+        print(
+            f"  {i}. {name}: score={score:.3f}, {wr:.1f}% WR, {sharpe:.2f} Sharpe, {ret:+.1f}% ret, {trades} trades ({status})"
+        )
 
     viable = [s for s in scores if s[2] == "PASS"]
     print()
     if viable:
         print(f"FOUND {len(viable)} VIABLE STRATEGIES:")
         for name, _, _, wr, sharpe, ret, trades in viable:
-            print(f"  - {name}: {wr:.1f}% win rate, {sharpe:.2f} Sharpe, {ret:+.1f}% return")
+            print(
+                f"  - {name}: {wr:.1f}% win rate, {sharpe:.2f} Sharpe, {ret:+.1f}% return"
+            )
     else:
         print("NO STRATEGIES MEET ALL CRITERIA")
         print("\nBest candidates for optimization:")
         for name, score, status, wr, sharpe, ret, trades in scores[:3]:
             issues = []
-            if wr < MIN_WIN_RATE: issues.append(f"WR {wr:.1f}%<{MIN_WIN_RATE}%")
-            if sharpe < MIN_SHARPE: issues.append(f"Sharpe {sharpe:.2f}<{MIN_SHARPE}")
-            if trades < 50: issues.append(f"Trades {trades}<50")
+            if wr < MIN_WIN_RATE:
+                issues.append(f"WR {wr:.1f}%<{MIN_WIN_RATE}%")
+            if sharpe < MIN_SHARPE:
+                issues.append(f"Sharpe {sharpe:.2f}<{MIN_SHARPE}")
+            if trades < 50:
+                issues.append(f"Trades {trades}<50")
             print(f"  - {name}: {', '.join(issues) if issues else 'Close'}")
 
 
 def save_results(all_results: Dict[str, List[StrategyTestResult]]):
-    with open(LOG_FILE, 'w') as f:
+    with open(LOG_FILE, "w") as f:
         f.write("=" * 80 + "\n")
         f.write("COMPREHENSIVE STRATEGY TEST RESULTS\n")
         f.write(f"Generated: {datetime.now()}\n")
@@ -1062,9 +1230,11 @@ def save_results(all_results: Dict[str, List[StrategyTestResult]]):
                 if r.error:
                     f.write(f"{r.symbol}: ERROR - {r.error}\n")
                 else:
-                    f.write(f"{r.symbol}: WR={r.win_rate:.1f}%, Ret={r.total_return:+.2f}%, "
-                           f"Sharpe={r.sharpe_ratio:.2f}, DD={r.max_drawdown:.1f}%, "
-                           f"Trades={r.total_trades}, PF={r.profit_factor:.2f}\n")
+                    f.write(
+                        f"{r.symbol}: WR={r.win_rate:.1f}%, Ret={r.total_return:+.2f}%, "
+                        f"Sharpe={r.sharpe_ratio:.2f}, DD={r.max_drawdown:.1f}%, "
+                        f"Trades={r.total_trades}, PF={r.profit_factor:.2f}\n"
+                    )
 
     print(f"\nDetailed results saved to: {LOG_FILE}")
 
@@ -1076,7 +1246,7 @@ def main():
     print("=" * 80)
     print(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Goal: WR >{MIN_WIN_RATE}%, Sharpe >{MIN_SHARPE}, DD <{MAX_DRAWDOWN}%")
-    print(f"Baseline: Grid Trading v1 = 0.1% win rate (FAILED)")
+    print("Baseline: Grid Trading v1 = 0.1% win rate (FAILED)")
     print("FIX: Using patched engine with proper position sync")
     print("=" * 80)
     print()

@@ -4,6 +4,8 @@
 **Scope:** Evidence loop for one isolation run (one flag, ≥7 wall-clock days).
 **Tooling:** `scripts/forward_paper_test/` (host-runnable, no Docker required for the harness itself).
 
+> Merged from `docs/strategy/research-2026-04-29/T1.2-vol-parity-paper-test-runbook.md` on 2026-07-30: baseline-capture pre-flight, mid-run kill criterion (baseline-worse-by-0.5σ), mid-run discipline rules, and the day-7 baseline-comparison decision matrix.
+
 ---
 
 ## Goal
@@ -38,8 +40,32 @@ without a `PSR_CI_PUBLISHED` marker in the corresponding evidence directory.
    **Never run this with `TRADING_MODE=LIVE`** — the launcher enforces this
    and will refuse with a non-zero exit.
 
+   Belt-and-braces check inside the container (from the T1.2 runbook):
+   ```bash
+   docker compose -f docker-compose.unified.yml exec trading-engine \
+     env | grep -E "PAPER_TRADING_MODE|TRADING_MODE|BYBIT_TESTNET"
+   # expect: PAPER_TRADING_MODE=true, TRADING_MODE=PAPER, BYBIT_TESTNET=false
+   ```
+
 5. The repo is on a known-good commit (`git status` clean or stashed).
    The `git_sha` baked into `meta.json` should identify the code under test.
+
+6. **Capture a baseline before flipping the flag** so the comparison has a
+   control. Record Sharpe/Sortino/return/volatility over the last 7 closed
+   days plus the closed-trade count, and write the numbers + the wall-clock
+   timestamp into `progress.md` under the kickoff entry:
+   ```bash
+   curl -s http://localhost:8009/api/v1/portfolio/paper_trading/sharpe \
+     | jq '{sharpe_ratio, sortino_ratio, total_return, volatility}'
+   curl -s http://localhost:8005/api/v1/trades/history?limit=200 \
+     | jq '[.trades[] | select(.status == "CLOSED")] | length' \
+     > /tmp/baseline_closed_trades_count.txt
+   ```
+   > **Path note (2026-07-30):** these curls hit risk-metrics-service (:8009) and
+   > trading-engine (:8005) directly and were authored 2026-04-29. The api-gateway
+   > (:8000) dropped the `/v1` prefix — gateway routes are `/api/<domain>/...`
+   > (e.g. `/api/risk/...`, `/api/trading/...`). If a direct-service `/api/v1/...`
+   > path 404s, check the service's current route table (or go via the gateway).
 
 ---
 
@@ -82,12 +108,44 @@ docker compose -f docker-compose.unified.yml logs trading-engine | grep -i VOL_P
 # Expected: [VOL_PARITY] enabled: target=...
 ```
 
+For `enable_vol_targeting` specifically: the realized-vol estimator needs
+~168 hourly bars (7 days) to be warm, so the **first day will fall back to
+baseline sizing on most symbols — this is expected**, not a failed flag flip.
+
 ---
 
 ## Step 2 — Wait ≥7 days and collect returns
 
 Leave the isolation run active for at least 7 wall-clock days. The trading
 engine produces per-trade records in the database and the paper-trade log.
+
+### Mid-run discipline and kill criteria
+
+(From the T1.2 vol-parity runbook — these apply to any Tier-1 isolation run.)
+
+- **Do not change strategy parameters mid-run.** A run with mid-run parameter
+  changes is not comparable to its baseline; restart the run instead.
+- **Kill criterion:** abort the run early if realized daily P&L is worse than
+  the captured baseline by **more than 0.5σ** (σ of the baseline's daily P&L).
+  The 2% per-trade / 5% daily-loss caps already bound the downside, so a
+  sustained >0.5σ shortfall is signal, not noise. On kill: flip the flag off,
+  restart trading-engine, and record the negative result in the evidence
+  directory and `progress.md`.
+- **If the risk kill switch trips mid-run:** document the trigger in
+  `progress.md`, then disable the flag under test (e.g.
+  `ENABLE_VOL_TARGETING=false`) **before** re-arming the auto-trader.
+- **Cheap daily monitoring** (run from host, once a day):
+  ```bash
+  curl -s http://localhost:8009/api/v1/portfolio/paper_trading/sharpe | jq
+  curl -s http://localhost:8005/api/v1/trading/status | jq '.kill_switch_active'
+  # Open positions + realised PnL roll-up:
+  curl -s http://localhost:8003/api/portfolio/paper_trading/performance | jq
+  ```
+  > Same path caveat as in Prerequisites: `/api/v1/...` examples are direct
+  > service routes from 2026-04-29; the gateway (:8000) uses `/api/<domain>/...`
+  > with no `/v1`.
+
+### Stop and extract
 
 After ≥7 days, stop the run:
 ```bash
@@ -158,6 +216,26 @@ git commit -m "evidence(enable_vol_targeting): publish PSR CI for <run_id>"
 ```
 
 Then open the PR that flips `enable_vol_targeting: bool = Field(default=True, ...)`.
+
+### Baseline-comparison gate (in addition to the CI gate)
+
+The bootstrap CI shows the flagged run has positive edge in isolation; it does
+not show the flag *beats the baseline you captured in Prerequisites step 6*.
+Both periods should be compared with Probabilistic Sharpe Ratio — same trade
+universe, adjacent periods, so PSR is the right test:
+
+```bash
+# Risk-metrics service exposes the PSR/DSR module from T0.2 (commit `6ebebdc`).
+curl -s "http://localhost:8009/api/v1/portfolio/paper_trading/probabilistic-sharpe?benchmark=0.0" | jq
+```
+
+Decision matrix (from the T1.2 runbook):
+
+| Outcome | Action |
+|--|--|
+| PSR(flag-on) > PSR(baseline) at p < 0.10 | Promote: keep flag on, publish evidence, document in `docs/strategy/`. |
+| PSR(flag-on) ≈ PSR(baseline) (overlap) | Inconclusive. Run another 7 days OR (vol targeting only) enlarge `vol_target_cap_multiplier` to 1.5 and rerun. |
+| PSR(flag-on) < PSR(baseline) at p < 0.10 | Reject: flip flag off, write the negative result into `docs/strategy/` (link the commit), do not publish. |
 
 ---
 

@@ -70,8 +70,10 @@ tests/
 htmlcov/
 .pytest_cache/
 
-# Node.js (for frontend)
+# Node.js (for frontend) — must match nested node_modules in tournament-harness whole-repo context
 node_modules/
+**/node_modules/
+frontend/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

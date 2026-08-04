@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { mlAPI, sentimentAPI, multiTimeframeAPI, enhancedTradingAPI } from '../services/api'
 import TileState from '../components/TileState'
+import { useSafetyState } from '../hooks/useSafetyState'
 
 /**
  * Phase3Dashboard - AI-Enhanced Trading Dashboard
@@ -40,6 +41,19 @@ export default function Phase3Dashboard() {
 
   // Query client for cache invalidation after training
   const queryClient = useQueryClient()
+
+  // Feature-flag gate (debug session phase3-feature-flag-ungated, 2026-05-19).
+  // Pull ml_predictions_enabled + sentiment_analysis_enabled from
+  // /api/config/safety-state. When the operator has gated a service OFF
+  // (compose-default for both is false), block the corresponding useQuery
+  // via `enabled` so the disabled service is never called — suppresses the
+  // 503-noise that produced 4 console errors per Phase3 page load. Explicit
+  // `=== true` per advisor: the safety hook resolves to `undefined` for the
+  // first ~50ms after mount, and we want only literal true to enable the
+  // fetch (not stringified envelopes or accidental truthy values).
+  const { data: safety } = useSafetyState()
+  const mlPredictionsEnabled = safety?.ml_predictions_enabled === true
+  const sentimentAnalysisEnabled = safety?.sentiment_analysis_enabled === true
 
   // All intervals for training
   const allIntervals = [
@@ -158,6 +172,12 @@ export default function Phase3Dashboard() {
     // (tile-error testid) instead of skeleton-forever.
     retry: (failureCount, error) => error?.response?.status !== 503 && failureCount < 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    // Gate (debug session phase3-feature-flag-ungated, 2026-05-19): only
+    // fire the request when the operator has ENABLE_ML_PREDICTIONS=true
+    // (surfaced via /api/config/safety-state.ml_predictions_enabled).
+    // Suppresses the 503 console-error noise produced when the ml-prediction
+    // service is intentionally gated OFF.
+    enabled: mlPredictionsEnabled,
     staleTime: 30000,
   })
   const {
@@ -180,6 +200,12 @@ export default function Phase3Dashboard() {
     // Phase 7.2: short-circuit 503 retry (ENABLE_SENTIMENT_ANALYSIS=false).
     retry: (failureCount, error) => error?.response?.status !== 503 && failureCount < 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    // Gate (debug session phase3-feature-flag-ungated, 2026-05-19): only
+    // fire the request when the operator has ENABLE_SENTIMENT_ANALYSIS=true
+    // (surfaced via /api/config/safety-state.sentiment_analysis_enabled).
+    // Suppresses the 503 console-error noise produced when the
+    // sentiment-analysis service is intentionally gated OFF.
+    enabled: sentimentAnalysisEnabled,
     staleTime: 300000,
   })
 
@@ -278,12 +304,6 @@ export default function Phase3Dashboard() {
     articles.forEach(a => { totalScore += (a.sentiment_score || 0) })
     return articles.length > 0 ? totalScore / articles.length : 0
   }
-
-  // Debug logging for data flow troubleshooting
-  console.log('[Phase3Dashboard] ML Data:', { raw: mlData, extracted: mlPrediction, loading: mlLoading, error: mlError })
-  console.log('[Phase3Dashboard] Sentiment Data:', { raw: sentimentData, extracted: sentiment, loading: sentimentLoading, error: sentimentError })
-  console.log('[Phase3Dashboard] MTF Data:', { raw: mtfData, extracted: mtf, loading: mtfLoading, error: mtfError })
-  console.log('[Phase3Dashboard] Enhanced Signal:', { raw: enhancedSignalData, extracted: enhancedSignal, loading: signalLoading, error: signalError })
 
   // Helper function to calculate combined sentiment from news and social data
   const calculateCombinedSentiment = (sentimentData) => {
@@ -478,11 +498,11 @@ export default function Phase3Dashboard() {
                        'N/A'}
                     </p>
                     <p className="text-xs text-white/80">
-                      Score: {(enhancedSignal.metadata?.sentiment?.score ??
-                               enhancedSignal.components?.sentiment?.score) != null
-                        ? (enhancedSignal.metadata?.sentiment?.score ??
-                           enhancedSignal.components?.sentiment?.score).toFixed(2)
-                        : 'N/A'}
+                      Score: {(() => {
+                        const s = enhancedSignal.metadata?.sentiment?.score ??
+                          enhancedSignal.components?.sentiment?.score
+                        return s != null ? s.toFixed(2) : 'N/A'
+                      })()}
                     </p>
                   </div>
                 )}
@@ -529,7 +549,7 @@ export default function Phase3Dashboard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-800 dark:text-slate-100 flex items-center transition-colors duration-200">
                 <span className="mr-2 text-blue-600 dark:text-blue-400">[ML]</span>
-                ML Price Predictions (LSTM)
+                ML Price Predictions (GRU)
               </h2>
               <div className="flex items-center space-x-2">
                 {mlLoading && (
@@ -765,7 +785,7 @@ export default function Phase3Dashboard() {
                 {(mlPrediction.model_version || mlPrediction.model_type) && (
                   <div className="pt-3 border-t border-gray-200 dark:border-slate-700 transition-colors duration-200">
                     <p className="text-xs text-gray-500 dark:text-slate-500 transition-colors duration-200">
-                      Model: {mlPrediction.model_type || 'LSTM'} - {mlPrediction.model_version || 'Unknown'}
+                      Model: {mlPrediction.model_type || 'GRU'} - {mlPrediction.model_version || 'Unknown'}
                     </p>
                     {mlPrediction.model_last_trained && (
                       <p className="text-xs text-gray-500 dark:text-slate-500 transition-colors duration-200">
@@ -787,7 +807,7 @@ export default function Phase3Dashboard() {
                 </p>
                 {!mlLoading && (
                   <p className="mt-2 text-sm text-gray-400 dark:text-slate-500 transition-colors duration-200">
-                    Train the LSTM model to get price predictions
+                    Train the GRU model to get price predictions
                   </p>
                 )}
               </div>
@@ -1149,7 +1169,7 @@ export default function Phase3Dashboard() {
               <p className="font-semibold text-gray-700 dark:text-slate-300 mb-1 transition-colors duration-200">
                 <span className="text-blue-600 dark:text-blue-400">[ML]</span> ML Predictions (30% weight)
               </p>
-              <p>LSTM neural network forecasts price trends with multi-step predictions</p>
+              <p>GRU neural network forecasts price trends with multi-step predictions</p>
             </div>
             <div>
               <p className="font-semibold text-gray-700 dark:text-slate-300 mb-1 transition-colors duration-200">

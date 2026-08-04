@@ -1,22 +1,22 @@
 """
 Unit tests for Phase C auto-trader smart-mode helpers.
 
-These tests exercise the three smart-mode gates in isolation, without
-spinning up the full _trading_loop:
-
-* `_smart_should_skip_for_heat`     — early heat-critical gate
-* `_smart_resolve_strategy`         — per-cycle regime → strategy choice
-* `_smart_check_ml_disagreement`    — ML floor / direction guard
-
-The tests construct an `AutoTrader` then poke individual collaborators
-(``portfolio_heat_manager``, ``regime_detector``) so we don't have to stand
-up databases, brokers, or signal aggregators.
+Smart-mode gates (`_smart_should_skip_for_heat`, `_smart_resolve_strategy`,
+`_smart_check_ml_disagreement`) live on branch
+`claude/fix-bybit-connector-LZyJ1` (commit b331f69) and were never merged
+into main. Skipping at module level until/unless the feature lands; the
+test bodies stay intact so they can be unskipped wholesale when it does.
 """
+
+import pytest
+
+pytestmark = pytest.mark.skip(
+    reason="smart-mode gates not on main (see commit b331f69 on branch "
+    "claude/fix-bybit-connector-LZyJ1); unskip when merged"
+)
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-
-import pytest
 
 from app.auto_trader import AutoTrader, StrategyMode
 from app.aggregation.market_regime import MarketRegime, RegimeAnalysis, TrendDirection
@@ -48,6 +48,7 @@ def trader_smart(trader_baseline):
 # ---------------------------------------------------------------------------
 # Heat early gate
 # ---------------------------------------------------------------------------
+
 
 class TestSmartHeatGate:
     def test_baseline_never_skips(self, trader_baseline):
@@ -85,6 +86,7 @@ class TestSmartHeatGate:
         # If heat manager raises, smart-mode should fail open (no skip)
         def raise_(*_a, **_kw):
             raise RuntimeError("heat manager exploded")
+
         trader_smart.portfolio_heat_manager = SimpleNamespace(get_summary_dict=raise_)
         assert trader_smart._smart_should_skip_for_heat() is False
 
@@ -92,6 +94,7 @@ class TestSmartHeatGate:
 # ---------------------------------------------------------------------------
 # Regime → strategy resolution
 # ---------------------------------------------------------------------------
+
 
 class TestSmartResolveStrategy:
     @pytest.mark.asyncio
@@ -136,34 +139,35 @@ class TestSmartResolveStrategy:
 # ML disagreement floor
 # ---------------------------------------------------------------------------
 
+
 class TestSmartMLFloor:
     def test_baseline_never_rejects(self, trader_baseline):
-        signal = SimpleNamespace(indicators={
-            "ml_prediction": SimpleNamespace(action="SELL", confidence=0.9)
-        })
+        signal = SimpleNamespace(
+            indicators={"ml_prediction": SimpleNamespace(action="SELL", confidence=0.9)}
+        )
         # Even with a clear disagreement, baseline returns None.
         assert trader_baseline._smart_check_ml_disagreement(signal, "BUY") is None
 
     def test_smart_rejects_low_confidence(self, trader_smart):
-        signal = SimpleNamespace(indicators={
-            "ml_prediction": SimpleNamespace(action="BUY", confidence=0.3)
-        })
+        signal = SimpleNamespace(
+            indicators={"ml_prediction": SimpleNamespace(action="BUY", confidence=0.3)}
+        )
         reason = trader_smart._smart_check_ml_disagreement(signal, "BUY")
         assert reason is not None and "ml_disagreement" in reason
         assert trader_smart.smart_mode_ml_rejections == 1
 
     def test_smart_rejects_direction_mismatch(self, trader_smart):
-        signal = SimpleNamespace(indicators={
-            "ml_prediction": SimpleNamespace(action="SELL", confidence=0.9)
-        })
+        signal = SimpleNamespace(
+            indicators={"ml_prediction": SimpleNamespace(action="SELL", confidence=0.9)}
+        )
         reason = trader_smart._smart_check_ml_disagreement(signal, "BUY")
         assert reason is not None and "ml_disagreement" in reason
         assert trader_smart.smart_mode_ml_rejections == 1
 
     def test_smart_accepts_aligned_high_confidence(self, trader_smart):
-        signal = SimpleNamespace(indicators={
-            "ml_prediction": SimpleNamespace(action="BUY", confidence=0.85)
-        })
+        signal = SimpleNamespace(
+            indicators={"ml_prediction": SimpleNamespace(action="BUY", confidence=0.85)}
+        )
         assert trader_smart._smart_check_ml_disagreement(signal, "BUY") is None
         assert trader_smart.smart_mode_ml_rejections == 0
 
@@ -174,15 +178,16 @@ class TestSmartMLFloor:
 
     def test_smart_no_op_when_enable_ml_off(self, trader_smart):
         trader_smart.enable_ml = False
-        signal = SimpleNamespace(indicators={
-            "ml_prediction": SimpleNamespace(action="SELL", confidence=0.1)
-        })
+        signal = SimpleNamespace(
+            indicators={"ml_prediction": SimpleNamespace(action="SELL", confidence=0.1)}
+        )
         assert trader_smart._smart_check_ml_disagreement(signal, "BUY") is None
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _regime(regime: MarketRegime) -> RegimeAnalysis:
     return RegimeAnalysis(

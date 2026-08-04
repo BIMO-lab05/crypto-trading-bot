@@ -2,32 +2,81 @@
 """
 Data Quality Analysis and Enhancement Script
 ============================================
-Purpose: Analyze, clean, and extend historical market data for ML training
+Purpose: Analyze, clean, and extend historical market data for ML training.
+
+Phase 13 / BC-02: historical kline backfill now routes through bybit-connector;
+direct Bybit access removed. Fail-fast (D-04) if connector unreachable.
+
 Author: Data Researcher Agent
 Date: 2025-11-20
 
 This script performs:
 1. Data quality analysis (outlier detection, statistical validation)
 2. Data cleaning (remove/interpolate outliers)
-3. Historical data fetching (extend from 30 to 90-180 days)
+3. Historical data fetching via bybit-connector (extend from 30 to 90-180 days)
 4. Validation and reporting
 
 Database: TimescaleDB (PostgreSQL extension)
 Target: 7 trading pairs (BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT)
 """
 
-import psycopg2
+from __future__ import (
+    annotations,
+)  # defer type-hint evaluation; safe when pd/np lazily imported
+
+import os  # noqa: F401  -- used by BYBIT_CONNECTOR_URL os.getenv below; guard against autoflake
+import sys
 from pathlib import Path as _Path
+
 _REPO_ROOT = _Path(__file__).resolve().parent.parent
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
-import json
+from typing import Dict, List
 import requests
-from scipy import stats
 import warnings
-warnings.filterwarnings('ignore')
+
+warnings.filterwarnings("ignore")
+
+# Heavy deps imported lazily so the D-04 fail-fast probe can fire on hosts
+# without psycopg2 / numpy / scipy / pandas installed (e.g. CI runners that
+# only need to verify the fail-fast contract). The full workflow still
+# requires these at run-time and will raise ImportError if missing then.
+try:
+    import psycopg2  # noqa: F401
+    import pandas as pd  # noqa: F401
+    import numpy as np  # noqa: F401
+    from scipy import stats  # noqa: F401
+except ImportError as _e:
+    psycopg2 = None  # type: ignore[assignment]
+    pd = None  # type: ignore[assignment]
+    np = None  # type: ignore[assignment]
+    stats = None  # type: ignore[assignment]
+    _HEAVY_IMPORT_ERROR = _e
+else:
+    _HEAVY_IMPORT_ERROR = None
+
+
+# Phase 13 / BC-02: route through bybit-connector REST (no direct Bybit URLs).
+BYBIT_CONNECTOR_URL = os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001")
+
+
+def assert_connector_reachable() -> None:
+    """D-04 fail-fast: exit 2 with operator-readable error if connector unreachable.
+
+    Runs BEFORE any other __main__ logic so `tests/integration/test_scripts_fail_fast.py`
+    (no-args invocation) triggers the probe.
+    """
+    try:
+        response = requests.get(f"{BYBIT_CONNECTOR_URL}/health", timeout=5.0)
+        response.raise_for_status()
+    except Exception as e:
+        print(
+            f"\nERROR: bybit-connector is not reachable at {BYBIT_CONNECTOR_URL}.\n"
+            f"  Cause: {e!r}\n"
+            f"  Fix:   Run `docker compose -f docker-compose.unified.yml up -d bybit-connector`\n"
+            f"  (or set BYBIT_CONNECTOR_URL if running against a non-default host).\n",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
 
 class DataQualityEnhancer:
@@ -35,8 +84,14 @@ class DataQualityEnhancer:
     Handles data quality analysis, cleaning, and historical data fetching
     """
 
-    def __init__(self, db_host='localhost', db_port=5433, db_name='market_data',
-                 db_user='cryptobot', db_password='timescale_dev_password'):
+    def __init__(
+        self,
+        db_host="localhost",
+        db_port=5433,
+        db_name="market_data",
+        db_user="cryptobot",
+        db_password="timescale_dev_password",
+    ):
         """
         Initialize database connection and configuration
 
@@ -49,27 +104,35 @@ class DataQualityEnhancer:
         """
         # Database connection parameters
         self.db_params = {
-            'host': db_host,
-            'port': db_port,
-            'dbname': db_name,
-            'user': db_user,
-            'password': db_password
+            "host": db_host,
+            "port": db_port,
+            "dbname": db_name,
+            "user": db_user,
+            "password": db_password,
         }
 
         # Trading symbols to analyze
-        self.symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT']
+        self.symbols = [
+            "BTCUSDT",
+            "ETHUSDT",
+            "BNBUSDT",
+            "SOLUSDT",
+            "XRPUSDT",
+            "ADAUSDT",
+            "DOGEUSDT",
+        ]
 
         # Data quality thresholds
         self.z_score_threshold = 3.0  # Standard deviations for outlier detection
-        self.iqr_multiplier = 1.5     # IQR multiplier for outlier detection
-        self.max_price_jump = 0.20    # Maximum 20% price change in single candle
+        self.iqr_multiplier = 1.5  # IQR multiplier for outlier detection
+        self.max_price_jump = 0.20  # Maximum 20% price change in single candle
 
         # Target historical data depth
         self.target_days = 120  # 120 days (4 months) for better ML training
-        self.interval = '60'    # 1-hour candles
+        self.interval = "60"  # 1-hour candles
 
-        # Bybit API configuration
-        self.bybit_base_url = 'https://api.bybit.com'
+        # bybit-connector REST URL (BC-02: no direct Bybit access)
+        self.bybit_base_url = BYBIT_CONNECTOR_URL
 
         # Quality report storage
         self.quality_reports = {}
@@ -83,7 +146,9 @@ class DataQualityEnhancer:
         """
         try:
             conn = psycopg2.connect(**self.db_params)
-            print(f"✓ Connected to TimescaleDB at {self.db_params['host']}:{self.db_params['port']}")
+            print(
+                f"✓ Connected to TimescaleDB at {self.db_params['host']}:{self.db_params['port']}"
+            )
             return conn
         except Exception as e:
             print(f"✗ Database connection failed: {e}")
@@ -112,7 +177,7 @@ class DataQualityEnhancer:
         try:
             df = pd.read_sql(query, conn, params=(symbol, self.interval))
             # Timestamp already converted in SQL, just ensure it's datetime type
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
             conn.close()
             print(f"  Fetched {len(df)} candles for {symbol}")
             return df
@@ -131,7 +196,7 @@ class DataQualityEnhancer:
         Returns:
             pd.Series: Boolean mask where True indicates outlier
         """
-        z_scores = np.abs(stats.zscore(series, nan_policy='omit'))
+        z_scores = np.abs(stats.zscore(series, nan_policy="omit"))
         return z_scores > self.z_score_threshold
 
     def detect_outliers_iqr(self, series: pd.Series) -> pd.Series:
@@ -164,13 +229,15 @@ class DataQualityEnhancer:
             pd.Series: Boolean mask where True indicates abnormal jump
         """
         # Calculate percentage change between consecutive closes
-        pct_change = df['close'].pct_change().abs()
+        pct_change = df["close"].pct_change().abs()
 
         # Also check open-to-close within same candle
-        intra_candle_change = ((df['close'] - df['open']) / df['open']).abs()
+        intra_candle_change = ((df["close"] - df["open"]) / df["open"]).abs()
 
         # Flag if either exceeds threshold
-        return (pct_change > self.max_price_jump) | (intra_candle_change > self.max_price_jump)
+        return (pct_change > self.max_price_jump) | (
+            intra_candle_change > self.max_price_jump
+        )
 
     def detect_ohlcv_inconsistencies(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -183,16 +250,16 @@ class DataQualityEnhancer:
             pd.Series: Boolean mask where True indicates inconsistency
         """
         inconsistent = (
-            (df['high'] < df['low']) |           # High should be >= Low
-            (df['close'] > df['high']) |         # Close should be <= High
-            (df['close'] < df['low']) |          # Close should be >= Low
-            (df['open'] > df['high']) |          # Open should be <= High
-            (df['open'] < df['low']) |           # Open should be >= Low
-            (df['volume'] < 0) |                 # Volume should be positive
-            (df['close'] <= 0) |                 # Prices should be positive
-            (df['open'] <= 0) |
-            (df['high'] <= 0) |
-            (df['low'] <= 0)
+            (df["high"] < df["low"])  # High should be >= Low
+            | (df["close"] > df["high"])  # Close should be <= High
+            | (df["close"] < df["low"])  # Close should be >= Low
+            | (df["open"] > df["high"])  # Open should be <= High
+            | (df["open"] < df["low"])  # Open should be >= Low
+            | (df["volume"] < 0)  # Volume should be positive
+            | (df["close"] <= 0)  # Prices should be positive
+            | (df["open"] <= 0)
+            | (df["high"] <= 0)
+            | (df["low"] <= 0)
         )
 
         return inconsistent
@@ -207,33 +274,35 @@ class DataQualityEnhancer:
         Returns:
             Dict: Quality metrics and outlier information
         """
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Analyzing data quality for {symbol}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # Fetch data
         df = self.fetch_symbol_data(symbol)
 
         if df.empty:
             return {
-                'symbol': symbol,
-                'status': 'NO_DATA',
-                'message': 'No data found in database'
+                "symbol": symbol,
+                "status": "NO_DATA",
+                "message": "No data found in database",
             }
 
         # Basic statistics
         total_candles = len(df)
         date_range = f"{df['timestamp'].min()} to {df['timestamp'].max()}"
-        days_coverage = (df['timestamp'].max() - df['timestamp'].min()).days
+        days_coverage = (df["timestamp"].max() - df["timestamp"].min()).days
 
         # Detect outliers using multiple methods
-        outliers_zscore = self.detect_outliers_zscore(df['close'])
-        outliers_iqr = self.detect_outliers_iqr(df['close'])
+        outliers_zscore = self.detect_outliers_zscore(df["close"])
+        outliers_iqr = self.detect_outliers_iqr(df["close"])
         outliers_jumps = self.detect_price_jumps(df)
         outliers_inconsistent = self.detect_ohlcv_inconsistencies(df)
 
         # Combine all outlier detection methods
-        combined_outliers = outliers_zscore | outliers_iqr | outliers_jumps | outliers_inconsistent
+        combined_outliers = (
+            outliers_zscore | outliers_iqr | outliers_jumps | outliers_inconsistent
+        )
 
         # Count outliers
         zscore_count = outliers_zscore.sum()
@@ -244,60 +313,60 @@ class DataQualityEnhancer:
 
         # Check for missing timestamps (gaps)
         expected_interval = pd.Timedelta(hours=1)
-        time_diffs = df['timestamp'].diff()
+        time_diffs = df["timestamp"].diff()
         gaps = time_diffs[time_diffs > expected_interval * 1.5]  # Allow 50% tolerance
 
         # Statistical summary
         price_stats = {
-            'mean': df['close'].mean(),
-            'std': df['close'].std(),
-            'min': df['close'].min(),
-            'max': df['close'].max(),
-            'median': df['close'].median(),
-            'q1': df['close'].quantile(0.25),
-            'q3': df['close'].quantile(0.75)
+            "mean": df["close"].mean(),
+            "std": df["close"].std(),
+            "min": df["close"].min(),
+            "max": df["close"].max(),
+            "median": df["close"].median(),
+            "q1": df["close"].quantile(0.25),
+            "q3": df["close"].quantile(0.75),
         }
 
         # Calculate data quality score (0-100)
         quality_score = 100
         quality_score -= (total_outliers / total_candles) * 100  # Penalize outliers
-        quality_score -= (len(gaps) / total_candles) * 100        # Penalize gaps
+        quality_score -= (len(gaps) / total_candles) * 100  # Penalize gaps
         quality_score = max(0, quality_score)
 
         # Determine status
         if quality_score >= 90:
-            status = 'EXCELLENT'
+            status = "EXCELLENT"
         elif quality_score >= 70:
-            status = 'GOOD'
+            status = "GOOD"
         elif quality_score >= 50:
-            status = 'FAIR'
+            status = "FAIR"
         else:
-            status = 'POOR'
+            status = "POOR"
 
         # Create report
         report = {
-            'symbol': symbol,
-            'status': status,
-            'quality_score': round(quality_score, 2),
-            'total_candles': total_candles,
-            'date_range': date_range,
-            'days_coverage': days_coverage,
-            'target_days': self.target_days,
-            'needs_more_data': days_coverage < self.target_days,
-            'outliers': {
-                'total': int(total_outliers),
-                'z_score': int(zscore_count),
-                'iqr': int(iqr_count),
-                'price_jumps': int(jump_count),
-                'inconsistencies': int(inconsistent_count),
-                'percentage': round((total_outliers / total_candles) * 100, 2)
+            "symbol": symbol,
+            "status": status,
+            "quality_score": round(quality_score, 2),
+            "total_candles": total_candles,
+            "date_range": date_range,
+            "days_coverage": days_coverage,
+            "target_days": self.target_days,
+            "needs_more_data": days_coverage < self.target_days,
+            "outliers": {
+                "total": int(total_outliers),
+                "z_score": int(zscore_count),
+                "iqr": int(iqr_count),
+                "price_jumps": int(jump_count),
+                "inconsistencies": int(inconsistent_count),
+                "percentage": round((total_outliers / total_candles) * 100, 2),
             },
-            'gaps': {
-                'count': len(gaps),
-                'total_hours_missing': round(gaps.sum().total_seconds() / 3600, 2)
+            "gaps": {
+                "count": len(gaps),
+                "total_hours_missing": round(gaps.sum().total_seconds() / 3600, 2),
             },
-            'price_statistics': {k: round(v, 2) for k, v in price_stats.items()},
-            'outlier_indices': df[combined_outliers].index.tolist()
+            "price_statistics": {k: round(v, 2) for k, v in price_stats.items()},
+            "outlier_indices": df[combined_outliers].index.tolist(),
         }
 
         # Print summary
@@ -308,7 +377,9 @@ class DataQualityEnhancer:
         print(f"    - IQR method: {iqr_count}")
         print(f"    - Price jumps: {jump_count}")
         print(f"    - Inconsistencies: {inconsistent_count}")
-        print(f"  Data gaps: {len(gaps)} gaps ({report['gaps']['total_hours_missing']:.1f} hours missing)")
+        print(
+            f"  Data gaps: {len(gaps)} gaps ({report['gaps']['total_hours_missing']:.1f} hours missing)"
+        )
         print(f"  Price range: ${price_stats['min']:.2f} - ${price_stats['max']:.2f}")
         print(f"  Needs more data: {'YES' if report['needs_more_data'] else 'NO'}")
 
@@ -325,7 +396,7 @@ class DataQualityEnhancer:
         Returns:
             int: Number of records cleaned
         """
-        if report['outliers']['total'] == 0:
+        if report["outliers"]["total"] == 0:
             print(f"  ✓ No outliers to clean for {symbol}")
             return 0
 
@@ -335,18 +406,20 @@ class DataQualityEnhancer:
         df = self.fetch_symbol_data(symbol)
 
         # Get outlier indices
-        outlier_indices = report['outlier_indices']
+        outlier_indices = report["outlier_indices"]
 
         # Strategy: Interpolate outliers using linear interpolation
         # This is safer than deletion as it preserves timestamp continuity
         df_clean = df.copy()
 
-        for col in ['open', 'high', 'low', 'close', 'volume']:
+        for col in ["open", "high", "low", "close", "volume"]:
             # Mark outliers as NaN
             df_clean.loc[outlier_indices, col] = np.nan
 
             # Interpolate using linear method
-            df_clean[col] = df_clean[col].interpolate(method='linear', limit_direction='both')
+            df_clean[col] = df_clean[col].interpolate(
+                method="linear", limit_direction="both"
+            )
 
         # Update database with cleaned data
         conn = self.connect_db()
@@ -365,18 +438,21 @@ class DataQualityEnhancer:
 
             try:
                 # Convert datetime timestamp to bigint milliseconds
-                timestamp_ms = int(row['timestamp'].timestamp() * 1000)
+                timestamp_ms = int(row["timestamp"].timestamp() * 1000)
 
-                cursor.execute(update_query, (
-                    float(row['open']),
-                    float(row['high']),
-                    float(row['low']),
-                    float(row['close']),
-                    float(row['volume']),
-                    symbol,
-                    self.interval,
-                    timestamp_ms  # Pass as bigint
-                ))
+                cursor.execute(
+                    update_query,
+                    (
+                        float(row["open"]),
+                        float(row["high"]),
+                        float(row["low"]),
+                        float(row["close"]),
+                        float(row["volume"]),
+                        symbol,
+                        self.interval,
+                        timestamp_ms,  # Pass as bigint
+                    ),
+                )
                 cleaned_count += 1
             except Exception as e:
                 print(f"    ✗ Error updating record at {row['timestamp']}: {e}")
@@ -388,7 +464,9 @@ class DataQualityEnhancer:
         print(f"  ✓ Cleaned {cleaned_count} records for {symbol}")
         return cleaned_count
 
-    def fetch_historical_data_bybit(self, symbol: str, start_date: datetime, end_date: datetime) -> List[Dict]:
+    def fetch_historical_data_bybit(
+        self, symbol: str, start_date: datetime, end_date: datetime
+    ) -> List[Dict]:
         """
         Fetch historical candle data from Bybit API
 
@@ -400,7 +478,7 @@ class DataQualityEnhancer:
         Returns:
             List[Dict]: List of candle data dictionaries
         """
-        print(f"\n  Fetching historical data from Bybit API...")
+        print("\n  Fetching historical data from Bybit API...")
         print(f"    Date range: {start_date.date()} to {end_date.date()}")
 
         all_candles = []
@@ -413,23 +491,24 @@ class DataQualityEnhancer:
         while current_start < end_date:
             # Calculate end timestamp for this batch
             current_end = min(
-                current_start + timedelta(hours=max_candles_per_request * interval_minutes / 60),
-                end_date
+                current_start
+                + timedelta(hours=max_candles_per_request * interval_minutes / 60),
+                end_date,
             )
 
             # Bybit expects timestamps in milliseconds
             start_ts = int(current_start.timestamp() * 1000)
             end_ts = int(current_end.timestamp() * 1000)
 
-            # Build API request
-            endpoint = f"{self.bybit_base_url}/v5/market/kline"
+            # bybit-connector REST request (BC-02)
+            endpoint = f"{self.bybit_base_url}/api/v1/market/kline"
             params = {
-                'category': 'spot',
-                'symbol': symbol,
-                'interval': self.interval,
-                'start': start_ts,
-                'end': end_ts,
-                'limit': max_candles_per_request
+                "category": "spot",
+                "symbol": symbol,
+                "interval": self.interval,
+                "start": start_ts,
+                "end": end_ts,
+                "limit": max_candles_per_request,
             }
 
             try:
@@ -438,23 +517,33 @@ class DataQualityEnhancer:
 
                 data = response.json()
 
-                if data['retCode'] == 0 and 'result' in data and 'list' in data['result']:
-                    candles = data['result']['list']
+                if data.get("success") and "data" in data and "list" in data["data"]:
+                    candles = data["data"]["list"]
 
-                    # Parse candles (Bybit returns: [timestamp, open, high, low, close, volume, turnover])
+                    # Parse candles (bybit-connector preserves Bybit V5 shape:
+                    # [timestamp, open, high, low, close, volume, turnover])
                     for candle in candles:
-                        all_candles.append({
-                            'timestamp': datetime.fromtimestamp(int(candle[0]) / 1000),
-                            'open': float(candle[1]),
-                            'high': float(candle[2]),
-                            'low': float(candle[3]),
-                            'close': float(candle[4]),
-                            'volume': float(candle[5])
-                        })
+                        all_candles.append(
+                            {
+                                "timestamp": datetime.fromtimestamp(
+                                    int(candle[0]) / 1000
+                                ),
+                                "open": float(candle[1]),
+                                "high": float(candle[2]),
+                                "low": float(candle[3]),
+                                "close": float(candle[4]),
+                                "volume": float(candle[5]),
+                            }
+                        )
 
-                    print(f"    Fetched {len(candles)} candles (up to {current_end.date()})")
+                    print(
+                        f"    Fetched {len(candles)} candles (up to {current_end.date()})"
+                    )
                 else:
-                    print(f"    ✗ API error: {data.get('retMsg', 'Unknown error')}")
+                    print(
+                        f"    ✗ bybit-connector error: "
+                        f"{data.get('error') or data.get('message') or 'Unknown error'}"
+                    )
                     break
 
             except Exception as e:
@@ -481,7 +570,7 @@ class DataQualityEnhancer:
         if not candles:
             return 0
 
-        print(f"\n  Inserting historical data into database...")
+        print("\n  Inserting historical data into database...")
 
         conn = self.connect_db()
         cursor = conn.cursor()
@@ -497,18 +586,21 @@ class DataQualityEnhancer:
         for candle in candles:
             try:
                 # Convert datetime to bigint milliseconds
-                timestamp_ms = int(candle['timestamp'].timestamp() * 1000)
+                timestamp_ms = int(candle["timestamp"].timestamp() * 1000)
 
-                cursor.execute(insert_query, (
-                    symbol,
-                    self.interval,
-                    timestamp_ms,  # Pass as bigint
-                    candle['open'],
-                    candle['high'],
-                    candle['low'],
-                    candle['close'],
-                    candle['volume']
-                ))
+                cursor.execute(
+                    insert_query,
+                    (
+                        symbol,
+                        self.interval,
+                        timestamp_ms,  # Pass as bigint
+                        candle["open"],
+                        candle["high"],
+                        candle["low"],
+                        candle["close"],
+                        candle["volume"],
+                    ),
+                )
                 if cursor.rowcount > 0:
                     inserted_count += 1
             except Exception as e:
@@ -518,7 +610,9 @@ class DataQualityEnhancer:
         cursor.close()
         conn.close()
 
-        print(f"  ✓ Inserted {inserted_count} new candles (skipped {len(candles) - inserted_count} duplicates)")
+        print(
+            f"  ✓ Inserted {inserted_count} new candles (skipped {len(candles) - inserted_count} duplicates)"
+        )
         return inserted_count
 
     def extend_historical_data(self, symbol: str, current_days: int) -> Dict:
@@ -533,26 +627,30 @@ class DataQualityEnhancer:
             Dict: Summary of data extension
         """
         if current_days >= self.target_days:
-            print(f"  ✓ {symbol} already has {current_days} days (target: {self.target_days})")
-            return {'status': 'SUFFICIENT', 'fetched': 0, 'inserted': 0}
+            print(
+                f"  ✓ {symbol} already has {current_days} days (target: {self.target_days})"
+            )
+            return {"status": "SUFFICIENT", "fetched": 0, "inserted": 0}
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Extending historical data for {symbol}")
         print(f"  Current: {current_days} days | Target: {self.target_days} days")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # Calculate date range to fetch
         df = self.fetch_symbol_data(symbol)
-        earliest_date = df['timestamp'].min()
+        earliest_date = df["timestamp"].min()
 
         # Fetch data from target_days ago to earliest_date
         target_start = datetime.now() - timedelta(days=self.target_days)
         fetch_start = target_start
-        fetch_end = earliest_date - timedelta(hours=1)  # Stop 1 hour before existing data
+        fetch_end = earliest_date - timedelta(
+            hours=1
+        )  # Stop 1 hour before existing data
 
         if fetch_end <= fetch_start:
-            print(f"  ✓ No gap to fill")
-            return {'status': 'NO_GAP', 'fetched': 0, 'inserted': 0}
+            print("  ✓ No gap to fill")
+            return {"status": "NO_GAP", "fetched": 0, "inserted": 0}
 
         # Fetch from Bybit
         candles = self.fetch_historical_data_bybit(symbol, fetch_start, fetch_end)
@@ -561,10 +659,10 @@ class DataQualityEnhancer:
         inserted = self.insert_historical_data(symbol, candles)
 
         return {
-            'status': 'EXTENDED',
-            'fetched': len(candles),
-            'inserted': inserted,
-            'date_range': f"{fetch_start.date()} to {fetch_end.date()}"
+            "status": "EXTENDED",
+            "fetched": len(candles),
+            "inserted": inserted,
+            "date_range": f"{fetch_start.date()} to {fetch_end.date()}",
         }
 
     def generate_final_report(self) -> str:
@@ -579,58 +677,67 @@ class DataQualityEnhancer:
             f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "",
             "## Executive Summary",
-            ""
+            "",
         ]
 
         # Summary statistics
         total_symbols = len(self.quality_reports)
-        ml_ready = sum(1 for r in self.quality_reports.values()
-                       if r.get('status') in ['EXCELLENT', 'GOOD'] and not r.get('needs_more_data', True))
+        ml_ready = sum(
+            1
+            for r in self.quality_reports.values()
+            if r.get("status") in ["EXCELLENT", "GOOD"]
+            and not r.get("needs_more_data", True)
+        )
 
-        report_lines.extend([
-            f"- **Total Symbols Analyzed**: {total_symbols}",
-            f"- **ML-Ready Symbols**: {ml_ready}/{total_symbols}",
-            f"- **Target Historical Depth**: {self.target_days} days",
-            ""
-        ])
+        report_lines.extend(
+            [
+                f"- **Total Symbols Analyzed**: {total_symbols}",
+                f"- **ML-Ready Symbols**: {ml_ready}/{total_symbols}",
+                f"- **Target Historical Depth**: {self.target_days} days",
+                "",
+            ]
+        )
 
         # Per-symbol details
         report_lines.append("## Symbol-by-Symbol Analysis")
         report_lines.append("")
 
         for symbol, report in self.quality_reports.items():
-            if 'status' not in report or report['status'] == 'NO_DATA':
+            if "status" not in report or report["status"] == "NO_DATA":
                 continue
 
-            report_lines.extend([
-                f"### {symbol}",
-                f"- **Status**: {report['status']}",
-                f"- **Quality Score**: {report['quality_score']}/100",
-                f"- **Coverage**: {report['days_coverage']} days ({report['total_candles']} candles)",
-                f"- **Outliers Detected**: {report['outliers']['total']} ({report['outliers']['percentage']}%)",
-                f"  - Z-score method: {report['outliers']['z_score']}",
-                f"  - IQR method: {report['outliers']['iqr']}",
-                f"  - Price jumps: {report['outliers']['price_jumps']}",
-                f"  - Inconsistencies: {report['outliers']['inconsistencies']}",
-                f"- **Data Gaps**: {report['gaps']['count']} gaps ({report['gaps']['total_hours_missing']} hours)",
-                f"- **Price Range**: ${report['price_statistics']['min']} - ${report['price_statistics']['max']}",
-                f"- **ML-Ready**: {'YES' if not report['needs_more_data'] and report['quality_score'] >= 70 else 'NO'}",
-                ""
-            ])
+            report_lines.extend(
+                [
+                    f"### {symbol}",
+                    f"- **Status**: {report['status']}",
+                    f"- **Quality Score**: {report['quality_score']}/100",
+                    f"- **Coverage**: {report['days_coverage']} days ({report['total_candles']} candles)",
+                    f"- **Outliers Detected**: {report['outliers']['total']} ({report['outliers']['percentage']}%)",
+                    f"  - Z-score method: {report['outliers']['z_score']}",
+                    f"  - IQR method: {report['outliers']['iqr']}",
+                    f"  - Price jumps: {report['outliers']['price_jumps']}",
+                    f"  - Inconsistencies: {report['outliers']['inconsistencies']}",
+                    f"- **Data Gaps**: {report['gaps']['count']} gaps ({report['gaps']['total_hours_missing']} hours)",
+                    f"- **Price Range**: ${report['price_statistics']['min']} - ${report['price_statistics']['max']}",
+                    f"- **ML-Ready**: {'YES' if not report['needs_more_data'] and report['quality_score'] >= 70 else 'NO'}",
+                    "",
+                ]
+            )
 
         # Recommendations
-        report_lines.extend([
-            "## Recommendations",
-            ""
-        ])
+        report_lines.extend(["## Recommendations", ""])
 
         for symbol, report in self.quality_reports.items():
-            if 'status' not in report or report['status'] == 'NO_DATA':
+            if "status" not in report or report["status"] == "NO_DATA":
                 report_lines.append(f"- **{symbol}**: No data available in database")
-            elif report['needs_more_data']:
-                report_lines.append(f"- **{symbol}**: Extend data to {self.target_days} days (currently {report['days_coverage']} days)")
-            elif report['quality_score'] < 70:
-                report_lines.append(f"- **{symbol}**: Improve data quality (current score: {report['quality_score']}/100)")
+            elif report["needs_more_data"]:
+                report_lines.append(
+                    f"- **{symbol}**: Extend data to {self.target_days} days (currently {report['days_coverage']} days)"
+                )
+            elif report["quality_score"] < 70:
+                report_lines.append(
+                    f"- **{symbol}**: Improve data quality (current score: {report['quality_score']}/100)"
+                )
             else:
                 report_lines.append(f"- **{symbol}**: Ready for ML training")
 
@@ -649,27 +756,31 @@ class DataQualityEnhancer:
         4. Final validation
         5. Report generation
         """
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("DATA QUALITY ENHANCEMENT - START")
-        print("="*80)
+        print("=" * 80)
 
         for symbol in self.symbols:
             # Step 1: Analyze current data quality
             report = self.analyze_data_quality(symbol)
             self.quality_reports[symbol] = report
 
-            if report.get('status') == 'NO_DATA':
+            if report.get("status") == "NO_DATA":
                 continue
 
             # Step 2: Clean outliers
-            if report['outliers']['total'] > 0:
+            if report["outliers"]["total"] > 0:
                 cleaned = self.clean_data(symbol, report)
                 print(f"  ✓ Cleaned {cleaned} outliers")
 
             # Step 3: Extend historical data if needed
-            if report['needs_more_data']:
-                extension_result = self.extend_historical_data(symbol, report['days_coverage'])
-                print(f"  ✓ Extended data: {extension_result.get('inserted', 0)} new candles")
+            if report["needs_more_data"]:
+                extension_result = self.extend_historical_data(
+                    symbol, report["days_coverage"]
+                )
+                print(
+                    f"  ✓ Extended data: {extension_result.get('inserted', 0)} new candles"
+                )
 
             # Step 4: Re-analyze after cleaning
             print(f"\n  Re-analyzing {symbol} after enhancements...")
@@ -677,41 +788,53 @@ class DataQualityEnhancer:
             self.quality_reports[symbol] = updated_report
 
         # Generate final report
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("Generating final report...")
-        print("="*80)
+        print("=" * 80)
 
         final_report = self.generate_final_report()
 
         # Save report to file
-        report_path = str(_REPO_ROOT / 'reports/data_quality_report.md')
-        with open(report_path, 'w') as f:
+        report_path = str(_REPO_ROOT / "reports/data_quality_report.md")
+        with open(report_path, "w") as f:
             f.write(final_report)
 
         print(f"\n✓ Report saved to: {report_path}")
         print(final_report)
 
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("DATA QUALITY ENHANCEMENT - COMPLETE")
-        print("="*80)
+        print("=" * 80)
 
 
 def main():
     """
     Main entry point for data quality enhancement
     """
+    # Heavy deps (psycopg2, pandas, numpy, scipy) are required at run-time even
+    # though we permit a lazy import to keep the fail-fast probe operable on
+    # leaner CI hosts. Re-raise if missing now that the connector probe passed.
+    if _HEAVY_IMPORT_ERROR is not None:
+        raise ImportError(
+            f"data_quality_enhancement requires psycopg2/pandas/numpy/scipy at run-time: "
+            f"{_HEAVY_IMPORT_ERROR!r}"
+        )
+
     # Initialize enhancer
     enhancer = DataQualityEnhancer(
-        db_host='localhost',
+        db_host="localhost",
         db_port=5433,
-        db_name='market_data',
-        db_user='cryptobot',
-        db_password='timescale_dev_password'
+        db_name="market_data",
+        db_user="cryptobot",
+        db_password="timescale_dev_password",
     )
 
     # Run full enhancement workflow
     enhancer.run_full_enhancement()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    # D-04 fail-fast: BEFORE any other __main__ logic so no-args invocation triggers the probe.
+    assert_connector_reachable()
+
     main()

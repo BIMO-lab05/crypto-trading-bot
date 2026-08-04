@@ -18,6 +18,14 @@
 
 version: '3.8'
 
+# Applied to every service via `logging: *default-logging`. Without this the
+# json-file driver is unbounded — market-data alone accumulated 889 MB in 4 days.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 # =============================================================================
 # SERVICES
 # =============================================================================
@@ -33,6 +41,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: crypto-bot-postgres
+    logging: *default-logging
     hostname: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-cryptobot}
@@ -70,6 +79,7 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
     container_name: crypto-bot-timescaledb
+    logging: *default-logging
     hostname: timescaledb
     environment:
       POSTGRES_USER: ${TIMESCALE_USER:-cryptobot}
@@ -105,6 +115,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: crypto-bot-redis
+    logging: *default-logging
     hostname: redis
     command: >
       redis-server
@@ -139,6 +150,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: crypto-bot-rabbitmq
+    logging: *default-logging
     hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cryptobot}
@@ -177,6 +189,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: crypto-bot-prometheus
+    logging: *default-logging
     hostname: prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -209,6 +222,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: crypto-bot-grafana
+    logging: *default-logging
     hostname: grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
@@ -247,6 +261,7 @@ services:
       context: ./services/api-gateway
       dockerfile: Dockerfile
     container_name: crypto-bot-api-gateway
+    logging: *default-logging
     hostname: api-gateway
     ports:
       - "${API_GATEWAY_PORT:-8000}:8000"
@@ -290,6 +305,7 @@ services:
       - TRADING_MODE=${TRADING_MODE:-PAPER}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
       - ENABLE_ML_PREDICTIONS=${ENABLE_ML_PREDICTIONS:-false}
+      - ENABLE_SENTIMENT_ANALYSIS=${ENABLE_SENTIMENT_ANALYSIS:-false}
       # Plan 07.1-01 BUG-3: catch-all reverse-proxy target. api-gateway
       # forwards non-/api GET requests (including `/`) to the frontend
       # nginx container so http://localhost:8000 (gateway origin) can
@@ -354,6 +370,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: crypto-bot-frontend
+    logging: *default-logging
     hostname: frontend
     ports:
       - "${FRONTEND_PORT:-3000}:80"
@@ -385,9 +402,14 @@ services:
       context: ./services/bybit-connector
       dockerfile: Dockerfile
     container_name: crypto-bot-bybit
+    logging: *default-logging
     hostname: bybit-connector
     ports:
-      - "${BYBIT_PORT:-8001}:8001"
+      # SEC-0: loopback-only. This service holds live mainnet credentials and
+      # exposes POST /api/v1/order/place with no authentication; published on
+      # 0.0.0.0 it was reachable from the LAN. Nothing outside this host needs
+      # it -- only api-gateway (8000) and the frontend (3000) face outward.
+      - "127.0.0.1:${BYBIT_PORT:-8001}:8001"
     environment:
       - SERVICE_NAME=bybit-connector
       - SERVICE_PORT=8001
@@ -396,7 +418,17 @@ services:
       - BYBIT_API_KEY=${BYBIT_API_KEY:-}
       - BYBIT_API_SECRET=${BYBIT_API_SECRET:-}
       - BYBIT_TESTNET=${BYBIT_TESTNET:-false}
-      - MARKET_DATA_SOURCE=${MARKET_DATA_SOURCE:-tape}
+      # SEC-0 order-placement guard. Defaults are the SAFE values: the
+      # connector refuses to touch the exchange unless all three are set for
+      # live trading, mirroring the trading-engine contract.
+      - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
+      - TRADING_MODE=${TRADING_MODE:-PAPER}
+      - LIVE_TRADING_ACK=${LIVE_TRADING_ACK:-}
+      # Default 'live' — real Bybit REST/WS. Set MARKET_DATA_SOURCE=tape in .env
+      # only when replaying tests/fixtures/tape/*.jsonl (integration tests, replay
+      # debugging). Tape fixtures freeze prices and silently diverge from real
+      # market — flagged 2026-05-21 after BTC cache stuck at 81,270 vs mainnet 77,200.
+      - MARKET_DATA_SOURCE=${MARKET_DATA_SOURCE:-live}
       - TAPE_FIXTURES_PATH=/app/tests/fixtures/tape
     volumes:
       - ./services/bybit-connector/logs:/app/logs
@@ -425,6 +457,7 @@ services:
       context: ./services/market-data-service
       dockerfile: Dockerfile
     container_name: crypto-bot-market-data
+    logging: *default-logging
     hostname: market-data
     ports:
       - "${MARKET_DATA_PORT:-8002}:8002"
@@ -472,9 +505,12 @@ services:
       context: ./services/portfolio-manager
       dockerfile: Dockerfile
     container_name: crypto-bot-portfolio
+    logging: *default-logging
     hostname: portfolio-manager
     ports:
-      - "${PORTFOLIO_PORT:-8003}:8003"
+      # SEC-1: loopback-only. This service has no authentication on any route,
+      # including /api/v1/transaction/buy and /sell.
+      - "127.0.0.1:${PORTFOLIO_PORT:-8003}:8003"
     environment:
       - SERVICE_NAME=portfolio-manager
       - SERVICE_PORT=8003
@@ -525,6 +561,7 @@ services:
       context: ./services/technical-analysis
       dockerfile: Dockerfile
     container_name: crypto-bot-ta
+    logging: *default-logging
     hostname: technical-analysis
     ports:
       - "${TA_PORT:-8004}:8004"
@@ -568,9 +605,13 @@ services:
       context: ./services/trading-engine
       dockerfile: Dockerfile
     container_name: crypto-bot-trading
+    logging: *default-logging
     hostname: trading-engine
     ports:
-      - "${TRADING_PORT:-8005}:8005"
+      # SEC-1: loopback-only. 51 mutating routes, zero auth schemes -- verified
+      # against the live OpenAPI document. Every api-gateway guard was
+      # advisory while this was reachable from the LAN.
+      - "127.0.0.1:${TRADING_PORT:-8005}:8005"
     environment:
       - SERVICE_NAME=trading-engine
       - SERVICE_PORT=8005
@@ -584,6 +625,16 @@ services:
       # service-local .env was being overridden by this compose-level block.
       - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.10}
       - MAX_POSITION_SIZE_PCT=${MAX_POSITION_SIZE_PCT:-10.0}
+      # ADR-028 (2026-08-03): previously NOT passed at all, so the container
+      # silently used the config.py default and no .env value could reach it.
+      # The operator's `MAX_DAILY_LOSS=0.10` was dead twice over — wrong key
+      # name (the field reads MAX_DAILY_LOSS_PCT) and wrong unit (0.10 fails
+      # the field's ge=1.0). Percent, not fraction: 12.0 means 12%.
+      - MAX_DAILY_LOSS_PCT=${MAX_DAILY_LOSS_PCT:-12.0}
+      # Not previously passed either; container fell back to the 80.0 default
+      # while docker-compose.yml (the incomplete file) said 70.0. Pinned so the
+      # kill-switch max_position_value derivation is not cwd/file dependent.
+      - MAX_TOTAL_EXPOSURE_PCT=${MAX_TOTAL_EXPOSURE_PCT:-80.0}
       - EMERGENCY_STOP_LOSS=${EMERGENCY_STOP_LOSS:-0.05}
       # File path inside the shared safety/ dir (see api-gateway block for context).
       - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/safety/EMERGENCY_STOP}
@@ -665,6 +716,7 @@ services:
       context: ./services/notification-service
       dockerfile: Dockerfile
     container_name: crypto-bot-notification
+    logging: *default-logging
     hostname: notification-service
     ports:
       - "${NOTIFICATION_PORT:-8006}:8006"
@@ -686,14 +738,15 @@ services:
       # and Plan 02-04's notification assertion fails. The env_file above points at
       # services/notification-service/.env (gitignored host-only) which cannot carry
       # per-test variables. (Blocker #1, revision 2.)
-      # WR-05 (Phase 2): default to "record" so out-of-the-box `pytest tests/integration`
-      # on a developer's local stack matches the host conftest fixture
-      # (tests/integration/conftest.py:230, which defaults to "record" and
-      # tails tests/.notifications.log). Empty string fell through to the
-      # production POST path while the host watched a log the container
-      # never wrote; the test then hung until timeout. CI workflows
-      # explicitly export NOTIFICATION_TEST_MODE=live and unaffected.
-      - NOTIFICATION_TEST_MODE=${NOTIFICATION_TEST_MODE:-record}
+      # FIX 2026-07-29: default to REAL delivery ("" = production POST path).
+      # The previous default was "record" (WR-05, for integration tests) which
+      # silently wrote every notification to tests/.notifications.log INSIDE
+      # the container while reporting telegram_sent=true — the operator never
+      # received a single Telegram message and nothing looked wrong. Test-mode
+      # must be opt-in, not the default: export NOTIFICATION_TEST_MODE=record
+      # when running `pytest tests/integration` (the host conftest also sets
+      # it), and leave it unset for normal operation.
+      - NOTIFICATION_TEST_MODE=${NOTIFICATION_TEST_MODE:-}
       - NOTIFICATION_RECORD_PATH=${NOTIFICATION_RECORD_PATH:-tests/.notifications.log}
       - TEST_TELEGRAM_BOT_TOKEN=${TEST_TELEGRAM_BOT_TOKEN:-}
       - TEST_TELEGRAM_CHAT_ID=${TEST_TELEGRAM_CHAT_ID:-}
@@ -729,6 +782,7 @@ services:
       context: ./services/ml-prediction-service
       dockerfile: Dockerfile
     container_name: crypto-bot-ml-prediction
+    logging: *default-logging
     hostname: ml-prediction
     ports:
       - "${ML_PORT:-8007}:8007"
@@ -794,6 +848,7 @@ services:
       context: .
       dockerfile: services/tournament-harness/Dockerfile
     container_name: crypto-bot-tournament-harness
+    logging: *default-logging
     hostname: tournament-harness
     ports:
       - "${TOURNAMENT_PORT:-8010}:8010"
@@ -840,6 +895,7 @@ services:
       context: ./services/sentiment-analysis-service
       dockerfile: Dockerfile
     container_name: crypto-bot-sentiment
+    logging: *default-logging
     hostname: sentiment-analysis
     ports:
       - "${SENTIMENT_PORT:-8008}:8008"
@@ -882,6 +938,7 @@ services:
       context: ./services/risk-metrics-service
       dockerfile: Dockerfile
     container_name: crypto-bot-risk-metrics
+    logging: *default-logging
     hostname: risk-metrics
     ports:
       - "${RISK_PORT:-8009}:8009"

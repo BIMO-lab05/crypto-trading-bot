@@ -1,0 +1,36 @@
+...............F                                                         [100%]
+=================================== FAILURES ===================================
+__________________ test_no_capital_literals_in_scanned_files ___________________
+tests/test_account_size_invariant.py:411: in test_no_capital_literals_in_scanned_files
+    assert not violations, (
+E   AssertionError: 23 capital-named numeric literal(s) found. THE ACCOUNT IS $100. Source the value from the service's own Settings (in-container) or from shared.account (host-run):
+E     services/trading-engine/app/trading_enhancements/kill_switch.py:65: annotated assignment `max_position_value` = 100000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/handlers/performance_dashboard.py:210: parameter default of `calculate_equity_curve_from_trades()` `initial_balance` = 10000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/handlers/statistical_arbitrage.py:49: parameter default of `initialize_stat_arb_manager()` `total_capital` = 100000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/managers/statistical_arbitrage_manager.py:90: parameter default of `__init__()` `total_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/main.py:1079: parameter default of `execute_sqzmom_trade()` `account_balance` = 10000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/main.py:1309: parameter default of `stat_arb_initialize_endpoint()` `total_capital` = 100000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/strategies/backtester.py:1007: parameter default of `create_backtester()` `initial_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/strategies/backtester.py:131: annotated assignment `initial_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/strategies/backtester.py:132: annotated assignment `final_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/strategies/backtester.py:133: annotated assignment `peak_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/trading-engine/app/strategies/backtester.py:216: annotated assignment `initial_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/backtest_models.py:16: annotated assignment `initial_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/backtesting.py:126: parameter default of `compare_strategies()` `initial_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/main.py:529: dict-get fallback for `total_value` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/main.py:667: dict-get fallback for `total_value` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/main.py:704: dict-get fallback for `total_value` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/main.py:740: dict-get fallback for `total_value` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/main.py:788: dict-get fallback for `total_value` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/main.py:853: dict-get fallback for `total_value` = 10000 (capital-named literal; declared account size is 100)
+E     services/risk-metrics-service/app/main.py:940: dict-get fallback for `total_value` = 10000 (capital-named literal; declared account size is 100)
+E     backtesting/simulators/risk_of_ruin.py:37: annotated assignment `initial_capital` = 10000 (capital-named literal; declared account size is 100)
+E     backtesting/simulators/monte_carlo.py:37: annotated assignment `initial_capital` = 10000 (capital-named literal; declared account size is 100)
+E     services/technical-analysis/backtesting/sqzmom_backtest.py:135: parameter default of `__init__()` `initial_capital` = 10000 (capital-named literal; declared account size is 100)
+E   assert not ['services/trading-engine/app/trading_enhancements/kill_switch.py:65: annotated assignment `max_position_value` = 1000... `stat_arb_initialize_endpoint()` `total_capital` = 100000 (capital-named literal; declared account size is 100)', ...]
+        path       = PosixPath('/mnt/d/Bimo_max/crypto-trading-bot/services/technical-analysis/backtesting/sqzmom_backtest.py')
+        relative_path = 'services/technical-analysis/backtesting/sqzmom_backtest.py'
+        violations = ['services/trading-engine/app/trading_enhancements/kill_switch.py:65: annotated assignment `max_position_value` = 1000... `stat_arb_initialize_endpoint()` `total_capital` = 100000 (capital-named literal; declared account size is 100)', ...]
+=========================== short test summary info ============================
+FAILED tests/test_account_size_invariant.py::test_no_capital_literals_in_scanned_files
+1 failed, 15 passed in 1.12s

@@ -56,12 +56,18 @@ function eyebrowStyle() {
   }
 }
 
+// Visual palette preserved verbatim (Editorial Trading Floor tokens). Vertical
+// padding moved to Tailwind responsive utilities on the <button> className so
+// chips render with effective tap-target >=44px at <=768px (py-3 md:py-1 +
+// min-h-[44px] md:min-h-0). Horizontal padding stays inline because the
+// 10px/12px values aren't on the Tailwind 4px scale.
 function chipStyle(selected) {
   return {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 4,
-    padding: '4px 10px',
+    paddingLeft: 10,
+    paddingRight: 10,
     borderRadius: 4,
     border: selected ? `1px solid ${C.borderStrong}` : `1px solid ${C.border}`,
     background: selected ? C.surface2 : C.surface,
@@ -76,7 +82,10 @@ function chipStyle(selected) {
 
 function segmentStyle(active, isFirst, isLast) {
   return {
-    padding: '4px 12px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    paddingLeft: 12,
+    paddingRight: 12,
     background: active ? C.surface2 : C.surface,
     color: active ? C.text : C.text2,
     border: 'none',
@@ -174,6 +183,7 @@ export default function TournamentFilterChips({ counts }) {
               data-testid={`tournament-filter-chip-symbol-${sym}`}
               aria-pressed={selected}
               onClick={() => toggleSymbol(sym)}
+              className="py-3 md:py-1 min-h-[44px] md:min-h-0"
               style={chipStyle(selected)}
             >
               <span>{sym}</span>
@@ -205,6 +215,7 @@ export default function TournamentFilterChips({ counts }) {
               data-testid={`tournament-filter-chip-arch-${arch}`}
               aria-pressed={selected}
               onClick={() => toggleArch(arch)}
+              className="py-3 md:py-1 min-h-[44px] md:min-h-0"
               style={chipStyle(selected)}
             >
               <span>{arch}</span>
@@ -246,6 +257,7 @@ export default function TournamentFilterChips({ counts }) {
                 type="button"
                 aria-pressed={active}
                 onClick={() => setStatus(s)}
+                className="py-3 md:py-1 min-h-[44px] md:min-h-0"
                 style={segmentStyle(active, idx === 0, idx === STATUSES.length - 1)}
               >
                 <span>{s}</span>
@@ -267,12 +279,15 @@ export default function TournamentFilterChips({ counts }) {
         {hasNonDefault && (
           <button
             type="button"
+            data-testid="tournament-filter-clear"
             onClick={clearAll}
+            className="py-3 md:py-1 min-h-[44px] md:min-h-0"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 4,
-              padding: '4px 8px',
+              paddingLeft: 8,
+              paddingRight: 8,
               border: 'none',
               background: 'transparent',
               color: C.text3,

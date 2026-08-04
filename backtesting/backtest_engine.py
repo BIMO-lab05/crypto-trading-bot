@@ -4,6 +4,9 @@ Backtesting Engine for Crypto Trading Bot
 Tests trading strategies on historical data to validate effectiveness
 """
 
+import os
+import sys
+
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
@@ -11,6 +14,29 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 import logging
+
+# ---------------------------------------------------------------------------
+# Repo root on sys.path so `shared.account` resolves however this module is
+# invoked. Mirrors the existing bootstrap in `backtesting/run_walk_forward.py`
+# and `backtesting/simulators/monte_carlo.py` — not a new pattern.
+#
+# This file is HOST-RUN ONLY: repo-root `backtesting/` appears in no compose
+# service and no Dockerfile copies it, so unlike code under `services/*/app/**`
+# it MAY import the declaration of record directly. See `shared/account.py`.
+#
+# 2026-08-03: this engine defaulted to $10,000 and was MISSED by the capital
+# audit, which caught `simulators/` but not the engine that actually produces
+# the walk-forward evidence. Every result in `*_FINAL_RESULTS.log` (Dec 2025)
+# was therefore computed on a 100x account.
+# ---------------------------------------------------------------------------
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+# Used as the `initial_capital` default below. Do NOT let autoflake strip this —
+# it has been removed once already (see the same failure mode in main.py, commit
+# 6b48272). If it disappears, BacktestEngine raises NameError at import.
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -101,7 +127,7 @@ class BacktestEngine:
 
     def __init__(
         self,
-        initial_capital: float = 10000.0,
+        initial_capital: float = PAPER_INITIAL_BALANCE,
         position_size_pct: float = 0.02,  # 2% per trade
         commission: float = 0.001,  # 0.1% commission (LEGACY symmetric mode)
         slippage: float = 0.0005,  # 0.05% slippage (LEGACY fixed mode)

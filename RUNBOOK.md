@@ -14,6 +14,7 @@ Symptom-indexed recovery procedures for the crypto-trading-bot stack.
 - [Symptom: Stale in-memory ML model after retrain](#symptom-stale-in-memory-ml-model-after-retrain)
 - [Symptom: bootstrap.sh fails with one or more UNHEALTHY services](#symptom-bootstrapsh-fails-with-one-or-more-unhealthy-services)
 - [Symptom: EMERGENCY_STOP recovery — auto-trader will not arm after stop](#symptom-emergency_stop-recovery--auto-trader-will-not-arm-after-stop)
+- [Symptom: Market-data stale or missing — bybit-connector chain broken](#symptom-market-data-stale-or-missing--bybit-connector-chain-broken)
 - [Pre-LIVE Operator Checklist](#pre-live-operator-checklist)
 - [Tournament harness — first-time setup](#tournament-harness--first-time-setup)
 
@@ -163,6 +164,91 @@ docker compose -f docker-compose.unified.yml restart trading-engine
 - `curl http://localhost:8000/api/portfolio/emergency-stop/status` — returns `active: false`.
 - `docker logs trading-engine --tail 20 | grep -iE "auto.?trader.armed|loop running"` — engine reports armed and looping.
 - Stack reaches healthy idle (re-run `bash bootstrap.sh` if needed; expect `[6/6] Bootstrap complete`).
+
+---
+
+## Symptom: Market-data stale or missing — bybit-connector chain broken
+
+Post-Phase-13 (2026-05-22), every consumer of Bybit market data — scripts, ml-prediction-service handlers, backtesting fetcher, infra rotate-secrets ping, market-data-service ingest — routes through `bybit-connector:8001` REST. When that single chokepoint breaks, every downstream consumer reports stale prices, empty kline backfills, or hard failures. Triage the four sub-causes below in order.
+
+**Diagnose:**
+
+Sub-cause A — bybit-connector container down or unhealthy:
+- `docker ps --filter name=bybit-connector` — empty result or `Exited` / `Restarting` status. A healthy entry shows `Up <duration> (healthy)`.
+- `docker logs crypto-bot-bybit-connector --tail 30` — last lines show a Python traceback, `OOMKilled`, or `received SIGTERM` shutdown.
+- `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8001/health` — non-200 (or connection refused) confirms the connector is not serving.
+
+Sub-cause B — `BYBIT_CONNECTOR_URL` environment misconfigured (host vs compose hostname):
+- `docker exec crypto-bot-market-data env | grep BYBIT_CONNECTOR_URL` — must read `http://bybit-connector:8001` inside the compose network. If it reads `http://localhost:8001`, the consumer is trying to dial out of its container to the host loopback (will fail).
+- For host-side operator scripts (`python scripts/collect_*.py` on the host, not in compose), the inverse holds: `echo $BYBIT_CONNECTOR_URL` must read `http://localhost:8001`, not the compose hostname.
+- Mismatched value triggers `httpx.ConnectError: All connection attempts failed` in the consumer's logs.
+
+Sub-cause C — bybit-connector hitting Bybit-side ratelimit (HTTP 429 / rate.limit headers):
+- `docker logs crypto-bot-bybit-connector --tail 100 | grep -iE 'ratelimit|rate.limit|HTTP 429|Too Many'` — non-empty result confirms Bybit is throttling.
+- Bybit's REST rate limits are documented at `https://bybit-exchange.github.io/docs/v5/rate-limit` — burst-mode is 600 req/5s for unauthenticated requests on most endpoints; if multiple backfill scripts run in parallel they can exhaust the budget for the whole stack.
+
+Sub-cause D — `MARKET_DATA_SOURCE=tape` accidentally enabled in production:
+- `docker exec crypto-bot-bybit-connector env | grep MARKET_DATA_SOURCE` — value reads `tape` instead of `live`. Production must always be `live`; `tape` replays JSONL fixtures from `tests/fixtures/tape/` and returns deterministic-but-stale data with a 30s+ "now" lag.
+- `docker logs crypto-bot-bybit-connector --tail 100 | grep -i 'tape mode\|MARKET_DATA_SOURCE=tape'` — a startup log line confirms tape mode is active.
+- Cross-link: tape mode is the default for `tests/integration/` runs and `docker-compose.test.yml`; if those compose overrides leak into a production deploy, this is the symptom.
+
+**Action:**
+
+For sub-cause A (connector down):
+```bash
+docker compose -f docker-compose.unified.yml up -d bybit-connector
+# Watch for healthy status (~30s):
+docker compose -f docker-compose.unified.yml ps bybit-connector
+```
+
+For sub-cause B (URL misconfig):
+```bash
+# Compose-network consumer (inside container) — should be the compose hostname
+docker exec <consumer-service> env | grep BYBIT_CONNECTOR_URL
+# Fix by editing docker-compose.unified.yml service environment block, then:
+docker compose -f docker-compose.unified.yml up -d --force-recreate <consumer-service>
+
+# Host-side operator script — should be localhost
+export BYBIT_CONNECTOR_URL=http://localhost:8001
+```
+
+For sub-cause C (ratelimit):
+- Identify which consumer is hot: `docker logs crypto-bot-bybit-connector --tail 200 | grep -oE 'X-Bapi-Limit-Status: [0-9]+' | sort | uniq -c`.
+- Stop any parallel backfill scripts; ratelimit clears within 60s typically.
+- If recurring, throttle the consumer by adding `asyncio.sleep` between batched calls or reducing concurrent worker count.
+
+For sub-cause D (tape leaked into prod):
+```bash
+# Identify the override (most often docker-compose.override.yml or stale .env entry)
+grep -rE 'MARKET_DATA_SOURCE=tape' docker-compose*.yml .env 2>/dev/null
+# Remove the override / set MARKET_DATA_SOURCE=live, then force-recreate
+docker compose -f docker-compose.unified.yml up -d --force-recreate bybit-connector
+```
+
+**Verification:**
+
+Hit the connector directly and confirm a live Bybit ticker response:
+
+```bash
+curl http://bybit-connector:8001/api/v1/market/ticker?symbol=BTCUSDT&category=linear
+# From host (outside compose network):
+curl http://localhost:8001/api/v1/market/ticker?symbol=BTCUSDT&category=linear
+```
+
+Expected: 200 response within 2s, JSON body shaped `{"success": true, "data": {"category": "linear", "list": [{"symbol": "BTCUSDT", "lastPrice": "<float>", "indexPrice": "...", "markPrice": "...", ...}]}}`. The `lastPrice` field must be a non-zero float, and the timestamp implicit in `data.list[0]` must match real-time Bybit data (cross-check against `https://www.bybit.com/trade/usdt/BTCUSDT` in a browser if uncertain).
+
+Failure indicators that mean the chain is still broken — recurse to Diagnose:
+- `{"success": false, ...}` body → connector reached Bybit but Bybit rejected (likely sub-cause C ratelimit, or auth misconfig).
+- HTTP 5xx → connector itself is unhealthy (sub-cause A).
+- `Connection refused` or `Could not resolve host: bybit-connector` → URL/networking misconfig (sub-cause B).
+- `lastPrice` reads `"0"` or matches a known tape fixture → tape mode leaked (sub-cause D).
+
+Then confirm at least one downstream consumer can read the chain. A quick health probe:
+```bash
+docker exec crypto-bot-market-data curl -s http://bybit-connector:8001/api/v1/market/ticker?symbol=BTCUSDT&category=linear | head -c 200
+```
+
+If that returns a populated `lastPrice`, the chain is restored.
 
 ---
 
@@ -341,12 +427,12 @@ The experiment containers use a SELECT-only Postgres role:
 
     # With the stack running, apply the migration manually
     docker exec -i crypto-bot-timescaledb \
-        psql -U postgres -d trading_bot \
+        psql -U cryptobot -d market_data \
         < infrastructure/migrations/005_tournament_reader.sql
 
     # Confirm role exists
     docker exec crypto-bot-timescaledb \
-        psql -U postgres -d trading_bot -c \
+        psql -U cryptobot -d market_data -c \
         "SELECT rolname FROM pg_roles WHERE rolname = 'tournament_reader';"
 
 ### 2. Set + rotate TOURNAMENT_READER_PASSWORD
@@ -359,16 +445,16 @@ The experiment containers use a SELECT-only Postgres role:
 
     # Apply to Postgres (rotates from the CHANGE_ME_VIA_ENV placeholder)
     docker exec -i crypto-bot-timescaledb \
-        psql -U postgres -d trading_bot -c \
+        psql -U cryptobot -d market_data -c \
         "ALTER ROLE tournament_reader PASSWORD '$PASSWORD';"
 
     # Verify by connecting as the role
     docker exec crypto-bot-timescaledb \
-        psql -U tournament_reader -d trading_bot -c "SELECT 1 FROM klines LIMIT 1"
+        psql -h localhost -U tournament_reader -d market_data -c "SELECT 1 FROM klines LIMIT 1"
 
     # Confirm SELECT-only (this command MUST fail with permission denied)
     docker exec crypto-bot-timescaledb \
-        psql -U tournament_reader -d trading_bot -c \
+        psql -h localhost -U tournament_reader -d market_data -c \
         "DELETE FROM klines WHERE FALSE"
 
 ### Rotating the password later
@@ -387,7 +473,7 @@ The tournament refuses to start if any (symbol, interval) pair has fewer than
     # rows you see here MUST include 'SOLUSDT' / 'BNBUSDT' / 'ADAUSDT' for the v1
     # validated-symbol set. If you see only bare base entries, market-data-service
     # is misconfigured and no tournament can run.
-    docker exec crypto-bot-timescaledb psql -U postgres -d trading_bot -c \
+    docker exec crypto-bot-timescaledb psql -U cryptobot -d market_data -c \
       "SELECT symbol, interval, COUNT(*) FROM klines
          WHERE is_mainnet = true
            AND timestamp > now() - interval '365 days'
@@ -395,7 +481,7 @@ The tournament refuses to start if any (symbol, interval) pair has fewer than
          ORDER BY symbol, interval;"
 
     # Targeted check for the v1 validated-symbol set (each must show >= 50000 rows):
-    docker exec crypto-bot-timescaledb psql -U postgres -d trading_bot -c \
+    docker exec crypto-bot-timescaledb psql -U cryptobot -d market_data -c \
       "SELECT symbol, COUNT(*) FROM klines
          WHERE is_mainnet = true
            AND interval = '5m'

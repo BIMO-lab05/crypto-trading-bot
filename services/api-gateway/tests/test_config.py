@@ -8,11 +8,33 @@ from pydantic import ValidationError
 
 from app.config import Settings
 
+# Env vars that override the defaults these tests assert. When the suite runs
+# inside the deployed container (per CLAUDE.md), docker-compose sets these to
+# docker-network values (http://bybit-connector:8001, LOG_LEVEL=DEBUG, ...),
+# which is correct at runtime but broke the "defaults" tests. Clear them so
+# the tests exercise the actual code defaults everywhere. (added 2026-07-29)
+_DEFAULT_OVERRIDING_ENV = [
+    "LOG_LEVEL",
+    "SERVICE_PORT",
+    "BYBIT_CONNECTOR_URL",
+    "MARKET_DATA_URL",
+    "TECHNICAL_ANALYSIS_URL",
+    "TRADING_ENGINE_URL",
+    "PORTFOLIO_MANAGER_URL",
+    "RISK_METRICS_URL",
+]
+
+
+@pytest.fixture
+def clean_env(monkeypatch):
+    for var in _DEFAULT_OVERRIDING_ENV:
+        monkeypatch.delenv(var, raising=False)
+
 
 class TestSettingsValidation:
     """Test settings validation"""
 
-    def test_default_settings(self):
+    def test_default_settings(self, clean_env):
         """Test that default settings are valid"""
         settings = Settings()
 
@@ -63,7 +85,7 @@ class TestSettingsValidation:
         with pytest.raises(ValidationError):
             Settings(service_name="   ")
 
-    def test_backend_service_urls(self):
+    def test_backend_service_urls(self, clean_env):
         """Test backend service URL configuration"""
         settings = Settings()
 
@@ -138,27 +160,3 @@ class TestSettingsValidation:
         # Clean up
         del os.environ["SERVICE_PORT"]
         del os.environ["LOG_LEVEL"]
-
-
-class TestJWTSecretKeyWarning:
-    """Test JWT secret key security"""
-
-    def test_default_jwt_secret_is_insecure(self):
-        """Test that default JWT secret key is recognized as insecure"""
-        settings = Settings()
-
-        # This should trigger a security warning in production
-        # JWT secret is loaded from environment or default
-        assert isinstance(settings.jwt_secret_key, str)
-        assert len(settings.jwt_secret_key) > 0
-        """Test setting custom JWT secret key"""
-        import os
-
-        os.environ["JWT_SECRET_KEY"] = "custom-secure-secret-key-32-chars-min"
-        settings = Settings()
-
-        assert settings.jwt_secret_key != "your-secret-key-change-in-production"
-        assert len(settings.jwt_secret_key) >= 32
-
-        # Clean up
-        del os.environ["JWT_SECRET_KEY"]

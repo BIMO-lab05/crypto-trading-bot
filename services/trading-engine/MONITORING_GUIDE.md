@@ -2,38 +2,28 @@
 
 **Purpose:** Monitor trading signals, confidence scores, and decision-making in real-time
 
-**Last Updated:** 2025-11-09
+**Last Updated:** 2026-07-30
+
+> Merged from `MONITORING_QUICKSTART.md` on 2026-07-30.
 
 ---
 
-## 📊 Current System Status (from logs)
+## 🚀 Quick Commands
 
-### Recent Activity Analysis
-Based on the latest log analysis:
+```bash
+# Single signal check
+python3 monitor_signals.py --symbol BTCUSDT
 
+# Continuous monitoring (real-time)
+python3 monitor_signals.py --symbol BTCUSDT --continuous
+
+# Multi-timeframe analysis
+python3 monitor_signals.py --symbol BTCUSDT --multi-timeframe
+
+# Analyze historical logs / errors only
+python3 analyze_logs.py
+python3 analyze_logs.py --errors-only
 ```
-✅ System Health: No errors detected
-📈 Signals Analyzed: 3 trading decisions
-🎯 Signal Distribution: 100% HOLD (no strong trends detected)
-📊 Average Confidence: 47% (medium confidence)
-⚖️ Average Score: -0.47 (weak bearish bias)
-```
-
-### Indicator Performance Summary
-
-| Indicator | Samples | BUY | SELL | HOLD | Avg Confidence |
-|-----------|---------|-----|------|------|----------------|
-| MACD | 3 | 0 | 3 | 0 | 100% |
-| SMA | 3 | 0 | 3 | 0 | 100% |
-| EMA | 3 | 0 | 3 | 0 | 73% |
-| Bollinger Bands | 3 | 3 | 0 | 0 | 40% |
-| RSI | 3 | 0 | 0 | 3 | 30% |
-
-**Key Observations:**
-- MACD and SMA consistently bearish (SELL signals)
-- Bollinger Bands showing oversold conditions (BUY signals)
-- RSI neutral (HOLD signals)
-- Mixed signals resulted in HOLD decisions (no consensus)
 
 ---
 
@@ -92,6 +82,16 @@ VOLUME_CONFIRMATION       🟢 BUY    0.80 ✓       2.50            🔍 ✓ CO
    ⚠️  Low confidence 0.47 - signal may not be actionable
 ```
 
+#### Output Legend
+
+Confidence symbols:
+- 🔥 = High confidence (≥80%)
+- ✓ = Good confidence (≥60%)
+- ~ = Medium confidence (40–60%)
+- ⚠️ = Low confidence (<40%)
+
+Signal colors: 🟢 BUY = bullish · 🔴 SELL = bearish · 🟡 HOLD = neutral/mixed
+
 ---
 
 ### 2. Historical Log Analyzer (`analyze_logs.py`)
@@ -112,6 +112,9 @@ python3 analyze_logs.py --recent 20
 
 # Analyze specific log file
 python3 analyze_logs.py --log-file logs/service_2025-11-08.log
+
+# Save analysis to file
+python3 analyze_logs.py > analysis_$(date +%Y%m%d).txt
 ```
 
 #### What It Analyzes
@@ -153,9 +156,11 @@ Every trading signal consists of:
    - **Gatekeeper** (1): Trend Filter
    - **Validator** (1): Volume Confirmation
 
+   > Note (2026-07-30): the aggregator roster has grown since this guide was written (root `CLAUDE.md` describes a 9-indicator vote; SQZMOM joins in Phase 21). The roles model (voters / gatekeeper / validator) still holds — check `wiki/modules/technical-analysis.md` for the current roster.
+
 2. **Aggregated Score**
    - Weighted average of all voting indicators
-   - Range: -1.0 (strong SELL) to +1.0 (strong BUY)
+   - Range: −1.0 (strong SELL) to +1.0 (strong BUY)
    - Threshold: ±0.3
 
 3. **Confidence Level**
@@ -164,8 +169,9 @@ Every trading signal consists of:
    - Minimum actionable: 60%
 
 4. **Consensus Count**
-   - Number of indicators agreeing on action
+   - Number of indicators agreeing on the action
    - Minimum required: 3 out of 5
+   - **Since 2026-07-28:** consensus counts **directional votes only** — a BUY's consensus = BUY votes; HOLD votes no longer pad the count (previously 2 BUY + 3 HOLD could pass a min-consensus-3 BUY gate)
 
 ### Decision Logic
 
@@ -184,11 +190,19 @@ AND confidence must be >= 0.6 to be actionable
 
 | Score Range | Action | Confidence | Interpretation |
 |-------------|--------|------------|----------------|
-| +0.7 to +1.0 | BUY | 80-100% | Strong bullish trend |
-| +0.3 to +0.7 | BUY | 60-80% | Moderate buy opportunity |
-| -0.3 to +0.3 | HOLD | Any | Mixed signals, no consensus |
-| -0.7 to -0.3 | SELL | 60-80% | Moderate sell pressure |
-| -1.0 to -0.7 | SELL | 80-100% | Strong bearish trend |
+| +0.7 to +1.0 | BUY | 80–100% | Strong bullish trend |
+| +0.3 to +0.7 | BUY | 60–80% | Moderate buy opportunity |
+| −0.3 to +0.3 | HOLD | Any | Mixed signals, no consensus |
+| −0.7 to −0.3 | SELL | 60–80% | Moderate sell pressure |
+| −1.0 to −0.7 | SELL | 80–100% | Strong bearish trend |
+
+### When to Trade
+
+Wait for **all** of:
+- ✅ Confidence ≥ 60%
+- ✅ Consensus ≥ 4 indicators (directional)
+- ✅ |Score| ≥ 0.3
+- ✅ Volume confirmation
 
 ---
 
@@ -196,34 +210,42 @@ AND confidence must be >= 0.6 to be actionable
 
 ### 1. Confidence Score
 - **High (≥70%)**: Strong agreement, actionable
-- **Medium (40-70%)**: Moderate agreement, caution advised
+- **Medium (40–70%)**: Moderate agreement, caution advised
 - **Low (<40%)**: Weak agreement, avoid trading
 
 ### 2. Aggregated Score
 - **Magnitude**: How strong is the signal?
-- **Direction**: Is it bullish (+) or bearish (-)?
+- **Direction**: Bullish (+) or bearish (−)?
 
 ### 3. Consensus Count
-- **4-5 indicators**: Strong consensus
+- **4–5 indicators**: Strong consensus
 - **3 indicators**: Weak consensus
 - **<3 indicators**: No consensus, HOLD
 
 ### 4. Indicator Roles
 
-**Gatekeepers** (Trend Filter):
-- Acts as first filter
-- Must confirm market direction
-- If bearish during BUY signal → reduces confidence
+**Gatekeepers** (Trend Filter): first filter; must confirm market direction; if bearish during a BUY signal → reduces confidence.
 
-**Validators** (Volume Confirmation):
-- Confirms signal strength
-- Checks volume support
-- Can veto weak signals
+**Validators** (Volume Confirmation): confirms signal strength, checks volume support, can veto weak signals.
 
-**Voters** (RSI, MACD, BB, SMA, EMA):
-- Cast votes for BUY/SELL/HOLD
-- Weighted by confidence
-- Majority determines preliminary action
+**Voters** (RSI, MACD, BB, SMA, EMA): cast BUY/SELL/HOLD votes weighted by confidence; majority determines preliminary action.
+
+---
+
+## 📋 Daily Monitoring Checklist
+
+### Morning (Pre-Market)
+- [ ] `python3 analyze_logs.py` — review overnight activity
+- [ ] `python3 analyze_logs.py --errors-only` — check for errors
+- [ ] `python3 monitor_signals.py --multi-timeframe` — timeframe alignment
+
+### During Trading Hours
+- [ ] `python3 monitor_signals.py --continuous` — live monitoring
+- [ ] Watch for confidence ≥ 60% and consensus shifts
+
+### Evening (Post-Market)
+- [ ] `python3 analyze_logs.py` — full analysis
+- [ ] Review decision quality and indicator performance
 
 ---
 
@@ -252,30 +274,15 @@ AND confidence must be >= 0.6 to be actionable
 
 ### In Log Analysis
 
-1. **High Error Rate**
-   ```
-   Errors: 15 (↑ from previous period)
-   ```
-   **Action:** Check service health
-
-2. **TA Service Unavailable**
-   ```
-   WARNING: Technical Analysis Service not available
-   ```
-   **Action:** Restart TA service
-
-3. **Database Connection Issues**
-   ```
-   WARNING: Database connection failed - trades will not be persisted
-   ```
-   **Action:** Check database status
+1. **High Error Rate** — check service health
+2. **TA Service Unavailable** (`WARNING: Technical Analysis Service not available`) — restart TA service
+3. **Database Connection Issues** (`WARNING: Database connection failed - trades will not be persisted`) — check database status
 
 ---
 
 ## 🎯 Best Practices
 
 ### Before Trading
-
 1. ✅ Run multi-timeframe analysis
 2. ✅ Check confidence ≥ 60%
 3. ✅ Verify consensus ≥ 4 indicators
@@ -283,14 +290,12 @@ AND confidence must be >= 0.6 to be actionable
 5. ✅ Review recent error logs
 
 ### During Monitoring
-
 1. ✅ Watch for confidence changes
 2. ✅ Track consensus shifts
 3. ✅ Monitor aggregated score trends
 4. ✅ Note indicator disagreements
 
 ### After Trading
-
 1. ✅ Analyze decision quality
 2. ✅ Review indicator accuracy
 3. ✅ Check error patterns
@@ -300,12 +305,10 @@ AND confidence must be >= 0.6 to be actionable
 
 ## 📊 Monitoring Schedule
 
-### Recommended Frequency
-
-- **Real-time monitoring**: During active trading hours
-- **Log analysis**: Daily (end of day)
-- **Multi-timeframe check**: Before entering positions
-- **Error review**: Every 4 hours or if issues suspected
+- **Real-time monitoring**: during active trading hours (continuous mode during volatile periods: `--continuous --delay 30`)
+- **Log analysis**: daily (end of day)
+- **Multi-timeframe check**: before entering positions
+- **Error review**: every 4 hours or if issues suspected
 
 ### Example Monitoring Session
 
@@ -350,18 +353,31 @@ python3 -m uvicorn app.main:app --reload --port 8004
 
 ### No signals in logs
 
-1. Check if service is running
-2. Verify log file permissions
-3. Check log level (should be INFO or DEBUG)
-4. Ensure API endpoints are being called
+```bash
+# Verify trading engine is running (port 8005 — older quickstart said 8001, which is bybit-connector)
+curl http://localhost:8005/health
+
+# Check log file
+tail -f logs/service.log
+```
+
+Also: verify log file permissions, log level (INFO or DEBUG), and that API endpoints are being called.
+
+### Manual API test
+
+```bash
+# Get current signal via API (trading-engine, port 8005)
+curl "http://localhost:8005/api/v1/signals/BTCUSDT?interval=60"
+
+# Check positions
+curl "http://localhost:8005/api/v1/positions?status=all"
+```
 
 ---
 
 ## 📈 Advanced Usage
 
 ### Custom Alert Script
-
-Create a script to alert on high-confidence signals:
 
 ```bash
 #!/bin/bash
@@ -388,6 +404,24 @@ for symbol in BTCUSDT ETHUSDT SOLUSDT; do
 done
 ```
 
+### Real-time log filtering
+
+```bash
+tail -f logs/service.log | grep "Aggregated Signal"
+```
+
+---
+
+## 🗄️ Historical Example (2025-10-30 → 2025-10-31)
+
+A worked example of a healthy no-trade session, kept for reference:
+
+- 3 signals analyzed, 0 errors; all decisions HOLD at avg confidence 47%, avg score −0.47
+- MACD/SMA/EMA all SELL (100%/100%/73% confidence), Bollinger Bands BUY (40%), RSI HOLD (30%)
+- Mixed directional votes → no consensus → correct HOLD; the system declined to trade under conflicting signals
+
+Point-in-time snapshot only; do not treat these numbers as current behavior.
+
 ---
 
 ## 📝 Log File Locations
@@ -397,17 +431,18 @@ services/trading-engine/
 ├── logs/
 │   └── service.log          # Main service log
 ├── monitor_signals.py        # Real-time monitor
-├── analyze_logs.py          # Log analyzer
-└── MONITORING_GUIDE.md      # This file
+├── analyze_logs.py           # Log analyzer
+└── MONITORING_GUIDE.md       # This file
 ```
 
 ---
 
 ## 🔗 Related Documentation
 
-- [Testing Guide](../../docs/development/TESTING.md)
-- [Architecture Overview](../../docs/architecture/SYSTEM_OVERVIEW.md)
-- [API Documentation](../../docs/api/openapi.yaml)
+- Failure triage: `/RUNBOOK.md` (repo root)
+- Testing: `docs/development/TESTING.md`
+- Architecture: `docs/architecture/SYSTEM_OVERVIEW.md`
+- Live API spec: `http://localhost:8000/openapi.json` (the `docs/api/openapi.yaml` snapshot was removed 2026-04-26)
 
 ---
 

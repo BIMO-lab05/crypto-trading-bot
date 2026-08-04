@@ -2,8 +2,9 @@
 type: meta
 title: "Flows Index"
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-30
 tags: [index, flows]
+status: current
 ---
 
 # Flows

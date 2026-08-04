@@ -13,7 +13,14 @@ class BacktestConfig(BaseModel):
     """Configuration for running a backtest"""
     start_date: datetime = Field(..., description="Start date for backtest period")
     end_date: datetime = Field(..., description="End date for backtest period")
-    initial_capital: Decimal = Field(default=Decimal("10000"), description="Starting capital")
+    # FIX 2026-08-03 (capital audit): was Decimal("10000"), 100x the real
+    # account. risk-metrics-service Settings has no capital field and adding
+    # one is out of scope, so the declared account size is written literally
+    # here; tests/test_account_size_invariant.py keeps it honest by
+    # exempting ONLY the value declared in shared/account.py.
+    initial_capital: Decimal = Field(
+        default=Decimal("100"), description="Starting capital (the $100 account)"
+    )
     risk_limits: Optional[Dict[str, float]] = Field(default=None, description="Risk limits to test")
     rebalance_frequency: str = Field(default="daily", description="Rebalancing frequency: daily, weekly, monthly")
 

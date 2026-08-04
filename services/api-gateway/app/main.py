@@ -62,6 +62,7 @@ from app.auth_models import (
 from app.auth_middleware import (
     get_current_active_user,
     get_current_admin_user,
+    get_current_active_user_strict,
 )
 
 # Import security modules
@@ -152,13 +153,27 @@ backend_service_health = Gauge(
 # ============================================================================
 
 # Rate limiting configuration
+#
+# The middleware now performs REAL enforcement (fail-closed 429), so the
+# whole test suite — which fires many requests from a single client
+# identity within one window — would otherwise trip the limits. Disable
+# enforcement only under the test environment; the `settings.rate_limit_enabled`
+# default (True) is preserved for prod/dev and is still asserted by
+# test_config.py.
+_rate_limiting_active = settings.rate_limit_enabled and (
+    os.environ.get("ENVIRONMENT", "").lower() != "test"
+)
+# Limits recalibrated 2026-07-29: the single-user dashboard legitimately polls
+# ~250-300 read req/min; the old ceilings (trading 10, general 30) 429'd normal
+# use the moment enforcement went live. The strict bucket now applies only to
+# MUTATING trade actions (see RateLimitMiddleware._get_rate_limit_key).
 rate_limit_config = RateLimitConfig(
-    trading_limit=10,  # Trading endpoints: 10 req/min
-    auth_limit=5,  # Auth endpoints: 5 req/min
-    health_limit=60,  # Health checks: 60 req/min
-    general_limit=30,  # General API: 30 req/min
-    enabled=settings.rate_limit_enabled,
-    redis_url=settings.redis_url if settings.rate_limit_enabled else None,
+    trading_write_limit=60,  # Mutating trade actions (start/stop/buy/sell): 60/min
+    auth_limit=10,           # Auth endpoints (brute-force guard): 10/min
+    health_limit=1200,       # Health/status polls: 1200/min
+    general_limit=1200,      # General API + read polls: 1200/min
+    enabled=_rate_limiting_active,
+    redis_url=settings.redis_url if _rate_limiting_active else None,
 )
 
 # Initialize rate limiter
@@ -545,7 +560,7 @@ async def gateway_info():
         },
         "allowed_symbols": sorted(list(ALLOWED_SYMBOLS))[:20],
         "rate_limits": {
-            "trading": f"{rate_limit_config.trading_limit}/minute",
+            "trading_write": f"{rate_limit_config.trading_write_limit}/minute",
             "auth": f"{rate_limit_config.auth_limit}/minute",
             "health": f"{rate_limit_config.health_limit}/minute",
             "general": f"{rate_limit_config.general_limit}/minute",
@@ -651,17 +666,18 @@ async def login(user_login: UserLogin):
 
 
 @app.get("/auth/me", response_model=User)
-async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
+async def get_current_user_info(current_user: User = Depends(get_current_active_user_strict)):
     """
     Get current authenticated user information
 
-    Requires: Authorization header with Bearer token
+    Requires: Authorization header with Bearer token (always — identity
+    endpoint is not subject to the paper-mode auth gate).
     """
     return current_user
 
 
 @app.post("/auth/logout")
-async def logout(current_user: User = Depends(get_current_active_user)):
+async def logout(current_user: User = Depends(get_current_active_user_strict)):
     """
     Logout current user
 
@@ -997,9 +1013,18 @@ async def get_enhanced_trading_signal(symbol: str, interval: str = "60"):
 
 @app.post("/api/trading/signals/{symbol}/analyze")
 # @rate_limiter.trading_limit  # Rate limited via middleware
-async def analyze_and_trade(symbol: str, interval: str = "60", execute: bool = False):
+async def analyze_and_trade(
+    symbol: str,
+    interval: str = "60",
+    execute: bool = False,
+    current_user: User = Depends(get_current_active_user),
+):
     """
     Analyze signal and optionally execute trade
+
+    Requires authentication: with execute=true this places a live trade,
+    so the endpoint mutates state. Previously unauthenticated. Auth added
+    2026-07-29 (security audit).
 
     Rate Limit: 10 requests/minute (trading operation)
     """
@@ -1057,7 +1082,9 @@ async def get_safety_state():
 
     Ownership split (D-09 / D-10):
     - api-gateway reads its own env for trading_mode / paper_trading_mode /
-      ml_predictions_enabled (F-04 wired these into the compose env block).
+      ml_predictions_enabled / sentiment_analysis_enabled (F-04 wired these into
+      the compose env block; sentiment_analysis_enabled added 2026-05-19 for
+      Phase3 frontend gate, debug session phase3-feature-flag-ungated).
     - Proxies to trading-engine for auto_trading_enabled + emergency_stop
       (D-10: only trading-engine reads the EMERGENCY_STOP bind-mount file).
     - Proxies to trading-engine for kill_switch state (D-04: 5% daily-loss
@@ -1125,6 +1152,9 @@ async def get_safety_state():
     ml_predictions_enabled = (
         os.getenv("ENABLE_ML_PREDICTIONS", "false").lower() == "true"
     )
+    sentiment_analysis_enabled = (
+        os.getenv("ENABLE_SENTIMENT_ANALYSIS", "false").lower() == "true"
+    )
 
     # --- emergency_stop sub-dict from te_status ---------------------------
     es_raw = te_status.get("emergency_stop") or {}
@@ -1160,6 +1190,7 @@ async def get_safety_state():
         "auto_trading_enabled": bool(te_status.get("auto_trading_enabled", False)),
         "emergency_stop": emergency_stop,
         "ml_predictions_enabled": ml_predictions_enabled,
+        "sentiment_analysis_enabled": sentiment_analysis_enabled,
         "kill_switch": kill_switch,
         "last_updated_at": datetime.now(_tz.utc).isoformat(),
     }
@@ -1401,8 +1432,16 @@ async def get_trading_performance():
 # absence of these gateway routes only manifests in prod (404).
 # Added 2026-05-01.
 @app.post("/api/trading/start")
-async def start_auto_trading():
-    """Start the trading-engine auto-trader."""
+async def start_auto_trading(
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Start the trading-engine auto-trader.
+
+    Admin-only: starting the auto-trader is a privileged control-plane
+    action equivalent in blast radius to the emergency-stop guard. Was
+    previously unauthenticated, letting any unauthenticated caller start
+    live/auto trading. Fixed 2026-07-29 (security audit).
+    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
@@ -1412,8 +1451,15 @@ async def start_auto_trading():
 
 
 @app.post("/api/trading/stop")
-async def stop_auto_trading():
-    """Stop the trading-engine auto-trader."""
+async def stop_auto_trading(
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Stop the trading-engine auto-trader.
+
+    Admin-only control-plane action. Previously unauthenticated, which
+    also allowed an unauthenticated caller to disable trading (DoS on the
+    strategy). Fixed 2026-07-29 (security audit).
+    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="trading-engine",
@@ -1671,9 +1717,14 @@ async def buy_asset(
     quantity: str,
     price: str,
     portfolio_id: str = "default",
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Execute buy transaction
+
+    Requires authentication: this endpoint mutates portfolio state by
+    placing a (paper) buy order. Previously unauthenticated. Auth added
+    2026-07-29 (security audit).
 
     Rate Limit: 10 requests/minute (trading operation)
 
@@ -1712,9 +1763,13 @@ async def sell_asset(
     quantity: str,
     price: str,
     portfolio_id: str = "default",
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Execute sell transaction
+
+    Requires authentication: mutates portfolio state. Previously
+    unauthenticated. Auth added 2026-07-29 (security audit).
 
     Rate Limit: 10 requests/minute (trading operation)
 
@@ -1915,8 +1970,16 @@ async def get_circuit_breaker_status():
 
 @app.post("/api/risk/circuit-breaker/reset")
 # @rate_limiter.trading_limit  # Rate limited via middleware
-async def reset_circuit_breaker():
-    """Reset circuit breaker (admin only)"""
+async def reset_circuit_breaker(
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Reset circuit breaker (admin only).
+
+    The docstring always advertised "admin only" but the route had no
+    auth dependency, so any unauthenticated caller could re-arm a tripped
+    circuit breaker. Enforced with get_current_admin_user 2026-07-29
+    (security audit).
+    """
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="risk-metrics", path="/circuit-breaker/reset", method="POST"
@@ -2046,7 +2109,7 @@ async def list_ml_models():
 @app.get("/api/ml/models/{symbol}")
 # @rate_limiter.general_limit  # Rate limited via middleware
 async def get_ml_model_info(
-    symbol: str, interval: str = "60", model_type: str = "LSTM"
+    symbol: str, interval: str = "60", model_type: str = "GRU"
 ):
     """Get detailed information about a specific ML model"""
     validated_symbol = validate_symbol(symbol)
@@ -2068,8 +2131,14 @@ async def train_ml_model(
     interval: str = "60",
     lookback_days: int = 90,
     force_retrain: bool = False,
+    current_user: User = Depends(get_current_active_user),
 ):
-    """Train or retrain an ML model (long-running operation)"""
+    """Train or retrain an ML model (long-running operation).
+
+    Requires authentication: training is an expensive, resource-intensive
+    operation and an unauthenticated trigger is a DoS vector. Auth added
+    2026-07-29 (security audit).
+    """
     validated_symbol = validate_symbol(symbol)
     validated_interval = validate_interval(interval)
 
@@ -2184,8 +2253,12 @@ async def get_sentiment_trend(symbol: str, hours: int = 24):
 
 @app.get("/api/analysis/multi-timeframe/{symbol}")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def get_multi_timeframe_analysis(symbol: str):
-    """Get multi-timeframe technical analysis for a symbol"""
+async def get_multi_timeframe_analysis(symbol: str, timeframes: Optional[str] = None):
+    """Get multi-timeframe technical analysis for a symbol.
+
+    Forwards the optional `timeframes` query param (comma-separated numeric
+    intervals, e.g. "5,15,60,240") to the technical-analysis service.
+    """
     validated_symbol = validate_symbol(symbol)
 
     proxy = get_proxy()
@@ -2193,6 +2266,7 @@ async def get_multi_timeframe_analysis(symbol: str):
         service_name="technical-analysis",
         path=f"/api/v1/analysis/multi-timeframe/{validated_symbol}",
         method="GET",
+        query_params={"timeframes": timeframes} if timeframes else None,
     )
 
 

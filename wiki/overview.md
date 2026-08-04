@@ -1,8 +1,9 @@
 ---
 type: meta
+status: current
 title: "Project Overview"
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 tags: [overview]
 ---
 
@@ -14,7 +15,7 @@ Autonomous Bybit crypto trading bot. **Paper-trading mode** (no real orders). Ma
 
 - Python 3.12 + FastAPI + asyncio per service
 - React 18 + Vite frontend
-- TimescaleDB (candles), PostgreSQL (app state), Redis (cache), RabbitMQ (events)
+- TimescaleDB (candles), PostgreSQL (app state), Redis (cache), RabbitMQ (deployed but idle — services talk via synchronous REST only; no AMQP pub/sub wired, see [[modules/Architecture-Overview]])
 - Docker Compose for local; Kubernetes manifests + Helm in `infrastructure/` for prod
 - ML: 16 GRU price-prediction models (currently gated OFF; LSTM deleted 2026-05)
 
@@ -40,7 +41,7 @@ Prometheus :9090, Grafana :3001.
 ## Critical concepts
 
 - [[concepts/Trading-Mode-Flags|Trading Mode Flags]] — 4-step gate to LIVE
-- [[concepts/Risk-Model|Risk Model]] — 2% per trade, 5% daily loss circuit breaker
+- [[concepts/Risk-Model|Risk Model]] — 10% per trade in paper / 2% LIVE, 12% daily loss circuit breaker (ADR-028)
 - [[concepts/ML-Status|ML Status]] — GRU off pending DSR > 0.95 acceptance
 - [[concepts/Validated-Symbols|Validated Symbols]] — BTC/ETH/SOL/BNB/ADA
 - [[concepts/Auto-Trader|Auto-Trader]] — armed by .env override; EMERGENCY_STOP file gates loop

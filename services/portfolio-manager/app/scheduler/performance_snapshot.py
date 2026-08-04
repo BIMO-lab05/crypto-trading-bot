@@ -250,14 +250,16 @@ class PerformanceSnapshotScheduler:
         Raises:
             Exception: If snapshot fails
         """
-        # Sync with Trading Engine to get latest positions
+        # Sync with Trading Engine to get latest positions. FIX 2026-07-29:
+        # sync now mirrors the engine's authoritative cash/P&L/equity, so we do
+        # NOT follow it with update_prices() (the old spot recompute) which
+        # would clobber the mirrored equity with cash + full notional.
         logger.info(f"Syncing portfolio {portfolio_id} with Trading Engine")
         sync_success = await self.portfolio_manager.sync_with_trading_engine(portfolio_id)
         if not sync_success:
             logger.warning(f"Failed to sync portfolio {portfolio_id} with Trading Engine")
-
-        # Update portfolio prices
-        await self.portfolio_manager.update_prices(portfolio_id)
+            # Only fall back to the local price refresh when the mirror failed.
+            await self.portfolio_manager.update_prices(portfolio_id)
 
         # Get current portfolio state
         portfolio = self.portfolio_manager.get_portfolio(portfolio_id)
@@ -269,19 +271,14 @@ class PerformanceSnapshotScheduler:
         calculator = PerformanceCalculator()
         metrics = calculator.calculate_metrics(portfolio)
 
-        # Calculate portfolio values
-        # FIX: Portfolio has `assets: Dict[str, Asset]`, not `holdings`.
-        # The previous code referenced `portfolio.holdings` which does not exist
-        # on the Portfolio model (see app/models/portfolio.py) — every call
-        # AttributeError'd inside the scheduler's try/except, so daily and
-        # manual snapshots have never written a real row.
-        total_value = portfolio.cash_balance
+        # Portfolio equity is the engine-mirrored total_value (cash + unrealized
+        # for the leveraged book); positions_value is notional exposure, kept as
+        # a separate column. Using portfolio.total_value here keeps the stored
+        # history row consistent with what the dashboard shows.
+        total_value = portfolio.total_value
         positions_value = Decimal("0")
-
         for asset in portfolio.assets.values():
-            position_value = asset.quantity * asset.current_price
-            positions_value += position_value
-            total_value += position_value
+            positions_value += asset.quantity * asset.current_price
 
         # Save snapshot
         await self.performance_history.snapshot_performance(
@@ -308,15 +305,16 @@ class PerformanceSnapshotScheduler:
 
             for portfolio_id in portfolio_ids:
                 try:
-                    # Sync with Trading Engine to get latest positions
+                    # Sync mirrors the engine's authoritative book. FIX
+                    # 2026-07-29: only fall back to the local spot price refresh
+                    # when the mirror fails, so we don't clobber mirrored equity.
                     sync_success = await self.portfolio_manager.sync_with_trading_engine(portfolio_id)
                     if sync_success:
                         logger.debug(f"Synced portfolio {portfolio_id} with Trading Engine")
-
-                    # Update prices for all assets
-                    update_success = await self.portfolio_manager.update_prices(portfolio_id)
-                    if update_success:
-                        logger.debug(f"Updated prices for portfolio {portfolio_id}")
+                    else:
+                        update_success = await self.portfolio_manager.update_prices(portfolio_id)
+                        if update_success:
+                            logger.debug(f"Updated prices for portfolio {portfolio_id}")
 
                 except Exception as e:
                     logger.error(f"Error updating portfolio {portfolio_id}: {e}")

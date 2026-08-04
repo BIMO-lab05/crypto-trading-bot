@@ -140,13 +140,36 @@ class TestHealthEndpoints:
         assert data["database_connection"] is True
         assert "timestamp" in data
 
-    @patch('app.handlers.health.db_manager')
-    @patch('app.handlers.health.get_aggregator')
-    def test_health_check_ta_down(self, mock_get_aggregator, mock_db, client, mock_aggregator):
-        """Test health check when TA service is down"""
-        mock_aggregator.health_check.return_value = False
-        mock_get_aggregator.return_value = mock_aggregator
-        mock_db.health_check = MagicMock(return_value=True)
+    @patch('app.handlers.health.get_health_monitor')
+    def test_health_check_ta_down(self, mock_get_monitor, client):
+        """Test health check when TA service is down
+
+        Note: handler now delegates to HealthMonitor.perform_health_check()
+        rather than calling db_manager / get_aggregator directly. We patch
+        the monitor singleton to return a SystemHealth in which the
+        technical_analysis dependency is UNHEALTHY (all others healthy),
+        which the handler maps to technical_analysis_connection == False.
+        """
+        from app.monitoring.health import (
+            DependencyHealth,
+            HealthStatus,
+            SystemHealth,
+        )
+
+        system_health = SystemHealth()
+        system_health.status = HealthStatus.DEGRADED
+        system_health.add_dependency(
+            DependencyHealth(name="technical_analysis", status=HealthStatus.UNHEALTHY)
+        )
+        for name in ("postgres", "redis", "bybit_connector"):
+            system_health.add_dependency(
+                DependencyHealth(name=name, status=HealthStatus.HEALTHY)
+            )
+
+        monitor = MagicMock()
+        monitor.get_cached_health = AsyncMock(return_value=None)
+        monitor.perform_health_check = AsyncMock(return_value=system_health)
+        mock_get_monitor.return_value = monitor
 
         response = client.get("/health")
 
@@ -154,12 +177,36 @@ class TestHealthEndpoints:
         data = response.json()
         assert data["technical_analysis_connection"] is False
 
-    @patch('app.handlers.health.db_manager')
-    @patch('app.handlers.health.get_aggregator')
-    def test_health_check_db_down(self, mock_get_aggregator, mock_db, client, mock_aggregator):
-        """Test health check when database is down"""
-        mock_get_aggregator.return_value = mock_aggregator
-        mock_db.health_check = MagicMock(return_value=False)
+    @patch('app.handlers.health.get_health_monitor')
+    def test_health_check_db_down(self, mock_get_monitor, client):
+        """Test health check when database is down
+
+        Note: handler now delegates to HealthMonitor.perform_health_check()
+        rather than calling db_manager / get_aggregator directly. We patch
+        the monitor singleton to return a SystemHealth in which the
+        postgres dependency is UNHEALTHY (all others healthy), which the
+        handler maps to database_connection == False.
+        """
+        from app.monitoring.health import (
+            DependencyHealth,
+            HealthStatus,
+            SystemHealth,
+        )
+
+        system_health = SystemHealth()
+        system_health.status = HealthStatus.UNHEALTHY
+        system_health.add_dependency(
+            DependencyHealth(name="postgres", status=HealthStatus.UNHEALTHY)
+        )
+        for name in ("technical_analysis", "redis", "bybit_connector"):
+            system_health.add_dependency(
+                DependencyHealth(name=name, status=HealthStatus.HEALTHY)
+            )
+
+        monitor = MagicMock()
+        monitor.get_cached_health = AsyncMock(return_value=None)
+        monitor.perform_health_check = AsyncMock(return_value=system_health)
+        mock_get_monitor.return_value = monitor
 
         response = client.get("/health")
 

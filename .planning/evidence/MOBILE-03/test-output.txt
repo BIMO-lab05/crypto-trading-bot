@@ -1,0 +1,148 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0
+rootdir: /mnt/d/Bimo_max/crypto-trading-bot/.claude/worktrees/agent-ad2799108af07cf5e
+configfile: pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)
+plugins: respx-0.23.1, timeout-2.4.0, anyio-4.13.0, cov-7.1.0, playwright-0.7.2, asyncio-1.3.0, base-url-2.1.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 14 items
+
+tests/e2e/test_responsive_dashboard.py EEEEEEEEEEEEEE                    [100%]
+
+==================================== ERRORS ====================================
+_______ ERROR at setup of test_no_horizontal_scroll[chromium-iphone-se] ________
+/home/moha/.local/lib/python3.12/site-packages/pytest_asyncio/plugin.py:730: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+        asyncio_mode = <Mode.AUTO: 'auto'>
+        fixturedef = <FixtureDef argname='bootstrap_stack' scope='session' baseid=''>
+        request    = <SubRequest 'bootstrap_stack' for <Function test_no_horizontal_scroll[chromium-iphone-se]>>
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+---------------------------- Captured stdout setup -----------------------------
+
+============================================================
+SETTING UP E2E TEST ENVIRONMENT
+============================================================
+
+
+=== bootstrap.sh stdout (last 50) ===
+[1;33m[1/6] .env already exists — preserving operator edits[0m
+[0;32m[2/6] DOCKER_BUILDKIT=0 (WSL2 buildkit-hang workaround)[0m
+[0;32m[3/6] EMERGENCY_STOP touched at /tmp/cb-test-93ff9df/EMERGENCY_STOP[0m
+
+
+=== bootstrap.sh stderr (last 50) ===
+time="2026-05-22T22:12:16+01:00" level=warning msg="/tmp/cb-test-93ff9df/docker-compose.unified.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+env file /tmp/cb-test-93ff9df/services/notification-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory
+
+________ ERROR at setup of test_touch_targets_44px[chromium-iphone-se] _________
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+___ ERROR at setup of test_banner_visible_without_scroll[chromium-iphone-se] ___
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+__ ERROR at setup of test_dashboard_single_column_mobile[chromium-iphone-se] ___
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+___ ERROR at setup of test_path_to_live_rows_full_width[chromium-iphone-se] ____
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+_________ ERROR at setup of test_key_metrics_2col[chromium-iphone-se] __________
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+______ ERROR at setup of test_tournament_dual_render[chromium-iphone-se] _______
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+_____ ERROR at setup of test_no_horizontal_scroll[chromium-ipad-portrait] ______
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+______ ERROR at setup of test_touch_targets_44px[chromium-ipad-portrait] _______
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+_ ERROR at setup of test_banner_visible_without_scroll[chromium-ipad-portrait] _
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+_ ERROR at setup of test_dashboard_single_column_mobile[chromium-ipad-portrait] _
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+_ ERROR at setup of test_path_to_live_rows_full_width[chromium-ipad-portrait] __
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+_______ ERROR at setup of test_key_metrics_2col[chromium-ipad-portrait] ________
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+____ ERROR at setup of test_tournament_dual_render[chromium-ipad-portrait] _____
+tests/integration/conftest.py:136: in bootstrap_stack
+    pytest.fail(
+E   Failed: bootstrap.sh failed (exit=1) in /tmp/cb-test-93ff9df. Per D-08, tmp clone preserved at: /tmp/cb-test-93ff9df
+        result     = CompletedProcess(args=['./bootstrap.sh'], returncode=1, stdout='\x1b[1;33m[1/6] .env already exists — preserving opera...ion-service/.env not found: stat /tmp/cb-test-93ff9df/services/notification-service/.env: no such file or directory\n')
+        services_config = {'api_gateway': 'http://localhost:8000', 'bybit_connector': 'http://localhost:8001', 'market_data': 'http://localhost:8002', 'ml_prediction': 'http://localhost:8007', ...}
+        tmp_fresh_clone = PosixPath('/tmp/cb-test-93ff9df')
+=========================== short test summary info ============================
+ERROR tests/e2e/test_responsive_dashboard.py::test_no_horizontal_scroll[chromium-iphone-se]
+ERROR tests/e2e/test_responsive_dashboard.py::test_touch_targets_44px[chromium-iphone-se]
+ERROR tests/e2e/test_responsive_dashboard.py::test_banner_visible_without_scroll[chromium-iphone-se]
+ERROR tests/e2e/test_responsive_dashboard.py::test_dashboard_single_column_mobile[chromium-iphone-se]
+ERROR tests/e2e/test_responsive_dashboard.py::test_path_to_live_rows_full_width[chromium-iphone-se]
+ERROR tests/e2e/test_responsive_dashboard.py::test_key_metrics_2col[chromium-iphone-se]
+ERROR tests/e2e/test_responsive_dashboard.py::test_tournament_dual_render[chromium-iphone-se]
+ERROR tests/e2e/test_responsive_dashboard.py::test_no_horizontal_scroll[chromium-ipad-portrait]
+ERROR tests/e2e/test_responsive_dashboard.py::test_touch_targets_44px[chromium-ipad-portrait]
+ERROR tests/e2e/test_responsive_dashboard.py::test_banner_visible_without_scroll[chromium-ipad-portrait]
+ERROR tests/e2e/test_responsive_dashboard.py::test_dashboard_single_column_mobile[chromium-ipad-portrait]
+ERROR tests/e2e/test_responsive_dashboard.py::test_path_to_live_rows_full_width[chromium-ipad-portrait]
+ERROR tests/e2e/test_responsive_dashboard.py::test_key_metrics_2col[chromium-ipad-portrait]
+ERROR tests/e2e/test_responsive_dashboard.py::test_tournament_dual_render[chromium-ipad-portrait]
+============================= 14 errors in 41.92s ==============================

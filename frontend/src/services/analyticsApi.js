@@ -33,17 +33,27 @@ const analyticsClient = axios.create({
   },
 })
 
-// Request interceptor for logging and auth (future enhancement)
+// Request interceptor for auth (future enhancement)
 analyticsClient.interceptors.request.use(
-  (config) => {
-    console.log(`[analyticsApi] ${config.method?.toUpperCase()} ${config.url}`)
-    return config
-  },
+  (config) => config,
   (error) => {
     console.error('[analyticsApi] Request error:', error)
     return Promise.reject(error)
   }
 )
+
+// Throttle error logging: at most once per distinct URL+status per minute
+// so polled endpoints that fail don't flood the console.
+const errorLogTimestamps = new Map()
+const ERROR_LOG_INTERVAL_MS = 60000
+function shouldLogError(url, status) {
+  const key = `${url}|${status}`
+  const now = Date.now()
+  const last = errorLogTimestamps.get(key)
+  if (last !== undefined && now - last < ERROR_LOG_INTERVAL_MS) return false
+  errorLogTimestamps.set(key, now)
+  return true
+}
 
 // Response interceptor for error handling and data extraction
 analyticsClient.interceptors.response.use(
@@ -52,7 +62,11 @@ analyticsClient.interceptors.response.use(
     return response.data
   },
   (error) => {
-    console.error('[analyticsApi] Response error:', error.response?.data || error.message)
+    const url = error.config?.url || 'unknown'
+    const status = error.response?.status ?? 'network'
+    if (shouldLogError(url, status)) {
+      console.error('[analyticsApi] Response error:', error.response?.data || error.message)
+    }
     return Promise.reject(error)
   }
 )
@@ -186,8 +200,9 @@ export const analyticsAPI = {
  * @param {number} initialBalance - Starting balance
  * @returns {Array} Equity curve data points
  */
-export function calculateEquityCurve(trades, initialBalance = 10000) {
-  if (!trades || trades.length === 0) {
+export function calculateEquityCurve(trades, initialBalance = 100) {
+  // Guard against non-array payloads (e.g. an error object) before spreading/sorting
+  if (!Array.isArray(trades) || trades.length === 0) {
     return [{ timestamp: Date.now(), equity: initialBalance, pnl: 0 }]
   }
 
@@ -337,9 +352,10 @@ export function calculateReturnsDistribution(trades, bins = 20) {
  * Calculate performance metrics from trade history
  *
  * @param {Array} trades - Array of trade objects
+ * @param {number} initialBalance - Starting balance used as the equity-curve baseline (paper default $100)
  * @returns {Object} Performance metrics
  */
-export function calculatePerformanceMetrics(trades) {
+export function calculatePerformanceMetrics(trades, initialBalance = 100) {
   if (!trades || trades.length === 0) {
     return null
   }
@@ -393,16 +409,23 @@ export function calculatePerformanceMetrics(trades) {
   // Sortino Ratio
   const sortinoRatio = downsideDev !== 0 ? avgPnL / downsideDev : 0
 
-  // Max Drawdown
+  // Max Drawdown — computed against equity curve, not raw cumulative P&L.
+  // Tracks running peak of equity and the worst peak-to-trough percentage seen,
+  // bounding maxDrawdownPercent to the 0–100 range.
   let cumulativePnL = 0
-  let peak = 0
+  let equity = initialBalance
+  let peakEquity = initialBalance
   let maxDrawdown = 0
+  let maxDrawdownPercent = 0
 
   pnls.forEach((pnl) => {
     cumulativePnL += pnl
-    if (cumulativePnL > peak) peak = cumulativePnL
-    const drawdown = peak - cumulativePnL
+    equity = initialBalance + cumulativePnL
+    if (equity > peakEquity) peakEquity = equity
+    const drawdown = peakEquity - equity
+    const drawdownPercent = peakEquity > 0 ? (drawdown / peakEquity) * 100 : 0
     if (drawdown > maxDrawdown) maxDrawdown = drawdown
+    if (drawdownPercent > maxDrawdownPercent) maxDrawdownPercent = drawdownPercent
   })
 
   // VaR 95% - sort P&Ls and find 5th percentile
@@ -450,7 +473,7 @@ export function calculatePerformanceMetrics(trades) {
 
     // Drawdown
     maxDrawdown,
-    maxDrawdownPercent: peak > 0 ? (maxDrawdown / peak) * 100 : 0,
+    maxDrawdownPercent,
 
     // VaR metrics
     var95,

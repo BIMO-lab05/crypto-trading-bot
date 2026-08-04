@@ -1,0 +1,10 @@
+# Keep the build context small and avoid tar failures on giant log files
+logs/
+htmlcov/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.log
+coverage.json
+.coverage*
+tests/standalone/

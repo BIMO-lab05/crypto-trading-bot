@@ -53,8 +53,17 @@ async def get_portfolio(portfolio_id: str = "default") -> PortfolioResponse:
     if not portfolio:
         raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
 
-    # Update prices before returning
-    await manager.update_prices(portfolio_id)
+    # FIX 2026-07-29: mirror the authoritative trading-engine book before
+    # returning, rather than the old update_prices() path. update_prices
+    # recomputed equity with a SPOT formula (cash + full notional) and depended
+    # on a flaky market-data ticker fetch that, when it returned 0, collapsed
+    # total_value to cash alone — producing the phantom -84% return. sync pulls
+    # correct side-aware P&L, cash, and equity straight from the engine.
+    synced = await manager.sync_with_trading_engine(portfolio_id)
+    if not synced:
+        # Best-effort fallback: refresh prices locally so we still return
+        # something rather than erroring the dashboard.
+        await manager.update_prices(portfolio_id)
 
     snapshot = manager.get_snapshot(portfolio_id)
 

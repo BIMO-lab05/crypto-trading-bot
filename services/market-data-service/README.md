@@ -1,46 +1,33 @@
 # Market Data Service
 
-**Version:** 2.0.0 (Refactored)
-**Status:** ✅ Production Ready
+**Version:** 2.0.0
 **Port:** 8002
 
-## 📋 Overview
+## Overview
 
 The Market Data Service is a microservice responsible for collecting, storing, and serving cryptocurrency market data from Bybit exchange. It provides real-time and historical candlestick (kline) data, ticker information, and automated data collection through scheduled jobs.
 
-## 🏆 Refactoring Achievement
+Refactored November 2025 from a single 868-line module into 9 focused modules (Strangler Fig incremental migration), fully backward compatible.
 
-**Date Completed:** November 18-19, 2025
-**Pattern Used:** Strangler Fig (Incremental Migration)
-**Result:** God Class Destroyed ✅
+## Architecture
 
-### Metrics
+### 4-Layer Clean Architecture
 
-| Metric | Before | After | Change |
-|--------|--------|-------|--------|
-| Lines of Code | 868 | 332 | **-62%** |
-| Modules | 1 (monolith) | 9 (focused) | **+800%** |
-| Cyclomatic Complexity | High | Low | **Improved** |
-| Test Coverage | Partial | Comprehensive | **150+ tests** |
-| Maintainability | Low | High | **Clean Architecture** |
-
-### Architecture Transformation
-
-**Before (God Class):**
 ```
-main.py (868 lines)
-├── All HTTP routing
-├── All business logic
-├── All data access
-├── All validation
-├── All utilities
-└── All metrics
+┌─────────────────────────────────────────┐
+│         HTTP Layer (main.py)            │  FastAPI routes, middleware
+├─────────────────────────────────────────┤
+│      Handlers Layer (handlers/)         │  Request validation, orchestration
+├─────────────────────────────────────────┤
+│  Business Logic (repository/, fetcher)  │  Data operations, external APIs
+├─────────────────────────────────────────┤
+│     Infrastructure (database/, cache)   │  PostgreSQL, Redis, TimescaleDB
+└─────────────────────────────────────────┘
 ```
 
-**After (Clean Architecture):**
 ```
 app/
-├── main.py (332 lines)        # Pure routing layer
+├── main.py                     # Pure routing layer
 ├── handlers/                   # HTTP request handlers
 │   ├── health.py              # Health & metrics endpoints
 │   ├── collection.py          # Data collection endpoints
@@ -57,53 +44,36 @@ app/
 └── config.py                  # Configuration management
 ```
 
-## 🏗️ Architecture
-
-### 4-Layer Clean Architecture
-
-```
-┌─────────────────────────────────────────┐
-│         HTTP Layer (main.py)            │  FastAPI routes, middleware
-├─────────────────────────────────────────┤
-│      Handlers Layer (handlers/)         │  Request validation, orchestration
-├─────────────────────────────────────────┤
-│  Business Logic (repository/, fetcher)  │  Data operations, external APIs
-├─────────────────────────────────────────┤
-│     Infrastructure (database/, cache)   │  PostgreSQL, Redis, TimescaleDB
-└─────────────────────────────────────────┘
-```
-
 ### Design Principles
 
 - **Single Responsibility:** Each module has one clear purpose
 - **Dependency Injection:** FastAPI `Depends` for loose coupling
 - **Separation of Concerns:** HTTP ↔ Business Logic ↔ Data Access
-- **Clean Interfaces:** Clear contracts between layers
 - **Testability:** All layers independently testable
 
-## 📚 Module Descriptions
+## Module Descriptions
 
 ### `/app/handlers/`
 
 **Purpose:** HTTP request handling and orchestration
 
-#### `health.py` (81 lines)
+#### `health.py`
 - Health check endpoint (`/health`)
 - Readiness check with Bybit Connector validation (`/ready`)
 - Prometheus metrics exposition (`/metrics`)
 
-#### `collection.py` (265 lines)
+#### `collection.py`
 - Kline data collection (`POST /api/v1/collect/kline/{symbol}`)
 - Ticker data collection (`POST /api/v1/collect/ticker/{symbol}`)
 - Bulk collection for multiple symbols (`POST /api/v1/collect/bulk`)
 - Symbol validation and error handling
 
-#### `query.py` (205 lines)
+#### `query.py`
 - Kline data retrieval with filtering (`GET /api/v1/klines/{symbol}`)
 - Latest ticker with 3-tier caching (`GET /api/v1/ticker/{symbol}`)
 - Latest kline with Redis caching (`GET /api/v1/latest/{symbol}`)
 
-#### `scheduler.py` (134 lines)
+#### `scheduler.py`
 - Scheduler status endpoint (`GET /api/v1/scheduler/status`)
 - Manual scheduler control (`POST /api/v1/scheduler/start|stop`)
 - Trigger manual collection (`POST /api/v1/scheduler/collect`)
@@ -112,13 +82,12 @@ app/
 
 **Purpose:** Reusable utilities and cross-cutting concerns
 
-#### `logging_config.py` (73 lines)
+#### `logging_config.py`
 - Structured JSON logging with `python-json-logger`
-- **Secret Masking:** Automatically masks API keys, passwords, tokens, connection strings
-- 10+ regex patterns for comprehensive protection
+- **Secret Masking:** Automatically masks API keys, passwords, tokens, connection strings (10+ regex patterns)
 - Configures root logger and suppresses noisy libraries
 
-#### `metrics.py` (112 lines)
+#### `metrics.py`
 - **Prometheus Metrics:**
   - `http_requests_total` - HTTP request counter
   - `http_request_duration_seconds` - Request latency histogram
@@ -129,13 +98,12 @@ app/
   - `database_operations_total` - Database operations
 - `PrometheusMiddleware` - Automatic request tracking
 
-#### `request_models.py` (51 lines)
+#### `request_models.py`
 - `IntervalEnum` - Valid candlestick intervals
 - `CollectKlineRequest` - Kline collection validation
 - `BulkCollectRequest` - Bulk collection validation
-- Pydantic models with custom validators
 
-## 🔌 API Endpoints
+## API Endpoints
 
 ### Health & Monitoring
 
@@ -170,28 +138,19 @@ app/
 | `/api/v1/scheduler/stop` | POST | Stop scheduler | 10/min |
 | `/api/v1/scheduler/collect` | POST | Trigger manual collection | 5/min |
 
-## 🧪 Testing
+## Testing
 
 ### Test Coverage
 
-**Total Tests:** 150+ comprehensive test cases
+**Total Tests:** 150+ test cases
 
 | Test Type | Location | Count | Coverage |
 |-----------|----------|-------|----------|
 | **Unit Tests** | `tests/unit/` | 85+ | Utils & Models |
 | **Integration Tests** | `tests/integration/` | 67+ | Handlers & Flows |
 
-#### Unit Tests
-
-- `test_logging_config.py` - Secret masking, logging setup (20+ tests)
-- `test_metrics.py` - Prometheus metrics, middleware (27+ tests)
-- `test_request_models.py` - Pydantic validation (52+ tests)
-
-#### Integration Tests
-
-- `test_health_handlers.py` - Health endpoints, dependencies (33 tests)
-- `test_collection_handlers.py` - Data collection flows (34 tests)
-- `test_query_handlers.py` - Data queries, caching (31 tests)
+Unit: `test_logging_config.py`, `test_metrics.py`, `test_request_models.py`.
+Integration: `test_health_handlers.py`, `test_collection_handlers.py`, `test_query_handlers.py`.
 
 ### Running Tests
 
@@ -209,7 +168,7 @@ pytest tests/unit/test_metrics.py -v
 pytest tests/integration/ -v
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -228,8 +187,8 @@ TIMESCALE_ENABLED=true
 REDIS_HOST=localhost
 REDIS_PORT=6379
 
-# External Services
-BYBIT_CONNECTOR_URL=http://bybit-connector:8004
+# External Services (bybit-connector runs on port 8001)
+BYBIT_CONNECTOR_URL=http://bybit-connector:8001
 
 # Security
 API_KEY=your-api-key-here
@@ -242,11 +201,12 @@ SCHEDULER_ENABLED=true
 KLINE_COLLECTION_INTERVAL=300  # 5 minutes
 TICKER_COLLECTION_INTERVAL=300 # 5 minutes
 
-# Trading Symbols
+# Ingest Symbols (wider than the trading universe — trading-engine
+# restricts positions to BTC/ETH/SOL/BNB/ADA as of 2026-05-03)
 SYMBOLS_LIST=BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT
 ```
 
-## 🚀 Development Setup
+## Development Setup
 
 ### Prerequisites
 
@@ -281,37 +241,27 @@ uvicorn app.main:app --reload --port 8002
 
 ### Docker Development
 
+Use the canonical compose file `docker-compose.unified.yml` (plain `docker-compose.yml` is incomplete — missing the databases):
+
 ```bash
-# Build and run with Docker Compose
-docker-compose up -d market-data-service
+# Build and run
+docker compose -f docker-compose.unified.yml up -d market-data-service
 
 # View logs
-docker-compose logs -f market-data-service
+docker compose -f docker-compose.unified.yml logs -f market-data-service
 
 # Rebuild after code changes
-docker-compose build market-data-service
-docker-compose up -d market-data-service
+docker compose -f docker-compose.unified.yml build market-data-service
+docker compose -f docker-compose.unified.yml up -d market-data-service
 ```
 
-## 📊 Automated Data Collection
+## Automated Data Collection
 
-### Scheduler Jobs
+The service runs three automated collection jobs (see `SCHEDULER_SETUP.md` for full setup and customization):
 
-The service runs three automated collection jobs:
-
-1. **Kline Collection** (Every 5 minutes)
-   - Collects 1-hour candlestick data
-   - Symbols: BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT
-
-2. **Ticker Collection** (Every 5 minutes)
-   - Collects real-time ticker data
-   - Same symbol list as klines
-
-3. **Hourly Full Collection** (Every hour at :00)
-   - Comprehensive data refresh
-   - All configured symbols
-
-### Monitoring Jobs
+1. **Kline Collection** (every 5 minutes) — candlestick data for configured symbols
+2. **Ticker Collection** (every 5 minutes) — real-time ticker data, same symbols
+3. **Hourly Full Collection** (every hour at :00) — comprehensive refresh
 
 ```bash
 # Check scheduler status
@@ -324,7 +274,7 @@ curl http://localhost:8002/metrics
 curl http://localhost:8002/health
 ```
 
-## 🔍 Caching Strategy
+## Caching Strategy
 
 ### 3-Tier Caching Architecture
 
@@ -342,103 +292,56 @@ Store in DB → Cache → Return
 - Tickers: 5 seconds (high volatility)
 - Latest Klines: 60 seconds (less volatile)
 
-## 📈 Monitoring & Observability
+> Operational note (2026-07): in practice TimescaleDB acts as the working cache (Redis observed empty in testing). If prices look stuck, force-refresh with `POST /api/v1/collect/ticker/{symbol}` or wait up to 5 min for the scheduler.
 
-### Prometheus Metrics
+## Monitoring & Observability
 
-Access metrics at: `http://localhost:8002/metrics`
-
-**Key Metrics:**
-- Request rates and latencies
-- Active connections
-- Data collection success/failure rates
-- Database operation metrics
-- External API call tracking
-
-### Health Checks
+Metrics at `http://localhost:8002/metrics`: request rates/latencies, active connections, collection success/failure, database operations, external API calls.
 
 ```bash
 # Liveness probe
 curl http://localhost:8002/health
-# Response: {"status": "healthy", ...}
 
 # Readiness probe (checks Bybit Connector)
 curl http://localhost:8002/ready
-# Response: {"status": "ready", "bybit_connector": "ok"}
 ```
 
-## 🔒 Security Features
+## Security Features
 
-### Secret Masking
+- **Secret Masking:** logs automatically mask API keys, passwords, tokens (Bearer, JWT), authorization headers, DB connection strings, sensitive query params
+- **Rate Limiting:** per-endpoint limits using `slowapi`, keyed by client IP
+- **API Key Authentication:** protected endpoints require `X-API-Key` header:
+  ```bash
+  curl -H "X-API-Key: your-key" http://localhost:8002/api/v1/collect/kline/BTCUSDT
+  ```
 
-All logs automatically mask sensitive data:
-- API keys
-- Passwords
-- Tokens (Bearer, JWT)
-- Authorization headers
-- Database connection strings
-- Query parameters with sensitive names
-
-### Rate Limiting
-
-- Per-endpoint rate limits using `slowapi`
-- Configurable limits based on client IP
-- Protects against abuse and DoS
-
-### API Key Authentication
-
-Protected endpoints require `X-API-Key` header:
-```bash
-curl -H "X-API-Key: your-key" \
-  http://localhost:8002/api/v1/collect/kline/BTCUSDT
-```
-
-## 🛠️ Troubleshooting
-
-### Common Issues
+## Troubleshooting
 
 **Service won't start:**
 ```bash
-# Check logs
 docker logs crypto-bot-market-data-service
-
-# Verify database connection
 docker exec crypto-bot-market-data-service python -c "from app.database import init_database; import asyncio; asyncio.run(init_database())"
 ```
 
 **Scheduler not running:**
 ```bash
-# Check scheduler status
 curl http://localhost:8002/api/v1/scheduler/status
-
-# Manually start
-curl -X POST -H "X-API-Key: your-key" \
-  http://localhost:8002/api/v1/scheduler/start
+curl -X POST -H "X-API-Key: your-key" http://localhost:8002/api/v1/scheduler/start
 ```
 
 **No data collected:**
 ```bash
-# Verify Bybit Connector is reachable
 curl http://localhost:8002/ready
-
-# Check Prometheus metrics for errors
 curl http://localhost:8002/metrics | grep collection_total
 ```
 
-## 📝 API Examples
-
-### Collect Historical Data
+## API Examples
 
 ```bash
 # Collect 7 days of 1-hour klines for BTCUSDT
-curl -X POST \
-  -H "X-API-Key: your-key" \
+curl -X POST -H "X-API-Key: your-key" \
   "http://localhost:8002/api/v1/collect/kline/BTCUSDT?interval=60&days=7"
-```
 
-### Query Data
-
-```bash
 # Get latest 100 klines
 curl "http://localhost:8002/api/v1/klines/BTCUSDT?interval=60&limit=100"
 
@@ -449,40 +352,22 @@ curl "http://localhost:8002/api/v1/klines/BTCUSDT?start_time=1700000000000&end_t
 curl "http://localhost:8002/api/v1/ticker/BTCUSDT"
 ```
 
-## 🔄 Migration Notes
+## Deployment
 
-### Backward Compatibility
-
-✅ **100% Backward Compatible**
-
-All existing API endpoints remain unchanged. No breaking changes to:
-- Request/response formats
-- Endpoint URLs
-- Authentication
-- Rate limits
-
-### Deployment
-
-Zero-downtime deployment supported:
-1. Build new Docker image
-2. Run database migrations (if any)
-3. Restart service
-4. Verify health check
+Zero-downtime deployment supported (all endpoints backward compatible):
 
 ```bash
-docker-compose build market-data-service
-docker-compose up -d market-data-service
-docker-compose exec market-data-service curl http://localhost:8002/health
+docker compose -f docker-compose.unified.yml build market-data-service
+docker compose -f docker-compose.unified.yml up -d market-data-service
+docker compose -f docker-compose.unified.yml exec market-data-service curl http://localhost:8002/health
 ```
 
-## 📖 Additional Documentation
+## Additional Documentation
 
 - **API Documentation:** http://localhost:8002/docs (Swagger UI)
-- **Refactoring Details:** `REFACTORING_COMPLETE.md`
-- **Testing Guide:** `tests/README.md` (if exists)
-- **Architecture Decisions:** See `docs/` directory
+- **Scheduler Setup & Customization:** `SCHEDULER_SETUP.md`
 
-## 🤝 Contributing
+## Contributing
 
 When modifying this service:
 
@@ -493,14 +378,6 @@ When modifying this service:
 5. Ensure all tests pass: `pytest`
 6. Update Prometheus metrics for new operations
 
-## 📜 License
+## License
 
 Part of the Crypto Trading Bot project.
-
----
-
-**Refactored by:** God Class Destroyer
-**Refactoring Date:** November 18-19, 2025
-**Refactoring Pattern:** Strangler Fig
-**Status:** ✅ Production Ready
-**Backward Compatible:** 100%

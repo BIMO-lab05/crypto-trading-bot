@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Graceful shutdown
-    logger.info("Initiating graceful shutdown", service=settings.service_name)
+    logger.info("Initiating graceful shutdown", extra={"service": settings.service_name})
 
     # Stop scheduler
     try:
@@ -142,8 +142,14 @@ app.add_middleware(PrometheusMiddleware)
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
+    # SECURITY (2026-07-29 audit): "*" origins with allow_credentials=True is
+    # invalid per the CORS spec and makes Starlette reflect the caller's
+    # Origin for credentialed requests, allowing any site to make
+    # credentialed cross-origin calls. This internal service uses no cookie
+    # auth (reached server-to-server via the gateway / Bearer tokens), so we
+    # keep the permissive origin but disable credentialed CORS.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Authorization"],
     max_age=3600,

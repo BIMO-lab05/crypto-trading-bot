@@ -6,8 +6,6 @@ With performance optimizations: Redis caching, connection pooling, request batch
 
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import Response
-import sys
-import uuid
 from pathlib import Path
 
 # Add shared utilities to path
@@ -17,13 +15,19 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
-from pathlib import Path
 import httpx
 import logging
 import asyncio
+import os
 
 # Prometheus metrics imports
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import (
+    Counter,
+    Histogram,
+    Gauge,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
 
 from app.config import settings
 from app.models import (
@@ -36,33 +40,29 @@ from app.models import (
     PerformanceMetrics,
     RiskAlert,
     CircuitBreakerStatus,
-    RiskLimits
+    RiskLimits,
 )
 from app.risk_engine import RiskEngine
 from app.auth import verify_admin_key
 
 # Import performance optimization modules
-from app.cache import RiskMetricsCache, get_cache
+from app.cache import RiskMetricsCache
 from app.performance import (
     PerformanceMonitor,
     RequestBatcher,
     ConnectionPool,
     get_performance_monitor,
-    get_request_batcher,
-    get_connection_pool
+    get_connection_pool,
 )
 
 # Ensure logs directory exists
-Path('logs').mkdir(exist_ok=True)
+Path("logs").mkdir(exist_ok=True)
 
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/service.log'),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("logs/service.log"), logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
@@ -78,95 +78,65 @@ http_client: Optional[httpx.AsyncClient] = None
 
 # HTTP request counter
 http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status']
+    "http_requests_total", "Total HTTP requests", ["method", "endpoint", "status"]
 )
 
 # HTTP request duration histogram
 http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'endpoint']
+    "http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "endpoint"],
 )
 
 # Active requests gauge
-http_requests_active = Gauge(
-    'http_requests_active',
-    'Number of active HTTP requests'
-)
+http_requests_active = Gauge("http_requests_active", "Number of active HTTP requests")
 
 # Risk-specific metrics
 risk_calculations_total = Counter(
-    'risk_calculations_total',
-    'Total risk calculations performed',
-    ['symbol', 'metric_type']
+    "risk_calculations_total",
+    "Total risk calculations performed",
+    ["symbol", "metric_type"],
 )
 
 risk_calculation_duration_seconds = Histogram(
-    'risk_calculation_duration_seconds',
-    'Risk calculation duration in seconds',
-    ['metric_type']
+    "risk_calculation_duration_seconds",
+    "Risk calculation duration in seconds",
+    ["metric_type"],
 )
 
-risk_score_gauge = Gauge(
-    'risk_score',
-    'Current risk score',
-    ['risk_level']
-)
+risk_score_gauge = Gauge("risk_score", "Current risk score", ["risk_level"])
 
 risk_alerts_total = Counter(
-    'risk_alerts_total',
-    'Total risk alerts generated',
-    ['severity', 'category']
+    "risk_alerts_total", "Total risk alerts generated", ["severity", "category"]
 )
 
 circuit_breaker_trips = Counter(
-    'circuit_breaker_trips',
-    'Number of circuit breaker trips',
-    ['reason']
+    "circuit_breaker_trips", "Number of circuit breaker trips", ["reason"]
 )
 
 circuit_breaker_active_gauge = Gauge(
-    'circuit_breaker_active',
-    'Whether circuit breaker is currently active (1=active, 0=inactive)'
+    "circuit_breaker_active",
+    "Whether circuit breaker is currently active (1=active, 0=inactive)",
 )
 
-portfolio_value_gauge = Gauge(
-    'portfolio_value_usd',
-    'Current portfolio value in USD'
-)
+portfolio_value_gauge = Gauge("portfolio_value_usd", "Current portfolio value in USD")
 
 capital_utilization_gauge = Gauge(
-    'capital_utilization_ratio',
-    'Current capital utilization ratio'
+    "capital_utilization_ratio", "Current capital utilization ratio"
 )
 
-exposure_ratio_gauge = Gauge(
-    'exposure_ratio',
-    'Current exposure ratio'
-)
+exposure_ratio_gauge = Gauge("exposure_ratio", "Current exposure ratio")
 
 drawdown_current_gauge = Gauge(
-    'drawdown_current_percent',
-    'Current drawdown percentage'
+    "drawdown_current_percent", "Current drawdown percentage"
 )
 
-sharpe_ratio_gauge = Gauge(
-    'sharpe_ratio',
-    'Current Sharpe ratio'
-)
+sharpe_ratio_gauge = Gauge("sharpe_ratio", "Current Sharpe ratio")
 
-cache_hit_counter = Counter(
-    'cache_hits_total',
-    'Number of cache hits',
-    ['endpoint']
-)
+cache_hit_counter = Counter("cache_hits_total", "Number of cache hits", ["endpoint"])
 
 cache_miss_counter = Counter(
-    'cache_misses_total',
-    'Number of cache misses',
-    ['endpoint']
+    "cache_misses_total", "Number of cache misses", ["endpoint"]
 )
 
 # === END PROMETHEUS METRICS ===
@@ -175,7 +145,13 @@ cache_miss_counter = Counter(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle management for the application"""
-    global risk_engine, cache, performance_monitor, request_batcher, connection_pool, http_client
+    global \
+        risk_engine, \
+        cache, \
+        performance_monitor, \
+        request_batcher, \
+        connection_pool, \
+        http_client
 
     # Startup
     logger.info(f"🚀 Starting {settings.service_name} on port {settings.service_port}")
@@ -185,7 +161,9 @@ async def lifespan(app: FastAPI):
 
     # Initialize performance monitoring
     if settings.enable_performance_monitoring:
-        performance_monitor = PerformanceMonitor(max_history=settings.performance_history_size)
+        performance_monitor = PerformanceMonitor(
+            max_history=settings.performance_history_size
+        )
         logger.info("✅ Performance monitoring enabled")
 
     # Initialize Redis cache
@@ -193,7 +171,7 @@ async def lifespan(app: FastAPI):
         cache = RiskMetricsCache(
             redis_url=settings.redis_url,
             ttl_seconds=settings.redis_cache_ttl,
-            enabled=True
+            enabled=True,
         )
         await cache.connect()
     else:
@@ -202,25 +180,25 @@ async def lifespan(app: FastAPI):
     # Initialize request batcher
     if settings.enable_request_batching:
         request_batcher = RequestBatcher(
-            batch_size=settings.batch_size,
-            max_wait_ms=settings.batch_max_wait_ms
+            batch_size=settings.batch_size, max_wait_ms=settings.batch_max_wait_ms
         )
         logger.info("✅ Request batching enabled")
 
     # Initialize connection pool
     connection_pool = ConnectionPool(
-        max_connections=settings.max_http_connections,
-        timeout=settings.http_timeout
+        max_connections=settings.max_http_connections, timeout=settings.http_timeout
     )
-    logger.info(f"✅ HTTP connection pool initialized (max: {settings.max_http_connections})")
+    logger.info(
+        f"✅ HTTP connection pool initialized (max: {settings.max_http_connections})"
+    )
 
     # Initialize shared HTTP client with connection pooling
     http_client = httpx.AsyncClient(
         timeout=settings.http_timeout,
         limits=httpx.Limits(
             max_keepalive_connections=settings.max_http_connections,
-            max_connections=settings.max_http_connections
-        )
+            max_connections=settings.max_http_connections,
+        ),
     )
 
     logger.info("✅ Risk & Metrics Service ready")
@@ -246,20 +224,27 @@ app = FastAPI(
     title="Risk & Metrics Service",
     description="Real-time risk monitoring, performance analytics, and circuit breaker",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add CORS middleware with restricted origins
 app.add_middleware(
     CORSMiddleware,
+    # SECURITY (2026-07-29 audit): "*" origins with allow_credentials=True is
+    # invalid per the CORS spec and makes Starlette reflect the caller's
+    # Origin for credentialed requests, allowing any site to make
+    # credentialed cross-origin calls. This internal service uses no cookie
+    # auth (reached server-to-server via the gateway / Bearer tokens), so we
+    # keep the permissive origin but disable credentialed CORS.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 # === PROMETHEUS MIDDLEWARE ===
+
 
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
@@ -282,8 +267,12 @@ async def metrics_middleware(request: Request, call_next):
         duration = (datetime.utcnow() - start_time).total_seconds()
 
         # Record metrics
-        http_request_duration_seconds.labels(method=method, endpoint=path).observe(duration)
-        http_requests_total.labels(method=method, endpoint=path, status=response.status_code).inc()
+        http_request_duration_seconds.labels(method=method, endpoint=path).observe(
+            duration
+        )
+        http_requests_total.labels(
+            method=method, endpoint=path, status=response.status_code
+        ).inc()
 
         return response
     finally:
@@ -298,13 +287,11 @@ async def metrics_middleware(request: Request, call_next):
 @app.get("/metrics")
 async def metrics():
     """Prometheus metrics endpoint"""
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # === PERFORMANCE MIDDLEWARE ===
+
 
 @app.middleware("http")
 async def performance_tracking_middleware(request: Request, call_next):
@@ -321,6 +308,35 @@ async def performance_tracking_middleware(request: Request, call_next):
 
 # === HELPER FUNCTIONS ===
 
+
+def require_total_value(portfolio: dict) -> Decimal:
+    """Portfolio total value, or a loud 503.
+
+    BEHAVIOUR CHANGE 2026-08-03 (capital audit, B2). All seven call sites used
+    to fall back to a hardcoded 10000 when the portfolio-manager response had no
+    ``total_value``. On the real $100 account that fallback was wrong by 100x,
+    and it fed LIVE VaR / CVaR / drawdown / circuit-breaker figures — a silently
+    wrong risk number is worse than an error, because it looks like an answer.
+
+    Failing with 503 is the SAME failure class these endpoints already handle:
+    every enclosing function does ``portfolio_data = await
+    fetch_portfolio_data()`` followed by ``if not portfolio_data: raise
+    HTTPException(503, ...)``. This only extends that contract to a portfolio
+    dict that is present but missing the field. (All seven enclosing functions
+    were re-read to confirm the guard exists before this change.)
+    """
+    total_value = portfolio.get("total_value")
+    if total_value is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Portfolio total_value missing — refusing to compute risk "
+                "metrics against a placeholder account size"
+            ),
+        )
+    return Decimal(str(total_value))
+
+
 async def fetch_portfolio_data() -> dict:
     """
     Fetch portfolio data from portfolio manager service
@@ -329,7 +345,9 @@ async def fetch_portfolio_data() -> dict:
     try:
         pool = get_connection_pool()
         async with pool.acquire():
-            response = await http_client.get(f"{settings.portfolio_manager_url}/api/v1/portfolio")
+            response = await http_client.get(
+                f"{settings.portfolio_manager_url}/api/v1/portfolio"
+            )
             if response.status_code == 200:
                 return response.json()
             else:
@@ -337,6 +355,29 @@ async def fetch_portfolio_data() -> dict:
                 return None
     except Exception as e:
         logger.error(f"Error fetching portfolio: {e}")
+        return None
+
+
+async def fetch_performance_data() -> Optional[dict]:
+    """
+    Fetch performance metrics from portfolio manager service.
+
+    Used by the circuit-breaker route to read DAILY return (not lifetime).
+    Returns the parsed JSON or None on any failure; callers must treat a
+    None / missing daily metric as "no signal" rather than as a loss.
+    """
+    try:
+        pool = get_connection_pool()
+        async with pool.acquire():
+            response = await http_client.get(
+                f"{settings.portfolio_manager_url}/api/v1/performance"
+            )
+            if response.status_code == 200:
+                return response.json()
+            logger.warning(f"Failed to fetch performance: HTTP {response.status_code}")
+            return None
+    except Exception as e:
+        logger.warning(f"Error fetching performance: {e}")
         return None
 
 
@@ -348,6 +389,7 @@ def get_risk_engine() -> RiskEngine:
 
 
 # === HEALTH & STATUS ENDPOINTS ===
+
 
 @app.get("/health", response_model=HealthCheckResponse)
 async def health_check():
@@ -369,7 +411,10 @@ async def health_check():
         try:
             await cache.client.ping()
             dependencies["redis_cache"] = True
-        except:
+        except Exception as e:
+            # Bare `except:` also swallowed asyncio.CancelledError (breaking
+            # cooperative shutdown) and KeyboardInterrupt; narrow to Exception.
+            logger.debug(f"Redis health ping failed: {e}")
             dependencies["redis_cache"] = False
     else:
         dependencies["redis_cache"] = False
@@ -379,7 +424,7 @@ async def health_check():
         service=settings.service_name,
         version="1.0.0",
         timestamp=datetime.now(),
-        dependencies=dependencies
+        dependencies=dependencies,
     )
 
 
@@ -390,7 +435,7 @@ async def readiness_check():
     return {
         "ready": True,
         "service": settings.service_name,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 
@@ -414,8 +459,8 @@ async def get_status():
             "max_daily_loss": settings.max_daily_loss,
             "max_exposure": settings.max_exposure,
             "risk_free_rate": settings.risk_free_rate,
-            "circuit_breaker_enabled": settings.enable_circuit_breaker
-        }
+            "circuit_breaker_enabled": settings.enable_circuit_breaker,
+        },
     }
 
     # Add performance stats if monitoring enabled
@@ -444,7 +489,7 @@ async def get_performance_stats():
     return {
         "summary": monitor.get_summary(),
         "last_5_minutes": monitor.get_summary(last_minutes=5),
-        "endpoints": monitor.get_endpoint_stats()
+        "endpoints": monitor.get_endpoint_stats(),
     }
 
 
@@ -459,10 +504,14 @@ async def reset_performance_stats(api_key: str = Depends(verify_admin_key)):
     if cache:
         cache.reset_stats()
 
-    return {"message": "Performance statistics reset", "timestamp": datetime.now().isoformat()}
+    return {
+        "message": "Performance statistics reset",
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 # === RISK MONITORING ENDPOINTS (WITH CACHING) ===
+
 
 @app.get("/risk/scorecard", response_model=RiskScorecard)
 async def get_risk_scorecard():
@@ -479,29 +528,33 @@ async def get_risk_scorecard():
 
     # Try cache first
     cache_key_params = {"endpoint": "scorecard"}
-    cached_result = await cache.get("risk_scorecard", **cache_key_params) if cache else None
+    cached_result = (
+        await cache.get("risk_scorecard", **cache_key_params) if cache else None
+    )
 
     if cached_result:
         logger.debug("Serving risk scorecard from cache")
-        cache_hit_counter.labels(endpoint='scorecard').inc()
+        cache_hit_counter.labels(endpoint="scorecard").inc()
         # Record cache hit in monitoring
         if monitor:
             async with monitor.measure("/risk/scorecard", cache_hit=True):
                 pass
         return RiskScorecard(**cached_result)
 
-    cache_miss_counter.labels(endpoint='scorecard').inc()
+    cache_miss_counter.labels(endpoint="scorecard").inc()
 
     # Cache miss - calculate fresh data
     async with monitor.measure("/risk/scorecard") if monitor else asyncio.nullcontext():
         # Fetch portfolio data
         portfolio_data = await fetch_portfolio_data()
         if not portfolio_data:
-            raise HTTPException(status_code=503, detail="Unable to fetch portfolio data")
+            raise HTTPException(
+                status_code=503, detail="Unable to fetch portfolio data"
+            )
 
-        portfolio = portfolio_data.get('portfolio', {})
-        positions = portfolio.get('holdings', [])
-        total_capital = Decimal(str(portfolio.get('total_value', 10000)))
+        portfolio = portfolio_data.get("portfolio", {})
+        positions = portfolio.get("holdings", [])
+        total_capital = require_total_value(portfolio)
 
         # Update portfolio value gauge
         portfolio_value_gauge.set(float(total_capital))
@@ -512,15 +565,15 @@ async def get_risk_scorecard():
 
         # Drawdown (simplified - in production would use historical data)
         historical_values = [(datetime.now(), total_capital)]
-        drawdown_metrics = engine.calculate_drawdown_metrics(total_capital, historical_values)
+        drawdown_metrics = engine.calculate_drawdown_metrics(
+            total_capital, historical_values
+        )
 
         # Performance (simplified - would use actual returns data)
         returns = engine.historical_returns if engine.historical_returns else [0.0]
         trades = []  # Would fetch from database
         performance_metrics = engine.calculate_performance_metrics(
-            returns,
-            drawdown_metrics.max_drawdown,
-            trades
+            returns, drawdown_metrics.max_drawdown, trades
         )
 
         # Value at Risk
@@ -532,7 +585,7 @@ async def get_risk_scorecard():
             exposure_metrics,
             drawdown_metrics,
             performance_metrics,
-            var_metrics
+            var_metrics,
         )
 
         # Update gauges
@@ -545,53 +598,73 @@ async def get_risk_scorecard():
 
         # Generate alerts
         alerts = engine.generate_risk_alerts(
-            capital_metrics,
-            exposure_metrics,
-            drawdown_metrics,
-            performance_metrics
+            capital_metrics, exposure_metrics, drawdown_metrics, performance_metrics
         )
 
         # Record alert metrics
         for alert in alerts:
-            risk_alerts_total.labels(severity=alert.severity, category=alert.category).inc()
+            risk_alerts_total.labels(
+                severity=alert.severity, category=alert.category
+            ).inc()
 
         # Generate recommendations
         recommendations = []
         if capital_metrics.capital_utilization > 0.80:
-            recommendations.append("High capital utilization - consider reducing position sizes")
+            recommendations.append(
+                "High capital utilization - consider reducing position sizes"
+            )
         if exposure_metrics.exposure_ratio > 0.15:
             recommendations.append("Approaching exposure limit - monitor closely")
         if len(exposure_metrics.concentrated_positions) > 0:
-            recommendations.append(f"Reduce concentration in {len(exposure_metrics.concentrated_positions)} positions")
+            recommendations.append(
+                f"Reduce concentration in {len(exposure_metrics.concentrated_positions)} positions"
+            )
         if performance_metrics.sharpe_ratio and performance_metrics.sharpe_ratio < 1.0:
-            recommendations.append("Sharpe ratio below target - review strategy effectiveness")
+            recommendations.append(
+                "Sharpe ratio below target - review strategy effectiveness"
+            )
 
         scorecard = RiskScorecard(
             timestamp=datetime.now(),
             overall_risk_level=risk_level,
             risk_score=risk_score,
             capital_risk_score=capital_metrics.capital_utilization * 20,
-            exposure_risk_score=min(exposure_metrics.exposure_ratio / settings.max_exposure, 1.0) * 25,
-            concentration_risk_score=min(len(exposure_metrics.concentrated_positions) * 5, 15),
+            exposure_risk_score=min(
+                exposure_metrics.exposure_ratio / settings.max_exposure, 1.0
+            )
+            * 25,
+            concentration_risk_score=min(
+                len(exposure_metrics.concentrated_positions) * 5, 15
+            ),
             volatility_risk_score=min(performance_metrics.volatility / 0.20, 1.0) * 20,
-            drawdown_risk_score=min((drawdown_metrics.current_drawdown / settings.max_drawdown_threshold) * 20, 20),
+            drawdown_risk_score=min(
+                (drawdown_metrics.current_drawdown / settings.max_drawdown_threshold)
+                * 20,
+                20,
+            ),
             capital_metrics=capital_metrics,
             exposure_metrics=exposure_metrics,
             drawdown_metrics=drawdown_metrics,
             performance_metrics=performance_metrics,
             var_metrics=var_metrics,
             active_alerts=alerts,
-            recommendations=recommendations
+            recommendations=recommendations,
         )
 
         # Cache the result
         if cache:
-            await cache.set("risk_scorecard", scorecard.model_dump(), **cache_key_params)
+            await cache.set(
+                "risk_scorecard", scorecard.model_dump(), **cache_key_params
+            )
 
         # Record metrics
         duration = (datetime.utcnow() - start_time).total_seconds()
-        risk_calculation_duration_seconds.labels(metric_type='scorecard').observe(duration)
-        risk_calculations_total.labels(symbol='portfolio', metric_type='scorecard').inc()
+        risk_calculation_duration_seconds.labels(metric_type="scorecard").observe(
+            duration
+        )
+        risk_calculations_total.labels(
+            symbol="portfolio", metric_type="scorecard"
+        ).inc()
 
         return scorecard
 
@@ -603,21 +676,23 @@ async def get_capital_metrics():
 
     # Try cache first
     cache_key_params = {"endpoint": "capital"}
-    cached_result = await cache.get("capital_metrics", **cache_key_params) if cache else None
+    cached_result = (
+        await cache.get("capital_metrics", **cache_key_params) if cache else None
+    )
 
     if cached_result:
-        cache_hit_counter.labels(endpoint='capital').inc()
+        cache_hit_counter.labels(endpoint="capital").inc()
         return CapitalMetrics(**cached_result)
 
-    cache_miss_counter.labels(endpoint='capital').inc()
+    cache_miss_counter.labels(endpoint="capital").inc()
 
     portfolio_data = await fetch_portfolio_data()
     if not portfolio_data:
         raise HTTPException(status_code=503, detail="Unable to fetch portfolio data")
 
-    portfolio = portfolio_data.get('portfolio', {})
-    positions = portfolio.get('holdings', [])
-    total_capital = Decimal(str(portfolio.get('total_value', 10000)))
+    portfolio = portfolio_data.get("portfolio", {})
+    positions = portfolio.get("holdings", [])
+    total_capital = require_total_value(portfolio)
 
     metrics = engine.calculate_capital_metrics(total_capital, positions)
 
@@ -626,7 +701,7 @@ async def get_capital_metrics():
         await cache.set("capital_metrics", metrics.model_dump(), **cache_key_params)
 
     # Record metrics
-    risk_calculations_total.labels(symbol='portfolio', metric_type='capital').inc()
+    risk_calculations_total.labels(symbol="portfolio", metric_type="capital").inc()
 
     return metrics
 
@@ -638,21 +713,23 @@ async def get_exposure_metrics():
 
     # Try cache first
     cache_key_params = {"endpoint": "exposure"}
-    cached_result = await cache.get("exposure_metrics", **cache_key_params) if cache else None
+    cached_result = (
+        await cache.get("exposure_metrics", **cache_key_params) if cache else None
+    )
 
     if cached_result:
-        cache_hit_counter.labels(endpoint='exposure').inc()
+        cache_hit_counter.labels(endpoint="exposure").inc()
         return ExposureMetrics(**cached_result)
 
-    cache_miss_counter.labels(endpoint='exposure').inc()
+    cache_miss_counter.labels(endpoint="exposure").inc()
 
     portfolio_data = await fetch_portfolio_data()
     if not portfolio_data:
         raise HTTPException(status_code=503, detail="Unable to fetch portfolio data")
 
-    portfolio = portfolio_data.get('portfolio', {})
-    positions = portfolio.get('holdings', [])
-    total_capital = Decimal(str(portfolio.get('total_value', 10000)))
+    portfolio = portfolio_data.get("portfolio", {})
+    positions = portfolio.get("holdings", [])
+    total_capital = require_total_value(portfolio)
 
     metrics = engine.calculate_exposure_metrics(positions, total_capital)
 
@@ -661,7 +738,7 @@ async def get_exposure_metrics():
         await cache.set("exposure_metrics", metrics.model_dump(), **cache_key_params)
 
     # Record metrics
-    risk_calculations_total.labels(symbol='portfolio', metric_type='exposure').inc()
+    risk_calculations_total.labels(symbol="portfolio", metric_type="exposure").inc()
 
     return metrics
 
@@ -673,20 +750,22 @@ async def get_drawdown_metrics():
 
     # Try cache first
     cache_key_params = {"endpoint": "drawdown"}
-    cached_result = await cache.get("drawdown_metrics", **cache_key_params) if cache else None
+    cached_result = (
+        await cache.get("drawdown_metrics", **cache_key_params) if cache else None
+    )
 
     if cached_result:
-        cache_hit_counter.labels(endpoint='drawdown').inc()
+        cache_hit_counter.labels(endpoint="drawdown").inc()
         return DrawdownMetrics(**cached_result)
 
-    cache_miss_counter.labels(endpoint='drawdown').inc()
+    cache_miss_counter.labels(endpoint="drawdown").inc()
 
     portfolio_data = await fetch_portfolio_data()
     if not portfolio_data:
         raise HTTPException(status_code=503, detail="Unable to fetch portfolio data")
 
-    portfolio = portfolio_data.get('portfolio', {})
-    total_capital = Decimal(str(portfolio.get('total_value', 10000)))
+    portfolio = portfolio_data.get("portfolio", {})
+    total_capital = require_total_value(portfolio)
 
     # In production, would fetch historical values from database
     historical_values = [(datetime.now(), total_capital)]
@@ -698,7 +777,7 @@ async def get_drawdown_metrics():
         await cache.set("drawdown_metrics", metrics.model_dump(), **cache_key_params)
 
     # Record metrics
-    risk_calculations_total.labels(symbol='portfolio', metric_type='drawdown').inc()
+    risk_calculations_total.labels(symbol="portfolio", metric_type="drawdown").inc()
 
     return metrics
 
@@ -717,34 +796,38 @@ async def get_value_at_risk(confidence_level: float = 0.95, time_horizon_days: i
     cache_key_params = {
         "endpoint": "var",
         "confidence": confidence_level,
-        "horizon": time_horizon_days
+        "horizon": time_horizon_days,
     }
-    cached_result = await cache.get("var_metrics", **cache_key_params) if cache else None
+    cached_result = (
+        await cache.get("var_metrics", **cache_key_params) if cache else None
+    )
 
     if cached_result:
-        cache_hit_counter.labels(endpoint='var').inc()
+        cache_hit_counter.labels(endpoint="var").inc()
         return ValueAtRisk(**cached_result)
 
-    cache_miss_counter.labels(endpoint='var').inc()
+    cache_miss_counter.labels(endpoint="var").inc()
 
     portfolio_data = await fetch_portfolio_data()
     if not portfolio_data:
         raise HTTPException(status_code=503, detail="Unable to fetch portfolio data")
 
-    portfolio = portfolio_data.get('portfolio', {})
-    total_capital = Decimal(str(portfolio.get('total_value', 10000)))
+    portfolio = portfolio_data.get("portfolio", {})
+    total_capital = require_total_value(portfolio)
 
     # In production, would fetch historical returns from database
     returns = engine.historical_returns if engine.historical_returns else []
 
-    metrics = engine.calculate_var(total_capital, returns, confidence_level, time_horizon_days)
+    metrics = engine.calculate_var(
+        total_capital, returns, confidence_level, time_horizon_days
+    )
 
     # Cache the result
     if cache:
         await cache.set("var_metrics", metrics.model_dump(), **cache_key_params)
 
     # Record metrics
-    risk_calculations_total.labels(symbol='portfolio', metric_type='var').inc()
+    risk_calculations_total.labels(symbol="portfolio", metric_type="var").inc()
 
     return metrics
 
@@ -767,6 +850,7 @@ async def get_value_at_risk(confidence_level: float = 0.95, time_horizon_days: i
 
 # === PERFORMANCE ENDPOINTS ===
 
+
 @app.get("/performance/metrics", response_model=PerformanceMetrics)
 async def get_performance_metrics():
     """Get comprehensive performance metrics WITH CACHING"""
@@ -774,13 +858,15 @@ async def get_performance_metrics():
 
     # Try cache first
     cache_key_params = {"endpoint": "performance"}
-    cached_result = await cache.get("performance_metrics", **cache_key_params) if cache else None
+    cached_result = (
+        await cache.get("performance_metrics", **cache_key_params) if cache else None
+    )
 
     if cached_result:
-        cache_hit_counter.labels(endpoint='performance').inc()
+        cache_hit_counter.labels(endpoint="performance").inc()
         return PerformanceMetrics(**cached_result)
 
-    cache_miss_counter.labels(endpoint='performance').inc()
+    cache_miss_counter.labels(endpoint="performance").inc()
 
     portfolio_data = await fetch_portfolio_data()
     if not portfolio_data:
@@ -791,18 +877,15 @@ async def get_performance_metrics():
     trades = []
 
     # Reuse already-fetched portfolio data to avoid duplicate network call
-    portfolio = portfolio_data.get('portfolio', {})
-    total_capital = Decimal(str(portfolio.get('total_value', 10000)))
+    portfolio = portfolio_data.get("portfolio", {})
+    total_capital = require_total_value(portfolio)
     historical_values = [(datetime.now(), total_capital)]
     drawdown_metrics = engine.calculate_drawdown_metrics(
-        total_capital,
-        historical_values
+        total_capital, historical_values
     )
 
     metrics = engine.calculate_performance_metrics(
-        returns,
-        drawdown_metrics.max_drawdown,
-        trades
+        returns, drawdown_metrics.max_drawdown, trades
     )
 
     # Cache the result
@@ -810,7 +893,7 @@ async def get_performance_metrics():
         await cache.set("performance_metrics", metrics.model_dump(), **cache_key_params)
 
     # Record metrics
-    risk_calculations_total.labels(symbol='portfolio', metric_type='performance').inc()
+    risk_calculations_total.labels(symbol="portfolio", metric_type="performance").inc()
 
     return metrics
 
@@ -825,11 +908,14 @@ async def get_sharpe_ratio():
         "volatility": metrics.volatility,
         "risk_free_rate": settings.risk_free_rate,
         "target_sharpe": settings.target_sharpe_ratio,
-        "meets_target": metrics.sharpe_ratio >= settings.target_sharpe_ratio if metrics.sharpe_ratio is not None else False
+        "meets_target": metrics.sharpe_ratio >= settings.target_sharpe_ratio
+        if metrics.sharpe_ratio is not None
+        else False,
     }
 
 
 # === ALERTS & CIRCUIT BREAKER ===
+
 
 @app.get("/alerts", response_model=List[RiskAlert])
 async def get_active_alerts():
@@ -850,24 +936,47 @@ async def get_circuit_breaker_status():
     if not portfolio_data:
         raise HTTPException(status_code=503, detail="Unable to fetch portfolio data")
 
-    portfolio = portfolio_data.get('portfolio', {})
+    portfolio = portfolio_data.get("portfolio", {})
 
-    # Calculate daily P&L (simplified - would use actual daily data)
-    daily_pnl = float(portfolio.get('total_return_pct', 0))
+    # Daily P&L for circuit breaker MUST be fractional (e.g. -0.05 for -5%) —
+    # that is what RiskEngine.check_circuit_breaker compares against
+    # settings.circuit_breaker_daily_loss_threshold (also fractional, 0.05 by
+    # default). Two bugs lived here previously:
+    #   1. Read portfolio.total_return_pct, which is *lifetime* return —
+    #      caused the CB to trip every loop on any account underwater >5%
+    #      since inception, regardless of today's activity.
+    #   2. The value is in *percent* form (e.g. -25.07 for -25%), but it was
+    #      passed straight to check_circuit_breaker as if fractional, then
+    #      formatted as `daily_pnl*100`, producing phantom "Daily loss
+    #      -2507.74%" reasons (a 100x scale error on top of the wrong metric).
+    # Fix: pull metrics.daily_return_pct from the /performance endpoint and
+    # divide by 100 to get fractional. Missing/unreachable → treat as 0
+    # (no signal, do not falsely trip the CB on a fetch failure).
+    daily_pnl = 0.0
+    perf_data = await fetch_performance_data()
+    if perf_data:
+        metrics = (
+            (perf_data.get("metrics") or {}) if isinstance(perf_data, dict) else {}
+        )
+        try:
+            daily_return_pct = float(metrics.get("daily_return_pct", 0) or 0)
+        except (TypeError, ValueError):
+            daily_return_pct = 0.0
+        daily_pnl = daily_return_pct / 100.0
 
     # Get drawdown
-    total_capital = Decimal(str(portfolio.get('total_value', 10000)))
+    total_capital = require_total_value(portfolio)
     historical_values = [(datetime.now(), total_capital)]
-    drawdown_metrics = engine.calculate_drawdown_metrics(total_capital, historical_values)
+    drawdown_metrics = engine.calculate_drawdown_metrics(
+        total_capital, historical_values
+    )
 
     # Get exposure
-    positions = portfolio.get('holdings', [])
+    positions = portfolio.get("holdings", [])
     exposure_metrics = engine.calculate_exposure_metrics(positions, total_capital)
 
     status = engine.check_circuit_breaker(
-        daily_pnl,
-        drawdown_metrics.current_drawdown,
-        exposure_metrics.exposure_ratio
+        daily_pnl, drawdown_metrics.current_drawdown, exposure_metrics.exposure_ratio
     )
 
     # Update circuit breaker gauge. CircuitBreakerStatus has no .active field
@@ -887,14 +996,15 @@ async def reset_circuit_breaker(api_key: str = Depends(verify_admin_key)):
     engine = get_risk_engine()
 
     if not engine.circuit_breaker_active:
-        return {
-            "message": "Circuit breaker is not active",
-            "status": "ok"
-        }
+        return {"message": "Circuit breaker is not active", "status": "ok"}
 
-    # Reset circuit breaker
-    engine.circuit_breaker_active = False
-    engine.circuit_breaker_tripped_at = None
+    # Reset circuit breaker via the state-machine reset method. Previously this
+    # only cleared the legacy `circuit_breaker_active` flag and `tripped_at`,
+    # leaving `circuit_breaker_state` at OPEN and `circuit_breaker_cooldown_until`
+    # in the future — so check_circuit_breaker() kept reporting is_tripped/
+    # can_trade=False and the "manual reset" never actually resumed trading
+    # until the cooldown expired on its own.
+    engine.reset_circuit_breaker()
 
     # Update gauge
     circuit_breaker_active_gauge.set(0)
@@ -904,11 +1014,12 @@ async def reset_circuit_breaker(api_key: str = Depends(verify_admin_key)):
     return {
         "message": "Circuit breaker reset successfully",
         "status": "reset",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 
 # === CONFIGURATION ===
+
 
 @app.get("/config/limits", response_model=RiskLimits)
 async def get_risk_limits():
@@ -920,12 +1031,14 @@ async def get_risk_limits():
         max_daily_loss=settings.max_daily_loss,
         max_exposure=settings.max_exposure,
         max_leverage=2.0,  # Default
-        min_sharpe_ratio=settings.target_sharpe_ratio
+        min_sharpe_ratio=settings.target_sharpe_ratio,
     )
 
 
 @app.put("/config/limits")
-async def update_risk_limits(limits: RiskLimits, api_key: str = Depends(verify_admin_key)):
+async def update_risk_limits(
+    limits: RiskLimits, api_key: str = Depends(verify_admin_key)
+):
     """
     Update risk limits (admin only)
     ⚠️ Use with caution - affects all risk calculations
@@ -942,11 +1055,12 @@ async def update_risk_limits(limits: RiskLimits, api_key: str = Depends(verify_a
         "message": "Risk limits updated",
         "limits": limits,
         "warning": "Changes will take effect immediately",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 
 # === CACHE MANAGEMENT ===
+
 
 @app.post("/cache/invalidate")
 async def invalidate_cache(api_key: str = Depends(verify_admin_key)):
@@ -958,7 +1072,7 @@ async def invalidate_cache(api_key: str = Depends(verify_admin_key)):
 
     return {
         "message": f"Cache invalidated ({deleted} keys deleted)",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 
@@ -973,6 +1087,7 @@ async def get_cache_stats():
 
 # === ROOT ENDPOINT ===
 
+
 @app.get("/")
 async def root():
     """Service information"""
@@ -984,7 +1099,7 @@ async def root():
             "redis_caching": settings.redis_enabled,
             "request_batching": settings.enable_request_batching,
             "performance_monitoring": settings.enable_performance_monitoring,
-            "connection_pooling": True
+            "connection_pooling": True,
         },
         "endpoints": {
             "health": "/health",
@@ -995,17 +1110,23 @@ async def root():
             "performance_stats": "/performance/stats",
             "cache_stats": "/cache/stats",
             "metrics": "/metrics",
-            "documentation": "/docs"
+            "documentation": "/docs",
         },
-        "status": "operational"
+        "status": "operational",
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+
+    # SECURITY/CONFIG (2026-07-29 audit): reload was hardcoded to True, which
+    # is a development-only flag (spawns a file-watching reloader and is
+    # unsafe/wasteful in production). Default it to False and gate it behind
+    # an explicit opt-in env var, matching the other services which use
+    # reload=settings.debug.
     uvicorn.run(
         "app.main:app",
         host=settings.service_host,
         port=settings.service_port,
-        reload=True
+        reload=os.getenv("UVICORN_RELOAD", "false").lower() == "true",
     )

@@ -125,6 +125,40 @@ async def test_lifespan_rejects_live_with_high_cap(monkeypatch):
             pass
 
 
+@pytest.mark.asyncio
+async def test_lifespan_rejects_live_with_high_sizing_floor(monkeypatch, caplog):
+    """LIVE + a compliant cap but ensemble_min_position_pct=0.05 must refuse to boot.
+
+    Audit 2026-07-30, F-2: the ensemble sizing floor overrides the per-trade cap,
+    so a config that reads compliant on ``max_risk_per_trade`` alone still trades
+    at 2.5x the LIVE-strict cap. The shipped default floor (0.05) is exactly this
+    case, which is why the gate has to cover it explicitly.
+    """
+    monkeypatch.setenv("TRADING_MODE", "LIVE")
+    monkeypatch.setenv("LIVE_TRADING_ACK", "I_UNDERSTAND_REAL_MONEY")
+
+    import logging
+
+    import app.main as main_mod
+
+    bad_settings = Settings(
+        trading_mode="LIVE",
+        max_risk_per_trade=0.02,
+        ensemble_min_position_pct=0.05,
+    )
+    monkeypatch.setattr(main_mod, "settings", bad_settings, raising=False)
+
+    caplog.set_level(logging.CRITICAL)
+    with pytest.raises(RuntimeError, match=r"ensemble_min_position_pct.*0\.05.*0\.02"):
+        async with main_mod.lifespan(_fake_app_for_lifespan()):
+            pass
+
+    assert "LIVE_PREFLIGHT_REJECTED" in caplog.text, (
+        "floor rejection must emit the LIVE_PREFLIGHT_REJECTED grep-gate literal"
+    )
+    assert "reason=floor_too_high" in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # 3. LIVE + cap=0.02 — runtime acceptance (cap-check PASSES)
 # ---------------------------------------------------------------------------
@@ -150,6 +184,10 @@ async def test_lifespan_accepts_live_with_strict_cap(monkeypatch, caplog):
     good_settings = Settings(
         trading_mode="LIVE",
         max_risk_per_trade=0.02,
+        # The sizing floor is gated alongside the cap as of the 2026-07-30
+        # audit (F-2); its shipped default (0.05) exceeds the LIVE-strict
+        # limit, so pin it to keep this test about the cap.
+        ensemble_min_position_pct=0.02,
         auto_trading_enabled=False,
     )
     monkeypatch.setattr(main_mod, "settings", good_settings, raising=False)
@@ -258,6 +296,7 @@ async def test_lifespan_and_check_cap_agree_at_boundary(
     settings = Settings(
         trading_mode="LIVE",
         max_risk_per_trade=cap,
+        ensemble_min_position_pct=0.02,
         auto_trading_enabled=False,
     )
 

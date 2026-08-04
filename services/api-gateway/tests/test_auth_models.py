@@ -266,14 +266,21 @@ class TestUserManagement:
         """Clear user database before each test"""
         USERS_DB.clear()
 
-    def test_create_user_success(self):
+    def test_create_user_success(self, monkeypatch):
         """Test successful user creation.
 
-        First-user auto-admin is now gated on IS_DEVELOPMENT (auth_models.py
-        line 445). The CI suite runs with ENVIRONMENT=test, so the first
-        user does NOT get admin privileges automatically — that path is
+        First-user auto-admin is gated on IS_DEVELOPMENT. updated 2026-07-29:
+        auth_models resolves ENVIRONMENT at IMPORT time, so relying on the
+        process env (ENVIRONMENT=test in CI, but 'development' when the suite
+        runs inside the deployed container per CLAUDE.md) made this test
+        environment-dependent. Pin the module flag so the non-dev path is
+        tested regardless of where the suite runs; the dev auto-admin path is
         covered by an explicit dev-environment test below.
         """
+        import app.auth_models as auth_models_mod
+
+        monkeypatch.setattr(auth_models_mod, "IS_DEVELOPMENT", False)
+
         user_create = UserCreate(
             username="newuser",
             email="new@example.com",
@@ -287,7 +294,7 @@ class TestUserManagement:
         assert user.email == "new@example.com"
         assert user.full_name == "New User"
         assert user.is_active is True
-        assert user.is_admin is False  # ENVIRONMENT=test → no auto-admin
+        assert user.is_admin is False  # non-dev environment → no auto-admin
         assert user.user_id.startswith("user_")
 
     def test_create_second_user_not_admin(self):
@@ -519,3 +526,64 @@ class TestTokenDataModel:
 
         assert token_data.username is None
         assert token_data.user_id is None
+
+
+class TestJWTSecretValidation:
+    """Hard-fail predicate for JWT secret across env + trading-mode combinations.
+
+    Security regression guard for CONCERNS.md JWT-Default-Insecure-In-Dev:
+    api-gateway must refuse to boot with the public-knowledge dev fallback
+    secret whenever TRADING_MODE=LIVE or PAPER_TRADING_MODE=false is set,
+    regardless of ENVIRONMENT. Token forgery risk would otherwise leak from
+    a dev-shaped boot into real-money traffic.
+    """
+
+    def _reset_env_module_flags(self, monkeypatch):
+        """Helper: clear all env vars + reset module globals to dev defaults."""
+        from app import auth_models
+
+        monkeypatch.setattr(auth_models, "IS_PRODUCTION", False)
+        monkeypatch.setattr(auth_models, "IS_STAGING", False)
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        monkeypatch.delenv("TRADING_MODE", raising=False)
+        monkeypatch.delenv("PAPER_TRADING_MODE", raising=False)
+        return auth_models
+
+    def test_dev_paper_no_env_returns_dev_fallback(self, monkeypatch):
+        """Dev env + PAPER mode + no JWT_SECRET_KEY → returns _DEV_ONLY_SECRET."""
+        am = self._reset_env_module_flags(monkeypatch)
+        assert am._validate_jwt_secret() == am._DEV_ONLY_SECRET
+
+    @pytest.mark.parametrize("value", ["LIVE", "Live", "live"])
+    def test_dev_trading_mode_live_no_env_exits(self, monkeypatch, value):
+        """Dev env + TRADING_MODE=LIVE (any case) + no JWT_SECRET_KEY → SystemExit(1)."""
+        am = self._reset_env_module_flags(monkeypatch)
+        monkeypatch.setenv("TRADING_MODE", value)
+        with pytest.raises(SystemExit) as exc:
+            am._validate_jwt_secret()
+        assert exc.value.code == 1
+
+    @pytest.mark.parametrize("value", ["false", "False", "FALSE"])
+    def test_dev_paper_trading_mode_false_no_env_exits(self, monkeypatch, value):
+        """Dev env + PAPER_TRADING_MODE=false (any case) + no JWT_SECRET_KEY → SystemExit(1)."""
+        am = self._reset_env_module_flags(monkeypatch)
+        monkeypatch.setenv("PAPER_TRADING_MODE", value)
+        with pytest.raises(SystemExit) as exc:
+            am._validate_jwt_secret()
+        assert exc.value.code == 1
+
+    def test_prod_no_env_still_exits(self, monkeypatch):
+        """Regression: production environment + no JWT_SECRET_KEY → SystemExit(1)."""
+        am = self._reset_env_module_flags(monkeypatch)
+        monkeypatch.setattr(am, "IS_PRODUCTION", True)
+        with pytest.raises(SystemExit) as exc:
+            am._validate_jwt_secret()
+        assert exc.value.code == 1
+
+    def test_dev_live_with_valid_secret_succeeds(self, monkeypatch):
+        """Dev env + TRADING_MODE=LIVE + valid 64-char JWT_SECRET_KEY → returns key."""
+        am = self._reset_env_module_flags(monkeypatch)
+        monkeypatch.setenv("TRADING_MODE", "LIVE")
+        good_secret = "a" * 64
+        monkeypatch.setenv("JWT_SECRET_KEY", good_secret)
+        assert am._validate_jwt_secret() == good_secret

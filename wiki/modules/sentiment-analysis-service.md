@@ -5,9 +5,8 @@ status: idle
 state: leg-removed
 language: python
 port: 8008
-purpose: "News / social sentiment — leg removed from signal pipeline 2026-04-29; service still runs, no backend consumer"
+purpose: "News / social sentiment — leg removed from signal pipeline 2026-04-29; service gated behind compose `analytics` profile since 2026-07-29 (does not start by default)"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on:
   - NewsAPI.org
@@ -16,13 +15,13 @@ used_by:
   - api-gateway
 tags: [module, service, idle, leg-removed]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-30
 ---
 
 # sentiment-analysis-service
 
 > [!warning] Status: `idle / leg-removed`
-> Sentiment leg removed from signal pipeline (commits `c346483`, `acae081`, `fe941cf`, `c171bb0`). Default flag `ENABLE_SENTIMENT_ANALYSIS=false`. **Service still runs** in `docker-compose.unified.yml` and is reachable via api-gateway proxy routes, but neither `technical-analysis` nor `trading-engine` consume it. No RabbitMQ topic was ever published. See [[../concepts/Feature-Flags]] and [[../flows/Signal-Pipeline]].
+> Sentiment leg removed from signal pipeline (commits `c346483`, `acae081`, `fe941cf`, `c171bb0`). Default flag `ENABLE_SENTIMENT_ANALYSIS=false`. Since 2026-07-29 the service **no longer starts by default** — it is gated behind the compose `analytics` profile (`docker compose --profile analytics up`). When started it is reachable via api-gateway proxy routes, but neither `technical-analysis` nor `trading-engine` consume it. No RabbitMQ topic was ever published. See [[../concepts/Feature-Flags]] and [[../flows/Signal-Pipeline]].
 
 **Port:** `8008`
 **Path:** `services/sentiment-analysis-service/`

@@ -1,6 +1,6 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import axios from 'axios'
+import api from '../services/api'
 import TileState from '../components/TileState'
 
 /**
@@ -18,21 +18,16 @@ import TileState from '../components/TileState'
  * Failed (...) UI if the Phase 1 health endpoint goes 503.
  */
 
-const api = axios.create({
-  baseURL: '/api',
-  timeout: 10000,
-})
+// Uses the shared axios instance from services/api.js (baseURL '/api').
+// NOTE: its response interceptor already unwraps `.data`, so queryFns below
+// return the body directly (previously this file had its own axios instance
+// and unwrapped `.data` manually).
 
 // Fetch Phase 1 metrics
 const usePhase1Metrics = (hours = 24) => {
   return useQuery({
     queryKey: ['phase1', 'metrics', hours],
-    queryFn: async () => {
-      console.log('[Phase1Dashboard] Fetching metrics for hours:', hours)
-      const response = await api.get(`/trading/phase1/metrics?hours=${hours}`)
-      console.log('[Phase1Dashboard] Metrics response:', response.data)
-      return response.data
-    },
+    queryFn: () => api.get('/trading/phase1/metrics', { params: { hours } }),
     refetchInterval: 30000, // Refetch every 30 seconds
   })
 }
@@ -42,12 +37,7 @@ const usePhase1Metrics = (hours = 24) => {
 const usePhase1Health = () => {
   return useQuery({
     queryKey: ['phase1', 'health'],
-    queryFn: async () => {
-      console.log('[Phase1Dashboard] Fetching health status')
-      const response = await api.get('/trading/phase1/health')
-      console.log('[Phase1Dashboard] Health response:', response.data)
-      return response.data
-    },
+    queryFn: () => api.get('/trading/phase1/health'),
     refetchInterval: 10000, // Refetch every 10 seconds
   })
 }
@@ -56,12 +46,7 @@ const usePhase1Health = () => {
 const useLatestPhase1Signal = () => {
   return useQuery({
     queryKey: ['phase1', 'latest'],
-    queryFn: async () => {
-      console.log('[Phase1Dashboard] Fetching latest signal')
-      const response = await api.get('/trading/phase1/latest')
-      console.log('[Phase1Dashboard] Latest signal response:', response.data)
-      return response.data
-    },
+    queryFn: () => api.get('/trading/phase1/latest'),
     refetchInterval: 5000, // Refetch every 5 seconds
   })
 }
@@ -73,31 +58,10 @@ export default function Phase1Dashboard() {
   const { data: healthData, isLoading: healthLoading, error: healthError } = healthQuery
   const { data: latestData, isLoading: latestLoading, error: latestError } = useLatestPhase1Signal()
 
-  // Debug logging - raw data from hooks
-  console.log('[Phase1Dashboard] Raw hook data:', {
-    metricsData,
-    healthData,
-    latestData,
-    metricsLoading,
-    healthLoading,
-    latestLoading
-  })
-
   // Extract data with proper null safety - API returns { success: true, data: {...} }
   const metrics = metricsData?.data || {}
   const health = healthData?.data || {}
   const latest = latestData?.data
-
-  // Debug logging - extracted data
-  console.log('[Phase1Dashboard] Extracted metrics:', {
-    metrics,
-    health,
-    latest,
-    gatekeeperPassed: metrics.gatekeeper?.passed,
-    gatekeeperBlocks: metrics.gatekeeper?.blocks,
-    signalsTotal: metrics.signals?.total,
-    healthStatus: health.status
-  })
 
   // Calculate derived metrics for GATEKEEPER
   const gatekeeperTotal = (metrics.gatekeeper?.passed || 0) + (metrics.gatekeeper?.blocks || 0)

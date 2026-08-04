@@ -7,18 +7,23 @@ import pytest
 from fastapi.testclient import TestClient
 from decimal import Decimal
 from datetime import datetime
-from typing import List, Dict
 from unittest.mock import Mock, AsyncMock
 
-from app.main import app
-from app.risk_engine import RiskEngine
 from app.models import (
     CapitalMetrics,
     ExposureMetrics,
     DrawdownMetrics,
     ValueAtRisk,
-    PerformanceMetrics
+    PerformanceMetrics,
 )
+
+# NOTE: app.main and app.risk_engine are imported lazily inside fixtures
+# below — both chain to app.config.Settings, which fails on host pytest runs
+# because pydantic_settings picks up the repo-root .env (full of other
+# services' env vars) and the inner `class Config` does not set
+# extra="ignore". Pure-math test modules (test_sharpe_metrics, test_cpcv)
+# import only `app.sharpe_metrics` / `app.cpcv` directly, so deferring the
+# heavy imports unblocks their collection without changing service code.
 
 
 @pytest.fixture
@@ -40,10 +45,13 @@ def test_client(monkeypatch):
 
         async def get(self, url, *args, **kwargs):
             """Mock GET request handler - instant response"""
+
             class MockResponse:
                 status_code = 200
+
                 def json(self):
                     return {"status": "healthy", "service": "mock-service"}
+
             return MockResponse()
 
         async def aclose(self):
@@ -103,7 +111,7 @@ def mock_portfolio_data():
                     "current_price": 45000.0,
                     "current_value": 22500.0,  # FIXED: was 'market_value'
                     "unrealized_pnl": 2500.0,
-                    "unrealized_pnl_pct": 12.5
+                    "unrealized_pnl_pct": 12.5,
                 },
                 {
                     "symbol": "ETHUSDT",
@@ -111,9 +119,9 @@ def mock_portfolio_data():
                     "current_price": 3000.0,
                     "current_value": 15000.0,  # FIXED: was 'market_value'
                     "unrealized_pnl": 1000.0,
-                    "unrealized_pnl_pct": 7.14
-                }
-            ]
+                    "unrealized_pnl_pct": 7.14,
+                },
+            ],
         }
     }
 
@@ -137,9 +145,9 @@ def mock_portfolio_data_concentrated():
                     "current_price": 45000.0,
                     "current_value": 8100.0,  # FIXED: was 'market_value', 81% of portfolio
                     "unrealized_pnl": 1000.0,
-                    "unrealized_pnl_pct": 14.08
+                    "unrealized_pnl_pct": 14.08,
                 }
-            ]
+            ],
         }
     }
 
@@ -155,7 +163,7 @@ def mock_empty_portfolio():
             "total_value": 10000.0,
             "available_balance": 10000.0,
             "total_return_pct": 0.0,
-            "holdings": []
+            "holdings": [],
         }
     }
 
@@ -167,10 +175,26 @@ def sample_returns():
     Returns a list of daily returns (as percentages)
     """
     return [
-        0.02, -0.01, 0.03, -0.02, 0.01,  # First week
-        0.015, -0.005, 0.025, -0.015, 0.01,  # Second week
-        0.02, -0.01, 0.03, -0.02, 0.01,  # Third week
-        0.01, -0.02, 0.025, -0.01, 0.015  # Fourth week
+        0.02,
+        -0.01,
+        0.03,
+        -0.02,
+        0.01,  # First week
+        0.015,
+        -0.005,
+        0.025,
+        -0.015,
+        0.01,  # Second week
+        0.02,
+        -0.01,
+        0.03,
+        -0.02,
+        0.01,  # Third week
+        0.01,
+        -0.02,
+        0.025,
+        -0.01,
+        0.015,  # Fourth week
     ]
 
 
@@ -185,12 +209,36 @@ def sample_historical_values():
 
     # Simulate 30 days of values with some drawdown
     multipliers = [
-        1.0, 1.02, 1.04, 1.03, 1.05,  # Growth phase
-        1.07, 1.06, 1.04, 1.02, 1.0,  # Peak and decline
-        0.98, 0.96, 0.94, 0.93, 0.95,  # Drawdown phase
-        0.97, 0.99, 1.01, 1.03, 1.05,  # Recovery phase
-        1.06, 1.08, 1.09, 1.10, 1.11,  # New high
-        1.10, 1.09, 1.11, 1.12, 1.13   # Continued growth
+        1.0,
+        1.02,
+        1.04,
+        1.03,
+        1.05,  # Growth phase
+        1.07,
+        1.06,
+        1.04,
+        1.02,
+        1.0,  # Peak and decline
+        0.98,
+        0.96,
+        0.94,
+        0.93,
+        0.95,  # Drawdown phase
+        0.97,
+        0.99,
+        1.01,
+        1.03,
+        1.05,  # Recovery phase
+        1.06,
+        1.08,
+        1.09,
+        1.10,
+        1.11,  # New high
+        1.10,
+        1.09,
+        1.11,
+        1.12,
+        1.13,  # Continued growth
     ]
 
     for i, mult in enumerate(multipliers):
@@ -207,6 +255,8 @@ def risk_engine():
     Fresh RiskEngine instance for unit testing
     Provides clean state for each test
     """
+    from app.risk_engine import RiskEngine
+
     return RiskEngine()
 
 
@@ -226,14 +276,14 @@ def mock_httpx_client(monkeypatch):
     Mock httpx AsyncClient for testing external API calls
     Prevents actual network requests during tests
     """
+
     async def mock_get(url, *args, **kwargs):
         """Mock GET request handler"""
         response = Mock()
         response.status_code = 200
-        response.json = Mock(return_value={
-            "status": "healthy",
-            "service": "portfolio-manager"
-        })
+        response.json = Mock(
+            return_value={"status": "healthy", "service": "portfolio-manager"}
+        )
         return response
 
     mock_client = AsyncMock()
@@ -254,6 +304,7 @@ def mock_httpx_client(monkeypatch):
             pass
 
     import httpx
+
     monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
 
     return mock_client
@@ -274,7 +325,7 @@ def sample_trades():
             "exit_price": 42000.0,
             "pnl": 200.0,
             "return_pct": 5.0,
-            "timestamp": datetime(2024, 1, 1)
+            "timestamp": datetime(2024, 1, 1),
         },
         {
             "symbol": "ETHUSDT",
@@ -284,7 +335,7 @@ def sample_trades():
             "exit_price": 2600.0,
             "pnl": 200.0,
             "return_pct": 4.0,
-            "timestamp": datetime(2024, 1, 2)
+            "timestamp": datetime(2024, 1, 2),
         },
         {
             "symbol": "BTCUSDT",
@@ -294,8 +345,8 @@ def sample_trades():
             "exit_price": 42000.0,
             "pnl": -50.0,
             "return_pct": -2.33,
-            "timestamp": datetime(2024, 1, 3)
-        }
+            "timestamp": datetime(2024, 1, 3),
+        },
     ]
 
 
@@ -313,7 +364,7 @@ def capital_metrics_sample():
         reserved_capital=Decimal("500"),  # 5% of total
         capital_utilization=0.50,
         max_position_size=Decimal("200"),  # 2% of capital
-        recommended_position_size=Decimal("100")  # 1% of capital
+        recommended_position_size=Decimal("100"),  # 1% of capital
     )
 
 
@@ -332,7 +383,7 @@ def exposure_metrics_sample():
         net_exposure=Decimal("3750"),
         gross_exposure=Decimal("3750"),
         leverage=0.375,
-        concentrated_positions=[]  # No concentration issues
+        concentrated_positions=[],  # No concentration issues
     )
 
 
@@ -349,7 +400,7 @@ def drawdown_metrics_sample():
         underwater_period_days=5,
         recovery_factor=2.5,
         underwater_periods=3,
-        avg_drawdown=0.03
+        avg_drawdown=0.03,
     )
 
 
@@ -373,7 +424,7 @@ def performance_metrics_sample():
         average_loss=-0.02,
         largest_win=0.08,
         largest_loss=-0.05,
-        total_trades=50
+        total_trades=50,
     )
 
 
@@ -390,7 +441,7 @@ def var_metrics_sample():
         cvar_99=Decimal("400"),
         confidence_level=0.95,
         time_horizon_days=1,
-        calculation_method="historical"
+        calculation_method="historical",
     )
 
 

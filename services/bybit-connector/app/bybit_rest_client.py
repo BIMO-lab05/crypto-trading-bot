@@ -135,11 +135,21 @@ class BybitRestClient:
             BybitAPIException: If API returns error
             RateLimitException: If rate limit exceeded
         """
+        # Serialize the body ONCE, compactly, so the bytes we sign are
+        # byte-for-byte identical to the bytes we transmit. httpx serializes
+        # `json=` with compact separators (",", ":"); json.dumps() defaults to
+        # ", "/": " (with spaces). Signing json.dumps(data) but sending the
+        # compact httpx body meant Bybit recomputed the HMAC over a different
+        # string and rejected EVERY authenticated POST with retCode 10004
+        # ("error sign"), breaking order placement/cancel on live trading.
+        body_str = (
+            json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+            if data else None
+        )
+
         # Build headers with authentication
         headers = {}
         if auth_required:
-            # Serialize body data to JSON string for signature if present
-            body_str = json.dumps(data) if data else None
             headers = self.authenticator.get_headers(params=params, body=body_str)
 
         try:
@@ -148,7 +158,7 @@ class BybitRestClient:
                 method=method,
                 endpoint=endpoint,
                 params=params,
-                json_data=data,
+                body_str=body_str,
                 headers=headers
             )
 
@@ -171,30 +181,38 @@ class BybitRestClient:
         method: str,
         endpoint: str,
         params: Optional[Dict[str, Any]],
-        json_data: Optional[Dict[str, Any]],
+        body_str: Optional[str],
         headers: Dict[str, str]
     ) -> httpx.Response:
         """
         Actually make the HTTP request
-        
+
         Args:
             method: HTTP method
             endpoint: API endpoint
             params: Query parameters
-            json_data: JSON body data
+            body_str: Pre-serialized JSON body string (already signed). Sent
+                verbatim via ``content=`` so the transmitted bytes match the
+                signed bytes exactly.
             headers: Request headers
-        
+
         Returns:
             HTTP response
         """
+        # Transmit query params in the SAME sorted order used to compute the
+        # signature (generate_signature sorts params). httpx preserves the
+        # order given, so an unsorted dict could produce a query string that
+        # differs from the signed one and fail the GET signature check.
+        ordered_params = sorted(params.items()) if params else None
+
         response = await self.client.request(
             method=method,
             url=endpoint,
-            params=params,
-            json=json_data,
+            params=ordered_params,
+            content=body_str,
             headers=headers
         )
-        
+
         return response
     
     def _handle_response(self, response: httpx.Response) -> Dict[str, Any]:

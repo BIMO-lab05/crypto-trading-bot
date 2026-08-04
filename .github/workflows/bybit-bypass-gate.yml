@@ -1,0 +1,61 @@
+# BC-03 (Phase 13): blocks any PR that re-introduces direct-Bybit references in
+# **/*.py outside services/bybit-connector/. See tests/ci/test_no_bybit_bypass.py
+# for the contract -- banned patterns, exempt paths, dual-form scan rationale.
+#
+# Gate is intentionally RED on main at the moment Plan 13-02 lands. It flips
+# GREEN incrementally as Wave 1 (BC-02 refactor plans) and Wave 2 (BC-04
+# archival) close out the 20-site initial inventory. Once GREEN, this gate
+# locks the centralization invariant -- any future PR re-introducing a direct
+# Bybit reference outside services/bybit-connector/ will fail this required
+# check and cannot merge.
+#
+# Pattern follows .github/workflows/tournament-harness.yml (Phase 3 TOURN-07
+# grep gate as a standalone job) -- standalone workflow chosen over
+# extending an existing CI workflow for two reasons:
+#   1. The gate is a contract spanning ~17 in-scope files; surfacing it as a
+#      named, isolated PR check is the clearest operator signal.
+#   2. While the gate is RED on main during Wave 1+2, it must remain visible
+#      and required so a future contributor cannot silently disable it by
+#      editing an unrelated CI job.
+#
+# Security note: this workflow does NOT interpolate any user-controlled event
+# payload (issue/PR title/body, commit message, head ref) into shell commands.
+# It uses only first-party Actions (actions/checkout@v4, actions/setup-python@v5)
+# and pytest invocation against an in-repo Python test file. No command-injection
+# surface per the standard GH workflow security guide.
+
+name: BC-03 Bybit-bypass grep gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bc03-grep-gate:
+    name: BC-03 grep gate (no Bybit bypass outside connector)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest==7.4.4
+
+      - name: Run BC-03 grep gate
+        # IMPORTANT: do NOT add `continue-on-error: true`. Failures must block
+        # PR merge -- that is the entire point of the gate. While the gate is
+        # RED on main during Wave 1+2 refactors, every PR run will surface
+        # the inventory of remaining violations; that visibility is the
+        # forcing function for the Wave 1+2 plans to land their fixes.
+        run: pytest tests/ci/test_no_bybit_bypass.py -v

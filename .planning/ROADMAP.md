@@ -2,9 +2,10 @@
 
 ## Milestones
 
+- 🟡 **v1.3 TA + Engine Correctness** — Validated-set re-audit, execution-cap enforcement, Bybit-adapter contract fix, order reconciliation, paper-engine honesty, TA aggregator widening, round(price,N) kill, ML purge + V0-pattern eradication, operator-log + API hygiene (Phases 16-24) — in progress
 - ✅ **v1.0** — Bootstrap & tape, integration suite, tournament harness, significance + auto-PR, ML post-V0 cleanup, dashboard safety + smoke (Phases 1, 2, 3, 4, 5, 6, 7, 7.1, 7.2) — shipped 2026-05-15
 - ✅ **v1.1 Path to LIVE** — Pre-LIVE preflight, ML re-enablement gate, path-to-LIVE dashboard tile, carry-in closure harnesses, CI recovery (Phases 8, 9, 10, 11.1, 12 — Phase 11 superseded by 11.1) — shipped 2026-05-18
-- 🚧 **v1.2 Polish & Real-Time** — Server-side `/ws/metrics` push (replace 5s REST polling), mobile-friendly responsive dashboard (≤768px), planning-tooling hardening (Phases 13, 14, 15) — planning
+- ✅ **v1.2 Polish & Real-Time** — Bybit-connector centralization, mobile responsive dashboard, planning-tooling hardening (Phases 13, 14, 15) — shipped 2026-05-23
 
 ## Phases
 
@@ -40,107 +41,197 @@ Full milestone archive: [`.planning/milestones/v1.1-ROADMAP.md`](milestones/v1.1
 Audit: [`.planning/milestones/v1.1-MILESTONE-AUDIT.md`](milestones/v1.1-MILESTONE-AUDIT.md) (`gaps_found` reconciled at close — audit predates Phase 11.1 + 12 wave-3 verification; 17/19 deliverables shipped, 2 operator-blocked on OP-04 GH Actions billing)
 
 **v1.1 carries into v1.2 as operator actions only (no code debt):**
+
 - LIVECLOSE-01..05 harness execution (wall-clock-bound)
 - CIRESTORE-01 + CIRESTORE-02 first green CI runs (blocked on OP-04)
 
 </details>
 
-### 🚧 v1.2 Polish & Real-Time (In Progress)
+<details>
+<summary>✅ v1.2 Polish & Real-Time (Phases 13–15) — SHIPPED 2026-05-23</summary>
 
-**Milestone Goal:** Replace the 5s REST polling layer that powers the dashboard with a server-pushed `/ws/metrics` WebSocket stream, ship a mobile-friendly responsive layout (≤768px single-column reflow), and harden planning tooling against three recurring frictions identified in v1.0/v1.1 retros (one-liner discipline, umbrella-phase supersession, audit-timing drift). Pure code scope; no wall-clock dependencies; no new compose services (backend work stays inside `api-gateway` and reuses existing Redis for pub/sub fanout).
+- [x] Phase 13: Bybit-Connector Market-Data Centralization (9/9 plans) — completed 2026-05-22
+- [x] Phase 14: Mobile Responsive Dashboard (6/6 plans) — completed 2026-05-22
+- [x] Phase 15: Planning-Tooling Hardening (4/4 plans) — completed 2026-05-23
 
-- [ ] **Phase 13: Real-Time WebSocket Push** — Server-side `/ws/metrics` route in `api-gateway` with Redis pub/sub fanout, frontend WS client + `useWsSubscription` hook with REST-snapshot priming and visibility-aware pause, migration of 4 production hooks (`useSafetyState`/`useLiveReadiness`/`useCarryIns`/`useDashboardSnapshot`) off `setInterval`, CI grep gate + integration latency assertion + RUNBOOK Symptom #7
-- [ ] **Phase 14: Mobile Responsive Dashboard** — Viewport meta + Tailwind breakpoint audit, single-column reflow ≤768px across `Dashboard.jsx`/`PathToLiveTile.jsx`/`KeyMetricsStrip`/`TournamentDashboard.jsx` with no information loss, pytest-playwright matrix smoke at iPhone SE (375×667) + iPad portrait (768×1024) asserting no horizontal scroll + ≥44px touch targets
-- [ ] **Phase 15: Planning-Tooling Hardening** — `plan.validate` rejects 5 placeholder one-liner patterns (pre-commit + CI), `roadmap.analyze` auto-marks umbrella phases as superseded when decimal child covers their REQ set, `/gsd-complete-milestone` refuses to archive if latest milestone-audit `audited_at` predates most recent phase VERIFICATION.md by >1h (replays v1.1 13h-gap scenario as fixture)
+Full milestone archive: [`.planning/milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
+Audit: [`.planning/milestones/v1.2-MILESTONE-AUDIT.md`](milestones/v1.2-MILESTONE-AUDIT.md) (`gaps_found` — 13/13 REQs satisfied at code level; 3 deferred items are documented operator carry-ins or intentional SDK-port forcing functions, not Phase work failures)
+
+**v1.2 carries into v1.3 as operator actions only (no code debt):**
+
+- BC-07 ml-prediction-service container-exec verification (Phase 13 — scipy/tensorflow not on host)
+- MOBILE-03 pytest matrix execution (Phase 14 — blocked by pre-v1.2 INFRA-02 + OP-04)
+- TOOL-02 + TOOL-03 SDK ports into `~/.claude/get-shit-done/workflows/complete-milestone.md` (Phase 15 — designed-RED forcing functions)
+
+Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan (mobile card visual hierarchy, focus-visible WCAG, hardcoded hex literals, vite_preview_server fixture, etc.).
+
+</details>
+
+### 🟡 v1.3 TA + Engine Correctness — In Progress
+
+**Milestone Goal:** Restore one-to-one parity between PROJECT.md's Validated set and actual code in `services/technical-analysis/` + `services/trading-engine/` + `services/ml-{prediction,retraining}-service/`. Fix execution and signal correctness defects surfaced by the 2026-05-23 forensic audit. Paper-only — no LIVE flip. No new features. Every claim in PROJECT.md ends v1.3 with `file:line` evidence or is demoted.
+
+- [x] **Phase 16: Validated-Set Re-Audit** — Trust-no-docs sweep of every REQ in PROJECT.md `### Validated` (pre-v1, v1.0, v1.1, v1.2) with `file:line` evidence; demote drift items (RISK-04 cap advisory, RISK-06 stub, ADR-010 paper cap missing, LSTM-archived false). Gates Track A + Track B.
+- [x] **Phase 17: Execution-Cap Hard Enforcement** — Track A AUDIT-01 found execution-cap enforcement (RISK-04/06 + ADR-010 paper-cap config) already satisfied; v1.3 Phase 17 scope shrinks to (a) emergency-stop HTTP admin auth (TE-CAP-02) + (b) bare-except cleanup in order path (TE-CAP-05). TE-CAP-01/03/04 demoted as audit-satisfied. (completed 2026-05-24)
+- [x] **Phase 18: Bybit-Adapter Contract Fix** — Fix `bybit_adapter.py` dead endpoint paths (`/api/v1/order/create` → `/api/v1/order/place`; `/api/v1/position/list` → `/api/v1/account/positions`); extend `TapeReplayClient` with order endpoints; contract tests against bybit-connector router surface (BC-FIX-01..03) (completed 2026-05-24)
+- [ ] **Phase 19: Order Reconciliation + Idempotency** — Order-state polling or WS handler post-submit; deterministic `orderLinkId` on every place + retry (RECON-01..02)
+- [ ] **Phase 20: Paper-Engine Honesty** — Paper-sim slippage model; SL/TP trigger evaluation; monotonic order IDs; 48h max-hold + stop-loss-as-limit regression tests (PAPER-01..03)
+- [ ] **Phase 21: TA Aggregator Widening + Leakage Net** — Bring ADX + Volume + SQZMOM into aggregator vote; reconcile MACD route/settings drift (5/35/5 canonical); reconcile BB std-dev drift (2.5 canonical); look-ahead-leakage regression suite (TA-AGG-01..04)
+- [ ] **Phase 22: round(price, N) Epidemic Kill** — Fix `round(price, 2)` at 6 surviving call sites; sub-$1 asset fixture suite; CI grep gate (PRICE-01..02)
+- [ ] **Phase 23: ML Purge + V0-Pattern Eradication** — Remove price-level `r2_score` from trainer + verify; archive LSTM (ensemble_model + lstm.py); fix `feature_engineer.get_feature_names()` returning `[]`; marker-age check on `mlgate_auto_flip.json`; CI grep gate vs r2_score on price-domain arrays (ML-PURGE-01..05)
+- [ ] **Phase 24: Operator-Log + API Hygiene** — Fix stale "Sentiment 15%" log lines; DSR staleness enforcement on auto-flip; TA CORS lockdown; deprecate legacy `/api/v1/market/*` at api-gateway (HYG-01..04)
+
+**Parallelization (after Phase 16 closes):**
+
+- Track A (execution): Phases 17 → 18 → 19 → 20 (sequential within track)
+- Track B (signal + ML): Phases 21, 22, 23 can run independently
+- Cross-cutting: Phase 24 can run any time after Phase 16
 
 ## Phase Details
 
-### Phase 8: Pre-LIVE Preflight
-**Goal**: The path to LIVE is enforced in code, not only in docs — `scripts/preflight_live.py` CLI and `GET /api/preflight/live-readiness` HTTP endpoint both assert all 6 preconditions with structured JSON output; trading-engine refuses to boot LIVE if `MAX_POSITION_RISK_PCT > 2`; a CI workflow blocks any `live: requested` PR that fails preflight; and the RUNBOOK gains a Pre-LIVE operator checklist. All three enforcement layers (CLI/HTTP, boot-path, CI) ship with unit tests and CI grep gates so regressions fail loudly.
-**Depends on**: Nothing (first v1.1 phase; builds on existing trading-engine codebase)
-**Requirements**: PREFLIGHT-01, PREFLIGHT-02, PREFLIGHT-03, PREFLIGHT-04
-**Status**: Complete — 2026-05-16
-**Plans**: 5/5 plans complete
-Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
+> v1.0 phases (1–7.2), v1.1 phases (8–12), and v1.2 phases (13–15) detail sections live in their respective milestone archives under `.planning/milestones/`. Only the active v1.3 phases (16–24) carry full detail blocks below.
 
-### Phase 9: ML Re-enablement Gate
-**Goal**: The ML on/off decision is driven by code and evidence, not by human memory — `run_evidence_loop.py` manages ≥7-day evidence accrual idempotently; trading-engine startup auto-flips `ENABLE_ML_PREDICTIONS` based on DSR>0.95 evidence within 14 days; every ML-disabled event logs a structured reason from a fixed enum; CI grep gate pins the auto-flip startup check.
-**Depends on**: Phase 8
-**Requirements**: MLGATE-01, MLGATE-02, MLGATE-03
-**Status**: Complete — 2026-05-17
-**Plans**: 3/3 plans complete
-Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
+### Phase 16: Validated-Set Re-Audit
 
-### Phase 10: Path-to-LIVE Dashboard
-**Goal**: Operator sees every LIVE precondition and carry-in state on one screen — `PathToLiveTile.jsx` polls `/api/preflight/live-readiness` + `/api/preflight/carry-ins` every 5s, renders DO-NOT-FLIP → ALMOST → READY transitions with 24h continuous-PASS window logic; Playwright smoke confirms behavior.
-**Depends on**: Phase 8, Phase 9
-**Requirements**: DASHLIVE-01, DASHLIVE-02, DASHLIVE-03, DASHLIVE-04
-**Status**: Complete — 2026-05-17
-**Plans**: 3/3 plans complete
-**UI hint**: yes
-Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
+**Goal**: Trust-no-docs sweep of every REQ in PROJECT.md `### Validated` (pre-v1, v1.0, v1.1, v1.2). Produce `.planning/evidence/AUDIT-01/validated-reaudit.json` with `{req_id, claim, evidence_file, evidence_line_start, evidence_line_end, status}` where `status ∈ {satisfied, drift, missing}`. Rewrite PROJECT.md `### Validated` to reflect reality; demote drift/missing REQs to Active or Out of Scope with reason. Gates Track A + Track B — downstream phase sizing depends on truthful baseline.
+**Depends on**: Nothing
+**Requirements**: AUDIT-01
 
-### Phase 11: Carry-In Closure *(SUPERSEDED by Phase 11.1)*
-**Status**: Superseded — scope absorbed by Phase 11.1. Wall-clock operator execution of harnesses carries forward to v1.2 as operator actions only, not as code debt.
+**Plans:** 7/7 plans complete
 
-### Phase 11.1: Carry-In Closure Harnesses (LIVECLOSE-01..05)
-**Goal**: Every v1.0/v1.1 operator-blocked carry-in has an explicit closure harness that produces a schema-validated evidence row — five operator-runnable scripts (LIVECLOSE-01..05) + shared Draft 2020-12 JSON Schema + `scripts/closure/run-all.sh` orchestrator that refuses LIVECLOSE-05 auto-invocation; `LIVECLOSE-INDEX.md` fully wired with zero tripwire tokens.
-**Depends on**: Phase 9, Phase 10
-**Requirements**: LIVECLOSE-01, LIVECLOSE-02, LIVECLOSE-03, LIVECLOSE-04, LIVECLOSE-05
-**Status**: Complete — 2026-05-18 (harness-delivered; operator wall-clock execution carries to v1.2 as operator actions)
-**Plans**: 7/7 plans complete
-Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
+Plans:
 
-### Phase 12: CI Recovery
-**Goal**: Re-establish CI signal for the three workflows OP-04 (GH Actions billing) silently blocked — `.github/workflows/billing-failure-detector.yml` cron-driven (every 6h) self-trigger-safe with direct curl Telegram + `gh issue create` path; evidence-dir scaffolds for the two operator-blocked CIRESTORE carry-ins; 12-test grep-gate net pins the contract.
-**Depends on**: Phase 11.1 (LIVECLOSE-02 evidence-dir scaffold consumes the closed-for-extension `_schema.json` from Phase 11.1)
-**Requirements**: CIRESTORE-03 (CIRESTORE-01/02 operator-blocked carry to v1.2)
-**Status**: Complete — 2026-05-18
-**Plans**: 1/1 plans complete
-Full detail in archived [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
+- [x] 16-01-PLAN.md — Inventory + schema scaffolding (seed validated-reaudit.json with ~81 Validated REQs)
+- [x] 16-02-PLAN.md — Track A audit: Risk + Preflight + MLGate + Observability + CLAUDE-PAPER-CAP-ADR010 (~17 rows)
+- [x] 16-03-PLAN.md — Track B audit: ML + MLCL + TOURN + EXEC-03 + CLAUDE-LSTM-ARCHIVED + CLAUDE-SENTIMENT-REMOVED (~19 rows)
+- [x] 16-04-PLAN.md — Track C1 audit: Infra + Dashboard + DASHLIVE + DATA + EXEC-01/02 + UI + TEST + CLAUDE-VALIDATED-SYMBOLS + CLAUDE-EXEC-MAINNET-PRICES (~24 rows)
+- [x] 16-05-PLAN.md — Track C2 audit: BC + MOBILE + TOOL + LIVECLOSE + CIRESTORE (~21 rows)
+- [x] 16-06-PLAN.md — Merge four track deltas into canonical validated-reaudit.json + write validated-reaudit.md with drift-to-downstream-phase mapping
+- [x] 16-07-PLAN.md — Operator checkpoint:decision on demotions; rewrite PROJECT.md ### Validated; correct CLAUDE.md drift sentences; flip AUDIT-01 traceability to Complete
 
-### Phase 13: Real-Time WebSocket Push
-**Goal**: Replace the 5s REST polling that powers four production dashboard hooks with a server-pushed `/ws/metrics` WebSocket stream — api-gateway exposes a single WS route emitting self-describing JSON-line frames for `safety-state` / `live-readiness` / `carry-ins` / `dashboard-snapshot`, backed by Redis pub/sub fanout for multi-worker coherence; the React client gains a `useWsSubscription` hook with exponential-backoff reconnect, visibility-aware pause, and REST-snapshot priming on connect; all four production hooks migrate off `setInterval` with a 30s WS-silence REST fallback (graceful degradation); a CI grep gate blocks new `setInterval` polling in `frontend/src/hooks/` outside an allowlist; an integration test asserts p95 push-to-render latency <500ms vs REST p95 ≥1s.
-**Depends on**: Nothing (no upstream v1.2 blocker; consumes existing `api-gateway` service + existing Redis; references existing endpoint schemas from Phase 8/10)
-**Requirements**: WS-01, WS-02, WS-03, WS-04
-**Success Criteria** (what must be TRUE):
-  1. `GET /ws/metrics` (WebSocket) accepts a connection against the running `api-gateway` container, the client subscribes via initial frame `{"action": "subscribe", "channels": ["safety-state", "live-readiness", "carry-ins", "dashboard-snapshot"], "token": "<bearer>"}`, and within 1s receives a snapshot frame per channel matching `{"channel": "<name>", "schema_version": 1, "data": {...}, "ts": "<ISO-8601>"}`. State mutations on backing endpoints trigger a push within 500ms; heartbeat frames arrive at most every 5s per channel when state is steady. Two concurrent gateway workers stay coherent (asserted by integration test that mutates state on worker A and asserts both A's and B's subscribers receive the push within 500ms via Redis pub/sub fanout).
-  2. The four production hooks (`useSafetyState`, `useLiveReadiness`, `useCarryIns`, `useDashboardSnapshot`) consume `useWsSubscription(channel)` and no longer call `setInterval` for their primary fetch path; existing component value-contracts (the shape consumed by `Dashboard.jsx`, `PathToLiveTile.jsx`, `KeyMetricsStrip`, `StatusBar`) are unchanged. Disconnecting the WS server (e.g. kill `api-gateway` for >30s) causes each hook to re-arm a REST fallback poll; reconnecting the server cancels the REST fallback within one successful push cycle.
-  3. Client behavior under stress is observable in DevTools and asserted by integration test: when `document.visibilityState === 'hidden'` the client sends a `{"action": "pause"}` frame and the server suspends pushes for that connection; on `visible` the client sends `{"action": "resume"}` and the next push arrives within 1s. WS reconnect after server kill follows exponential backoff (≥1s, doubling, capped ≤30s) observable from client console logs.
-  4. `pytest tests/ci/test_no_new_setinterval_polling.py` is green on `main`, fails if a new `setInterval(.*\d+000)` lands in `frontend/src/hooks/` outside the documented allowlist (REST-fallback re-arm sites only). `pytest tests/integration/test_ws_latency.py` is green and asserts p95 push-to-render latency on `safety-state` is <500ms while REST-equivalent p95 ≥1s on the same fixture (>50% improvement contract).
-  5. `RUNBOOK.md` Symptom #7 ("Dashboard tiles frozen — WS layer down") exists in Diagnose/Action/Verification format and documents the WS-reconnect path + the 30s REST-fallback behavior; PROJECT.md Out-of-Scope row "Re-introducing client-side WebSocket scaffolding before server `/ws/metrics` route exists" is removed (precondition satisfied).
-**Plans**: TBD
-**UI hint**: yes
+### Phase 17: Execution-Cap Hard Enforcement
 
-### Phase 14: Mobile Responsive Dashboard
-**Goal**: Make the dashboard usable on phone-sized viewports without horizontal scroll — establish Tailwind breakpoint tokens (`sm:640`, `md:768`, `lg:1024`, `xl:1280`) + viewport meta tag, audit every `frontend/src/components/**/*.jsx` for fixed-width violations (artifact `responsive-audit.json` lists file:line), implement single-column reflow ≤768px across `Dashboard.jsx` grid / `PathToLiveTile.jsx` (6 PREFLIGHT chip rows + 5 carry-in rows wrap to 1-col) / `KeyMetricsStrip` (horizontal scroll → 2-col) / `TournamentDashboard.jsx` (table → card list) with zero information loss; pytest-playwright Chromium matrix at iPhone SE (375×667) and iPad portrait (768×1024) asserts every dashboard tile renders with its `data-testid` visible without horizontal scroll and all navigation has ≥44px touch targets per WCAG.
-**Depends on**: Nothing (no upstream v1.2 blocker; pure frontend layout work over existing components)
-**Requirements**: MOBILE-01, MOBILE-02, MOBILE-03
-**Success Criteria** (what must be TRUE):
-  1. `tailwind.config.cjs` declares standardized breakpoints `sm:640`, `md:768`, `lg:1024`, `xl:1280`; `frontend/index.html` carries `<meta name="viewport" content="width=device-width, initial-scale=1">`; `responsive-audit.json` exists at repo root listing every fixed-width violation (`{"file": "...", "line": N, "rule": "no-hardcoded-width", "snippet": "..."}`) and the count of remaining violations across `frontend/src/components/**/*.jsx` is 0 at phase close (or every remaining entry has an explicit allowlist reason field).
-  2. At viewport 375×667 (iPhone SE), `Dashboard.jsx` renders all tiles in a single column with no horizontal scroll bar; `PathToLiveTile.jsx`'s 6 PREFLIGHT chip rows + 5 carry-in rows wrap to 1-column (each row spans full width); `KeyMetricsStrip` renders as a 2-column grid (no horizontal scroll); `TournamentDashboard.jsx` renders its table as a stacked card list (one card per row); each tile still exposes its `data-testid` so the dashboard-smoke matrix can locate it.
-  3. At viewport 768×1024 (iPad portrait), the layout uses the `md:` token boundary correctly — tiles can render in 2-column groups where information density allows but no element overflows `window.innerWidth`; filter chips on `TournamentDashboard` wrap onto multiple lines instead of horizontal-scrolling.
-  4. `pytest tests/e2e/test_responsive_dashboard.py` is green under `.github/workflows/dashboard-smoke.yml` matrix (Chromium × {375x667, 768x1024}) and asserts for each viewport: zero elements where `boundingBox.x + boundingBox.width > window.innerWidth`, `PathToLiveTile` banner state-token (DO-NOT-FLIP / ALMOST / READY) is visible without scroll, every nav button has computed `min-height ≥ 44px` (WCAG tappable touch target).
-  5. No information shown at ≥1280px is removed at ≤768px — only layout/density changes. A grep test (`tests/integration/test_no_mobile_hidden_data.py`) blocks `display: none` / `hidden md:block` patterns on any element matching `data-testid="(metric|tile|chip|row)-*"` to prevent future "just hide it on mobile" regressions.
-**Plans**: TBD
-**UI hint**: yes
+**Goal**: RISK caps Track A audit (Phase 16 AUDIT-01, 2026-05-23) found execution-cap enforcement (RISK-04 / RISK-06 + ADR-010 paper-cap config) already satisfied at file:line evidence (`services/trading-engine/app/auto_trader.py:332-344, 1962-1986`; `services/trading-engine/app/live_trading.py:290-360`; `services/trading-engine/app/config.py:321-332`). v1.3 Phase 17 scope shrinks to (a) **emergency-stop HTTP admin auth (TE-CAP-02)** — guard `POST /api/v1/orchestrator/emergency-stop` at `handlers/orchestration.py:591` against unauthenticated callers; (b) **bare-except cleanup in order path (TE-CAP-05)** — replace bare `except:` and broad `except Exception:` clauses in trading-engine order-submission path with typed exception handling that logs + re-raises (or controlled-returns on a known-recoverable type). TE-CAP-01 / TE-CAP-03 / TE-CAP-04 demoted as audit-satisfied; no code work owed.
+**Depends on**: Phase 16
+**Requirements**: TE-CAP-02, TE-CAP-05
 
-### Phase 15: Planning-Tooling Hardening
-**Goal**: Three recurring frictions from v1.0 and v1.1 retros become structurally impossible — `plan.validate` rejects placeholder one-liners (Rule N / Task N / `<one-line summary>` / empty) at pre-commit + CI time so `summary-extract` can never auto-generate garbage MILESTONES.md entries; `roadmap.analyze` auto-detects when a decimal phase's REQ set covers its umbrella parent and marks the parent `Superseded by N.M [⊘]` in ROADMAP.md (idempotent, diff-to-stdout for operator review); `/gsd-complete-milestone` refuses to archive when the latest `v[X.Y]-MILESTONE-AUDIT.md` `audited_at` predates the most recent phase's `VERIFICATION.md` modification time by >1h (the v1.1 13h-gap scenario replayed as a fixture). Override flag `--accept-stale-audit` documented for emergency closes.
-**Depends on**: Nothing (planning-tooling only; no trading-engine impact; can run in parallel with Phase 13/14)
-**Requirements**: TOOL-01, TOOL-02, TOOL-03
-**Success Criteria** (what must be TRUE):
-  1. `node ./node_modules/@gsd-build/sdk/dist/cli.js query plan.validate <path-to-PLAN.md>` exits non-zero with an explicit error naming the bad line when the plan's one-liner matches any of `/^Rule \d/`, `/^Task \d/`, `/^one-liner:\s*$/`, `/<one-line summary>/`, or empty string; exits zero on a real one-liner. Pre-commit hook (or PR-time CI job) runs `plan.validate` against every `*-PLAN.md` modified in the diff and fails the commit/PR loudly. Unit tests cover all 5 rejection patterns + 1 happy path.
-  2. `node ./node_modules/@gsd-build/sdk/dist/cli.js query roadmap.analyze` detects umbrella→decimal supersession on a fixture replaying the Phase 11 → 11.1 scenario: when Phase N.M is complete AND `requirements(N.M) ⊇ requirements(N)`, the analyzer outputs a unified diff to stdout proposing the change `[ ] Phase N` → `[⊘] Phase N — superseded by N.M` and updates ROADMAP.md in place when invoked with `--apply`. Re-running with `--apply` after the change is committed produces a no-op diff (idempotency). Wired into `/gsd-complete-milestone` workflow as a pre-archive step.
-  3. `/gsd-complete-milestone` refuses to archive with a structured error when the latest `.planning/milestones/v[X.Y]-MILESTONE-AUDIT.md` frontmatter `audited_at` predates the most recent `VERIFICATION.md` `mtime` by >1h. The error names the stale audit's `audited_at` timestamp + the offending phase's VERIFICATION path. Override flag `--accept-stale-audit` is accepted and produces a warning logged into the archive. A pytest fixture replays the v1.1 02:55Z audit vs 16:30Z verification 13h-gap scenario and asserts refusal.
-  4. CI grep gates pin all three contracts: `tests/ci/test_no_placeholder_one_liners.py` ensures the validator's 5 patterns aren't silently weakened; `tests/ci/test_roadmap_analyze_supersession_wired.py` asserts `/gsd-complete-milestone` invokes `roadmap.analyze --apply` before archive; `tests/ci/test_audit_freshness_gate.py` asserts the `audited_at` vs `VERIFICATION.md mtime` comparison is unconditional in the workflow source (no `if SKIP_AUDIT_FRESHNESS` escape hatches).
-  5. The v1.2 milestone close itself demonstrates all three: at `/gsd-complete-milestone v1.2` time, every plan SUMMARY one-liner passes `plan.validate`; ROADMAP.md has zero `[ ]` umbrella phases superseded by complete decimal children (or the diff proposed by `roadmap.analyze --apply` is captured in the milestone commit); the v1.2 audit's `audited_at` is ≤1h before the most recent phase VERIFICATION.md mtime.
-**Plans**: TBD
+**Plans:** 2/2 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 17-01-PLAN.md — TE-CAP-02: delete unauthenticated trading-engine /emergency-stop route + add 404 negative test + update auth-note comment (api-gateway becomes sole admin entry per D-01/D-02/D-12)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 17-02-PLAN.md — TE-CAP-05: rewrite 5 REQ-named broad-except sites in auto_trader.py per locked D-08 M/P/R taxonomy + D-10 caplog regression test for [RISK_GATE] PER_TRADE_CAP BREACH log survival
+
+### Phase 18: Bybit-Adapter Contract Fix
+
+**Goal**: LIVE trading is dead-on-arrival because `bybit_adapter.place_order()` at `services/trading-engine/app/exchanges/bybit_adapter.py:663` posts to `/api/v1/order/create`; bybit-connector exposes `/api/v1/order/place` at `services/bybit-connector/app/main.py:587`. `get_positions()` at `bybit_adapter.py:568` calls `/api/v1/position/list`; connector exposes `/api/v1/account/positions` at `main.py:557`. `TapeReplayClient` lacks `place_order`/`cancel_order`/`get_wallet_balance` — tape-mode integration tests AttributeError on order paths. This phase corrects endpoint paths, extends tape client with order stubs, and adds a contract test that imports the connector router and validates every adapter call against the route table.
+**Depends on**: Phase 16, Phase 17
+**Requirements**: BC-FIX-01, BC-FIX-02, BC-FIX-03
+
+**Plans:** 3/3 plans complete
+
+Plans:
+**Wave 1** *(parallel — no file overlap)*
+
+- [x] 18-01-PLAN.md — BC-FIX-01: correct 5 mismatched bybit_adapter endpoint strings against connector route table (place_order, get_positions, get_order_status, get_open_orders, get_ticker)
+- [x] 18-02-PLAN.md — BC-FIX-02: extend TapeReplayClient with place_order/cancel_order/get_wallet_balance (deterministic FILLED stubs + in-memory balance/order state per D-05..D-08) + wallet fixture + regression tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 18-03-PLAN.md — BC-FIX-03: contract test asserting every adapter (method, path) is in the connector FastAPI route table (subprocess-loaded app.routes + regex over adapter source, D-09/D-10/D-11/D-12)
+
+### Phase 19: Order Reconciliation + Idempotency
+
+**Goal**: Today no polling or WebSocket handler updates order state post-submit. `live_trading.py:493` `sync_positions_with_exchange()` runs once at startup. SUBMITTED→FILLED has no auto-updater; positions go stale. `bybit_adapter.py:346` 3-retry loop sends no `orderLinkId`; server-side 5xx after commit creates duplicate live orders. This phase implements either periodic polling or WS-private-channel reconciliation (decision in phase CONTEXT.md), and adds deterministic `orderLinkId` reused across retries within the 3-attempt window.
+**Depends on**: Phase 16, Phase 17, Phase 18
+**Requirements**: RECON-01, RECON-02
+
+### Phase 20: Paper-Engine Honesty
+
+**Goal**: Paper fills are still frictionless and unidentifiable. `paper_trading.py:164` computes `order_value = current_price * quantity` with no slippage or spread; `:170-171` sets `OrderStatus.FILLED` / `filled_price=current_price` unconditionally, so there is no partial-fill or rejection path; `:173` sets `bybit_order_id = f"PAPER_{order.symbol}_{order.side.value}"`, which collides on concurrent same-symbol orders. This phase adds a per-symbol slippage model (5bps majors / 10bps ADA/BNB defaults), makes `bybit_order_id` monotonic, routes SL/TP fills through the slippage model, and lands the missing max-hold regression test.
+**Depends on**: Phase 16, Phase 17, Phase 18, Phase 19
+**Requirements**: PAPER-01, PAPER-02 (partial), PAPER-03 (partial)
+
+> **Re-scoped 2026-07-30** against the settled tree (post-`fb764d5`). Two of the original premises no longer hold:
+>
+> - **"No SL/TP trigger evaluation in paper or position-manager paths" is false.** `position_manager.check_all_exit_conditions()` (`position_manager.py:589`) evaluates stop-loss (`:618`), trailing stop (`:622`), partial exits TP1/TP2/TP3 (`:626`) and legacy take-profit (`:633`). It is called from `auto_trader.py:2725` inside `_monitor_positions()` (`:2533`), which the trading loop invokes at `:916` and `:926`. The only gates between the price fetch and that call are `if was_closed: continue` (`:2604`) and an implausible-price guard (`:2650-2656`) — no mode gate, so it fires for paper positions on every tick. This wiring is **not** from the 2026-07 work: the call site was introduced in `0d0271c` (2025-11-30) and does not appear in `fb764d5`'s diff, so it predates the 2026-05-23 audit that wrote the premise.
+> - **Line references all moved** in the 737-line `auto_trader.py` rewrite: 48h max-hold `:2371` → `:2425`; stop-loss-as-limit `:2691-2698` → `_close_position_with_limit_order()` at `:3043` with `limit_buffer_pct=0.005` at `:3048`.
+>
+> Net effect: PAPER-01 is fully owed; PAPER-02 loses its trigger-evaluation half and keeps the monotonic-ID and slippage-on-trigger halves; PAPER-03 keeps the max-hold test and loses most of the stop-loss-as-limit test (already covered by `tests/unit/test_auto_trader.py:708-845`).
+
+### Phase 21: TA Aggregator Widening + Leakage Net
+
+**Goal**: Aggregator `get_aggregated_signal()` at `services/technical-analysis/app/handlers/analysis.py:19-141` still votes only RSI + MACD + Trend Filter (computed at `:42-44`, voted at `:71-88`) out of 13 indicator modules under `app/indicators/` — adx, atr, bollinger_bands, ichimoku, rsi_divergence, squeeze_momentum, sqzmom_enhanced, stochastic and moving_averages (SMA+EMA) are all unused by the vote. No look-ahead-leakage regression tests exist anywhere in TA. This phase widens the aggregator vote (ADX trend gate, SQZMOM regime overlay, Volume Confirmation veto), converts the route params from hardcoded literals to settings reads, and lands a leakage regression suite covering all 13 modules + the aggregator.
+**Depends on**: Phase 16
+**Requirements**: TA-AGG-01, TA-AGG-02 (reduced), TA-AGG-03 (reduced), TA-AGG-04
+
+> **Re-scoped 2026-07-30.** The param-*drift* half of this phase is already fixed; the single-source-of-truth half is not.
+>
+> - **MACD values now agree.** Route defaults are `Query(default=5/35/5)` at `main.py:291-293`, matching `config.py:71-82` (`default_macd_fast/slow/signal` = 5/35/5). The old `8/17/9` route drift is gone. The aggregator reads `settings.default_macd_*` (`analysis.py:36-38`) while the route hardcodes the same numbers as literals — so the values agree today by coincidence, not by construction, and drift can silently reopen.
+> - **BB std-dev values now agree.** Route default is `Query(default=2.5)` at `main.py:314`, matching `config.py:87-90` (`default_bb_std` = 2.5). Same structural weakness.
+> - **Requirement text names attributes that don't exist**: TA-AGG-02 says `settings.macd_*` (actual: `settings.default_macd_*`); TA-AGG-03 says `settings.bollinger_std_dev` and cites `config.py:88` (actual: `settings.default_bb_std` at `config.py:87-90`). Corrected in REQUIREMENTS.md.
+> - Checked and cleared: `round(rsi_value, 2)` at `analysis.py:137` is in the aggregator's response payload, but that dict (`:132-141`) carries no price-domain field — only signal, confidence, rsi, macd_signal, trend, timestamp. Not a PRICE-01 site.
+>
+> Net effect: TA-AGG-01 and TA-AGG-04 fully owed. TA-AGG-02/03 shrink from "reconcile a value conflict" to "remove the literal, read the setting, add a test that pins them together."
+
+### Phase 22: round(price, N) Epidemic Kill
+
+**Goal**: Commit `487d1bd` fixed one site. A full re-sweep on 2026-07-30 finds **22 surviving price-domain `round(…, 2)` call sites across 7 files** — fatal for sub-$1 assets (ADA at ~$0.40 rounds to 2dp and flip-flops). This phase replaces each with `float()` or tick-size-derived precision, adds a sub-$1 fixture suite, and lands a CI grep gate that prevents reintroduction.
+**Depends on**: Phase 16
+**Requirements**: PRICE-01 (widened), PRICE-02 (widened)
+
+> **Re-scoped 2026-07-30.** The original inventory was wrong in three ways — undercounted, misfiled, and scoped too narrowly to catch everything.
+>
+> Current sites, verified by `grep -rnE "round\([^)]*(price|stop_loss|take_profit|entry|target|level|support|resistance)[^)]*,\s*2\s*\)" services/`:
+>
+> | File | Sites | Original claim |
+> |---|---|---|
+> | `trading-engine/app/utils/support_resistance_detector.py:630,636,637,731,737,738` | 6 | **not listed at all** |
+> | `trading-engine/app/strategies/support_resistance_strategy.py:643(×2),682,692,700` | 5 | "`643-700` (4 hits)" |
+> | `trading-engine/app/strategies/momentum_breakout_strategy.py:1059(×2),1098,1108,1116` | 5 | "`1059-1116` (4 hits)" |
+> | `technical-analysis/app/strategies/squeeze_momentum_strategy.py:203,204,205` | 3 | "two known sqzmom hits" |
+> | `trading-engine/app/strategies/trend_following_strategy.py:1142(×2),1184` | 3 | "`1105-1184` (8 hits)" |
+> | `technical-analysis/backtesting/sqzmom_backtest.py:106,108` | 2 | — |
+> | `trading-engine/app/strategies/research_optimized_strategy.py:683` | 1 | "`683` (1 hit)" ✓ |
+>
+> - **`support_resistance_detector.py` (6 sites) was missed entirely** and lives in `app/utils/`, not `app/strategies/` — so PRICE-01's "all 6 strategy files" scope would not have covered it. PRICE-01 is widened to "all price-domain sites under `services/`, regardless of directory."
+> - **The sqzmom sites are in technical-analysis, not trading-engine** (3 in the strategy + 2 in `backtesting/`), so the fix spans two services.
+> - **Cleared as legitimate** (percentage / basis-point domain, not price): `ml-prediction-service/app/regime/regime_detector.py:304` (`price_vs_ema_pct`) and `trading-engine/app/analytics/post_trade_analysis.py:152` (`price_improvement_bps`). These belong in PRICE-02's allowlist with that justification.
+> - **PRICE-02's grep gate as written would not have caught this set.** Its primary pattern requires the literal `price`, so `round(stop_loss, 2)`, `round(take_profit, 2)` and `round(final_target, 2)` all escape it; the sibling-pattern list covers stop_loss and take_profit in prose but omits `final_target`. The corrected pattern is now written into PRICE-02 verbatim rather than described.
+> - **Tick-size precision is feasible**: `trading-engine/app/services/instruments_cache.py:52` already carries `tick_size: Decimal` sourced from the connector's `priceFilter.tickSize`, so PRICE-01's tick-size option does not require new plumbing.
+> - Precedent for the gate exists — `tests/ci/` already holds 4 governance gates (`test_no_bybit_bypass.py`, `test_audit_freshness_gate.py`, `test_no_placeholder_one_liners.py`, `test_roadmap_analyze_supersession_wired.py`).
+
+### Phase 23: ML Purge + V0-Pattern Eradication
+
+**Goal**: `ml-retraining-service/app/core/model_trainer.py:427-430` inverse-transforms predictions into the price domain and calls `r2_score` on them (again at `:623`) — the exact TOURN-07/V0 forbidden pattern, while the sanctioned log-returns implementation already sits unused-by-the-trainer at `returns_metrics.py:80`. `ml-prediction-service/app/models/ensemble_model.py:15` carries a live `from tensorflow.keras.layers import LSTM, Dense, Dropout` and `ml-retraining-service/app/core/models/lstm.py` is still in the source tree. `feature_engineer.py:32` initializes `self.feature_names = []` and never populates it. The `mlgate_auto_flip.json` marker write at `lifespan/ml.py:181-197` swallows `OSError` with a warning. This phase removes price-level R² **and its two downstream consumers**, archives LSTM properly, resolves `feature_names`, hardens the marker write, and lands a CI grep gate against price-domain R².
+**Depends on**: Phase 16
+**Requirements**: ML-PURGE-01 (widened), ML-PURGE-02 (widened), ML-PURGE-03 (re-aimed), ML-PURGE-04, ML-PURGE-05
+
+> **Re-scoped 2026-07-30.** Unlike Phases 20–22, most of this phase's premises survived intact — `model_trainer.py:430` and `:623` are at their originally cited lines. Three corrections, two of which grow the phase:
+>
+> - **ML-PURGE-01 misses a third consumer and the persistence angle.** The requirement already names `verify_all_gru_models.py`; what it omits is `scripts/check_ml_training_status.py:204-229`, which gates the same field against `TARGET_R2_SCORE` / `ACCEPTABLE_R2_SCORE`. More importantly, both readers pull `training_stats.r2_score` out of **stored model metadata** (`verify_all_gru_models.py:52`, bucketed at `:133-137`: ≥0.95 "exceptional" … <0.75 "below target"), so rewriting the trainer leaves every existing model file still carrying — and both tools still selecting on — a price-level R². The metadata field itself needs migrating or invalidating, not just the code that writes it.
+> - **ML-PURGE-02 is understated.** `_archive_lstm/` **does not exist anywhere in the tree** — so CLAUDE.md's claim that LSTM was "deleted May 2026, archived under `_archive_lstm/`" is false on both halves. And LSTM references span 10+ files in `ml-prediction-service` (`hyperparameter_optimizer.py`, `compare_lstm_gru.py`, `model_comparison.py`, `generate_full_comparison.py`, `app/config.py`, `app/predictor_factory.py`, `train_remaining_gru_models.py`, `app/handlers/orderbook.py`, `app/main.py`, `app/ml_models/gru_predictor.py`), not the 2 files the premise names.
+> - **ML-PURGE-03's stated consequence is false.** `self.feature_names` is indeed assigned only at `feature_engineer.py:32` and never populated, and `get_feature_names()` (at `:271`, not `:283`; returns at `:285`) does return empty. But it has **zero callers** — the two `get_feature_names()` call sites in the codebase (`app/features/orderbook_features.py:1071`, `app/handlers/orderbook.py:763`) belong to a different class, `OrderBookFeatures`. So "downstream callers depending on it select nothing" is wrong: nothing depends on it. This becomes a dead-code decision (populate it, or delete the method and the attribute), not a live-bug fix.
+> - Confirmed unchanged: ML-PURGE-04's marker write catches only `OSError` and logs a warning (`lifespan/ml.py:196-197`); line range shifts `:184-196` → `:181-197`. ML-PURGE-05 has no gate yet — `tests/ci/` holds 4 governance gates, none covering R².
+
+### Phase 24: Operator-Log + API Hygiene
+
+**Goal**: Cross-cutting cleanup, now much smaller than originally scoped. Two stale comments in `auto_trader.py:1131,1262` still claim `"Technical 40% + ML 30% + Sentiment 15% + MTF 15%"` — wrong on ML (0.40, not 0.30), wrong on MTF (0.20, not 0.15), and naming sentiment which was removed 2026-05-02. `services/api-gateway/app/main.py:2388,2395` expose two legacy `/api/v1/market/*` routes duplicating the canonical `/api/market/*` surface with no deprecation header. This phase corrects the comments and tags the two legacy routes for deprecation.
+**Depends on**: Phase 16
+**Requirements**: HYG-01 (collapsed), HYG-02 (candidate demotion — audit-satisfied), HYG-03 (reduced to hardening), HYG-04 (corrected)
+
+> **Re-scoped 2026-07-30.** This phase shrinks the most of any in v1.3 — three of its four premises no longer hold.
+>
+> - **HYG-01's premise is false: those are comments, not log lines.** `auto_trader.py:1131` and `:1262` are `# Phase 3: Use ML-enhanced signals (…)` source comments, not operator-visible output — nothing is logged "every cycle". There is also **no `AGGREGATOR_WEIGHTS` constant** to source from: `enhanced_aggregator.py:63` (the line the requirement cites) is itself a comment, and the weights are instance attributes at `:64-66` — `technical_weight=0.40`, `ml_weight=0.40`, `multi_timeframe_weight=0.20`, already sentiment-free and summing to 1.0. The live weight log line at `:372-374` **already** prints Technical/ML/MTF from those attributes with no sentiment row. So HYG-01 collapses from "source the log line from a constant + test the agreement" to "fix two stale comments."
+> - **HYG-02 is already implemented** — delivered by Phase 9 MLGATE-02, not owed here. `preflight/checks.py:65` defines `_DSR_EVIDENCE_STALENESS_DAYS = 14`, `:327` builds the staleness window, `:343` compares row age and returns FAIL with a `stale` detail, which `lifespan/ml.py:151` maps to `direction="disabled", reason="evidence_stale"` — a reason already in the vocab at `:48` and `:61`. The only divergence from HYG-02's text is that 14 is a module constant rather than a `MLGATE_EVIDENCE_STALENESS_DAYS` env var. Recommend demoting HYG-02 as audit-satisfied, or reducing it to "make the window env-configurable + unit test."
+> - **HYG-03's security hole is already closed** — by the 2026-07-29 audit (commit `e091826`), which took the *other* safe branch. `technical-analysis/app/main.py:224-226` is now `allow_origins=["*"]` with **`allow_credentials=False`**, carrying an inline note that the service uses no cookie auth and is reached server-to-server. The requirement assumed keeping `allow_credentials=True` and adding an explicit origin allowlist to make the pair legal; the invalid `*`-plus-credentials combination no longer exists either way. HYG-03 reduces from a security fix to optional defence-in-depth (pin the allowlist anyway).
+> - **HYG-04's inventory and its deadline are both wrong.** There are exactly **2** legacy routes — `main.py:2388` (`/api/v1/market/ticker/{symbol}`) and `:2395` (`/api/v1/market/klines/{symbol}`) — not the cited `2320-2385` span; 4 canonical `/api/market/*` routes exist alongside them. Neither legacy route emits `Deprecation` or `Sunset` headers today. Note the requirement's hardcoded `Sunset: <2026-07-23>` is **already in the past** — the phase needs a freshly computed 60-day window at planning time.
 
 ## Progress
-
-**Execution Order:**
-Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependencies and MAY execute in parallel, sequential, or interleaved order at operator discretion; ROADMAP fixes the requirements-to-phase mapping, not the execution timeline.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -159,6 +250,15 @@ Phases execute in numeric order. v1.2 phases (13, 14, 15) have no inter-dependen
 | 11. Carry-In Closure | v1.1 | — | Superseded by 11.1 | — |
 | 11.1. Carry-In Closure Harnesses | v1.1 | 7/7 | Complete | 2026-05-18 |
 | 12. CI Recovery | v1.1 | 1/1 | Complete | 2026-05-18 |
-| 13. Real-Time WebSocket Push | v1.2 | 0/TBD | Not started | - |
-| 14. Mobile Responsive Dashboard | v1.2 | 0/TBD | Not started | - |
-| 15. Planning-Tooling Hardening | v1.2 | 0/TBD | Not started | - |
+| 13. Bybit-Connector Market-Data Centralization | v1.2 | 9/9 | Complete | 2026-05-22 |
+| 14. Mobile Responsive Dashboard | v1.2 | 6/6 | Complete | 2026-05-22 |
+| 15. Planning-Tooling Hardening | v1.2 | 4/4 | Complete | 2026-05-23 |
+| 16. Validated-Set Re-Audit | v1.3 | 7/7 | Complete | 2026-05-24 |
+| 17. Execution-Cap Hard Enforcement | v1.3 | 2/2 | Complete    | 2026-05-24 |
+| 18. Bybit-Adapter Contract Fix | v1.3 | 3/3 | Complete   | 2026-05-24 |
+| 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
+| 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
+| 21. TA Aggregator Widening + Leakage Net | v1.3 | 0/? | Pending | — |
+| 22. round(price, N) Epidemic Kill | v1.3 | 0/? | Pending | — |
+| 23. ML Purge + V0-Pattern Eradication | v1.3 | 0/? | Pending | — |
+| 24. Operator-Log + API Hygiene | v1.3 | 0/? | Pending | — |

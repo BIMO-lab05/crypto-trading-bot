@@ -1,33 +1,64 @@
 # Crypto Trading Bot
 
-Autonomous Bybit crypto trading bot. 11 Python microservices + React frontend. **Paper-trading mode** (no real orders). Market data feed from **Bybit mainnet** (`BYBIT_TESTNET=false`) for real prices; orders simulated internally via `PAPER_TRADING_MODE=true`. Last active Jan 2026 — resuming after dormancy.
+## 1. THE ACCOUNT IS $100
 
-## Wiki Knowledge Base
+Not $10,000. Not $100,000. **One hundred US dollars.**
 
-Path: `wiki/` (Obsidian vault co-located with repo).
+The repo contains ~1,000 occurrences of `10000` as a capital figure. They are wrong, they are being removed, and **they do not override this line**. If a file you are reading implies a different account size, the file is the defect — say so, do not silently adopt its number.
 
-When you need context not already in this conversation:
-1. Read `wiki/hot.md` first (≤500 words, recent context cache)
-2. If not enough, read `wiki/index.md` (master catalog)
-3. Drill into `wiki/<domain>/_index.md` (modules/, concepts/, flows/, decisions/, etc.)
-4. Only then read individual pages
+`shared/account.py` is the declaration of record. Never write an account-size literal.
 
-Wiki page types: module (per service), concept (cross-cutting rule/pattern), flow (data path), decision (ADR), source (ingested doc summary). All pages have YAML frontmatter (`type`, `status`, `tags`, etc.) and `[[Wikilinks]]` between them.
+**How to reference it depends on where the code runs:**
 
-**Skip the wiki for**: general coding/syntax questions; things already in this CLAUDE.md or current conversation; ephemeral session state.
+| Location | Rule |
+|---|---|
+| `services/*/app/**` (in container) | read the service's own `Settings` (`settings.paper_initial_balance`). **Never `import shared.account`** — repo-root `shared/` is outside every service's Docker build context and will `ImportError`. |
+| `backtesting/**`, `tests/**` (host-run) | `from shared.account import ...` directly. |
 
-After significant code changes, run `/wiki-lint` to flag stale claims and dead links. After major commits or new docs, `/wiki-ingest <path>` to fold them in.
+Agreement is enforced by `tests/test_account_config_sync.py`, not by a shared import.
 
-> ⚠️ The earlier reference to `docs/architecture/DECISIONS.md` is stale — that file does not exist. Decisions now live in `wiki/decisions/` as ADRs (ADR-001 through ADR-009 captured 2026-05-05).
+**Mechanical consequences of $100 — reason from these, not from intuition:**
 
-## Stack
+- Per-trade cap 10% = **$10**. Bybit minimum notional ≈ **$5**. Headroom is thin.
+- Round-trip taker fee ≈ 0.11% of notional. At the 2,000–4,600 trades/run seen in backtests, **fees alone exceed any observed edge**.
+- The LIVE cap of 2% is **$2** — below the venue minimum at any sane stop distance. **LIVE trading is not mechanically viable at this account size regardless of edge.** Know this before flipping four flags.
+- A trade below min-notional must be **rejected with a reason**, never clamped up. Clamping up turns a 10% cap into a 40% cap.
+
+Deeper rules load automatically when you edit money code — see `.claude/rules/money.md`.
+
+## 2. No strategy has a positive edge yet
+
+Do not propose new features without confronting this table.
+
+| Strategy | Win rate | Sharpe | Trades |
+|---|---|---|---|
+| RSIMomentum | 45.2% | **−0.28** | 1,986 |
+| RSI_BB_Combo | 48.9% | **−0.47** | 2,993 |
+| MACDHistogram | 32.5% | **−0.31** | 2,088 |
+| BollingerMeanReversion | 43.1% | **−0.46** | 2,846 |
+| StochasticRSI | 43.7% | **−0.47** | 4,658 |
+| Grid (walk-forward) | 19.2% | **−0.50** | 0/3 positive windows |
+| Trend-following | 0.0% | **−0.22** | 5 |
+| GRU ensemble | chance-level | — | loses to naive persistence |
+
+Two things make this **worse** than it looks: every one of these figures was measured through a **frictionless** paper engine — the slippage model landed 2026-08-03 (`fb45efe`, `app/paper_slippage.py`), *after* the table — so they are optimistic by an unmeasured amount; and all figures were produced at **$10,000**, which hides the min-notional constraint entirely. Re-run before citing. *(This line claimed no slippage model existed until 2026-08-04 — corrected. PAPER-01 is closed.)*
+
+Consequences for how you work here:
+
+- Every backtest number in the repo predating 2026-08-03 answers a question about a $10,000 account. Re-run before citing.
+- Label paper P&L *gross of slippage* wherever reported. Never present it as a realistic expectation.
+- Adding a sixth indicator to five losing indicators produces a losing ensemble. The infrastructure's current value is **killing bad strategies cheaply** — treat "disproved in an afternoon" as a win.
+- No edge claim without DSR/CPCV (`returns_metrics.py`, `sharpe_metrics.py`, `cpcv.py`). Raw R² on price levels is forbidden.
+
+## 3. What this is
+
+Autonomous Bybit crypto trading bot. 11 Python microservices + React frontend. **Paper-trading mode** — no real orders. Market data from **Bybit mainnet** (`BYBIT_TESTNET=false`) for real prices; orders simulated via `PAPER_TRADING_MODE=true`. v1.3 "TA + Engine Correctness" milestone executing (`.planning/STATE.md`).
 
 - **Python 3.12** + FastAPI + asyncio per service. **React 18 + Vite** frontend.
-- **TimescaleDB** (candles), **PostgreSQL** (app state), **Redis** (cache), **RabbitMQ** (events).
-- **Docker Compose** for local. Kubernetes manifests + Helm in `infrastructure/` for prod.
-- **ML**: 16 GRU price-prediction models. LSTM deleted May 2026 (archived under `_archive_lstm/`). Models currently gated **off by default** (`ENABLE_ML_PREDICTIONS=false`) — V0 directional-accuracy metric had look-ahead leakage; after fix (commit `c56765c`) models score chance-level on log-returns and lose to naive persistence. Re-enable only after rebuild on returns target with DSR > 0.95 acceptance gate.
-
-## Services (`services/<name>/`)
+- **TimescaleDB** (candles), **PostgreSQL** (app state), **Redis** (cache), **RabbitMQ** (deployed but *nothing wires AMQP* — the mesh is synchronous REST, see ADR-016).
+- **Docker Compose** local; Kubernetes + Helm in `infrastructure/`.
+- **ML gated off** (`ENABLE_ML_PREDICTIONS=false`). V0 directional-accuracy had look-ahead leakage; post-fix (`c56765c`) models score chance-level. Re-enable only after rebuild on a returns target with DSR > 0.95.
+- **LSTM removal is incomplete.** `_archive_lstm/` **does exist** — at `services/ml-prediction-service/models/_archive_lstm/`, holding **27 `*_lstm.keras` files, 41 MB**. `ensemble_model.py:15` still does `from tensorflow.keras.layers import LSTM`, and `:192-195` still trains an LSTM leg. References span 10+ files (ML-PURGE-02, Phase 23). *(This file asserted the archive directory did not exist from an unverified claim until 2026-08-03 — corrected against the filesystem. Do not restore the old wording.)*
 
 | Service | Port | Purpose |
 |---|---|---|
@@ -38,250 +69,141 @@ After significant code changes, run `/wiki-lint` to flag stale claims and dead l
 | technical-analysis | 8004 | TA indicators + GRU inference + signal aggregator |
 | trading-engine | 8005 | Strategy + risk + order execution |
 | notification-service | 8006 | Telegram + email alerts |
-| ml-prediction-service | 8007 | Standalone ML inference endpoints |
-| sentiment-analysis-service | 8008 | News / social sentiment |
+| ml-prediction-service | 8007 | Standalone ML inference (compose `ml` profile) |
+| sentiment-analysis-service | 8008 | News / social sentiment (compose `analytics` profile) |
 | risk-metrics-service | 8009 | Risk dashboards |
-| ml-retraining-service | — | Cron-driven GRU retrain (no HTTP) |
+| ml-retraining-service | — | Cron GRU retrain (no HTTP) |
 
-Frontend `:3000`. Prometheus `:9090`. Grafana `:3001`.
+Frontend `:3000`. Prometheus `:9090`. Grafana `:3001`. Every service exposes `GET /health` and `GET /ready`.
 
-## Commands
+Feature flags (compose defaults): `ENABLE_ML_PREDICTIONS=false`, `ENABLE_SENTIMENT_ANALYSIS=false`. The sentiment leg was removed from the signal pipeline; neither service starts by default.
 
-Stack up/down (use `docker-compose.unified.yml` — `docker-compose.yml` incomplete, missing DBs):
+## 4. Wiki knowledge base
+
+`wiki/` — Obsidian vault co-located with the repo. When you need context not already in conversation:
+
+1. `wiki/hot.md` (≤500 words, recent-context cache)
+2. `wiki/index.md` (master catalog)
+3. `wiki/<domain>/_index.md`
+4. Only then individual pages
+
+**ADRs live only in `wiki/decisions/`** (ADR-001 … ADR-028). The old `docs/decisions/` side-channel was merged 2026-07-30. `docs/architecture/DECISIONS.md` never existed — don't cite it.
+
+Skip the wiki for general coding questions or anything already in this file. After significant code changes run `/wiki-lint`; after major commits `/wiki-ingest <path>`.
+
+## 5. Safety rails (non-negotiable)
+
+- **Risk caps.** Per-trade **2% in LIVE — no relaxation without explicit approval**. Paper is relaxed to **10%** per ADR-010 to clear min-notional on $100. Daily-loss breaker **12%** per ADR-028 (raised from 5%: at a 10% per-trade cap a 5% daily limit tripped on the *first* full loss, so it measured one trade rather than a day — this **allows more** daily loss; a coherence fix, not a tightening). Pre-live checklist must restore ≤2% before `TRADING_MODE=LIVE`.
+- **Units are a live trap.** `max_risk_per_trade` is a **fraction** (`0.10`); `max_daily_loss_pct`, `max_position_size_pct`, `max_total_exposure_pct` are **percents** (`12.0`, `10.0`, `80.0`). Comparing across them without normalizing produces a check that silently never fires. This shipped once.
+- **Four deliberate steps to LIVE.** `BYBIT_TESTNET` selects the *price source*. `PAPER_TRADING_MODE` / `TRADING_MODE` select whether *orders are simulated*. Real money needs all of: (1) `PAPER_TRADING_MODE=false`, (2) `TRADING_MODE=LIVE`, (3) mainnet keys with trade permissions, (4) `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY` (engine refuses to boot without it).
+- **Auto-trader is ARMED.** Compose default is `AUTO_TRADING_ENABLED=false`, but the operator override in `.env` is `true`. The loop fires once the kill-switch file is absent.
+- **Kill switch.** Path `safety/EMERGENCY_STOP` (host) / `/app/safety/EMERGENCY_STOP` (container), dir-to-dir bind mount. Pause: `touch safety/EMERGENCY_STOP` or `POST /api/portfolio/emergency-stop`. **Resume takes two steps** — `rm safety/EMERGENCY_STOP` **then** `POST /api/trading/start` (or restart the service). A file-triggered halt sets `is_running=False` and exits the loop; it does **not** auto-restart. Only the *risk* kill-switch (equity/streak) keeps looping and auto-resumes. Full stop: `POST /api/trading/auto/stop`.
+- **Validated symbols: BTC, ETH, SOL, BNB, ADA.** XRP/DOGE excluded by paper-trading data — no silent re-add. market-data ingests a wider 14-symbol universe for research; trading-engine still restricts position-taking to those 5.
+- **Never commit `.env`** (gitignored). Secrets via env vars or Vault. Testnet keys only in repo. Never run `git clean -fdx` against the working tree.
+
+## 6. Commands
+
+Use `docker-compose.unified.yml` — plain `docker-compose.yml` is **incomplete** (missing postgres/timescaledb/redis/rabbitmq) and disagrees on values.
+
 ```
 docker compose -f docker-compose.unified.yml up -d
 docker compose -f docker-compose.unified.yml logs -f <service>
 docker compose -f docker-compose.unified.yml down
 ```
 
-Tests:
-```
-pytest tests/                       # repo-level integration + e2e
-pytest services/<svc>/tests/        # service unit tests
-pytest --cov=services --cov-report=term
-```
+Tests — see `.claude/rules/testing.md`, which loads automatically when you touch test files. Short version: always `--no-cov`; trading-engine host runs are cwd-sensitive; api-gateway tests must run in-container.
 
-Health: every service expose `GET /health` and `GET /ready`.
+Scripts at repo root: `health_check.sh`, `monitor_paper_trading.sh`, `check_services.sh`, `build-all.sh`.
 
-Useful scripts at repo root: `health_check.sh`, `monitor_paper_trading.sh`, `check_services.sh`, `build-all.sh`.
+REST: gateway routes are `/api/<domain>/<resource>` — **no `v1` prefix** despite older docs. Domains: `portfolio`, `trading`, `risk`, `market`, `analysis`, `ml`, `sentiment`, `dashboard`, `performance`. Live surface: `http://localhost:8000/openapi.json`.
 
-## Project rules (load-bearing)
+## 7. Verification standards
 
-- **Search rule (mandatory, always-on):** any time about to *search* for something — code, docs, config, concept, prior decision, library, integration option — **first** action is `/graphify` (skill: `graphify`) over relevant input. Build graph, read audit, then pick targeted tool (serena / context7 / grep / web) informed by what graphify surface. Apply every session, every search, no exceptions outside explicit skip below. Skipping = regression, self-correct.
-  - **Skip allowed only for:** trivially exact lookups where path/symbol/string already known (user said "open file X" or "grep for literal Y") and one-shot tool call resolves it. When in doubt, graphify.
-- **Risk caps wired into trading-engine**: 5% daily-loss circuit-breaker (always). Per-trade cap: **2% in LIVE mode** (non-negotiable, no relax without explicit approval); **paper mode currently relaxed to 10%** per ADR-010 (filed 2026-05-06) to clear Bybit min-notional on $100 balance. Pre-live checklist must restore ≤ 2% before flipping `TRADING_MODE=LIVE`.
-- **Trading-mode flags — four deliberate steps to LIVE, no confuse:** `BYBIT_TESTNET` selects price source (testnet=fake, mainnet=real). `PAPER_TRADING_MODE` / `TRADING_MODE` selects whether orders simulated. Current state: mainnet prices + simulated orders. Real-money trading needs (1) `PAPER_TRADING_MODE=false`, (2) `TRADING_MODE=LIVE`, (3) mainnet Bybit keys with trade permissions, (4) `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY` (added 2026-05; trading-engine refuses to boot in LIVE without it; catches env drift on cloud hosts).
-- **Feature flags** (compose defaults, 2026-05): `ENABLE_ML_PREDICTIONS=false`, `ENABLE_SENTIMENT_ANALYSIS=false`. Sentiment leg removed from signal pipeline (commits `c346483`, `acae081`, `fe941cf`, `c171bb0`); sentiment-analysis-service still runs in compose but idle.
-- **Auto-trader**: compose default `AUTO_TRADING_ENABLED=false`, but **operator override is `AUTO_TRADING_ENABLED=true` in `.env`** (set 2026-05-05). Trading-engine boots with auto-trader armed; loop only fires once the kill-switch file is absent. Kill-switch path is `safety/EMERGENCY_STOP` (host) / `/app/safety/EMERGENCY_STOP` (container) — dir-to-dir bind-mount of `./safety/` per 2026-05-19 compose patch (replaces older `./EMERGENCY_STOP` file-to-file bind that broke on missing host file). To pause: `touch safety/EMERGENCY_STOP` or `POST /api/portfolio/emergency-stop` (admin-guarded). To resume: `rm safety/EMERGENCY_STOP` (auto-trader auto-restarts on next loop tick if it was halted mid-run; needs manual `POST /api/trading/start` if halted at boot). To stop fully: `POST /api/trading/auto/stop`.
-- **Validated symbols**: BTC, ETH, SOL, BNB, ADA (5 active as of 2026-05-03). XRP / DOGE excluded by paper-trading data — no silent re-add. BTC + ETH re-added 2026-05-03 per operator request; trading-engine `trading_symbols` already had them, market-data `default_symbols` did not until this date.
-- **Never commit `.env`** (already gitignored). Secrets via env vars or Vault. Bybit testnet keys only in repo.
-- **REST**: gateway routes are `/api/<domain>/<resource>` (no `v1` prefix despite older docs). Domains: `portfolio`, `trading`, `risk`, `market`, `analysis`, `ml`, `sentiment`, `dashboard`, `performance`. See `http://localhost:8000/openapi.json` for live surface. Async handlers throughout.
-- **Commits**: conventional (`feat(service): ...`, `fix(service): ...`); branches `feature/<service>-<desc>`, `fix/<desc>`.
+**Never declare a feature "working end-to-end" on an HTTP 200 alone.** Real proof needs all four:
 
-## Verification standards
+1. Live exchange URL visible in service logs (not testnet)
+2. A notification actually received downstream (Telegram/email arriving — not `sent: True`)
+3. A DB row persisted (paste the `SELECT` result)
+4. Any service whose config just changed was **restarted**
 
-- **No declare features "working end-to-end" on curl/HTTP 200 alone.** Real proof needs: live exchange URL visible in service logs (not testnet), at least one notification actually received downstream (Telegram/email arriving, not `sent: True`), relevant DB row persisted (paste `SELECT` result), and any service whose config just changed restarted.
-- **Stale in-memory state = most common false-pass.** When config changes, restart service before re-running integration tests — else tests pass against old in-memory copy.
-- `/verify-stack` skill encodes this checklist; use before any "shipped" claim.
+**Stale in-memory state is the most common false pass.** `/verify-stack` encodes this; use it before any "shipped" claim.
 
-## Workflow
+## 8. How to work here
 
-- **Parallel agents for broad exploration.** When asked to "analyze the project" or audit across services, dispatch real `Task` subagents in parallel. Do NOT use `TaskUpdate` as stand-in — tracks tasks, not dispatch work.
-- **Confirm git root before writing path-sensitive files.** Run `git rev-parse --show-toplevel` if ambiguity. Workflow files (`.github/workflows/`), Claude config (`.claude/`), CI config, etc. land in active git repo, not workspace parent.
-- **Commit in logical chunks.** One concern per commit; no accumulate past ~10 unstaged files; propose groupings before each commit and wait for approval.
+- **Search rule.** Before searching for anything non-trivial — code, docs, config, a prior decision, an integration option — run `/graphify` first, read the audit, *then* pick a targeted tool (serena for internal symbols, context7 for library docs, grep, web). **Skip only** for exact lookups where the path/symbol/string is already known and one call resolves it. When in doubt, graphify.
+- **GSD workflow.** Start file-changing work through a GSD command so planning artifacts stay in sync: `/gsd-quick` (small fixes), `/gsd-debug` (investigation), `/gsd-execute-phase` (planned work). Don't edit outside a GSD workflow unless explicitly told to bypass.
+- **Parallel agents for broad exploration.** Dispatch real subagents; 3–5 is the practical ceiling. Do NOT use `TaskUpdate` as a stand-in — it tracks tasks, it doesn't dispatch work.
+- **Confirm the git root** before writing path-sensitive files (`git rev-parse --show-toplevel`). `.github/`, `.claude/`, CI config land in the active repo, not the workspace parent.
+- **Commit in logical chunks.** One concern per commit, conventional messages (`feat(service):`, `fix(service):`), branches `feature/<service>-<desc>` or `fix/<desc>`. Propose groupings and wait for approval; don't accumulate past ~10 unstaged files.
+- **`progress.md`** at repo root is a running session log. Architecture decisions do **not** go there — file them as ADRs in `wiki/decisions/`.
 
-## Environment
+## 9. Agents and rules
 
-- **WSL2 + Docker Desktop**: Docker context must be `default` (Unix socket), not `desktop-linux` (Windows named pipe). Verify with `docker context show`.
-- **BuildKit hangs on WSL2** common — `DOCKER_BUILDKIT=0 docker compose up -d --build <svc>` works around stalls.
-- **WSL bind-mount race**: `docker inspect` can show `bind` mount while path inside container empty + root-owned (mount silently failed at create time). Symptom: `PermissionError` writing to `/app/logs`. Fix: `docker compose up -d --force-recreate <service>`.
-- **ML training memory**: BTC training OOM-killed at default container limits. Bump memory in relevant compose `deploy.resources.limits` block before retraining BTC.
+`.claude/agents/` holds 16 task-specific agents plus 33 `gsd-*` agents that are **load-bearing for the GSD workflow — do not remove them.** 43 generic personas were parked to `.claude/_parked/2026-08-03/agents/` on 2026-08-03 (restore any with `git mv`).
 
-## Gotchas
+Purpose-built for this repo: `capital-auditor` (finds wrong account-size assumptions), `quant-skeptic` (hostile reviewer of edge claims — default verdict *no edge*), `engine-surgeon` (one localized money-code repair, test-first), `doc-archivist` (doc triage; never deletes, emits a `git mv` script), `verifier` (proves things actually work).
 
-- **Two compose files**: `docker-compose.unified.yml` canonical (16 services incl. DBs). `docker-compose.yml` missing postgres/timescaledb/redis/rabbitmq.
-- **Sentiment-analysis-service image** has historically failed to build via pip (PyPI read timeouts). Other 10 service images cache fine. If full `compose up` fails, retry build of just that one or `--no-deps` skip it.
-- **GRU models 4+ months stale** (trained Dec 10, 2025). Retrain before relying on predictions.
-- **`.claude/agents/` ships 54 agent personas** (api-designer, code-reviewer, security-engineer, etc.) and `.claude/hooks/` provides intelligent-router that auto-suggests agent for each prompt. See `.claude/hooks/README.md` for install + customize guide. Built-in subagents (Explore, Plan, general-purpose) still work alongside.
-- **Jan 2026 fixes** (commit `380a674`): SHORT enforcement, 48h max-hold, stop-loss limit-orders. Addressed inverted R/R ratio bug. No regress.
-- **TimescaleDB has mixed testnet/mainnet history** as of 2026-04-25 (flip from testnet→mainnet was mid-day). Any backtest or TA over candles from before that point polluted by testnet prices. Wipe `klines` / `tickers` tables if running historical analysis; live forward-going data fine.
-- **Market-data-service caches in TimescaleDB**, not Redis (Redis empty in testing). DB *is* cache. If prices look stuck, hit `POST /api/v1/collect/ticker/{symbol}` on market-data-service (port 8002) to force-refresh, or wait up to 5 min for scheduler.
-- **`progress.md`** at repo root = running session log — append at end of session; no put architecture decisions there (those go in `docs/architecture/DECISIONS.md`).
-- **`pathlib.Path.write_text` / `read_text` bypass `builtins.open`** — they go through `_io.open` (C-level). Mocks on `builtins.open` will not intercept. When testing routes that use `Path.write_text` (e.g. `/api/portfolio/emergency-stop`), patch `pathlib.Path.write_text` directly.
-- **api-gateway admin-guarded routes need `admin_client` fixture** in tests — it overrides `get_current_admin_user` + `get_current_active_user` via `app.dependency_overrides`. See `services/api-gateway/tests/conftest.py`. Plain `test_client` returns 403 on these routes.
-- **api-gateway test suite must run inside the container** (`docker exec crypto-bot-api-gateway pytest`) — host pip has fastapi 0.136 which changed `HTTPBearer` auto_error to return 401 (RFC 6750), while the deployed container pins fastapi 0.109 (returns 403). Tests assert 403, so host run shows spurious failures.
+`.claude/rules/*.md` load **only** when you touch matching paths — `money.md`, `testing.md`, `docker-env.md`. That is why this file is short: deep guidance arrives when relevant and costs nothing otherwise.
 
-## Deeper docs
+## 10. Gotchas that have bitten before
 
-- Architecture: `docs/architecture/SYSTEM_OVERVIEW.md`
-- Dev setup: `docs/development/SETUP.md`
-- Live API spec: `http://localhost:8000/openapi.json` (gateway exposes directly; `docs/api/openapi.yaml` snapshot removed during 2026-04-26 cleanup since drifted from live surface)
+- **TimescaleDB holds mixed testnet/mainnet history** — the flip happened mid-day **2026-04-25**. Any backtest or TA over earlier candles is polluted by testnet prices. Wipe `klines`/`tickers` for historical work; forward-going data is fine.
+- **Market-data caches in TimescaleDB, not Redis** (Redis is empty). The DB *is* the cache. Prices stuck? `POST /api/v1/collect/ticker/{symbol}` on `:8002`, or wait ≤5 min for the scheduler.
+- **`round(price, 2)` is catastrophic for sub-$1 assets** — it destroyed ADA precision and caused 30+ flip-flop losses (fixed in `487d1bd`). Use the symbol's tick size. 22 known offending sites remain across 7 files (PRICE-01/02).
+- **GRU models stale since 2025-12-10.** Retrain before relying on predictions.
+- **sentiment-analysis-service image** historically fails to build (PyPI timeouts). Retry that one alone or `--no-deps` skip it.
+- **BuildKit hangs on WSL2** — `DOCKER_BUILDKIT=0 docker compose up -d --build <svc>`.
+- **WSL bind-mount race** — `docker inspect` shows a `bind` mount while the path inside is empty and root-owned. Symptom: `PermissionError` writing `/app/logs`. Fix: `docker compose up -d --force-recreate <service>`.
+- **Docker context must be `default`** (Unix socket), not `desktop-linux`. Check `docker context show`.
+- **ML training OOMs** — BTC training gets OOM-killed at default limits. Raise `deploy.resources.limits` before retraining BTC.
+- **Jan 2026 fixes** (`380a674`): SHORT enforcement, 48h max-hold, stop-loss limit-orders. Fixed an inverted R/R bug — do not regress.
+- **Unrotated logs** — api-gateway 834 MB, portfolio-manager 941 MB (2026-05-20). No rotation configured.
 
 ---
 
 ## Strategic review modes (opt-in only)
 
-Modes **off by default**. Default behavior: execute technical task asked, concisely. Activate mode only when message opens with exact trigger phrase. Mode ends on "exit mode" or new technical task.
+Off by default. Default behavior: execute the technical task, concisely. Activate only when a message **opens with the exact trigger**. Mode ends on "exit mode" or a new technical task.
 
-### Trigger: "Challenge mode: <topic>"
-Challenge every assumption about topic. Break logic, expose cognitive biases, present opposing views, suggest better frameworks. No agreement-for-its-own-sake. Truth over comfort. If reasoning sound, say so — sycophancy and contrarianism equally useless.
+| Trigger | Behavior |
+|---|---|
+| `Challenge mode: <topic>` | Challenge every assumption. Break the logic, expose bias, present opposing views. Truth over comfort — but if the reasoning is sound, say so. Sycophancy and contrarianism are equally useless. |
+| `Psych mode: <problem>` | Analyze the psychology behind the approach — subconscious patterns, fears, loops repeating across sessions. Frame as hypothesis, never diagnosis. |
+| `Insights mode: <topic>` | 5 non-obvious, actionable insights. Philosopher *and* strategist: abstract enough to reframe, concrete enough to act on tomorrow. |
+| `Limits mode: <area>` | Where am I limiting myself? Which constraints are self-created vs real? Design a concrete strategy to break the most binding one. |
+| `Jobs mode: <situation>` | Steve Jobs's product instincts: ruthless prioritization, taste as forcing function, willingness to throw out 90%, leverage over effort. Specific to the situation, not generic startup advice. |
+| `Trajectory mode` | Given current actions: where does this land in 3 years if nothing changes? Which mistakes compound most? What changes this week? No sugarcoating. |
 
-### Trigger: "Psych mode: <problem>"
-Analyze psychology behind approach. What subconscious patterns might drive me? What fears could influence decisions? What loops repeat across sessions/decisions in project? Stay grounded — flag as hypothesis, not diagnosis.
+**Inside any mode, the rules above still hold.** Never suggest "just remove the 2% risk cap" as a bold move. Boldness inside the rails, not against them. In Psych and Trajectory mode especially: these are readings of available evidence, not pronouncements.
 
-### Trigger: "Insights mode: <topic>"
-Extract 5 non-obvious insights about topic. Focus on depth, not surface-level. Make each actionable. Think like philosopher *and* strategist — abstract enough to reframe, concrete enough to act on tomorrow.
+## Voice
 
-### Trigger: "Limits mode: <area>"
-Identify where I'm limiting myself in this area. What patterns hold back? What constraints self-created vs. real? What's breakthrough move? Design concrete strategy to break most binding constraint.
+**Caveman full** by default. Drop articles, filler, pleasantries, hedging. Fragments fine. Pattern: `[thing] [action] [reason]. [next step].`
 
-### Trigger: "Jobs mode: <situation>"
-Show how someone with Steve Jobs's product instincts would attack situation: ruthless prioritization, taste as forcing function, willingness to throw out 90% of work, leverage over effort. Make unconventional and specific to situation, not generic startup advice.
+Keep in normal English: code, commits, PRs, error strings, security warnings, irreversible-action confirmations, and any multi-step sequence where fragment order risks misreading. Resume after.
 
-### Trigger: "Trajectory mode"
-Based on current actions and decisions visible in project: where likely to be in 3 years if nothing changes? Which mistakes compound most? What change this week? Direct. No sugarcoat, no hedging into mush.
+Levels `lite | full | ultra` via `/caveman <level>`. Disable with "stop caveman" / "normal mode". The `caveman` plugin's SessionStart hook injects the active level — **trust the injected level over anything assumed here.**
 
-### Notes on these modes
+## Session start
 
-- **Scope discipline.** Inside strategic mode, focus on question; no pivot back to writing code unless asked. Outside these triggers, stay technical.
-- **Project context applies.** When discussing this codebase under any mode, constraints in "Project rules" still hold — no suggest "just remove the 2% risk cap" as "bold move." Boldness inside rails, not against them.
-- **Hypothesis, not verdict.** Especially in Psych mode and Trajectory mode, I'm partial signal at best. Frame inferences as readings of available evidence, not pronouncements about who I am.
-
----
-
-## Session bootstrap (run every new session)
-
-Steps **mandatory at session start**, before answering first non-trivial question. Skip only for one-line questions needing no project context.
-
-### 1. Caveman mode is the default voice
-
-- Speak in **caveman full** style by default: drop articles (a/an/the), filler (just/really/basically), pleasantries (sure/of course), hedging. Fragments OK. Pattern: `[thing] [action] [reason]. [next step].`
-- Keep technical substance, error strings, code, commits, PRs, security warnings, irreversible-action confirmations in **normal English** — caveman for prose, not artifacts.
-- Auto-clarity: drop caveman for multi-step destructive sequences and anywhere fragment order risks misread. Resume after.
-- Levels: `lite | full | ultra`. Default `full`. Switch via `/caveman lite|full|ultra`. Disable with "stop caveman" / "normal mode" — persists till changed.
-- `caveman` plugin's SessionStart hook injects active level. Trust injected level over assumptions.
-
-### 2. Query the knowledge graph first
-
-- **Search rule (mandatory):** any time about to *search* for something — code, docs, config, concept, prior decision, integration option — **first** step is `/graphify` (or invoke `graphify` skill) over relevant input set. Build graph, read audit, then choose targeted tool (serena / context7 / grep / web) informed by what graphify surface. No jump straight to grep/WebSearch for non-trivial queries.
-  - **Skip allowed only for:** trivially exact lookups where path/symbol/string already known (e.g. user said "open file X" or "grep for literal Y") and single one-shot tool call resolves. When in doubt, graphify.
-- Before designing or recommending how to wire in new MCP server, skill, agent, or plugin, run `/graphify` over relevant docs/configs to build knowledge graph of option space.
-- Use resulting graph + audit report to pick *best* integration pattern (where it slots into CLAUDE.md, which trigger phrases to wire up, which existing rules conflict) instead of guessing from tool name.
-- After graphify narrows target: for library/SDK questions (Pinecone, Mintlify, Wix, Figma, Anthropic SDK, Astronomer, etc.) prefer **context7** (`mcp__context7__resolve-library-id` → `query-docs`) over web search — pulls current docs.
-- After graphify narrows target: for project-internal symbol/file lookups prefer **serena** (`find_symbol`, `find_referencing_symbols`, `search_for_pattern`) over raw grep when question semantic.
-
-### 3. Discover what's actually installed
-
-- Set of MCP servers, skills, agents drifts between sessions. **Read SessionStart system reminders first** — enumerate live surface (deferred tools list, available skills list, MCP server instructions). No assume from this CLAUDE.md alone.
-- Skill list = source of truth for `/<name>` triggers. Agent list (in Agent tool description) = source of truth for `subagent_type`.
-- When user adds new MCP server / skill / agent and asks to integrate: graphify new component's docs, then propose CLAUDE.md edit (trigger phrase, when-to-use, conflicts) before writing.
-
-### 4. Routing cheatsheet
+1. **Read the SessionStart reminders first.** MCP servers, skills, and agents drift between sessions. The injected lists are the source of truth for `/<name>` triggers and `subagent_type` values — not this file.
+2. **Graphify before searching** (§8).
+3. When something new is installed and you're asked to integrate it: confirm it appears in the SessionStart lists, `/graphify` its docs, then propose the CLAUDE.md edit (trigger phrase, when-to-use, conflicts) *before* writing. Hooks and automation need the `update-config` skill — memory alone cannot enforce automated behavior.
 
 | Need | Use |
 |---|---|
-| Caveman voice toggle | `/caveman lite\|full\|ultra`, "stop caveman" |
-| Boot full stack from cold | `/start-system` (skill: `start-system`) — verifies docker daemon, runs `docker compose up -d`, applies migrations 003/004, health-probes 11 services, optional auto-trader start |
-| Build knowledge graph from input | `/graphify` (skill: `graphify`) |
+| Boot the stack cold | `/start-system` |
+| Build a knowledge graph | `/graphify` |
 | Live library docs | `mcp__context7__*` |
-| Semantic code search in this repo | `mcp__serena__*` |
-| Browser-driven UI test | `mcp__plugin_playwright_playwright__*` or skill `document-skills:webapp-testing` |
-| Static security scan | `mcp__plugin_semgrep_semgrep__*` (already installed; SessionStart confirms `Semgrep 1.161.0`) |
-| Vector store ops | `mcp__plugin_pinecone_pinecone__*` + skills `pinecone:*` |
-| Slack ops | `mcp__plugin_slack_slack__*` + skills `slack:*` |
-| Figma read/write | `mcp__plugin_figma_figma__*` + skills `figma:*` |
-| Plan + execute multi-step feature | skills `superpowers:brainstorming` → `superpowers:writing-plans` → `superpowers:executing-plans` |
-| Bug / test failure | skill `superpowers:systematic-debugging` |
-| Pre-completion proof | skill `superpowers:verification-before-completion` (pairs with this repo's `/verify-stack` rule) |
-| Code review on diff | skill `code-review:code-review` or `pr-review-toolkit:review-pr` |
-| Recurring or scheduled background work | skill `schedule` (cron) or `loop` (in-session) |
-| Compress this CLAUDE.md / memory file | skill `caveman:compress` |
-| Subagent for broad parallel exploration | `Agent` tool with `subagent_type: Explore` (or `general-purpose` / `feature-dev:code-explorer`) |
-| Surgical 1-2 file edit by subagent | `caveman:cavecrew-builder` |
-| Read-only code locator subagent | `caveman:cavecrew-investigator` |
-| Diff/PR review subagent | `caveman:cavecrew-reviewer` or `pr-review-toolkit:*` |
+| Semantic code search here | `mcp__serena__*` |
+| Static security scan | `mcp__plugin_semgrep_semgrep__*` |
+| Backtest a strategy change | `/backtest <symbols> [--days N]` |
+| Rebuild one service | `/deploy <service>` |
+| Pre-completion proof | `/verify-stack`, `superpowers:verification-before-completion` |
+| Bug / test failure | `superpowers:systematic-debugging` |
+| Plan a multi-step feature | `superpowers:brainstorming` → `writing-plans` → `executing-plans` |
+| Recurring background work | `schedule` (cron) or `loop` (in-session) |
 
-### 5. Adding a new MCP / skill / agent later
+## Deeper docs
 
-When install something new and tell you about it:
-
-1. Confirm appears in SessionStart deferred-tools or skills list — if not, install didn't take.
-2. `/graphify` its docs (or `mcp__context7__query-docs` for underlying library) to map capabilities.
-3. Decide: deserve row in routing cheatsheet above? Trigger phrase? Conflict callout against existing project rules?
-4. Edit *this* file (`crypto-trading-bot/CLAUDE.md`) to record. Keep entries short — link out for detail.
-5. If hook/automation should fire on events (PreToolUse, Stop, etc.), use `update-config` skill — memory alone can't enforce automated behavior.
-
-### 6. Don't drift
-
-- Bootstrap section load-bearing. If future session shows me speaking normal English unprompted, or skipping graphify before integrating new feature, treat as regression and self-correct.
-- Strategic-review modes above remain opt-in only; caveman voice orthogonal to them and applies inside those modes too (unless explicitly want florid prose for Jobs/Trajectory answer — then say so).
-
-<!-- GSD:project-start source:PROJECT.md -->
-## Project
-
-**Crypto Trading Bot**
-
-A self-hosted, microservices-based crypto trading bot targeting Bybit (paper trading by default; live trading gated behind three explicit flag flips). Runs a 9-indicator voting aggregator over OHLCV + sentiment + (optional) ML signals, with portfolio management, risk caps, and a React dashboard. Built and operated by a solo founder; safety and honest measurement come before performance claims.
-
-**Core Value:** The bot must never lose money it wasn't authorized to risk. Every trade goes through enforced risk caps (per-trade, daily-loss, drawdown, kill-switch) backed by code that actually runs — and any "edge" claim must be backed by DSR/CPCV evidence, not raw R² on price levels.
-
-### Constraints
-
-- **Tech stack**: Python 3.11+ services / Node+React frontend / Docker Compose orchestration — locked; no rewrite in this milestone.
-- **Compatibility**: Bybit-first; no other exchange in scope.
-- **Performance**: Paper-trade round-trip <60s end-to-end (signal → order ack → portfolio update) — bootstrap-test asserts this.
-- **Security**: Real exchange API keys in `.env` (gitignored); never run `git clean -fdx` against the working tree; bootstrap-tests always run against a fresh clone in a tmp directory.
-- **Data integrity**: Backtest must filter `is_mainnet=true` to avoid testnet-flip contamination from 2026-04-25.
-- **Evaluation**: All ML edge claims go through `returns_metrics.py` + PSR/DSR (`sharpe_metrics.py`) + CPCV (`cpcv.py`). Raw R² on price levels is forbidden.
-- **Autonomy**: No unattended loops that can weaken tests, mock failing pieces, or commit/push without checkpoint review.
-<!-- GSD:project-end -->
-
-<!-- GSD:stack-start source:STACK.md -->
-## Technology Stack
-
-Technology stack not yet documented. Will populate after codebase mapping or first phase.
-<!-- GSD:stack-end -->
-
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
-## Conventions
-
-Conventions not yet established. Will populate as patterns emerge during development.
-<!-- GSD:conventions-end -->
-
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
-## Architecture
-
-Architecture not yet mapped. Follow existing patterns found in the codebase.
-<!-- GSD:architecture-end -->
-
-<!-- GSD:skills-start source:skills/ -->
-## Project Skills
-
-| Skill | Description | Path |
-|-------|-------------|------|
-| backtest | Run a Phase 1 backtest for one or more symbols using the project's backtesting engine. Downloads recent historical klines from Bybit, runs the chosen strategy against the data, and prints win-rate / drawdown / P&L metrics. Pass the symbol(s) and an optional `--days N` (default 90). Use when validating a strategy change before deploying to paper trading. | `.claude/skills/backtest/SKILL.md` |
-| deploy | Rebuild and recreate a single docker service in this project. Forces image rebuild from source, recreates the container, waits for healthcheck, then prints status and recent logs. Use when source has changed or a service is misbehaving and a clean restart is the right move. Pass the service name as the only argument — must match a service in docker-compose.unified.yml. | `.claude/skills/deploy/SKILL.md` |
-| start-system | Boot the crypto trading bot stack from cold. Verifies Docker daemon, brings up all 17 services (postgres, timescale, redis, rabbitmq, prometheus, grafana, 11 Python microservices + frontend), applies pending DB migrations, runs health probes, and optionally starts the auto-trader. Use when the user says "/start the system", "start the bot", "bring up the stack", or after a reboot. | `.claude/skills/start-system/SKILL.md` |
-| trading-strategy-dev | Use when authoring or modifying trading indicators, strategies, or auditing the trading-engine pipeline in this repo. Enforces project conventions (StrategyBase contract, indicator module shape, no look-ahead leakage, risk-cap honoring), routes verification through backtest + live-engine sanity checks, and forces evidence-based pass/fail before declaring work done. Trigger phrases - "write a new indicator", "add a strategy", "verify strategies", "audit trading engine", "/strategy-dev". | `.claude/skills/trading-strategy-dev/SKILL.md` |
-| verify-stack | Verify the trading stack is genuinely working end-to-end with real data, not shallow HTTP 200 checks. Use before declaring any deploy, fix, or refactor "working". Confirms live (non-testnet) prices, real notification delivery, DB persistence, and that services were restarted after config changes. Reports PASS/FAIL per check — never aggregates to "working" unless all 4 pass. | `.claude/skills/verify-stack/SKILL.md` |
-<!-- GSD:skills-end -->
-
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd-debug` for investigation and bug fixing
-- `/gsd-execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
+Architecture `docs/architecture/SYSTEM_OVERVIEW.md` · Dev setup `docs/development/SETUP.md` · Live API `http://localhost:8000/openapi.json`

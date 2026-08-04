@@ -8,6 +8,7 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+requires: [phase]
 ---
 
 <objective>
@@ -30,5 +31,5 @@ $ARGUMENTS
 </context>
 
 <process>
-Execute the undo workflow from @/mnt/d/Bimo_max/crypto-trading-bot/.claude/get-shit-done/workflows/undo.md end-to-end.
+Execute end-to-end.
 </process>

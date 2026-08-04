@@ -1,36 +1,31 @@
 ---
 type: meta
 title: "Hot Cache"
-updated: 2026-05-05T14:00:00
+status: current
+created: 2026-05-05
+updated: 2026-07-30
+tags: [meta, hot]
 ---
 
 # Recent Context
 
 ## Last Updated
-2026-05-05. Wiki Stage 0 ingest complete. Stage 1 parallel agent dispatch for service modules in flight.
+2026-07-30. WIP settled and committed (`fb764d5`); remaining v1.3 phases re-scoped; docs/vault restructured (this wiki is now the single ADR home).
 
-## Key Recent Facts
-- Vault scaffolded under `wiki/` of crypto-trading-bot repo (Mode B + concepts/)
-- Repo CLAUDE.md updated with wiki reference block + flagged stale `DECISIONS.md` mention
-- Ingested `docs/architecture/SYSTEM_OVERVIEW.md` and `SERVICE_CONTRACTS.md` — both flagged STALE (Oct 2025; wrong ports, /v1/ prefix, only 6 of 11 services)
-- Ingested `progress.md` — extracted ADRs and gotchas
-- 9 ADRs filed (ADR-001 through ADR-009) covering: LSTM removal, lifespan refactor, bcrypt_sha256, paper-trading default, EMERGENCY_STOP file flag, mainnet+paper dual mode, no-/v1/ prefix, conventional commits, unified compose
-- 2 new concepts: Message-Queue-Topics (verify in code), Test-Setup-Gotchas
+## State (v1.3 "TA + Engine Correctness", executing, 3/9 phases)
+- Paper mode, clean $100 baseline, auto-trader armed, kill-switch clear. 8/9 services healthy; ml-prediction behind compose `ml` profile, sentiment behind `analytics` profile (neither starts by default).
+- Phases 16–18 complete (validated-set re-audit; execution-cap enforcement; Bybit adapter contract fix). Next: Phase 19 (order reconciliation + idempotency).
+- **2026-07-30 re-scope of phases 20–24**: 20 shrinks (SL/TP trigger eval existed since `0d0271c`), 21 shrinks (MACD/BB value drift already gone), 22 GROWS (22 price-domain `round(...,2)` sites across 7 files — `support_resistance_detector.py` was missed), 23 GROWS (LSTM footprint 10+ files; `_archive_lstm/` does not exist; third R² consumer in `scripts/check_ml_training_status.py`), 24 shrinks (3 of 4 premises dead).
+- Operator backlog OP-01..OP-15. New: **OP-14** trading-engine image lacks PyJWT + `/app/shared` empty → in-container pytest collects zero tests; **OP-15** new `.dockerignore` would delete the 28-check accounting harness from the container on next rebuild.
 
-## Recent Changes
-- Created sources/SYSTEM_OVERVIEW, sources/SERVICE_CONTRACTS, sources/progress
-- Created 9 decisions/ADR-*.md
-- Created concepts/Message-Queue-Topics, concepts/Test-Setup-Gotchas
-- Updated repo `CLAUDE.md` with Wiki Knowledge Base section
-- Module pages still stub-state — Stage 1 agents will populate
+## Key July facts (details: ADR-018..025 + [[log]])
+- Paper accounting overhauled (side-aware closes; `reduce_only` rejects). Kill switch fed equity; daily-loss breaker rolls per UTC day. Consensus gate directional-only. TA mainnet-only + candle validation; DB testnet pollution repaired (118k rows demoted). Mode-gated API auth + real rate limiting; Bybit HMAC signing fixed. Portfolio-manager mirrors engine. Notifications deliver for real.
 
-## Active Threads
-- Stage 1: parallel agents reading each `services/<name>/` to extract real endpoints, deps, env vars, RabbitMQ pub/sub, gotchas → write into `wiki/modules/<name>.md`
-- Verification needed: which RabbitMQ topics from `Message-Queue-Topics` are still alive post-sentiment-removal
-- Stage 2 deferred: `frontend/src/` component map
-- Stage 3 deferred: synthesize cross-cutting flows with real function names from Stage 1 outputs
+## Architecture correction
+- **No live event bus.** Synchronous REST only; RabbitMQ deployed but nothing wires AMQP — see [[modules/Architecture-Overview]] and ADR-016.
 
-## Open Contradictions
-- `docs/architecture/SERVICE_CONTRACTS.md` says `/api/v1/...`; current API uses `/api/<domain>/<resource>` (ADR-007)
-- `SYSTEM_OVERVIEW.md` ports differ from current — see [[sources/SYSTEM_OVERVIEW]] table
-- CLAUDE.md previously referenced `docs/architecture/DECISIONS.md` — file does not exist (now fixed in CLAUDE.md)
+## Open items / next
+- Frontend has no login flow — blocks LIVE (auth open only in paper mode).
+- Strategy profitability unproven — accumulate 2–4 weeks clean paper trades, evaluate DSR/CPCV before any LIVE talk. Walk-forward harness still tests `phase1_strategy_prod`, NOT the deployed ensemble (see [[sources/Archive-Distillation-2026-07-30]]).
+- 9 trading-engine test failures = test-quality debt, not runtime bugs. Single-process rate limiter needs Redis backing before multi-replica.
+- Unrotated service logs (api-gateway 834 MB, portfolio-manager 941 MB as of 2026-05-20) — no rotation configured.

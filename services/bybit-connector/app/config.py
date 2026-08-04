@@ -38,6 +38,57 @@ class Settings(BaseSettings):
     )
 
     # ========================================================================
+    # ORDER-PLACEMENT SAFETY (SEC-0, 2026-07-31)
+    # ========================================================================
+    # This service is the ONLY place in the system that can touch real money.
+    # Until now it had no concept of paper mode: POST /api/v1/order/place went
+    # straight to the live Bybit REST client with no auth and no mode check,
+    # while BYBIT_TESTNET=false pointed at mainnet and compose published port
+    # 8001 on 0.0.0.0.
+    #
+    # Every LIVE safeguard -- PAPER_TRADING_MODE, TRADING_MODE,
+    # LIVE_TRADING_ACK, the kill switch, the per-trade cap, the daily-loss
+    # breaker -- lives in trading-engine, and that route does not go through
+    # trading-engine. One unauthenticated POST bypassed all of them.
+    #
+    # These three mirror the trading-engine contract so the safety flags are
+    # enforced at the point where real money is actually touched, not only
+    # upstream of it. All three default to the SAFE value: absent or malformed
+    # configuration refuses to trade.
+    paper_trading_mode: bool = Field(
+        default=True,
+        description="When true (default), order placement/cancellation is refused.",
+    )
+    trading_mode: Literal["PAPER", "LIVE"] = Field(
+        default="PAPER",
+        description="PAPER (default) refuses order placement; LIVE permits it.",
+    )
+    live_trading_ack: str = Field(
+        default="",
+        description=(
+            "Must equal 'I_UNDERSTAND_REAL_MONEY' for live order placement. "
+            "Matches the trading-engine boot guard; catches env drift."
+        ),
+    )
+
+    @property
+    def live_orders_permitted(self) -> tuple[bool, str]:
+        """
+        Whether this service may place real orders, and why not if it may not.
+
+        Fail-closed by construction: every condition must be explicitly
+        satisfied. Unset, misspelled or partially-applied configuration lands
+        in the refusing branch.
+        """
+        if self.paper_trading_mode:
+            return False, "PAPER_TRADING_MODE is enabled"
+        if self.trading_mode != "LIVE":
+            return False, f"TRADING_MODE is {self.trading_mode!r}, not 'LIVE'"
+        if self.live_trading_ack != "I_UNDERSTAND_REAL_MONEY":
+            return False, "LIVE_TRADING_ACK is not set to I_UNDERSTAND_REAL_MONEY"
+        return True, ""
+
+    # ========================================================================
     # MARKET DATA SOURCE SELECTOR (D-14, D-15, D-17)
     # ========================================================================
     market_data_source: Literal["tape", "live"] = Field(

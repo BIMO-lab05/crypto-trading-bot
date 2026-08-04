@@ -6,13 +6,12 @@ language: python
 port: 8009
 purpose: "Risk metrics (Sharpe/Sortino/Calmar/VaR/CVaR/drawdown), composite risk score, and the canonical circuit-breaker state machine. Misnamed as 'Risk dashboards' in CLAUDE.md — frontend renders dashboards, this service computes the numbers."
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [portfolio-manager, redis]
 used_by: [api-gateway, frontend, prometheus]
 tags: [module, service, risk, metrics, circuit-breaker]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-30
 ---
 
 # risk-metrics-service
@@ -50,7 +49,7 @@ Performance:
 Alerts & circuit-breaker:
 - `GET /alerts` — active `RiskAlert`s (delegates to scorecard)
 - `GET /circuit-breaker` — state machine snapshot
-- `POST /circuit-breaker/reset` — admin (`X-Admin-Key`)
+- `POST /circuit-breaker/reset` — admin (`X-Admin-Key`). Since 2026-07-29 the reset also calls the trading-engine's `engine.reset_circuit_breaker()` — previously a manual reset here never resumed trading (the engine's own breaker stayed tripped).
 
 Configuration (admin):
 - `GET /config/limits`, `PUT /config/limits` — **`PUT` does not persist**, only logs
@@ -115,12 +114,18 @@ None. All state in-memory on the `RiskEngine` instance — restart wipes circuit
 - **`PUT /config/limits` is a no-op** that returns 200 — does not mutate `settings` or persist anywhere.
 - **Volatility floor 0.001** when realized vol ≈ 0 produces fake-finite Sharpe ratios.
 - **Circuit-breaker is in-memory only** — restart clears OPEN state; operator could "reset" by restart alone.
-- **CORS `allow_origins=["*"]`** despite configured `allowed_origins` setting.
+- **CORS**: `allow_origins=["*"]` remains, but `allow_credentials=False` since 2026-07-29 (removes the credentialed-wildcard hole); `reload=True` is now env-gated. Configured `allowed_origins` setting still unused.
 - **Dead modules**: `app/backtesting.py`, `app/cpcv.py`, `app/sharpe_metrics.py`, `app/backtest_models.py` are not imported by `main.py`. `.bak` and `.backup` files sitting next to live code.
+
+## Alignment
+
+Paper-mode semantics aligned 2026-05-19 per [[../decisions/ADR-017-risk-metrics-paper-mode-alignment|ADR-017]] (this service previously judged paper trading with live-mode assumptions).
 
 ## Related
 
 - [[../concepts/Risk-Model]] — composite scoring, dual-circuit-breaker problem, alerting gap
+- [[../decisions/ADR-017-risk-metrics-paper-mode-alignment|ADR-017]] — paper-mode alignment
+- [[../decisions/ADR-019-kill-switch-equity-and-streak|ADR-019]] — kill-switch inputs (equity, close-only streaks)
 - [[../flows/Order-Lifecycle]] — where risk gates *actually* fire (spoiler: not here)
 - [[portfolio-manager]] — sole upstream
 - [[market-data-service]] — configured upstream, never called

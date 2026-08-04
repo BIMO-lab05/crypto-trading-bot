@@ -6,10 +6,16 @@ context: "Paper-trading fill semantics"
 deciders: []
 tags: [decision, adr, paper, trading]
 created: 2026-05-06
-updated: 2026-05-06
+updated: 2026-08-03
 ---
 
 # ADR-011: paper-trading executes deterministically (zero slippage, zero latency, always filled)
+
+> ⚠️ **SUPERSEDED IN PART — 2026-08-03 (PAPER-01).** The zero-slippage half of this contract **no longer holds.** `PaperTradingEngine.execute_market_order` now applies a per-symbol adverse slippage model (`app/paper_slippage.py`), on by default, reaching every downstream price site (notional, commission, `filled_price`, realized P&L both sides, `close_position`, `reduce_position`, `scale_in`, `create_position`). Measured effect on a 10-round-trip winners-only tape: **realized P&L −$0.3836, ROI 2.21% → 1.82%**.
+>
+> "Alternatives considered" below **rejected** this change. That rejection is reversed. The stated reason — that slippage "removes paper's value as a clean plumbing test" — was outweighed by the fact that every strategy Sharpe in the repo (−0.22 to −0.50) had been measured through a frictionless engine, making all of them optimistic by an unknown amount. Zero-slippage remains reachable explicitly via `PAPER_SLIPPAGE_ENABLED=false` for A/B comparison and for the accounting tests that pin arithmetic rather than fill realism, so the plumbing-test use case survives as an opt-in.
+>
+> Zero-latency and always-filled are **unchanged** and still optimistic. Do not read this note as "paper is now realistic."
 
 ## Context
 
@@ -33,6 +39,8 @@ Paper-trading mode is intentionally **deterministic and frictionless**:
 
 Paper exists to validate **strategy plumbing**, not strategy edge under realistic execution.
 
+> **Fill semantics unchanged, accounting overhauled (2026-07-28).** The zero-slippage / zero-latency / always-filled *fill* contract described here still holds. What changed is the **accounting** behind the fill: closes now credit `margin_returned + realized_pnl − commission` for *both* sides (a winning SHORT no longer reduces the balance), `reduce_only` orders reject instead of flipping into a counter-trade, `position_id` targets a specific position, and partial closes / DCA scale-ins are supported. Those are correctness fixes to the P&L math, not a change to execution realism, and are documented separately in [[ADR-018-paper-engine-accounting-overhaul]]. Paper P&L is now *correct* but still *optimistic* (frictionless), so the caution below stands.
+
 ## Consequences
 
 - Backtests using the paper engine = optimistic; do not infer Sharpe from them
@@ -53,3 +61,4 @@ Paper exists to validate **strategy plumbing**, not strategy edge under realisti
 - [[ADR-004-paper-trading-default]]
 - [[ADR-006-mainnet-prices-paper-orders]]
 - [[ADR-010-max-risk-per-trade-paper-bump]]
+- [[ADR-018-paper-engine-accounting-overhaul]] (the 2026-07-28 accounting fixes)

@@ -55,7 +55,11 @@ class Settings(BaseSettings):
     rabbitmq_vhost: str = Field(default="cryptobot")
 
     # Bybit Connector Service
-    bybit_connector_url: str = Field(default="http://localhost:8002")
+    # Phase 13 (BC-05/D-09): bybit-connector listens on :8001; the prior default
+    # was a copy-paste of market-data-service's own :8002 — harmless under the
+    # compose stack (env overrides) but a misroute for any host-side script that
+    # constructed Settings() without setting BYBIT_CONNECTOR_URL.
+    bybit_connector_url: str = Field(default="http://localhost:8001")
 
     # Mirror of the BYBIT_TESTNET env var on bybit-connector. Used to tag
     # ingested klines with `is_mainnet=not bybit_testnet` so the table
@@ -82,6 +86,18 @@ class Settings(BaseSettings):
     )
     default_interval: str = Field(default="60")  # 1 hour
     fetch_historical_days: int = Field(default=30)  # Fetch last 30 days on startup
+
+    # Data freshness
+    #
+    # Ticker collection runs every 5 minutes, so three consecutive missed
+    # cycles is unambiguous failure rather than jitter. Beyond this age a
+    # stored row is treated as a cache miss (triggering a live re-fetch) and
+    # /ready reports the service as not ready.
+    #
+    # This exists because ingest once stopped for 17 hours while every read
+    # kept returning the last stored row as current, with HTTP 200 and a green
+    # /health -- see .planning/audits/2026-07-31-full-system-diagnostic.md DL-1.
+    market_data_staleness_seconds: int = Field(default=900, ge=60)
 
     # Caching
     cache_ttl_ticker: int = Field(default=5)  # 5 seconds for ticker

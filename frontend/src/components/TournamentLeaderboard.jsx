@@ -357,8 +357,14 @@ export default function TournamentLeaderboard({
           <tr>{COLUMNS.map((col) => renderHeaderCell(col, sort, dir, onSort))}</tr>
         </thead>
         <tbody>
-          {list.map((row) => {
-            const runId = row?.run_id ?? 'unknown'
+          {list.map((row, idx) => {
+            // Phase 14 CR-03 fix: previously coalesced to literal `'unknown'`,
+            // which produced duplicate React keys + duplicate
+            // `data-testid="tournament-row-unknown"` when multiple rows had
+            // null run_id. Index suffix disambiguates while preserving the
+            // mirrored testid contract with TournamentDashboard.jsx
+            // (`tournament-row-*` prefix).
+            const runId = row?.run_id ?? `unknown-${idx}`
             const status = row?.status
             return (
               <tr

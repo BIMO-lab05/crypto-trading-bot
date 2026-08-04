@@ -1,6 +1,13 @@
 # Sentiment Analysis Service
 
-A microservice for analyzing cryptocurrency market sentiment from news and social media sources. Integrates with real APIs (NewsAPI and Twitter) with graceful fallback to mock data.
+> **STATUS (2026-07-30): IDLE.** The sentiment leg was removed from the signal pipeline in **2026-05** (`ENABLE_SENTIMENT_ANALYSIS=false`; commits `c346483`, `acae081`, `fe941cf`, `c171bb0` — see repo CLAUDE.md), and this service **does not start by default**: since **2026-07-29** it sits behind the compose `analytics` profile. Its BUY/SELL/HOLD output is **not consumed** by the trading-engine. To run it anyway:
+> ```bash
+> docker compose -f docker-compose.unified.yml --profile analytics up -d sentiment-analysis-service
+> ```
+
+> Merged from `QUICK_START.md` on 2026-07-30.
+
+A microservice for analyzing cryptocurrency market sentiment from news and social media sources. Integrates with real APIs (NewsAPI and Twitter) with graceful fallback to mock data. Runs on **port 8008**.
 
 ## Features
 
@@ -11,7 +18,7 @@ A microservice for analyzing cryptocurrency market sentiment from news and socia
 - **Intelligent Caching**: TTL-based caching to respect API rate limits
 - **Rate Limit Handling**: Exponential backoff with automatic retries
 - **Graceful Degradation**: Falls back to cached/mock data on API failures
-- **Trading Signals**: Generates BUY/SELL/HOLD signals based on sentiment
+- **Trading Signals**: Generates BUY/SELL/HOLD signals based on sentiment (currently not wired into the trading pipeline — see status banner)
 
 ## Architecture
 
@@ -33,97 +40,82 @@ A microservice for analyzing cryptocurrency market sentiment from news and socia
 │                    │ Aggregation  │                     │
 │                    │ & Caching    │                     │
 │                    └──────────────┘                     │
-│                                                          │
-│  REST API Endpoints:                                    │
-│  - GET /api/v1/sentiment/news/{symbol}                 │
-│  - GET /api/v1/sentiment/social/{symbol}               │
-│  - GET /api/v1/sentiment/combined/{symbol}             │
-│  - GET /api/v1/sentiment/trend/{symbol}                │
-│  - GET /api/v1/stats                                   │
-│                                                          │
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Getting Started
+Request flow:
+```
+Request → Cache Check → Real API → Sentiment Analysis → Response
+              ↓ Miss       ↓ Fail         ↓
+            Real API → Stale Cache → Mock Data
+```
 
-### Prerequisites
+## Quick Start
 
-- Python 3.11+
-- NewsAPI key (optional, get from https://newsapi.org/)
-- Twitter API Bearer Token (optional, get from https://developer.twitter.com/)
+### Option 1: With Real APIs
 
-### Installation
+```bash
+# 1. Get API keys
+# - NewsAPI: https://newsapi.org/register (instant)
+# - Twitter: https://developer.twitter.com/ (usually instant)
 
-1. **Install dependencies**:
+# 2. Configure environment
+cd services/sentiment-analysis-service
+cp .env.example .env
+nano .env  # Add your API keys
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Run service
+uvicorn app.main:app --reload --port 8008
+```
+
+### Option 2: Without APIs (Testing/Development)
+
 ```bash
 cd services/sentiment-analysis-service
 pip install -r requirements.txt
-```
-
-2. **Configure environment variables**:
-```bash
-# Copy example env file
-cp .env.example .env
-
-# Edit .env with your API keys
-nano .env
-```
-
-3. **Run the service**:
-```bash
-# Development mode
 uvicorn app.main:app --reload --port 8008
+# Works immediately with realistic mock data
+```
 
-# Production mode
-uvicorn app.main:app --host 0.0.0.0 --port 8008 --workers 4
+Production-style run: `uvicorn app.main:app --host 0.0.0.0 --port 8008 --workers 4`
+
+### Quick API Test
+
+```bash
+curl http://localhost:8008/health                                       # health
+curl http://localhost:8008/ready | jq                                   # which APIs configured
+curl "http://localhost:8008/api/v1/sentiment/news/BTCUSDT" | jq         # news sentiment
+curl "http://localhost:8008/api/v1/sentiment/social/BTCUSDT" | jq       # Twitter sentiment
+curl "http://localhost:8008/api/v1/sentiment/combined/BTCUSDT" | jq     # combined + signal
+curl http://localhost:8008/api/v1/stats | jq                            # API usage / cache
 ```
 
 ## API Configuration
 
 ### NewsAPI Setup
 
-1. **Sign up** for NewsAPI at https://newsapi.org/register
-2. **Choose a plan**:
-   - Free: 100 requests/day
-   - Developer ($49/month): 250 requests/day
-   - Business ($499/month): 1000 requests/day
-3. **Copy your API key** from the dashboard
-4. **Add to .env**:
+1. Sign up at https://newsapi.org/register
+2. Plans: Free 100 requests/day; Developer ($49/mo) 250/day; Business ($499/mo) 1000/day
+3. Add to `.env`:
 ```env
 NEWS_API_KEY=your_newsapi_key_here
 ```
 
-**Rate Limits**:
-- Free tier: 100 requests per day
-- Service caches results for 15 minutes to minimize API calls
-- Graceful fallback to cached data when rate limit exceeded
+**Rate limits**: free tier 100 requests/day; service caches results 15 minutes and falls back to cached data when rate-limited.
 
 ### Twitter API Setup
 
-1. **Create a Twitter Developer Account**:
-   - Go to https://developer.twitter.com/
-   - Apply for developer access (usually approved instantly)
-
-2. **Create a Project and App**:
-   - Navigate to Projects & Apps
-   - Create a new project
-   - Create a new app within the project
-
-3. **Get Bearer Token**:
-   - Go to your app's "Keys and tokens" tab
-   - Generate a Bearer Token
-   - Copy the token (save it securely)
-
-4. **Add to .env**:
+1. Create a developer account at https://developer.twitter.com/
+2. Create a Project + App, then generate a **Bearer Token** (Keys and tokens tab)
+3. Add to `.env`:
 ```env
 TWITTER_BEARER_TOKEN=your_twitter_bearer_token_here
 ```
 
-**Rate Limits**:
-- Essential access (free): 450 requests per 15-minute window
-- Elevated access (free, approval required): Same limits with higher monthly caps
-- Service caches results for 10 minutes
-- Automatic rate limit handling with exponential backoff
+**Rate limits**: Essential (free) access 450 requests per 15-minute window; service caches 10 minutes with automatic backoff.
 
 ### Access Levels Comparison
 
@@ -137,23 +129,21 @@ TWITTER_BEARER_TOKEN=your_twitter_bearer_token_here
 
 ## API Endpoints
 
-### Health Check
-```bash
-GET /health
-# Returns: {"status": "healthy", "service": "sentiment-analysis-service"}
-
-GET /ready
-# Returns: API configuration status
-
-GET /api/v1/stats
-# Returns: API usage statistics and cache info
-```
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Service health |
+| `GET /ready` | API configuration status |
+| `GET /api/v1/stats` | Usage stats, cache info |
+| `GET /api/v1/sentiment/news/{symbol}` | News sentiment |
+| `GET /api/v1/sentiment/social/{symbol}` | Twitter sentiment |
+| `GET /api/v1/sentiment/combined/{symbol}` | Combined sentiment + signal |
+| `GET /api/v1/sentiment/trend/{symbol}` | Sentiment trend |
 
 ### News Sentiment
 ```bash
 GET /api/v1/sentiment/news/BTCUSDT?lookback_hours=24
-
-Response:
+```
+```json
 {
   "symbol": "BTCUSDT",
   "total_articles": 15,
@@ -170,8 +160,8 @@ Response:
 ### Social Sentiment
 ```bash
 GET /api/v1/sentiment/social/BTCUSDT?lookback_hours=24
-
-Response:
+```
+```json
 {
   "twitter": {
     "symbol": "BTCUSDT",
@@ -179,7 +169,7 @@ Response:
     "total_posts": 87,
     "posts": [...],
     "average_sentiment": 0.32,
-    "weighted_sentiment": 0.41,  # Weighted by engagement
+    "weighted_sentiment": 0.41,
     "sentiment_label": "POSITIVE",
     "total_engagement": 15420.0,
     "average_engagement": 177.0
@@ -190,8 +180,8 @@ Response:
 ### Combined Sentiment
 ```bash
 GET /api/v1/sentiment/combined/BTCUSDT
-
-Response:
+```
+```json
 {
   "symbol": "BTCUSDT",
   "news_sentiment": {...},
@@ -204,8 +194,8 @@ Response:
   "trading_signal": "BUY",
   "signal_strength": 0.74,
   "sources_used": ["news", "twitter"],
-  "analysis_timestamp": "2025-11-11T10:30:00Z",
-  "next_update_at": "2025-11-11T10:45:00Z"
+  "analysis_timestamp": "...",
+  "next_update_at": "..."
 }
 ```
 
@@ -239,39 +229,19 @@ BEARISH_THRESHOLD=0.4
 
 ### Caching Strategy
 
-The service implements intelligent caching to minimize API calls:
-
-**News Caching**:
-- TTL: 15 minutes
-- Cache size: 100 queries
-- Rounds timestamps to nearest 15 minutes for better cache hit rate
-- Falls back to stale cache on API failure
-
-**Twitter Caching**:
-- TTL: 10 minutes
-- Cache size: 100 queries
-- Rounds timestamps to nearest 10 minutes
-- Falls back to stale cache on API failure
-
-**Sentiment Caching**:
-- TTL: Configurable (default 15 minutes)
-- In-memory cache for combined sentiment results
-- Prevents redundant API calls for same symbol
+- **News**: TTL 15 min, cache size 100 queries, timestamps rounded to nearest 15 min for better hit rate; stale cache used on API failure
+- **Twitter**: TTL 10 min, cache size 100 queries, timestamps rounded to nearest 10 min; stale cache on failure
+- **Combined sentiment**: in-memory, configurable TTL (default 15 min)
 
 ### Rate Limit Strategy
 
-**Exponential Backoff**:
-```python
-# Retries: 3 attempts
-# Wait times: 2s, 4s, 8s (exponential)
-# Only retries on API errors (not on data errors)
-```
+Exponential backoff: 3 attempts with 2s/4s/8s waits; retries only on API errors (not data errors).
 
-**Monitoring**:
 ```bash
-# Check API usage stats
+# Monitor API usage
 curl http://localhost:8008/api/v1/stats
-
+```
+```json
 {
   "news_api": {
     "api_enabled": true,
@@ -289,125 +259,94 @@ curl http://localhost:8008/api/v1/stats
 
 ## Error Handling
 
-The service implements graceful error handling:
-
-1. **API Key Missing**: Falls back to mock data (logs warning)
-2. **Rate Limit Exceeded**: Returns stale cached data if available
-3. **API Temporarily Down**: Uses mock data with warning log
-4. **Network Error**: Retries with exponential backoff
-5. **Data Quality Low**: Returns result with "POOR" quality indicator
+1. **API key missing**: falls back to mock data (logs warning)
+2. **Rate limit exceeded**: returns stale cached data if available
+3. **API temporarily down**: uses mock data with warning log
+4. **Network error**: retries with exponential backoff
+5. **Data quality low**: returns result with `"POOR"` quality indicator
 
 ## Testing
 
-### Without API Keys (Mock Data)
 ```bash
-# Service works without API keys using realistic mock data
+# Without API keys — service uses realistic mock data
 uvicorn app.main:app --reload
-
-# Test endpoints
-curl http://localhost:8008/api/v1/sentiment/news/BTCUSDT
-curl http://localhost:8008/api/v1/sentiment/social/BTCUSDT
 curl http://localhost:8008/api/v1/sentiment/combined/BTCUSDT
-```
 
-### With Real APIs
-```bash
-# Add keys to .env
-NEWS_API_KEY=real_key_here
-TWITTER_BEARER_TOKEN=real_token_here
+# With real APIs — add keys to .env, then verify:
+curl http://localhost:8008/api/v1/stats     # "api_enabled": true for both APIs
 
-# Run service
-uvicorn app.main:app --reload
-
-# Verify real data
-curl http://localhost:8008/api/v1/stats
-# Check "api_enabled": true for both APIs
-```
-
-### Unit Tests
-```bash
-# Run tests with mocked APIs
+# Unit tests (mocked APIs)
 pytest tests/ -v
-
-# Run with coverage
 pytest tests/ --cov=app --cov-report=html
+pytest tests/test_news_fetcher.py -v
 ```
 
-## Production Deployment
+## Deployment
 
-### Docker Deployment
+Preferred: canonical compose with the `analytics` profile (see status banner). Standalone docker:
+
 ```bash
-# Build image
+# Build
 docker build -t sentiment-analysis-service .
 
-# Run container
-docker run -d \
-  -p 8008:8008 \
+# Run without API keys (mock data)
+docker run -p 8008:8008 sentiment-analysis-service
+
+# Run with API keys
+docker run -d -p 8008:8008 \
   -e NEWS_API_KEY=your_key \
   -e TWITTER_BEARER_TOKEN=your_token \
   --name sentiment-service \
   sentiment-analysis-service
 ```
 
-### Performance Tuning
-```bash
-# Multiple workers for production
-uvicorn app.main:app \
-  --host 0.0.0.0 \
-  --port 8008 \
-  --workers 4 \
-  --log-level info
-```
-
 ### Monitoring
+
 ```bash
-# Check logs
 tail -f logs/sentiment-analysis.log
-
-# Monitor API calls
 watch -n 5 'curl -s http://localhost:8008/api/v1/stats | jq'
-
-# Health check
 curl http://localhost:8008/health
 ```
 
+### Activation Checklist (if re-enabling the service)
+
+- [ ] Start under `analytics` profile (`--profile analytics`)
+- [ ] Add API keys to `.env`
+- [ ] Test with `/ready` endpoint
+- [ ] Monitor `/api/v1/stats` for usage
+- [ ] Review cache TTL settings and test fallback behavior
+- [ ] Set up log monitoring and health checks
+- [ ] Re-wiring the signal into trading requires reverting the 2026-05 pipeline removal in trading-engine/technical-analysis (`ENABLE_SENTIMENT_ANALYSIS`) — a deliberate decision, not just starting this service
+
 ## Troubleshooting
 
-### NewsAPI Issues
+### NewsAPI
 
-**Problem**: "newsapi.newsapi_exception.NewsAPIException: You have exceeded your rate limit"
-**Solution**:
-- Check usage: `curl http://localhost:8008/api/v1/stats`
-- Service will automatically use cached data
-- Upgrade to paid plan for higher limits
+**"You have exceeded your rate limit"**: check `curl http://localhost:8008/api/v1/stats`; service automatically serves cached data; upgrade plan for higher limits.
 
-**Problem**: "No articles found"
-**Solution**:
-- Check symbol is recognized (BTC, ETH, etc.)
-- Extend lookback_hours parameter
-- Verify API key is valid
+**"No articles found"**: check symbol is recognized, extend `lookback_hours`, verify API key.
 
-### Twitter API Issues
+### Twitter API
 
-**Problem**: "tweepy.errors.Unauthorized: 401 Unauthorized"
-**Solution**:
-- Verify bearer token is correct
-- Check token hasn't expired
-- Ensure app has read permissions
+**"401 Unauthorized"**: verify bearer token correct/unexpired; app has read permissions.
 
-**Problem**: "Rate limit exceeded"
-**Solution**:
-- Service automatically waits when rate limited
-- Check cache settings (reduce TTL for more caching)
-- Consider applying for elevated access
+**"Rate limit exceeded"**: service waits automatically; tune cache TTL; consider elevated access.
 
-### General Issues
+### General
 
-**Problem**: "Sentiment always neutral"
-**Solution**:
-- Check if FinBERT model is loaded (requires transformers package)
-- Verify text contains sentiment keywords
-- Try with different symbols/timeframes
+**Service returning mock data**: `curl http://localhost:8008/ready | jq '.apis_configured'` — add API keys to `.env`.
+
+**Sentiment always neutral**: check FinBERT model loaded (`transformers` package installed), verify text contains sentiment keywords, try other symbols/timeframes.
+
+**No sentiment data**: use standard Bybit symbol format — `BTCUSDT`, `ETHUSDT` (not `BTC-USDT` or `btc`).
+
+## Performance Tips
+
+1. **Enable caching**: default 15 minutes (cuts API calls ~75%)
+2. **Use the combined endpoint**: all data in one call
+3. **Monitor stats**: check `/api/v1/stats` for optimization opportunities
+4. **Batch requests**: request multiple symbols in sequence (cache works)
+5. **Adjust lookback**: shorter = faster, longer = more accurate
 
 ## Development
 
@@ -436,15 +375,15 @@ TECHNICAL_WEIGHT=0.1 # Decrease technical importance
 | Twitter | 450/15min | Same (higher monthly) | Free |
 | Reddit | 60/min | Same | Free |
 
-**Recommendation**: Start with free tiers. With proper caching, free tier is sufficient for most use cases.
+**Recommendation**: free tiers with proper caching are sufficient for most use cases.
+
+## Support & Resources
+
+- **API Docs**: http://localhost:8008/docs (Swagger UI)
+- **Environment example**: `.env.example`
+- **Logs**: `logs/sentiment-analysis.log`
+- **API stats**: `GET /api/v1/stats`
 
 ## License
 
 MIT License - See LICENSE file for details
-
-## Support
-
-For issues or questions:
-- Open GitHub issue
-- Check logs: `tail -f logs/sentiment-analysis.log`
-- Review API stats: `GET /api/v1/stats`

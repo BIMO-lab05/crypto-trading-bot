@@ -10,13 +10,26 @@ Features:
 """
 
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Optional, Tuple
 from decimal import Decimal
-from datetime import datetime, timedelta
-from dataclasses import dataclass, asdict
+from datetime import datetime
+from dataclasses import dataclass
 import numpy as np
 
-from app.models import Position, PositionStatus, PositionSide
+from app.models import Position, PositionSide
+from app.config import get_settings  # noqa: F401  (used by _default_initial_balance)
+
+
+def _default_initial_balance() -> Decimal:
+    """
+    Starting capital for performance math, sourced from config.
+
+    Resolved at call time rather than at import time so it always tracks
+    ``PAPER_INITIAL_BALANCE`` instead of freezing whatever was set when this
+    module was first imported.
+    """
+    return Decimal(str(get_settings().paper_initial_balance))
+
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +37,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TradeMetrics:
     """Metrics for a single trade"""
+
     symbol: str
     strategy: str
     side: PositionSide
@@ -41,6 +55,7 @@ class TradeMetrics:
 @dataclass
 class PerformanceMetrics:
     """Comprehensive performance metrics"""
+
     # Basic stats
     total_trades: int
     winning_trades: int
@@ -88,6 +103,7 @@ class PerformanceMetrics:
 @dataclass
 class SymbolPerformance:
     """Performance metrics for a specific symbol"""
+
     symbol: str
     metrics: PerformanceMetrics
     trades: List[TradeMetrics]
@@ -96,6 +112,7 @@ class SymbolPerformance:
 @dataclass
 class StrategyPerformance:
     """Performance metrics for a specific strategy"""
+
     strategy: str
     metrics: PerformanceMetrics
     trades: List[TradeMetrics]
@@ -104,6 +121,7 @@ class StrategyPerformance:
 @dataclass
 class EquityPoint:
     """Point in equity curve"""
+
     timestamp: datetime
     balance: Decimal
     equity: Decimal  # balance + unrealized P&L
@@ -125,13 +143,17 @@ class PerformanceTracker:
     - Sharpe ratio calculation
     """
 
-    def __init__(self, initial_balance: Decimal = Decimal("10000")):
+    def __init__(self, initial_balance: Optional[Decimal] = None):
         """
         Initialize performance tracker
 
         Args:
-            initial_balance: Starting capital
+            initial_balance: Starting capital. Defaults to the configured
+                paper-trading balance (``PAPER_INITIAL_BALANCE``).
         """
+        if initial_balance is None:
+            initial_balance = _default_initial_balance()
+
         self.initial_balance = initial_balance
         self.current_balance = initial_balance
         self.peak_balance = initial_balance
@@ -147,10 +169,7 @@ class PerformanceTracker:
         logger.info(f"PerformanceTracker initialized with ${initial_balance:,.2f}")
 
     def add_trade(
-        self,
-        position: Position,
-        exit_price: Decimal,
-        exit_time: datetime
+        self, position: Position, exit_price: Decimal, exit_time: datetime
     ) -> TradeMetrics:
         """
         Add a completed trade to performance tracking
@@ -187,7 +206,7 @@ class PerformanceTracker:
             duration_seconds=int(duration),
             entry_time=position.opened_at,
             exit_time=exit_time,
-            is_winner=pnl > 0
+            is_winner=pnl > 0,
         )
 
         self.trades.append(trade)
@@ -200,8 +219,10 @@ class PerformanceTracker:
         # Add equity point
         self._add_equity_point(exit_time)
 
-        logger.info(f"Trade recorded: {position.symbol} {position.side.value} "
-                   f"P&L: ${pnl:+,.2f} ({pnl_pct:+.2f}%)")
+        logger.info(
+            f"Trade recorded: {position.symbol} {position.side.value} "
+            f"P&L: ${pnl:+,.2f} ({pnl_pct:+.2f}%)"
+        )
 
         return trade
 
@@ -209,7 +230,11 @@ class PerformanceTracker:
         """Add a point to the equity curve"""
         total_pnl = self.current_balance - self.initial_balance
         drawdown = self.peak_balance - self.current_balance
-        drawdown_pct = float((drawdown / self.peak_balance) * 100) if self.peak_balance > 0 else 0.0
+        drawdown_pct = (
+            float((drawdown / self.peak_balance) * 100)
+            if self.peak_balance > 0
+            else 0.0
+        )
 
         point = EquityPoint(
             timestamp=timestamp,
@@ -217,7 +242,7 @@ class PerformanceTracker:
             equity=self.current_balance,  # For now, no unrealized P&L
             total_pnl=total_pnl,
             drawdown=drawdown,
-            drawdown_pct=drawdown_pct
+            drawdown_pct=drawdown_pct,
         )
 
         self.equity_curve.append(point)
@@ -251,7 +276,9 @@ class PerformanceTracker:
         gross_profit = sum(t.pnl for t in self.trades if t.pnl > 0)
         gross_loss = abs(sum(t.pnl for t in self.trades if t.pnl < 0))
 
-        profit_factor = float(gross_profit / gross_loss) if gross_loss > 0 else float('inf')
+        profit_factor = (
+            float(gross_profit / gross_loss) if gross_loss > 0 else float("inf")
+        )
 
         total_pnl_pct = float((total_pnl / self.initial_balance) * 100)
 
@@ -260,7 +287,9 @@ class PerformanceTracker:
         losses = [t for t in self.trades if not t.is_winner and t.pnl < 0]
 
         avg_win = (sum(t.pnl for t in wins) / len(wins)) if wins else Decimal("0")
-        avg_loss = (sum(t.pnl for t in losses) / len(losses)) if losses else Decimal("0")
+        avg_loss = (
+            (sum(t.pnl for t in losses) / len(losses)) if losses else Decimal("0")
+        )
         avg_win_pct = (sum(t.pnl_pct for t in wins) / len(wins)) if wins else 0.0
         avg_loss_pct = (sum(t.pnl_pct for t in losses) / len(losses)) if losses else 0.0
 
@@ -283,7 +312,11 @@ class PerformanceTracker:
 
         # Time period
         start_date = min(t.entry_time for t in self.trades) if self.trades else None
-        end_date = max(t.exit_time for t in self.trades if t.exit_time) if self.trades else None
+        end_date = (
+            max(t.exit_time for t in self.trades if t.exit_time)
+            if self.trades
+            else None
+        )
         days_active = (end_date - start_date).days if (start_date and end_date) else 0
 
         metrics = PerformanceMetrics(
@@ -313,7 +346,7 @@ class PerformanceTracker:
             min_duration_seconds=min_duration,
             start_date=start_date,
             end_date=end_date,
-            days_active=days_active
+            days_active=days_active,
         )
 
         # Cache the result
@@ -351,7 +384,7 @@ class PerformanceTracker:
             min_duration_seconds=0,
             start_date=None,
             end_date=None,
-            days_active=0
+            days_active=0,
         )
 
     def _calculate_max_consecutive(self, winners: bool) -> int:
@@ -439,7 +472,7 @@ class PerformanceTracker:
         downside_returns = returns[returns < 0]
 
         if len(downside_returns) == 0:
-            return float('inf')  # No losses
+            return float("inf")  # No losses
 
         downside_std = np.std(downside_returns)
 
@@ -459,9 +492,7 @@ class PerformanceTracker:
 
         if not symbol_trades:
             return SymbolPerformance(
-                symbol=symbol,
-                metrics=self._empty_metrics(),
-                trades=[]
+                symbol=symbol, metrics=self._empty_metrics(), trades=[]
             )
 
         # Create temporary tracker for symbol
@@ -471,7 +502,7 @@ class PerformanceTracker:
         return SymbolPerformance(
             symbol=symbol,
             metrics=temp_tracker.calculate_metrics(),
-            trades=symbol_trades
+            trades=symbol_trades,
         )
 
     def get_strategy_performance(self, strategy: str) -> StrategyPerformance:
@@ -480,9 +511,7 @@ class PerformanceTracker:
 
         if not strategy_trades:
             return StrategyPerformance(
-                strategy=strategy,
-                metrics=self._empty_metrics(),
-                trades=[]
+                strategy=strategy, metrics=self._empty_metrics(), trades=[]
             )
 
         # Create temporary tracker for strategy
@@ -492,7 +521,7 @@ class PerformanceTracker:
         return StrategyPerformance(
             strategy=strategy,
             metrics=temp_tracker.calculate_metrics(),
-            trades=strategy_trades
+            trades=strategy_trades,
         )
 
     def get_all_symbols(self) -> List[str]:
@@ -512,40 +541,54 @@ class PerformanceTracker:
         logger.info("=" * 80)
 
         # Overall stats
-        logger.info(f"\n📈 Overall Performance:")
+        logger.info("\n📈 Overall Performance:")
         logger.info(f"   Total Trades: {metrics.total_trades}")
         logger.info(f"   Win Rate: {metrics.win_rate:.2f}%")
-        logger.info(f"   Total P&L: ${metrics.total_pnl:+,.2f} ({metrics.total_pnl_pct:+.2f}%)")
+        logger.info(
+            f"   Total P&L: ${metrics.total_pnl:+,.2f} ({metrics.total_pnl_pct:+.2f}%)"
+        )
         logger.info(f"   Current Balance: ${self.current_balance:,.2f}")
 
         # Win/Loss breakdown
-        logger.info(f"\n✅ Wins vs ❌ Losses:")
-        logger.info(f"   Winning Trades: {metrics.winning_trades} ({metrics.win_rate:.1f}%)")
-        logger.info(f"   Losing Trades: {metrics.losing_trades} ({metrics.loss_rate:.1f}%)")
-        logger.info(f"   Avg Win: ${metrics.avg_win:,.2f} ({metrics.avg_win_pct:+.2f}%)")
-        logger.info(f"   Avg Loss: ${metrics.avg_loss:,.2f} ({metrics.avg_loss_pct:.2f}%)")
+        logger.info("\n✅ Wins vs ❌ Losses:")
+        logger.info(
+            f"   Winning Trades: {metrics.winning_trades} ({metrics.win_rate:.1f}%)"
+        )
+        logger.info(
+            f"   Losing Trades: {metrics.losing_trades} ({metrics.loss_rate:.1f}%)"
+        )
+        logger.info(
+            f"   Avg Win: ${metrics.avg_win:,.2f} ({metrics.avg_win_pct:+.2f}%)"
+        )
+        logger.info(
+            f"   Avg Loss: ${metrics.avg_loss:,.2f} ({metrics.avg_loss_pct:.2f}%)"
+        )
 
         # Risk metrics
-        logger.info(f"\n⚠️  Risk Metrics:")
+        logger.info("\n⚠️  Risk Metrics:")
         logger.info(f"   Profit Factor: {metrics.profit_factor:.2f}")
-        logger.info(f"   Max Drawdown: ${metrics.max_drawdown:,.2f} ({metrics.max_drawdown_pct:.2f}%)")
+        logger.info(
+            f"   Max Drawdown: ${metrics.max_drawdown:,.2f} ({metrics.max_drawdown_pct:.2f}%)"
+        )
         logger.info(f"   Max Consecutive Wins: {metrics.max_consecutive_wins}")
         logger.info(f"   Max Consecutive Losses: {metrics.max_consecutive_losses}")
 
         # Risk-adjusted returns
-        logger.info(f"\n📊 Risk-Adjusted Returns:")
+        logger.info("\n📊 Risk-Adjusted Returns:")
         logger.info(f"   Sharpe Ratio: {metrics.sharpe_ratio:.2f}")
         logger.info(f"   Sortino Ratio: {metrics.sortino_ratio:.2f}")
 
         # Per-symbol breakdown
         symbols = self.get_all_symbols()
         if symbols:
-            logger.info(f"\n🔍 Per-Symbol Performance:")
+            logger.info("\n🔍 Per-Symbol Performance:")
             for symbol in sorted(symbols):
                 perf = self.get_symbol_performance(symbol)
-                logger.info(f"   {symbol}: {perf.metrics.total_trades} trades, "
-                           f"Win Rate: {perf.metrics.win_rate:.1f}%, "
-                           f"P&L: ${perf.metrics.total_pnl:+,.2f}")
+                logger.info(
+                    f"   {symbol}: {perf.metrics.total_trades} trades, "
+                    f"Win Rate: {perf.metrics.win_rate:.1f}%, "
+                    f"P&L: ${perf.metrics.total_pnl:+,.2f}"
+                )
 
         logger.info("=" * 80)
 
@@ -554,11 +597,19 @@ class PerformanceTracker:
 _performance_tracker: Optional[PerformanceTracker] = None
 
 
-def get_performance_tracker(initial_balance: Optional[Decimal] = None) -> PerformanceTracker:
+def get_performance_tracker(
+    initial_balance: Optional[Decimal] = None,
+) -> PerformanceTracker:
     """Get or create performance tracker instance"""
     global _performance_tracker
     if _performance_tracker is None:
-        balance = initial_balance or Decimal("10000")
+        # `is None`, not `or`: an explicit Decimal(0) must not silently fall
+        # back to the configured default.
+        balance = (
+            initial_balance
+            if initial_balance is not None
+            else _default_initial_balance()
+        )
         _performance_tracker = PerformanceTracker(initial_balance=balance)
     return _performance_tracker
 

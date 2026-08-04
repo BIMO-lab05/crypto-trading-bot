@@ -101,7 +101,12 @@ function handleMessage(msg) {
     applyTickersToCache(queryClientRef, msg.data.tickers)
   }
   if (msg.data.portfolio) {
-    queryClientRef.setQueryData(['portfolio'], msg.data.portfolio)
+    // Do NOT write msg.data.portfolio into the ['portfolio'] cache directly:
+    // the WS envelope's portfolio payload has a different shape than the
+    // GET /api/portfolio REST response, and overwriting the cache with it
+    // corrupts every consumer of usePortfolio(). Instead, invalidate the
+    // query so react-query refetches the canonical REST shape.
+    queryClientRef.invalidateQueries({ queryKey: ['portfolio'] })
   }
 }
 

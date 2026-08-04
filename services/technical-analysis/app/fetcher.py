@@ -5,12 +5,46 @@ Purpose: Fetch kline data from Market Data Service
 
 import httpx
 import logging
+import time
 from typing import List, Dict, Any, Optional
+import numpy as np
 import pandas as pd
 from app.config import get_settings
 from app.models import Kline
 
 logger = logging.getLogger(__name__)
+
+# Market-data stores daily/weekly/monthly candles under Bybit's letter
+# intervals ("D"/"W"/"M"), never under their minute equivalents. Callers
+# (multi-timeframe, strategy configs) sometimes pass minutes — normalize
+# before querying or the DB lookup silently returns 0 rows.
+_INTERVAL_ALIASES = {
+    "1440": "D",    # daily
+    "10080": "W",   # weekly
+    "43200": "M",   # monthly (approximate)
+}
+
+# Max absolute log-return per bar; anything above is treated as corrupt data
+# (testnet pollution, bad prints). 0.35 ≈ 42% up / 30% down in one bar.
+MAX_ABS_LOG_RETURN = 0.35
+
+# Minimum number of validated candles needed for meaningful TA output.
+MIN_VALID_ROWS = 30
+
+
+def normalize_interval(interval: str) -> str:
+    """Map minute-denominated aliases (1440/10080/43200) to D/W/M."""
+    return _INTERVAL_ALIASES.get(str(interval), str(interval))
+
+
+def _interval_ms(interval: str) -> int:
+    """Interval duration in milliseconds (for still-forming candle check)."""
+    interval = normalize_interval(interval)
+    if interval.isdigit():
+        minutes = int(interval)
+    else:
+        minutes = {"D": 1440, "W": 10080, "M": 43200}.get(interval.upper(), 60)
+    return minutes * 60 * 1000
 
 
 class MarketDataFetcher:
@@ -63,9 +97,18 @@ class MarketDataFetcher:
             Exception if fetch fails
         """
         try:
+            # Normalize minute-denominated aliases (1440 -> D, 10080 -> W):
+            # market-data stores daily/weekly candles under the letter codes.
+            interval = normalize_interval(interval)
+
             params = {
                 "interval": interval,
-                "limit": limit
+                "limit": limit,
+                # Explicitly request mainnet-only rows. The market-data
+                # endpoint defaults to True, but being explicit protects
+                # against a future default change re-introducing testnet
+                # pollution into TA inputs.
+                "mainnet_only": "true"
             }
 
             response = await self.client.get(
@@ -120,16 +163,83 @@ class MarketDataFetcher:
 
         Returns:
             DataFrame with columns: timestamp, open, high, low, close, volume
+
+        Raises:
+            ValueError: if fewer than MIN_VALID_ROWS (30) valid candles
+                remain after validation — callers should surface this as an
+                error instead of computing indicators on garbage.
         """
+        interval = normalize_interval(interval)
         klines = await self.get_klines(symbol, interval, limit)
 
         if not klines:
-            return pd.DataFrame()
+            raise ValueError(
+                f"No kline data available for {symbol} ({interval}); "
+                f"cannot compute technical analysis"
+            )
 
         # Convert to DataFrame
         df = pd.DataFrame([k.model_dump() for k in klines])
 
+        # ------------------------------------------------------------------
+        # Candle validation (audit 2026-07): protect indicators from corrupt
+        # or partial data.
+        # ------------------------------------------------------------------
+        n_initial = len(df)
+
+        # (b1) Structurally invalid candles: low > high, or non-positive OHLC.
+        valid_mask = (
+            (df['low'] <= df['high'])
+            & (df['open'] > 0)
+            & (df['high'] > 0)
+            & (df['low'] > 0)
+            & (df['close'] > 0)
+        )
+        n_invalid = int((~valid_mask).sum())
+        if n_invalid:
+            logger.warning(
+                f"Dropped {n_invalid} structurally invalid candle(s) for "
+                f"{symbol} ({interval}): low>high or OHLC<=0"
+            )
+            df = df[valid_mask]
+
+        # (b2) Corrupt jumps: |ln(close/prev_close)| > 0.35 (35% per bar) is
+        # not a plausible single-bar move for the traded universe — treat as
+        # data corruption (e.g. testnet pollution) and drop the offending row.
+        if len(df) > 1:
+            log_ret = np.log(df['close'] / df['close'].shift(1)).abs()
+            jump_mask = log_ret > MAX_ABS_LOG_RETURN
+            n_jumps = int(jump_mask.sum())
+            if n_jumps:
+                logger.warning(
+                    f"Dropped {n_jumps} corrupt candle(s) for {symbol} "
+                    f"({interval}): |log return| > {MAX_ABS_LOG_RETURN}"
+                )
+                df = df[~jump_mask.fillna(False)]
+
+        # (c) Drop the last row if its candle is still forming
+        # (timestamp + interval > now): partial candles skew indicators.
+        if len(df) > 0:
+            now_ms = int(time.time() * 1000)
+            last_ts = int(df['timestamp'].iloc[-1])
+            if last_ts + _interval_ms(interval) > now_ms:
+                logger.debug(
+                    f"Dropped still-forming last candle for {symbol} "
+                    f"({interval})"
+                )
+                df = df.iloc[:-1]
+
+        # (d) Refuse to compute indicators on too little data.
+        if len(df) < MIN_VALID_ROWS:
+            raise ValueError(
+                f"Only {len(df)} valid candles remain for {symbol} "
+                f"({interval}) after validation (started with {n_initial}, "
+                f"need >= {MIN_VALID_ROWS}); refusing to compute indicators "
+                f"on insufficient data"
+            )
+
         # Set timestamp as index for time-series operations
+        df = df.copy()
         df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
         df.set_index('datetime', inplace=True)
 

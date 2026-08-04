@@ -41,10 +41,16 @@ from typing import Any
 import requests
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+# Phase 6 (DASH-01) shipped in v1.0 and was archived under
+# .planning/milestones/v1.0-phases/ at v1.1 cutover (commit d1daa1a).
+# AUDIT-01 (Phase 16, 2026-05-23) restored the file to the archive path
+# and updated this reference. The artifact is frozen — its verdicts pin the
+# v1.0 regression gate and are not re-edited.
 _AUDIT_JSON = (
     _REPO_ROOT
     / ".planning"
-    / "phases"
+    / "milestones"
+    / "v1.0-phases"
     / "06-dashboard-audit-safety-state"
     / "06-TILE-AUDIT.json"
 )

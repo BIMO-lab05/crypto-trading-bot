@@ -15,8 +15,10 @@ from app.models import (
     OrderStatus,
     OrderSide,
     PositionSide,
+    PositionStatus,
 )
-from app.position_manager import get_position_manager
+from app.position_manager import get_position_manager, _as_utc
+from app.paper_slippage import build_slippage_model
 from app.risk_manager import get_risk_manager
 from app.repositories import get_trade_repository, get_portfolio_repository
 
@@ -52,8 +54,18 @@ class PaperTradingEngine:
     1. Virtual account balance
     2. Simulated order execution
     3. Commission simulation
-    4. Position tracking
-    5. Balance sync with database positions on startup
+    4. Per-symbol slippage simulation (PAPER-01)
+    5. Position tracking
+    6. Balance sync with database positions on startup
+
+    Fill semantics (2026-08-03, PAPER-01): fills are no longer frictionless.
+    Every market order fills at an adverse, per-symbol, tick-quantized price —
+    BUY pays up, SELL gets less — so entry and exit both cost, for LONG and
+    SHORT alike. The per-symbol basis-point figures and the sourcing for each
+    (tick-derived half-spread floor, plus a taker-impact/latency allowance
+    that is an ESTIMATE needing calibration) are documented in
+    ``app/paper_slippage.py``. This supersedes the zero-slippage half of
+    ADR-011; that ADR needs amending.
     """
 
     def __init__(self):
@@ -64,6 +76,7 @@ class PaperTradingEngine:
             self.initial_balance
         )  # Will be adjusted in sync_balance_with_positions
         self.commission_pct = Decimal(str(self.settings.paper_commission_pct / 100))
+        self.slippage = build_slippage_model(self.settings)
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
 
@@ -74,31 +87,98 @@ class PaperTradingEngine:
         logger.info("Paper Trading Engine initialized")
         logger.info(f"  Initial balance: ${self.initial_balance}")
         logger.info(f"  Commission: {self.settings.paper_commission_pct}%")
+        logger.info(f"  Slippage: {self.slippage.describe()}")
         logger.info("  Database persistence: ENABLED")
 
-    def sync_balance_with_positions(self):
+    def _open_position_cost(self, positions) -> Decimal:
+        """Margin + commission actually debited when these positions opened."""
+        leverage = Decimal(str(self.settings.default_leverage))
+        total = Decimal("0")
+        for pos in positions:
+            qty = (
+                pos.remaining_quantity
+                if pos.remaining_quantity is not None
+                else pos.quantity
+            )
+            position_value = pos.entry_price * qty
+            total += (position_value / leverage) + (
+                position_value * self.commission_pct
+            )
+        return total
+
+    async def sync_balance_with_positions(self):
         """
-        Sync cash balance with open positions loaded from database.
-        Call this after positions are loaded from database to deduct their cost.
+        Restore cash balance after a restart.
+
+        FIX 2026-07-28: deduct MARGIN (notional / leverage) + commission, matching
+        the open-leg accounting in execute_market_order. Previously this deducted
+        full notional, so every restart with open positions understated cash.
+
+        FIX 2026-07-31 (audit DL-2): the previous form was
+        `initial_balance - open_position_cost`, which reconstructs cash from par
+        and therefore discards every realized P&L and every commission ever paid
+        on a closed leg. Measured across the 14:26 restart with zero trades in
+        between, it invented $2.78 out of nothing -- exactly realized P&L plus
+        the commissions of the two closed legs. Because auto_trader seeds the
+        kill switch from this number, a drawdown breaker approaching its
+        threshold was quietly re-armed toward par by any restart or crash-loop.
+
+        The persisted `portfolios.cash_balance` is the true running ledger, but
+        it is written only on position *close* (position_manager.close_position),
+        never on open. So it is accurate as of `portfolios.updated_at`, and any
+        position opened after that timestamp has had its margin debited in
+        memory but never persisted. Reconstruct as:
+
+            cash_balance - cost(positions opened after portfolios.updated_at)
         """
         open_positions = self.position_manager.get_open_positions()
-        if not open_positions:
-            logger.info("No open positions to sync balance with")
+
+        portfolio = None
+        try:
+            portfolio = await self.portfolio_repo.get_or_create(
+                portfolio_id="paper_trading"
+            )
+        except Exception as exc:
+            logger.error(f"Could not read persisted portfolio balance: {exc}")
+
+        if portfolio is None or portfolio.cash_balance is None:
+            # Degrade to the old reconstruction, but never silently -- this
+            # path fabricates cash and the operator needs to know it ran.
+            self.balance = self.initial_balance - self._open_position_cost(
+                open_positions
+            )
+            logger.error(
+                "⚠️  Falling back to reconstructing cash from initial_balance; "
+                "realized P&L and past commissions are NOT reflected. "
+                f"Balance set to ${self.balance:.2f}"
+            )
             return
 
-        # Calculate total cost of open positions (entry price * quantity + commission)
-        total_position_cost = Decimal("0")
-        for pos in open_positions:
-            position_value = pos.entry_price * pos.quantity
-            commission = position_value * self.commission_pct
-            total_position_cost += position_value + commission
+        persisted_cash = Decimal(str(portfolio.cash_balance))
+        last_write = _as_utc(portfolio.updated_at)
 
-        # Adjust balance
-        self.balance = self.initial_balance - total_position_cost
+        # Only positions opened after the last persisted write still owe their
+        # margin against that figure; anything older is already reflected in it.
+        unpersisted = [
+            pos
+            for pos in open_positions
+            if last_write is None
+            or (pos.opened_at is not None and _as_utc(pos.opened_at) > last_write)
+        ]
+        unpersisted_cost = self._open_position_cost(unpersisted)
+        self.balance = persisted_cash - unpersisted_cost
 
-        logger.info(f"Balance synced with {len(open_positions)} open positions:")
-        logger.info(f"  Total position cost: ${total_position_cost:.2f}")
-        logger.info(f"  Adjusted balance: ${self.balance:.2f}")
+        logger.info(
+            f"Balance restored from persisted ledger: ${persisted_cash:.2f} "
+            f"(as of {last_write})"
+        )
+        logger.info(
+            f"  Open positions: {len(open_positions)}, "
+            f"of which opened after last write: {len(unpersisted)}"
+        )
+        if unpersisted:
+            logger.info(f"  Unpersisted margin + commission: ${unpersisted_cost:.2f}")
+        logger.info(f"  Restored balance: ${self.balance:.2f}")
 
     def get_balance(self) -> Decimal:
         """Get current account balance"""
@@ -127,7 +207,7 @@ class PaperTradingEngine:
 
         Args:
             order: Order to execute
-            current_price: Current market price
+            current_price: Reference market price (the ticker, NOT the fill)
 
         Returns:
             Tuple of (executed_order, error_message)
@@ -136,212 +216,260 @@ class PaperTradingEngine:
             f"Executing paper market order: {order.side.value} {order.quantity} {order.symbol} @ {current_price}"
         )
 
-        # Calculate order value
-        order_value = current_price * order.quantity
+        # ====================================================================
+        # REWRITTEN 2026-07-28 (accounting audit):
+        #   * Closes credit margin_returned + realized_pnl - commission for BOTH
+        #     sides (previously SHORT closes credited close-notional — a winning
+        #     short REDUCED the balance — and leveraged LONG closes credited
+        #     full notional while opens deducted margin only).
+        #   * reduce_only is honored: a reduce-only order with no matching open
+        #     position is REJECTED instead of silently opening an opposite
+        #     position (this was flipping every stop-loss exit into a brand-new
+        #     counter-trade).
+        #   * order.position_id targets a specific position (no more
+        #     open_positions[0] guesswork).
+        #   * Partial closes are supported: an order for less than the
+        #     remaining quantity reduces the position and credits
+        #     proportional margin + P&L.
+        #   * Same-side order with explicit position_id scales INTO the
+        #     position (DCA averaging) instead of opening a duplicate.
+        # ====================================================================
+        # ====================================================================
+        # SLIPPAGE (PAPER-01, 2026-08-03)
+        #
+        # `current_price` is the reference ticker; `fill_price` is what the
+        # order actually gets. Resolved ONCE here and used for every price
+        # downstream — notional, commission, filled_price, realized P&L, the
+        # price handed to position_manager, and the trade log. If any of those
+        # kept using `current_price`, the model would be wired but never bite:
+        # get_performance_summary() reads realized P&L off the *positions*, so
+        # a fill price that stops at the cash ledger changes nothing reported.
+        # The only surviving uses of `current_price` below are log strings.
+        # ====================================================================
+        fill_price = self.slippage.fill_price(order.symbol, order.side, current_price)
 
-        # Calculate commission
+        order_value = fill_price * order.quantity
         commission = self.calculate_commission(order_value)
+        leverage = Decimal(str(self.settings.default_leverage))
 
-        # Create order object
         executed_order = Order(
             **order.model_dump(),
             status=OrderStatus.FILLED,
-            filled_price=current_price,
+            filled_price=fill_price,
             filled_quantity=order.quantity,
             bybit_order_id=f"PAPER_{order.symbol}_{order.side.value}",
         )
 
-        # Handle BUY order
-        if order.side == OrderSide.BUY:
-            # Check if we have an open SHORT position to close (2025-12-03)
-            open_short_positions = [
-                pos
-                for pos in self.position_manager.get_open_positions()
-                if pos.symbol == order.symbol and pos.side == PositionSide.SHORT
-            ]
+        # Side that this order would CLOSE (SELL closes LONG, BUY closes SHORT)
+        close_side = (
+            PositionSide.LONG if order.side == OrderSide.SELL else PositionSide.SHORT
+        )
+        open_side = (
+            PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
+        )
 
-            if open_short_positions:
-                # Close SHORT position
-                position = open_short_positions[0]
-                closed_position = self.position_manager.close_position(
-                    position.id, current_price, reason="Market buy order (SHORT close)"
-                )
-
-                # Add proceeds to balance
-                proceeds = order_value - commission
-                self.balance += proceeds
-
-                executed_order.position_id = closed_position.id
-
-                logger.info(
-                    f"✓ SHORT closed: {order.quantity} {order.symbol} @ {current_price} | "
-                    f"Proceeds: ${proceeds} | P&L: ${closed_position.realized_pnl} | Balance: ${self.balance}"
-                )
-
-                _spawn_trade_log(
-                    self.trade_repo.log_trade(
-                        position_id=closed_position.id,
-                        portfolio_id="paper_trading",
-                        symbol=order.symbol,
-                        side="BUY",
-                        quantity=order.quantity,
-                        price=current_price,
-                        commission=commission,
-                        strategy=order.strategy,
-                        signal_confidence=order.entry_signal_confidence,
-                        realized_pnl=closed_position.realized_pnl,
-                    )
-                )
-
-                return executed_order, None
-
-            # No SHORT position - open a LONG position (2025-12-18 FIX)
-            # For leveraged LONG positions, only deduct margin (position_value / leverage) not full value
-            leverage = Decimal(str(self.settings.default_leverage))
-            margin_required = order_value / leverage
-            total_cost = margin_required + commission
-
-            # Check if sufficient balance
-            if total_cost > self.balance:
+        # ---- Resolve the target position ------------------------------------
+        target = None
+        if order.position_id is not None:
+            pos = self.position_manager.get_position(order.position_id)
+            if pos is not None and pos.status == PositionStatus.OPEN:
+                target = pos
+            elif order.reduce_only:
                 error_msg = (
-                    f"Insufficient balance: need ${total_cost}, have ${self.balance}"
+                    f"Reduce-only order rejected: position {order.position_id} "
+                    f"not found or not open"
                 )
                 logger.warning(error_msg)
                 executed_order.status = OrderStatus.FAILED
                 return executed_order, error_msg
 
-            # Deduct margin requirement from balance
-            self.balance -= total_cost
-            logger.debug(
-                f"LONG margin calculation: order_value=${order_value}, leverage={leverage}x, margin=${margin_required}, commission=${commission}"
-            )
-
-            # Create LONG position
-            position = self.position_manager.create_position(
-                symbol=order.symbol,
-                side=PositionSide.LONG,
-                entry_price=current_price,
-                quantity=order.quantity,
-                strategy=order.strategy,
-                # CRITICAL FIX 2025-12-07: Save entry signal confidence
-                entry_signal_confidence=order.entry_signal_confidence,
-            )
-
-            executed_order.position_id = position.id
-
-            logger.info(
-                f"✓ LONG opened: {order.quantity} {order.symbol} @ {current_price} | "
-                f"Position: ${order_value} | Margin: ${margin_required} ({leverage}x leverage) + Commission: ${commission} | "
-                f"Balance: ${self.balance}"
-            )
-
-            # Log trade to database (async, errors surfaced via done-callback)
-            _spawn_trade_log(
-                self.trade_repo.log_trade(
-                    position_id=position.id,
-                    portfolio_id="paper_trading",
-                    symbol=order.symbol,
-                    side="BUY",
-                    quantity=order.quantity,
-                    price=current_price,
-                    commission=commission,
-                    strategy=order.strategy,
-                    signal_confidence=order.entry_signal_confidence,
-                )
-            )
-
-        # Handle SELL order
-        elif order.side == OrderSide.SELL:
-            # Check if we have an open LONG position to close
-            open_long_positions = [
+        if target is None:
+            candidates = [
                 pos
                 for pos in self.position_manager.get_open_positions()
-                if pos.symbol == order.symbol and pos.side == PositionSide.LONG
+                if pos.symbol == order.symbol and pos.side == close_side
             ]
+            if candidates:
+                target = candidates[0]
 
-            if not open_long_positions:
-                # No LONG position - open a SHORT position instead (2025-12-03)
-                logger.info(
-                    f"No LONG position for {order.symbol}, opening SHORT position"
+        # ---- CLOSE / REDUCE path --------------------------------------------
+        if target is not None and target.side == close_side:
+            qty_open = (
+                target.remaining_quantity
+                if target.remaining_quantity is not None
+                else target.quantity
+            )
+            close_qty = min(order.quantity, qty_open)
+            if close_qty <= 0:
+                error_msg = f"Nothing to close on position {target.id}"
+                logger.warning(error_msg)
+                executed_order.status = OrderStatus.FAILED
+                return executed_order, error_msg
+
+            close_value = fill_price * close_qty
+            close_commission = self.calculate_commission(close_value)
+
+            # Price-based P&L on the quantity actually closed, at the SLIPPED
+            # exit price. A SELL close fills below the ticker and a BUY close
+            # (covering a short) fills above it, so the exit costs on both
+            # sides — the SHORT leg is the one this repo has inverted before.
+            if target.side == PositionSide.LONG:
+                realized_pnl = (fill_price - target.entry_price) * close_qty
+            else:  # SHORT
+                realized_pnl = (target.entry_price - fill_price) * close_qty
+
+            # Margin posted at open for this quantity, now returned
+            margin_returned = (target.entry_price * close_qty) / leverage
+
+            self.balance += margin_returned + realized_pnl - close_commission
+
+            full_close = close_qty >= qty_open
+            if full_close:
+                closed_position = self.position_manager.close_position(
+                    target.id,
+                    fill_price,
+                    reason=f"Market {order.side.value.lower()} order "
+                    f"({target.side.value} close)"
+                    + (f" [{order.strategy}]" if order.strategy else ""),
                 )
-
-                # Deduct margin requirement from balance (2025-12-18 FIX)
-                # For leveraged SHORT positions, only deduct margin (position_value / leverage) not full value
-                leverage = Decimal(str(self.settings.default_leverage))
-                margin_required = order_value / leverage
-                self.balance -= margin_required + commission
-                logger.debug(
-                    f"SHORT margin calculation: order_value=${order_value}, leverage={leverage}x, margin=${margin_required}, commission=${commission}"
+                executed_order.position_id = closed_position.id
+            else:
+                self.position_manager.reduce_position(
+                    target.id, close_qty, fill_price, realized_pnl
                 )
+                executed_order.position_id = target.id
 
-                # Open SHORT position (same as LONG but with SHORT side)
-                position = self.position_manager.create_position(
+            executed_order.filled_quantity = close_qty
+
+            logger.info(
+                f"✓ {target.side.value} {'closed' if full_close else 'reduced'}: "
+                f"{close_qty} {order.symbol} @ {fill_price} "
+                f"(ref {current_price}) | "
+                f"Margin returned: ${margin_returned:.4f} | P&L: ${realized_pnl:.4f} | "
+                f"Commission: ${close_commission:.4f} | Balance: ${self.balance:.4f}"
+            )
+
+            _spawn_trade_log(
+                self.trade_repo.log_trade(
+                    position_id=target.id,
+                    portfolio_id="paper_trading",
                     symbol=order.symbol,
-                    side=PositionSide.SHORT,
-                    entry_price=current_price,
-                    quantity=order.quantity,
+                    side=order.side.value,
+                    quantity=close_qty,
+                    price=fill_price,
+                    commission=close_commission,
                     strategy=order.strategy,
-                    entry_signal_confidence=order.entry_signal_confidence,
+                    signal_confidence=order.entry_signal_confidence,
+                    realized_pnl=realized_pnl,
                 )
+            )
+            return executed_order, None
 
-                executed_order.position_id = position.id
+        # ---- Reduce-only with nothing to reduce → REJECT (never flip) -------
+        if order.reduce_only:
+            error_msg = (
+                f"Reduce-only {order.side.value} for {order.symbol} rejected: "
+                f"no open {close_side.value} position to reduce"
+            )
+            logger.warning(error_msg)
+            executed_order.status = OrderStatus.FAILED
+            return executed_order, error_msg
+
+        # ---- SCALE-IN path (same-side position explicitly targeted) ---------
+        if order.position_id is not None:
+            pos = self.position_manager.get_position(order.position_id)
+            if (
+                pos is not None
+                and pos.status == PositionStatus.OPEN
+                and pos.side == open_side
+                and pos.symbol == order.symbol
+            ):
+                margin_required = order_value / leverage
+                total_cost = margin_required + commission
+                if total_cost > self.balance:
+                    error_msg = (
+                        f"Insufficient balance for scale-in: need ${total_cost}, "
+                        f"have ${self.balance}"
+                    )
+                    logger.warning(error_msg)
+                    executed_order.status = OrderStatus.FAILED
+                    return executed_order, error_msg
+
+                self.balance -= total_cost
+                self.position_manager.scale_in(pos.id, order.quantity, fill_price)
+                executed_order.position_id = pos.id
 
                 logger.info(
-                    f"✓ SHORT opened: {order.quantity} {order.symbol} @ {current_price} | "
-                    f"Position: ${order_value} | Margin: ${margin_required} ({leverage}x leverage) + Commission: ${commission} | "
-                    f"Balance: ${self.balance}"
+                    f"✓ {pos.side.value} scaled in: +{order.quantity} {order.symbol} "
+                    f"@ {fill_price} (ref {current_price}) | "
+                    f"New avg entry: {pos.entry_price} | "
+                    f"Balance: ${self.balance:.4f}"
                 )
 
                 _spawn_trade_log(
                     self.trade_repo.log_trade(
-                        position_id=position.id,
+                        position_id=pos.id,
                         portfolio_id="paper_trading",
                         symbol=order.symbol,
-                        side="SELL",
+                        side=order.side.value,
                         quantity=order.quantity,
-                        price=current_price,
+                        price=fill_price,
                         commission=commission,
                         strategy=order.strategy,
                         signal_confidence=order.entry_signal_confidence,
                     )
                 )
-
                 return executed_order, None
 
-            # Close the LONG position
-            position = open_long_positions[0]
-            closed_position = self.position_manager.close_position(
-                position.id, current_price, reason="Market sell order"
+        # ---- OPEN path -------------------------------------------------------
+        margin_required = order_value / leverage
+        total_cost = margin_required + commission
+
+        if total_cost > self.balance:
+            error_msg = (
+                f"Insufficient balance: need ${total_cost}, have ${self.balance}"
             )
+            logger.warning(error_msg)
+            executed_order.status = OrderStatus.FAILED
+            return executed_order, error_msg
 
-            # Add proceeds to balance (minus commission)
-            proceeds = order_value - commission
-            self.balance += proceeds
+        self.balance -= total_cost
+        logger.debug(
+            f"{open_side.value} margin calculation: order_value=${order_value}, "
+            f"leverage={leverage}x, margin=${margin_required}, commission=${commission}"
+        )
 
-            executed_order.position_id = closed_position.id
+        position = self.position_manager.create_position(
+            symbol=order.symbol,
+            side=open_side,
+            entry_price=fill_price,
+            quantity=order.quantity,
+            strategy=order.strategy,
+            entry_signal_confidence=order.entry_signal_confidence,
+        )
 
-            logger.info(
-                f"✓ SELL order filled: {order.quantity} {order.symbol} @ {current_price} | "
-                f"Proceeds: ${order_value} - Commission: ${commission} = ${proceeds} | "
-                f"P&L: ${closed_position.realized_pnl} | "
-                f"Balance: ${self.balance}"
+        executed_order.position_id = position.id
+
+        logger.info(
+            f"✓ {open_side.value} opened: {order.quantity} {order.symbol} "
+            f"@ {fill_price} (ref {current_price}) | "
+            f"Position: ${order_value} | Margin: ${margin_required} ({leverage}x leverage) "
+            f"+ Commission: ${commission} | Balance: ${self.balance}"
+        )
+
+        _spawn_trade_log(
+            self.trade_repo.log_trade(
+                position_id=position.id,
+                portfolio_id="paper_trading",
+                symbol=order.symbol,
+                side=order.side.value,
+                quantity=order.quantity,
+                price=fill_price,
+                commission=commission,
+                strategy=order.strategy,
+                signal_confidence=order.entry_signal_confidence,
             )
-
-            # Log trade to database (async, errors surfaced via done-callback)
-            _spawn_trade_log(
-                self.trade_repo.log_trade(
-                    position_id=closed_position.id,
-                    portfolio_id="paper_trading",
-                    symbol=order.symbol,
-                    side="SELL",
-                    quantity=order.quantity,
-                    price=current_price,
-                    commission=commission,
-                    strategy=order.strategy,
-                    signal_confidence=order.entry_signal_confidence,
-                    realized_pnl=closed_position.realized_pnl,
-                )
-            )
+        )
 
         return executed_order, None
 

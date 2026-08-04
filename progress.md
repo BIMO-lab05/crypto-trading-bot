@@ -752,3 +752,82 @@ this session:
 **Project rules honored:** risk caps, paper-trading flags, validated
 symbols, mainnet-prices contract all untouched. No services were rebuilt
 with regression-prone PR branch code (final stack runs main).
+
+---
+
+## 2026-05-20 — Signal-aggregator math fix: 5+ months zero fills resolved (live in container, not committed)
+
+### Symptom
+
+User report: "bot getting wrong trading signals." Reality: `total_trades_executed=0` for 5+ months despite signals computing every 30s. Auto-trader armed, kill-switch absent, CB closed, stack healthy.
+
+### Root cause
+
+Confidence metric in the aggregator was structurally bounded:
+`confidence = |Σ(direction × indicator_conf × weight) / Σ(weight)|`
+
+In an 8-indicator basket, even *unanimous* agreement at avg indicator-conf 0.5 caps confidence at ~0.5. A realistic 5-3 split with avg conf 0.4 gives ~0.13. The 0.30 `min_confidence` floor (raised 2026-05-15, commit `b53a0ae`, after a 25-trade / 0-winners run at 0.20 floor — n=25 = statistical noise, not signal) was therefore *unreachable* regardless of voting strength.
+
+Compounding: `risk_manager.min_signal_confidence` was set to 0.40 in 2026-02-25 to "sync with aggregator" *when aggregator was higher*; never updated after the May-15 raise. Implicit cascade break.
+
+### Fixes applied (live via docker cp, host source updated, NOT committed)
+
+1. **`config.py:391`** — `min_signal_confidence: 0.40 → 0.30` to match the aggregator floor after the May-15 raise.
+2. **`voter.py`** — Added `compute_agreement_confidence(voting_indicators, action)`:
+   `Σ(weight_i × conf_i for i agreeing with action) / Σ(total weight)`. Range [0, 1], realistic distribution 0.3–0.8 — distinguishes weak agreement from strong agreement, which `|weighted_score|` could not.
+3. **`aggregator_core.py` STEP 3** — For non-HOLD action, override the legacy confidence with the new agreement metric. HOLD path unchanged (`1 - |score|` keeps the "high conf = strong no-trade view" semantics).
+4. **`tests/unit/test_voter.py`** — 8 new test cases for `compute_agreement_confidence` (unanimous, majority, minority, HOLD passthrough, empty, weighted-indicator dominance, unit-interval clamp, 0.30-floor reachability). All 21 voter tests pass; 46 pre-existing tests skip (PR #86 refactor, unrelated).
+
+### Live evidence (post-deploy, 1 hour)
+
+- 2932 signal checks. **0 BUY/SELL fired.**
+- Peak agreement conf: **0.26** (post-cascade ~0.23 after volume 0.95× + multi-tf weak 0.90×).
+- Regime distribution: 255 STRONG_TREND, 357 RANGING, 153 WEAK_TREND, 1010 WEAK timeframe-alignment.
+- Even in STRONG_TREND samples, agreement didn't peak above 0.26.
+
+### Interpretation
+
+New metric is producing realistic distribution; bot still HOLDs because *current market regime genuinely lacks strong agreement* (5 SELL / 1 BUY / 2 HOLD avg conf ~0.4 typical sample). The 0.30 floor may also be too tight for the new metric distribution (advisor warned: don't re-tune after 3 min of one regime). Decision pending: wait 24-48 h across regime shifts before any threshold tuning.
+
+### Open follow-ups
+
+1. **Cascade penalty interaction with new metric.** Volume validator `INSUFFICIENT` → 0.95×; regime RANGING → 0.80×; multi-tf WEAK → 0.90×. Combined 0.684× shaves agreement signals by ~32%. Was irrelevant with the broken metric; now the next thing to investigate.
+2. **Production-aggregator backtest harness.** `backtesting/strategies/multi_indicator_strategy.py` is standalone (own RSI/MACD/BB with different params). Does not exercise `CoreAggregator`. Build a backtest module that wires the production aggregator so future signal-aggregator changes can be gated by walk-forward DSR per the trading-strategy-dev skill's acceptance gate.
+3. **May-7 "25 trades / 0 winners / -$0.78"** is still unexplained. Could be sample noise (n=25); could be a real no-edge problem with the rule-based legs. Needs more fills + measurement, not threshold gymnastics.
+
+### What this is NOT
+
+Not "profitable trades today." Not even one fill yet. The structural blocker is gone — when the market shows real conviction, the bot will trade. Whether those trades are profitable is a separate measurement question that needs days, not hours, and a real production-aggregator backtest harness.
+
+### Project rules honoured
+
+- Risk caps untouched. Paper-trading mode unchanged. Live trading gates unchanged.
+- Validated symbols (5: BTC/ETH/SOL/BNB/ADA) unchanged.
+- No commit yet — user holds the call per CLAUDE.md "commit in logical chunks, propose grouping before each commit and wait for approval."
+
+---
+
+## 2026-08-04 (PM) — Full-state assessment, doc archive executed, stale-image redeploy
+
+### Assessment (4 parallel investigators, workflow wf_09975185-4d8)
+
+1. **Capital residue** (post-2026-08-03 audit): P0 order-path still clean. All 8 recovery-plan P1 tasks verified landed. NEW runtime finds the audit missed: `advanced_metrics.py:724/:2852` singleton defaults $10,000, never seeded, feeds 8 live analytics endpoints (same defect class as fixed A1); orchestration stack pinned $100k (`orchestration/models.py:678`, `risk_coordinator.py:241-244`, zero external callers); frontend live fallbacks `usePerformanceMetrics.js:283`, `useChartData.js:112`, `EquityCurveChart.jsx:211`, `PerformanceDashboard.jsx:302` all hardcode 10000 while `balance.js` exports `PAPER_DEFAULT_BALANCE=100`.
+2. **Trading performance** (postgres + engine API, gross of slippage): realized −$8.77 on $100 since 2026-07-29; 11 closed positions, 18.2% win rate; 5 stop-loss exits −$7.43; fees $1.79 on ~$1,787 volume (17.9× account turnover in 6 days). **Cap violation live**: entries $33.5–$95.8 notional vs $10 documented cap; concurrent open notional peaked ~$328 (~229 later) vs 80% exposure rail — paper engine never debits cash for notional, so exposure checks have no basis. Running image built 2026-08-01, i.e. BEFORE F-1 (`d5d31c6`), F-2 (`1c21eac`), slippage (`fb45efe`).
+3. **Containers**: nothing crashing — 17 up, RestartCount 0; problem is staleness (restarted, never recreated) + unbounded logs (market-data json 889 MB in 4 days; bind-mounted service.log: portfolio-manager 1.08 GiB, api-gateway 913 MiB). `/ready` 404 on api-gateway + portfolio-manager — routes don't exist in source (CLAUDE.md §3 overclaims). portfolio-manager reports `database_connection:false`, snapshot equity stale.
+4. **Docs**: 1,191 md files; triage from 2026-08-03 was complete but unexecuted.
+
+### Actions taken this session
+
+- `touch safety/EMERGENCY_STOP` — auto-trader paused before maintenance (was ACTIVE, sizing 33–96%/trade on stale image).
+- Executed `.planning/audits/2026-08-03-doc-archive-plan.sh` after review: 73 files → `docs/archive/2026-08-03/`, 8 conventional commits (`3feaa1e`..`7bd40ea`), root md count 6 → 4. Script behaved exactly as banner promised (git mv only, no deletions).
+- `docker-compose.unified.yml`: added `x-logging` anchor, `logging: *default-logging` (json-file 50m×3) to all 18 services.
+- `services/trading-engine/.dockerignore`: dropped `tests/standalone/` exclusion (OP-15 resolved — accounting harness stays in image).
+- Removed 3 dead failed-build orphan containers (amazing_mcclintock, peaceful_mccarthy, thirsty_hellman).
+- Rebuild dispatched: `DOCKER_BUILDKIT=0 docker compose -f docker-compose.unified.yml up -d --build trading-engine api-gateway market-data bybit-connector risk-metrics` (deploys F-1/F-2/slippage/auth/capital fixes; applies log caps).
+
+### Blocked / operator-needed
+
+- OP-13: `sudo chown $USER:$USER .planning/state/carry_ins.json` (uid 999, mode 600 — aborts whole-tree git diff).
+- Truncate bind-mounted logs (denied to agent): `: > services/portfolio-manager/logs/service.log; : > services/api-gateway/logs/service.log` (~2 GiB).
+- Post-rebuild incident: dashboard 502s — frontend nginx cached stale api-gateway container IP after recreate. Fixed with `docker restart crypto-bot-frontend`; all routes 200. Permanent fix queued: nginx `resolver 127.0.0.11` + variable proxy_pass.
+- Trading resumed 16:00Z (operator approved): kill switch cleared, auto-trader running, rejections logging reasons (regime hard-block observed), boot log shows $100.00 capital, slippage manager active.

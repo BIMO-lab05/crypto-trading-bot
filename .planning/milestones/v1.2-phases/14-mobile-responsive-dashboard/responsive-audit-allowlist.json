@@ -1,0 +1,127 @@
+[
+  {
+    "file": "frontend/src/components/StatusBar.jsx",
+    "line": 127,
+    "reason": "out-of-phase-14-scope; not in 5 reflow surfaces; defer refactor (RESEARCH Pitfall 1)"
+  },
+  {
+    "file": "frontend/src/components/performance/CorrelationHeatmap.jsx",
+    "line": 417,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/DailyPnLChart.jsx",
+    "line": 107,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/DrawdownChart.jsx",
+    "line": 83,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/EquityCurveChart.jsx",
+    "line": 110,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/ReturnsDistribution.jsx",
+    "line": 109,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/PerformanceDashboard/ExportPanel.jsx",
+    "line": 370,
+    "reason": "PDF export inline CSS, not viewport-bound; defer refactor"
+  },
+  {
+    "file": "frontend/src/components/PerformanceDashboard/StrategyAttribution.jsx",
+    "line": 106,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/PerformanceDashboard/StrategyAttribution.jsx",
+    "line": 150,
+    "reason": "out-of-phase-14-scope; performance dashboard subtree, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 205,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 210,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 215,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 220,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 225,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 230,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 235,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 245,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 357,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 358,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 359,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 360,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 361,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 362,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 363,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  },
+  {
+    "file": "frontend/src/components/performance/RecentTrades.jsx",
+    "line": 365,
+    "reason": "out-of-phase-14-scope; performance dashboard table column widths, defer refactor"
+  }
+]

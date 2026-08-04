@@ -23,6 +23,7 @@ from dataclasses import dataclass, asdict
 import numpy as np
 import pandas as pd
 
+from app.config import get_settings
 from app.strategies.pairs_trading import PairsTradingStrategy, PairsTradeSignal
 from app.strategies.funding_rate_arbitrage import FundingRateArbitrageStrategy, FundingRateSignal
 from app.strategies.triangular_arbitrage import TriangularArbitrageStrategy, TriangularArbitrageSignal
@@ -71,7 +72,7 @@ class StatisticalArbitrageManager:
     - Track positions and P&L
 
     Usage:
-        manager = StatisticalArbitrageManager(total_capital=10000.0)
+        manager = StatisticalArbitrageManager(total_capital=100.0)
 
         # Add strategies
         manager.add_pairs_strategy('BTCUSDT', 'ETHUSDT')
@@ -87,7 +88,7 @@ class StatisticalArbitrageManager:
 
     def __init__(
         self,
-        total_capital: float = 10000.0,
+        total_capital: Optional[float] = None,
         allocation: Optional[StrategyAllocation] = None,
         enable_pairs: bool = True,
         enable_funding: bool = True,
@@ -97,12 +98,21 @@ class StatisticalArbitrageManager:
         Initialize Statistical Arbitrage Manager
 
         Args:
-            total_capital: Total capital available for trading
+            total_capital: Total capital available for trading. Defaults to
+                the configured paper-trading balance
+                (PAPER_INITIAL_BALANCE, $100).
             allocation: Capital allocation across strategies
             enable_pairs: Enable pairs trading strategies
             enable_funding: Enable funding rate arbitrage
             enable_triangular: Enable triangular arbitrage
         """
+        # FIX 2026-08-03 (capital audit A2): the default was 10000.0, 100x the
+        # real account. Resolved here rather than in the signature because
+        # Python evaluates parameter defaults at MODULE IMPORT, which would
+        # create an import-time settings dependency and freeze the value.
+        if total_capital is None:
+            total_capital = get_settings().paper_initial_balance
+
         self.total_capital = total_capital
         self.allocation = allocation or StrategyAllocation()
 

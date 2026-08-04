@@ -1,15 +1,45 @@
 {
   "schema_version": 1,
   "carry_ins": [
-    {"id": "OP-01", "state": "open", "closed_at": null, "evidence_path": null, "description": "LIVECLOSE-05 LIVE-flip manual smoke"},
-    {"id": "OP-02", "state": "open", "closed_at": null, "evidence_path": null, "description": "Migration 005 operator action"},
-    {"id": "OP-03", "state": "open", "closed_at": null, "evidence_path": null, "description": "TOURNAMENT_READER_PASSWORD set"},
-    {"id": "OP-04", "state": "open", "closed_at": null, "evidence_path": null, "description": "GH Actions billing resolved"},
-    {"id": "INFRA-02", "state": "open", "closed_at": null, "evidence_path": null, "description": "Fresh-clone bootstrap checkpoint"}
+    {
+      "id": "OP-01",
+      "state": "open",
+      "closed_at": null,
+      "evidence_path": null,
+      "description": "LIVECLOSE-05 LIVE-flip manual smoke"
+    },
+    {
+      "id": "OP-02",
+      "state": "open",
+      "closed_at": null,
+      "evidence_path": null,
+      "description": "Migration 005 operator action"
+    },
+    {
+      "id": "OP-03",
+      "state": "open",
+      "closed_at": null,
+      "evidence_path": null,
+      "description": "TOURNAMENT_READER_PASSWORD set"
+    },
+    {
+      "id": "OP-04",
+      "state": "open",
+      "closed_at": null,
+      "evidence_path": null,
+      "description": "GH Actions billing resolved"
+    },
+    {
+      "id": "INFRA-02",
+      "state": "open",
+      "closed_at": null,
+      "evidence_path": null,
+      "description": "Fresh-clone bootstrap checkpoint"
+    }
   ],
   "_state": {
     "first_all_pass_at": null,
-    "last_evaluated_at": null,
-    "last_overall": "UNKNOWN"
+    "last_evaluated_at": "2026-05-23T00:14:18.598870+00:00",
+    "last_overall": "DO_NOT_FLIP"
   }
 }

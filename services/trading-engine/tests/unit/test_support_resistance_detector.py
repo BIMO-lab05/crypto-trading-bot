@@ -48,7 +48,7 @@ def sample_df_simple():
     """
     np.random.seed(42)  # For reproducibility
 
-    dates = pd.date_range(start='2025-01-01', periods=100, freq='1H')
+    dates = pd.date_range(start='2025-01-01', periods=100, freq='1h')
 
     # Create oscillating price pattern between 95-105
     base_prices = []
@@ -82,7 +82,7 @@ def sample_df_trending():
     """
     np.random.seed(43)
 
-    dates = pd.date_range(start='2025-01-01', periods=150, freq='1H')
+    dates = pd.date_range(start='2025-01-01', periods=150, freq='1h')
 
     # Create uptrending prices with clear S/R levels
     base_prices = []
@@ -121,7 +121,7 @@ def sample_df_volatile():
     """
     np.random.seed(44)
 
-    dates = pd.date_range(start='2025-01-01', periods=200, freq='1H')
+    dates = pd.date_range(start='2025-01-01', periods=200, freq='1h')
 
     # Create volatile random walk
     base_prices = [100]
@@ -199,7 +199,7 @@ class TestSwingDetection:
         """Test swing detection with too few candles"""
         # Create very small dataset (less than 2*swing_window + 1)
         small_df = pd.DataFrame({
-            'timestamp': pd.date_range('2025-01-01', periods=5, freq='1H'),
+            'timestamp': pd.date_range('2025-01-01', periods=5, freq='1h'),
             'high': [100, 101, 102, 101, 100],
             'low': [99, 100, 101, 100, 99],
             'close': [100, 100.5, 101.5, 100.5, 99.5],
@@ -230,7 +230,7 @@ class TestSwingDetection:
         """Test that swing detection properly validates surrounding candles"""
         # Create perfect V-shape for swing low
         df = pd.DataFrame({
-            'timestamp': pd.date_range('2025-01-01', periods=15, freq='1H'),
+            'timestamp': pd.date_range('2025-01-01', periods=15, freq='1h'),
             'high': [105, 104, 103, 102, 101, 100, 99, 98, 99, 100, 101, 102, 103, 104, 105],
             'low': [103, 102, 101, 100, 99, 98, 97, 96, 97, 98, 99, 100, 101, 102, 103],
             'close': [104, 103, 102, 101, 100, 99, 98, 97, 98, 99, 100, 101, 102, 103, 104],
@@ -573,7 +573,7 @@ class TestSupportResistanceFinding:
     def test_missing_required_columns_returns_empty(self, detector_default):
         """Test that missing required columns returns empty list"""
         bad_df = pd.DataFrame({
-            'timestamp': pd.date_range('2025-01-01', periods=10, freq='1H'),
+            'timestamp': pd.date_range('2025-01-01', periods=10, freq='1h'),
             'price': [100] * 10,  # Wrong column name
         })
 
@@ -822,7 +822,7 @@ class TestEdgeCases:
     def test_dataframe_with_no_volume_column(self, detector_default):
         """Test handling of DataFrame without volume column"""
         df_no_volume = pd.DataFrame({
-            'timestamp': pd.date_range('2025-01-01', periods=50, freq='1H'),
+            'timestamp': pd.date_range('2025-01-01', periods=50, freq='1h'),
             'open': np.random.uniform(95, 105, 50),
             'high': np.random.uniform(100, 110, 50),
             'low': np.random.uniform(90, 100, 50),
@@ -841,7 +841,7 @@ class TestEdgeCases:
         """Test with prices in very tight range (low volatility)"""
         # Prices between 99.9 and 100.1 (very low volatility)
         df_tight = pd.DataFrame({
-            'timestamp': pd.date_range('2025-01-01', periods=100, freq='1H'),
+            'timestamp': pd.date_range('2025-01-01', periods=100, freq='1h'),
             'open': np.random.uniform(99.9, 100.1, 100),
             'high': np.random.uniform(100.0, 100.1, 100),
             'low': np.random.uniform(99.9, 100.0, 100),
@@ -981,7 +981,7 @@ class TestIntegration:
         # Create large dataset (1000 candles)
         np.random.seed(45)
         large_df = pd.DataFrame({
-            'timestamp': pd.date_range('2025-01-01', periods=1000, freq='1H'),
+            'timestamp': pd.date_range('2025-01-01', periods=1000, freq='1h'),
             'open': np.random.uniform(95, 105, 1000),
             'high': np.random.uniform(100, 110, 1000),
             'low': np.random.uniform(90, 100, 1000),

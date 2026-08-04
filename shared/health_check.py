@@ -31,6 +31,7 @@ Usage:
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -39,6 +40,15 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
 
 # Configure module logger
 logger = logging.getLogger(__name__)
+
+
+# BC-02 / Phase 13: bybit-connector is the sole Bybit-facing service. Health
+# probes for "is Bybit reachable" route through bybit-connector's own /health
+# endpoint — if bybit-connector is healthy, by construction it can reach
+# Bybit (its /ready endpoint also pings Bybit via a public ticker). This
+# centralizes the Bybit-egress contract in one place. Compose / k8s injects
+# BYBIT_CONNECTOR_URL; default is the local-dev compose hostname.
+BYBIT_CONNECTOR_URL = os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001")
 
 
 class HealthStatus(str, Enum):
@@ -105,17 +115,16 @@ class ServiceHealth:
                     "latency_ms": round(dep.latency_ms, 2),
                     "message": dep.message,
                     "last_check": dep.last_check.isoformat(),
-                    "details": dep.details
+                    "details": dep.details,
                 }
                 for dep in self.dependencies
-            ]
+            ],
         }
 
 
 # Type alias for health check functions
 HealthCheckFunc = Union[
-    Callable[[], Coroutine[Any, Any, DependencyHealth]],
-    Callable[[], DependencyHealth]
+    Callable[[], Coroutine[Any, Any, DependencyHealth]], Callable[[], DependencyHealth]
 ]
 
 
@@ -138,7 +147,7 @@ class HealthCheckManager:
         liveness_timeout_ms: float = 100,
         readiness_timeout_ms: float = 5000,
         deep_check_timeout_ms: float = 30000,
-        cache_ttl_seconds: float = 5.0
+        cache_ttl_seconds: float = 5.0,
     ):
         """
         Initialize the health check manager
@@ -165,7 +174,9 @@ class HealthCheckManager:
         self._cache: Dict[str, tuple] = {}  # {check_type: (result, timestamp)}
 
         # Dependencies registry
-        self._dependencies: Dict[str, tuple] = {}  # {name: (check_func, dep_type, critical)}
+        self._dependencies: Dict[
+            str, tuple
+        ] = {}  # {name: (check_func, dep_type, critical)}
 
         # Liveness checks (fast, basic)
         self._liveness_checks: List[HealthCheckFunc] = []
@@ -185,7 +196,7 @@ class HealthCheckManager:
         name: str,
         check_func: HealthCheckFunc,
         dep_type: DependencyType = DependencyType.INTERNAL_SERVICE,
-        critical: bool = True
+        critical: bool = True,
     ) -> None:
         """
         Register a dependency health check
@@ -197,7 +208,9 @@ class HealthCheckManager:
             critical: If True, failure makes service unhealthy; if False, degraded
         """
         self._dependencies[name] = (check_func, dep_type, critical)
-        logger.debug(f"Added dependency: {name} (type={dep_type.value}, critical={critical})")
+        logger.debug(
+            f"Added dependency: {name} (type={dep_type.value}, critical={critical})"
+        )
 
     def add_liveness_check(self, check_func: HealthCheckFunc) -> None:
         """Add a custom liveness check function"""
@@ -208,9 +221,7 @@ class HealthCheckManager:
         self._readiness_checks.append(check_func)
 
     async def _run_check(
-        self,
-        check_func: HealthCheckFunc,
-        timeout_ms: float
+        self, check_func: HealthCheckFunc, timeout_ms: float
     ) -> DependencyHealth:
         """
         Run a health check function with timeout
@@ -227,16 +238,12 @@ class HealthCheckManager:
         try:
             # Check if function is async
             if asyncio.iscoroutinefunction(check_func):
-                result = await asyncio.wait_for(
-                    check_func(),
-                    timeout=timeout_ms / 1000
-                )
+                result = await asyncio.wait_for(check_func(), timeout=timeout_ms / 1000)
             else:
                 # Run sync function in thread pool
                 loop = asyncio.get_event_loop()
                 result = await asyncio.wait_for(
-                    loop.run_in_executor(None, check_func),
-                    timeout=timeout_ms / 1000
+                    loop.run_in_executor(None, check_func), timeout=timeout_ms / 1000
                 )
 
             return result
@@ -248,7 +255,7 @@ class HealthCheckManager:
                 type=DependencyType.INTERNAL_SERVICE,
                 status=HealthStatus.UNHEALTHY,
                 latency_ms=latency,
-                message=f"Health check timed out after {timeout_ms}ms"
+                message=f"Health check timed out after {timeout_ms}ms",
             )
         except Exception as e:
             latency = (time.time() - start_time) * 1000
@@ -258,7 +265,7 @@ class HealthCheckManager:
                 type=DependencyType.INTERNAL_SERVICE,
                 status=HealthStatus.UNHEALTHY,
                 latency_ms=latency,
-                message=f"Health check failed: {str(e)}"
+                message=f"Health check failed: {str(e)}",
             )
 
     def _get_cached(self, cache_key: str) -> Optional[ServiceHealth]:
@@ -313,8 +320,8 @@ class HealthCheckManager:
             message=message,
             details={
                 "check_type": "liveness",
-                "check_duration_ms": round((time.time() - start_time) * 1000, 2)
-            }
+                "check_duration_ms": round((time.time() - start_time) * 1000, 2),
+            },
         )
 
         self._set_cached("liveness", health)
@@ -356,18 +363,23 @@ class HealthCheckManager:
                 if result.status == HealthStatus.UNHEALTHY:
                     status = HealthStatus.UNHEALTHY
                     messages.append(f"{name}: {result.message}")
-                elif result.status == HealthStatus.DEGRADED and status == HealthStatus.HEALTHY:
+                elif (
+                    result.status == HealthStatus.DEGRADED
+                    and status == HealthStatus.HEALTHY
+                ):
                     status = HealthStatus.DEGRADED
                     messages.append(f"{name}: {result.message}")
 
             except Exception as e:
-                dependencies.append(DependencyHealth(
-                    name=name,
-                    type=dep_type,
-                    status=HealthStatus.UNHEALTHY,
-                    latency_ms=(time.time() - dep_start) * 1000,
-                    message=str(e)
-                ))
+                dependencies.append(
+                    DependencyHealth(
+                        name=name,
+                        type=dep_type,
+                        status=HealthStatus.UNHEALTHY,
+                        latency_ms=(time.time() - dep_start) * 1000,
+                        message=str(e),
+                    )
+                )
                 status = HealthStatus.UNHEALTHY
                 messages.append(f"{name}: {str(e)}")
 
@@ -378,7 +390,10 @@ class HealthCheckManager:
                 if result.status == HealthStatus.UNHEALTHY:
                     status = HealthStatus.UNHEALTHY
                     messages.append(result.message)
-                elif result.status == HealthStatus.DEGRADED and status == HealthStatus.HEALTHY:
+                elif (
+                    result.status == HealthStatus.DEGRADED
+                    and status == HealthStatus.HEALTHY
+                ):
                     status = HealthStatus.DEGRADED
                     messages.append(result.message)
             except Exception as e:
@@ -395,8 +410,8 @@ class HealthCheckManager:
             details={
                 "check_type": "readiness",
                 "check_duration_ms": round((time.time() - start_time) * 1000, 2),
-                "critical_deps_checked": len(dependencies)
-            }
+                "critical_deps_checked": len(dependencies),
+            },
         )
 
         self._set_cached("readiness", health)
@@ -418,8 +433,12 @@ class HealthCheckManager:
         messages: List[str] = []
 
         # Check all dependencies concurrently
-        async def check_dependency(name: str, check_func: HealthCheckFunc,
-                                  dep_type: DependencyType, critical: bool) -> DependencyHealth:
+        async def check_dependency(
+            name: str,
+            check_func: HealthCheckFunc,
+            dep_type: DependencyType,
+            critical: bool,
+        ) -> DependencyHealth:
             dep_start = time.time()
             try:
                 result = await self._run_check(check_func, self.deep_check_timeout_ms)
@@ -435,7 +454,7 @@ class HealthCheckManager:
                     status=HealthStatus.UNHEALTHY,
                     latency_ms=(time.time() - dep_start) * 1000,
                     message=str(e),
-                    details={"critical": critical}
+                    details={"critical": critical},
                 )
 
         # Run all checks concurrently
@@ -449,13 +468,15 @@ class HealthCheckManager:
 
             for result in results:
                 if isinstance(result, Exception):
-                    dependencies.append(DependencyHealth(
-                        name="unknown",
-                        type=DependencyType.INTERNAL_SERVICE,
-                        status=HealthStatus.UNHEALTHY,
-                        latency_ms=0,
-                        message=str(result)
-                    ))
+                    dependencies.append(
+                        DependencyHealth(
+                            name="unknown",
+                            type=DependencyType.INTERNAL_SERVICE,
+                            status=HealthStatus.UNHEALTHY,
+                            latency_ms=0,
+                            message=str(result),
+                        )
+                    )
                     status = HealthStatus.UNHEALTHY
                     messages.append(str(result))
                 else:
@@ -485,10 +506,16 @@ class HealthCheckManager:
                 "check_type": "deep",
                 "check_duration_ms": round((time.time() - start_time) * 1000, 2),
                 "total_deps_checked": len(dependencies),
-                "healthy_deps": sum(1 for d in dependencies if d.status == HealthStatus.HEALTHY),
-                "unhealthy_deps": sum(1 for d in dependencies if d.status == HealthStatus.UNHEALTHY),
-                "degraded_deps": sum(1 for d in dependencies if d.status == HealthStatus.DEGRADED)
-            }
+                "healthy_deps": sum(
+                    1 for d in dependencies if d.status == HealthStatus.HEALTHY
+                ),
+                "unhealthy_deps": sum(
+                    1 for d in dependencies if d.status == HealthStatus.UNHEALTHY
+                ),
+                "degraded_deps": sum(
+                    1 for d in dependencies if d.status == HealthStatus.DEGRADED
+                ),
+            },
         )
 
         return health
@@ -498,13 +525,14 @@ class HealthCheckManager:
 # Pre-built Health Check Functions for Common Dependencies
 # =============================================================================
 
+
 async def check_postgres(
     host: str = "localhost",
     port: int = 5432,
     database: str = "trading",
     user: str = "postgres",
     password: str = "",
-    timeout: float = 5.0
+    timeout: float = 5.0,
 ) -> DependencyHealth:
     """
     Health check for PostgreSQL database
@@ -531,7 +559,7 @@ async def check_postgres(
             database=database,
             user=user,
             password=password,
-            timeout=timeout
+            timeout=timeout,
         )
 
         # Simple query to verify connection
@@ -546,11 +574,7 @@ async def check_postgres(
             status=HealthStatus.HEALTHY,
             latency_ms=latency,
             message="Connected successfully",
-            details={
-                "host": host,
-                "port": port,
-                "database": database
-            }
+            details={"host": host, "port": port, "database": database},
         )
 
     except ImportError:
@@ -559,7 +583,7 @@ async def check_postgres(
             type=DependencyType.DATABASE,
             status=HealthStatus.UNKNOWN,
             latency_ms=(time.time() - start_time) * 1000,
-            message="asyncpg not installed"
+            message="asyncpg not installed",
         )
     except Exception as e:
         return DependencyHealth(
@@ -568,18 +592,12 @@ async def check_postgres(
             status=HealthStatus.UNHEALTHY,
             latency_ms=(time.time() - start_time) * 1000,
             message=f"Connection failed: {str(e)}",
-            details={
-                "host": host,
-                "port": port,
-                "database": database,
-                "error": str(e)
-            }
+            details={"host": host, "port": port, "database": database, "error": str(e)},
         )
 
 
 async def check_redis(
-    url: str = "redis://localhost:6379/0",
-    timeout: float = 5.0
+    url: str = "redis://localhost:6379/0", timeout: float = 5.0
 ) -> DependencyHealth:
     """
     Health check for Redis cache
@@ -615,8 +633,8 @@ async def check_redis(
             message="Connected successfully",
             details={
                 "used_memory_human": info.get("used_memory_human", "unknown"),
-                "connected_clients": info.get("connected_clients", 0)
-            }
+                "connected_clients": info.get("connected_clients", 0),
+            },
         )
 
     except ImportError:
@@ -625,7 +643,7 @@ async def check_redis(
             type=DependencyType.CACHE,
             status=HealthStatus.UNKNOWN,
             latency_ms=(time.time() - start_time) * 1000,
-            message="redis package not installed"
+            message="redis package not installed",
         )
     except Exception as e:
         return DependencyHealth(
@@ -634,13 +652,12 @@ async def check_redis(
             status=HealthStatus.UNHEALTHY,
             latency_ms=(time.time() - start_time) * 1000,
             message=f"Connection failed: {str(e)}",
-            details={"url": url.split("@")[-1], "error": str(e)}
+            details={"url": url.split("@")[-1], "error": str(e)},
         )
 
 
 async def check_rabbitmq(
-    url: str = "amqp://guest:guest@localhost:5672/",
-    timeout: float = 5.0
+    url: str = "amqp://guest:guest@localhost:5672/", timeout: float = 5.0
 ) -> DependencyHealth:
     """
     Health check for RabbitMQ message queue
@@ -667,7 +684,7 @@ async def check_rabbitmq(
             type=DependencyType.MESSAGE_QUEUE,
             status=HealthStatus.HEALTHY,
             latency_ms=latency,
-            message="Connected successfully"
+            message="Connected successfully",
         )
 
     except ImportError:
@@ -676,7 +693,7 @@ async def check_rabbitmq(
             type=DependencyType.MESSAGE_QUEUE,
             status=HealthStatus.UNKNOWN,
             latency_ms=(time.time() - start_time) * 1000,
-            message="aio_pika not installed"
+            message="aio_pika not installed",
         )
     except Exception as e:
         return DependencyHealth(
@@ -684,14 +701,12 @@ async def check_rabbitmq(
             type=DependencyType.MESSAGE_QUEUE,
             status=HealthStatus.UNHEALTHY,
             latency_ms=(time.time() - start_time) * 1000,
-            message=f"Connection failed: {str(e)}"
+            message=f"Connection failed: {str(e)}",
         )
 
 
 async def check_http_service(
-    url: str,
-    timeout: float = 5.0,
-    expected_status: int = 200
+    url: str, timeout: float = 5.0, expected_status: int = 200
 ) -> DependencyHealth:
     """
     Health check for HTTP service
@@ -721,7 +736,7 @@ async def check_http_service(
                 status=HealthStatus.HEALTHY,
                 latency_ms=latency,
                 message="Service responded successfully",
-                details={"status_code": response.status_code}
+                details={"status_code": response.status_code},
             )
         else:
             return DependencyHealth(
@@ -730,7 +745,10 @@ async def check_http_service(
                 status=HealthStatus.DEGRADED,
                 latency_ms=latency,
                 message=f"Unexpected status: {response.status_code}",
-                details={"status_code": response.status_code, "expected": expected_status}
+                details={
+                    "status_code": response.status_code,
+                    "expected": expected_status,
+                },
             )
 
     except ImportError:
@@ -739,7 +757,7 @@ async def check_http_service(
             type=DependencyType.INTERNAL_SERVICE,
             status=HealthStatus.UNKNOWN,
             latency_ms=(time.time() - start_time) * 1000,
-            message="httpx not installed"
+            message="httpx not installed",
         )
     except Exception as e:
         return DependencyHealth(
@@ -748,28 +766,52 @@ async def check_http_service(
             status=HealthStatus.UNHEALTHY,
             latency_ms=(time.time() - start_time) * 1000,
             message=f"Request failed: {str(e)}",
-            details={"url": url, "error": str(e)}
+            details={"url": url, "error": str(e)},
         )
 
 
 async def check_bybit_api(
-    testnet: bool = True,
-    timeout: float = 10.0
+    testnet: bool = True, timeout: float = 10.0
 ) -> DependencyHealth:
     """
-    Health check for Bybit API connectivity
+    Health check for Bybit connectivity, routed through bybit-connector.
+
+    BC-02 (Phase 13) refactor: previously hit `api.bybit.com` /
+    `api-testnet.bybit.com` directly (the `/v5/market/time` endpoint).
+    Now probes `${BYBIT_CONNECTOR_URL}/health` instead — bybit-connector is
+    the sole Bybit-facing service per the centralization contract, and its
+    own readiness logic transitively confirms Bybit reachability (the
+    connector's `/ready` endpoint pings a public Bybit endpoint at boot;
+    if the connector is `healthy` it is by construction able to reach
+    Bybit). Operators observing "Bybit unreachable" should look at the
+    bybit-connector logs.
 
     Args:
-        testnet: Use testnet endpoint
-        timeout: Request timeout
+        testnet: @deprecated — bybit-connector handles testnet/mainnet
+            internally via its own `BYBIT_TESTNET` env. Argument is
+            preserved for caller-signature backward compatibility and is
+            ignored apart from a debug log line.
+        timeout: Request timeout (seconds) for the connector /health probe.
 
     Returns:
-        DependencyHealth status
+        DependencyHealth status. HEALTHY iff the connector returns 200 on
+        /health AND (if the response body is JSON) reports
+        `status == "healthy"`. DEGRADED on a non-200; UNHEALTHY on
+        transport-level failure; UNKNOWN if httpx is not installed.
     """
     start_time = time.time()
 
-    base_url = "https://api-testnet.bybit.com" if testnet else "https://api.bybit.com"
-    url = f"{base_url}/v5/market/time"
+    if testnet is not True:
+        # `testnet=True` is the historical default; only log when a caller
+        # explicitly passes a different value, otherwise the warning would
+        # spam every health-check tick.
+        logger.debug(
+            "check_bybit_api: 'testnet=%s' arg ignored — bybit-connector "
+            "handles testnet/mainnet selection via its own BYBIT_TESTNET env",
+            testnet,
+        )
+
+    url = f"{BYBIT_CONNECTOR_URL}/health"
 
     try:
         import httpx
@@ -780,19 +822,36 @@ async def check_bybit_api(
         latency = (time.time() - start_time) * 1000
 
         if response.status_code == 200:
-            data = response.json()
-            server_time = data.get("result", {}).get("timeSecond", 0)
+            connector_status: Optional[str] = None
+            try:
+                body = response.json()
+                if isinstance(body, dict):
+                    connector_status = body.get("status")
+            except Exception:
+                # Non-JSON 200 is unusual but not fatal — treat as healthy.
+                connector_status = None
+
+            # bybit-connector returns {"status": "healthy", ...}; anything
+            # else (e.g. partial-degradation flag a future version might
+            # surface) is treated as DEGRADED.
+            if connector_status in (None, "healthy"):
+                health_status = HealthStatus.HEALTHY
+                message = "bybit-connector reachable (Bybit egress healthy)"
+            else:
+                health_status = HealthStatus.DEGRADED
+                message = f"bybit-connector returned status={connector_status!r}"
 
             return DependencyHealth(
                 name="bybit_api",
                 type=DependencyType.EXTERNAL_API,
-                status=HealthStatus.HEALTHY,
+                status=health_status,
                 latency_ms=latency,
-                message="API accessible",
+                message=message,
                 details={
-                    "endpoint": "testnet" if testnet else "mainnet",
-                    "server_time": server_time
-                }
+                    "endpoint": "bybit-connector",
+                    "connector_url": BYBIT_CONNECTOR_URL,
+                    "connector_status": connector_status,
+                },
             )
         else:
             return DependencyHealth(
@@ -800,8 +859,14 @@ async def check_bybit_api(
                 type=DependencyType.EXTERNAL_API,
                 status=HealthStatus.DEGRADED,
                 latency_ms=latency,
-                message=f"API returned status {response.status_code}",
-                details={"status_code": response.status_code}
+                message=(
+                    f"bybit-connector /health returned status {response.status_code}"
+                ),
+                details={
+                    "endpoint": "bybit-connector",
+                    "connector_url": BYBIT_CONNECTOR_URL,
+                    "status_code": response.status_code,
+                },
             )
 
     except ImportError:
@@ -810,7 +875,7 @@ async def check_bybit_api(
             type=DependencyType.EXTERNAL_API,
             status=HealthStatus.UNKNOWN,
             latency_ms=(time.time() - start_time) * 1000,
-            message="httpx not installed"
+            message="httpx not installed",
         )
     except Exception as e:
         return DependencyHealth(
@@ -818,14 +883,19 @@ async def check_bybit_api(
             type=DependencyType.EXTERNAL_API,
             status=HealthStatus.UNHEALTHY,
             latency_ms=(time.time() - start_time) * 1000,
-            message=f"API request failed: {str(e)}",
-            details={"error": str(e)}
+            message=f"bybit-connector probe failed: {str(e)}",
+            details={
+                "endpoint": "bybit-connector",
+                "connector_url": BYBIT_CONNECTOR_URL,
+                "error": str(e),
+            },
         )
 
 
 # =============================================================================
 # FastAPI Integration Helpers
 # =============================================================================
+
 
 def create_health_routes(health_manager: HealthCheckManager):
     """
@@ -900,13 +970,13 @@ def create_health_routes(health_manager: HealthCheckManager):
         status_value = {"healthy": 1, "degraded": 0.5, "unhealthy": 0, "unknown": -1}
         metrics.append(
             f'service_health_status{{service="{health.service_name}"}} '
-            f'{status_value.get(health.status.value, -1)}'
+            f"{status_value.get(health.status.value, -1)}"
         )
 
         # Uptime
         metrics.append(
             f'service_uptime_seconds{{service="{health.service_name}"}} '
-            f'{health.uptime_seconds}'
+            f"{health.uptime_seconds}"
         )
 
         # Dependency statuses
@@ -914,17 +984,14 @@ def create_health_routes(health_manager: HealthCheckManager):
             metrics.append(
                 f'dependency_health_status{{service="{health.service_name}",'
                 f'dependency="{dep.name}",type="{dep.type.value}"}} '
-                f'{status_value.get(dep.status.value, -1)}'
+                f"{status_value.get(dep.status.value, -1)}"
             )
             metrics.append(
                 f'dependency_latency_ms{{service="{health.service_name}",'
                 f'dependency="{dep.name}"}} {dep.latency_ms}'
             )
 
-        return Response(
-            content="\n".join(metrics),
-            media_type="text/plain"
-        )
+        return Response(content="\n".join(metrics), media_type="text/plain")
 
     return router
 
@@ -932,6 +999,7 @@ def create_health_routes(health_manager: HealthCheckManager):
 # =============================================================================
 # Consul Service Registration
 # =============================================================================
+
 
 class ConsulServiceRegistry:
     """
@@ -948,7 +1016,7 @@ class ConsulServiceRegistry:
         service_address: str = "",
         tags: List[str] = None,
         check_interval: str = "10s",
-        check_timeout: str = "5s"
+        check_timeout: str = "5s",
     ):
         """
         Initialize Consul service registry
@@ -995,8 +1063,8 @@ class ConsulServiceRegistry:
                     "HTTP": f"http://{self.service_address or 'localhost'}:{self.service_port}/health",
                     "Interval": self.check_interval,
                     "Timeout": self.check_timeout,
-                    "DeregisterCriticalServiceAfter": "1m"
-                }
+                    "DeregisterCriticalServiceAfter": "1m",
+                },
             }
 
             if self.service_address:
@@ -1005,7 +1073,7 @@ class ConsulServiceRegistry:
             async with httpx.AsyncClient() as client:
                 response = await client.put(
                     f"http://{self.consul_host}:{self.consul_port}/v1/agent/service/register",
-                    json=registration
+                    json=registration,
                 )
 
             if response.status_code == 200:
@@ -1066,19 +1134,22 @@ class ConsulServiceRegistry:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"http://{self.consul_host}:{self.consul_port}/v1/health/service/{service_name}",
-                    params={"passing": "true"}
+                    params={"passing": "true"},
                 )
 
             if response.status_code == 200:
                 instances = []
                 for entry in response.json():
                     service = entry.get("Service", {})
-                    instances.append({
-                        "id": service.get("ID"),
-                        "address": service.get("Address") or entry.get("Node", {}).get("Address"),
-                        "port": service.get("Port"),
-                        "tags": service.get("Tags", [])
-                    })
+                    instances.append(
+                        {
+                            "id": service.get("ID"),
+                            "address": service.get("Address")
+                            or entry.get("Node", {}).get("Address"),
+                            "port": service.get("Port"),
+                            "tags": service.get("Tags", []),
+                        }
+                    )
                 return instances
             else:
                 return []
@@ -1101,5 +1172,5 @@ __all__ = [
     "check_http_service",
     "check_bybit_api",
     "create_health_routes",
-    "ConsulServiceRegistry"
+    "ConsulServiceRegistry",
 ]

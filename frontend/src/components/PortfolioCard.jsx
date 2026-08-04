@@ -1,6 +1,7 @@
 import React from 'react'
 import { usePositions, useTradingStatus, usePerformance } from '../hooks/usePositions'
 import TileState from './TileState'
+import { toFiniteNumber, PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 /**
  * PortfolioCard component displays current portfolio status
@@ -18,24 +19,13 @@ import TileState from './TileState'
 export default function PortfolioCard() {
   // Performance is the load-bearing query (06-TILE-AUDIT).
   const perfQuery = usePerformance()
-  const { data: performanceData, isLoading: performanceLoading, error: performanceError } = perfQuery
+  const { data: performanceData } = perfQuery
 
   // Fetch trading positions from trading-engine
-  const { data: positionsData, isLoading: positionsLoading, error: positionsError } = usePositions()
+  const { data: positionsData } = usePositions()
 
   // Fetch trading status
-  const { data: statusData, isLoading: statusLoading } = useTradingStatus()
-
-  // Debug logging for data flow
-  console.log('[PortfolioCard] Data state:', {
-    performanceData,
-    positionsData,
-    statusData,
-    performanceLoading,
-    positionsLoading,
-    performanceError: performanceError?.message,
-    positionsError: positionsError?.message
-  })
+  const { data: statusData } = useTradingStatus()
 
   // Loading and error states are now surfaced by <TileState/> below
   // (Plan 06-05, DASH-05).
@@ -51,8 +41,10 @@ export default function PortfolioCard() {
   const tradingStatus = statusData?.status || {}
 
   // Get balance data from trading-engine performance (correct values!)
-  const cashBalance = parseFloat(metrics.current_balance) || 10000
-  const initialBalance = parseFloat(metrics.initial_balance) || 10000
+  // `toFiniteNumber`, not `||`: a real balance of 0 must render as 0, and the
+  // fallback must match the backend's $100 paper account rather than $10,000.
+  const initialBalance = toFiniteNumber(metrics.initial_balance, PAPER_DEFAULT_BALANCE)
+  const cashBalance = toFiniteNumber(metrics.current_balance, initialBalance)
   const totalPnl = parseFloat(metrics.total_pnl) || 0
   const roi = parseFloat(metrics.roi) || 0
 

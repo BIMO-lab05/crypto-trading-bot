@@ -1,201 +1,54 @@
-# System Overview - Crypto Trading Bot
+# System Overview
 
-## Architecture
+**Status:** current · **Rewritten:** 2026-07-30 (previous version was 2025-10-30: 6 services, wrong ports, fictional event bus — archived knowledge preserved in `wiki/sources/SYSTEM_OVERVIEW.md`)
+**Canonical living copy:** `wiki/modules/Architecture-Overview.md` — this file is its repo-facing mirror. Update both together.
 
-This document provides a high-level overview of the Crypto Trading Bot system architecture.
+Autonomous Bybit crypto trading bot: **11 Python 3.12 + FastAPI microservices** and a **React 18 + Vite frontend**, orchestrated with `docker-compose.unified.yml` (canonical per ADR-009). Paper-trading mode: real mainnet prices, simulated orders (ADR-006).
 
-### Design Philosophy
+## Communication model
 
-The system follows a **microservices architecture** with the following principles:
-- **Service Independence**: Each service can be developed, deployed, and scaled independently
-- **Event-Driven Communication**: Services communicate via message queues (RabbitMQ)
-- **Data Isolation**: Each service has its own data storage concerns
-- **Fault Tolerance**: Circuit breakers and health checks prevent cascading failures
-- **Security First**: API keys isolated, all communications logged for audit
+Services communicate via **synchronous REST only**. Gateway routes are `/api/<domain>/<resource>` with **no `/v1/` prefix** (ADR-007); service-to-service calls are direct HTTP. **There is no live RabbitMQ event bus** — AMQP settings exist in configs and older docs, but no service declares a publisher, consumer, or queue (ADR-016). Treat any "event topic" reference (`trade.execute`, `analysis.signal.*`, …) as aspirational.
 
-### System Architecture Diagram
+## Services
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Frontend (React)                        │
-│                    Real-time Dashboard & Controls                │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ HTTP/WebSocket
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        API Gateway                               │
-│              Routes requests, Authentication, Rate Limiting      │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
-        ▼                    ▼                    ▼
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│   Trading    │    │  Portfolio   │    │  Technical   │
-│   Engine     │    │   Manager    │    │  Analysis    │
-└──────┬───────┘    └──────┬───────┘    └──────┬───────┘
-       │                   │                    │
-       │        RabbitMQ Message Bus            │
-       └───────────────────┼────────────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│    Bybit     │    │ Market Data  │    │  PostgreSQL  │
-│  Connector   │    │   Service    │    │  TimescaleDB │
-└──────┬───────┘    └──────┬───────┘    └──────────────┘
-       │                   │
-       ▼                   ▼
-┌─────────────────────────────────┐
-│       Bybit Exchange API        │
-│    (Testnet & Production)       │
-└─────────────────────────────────┘
-```
+| Service | Port | Purpose |
+|---|---|---|
+| api-gateway | 8000 | Frontend → backend routing, auth (mode-gated per ADR-022) |
+| bybit-connector | 8001 | Bybit REST + WebSocket wrapper (HMAC signing per ADR-023) |
+| market-data-service | 8002 | Candle ingest → TimescaleDB (DB is the cache; Redis unused here) |
+| portfolio-manager | 8003 | Positions, balances, P&L — mirrors the engine (ADR-024) |
+| technical-analysis | 8004 | TA indicators + GRU inference + signal aggregator (data-integrity gate per ADR-021) |
+| trading-engine | 8005 | Strategy + risk + order execution (accounting per ADR-018, risk per ADR-010/019) |
+| notification-service | 8006 | Telegram + email alerts (real delivery default per ADR-025) |
+| ml-prediction-service | 8007 | Standalone ML inference — behind compose `ml` profile, off by default |
+| sentiment-analysis-service | 8008 | News/social sentiment — behind compose `analytics` profile, off by default; leg removed from pipeline |
+| risk-metrics-service | 8009 | Risk dashboards (paper-mode aligned per ADR-017) |
+| ml-retraining-service | — | Cron-driven GRU retrain (no HTTP) |
 
-### Service Descriptions
+Frontend `:3000` · Prometheus `:9090` · Grafana `:3001`. A `tournament-harness` compose service runs edge-measurement tournaments.
 
-#### 1. API Gateway
-- **Purpose**: Single entry point for all client requests
-- **Responsibilities**:
-  - Route requests to appropriate microservices
-  - Authentication and authorization
-  - Rate limiting and throttling
-  - Request/response transformation
-- **Technology**: FastAPI, Redis (session storage)
-- **Port**: 8000
+## Layered view
 
-#### 2. Trading Engine
-- **Purpose**: Core trading logic and strategy execution
-- **Responsibilities**:
-  - Execute trading strategies
-  - Risk management (max 2% per trade, 5% daily loss limit)
-  - Order generation and validation
-  - Emergency stop-loss handling
-- **Technology**: Python 3.12, FastAPI
-- **Port**: 8001
+1. **Edge** — frontend ↔ api-gateway (auth, routing)
+2. **Domain** — portfolio-manager, trading-engine, risk-metrics-service, notification-service
+3. **Signal** — technical-analysis (+ ml-prediction, sentiment when profiles enabled)
+4. **Data** — market-data-service, bybit-connector
+5. **Background** — ml-retraining-service (cron)
+6. **Observability** — Prometheus, Grafana
 
-#### 3. Bybit Connector
-- **Purpose**: Interface with Bybit exchange API
-- **Responsibilities**:
-  - Place, modify, cancel orders
-  - Query account balances and positions
-  - WebSocket real-time updates
-  - Circuit breaker for API failures
-- **Technology**: Python 3.12, pybit library, WebSockets
-- **Port**: 8002
+## State
 
-#### 4. Market Data Service
-- **Purpose**: Collect and store market data
-- **Responsibilities**:
-  - Fetch historical OHLCV data
-  - Real-time price streaming via WebSocket
-  - Store data in TimescaleDB
-  - Provide data query API
-- **Technology**: Python 3.12, TimescaleDB, Redis
-- **Port**: 8003
+- **PostgreSQL** — application state (positions, trades, users)
+- **TimescaleDB** — candles/tickers time-series (`klines` hypertable, 90-day retention — see `DATA_PROFILE_KLINES.md`)
+- **Redis** — ephemeral cache (largely idle; market-data caches in TimescaleDB)
 
-#### 5. Technical Analysis Service
-- **Purpose**: Calculate technical indicators and generate signals
-- **Responsibilities**:
-  - RSI, MACD, Bollinger Bands, EMA, SMA calculations
-  - Support/resistance level detection
-  - Signal generation with confidence scores
-  - Caching for performance
-- **Technology**: Python 3.12, pandas, numpy, TA-Lib
-- **Port**: 8004
+## Safety model
 
-#### 6. Portfolio Manager
-- **Purpose**: Track balances, positions, and P&L
-- **Responsibilities**:
-  - Real-time balance tracking
-  - Position management (entry/exit tracking)
-  - Profit & Loss calculation
-  - Portfolio performance metrics
-- **Technology**: Python 3.12, PostgreSQL
-- **Port**: 8005
+Four deliberate steps to LIVE (`BYBIT_TESTNET`, `PAPER_TRADING_MODE`/`TRADING_MODE`, live-permission keys, `LIVE_TRADING_ACK`) — see `CLAUDE.md`. Operator kill switch: `safety/EMERGENCY_STOP` file (ADR-005); a file-halt exits the auto-trade loop and requires manual restart, while risk kill-switch halts (equity/streak, ADR-019) auto-resume when limits clear.
 
-### Data Flow
+## Deeper references
 
-#### Trading Flow
-1. **Market Data** → Market Data Service collects real-time prices
-2. **Analysis** → Technical Analysis Service calculates indicators
-3. **Signal Generation** → Technical Analysis publishes signals to message queue
-4. **Strategy Execution** → Trading Engine receives signals, evaluates risk
-5. **Order Placement** → Trading Engine sends order to Bybit Connector
-6. **Execution** → Bybit Connector places order on exchange
-7. **Confirmation** → Order status updates flow back through the system
-8. **Portfolio Update** → Portfolio Manager updates balances and positions
-
-### Message Queue Topics
-
-```
-market.data.{symbol}        - Real-time price updates
-analysis.signal.{symbol}    - Technical analysis signals
-trade.execute               - Order execution commands
-trade.result                - Execution results
-portfolio.update            - Balance/position changes
-alert.critical              - System alerts
-```
-
-### Data Storage
-
-#### PostgreSQL
-- Trading strategies configuration
-- Trade history and audit logs
-- System events and logs
-- User management
-
-#### TimescaleDB
-- OHLCV candle data (time-series optimized)
-- Tick data (real-time trades)
-- Order book snapshots
-- Technical indicator cache
-
-#### Redis
-- Real-time price cache
-- Session management
-- Rate limiting counters
-- Temporary calculation cache
-
-### Deployment
-
-#### Development
-- Docker Compose for local development
-- All services run on localhost with different ports
-- Test databases with sample data
-
-#### Production (Future)
-- Kubernetes cluster
-- Auto-scaling based on load
-- High availability with replicas
-- Monitoring with Prometheus/Grafana
-
-### Security Considerations
-
-1. **API Key Management**: Stored in environment variables, never in code
-2. **Network Isolation**: Services communicate only via defined interfaces
-3. **Audit Logging**: All trades and API calls logged for compliance
-4. **Rate Limiting**: Prevent abuse and API quota exhaustion
-5. **Data Encryption**: Sensitive data encrypted at rest
-
-### Performance Requirements
-
-- **Order Execution Latency**: < 100ms
-- **Data Processing Throughput**: > 1000 messages/sec
-- **API Response Time**: < 50ms (p99)
-- **System Uptime**: 99.9%
-
-### Scalability Strategy
-
-1. **Horizontal Scaling**: Add more service instances
-2. **Database Sharding**: Partition data by symbol/timeframe
-3. **Caching**: Redis for frequently accessed data
-4. **Message Queue**: RabbitMQ handles async communication
-5. **Load Balancing**: Distribute requests across instances
-
----
-
-**Last Updated**: 2025-10-30
-**Version**: 1.0
-**Status**: Initial Design
+- Signal path, order lifecycle, emergency stop: `wiki/flows/`
+- Per-service detail: `wiki/modules/<service>.md`
+- Decisions: `wiki/decisions/` (ADR-001 – ADR-027)
+- Live API surface: `http://localhost:8000/openapi.json`

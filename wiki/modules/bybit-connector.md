@@ -6,13 +6,12 @@ language: python
 port: 8001
 purpose: "Bybit REST wrapper (WS planned, not implemented)"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: []
 used_by: [api-gateway, market-data-service, trading-engine, portfolio-manager, technical-analysis, risk-metrics-service]
 tags: [module, service, exchange, bybit]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-29
 ---
 
 # bybit-connector
@@ -61,8 +60,11 @@ Plus `GET /health`, `GET /ready` (probes Bybit by fetching BTCUSDT ticker), and 
 Custom-built, **`pybit` is in `requirements.txt` but never imported**.
 
 - `app/bybit_rest_client.py` — `httpx.AsyncClient` with split timeouts (connect 5s, read 30s, write 10s, pool 10s). All requests pass through the [[../concepts/Risk-Model|circuit breaker]] (`circuit_breaker.call_async`) before hitting the wire.
-- `app/auth.py` — `BybitAuthenticator` implements Bybit V5 HMAC-SHA256 manually: `HMAC(secret, timestamp + api_key + recv_window + (query_string|body))`.
+- `app/auth.py` — `BybitAuthenticator` implements Bybit V5 HMAC-SHA256 manually: `HMAC(secret, timestamp + api_key + recv_window + param_str)`, where `param_str = urlencode(sorted(params))` for GET or the verbatim body string for POST (`auth.py:116–124`).
 - `tenacity` retry wraps `_request` but only triggers on `RateLimitException` — generic `httpx.HTTPError` is caught and re-raised as `BybitAPIException(ret_code=-1)` without retry.
+
+> **CRITICAL fix 2026-07-29 — every authenticated POST was failing** (`bybit_rest_client.py:138–206`). The body was signed as `json.dumps(data)` (default `", "`/`": "` separators, with spaces) while httpx transmitted compact JSON, so Bybit recomputed the HMAC over different bytes and rejected **every** signed POST with `retCode 10004` ("error sign") — all live order place/cancel was broken. GET had the same drift when param order differed from the signed order. Fix: serialize the body ONCE compactly (`separators=(",", ":")`) and send it verbatim via `content=body_str`; send GET params in the SAME sorted order used to sign (`ordered_params = sorted(params.items())`, `bybit_rest_client.py:206`).
+- **Finite-value guards on order qty/price** (`models.py:122,138`): `math.isfinite` rejects `nan`/`inf`, which otherwise slipped past the bare `<= 0` check (`nan` comparisons are always False, `inf > 0`) and would be forwarded to the exchange.
 
 ## WebSocket — claimed, not implemented
 
@@ -159,7 +161,7 @@ None. Stateless wrapper.
 - **`market-data-service`'s default `bybit_connector_url` points at `localhost:8002`** (its own port). Compose saves this; bare runs do not.
 - **No API-key rotation** — keys read once at startup; rotate = restart.
 - **`/api/v1/...` prefix** kept here, against [[../decisions/ADR-007-no-v1-api-prefix]] (gateway uses bare `/api/...`).
-- **CORS: `allow_origins=["*"]` with `allow_credentials=True`** — browsers ignore credentials when origin is `*`, harmless but smells unfinished.
+- **CORS**: uses a non-wildcard origin list (`all_cors_origins`, `main.py:429` — `# BL-04: never *` with credentials) with `allow_credentials=True`. (Prior wiki claim of `allow_origins=["*"]` here is stale — that wildcard-credentials pattern is what the 2026-07-29 audit fixed on the *other* 8 backends, not this one.)
 - **No mode flag here** — direct calls to port 8001 with mainnet keys = real orders, regardless of `PAPER_TRADING_MODE`. The four-step gate to live trading lives in [[trading-engine]] only. See [[../decisions/ADR-004-paper-trading-default]].
 
 ## Contradictions vs CLAUDE.md
@@ -178,3 +180,11 @@ None. Stateless wrapper.
 - [[../decisions/ADR-006-mainnet-prices-paper-orders]]
 - [[../decisions/ADR-007-no-v1-api-prefix]]
 - Sibling services: [[trading-engine]], [[market-data-service]], [[api-gateway]], [[portfolio-manager]]
+
+## Corrections 2026-07-29
+
+Reflects the 2026-07-29 production audit (verified in source):
+
+- **HMAC signature now matches the transmitted bytes** (`bybit_rest_client.py:138–206`). The old code signed `json.dumps()` (with spaces) but sent compact JSON → `retCode 10004` on **every** authenticated POST; all live order place/cancel was broken. Now signs and sends the same compact body via `content=`; GET params sent in signed sorted order. See *REST client + signing*.
+- **Finite-value (`math.isfinite`) guards on order qty/price** (`models.py:122,138`) — `nan`/`inf` no longer reach the exchange.
+- **CORS** on this service still uses a non-wildcard origin list with `allow_credentials=True` (`main.py:429–430`) — the gotcha's "`allow_origins=['*']` with credentials" no longer applies here (this service was already using `all_cors_origins`, not `*`).

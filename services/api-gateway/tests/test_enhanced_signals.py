@@ -174,8 +174,8 @@ class TestMLModelManagementEndpoints:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_train_ml_model(self, test_client, mock_service_proxy):
-        """Test training ML model"""
+    async def test_train_ml_model(self, admin_client, mock_service_proxy):
+        """Test training ML model (auth required)"""
         mock_response = JSONResponse(content={
             "success": True,
             "message": "Model training started"
@@ -183,7 +183,7 @@ class TestMLModelManagementEndpoints:
         mock_service_proxy.proxy_request.return_value = mock_response
 
         with patch('app.main.get_proxy', return_value=mock_service_proxy):
-            response = test_client.post(
+            response = admin_client.post(
                 "/api/ml/models/train?symbol=BTCUSDT&lookback_days=90&force_retrain=false"
             )
 
@@ -460,8 +460,8 @@ class TestRiskAndPerformanceEndpoints:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_reset_circuit_breaker(self, test_client, mock_service_proxy):
-        """Test circuit breaker reset endpoint"""
+    async def test_reset_circuit_breaker(self, admin_client, mock_service_proxy):
+        """Test circuit breaker reset endpoint (admin auth required)"""
         mock_response = JSONResponse(content={
             "success": True,
             "message": "Circuit breaker reset"
@@ -469,7 +469,7 @@ class TestRiskAndPerformanceEndpoints:
         mock_service_proxy.proxy_request.return_value = mock_response
 
         with patch('app.main.get_proxy', return_value=mock_service_proxy):
-            response = test_client.post("/api/risk/circuit-breaker/reset")
+            response = admin_client.post("/api/risk/circuit-breaker/reset")
 
         assert response.status_code == 200
         call_kwargs = mock_service_proxy.proxy_request.call_args[1]

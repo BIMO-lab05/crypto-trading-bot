@@ -21,9 +21,10 @@ Updated: 2025-12-12 - Fixed decorator to work without Request param
 """
 
 import logging
+import threading
 import time
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Dict, List, Optional, Callable, Tuple
 from functools import wraps
 
 from fastapi import Request, HTTPException, status
@@ -50,11 +51,18 @@ class RateLimitConfig:
         enabled: Whether rate limiting is enabled
         redis_url: Redis connection URL for distributed rate limiting
     """
-    trading_limit: int = 10      # Trading endpoints: 10 req/min
-    auth_limit: int = 5          # Auth endpoints: 5 req/min
-    health_limit: int = 60       # Health checks: 60 req/min
-    general_limit: int = 30      # General API: 30 req/min
-    enabled: bool = True         # Rate limiting enabled
+    # Limits recalibrated 2026-07-29 for the real single-user dashboard, which
+    # legitimately polls ~250-300 read req/min across ~10 query keys. The old
+    # values (general 30, trading 10) throttled normal use into constant 429s
+    # the moment enforcement went live. These ceilings still bound abuse
+    # (thousands/min) while never touching legitimate dashboard traffic; the
+    # strict `trading_write_limit` applies ONLY to state-changing trade
+    # actions (start/stop/buy/sell), which a human triggers a handful of times.
+    trading_write_limit: int = 60   # Mutating trade actions: 60 req/min
+    auth_limit: int = 10            # Auth endpoints (brute-force guard): 10 req/min
+    health_limit: int = 1200        # Health/status polls: 1200 req/min
+    general_limit: int = 1200       # General API + read polls: 1200 req/min
+    enabled: bool = True            # Rate limiting enabled
     redis_url: Optional[str] = None  # Redis URL for distributed limiting
 
 
@@ -179,17 +187,12 @@ class RateLimiter:
     @property
     def trading_limit(self) -> Callable:
         """
-        Decorator for trading endpoint rate limiting.
+        Decorator for trading endpoint rate limiting (legacy slowapi path;
+        enforcement is done by RateLimitMiddleware, not these decorators).
 
-        Limit: 10 requests per minute (strict for trading safety)
-
-        Usage:
-            @app.post("/api/trading/buy")
-            @rate_limiter.trading_limit
-            async def buy(request: Request, ...):
-                ...
+        Limit: trading_write_limit requests per minute (mutating trade actions).
         """
-        return self._create_limit_decorator(self.config.trading_limit)
+        return self._create_limit_decorator(self.config.trading_write_limit)
 
     @property
     def auth_limit(self) -> Callable:
@@ -339,27 +342,96 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.rate_limiter = rate_limiter
 
-        # Path prefixes for different rate limits
+        # Path prefixes for different rate limits. NOTE (2026-07-29): the
+        # strict trade bucket now applies only to MUTATING requests on these
+        # paths (see _get_rate_limit_key's method check) so read polls of
+        # /api/trading/status|signals|positions are NOT throttled as trades.
         self.trading_paths = ["/api/trading", "/api/portfolio/buy", "/api/portfolio/sell"]
         self.auth_paths = ["/auth/"]
         self.health_paths = ["/health", "/ready", "/status"]
 
-    def _get_rate_limit_key(self, path: str) -> str:
+        # In-process fixed-window counters used to ACTUALLY enforce limits.
+        #
+        # SECURITY FIX 2026-07-29: this middleware previously only tagged
+        # each request with an `X-RateLimit-Category` header and never
+        # rejected anything, so every route documented as "Rate limited
+        # via middleware" (including /auth/login brute-force protection)
+        # was effectively unlimited. We now count requests per
+        # (client, category) in a 60s window and fail closed with HTTP 429
+        # once the configured limit is exceeded.
+        #
+        # NOTE: this counter is per-process. For a single gateway instance
+        # (the current deployment) it enforces correctly. A multi-replica
+        # deployment needs the shared Redis-backed limiter
+        # (slowapi/`limits`) for global accuracy; the per-process window is
+        # still a strict-per-replica lower bound and strictly better than
+        # the previous no-op.
+        self._windows: Dict[Tuple[str, str], List[int]] = {}
+        self._windows_lock = threading.Lock()
+
+    def _limit_for_category(self, category: str) -> int:
+        """Return the configured requests-per-minute limit for a category."""
+        cfg = self.rate_limiter.config
+        return {
+            "trading_write": cfg.trading_write_limit,
+            "auth": cfg.auth_limit,
+            "health": cfg.health_limit,
+            "general": cfg.general_limit,
+        }.get(category, cfg.general_limit)
+
+    def _check_and_increment(self, client_id: str, category: str) -> Tuple[bool, int, int]:
         """
-        Determine rate limit category for a path.
+        Register one request against the (client, category) fixed window.
+
+        Returns (allowed, limit, remaining).
+        """
+        limit = self._limit_for_category(category)
+        current_window = int(time.time() // 60)
+        key = (client_id, category)
+
+        with self._windows_lock:
+            entry = self._windows.get(key)
+            if entry is None or entry[0] != current_window:
+                # New window for this key. Opportunistically evict stale
+                # windows so the dict cannot grow without bound under a
+                # spray of distinct client identifiers.
+                if len(self._windows) > 50000:
+                    stale = [
+                        k for k, v in self._windows.items()
+                        if v[0] != current_window
+                    ]
+                    for k in stale:
+                        del self._windows[k]
+                entry = [current_window, 0]
+                self._windows[key] = entry
+            entry[1] += 1
+            count = entry[1]
+
+        allowed = count <= limit
+        remaining = max(0, limit - count)
+        return allowed, limit, remaining
+
+    def _get_rate_limit_key(self, path: str, method: str = "GET") -> str:
+        """
+        Determine rate limit category for a path + method.
 
         Args:
             path: Request path
+            method: HTTP method (mutating methods on trade paths get the
+                strict ``trading_write`` bucket; GET reads fall through to the
+                generous ``general`` bucket so dashboard polling isn't 429'd).
 
         Returns:
-            Rate limit category: 'trading', 'auth', 'health', or 'general'
+            Rate limit category: 'trading_write', 'auth', 'health', or 'general'
         """
         path_lower = path.lower()
+        is_mutating = method.upper() in ("POST", "PUT", "PATCH", "DELETE")
 
-        # Check trading paths
-        for trading_path in self.trading_paths:
-            if path_lower.startswith(trading_path.lower()):
-                return "trading"
+        # Check trading paths — only MUTATING requests get the strict bucket.
+        if is_mutating:
+            for trading_path in self.trading_paths:
+                if path_lower.startswith(trading_path.lower()):
+                    return "trading_write"
 
         # Check auth paths
         for auth_path in self.auth_paths:
@@ -388,17 +460,48 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not self.rate_limiter.enabled:
             return await call_next(request)
 
-        # Get rate limit category
-        category = self._get_rate_limit_key(request.url.path)
+        # Get rate limit category (method-aware: read polls are not throttled
+        # as trades).
+        category = self._get_rate_limit_key(request.url.path, request.method)
 
         # Add rate limit info to request state for logging
         request.state.rate_limit_category = category
+
+        # Enforce the limit (fail closed on abuse / brute force).
+        client_id = get_client_identifier(request)
+        allowed, limit, remaining = self._check_and_increment(client_id, category)
+
+        if not allowed:
+            retry_after = 60 - int(time.time() % 60)
+            logger.warning(
+                f"Rate limit exceeded: client={client_id}, category={category}, "
+                f"limit={limit}/min, path={request.url.path}, method={request.method}"
+            )
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "success": False,
+                    "error": "rate_limit_exceeded",
+                    "message": "Too many requests. Please slow down.",
+                    "retry_after_seconds": retry_after,
+                    "path": request.url.path,
+                    "timestamp": int(time.time() * 1000),
+                },
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": str(limit),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Category": category,
+                },
+            )
 
         # Process request
         response = await call_next(request)
 
         # Add rate limit headers to response
         response.headers["X-RateLimit-Category"] = category
+        response.headers["X-RateLimit-Limit"] = str(limit)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
 
         return response
 

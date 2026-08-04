@@ -26,6 +26,7 @@ import {
   calculateReturnsDistribution,
   calculatePerformanceMetrics,
 } from '../services/analyticsApi'
+import { toFiniteNumber, PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 // ============================================================================
 // MAIN PERFORMANCE METRICS HOOK
@@ -105,15 +106,30 @@ export function usePerformanceMetrics(options = {}) {
   // COMPUTED DATA FROM TRADE HISTORY
   // ============================================================================
 
-  // Extract trades array from response
+  // Extract trades array from response. Guard with Array.isArray so an
+  // unexpected object/error payload can't leak into downstream .sort/.filter.
   const trades = useMemo(() => {
-    return tradeHistoryData?.trades || tradeHistoryData || []
+    const raw = tradeHistoryData?.trades ?? tradeHistoryData
+    return Array.isArray(raw) ? raw : []
   }, [tradeHistoryData])
 
-  // Get initial balance from portfolio
+  // STARTING capital for the equity curve and drawdown denominator.
+  //
+  // This must be the account's *opening* balance, not its current value.
+  // It previously read `portfolioData.total_value` — a live figure that moves
+  // on every poll — which made the equity curve's origin translate vertically
+  // while the user watched, and seeded `peakEquity` with a number that already
+  // contained realized gains, deflating `maxDrawdownPercent`.
+  //
+  // `/trading/performance` serves the real thing as `metrics.initial_balance`
+  // (sourced from PAPER_INITIAL_BALANCE in the trading engine).
   const initialBalance = useMemo(() => {
-    return portfolioData?.total_equity || portfolioData?.balance?.total || 10000
-  }, [portfolioData])
+    const served = toFiniteNumber(
+      performanceSummary?.metrics?.initial_balance,
+      NaN,
+    )
+    return served > 0 ? served : PAPER_DEFAULT_BALANCE
+  }, [performanceSummary])
 
   // Calculate equity curve from trades
   const equityCurve = useMemo(() => {
@@ -136,8 +152,8 @@ export function usePerformanceMetrics(options = {}) {
   // Calculate client-side metrics (supplement backend metrics)
   const calculatedMetrics = useMemo(() => {
     if (trades.length === 0) return null
-    return calculatePerformanceMetrics(trades)
-  }, [trades])
+    return calculatePerformanceMetrics(trades, initialBalance)
+  }, [trades, initialBalance])
 
   // ============================================================================
   // MERGED METRICS (Backend + Calculated)
@@ -261,7 +277,8 @@ export function useEquityCurve(options = {}) {
 
   // Calculate equity curve from trades if backend doesn't provide it
   const calculatedCurve = useMemo(() => {
-    const trades = historyQuery.data?.trades || historyQuery.data || []
+    const raw = historyQuery.data?.trades ?? historyQuery.data
+    const trades = Array.isArray(raw) ? raw : []
     if (trades.length === 0) return []
     return calculateEquityCurve(trades, 10000)
   }, [historyQuery.data])
@@ -344,7 +361,8 @@ export function useReturnsDistribution(options = {}) {
   })
 
   const calculatedDistribution = useMemo(() => {
-    const trades = historyQuery.data?.trades || historyQuery.data || []
+    const raw = historyQuery.data?.trades ?? historyQuery.data
+    const trades = Array.isArray(raw) ? raw : []
     if (trades.length === 0) return { bins: [], stats: null }
     return calculateReturnsDistribution(trades, bins)
   }, [historyQuery.data, bins])

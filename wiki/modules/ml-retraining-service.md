@@ -6,13 +6,12 @@ language: python
 port: 8009
 purpose: "Automated GRU model retraining (FastAPI + APScheduler, weekly cron)"
 maintainer: ""
-last_updated: 2026-05-05
 linked_issues: []
 depends_on: [market-data-service, ml-prediction-service, notification-service]
 used_by: []
 tags: [module, service, ml, cron, retraining]
 created: 2026-05-05
-updated: 2026-05-05
+updated: 2026-07-30
 ---
 
 # ml-retraining-service
@@ -48,11 +47,13 @@ CLAUDE.md states a `DSR > 0.95` re-enable gate. The code path is plumbed (`setti
 
 - **Not in any compose file.** `grep -in "retrain" docker-compose*.yml` — nothing. The "weekly cron" never fires in the canonical stack; APScheduler only runs if someone manually launches the container.
 - **GH Actions workflow `.github/workflows/ml-retrain.yml`** runs `docker compose -f docker-compose.headless.yml run --rm --build ml-retraining python -m app.main --once`. Two problems: (a) no `ml-retraining` service in `docker-compose.headless.yml`; (b) `app.main` has no `--once` argparse — flag is silently ignored and uvicorn boots forever until GH Actions hits the 60-min timeout.
-- **Models 4+ months stale** (last trained 2025-12-10) — consistent with the scheduler never running.
+- **Models stale since 2025-12-10** (7+ months as of 2026-07) — consistent with the scheduler never running.
 - **Port 8009 collision** with `risk-metrics-service` in unified compose.
 - **Loopback HTTP scheduling** — APScheduler triggers re-enter via `httpx` to `service_host:service_port` instead of calling the coroutine in-process; needs uvicorn alive in same container.
 - **Deployer hardcodes `/models/{staging,production,backups}` (absolute)** while settings default to `./models/...` (relative). Mismatch unless host bind-mount is at `/models`.
 - **V0 leakage history** — default `retrain_target_mode="price"`, `retrain_feature_set="legacy"`. The post-`c56765c` log-returns + stationary-feature path exists in code but is opt-in.
+- **Forbidden metric still computed** — `app/core/.../model_trainer.py:430,623` computes R² on price levels (the banned V0 pattern; third consumer: `scripts/check_ml_training_status.py`). Persisted model metadata carries the bad metric. Purge = v1.3 Phase 23 (ML-PURGE-01).
+- **De-rooted 2026-07-29** — container now drops to `appuser` instead of running as root.
 
 ## See also
 

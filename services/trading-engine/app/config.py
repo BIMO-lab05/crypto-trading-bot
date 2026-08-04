@@ -362,7 +362,18 @@ class Settings(BaseSettings):
         ),
     )
     max_daily_loss_pct: float = Field(
-        default=5.0, ge=1.0, le=20.0, description="Maximum daily loss as % of capital"
+        default=12.0,
+        ge=1.0,
+        le=20.0,
+        description=(
+            "Maximum daily loss as % of capital. Reads MAX_DAILY_LOSS_PCT env. "
+            "Raised 2026-08-03 from 5.0 to 12.0 per ADR-028: at the ADR-010 "
+            "per-trade cap of 10% ($10 on a $100 balance), a 5% daily limit "
+            "($5) tripped on the FIRST full loss, so the breaker measured one "
+            "trade rather than a day. 12% ($12) lets it fire on ~2 losers. "
+            "This ALLOWS MORE daily loss -- it is a coherence fix, not a "
+            "tightening. Reconcile with max_risk_per_trade before LIVE."
+        ),
     )
     max_total_exposure_pct: float = Field(
         default=80.0,
@@ -387,11 +398,16 @@ class Settings(BaseSettings):
     # Professional standard: 65-75% confidence for automated trading
     # Research shows: 75-85% win rate at 65%+ confidence
     # ADJUSTED 2026-02-25: Lowered to 40% to sync with aggregator and enable trading
+    # ADJUSTED 2026-05-20: Lowered to 30% to re-sync with aggregator after 2026-05-15
+    # raised aggregator min_confidence 0.20→0.30 (commit b53a0ae) without touching
+    # this downstream gate. Symptom: 5+ months zero fills despite signals computing;
+    # aggregator could not emit anything ≥ this 0.40 floor after the cascade
+    # (multi-timeframe WEAK alignment shaves another 0.90x post-aggregator).
     min_signal_confidence: float = Field(
-        default=0.40,  # SYNCED to 40% to match aggregator (enables trading in current market)
+        default=0.30,  # SYNCED to aggregator floor (raised 2026-05-15 to 0.30)
         ge=0.0,
         le=1.0,
-        description="SYNCED: 40% to match aggregator - enables trading while filtering noise",
+        description="SYNCED: 30% to match aggregator (raised 2026-05-15) - cascade reachability fix",
     )
     # Need 3 indicators from different categories for consensus
     min_consensus_indicators: int = Field(
@@ -559,6 +575,28 @@ class Settings(BaseSettings):
         ge=0.0,
         le=1.0,
         description="Commission percentage for paper trading",
+    )
+
+    # Paper slippage (PAPER-01, 2026-08-03). ON by default: a frictionless
+    # paper fill overstates every P&L figure the engine reports. Set
+    # PAPER_SLIPPAGE_ENABLED=false only for an explicit A/B comparison against
+    # the old zero-slippage behaviour. Per-symbol figures and their sourcing
+    # live in app/paper_slippage.py.
+    paper_slippage_enabled: bool = Field(
+        default=True,
+        description="Apply an adverse per-symbol slippage model to paper fills",
+    )
+    paper_slippage_bps_by_symbol: Dict[str, float] = Field(
+        default_factory=dict,
+        description=(
+            "Per-symbol one-way slippage in basis points, merged over the "
+            "built-in table in app/paper_slippage.py (JSON env override)"
+        ),
+    )
+    paper_slippage_default_bps: float = Field(
+        default=10.0,
+        ge=0.0,
+        description="Slippage in bps for symbols absent from the per-symbol table",
     )
 
     # =========================================================================

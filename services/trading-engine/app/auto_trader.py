@@ -27,10 +27,11 @@ UPDATED 2025-11-30 v2: Advanced trading enhancements
 
 import asyncio
 import logging
+import aiohttp
 from pathlib import Path
 from typing import Optional, List, Dict, Set
-from datetime import datetime
-from decimal import Decimal
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 
 from app.config import get_settings
@@ -52,7 +53,7 @@ from app.risk_manager import get_risk_manager
 from app.position_manager import get_position_manager
 from app.position_sizing import get_position_sizer, SizingMethod
 from app.performance_tracker import get_performance_tracker
-from app.models import OrderSide, OrderType, OrderCreate, OrderStatus
+from app.models import OrderSide, OrderType, OrderCreate, OrderStatus, TimeInForce
 from app.models.enums import SignalAction
 from app.aggregation.market_regime import get_market_regime_detector, MarketRegime
 
@@ -337,9 +338,20 @@ class AutoTrader:
         # trigger). Earlier code hard-coded 50%/50%/20 with the comment
         # "RELAXED FOR SAMPLE COLLECTION" — that left CLAUDE.md's documented
         # 5%/10% safety claims as fiction. Restored 2026-04-28.
+        # FIX 2026-08-03 (capital audit): max_position_value used to keep its
+        # flat 100000.0 dataclass default because only max_daily_loss_pct was
+        # passed here — on the $100 account that arm of the kill switch could
+        # never fire. It is now derived from equity by KillSwitchConfig's
+        # default_factory; passing it explicitly as well is redundant by design,
+        # because the audit's actual complaint was that the OMISSION at this
+        # call site was invisible to anyone reading it.
         self.kill_switch = get_kill_switch(
             KillSwitchConfig(
                 max_daily_loss_pct=self.settings.max_daily_loss_pct,
+                max_position_value=(
+                    self.settings.paper_initial_balance
+                    * (self.settings.max_total_exposure_pct / 100.0)
+                ),
             )
         )
 
@@ -893,6 +905,12 @@ class AutoTrader:
                         self.emergency_stop_active = True
                     self.is_running = False
                     break
+                elif self.emergency_stop_active:
+                    logger.info(
+                        f"EMERGENCY_STOP file no longer present at {self.emergency_stop_file} - "
+                        f"clearing stale emergency_stop_active flag."
+                    )
+                    self.emergency_stop_active = False
 
                 # ================================================================
                 # STEP 0: CHECK KILL SWITCH (2025-11-30)
@@ -1542,10 +1560,10 @@ class AutoTrader:
             qty_d = _Decimal(str(quantity))
             price_d = _Decimal(str(price))
             balance_d = _Decimal(str(balance))
-        except Exception:
-            # Defensive — bad inputs shouldn't crash the gate.
+        except (InvalidOperation, ValueError, TypeError) as e:
+            # Defensive — bad inputs shouldn't crash the gate. (Phase 17 TE-CAP-05 D-08 Category P)
             logger.warning(
-                f"min-notional gate: could not parse qty/price/balance for {symbol}, allowing"
+                "min-notional gate: parse failed for %s: %r — allowing", symbol, e
             )
             return True, None
 
@@ -1584,8 +1602,16 @@ class AutoTrader:
                 trades_rejected_min_notional_total.labels(
                     symbol=symbol, reason="min_qty"
                 ).inc()
-            except Exception:
-                pass
+            except (ImportError, ValueError, AttributeError) as e:
+                # Phase 17 TE-CAP-05 D-08 Category M — observable metric-emit failure.
+                # ImportError covers the deferred import at :1589.
+                # ValueError covers prometheus_client.Counter.labels() raising on
+                # label-name mismatch if the Counter definition in app.core.metrics
+                # is renamed without updating call sites here (real refactor risk).
+                # AttributeError covers a Counter→Histogram (or similar) metric-type
+                # swap that removes .labels() or .inc(). OSError dropped (counters
+                # are in-process; no I/O).
+                logger.warning("metrics emit failed (min_qty): %r", e)
             logger.info(
                 f"rejecting {symbol}: qty {qty_d} below min {spec.min_order_qty} "
                 f"(notional ${notional:.2f}, balance ${balance_d:.2f}, "
@@ -1600,8 +1626,16 @@ class AutoTrader:
                 trades_rejected_min_notional_total.labels(
                     symbol=symbol, reason="min_notional"
                 ).inc()
-            except Exception:
-                pass
+            except (ImportError, ValueError, AttributeError) as e:
+                # Phase 17 TE-CAP-05 D-08 Category M — observable metric-emit failure.
+                # ImportError covers the deferred import at :1606.
+                # ValueError covers prometheus_client.Counter.labels() raising on
+                # label-name mismatch if the Counter definition in app.core.metrics
+                # is renamed without updating call sites here (real refactor risk).
+                # AttributeError covers a Counter→Histogram (or similar) metric-type
+                # swap that removes .labels() or .inc(). OSError dropped (counters
+                # are in-process; no I/O).
+                logger.warning("metrics emit failed (min_notional): %r", e)
             logger.info(
                 f"rejecting {symbol}: notional ${notional:.2f} below min "
                 f"${spec.min_notional} (qty {qty_d}, balance ${balance_d:.2f}, "
@@ -1964,20 +1998,39 @@ class AutoTrader:
             # daily-limit idiom) so the breach is observable rather than
             # silently smoothed over by a resize.
             cap_fraction = self.settings.max_risk_per_trade
+            # ================================================================
+            # FIX 2026-07-28 (ADR-010): hard, non-configurable 2% cap in LIVE
+            # mode. Previously the 10% paper relaxation silently carried into
+            # LIVE unless an env override remembered to restore it.
+            # ================================================================
+            if str(self.settings.trading_mode).upper() == "LIVE":
+                cap_fraction = min(cap_fraction, 0.02)
             cap_value = float(balance) * cap_fraction
             if position_value > cap_value:
                 from app.core.metrics import risk_limit_breaches_total
 
                 risk_limit_breaches_total.labels(breach_type="position_size").inc()
-                logger.critical(
-                    f"[RISK_GATE] PER_TRADE_CAP BREACH | symbol={symbol} "
-                    f"attempted=${position_value:.2f} cap=${cap_value:.2f} "
+                # ============================================================
+                # FIX 2026-07-28: CLAMP to the cap instead of rejecting.
+                # symbol_allocations (25-30%) always exceeded the 10% cap on
+                # this balance, so the reject idiom starved the research/
+                # hybrid path of 100% of its entries — the bot then traded
+                # only through paths with weaker risk gates. Clamping keeps
+                # the cap enforced AND lets correctly-signalled trades happen.
+                # ============================================================
+                logger.warning(
+                    f"[RISK_GATE] PER_TRADE_CAP CLAMP | symbol={symbol} "
+                    f"attempted=${position_value:.2f} → clamped=${cap_value:.2f} "
                     f"({cap_fraction:.1%} of ${float(balance):.2f}) "
-                    f"leverage={leverage:.1f}x allocation={symbol_allocation:.0%} "
-                    f"- REJECTING. Reduce symbol_allocations[{symbol}] or leverage."
+                    f"leverage={leverage:.1f}x allocation={symbol_allocation:.0%}"
                 )
-                self.total_trades_rejected += 1
-                return
+                position_value = cap_value
+                margin_required = position_value / leverage
+                quantity = (
+                    position_value / trade_setup.entry_price
+                    if trade_setup.entry_price
+                    else quantity
+                )
 
             # Min-notional / min-qty gate (added 2026-05-06).
             # Sub-cap sizing on small balances often produces qty < exchange min;
@@ -2045,10 +2098,13 @@ class AutoTrader:
                 # POST-TRADE: Update Kill Switch Metrics (2025-11-30)
                 # ================================================================
                 # Get updated balance for kill switch tracking
+                # FIX 2026-07-28: feed EQUITY, not cash — cash drops by the
+                # posted margin at open, which previously looked like an
+                # instant "daily loss" to the kill switch.
                 current_balance = (
-                    trading_engine.get_balance()
+                    trading_engine.get_total_equity()
                     if trading_mode == "PAPER"
-                    else await trading_engine.get_balance()
+                    else await trading_engine.get_total_equity()
                 )
                 triggered = self.kill_switch.update_metrics(
                     current_balance=float(current_balance),
@@ -2398,53 +2454,27 @@ class AutoTrader:
         )
 
         try:
-            # Determine exit action (opposite of position side)
-            exit_action = "SELL" if position.side.value == "LONG" else "BUY"
+            # ================================================================
+            # FIX 2026-07-28: previously this block (a) called
+            # position_mgr.close_position AGAIN after the engine close with
+            # invalid kwargs (exit_price/exit_reason) — a TypeError on every
+            # invocation — and (b) in LIVE mode routed through
+            # execute_market_order, which ignores reduce_only and would have
+            # OPENED an opposite position on the exchange. Route everything
+            # through _close_position, which handles paper/live correctly and
+            # runs the shared post-close bookkeeping.
+            # ================================================================
+            reason = f"MAX_HOLD_TIME_EXCEEDED ({hours_held:.1f}h > {max_hours}h)"
+            await self._close_position(position, current_price, reason)
 
-            # Get trading engine (paper or live)
-            trading_mode = self.settings.trading_mode
-            if trading_mode == "LIVE":
-                trading_engine = get_live_engine()
-            else:
-                trading_engine = get_paper_engine()
-
-            # Create market order to close position immediately
-            # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`
-            # — passing order_type would raise pydantic ValidationError on every
-            # max-hold-time forced close. Also: paper/live engines expose
-            # execute_market_order, not place_order — calling place_order would
-            # raise AttributeError immediately after the ValidationError. Both
-            # bugs were dead-on-first-invocation, so the max-hold force-close
-            # path has never executed since 2026-01-16.
-            exit_order = OrderCreate(
-                symbol=position.symbol,
-                side=OrderSide.SELL if exit_action == "SELL" else OrderSide.BUY,
-                type=OrderType.MARKET,
-                quantity=position.quantity,
-                position_id=position.id,
-                reduce_only=True,
-                # 2026-05-15: tag close rows for post-hoc attribution.
-                strategy="max_hold_force_close",
+            position_mgr = get_position_manager()
+            closed_check = position_mgr.get_position(position.id)
+            closed_ok = (
+                closed_check is not None
+                and closed_check.status.value.upper() == "CLOSED"
             )
 
-            # Execute force close
-            executed_order, exec_err = await trading_engine.execute_market_order(
-                exit_order, Decimal(str(current_price))
-            )
-            if exec_err:
-                logger.warning(
-                    f"[MAX_HOLD] execute error for {position.symbol}: {exec_err}"
-                )
-
-            if executed_order and executed_order.status == OrderStatus.FILLED:
-                # Update position manager
-                position_mgr = get_position_manager()
-                position_mgr.close_position(
-                    position_id=position.id,
-                    exit_price=Decimal(str(current_price)),
-                    exit_reason=f"MAX_HOLD_TIME_EXCEEDED ({hours_held:.1f}h > {max_hours}h)",
-                )
-
+            if closed_ok:
                 logger.info(
                     f"[MAX_HOLD] ✅ Successfully closed {position.symbol} after {hours_held:.1f}h | "
                     f"Exit: ${current_price:.2f} | P&L: ${position.unrealized_pnl:.2f}"
@@ -2468,8 +2498,8 @@ class AutoTrader:
                 return True  # Position was closed
             else:
                 logger.error(
-                    f"[MAX_HOLD] ❌ Failed to close {position.symbol} - order status: "
-                    f"{executed_order.status if executed_order else 'None'}"
+                    f"[MAX_HOLD] ❌ Failed to close {position.symbol} - position "
+                    f"still open after close attempt"
                 )
                 return False
 
@@ -2489,8 +2519,25 @@ class AutoTrader:
                     f"MANUAL INTERVENTION REQUIRED",
                     severity="critical",
                 )
-            except:
-                pass
+            except (
+                AttributeError,
+                aiohttp.ClientError,
+                asyncio.TimeoutError,
+                RuntimeError,
+            ) as notif_err:
+                # Phase 17 TE-CAP-05 D-08 Category R — observable notif-emit failure
+                # inside max-hold critical-error branch; outer except at :2482
+                # stays as-is per D-08 explicit text (already logs exc_info=True).
+                # AttributeError covers the current send_notification missing-method
+                # latent bug (NotificationClient exposes notify_* methods, not
+                # send_notification); aiohttp.ClientError covers the transport
+                # family the underlying NotificationClient is built on once that
+                # latent bug is fixed.
+                logger.error(
+                    "notif emit failed inside max-hold critical-error branch for %s: %r",
+                    position.symbol,
+                    notif_err,
+                )
 
             return False
 
@@ -2535,6 +2582,24 @@ class AutoTrader:
 
                     if not current_price:
                         logger.warning(f"[MONITOR] No price for {position.symbol}")
+                        continue
+
+                    # ============================================================
+                    # FIX 2026-07-28: price sanity guard. Indicator-derived
+                    # prices have been observed wildly wrong (testnet-polluted
+                    # candles, e.g. BTC @ $1,759,541). A corrupt price here
+                    # would instantly "trigger" stops/TPs and force-close
+                    # positions at fantasy prices. Skip the cycle instead.
+                    # ============================================================
+                    ref_price = float(position.current_price or position.entry_price)
+                    if ref_price > 0 and not (
+                        0.5 * ref_price <= float(current_price) <= 2.0 * ref_price
+                    ):
+                        logger.error(
+                            f"[MONITOR] ⚠️ Implausible price for {position.symbol}: "
+                            f"{current_price} vs last known {ref_price} — "
+                            f"skipping exit checks this cycle (data corruption?)"
+                        )
                         continue
 
                     # ================================================================
@@ -2795,10 +2860,82 @@ class AutoTrader:
             position_mgr = get_position_manager()
             paper_engine = get_paper_engine()
 
-            # Close the position
-            closed = position_mgr.close_position(
-                position.id, Decimal(str(current_price)), reason
+            # ================================================================
+            # FIX 2026-07-28: route the close through the trading ENGINE so the
+            # cash balance is actually credited (margin + P&L - commission).
+            # Previously this called position_mgr.close_position directly: the
+            # position was marked closed but NO cash ever returned — every
+            # winning exit (take-profit, TP3, max-hold) permanently drained the
+            # book by the full margin amount.
+            # ================================================================
+            remaining_qty = (
+                position.remaining_quantity
+                if position.remaining_quantity is not None
+                else position.quantity
             )
+            _pos_side = (
+                position.side.value
+                if hasattr(position.side, "value")
+                else str(position.side)
+            ).upper()
+            if self.settings.trading_mode == "LIVE":
+                live_engine = get_live_engine()
+                ok, close_err = await live_engine.close_position(
+                    position.id, Decimal(str(current_price)), reason
+                )
+                if not ok:
+                    logger.error(
+                        f"[MONITOR] LIVE close failed for {position.symbol}: {close_err}"
+                    )
+                    return
+            else:
+                exit_side = OrderSide.SELL if _pos_side == "LONG" else OrderSide.BUY
+                close_order = OrderCreate(
+                    symbol=position.symbol,
+                    side=exit_side,
+                    type=OrderType.MARKET,
+                    quantity=remaining_qty,
+                    reduce_only=True,
+                    position_id=position.id,
+                    strategy="auto_close",
+                )
+                executed, close_err = await paper_engine.execute_market_order(
+                    close_order, Decimal(str(current_price))
+                )
+                if (
+                    close_err
+                    or executed is None
+                    or executed.status != OrderStatus.FILLED
+                ):
+                    logger.error(
+                        f"[MONITOR] Paper close failed for {position.symbol}: {close_err}"
+                    )
+                    return
+
+            # Engine close already updated the position via position manager
+            closed = position_mgr.get_position(position.id)
+            if closed is None:
+                closed = position
+
+            await self._finalize_closed_position(
+                position, closed, current_price, reason
+            )
+
+        except Exception as e:
+            logger.error(f"[MONITOR] Failed to close position: {e}", exc_info=True)
+
+    async def _finalize_closed_position(
+        self, position, closed, current_price: float, reason: str
+    ):
+        """
+        Shared post-close bookkeeping (extracted 2026-07-28): SL cooldown,
+        kill-switch metrics on EQUITY, performance tracker, analytics,
+        DCA/heat cleanup, and the close notification. Called by every close
+        path so limit-order closes get the same risk accounting as market
+        closes (previously the limit path skipped kill-switch updates).
+        """
+        try:
+            paper_engine = get_paper_engine()
 
             # Arm SL cooldown if this close was a stop-loss event (2026-05-15)
             if "stop" in reason.lower() or "loss" in reason.lower():
@@ -2806,17 +2943,34 @@ class AutoTrader:
 
             # ================================================================
             # UPDATE KILL SWITCH METRICS (Enhanced 2025-11-30)
+            # FIX 2026-07-28: feed EQUITY (cash + unrealized), not cash. Cash
+            # drops by the posted margin on every open, which made the kill
+            # switch see a phantom "daily loss" the moment a position opened.
             # ================================================================
             trade_pnl = float(closed.realized_pnl) if closed.realized_pnl else 0.0
             was_loss = trade_pnl < 0
-            current_balance = paper_engine.get_balance()
+            current_equity = paper_engine.get_total_equity()
 
             triggered = self.kill_switch.update_metrics(
-                current_balance=float(current_balance),
+                current_balance=float(current_equity),
                 trade_pnl=trade_pnl,
                 was_loss=was_loss,
                 position_value=0.0,  # Position is closed
+                is_trade_close=True,
             )
+
+            # Feed the performance tracker so Kelly/adaptive sizing learns from
+            # real outcomes (FIX 2026-07-28: add_trade previously had no caller,
+            # so sizing always ran on the optimistic fallback stats).
+            try:
+                perf_tracker = get_performance_tracker()
+                perf_tracker.add_trade(
+                    closed,
+                    Decimal(str(current_price)),
+                    datetime.now(timezone.utc),
+                )
+            except Exception as perf_err:
+                logger.debug(f"[MONITOR] Perf tracker note: {perf_err}")
 
             if triggered:
                 logger.warning(
@@ -2893,7 +3047,7 @@ class AutoTrader:
                 logger.debug(f"Notification failed (non-critical): {notify_err}")
 
         except Exception as e:
-            logger.error(f"[MONITOR] Failed to close position: {e}", exc_info=True)
+            logger.error(f"[MONITOR] Post-close bookkeeping failed: {e}", exc_info=True)
 
     async def _close_position_with_limit_order(
         self,
@@ -2925,24 +3079,24 @@ class AutoTrader:
             limit_buffer_pct: Buffer percentage for limit order (default 0.5%)
             timeout_seconds: Max wait time for limit order (default 10s)
         """
-        # FIX (T12, 2026-05-01): Loud-failure guard for LIVE mode.
-        # LiveTradingEngine does not yet expose a LIMIT IOC reduce_only
-        # close-order method (see the in-block comment in STEP 2 below).
-        # Both the inner except Exception as limit_err at the limit-order
-        # fallthrough and the outer except Exception as e would otherwise
-        # swallow our RuntimeError and silently route a LIVE stop-loss exit
-        # through the paper engine or through execute_market_order (which
-        # ignores reduce_only=True and would OPEN a new opposite position
-        # on Bybit instead of closing). Raise BEFORE entering the outer try
-        # so the failure propagates to the caller untouched.
-        if self.settings.trading_mode == "LIVE":
-            raise RuntimeError(
-                "LIVE limit-order stop-loss path requires "
-                "LiveTradingEngine.close_position_with_limit (LIMIT IOC "
-                "reduce_only) — not yet implemented; T1.3 maker-order "
-                "test cannot run in LIVE mode. See "
-                "app/auto_trader.py:_close_position_with_limit_order."
-            )
+        # ====================================================================
+        # REWRITTEN 2026-07-28 (accounting audit):
+        #  * The engine close IS the close — the previous code called
+        #    position_mgr.close_position AGAIN after a filled engine close,
+        #    which raised ValueError("not open"), was misread as "limit order
+        #    failed", and triggered a market-order fallback that (because
+        #    reduce_only was ignored by the paper engine) OPENED A FULL-SIZE
+        #    OPPOSITE POSITION after every stop-loss / trailing-stop exit.
+        #  * reduce_only + position_id are now honored by the paper engine and
+        #    closes use the REMAINING quantity (post partial exits).
+        #  * LIVE mode now routes through LiveTradingEngine.close_position
+        #    (market, reduce_only) instead of raising RuntimeError — a LIVE
+        #    stop-loss previously had NO working exit path and the position
+        #    stayed open forever. A LIMIT-IOC close for LIVE remains a TODO;
+        #    a market reduce-only close is the safe interim behavior.
+        #  * All fill paths run _finalize_closed_position so kill-switch /
+        #    performance accounting is consistent with market closes.
+        # ====================================================================
 
         # Arm SL cooldown (2026-05-15). This path is invoked only for stop-loss
         # exits (callers gate on "stop"/"loss" in reason — see _monitor loop).
@@ -2950,39 +3104,69 @@ class AutoTrader:
         # the cooldown still blocks re-entry whipsaw.
         self._record_sl_hit(position.symbol, reason)
 
+        position_mgr = get_position_manager()
+        remaining_qty = (
+            position.remaining_quantity
+            if position.remaining_quantity is not None
+            else position.quantity
+        )
+        _pos_side = (
+            position.side.value
+            if hasattr(position.side, "value")
+            else str(position.side)
+        ).upper()
+        exit_side = OrderSide.SELL if _pos_side == "LONG" else OrderSide.BUY
+
+        # ---- LIVE: reduce-only market close through the live engine --------
+        if self.settings.trading_mode == "LIVE":
+            try:
+                live_engine = get_live_engine()
+                ok, close_err = await live_engine.close_position(
+                    position.id, Decimal(str(current_price)), reason
+                )
+            except Exception as live_err:
+                ok, close_err = False, str(live_err)
+
+            if ok:
+                closed = position_mgr.get_position(position.id) or position
+                await self._finalize_closed_position(
+                    position, closed, current_price, reason
+                )
+            else:
+                logger.error(
+                    f"[LIMIT_STOP] ❌ LIVE stop-loss close FAILED for "
+                    f"{position.symbol}: {close_err}"
+                )
+                try:
+                    await self.notification_client.notify_trade_close(
+                        symbol=position.symbol,
+                        action="CLOSE_FAILED",
+                        quantity=float(remaining_qty),
+                        entry_price=float(position.entry_price),
+                        exit_price=float(current_price),
+                        pnl=0.0,
+                        pnl_pct=0.0,
+                    )
+                except Exception as notif_err:
+                    logger.error(
+                        "[LIMIT_STOP] LIVE close-failed notification error: %r",
+                        notif_err,
+                    )
+            return
+
+        # ---- PAPER: limit IOC with buffer, market fallback -----------------
         try:
-            from app.models import (
-                OrderCreate,
-                OrderSide,
-                OrderType,
-                OrderStatus,
-                TimeInForce,
-            )
+            paper_engine = get_paper_engine()
 
-            position_mgr = get_position_manager()
-
-            # Determine exit side (opposite of position)
-            exit_side = (
-                OrderSide.SELL if position.side.value == "LONG" else OrderSide.BUY
-            )
-
-            # ================================================================
             # STEP 1: Calculate limit price with buffer
-            # ================================================================
-            # For LONG: Sell at limit slightly below current price
-            # For SHORT: Buy at limit slightly above current price
-            # This ensures we get filled quickly but with controlled slippage
-            # ================================================================
-            if position.side.value == "LONG":
-                # LONG stop loss: Sell at limit slightly below stop loss
-                # Buffer allows faster fill while preventing excessive slippage
+            # LONG stop: sell slightly below the stop; SHORT stop: buy slightly above
+            if _pos_side == "LONG":
                 limit_price = (
                     float(position.stop_loss) * (1 - limit_buffer_pct)
                     if position.stop_loss
                     else current_price * (1 - limit_buffer_pct)
                 )
             else:  # SHORT
-                # SHORT stop loss: Buy at limit slightly above stop loss
                 limit_price = (
                     float(position.stop_loss) * (1 + limit_buffer_pct)
                     if position.stop_loss
@@ -2990,153 +3174,90 @@ class AutoTrader:
                 )
 
             logger.info(
-                f"[LIMIT_STOP] {position.symbol} {position.side.value} | "
+                f"[LIMIT_STOP] {position.symbol} {_pos_side} | "
                 f"Stop: ${position.stop_loss} | Current: ${current_price:.2f} | "
                 f"Limit: ${limit_price:.2f} (buffer: {limit_buffer_pct * 100:.1f}%)"
             )
 
-            # ================================================================
-            # STEP 2: Attempt limit order execution
-            # ================================================================
+            # STEP 2: Attempt limit order execution (IOC, reduce-only)
+            limit_order = OrderCreate(
+                symbol=position.symbol,
+                side=exit_side,
+                type=OrderType.LIMIT,
+                price=Decimal(str(limit_price)),
+                quantity=remaining_qty,
+                time_in_force=TimeInForce.IOC if hasattr(TimeInForce, "IOC") else None,
+                reduce_only=True,
+                position_id=position.id,
+                strategy="stop_loss_limit",
+            )
+
+            logger.info(
+                f"[LIMIT_STOP] Placing limit order: {exit_side.value} "
+                f"{remaining_qty} {position.symbol} @ ${limit_price:.2f}"
+            )
+
+            fill_error = None
             try:
-                # Get trading engine (paper or live)
-                trading_mode = self.settings.trading_mode
-                if trading_mode == "LIVE":
-                    # FIX (T12, 2026-05-01): Previously this branch silently fell back
-                    # to the paper engine, which would log a paper-trading fill and
-                    # leave the LIVE position OPEN on Bybit while updating local
-                    # PositionManager as if it were closed. That is the worst
-                    # possible failure mode in LIVE.
-                    #
-                    # The correct fix is a real LIMIT IOC reduce_only call, but
-                    # LiveTradingEngine (app/live_trading.py) does not expose
-                    # one yet:
-                    #   - execute_market_order hardcodes order_type="Market"
-                    #     and reduce_only=False, so it ignores both the LIMIT
-                    #     type and the reduce_only=True flag on
-                    #     OrderCreate and would OPEN a new opposite position
-                    #     instead of closing.
-                    #   - execute_maker_order_with_fallback is for ENTRY
-                    #     (PostOnly + create_position), not for stop-loss
-                    #     exits.
-                    # The bybit-connector itself supports LIMIT/IOC/reduce_only
-                    # (see services/bybit-connector/app/bybit_rest_client.py
-                    # place_order), so the fix is to add a
-                    # close_position_with_limit method on
-                    # LiveTradingEngine that wires those parameters through.
-                    # Until that exists, fail LOUD instead of silently routing
-                    # LIVE stop-loss exits through the paper engine.
-                    raise RuntimeError(
-                        "LIVE limit-order stop-loss path requires "
-                        "LiveTradingEngine.close_position_with_limit (LIMIT IOC "
-                        "reduce_only) — not yet implemented; T1.3 maker-order "
-                        "test cannot run in LIVE mode. See "
-                        "app/auto_trader.py:_close_position_with_limit_order."
-                    )
-                else:
-                    trading_engine = get_paper_engine()
-
-                # Create limit order (IOC = Immediate or Cancel)
-                # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`.
-                limit_order = OrderCreate(
-                    symbol=position.symbol,
-                    side=exit_side,
-                    type=OrderType.LIMIT,
-                    price=Decimal(str(limit_price)),
-                    quantity=position.quantity,
-                    time_in_force=TimeInForce.IOC
-                    if hasattr(TimeInForce, "IOC")
-                    else None,
-                    reduce_only=True,
-                    position_id=position.id,
-                    # 2026-05-15: tag close rows for post-hoc attribution.
-                    strategy="stop_loss_limit",
-                )
-
-                # Execute limit order
-                logger.info(
-                    f"[LIMIT_STOP] Placing limit order: {exit_side.value} {position.quantity} {position.symbol} @ ${limit_price:.2f}"
-                )
-
-                # For paper trading, simulate limit order execution
-                # In real trading, this would use the exchange's limit order API
-                limit_result = await trading_engine.execute_market_order(
+                limit_result = await paper_engine.execute_market_order(
                     limit_order,
-                    Decimal(str(limit_price)),  # Paper trading: use limit price
+                    Decimal(str(limit_price)),  # Paper trading: fill at limit price
                 )
-
-                if limit_result and limit_result[0].status == OrderStatus.FILLED:
-                    # Limit order filled successfully
-                    actual_fill_price = float(limit_result[0].filled_price)
-                    slippage_pct = abs(
-                        (actual_fill_price - limit_price) / limit_price * 100
-                    )
-
-                    logger.info(
-                        f"[LIMIT_STOP] ✅ Limit order FILLED | "
-                        f"{position.symbol} @ ${actual_fill_price:.2f} | "
-                        f"Slippage: {slippage_pct:.2f}% | "
-                        f"Saved vs market order: ~{0.005 * 100 - slippage_pct:.2f}%"
-                    )
-
-                    # Update position manager
-                    closed_position = position_mgr.close_position(
-                        position_id=position.id,
-                        close_price=Decimal(str(actual_fill_price)),
-                        reason=f"{reason} (limit order @ ${actual_fill_price:.2f})",
-                    )
-
-                    # Send notification
-                    try:
-                        await self.notification_client.send_notification(
-                            title="🎯 Stop Loss Limit Order Filled",
-                            message=f"Closed {position.symbol} {position.side.value}\n"
-                            f"Limit: ${limit_price:.2f}\n"
-                            f"Filled: ${actual_fill_price:.2f}\n"
-                            f"Slippage: {slippage_pct:.2f}%\n"
-                            f"P&L: ${closed_position.realized_pnl:.2f}",
-                            severity="medium",
-                        )
-                    except Exception as notif_err:
-                        logger.debug(f"[LIMIT_STOP] Notification note: {notif_err}")
-
-                    return
-
             except Exception as limit_err:
-                logger.warning(f"[LIMIT_STOP] Limit order failed: {limit_err}")
+                limit_result, fill_error = None, str(limit_err)
 
-            # ================================================================
-            # STEP 3: Fallback to market order if limit order not filled
-            # ================================================================
+            if (
+                limit_result
+                and limit_result[0] is not None
+                and limit_result[0].status == OrderStatus.FILLED
+            ):
+                actual_fill_price = float(limit_result[0].filled_price)
+                slippage_pct = abs(
+                    (actual_fill_price - limit_price) / limit_price * 100
+                )
+                logger.info(
+                    f"[LIMIT_STOP] ✅ Limit order FILLED | "
+                    f"{position.symbol} @ ${actual_fill_price:.2f} | "
+                    f"Slippage: {slippage_pct:.2f}%"
+                )
+                closed = position_mgr.get_position(position.id) or position
+                await self._finalize_closed_position(
+                    position,
+                    closed,
+                    actual_fill_price,
+                    f"{reason} (limit order @ ${actual_fill_price:.2f})",
+                )
+                return
+
+            if limit_result and limit_result[1]:
+                fill_error = limit_result[1]
+
+            # STEP 3: Fallback to market order (still reduce-only, same position)
             logger.warning(
-                f"[LIMIT_STOP] ⚠️ Limit order not filled, falling back to MARKET order | "
+                f"[LIMIT_STOP] ⚠️ Limit order not filled "
+                f"({fill_error or 'no fill'}), falling back to MARKET order | "
                 f"{position.symbol}"
             )
 
-            # Create market order as fallback
-            # FIX (audit 2026-05-01): OrderCreate field is `type`, not `order_type`.
             market_order = OrderCreate(
                 symbol=position.symbol,
                 side=exit_side,
                 type=OrderType.MARKET,
-                quantity=position.quantity,
+                quantity=remaining_qty,
                 reduce_only=True,
                 position_id=position.id,
-                # 2026-05-15: tag close rows for post-hoc attribution.
                 strategy="stop_loss_market_fallback",
             )
 
-            # Execute market order
-            trading_engine = (
-                get_paper_engine()
-                if self.settings.trading_mode != "LIVE"
-                else get_live_engine()
-            )
-            market_result = await trading_engine.execute_market_order(
+            market_result = await paper_engine.execute_market_order(
                 market_order, Decimal(str(current_price))
             )
 
-            if market_result and market_result[0].status == OrderStatus.FILLED:
+            if (
+                market_result
+                and market_result[0] is not None
+                and market_result[0].status == OrderStatus.FILLED
+            ):
                 actual_fill_price = float(market_result[0].filled_price)
                 slippage_pct = (
                     abs(
@@ -3147,55 +3268,54 @@ class AutoTrader:
                     if position.stop_loss
                     else 0
                 )
-
                 logger.info(
                     f"[LIMIT_STOP] ⚡ Market order FILLED (fallback) | "
                     f"{position.symbol} @ ${actual_fill_price:.2f} | "
                     f"Slippage from stop: {slippage_pct:.2f}%"
                 )
-
-                # Update position manager
-                closed_position = position_mgr.close_position(
-                    position_id=position.id,
-                    close_price=Decimal(str(actual_fill_price)),
-                    reason=f"{reason} (market fallback @ ${actual_fill_price:.2f})",
+                closed = position_mgr.get_position(position.id) or position
+                await self._finalize_closed_position(
+                    position,
+                    closed,
+                    actual_fill_price,
+                    f"{reason} (market fallback @ ${actual_fill_price:.2f})",
                 )
+                return
 
-                # Send alert about fallback
-                try:
-                    await self.notification_client.send_notification(
-                        title="⚠️ Stop Loss Market Fallback",
-                        message=f"Limit order failed, used market order\n"
-                        f"{position.symbol} {position.side.value}\n"
-                        f"Filled: ${actual_fill_price:.2f}\n"
-                        f"Slippage: {slippage_pct:.2f}%\n"
-                        f"P&L: ${closed_position.realized_pnl:.2f}",
-                        severity="high",
-                    )
-                except Exception as notif_err:
-                    logger.debug(f"[LIMIT_STOP] Notification note: {notif_err}")
-            else:
+            logger.error(
+                f"[LIMIT_STOP] ❌ Both limit and market orders failed for "
+                f"{position.symbol}: "
+                f"{market_result[1] if market_result else 'no result'}"
+            )
+            try:
+                await self.notification_client.notify_trade_close(
+                    symbol=position.symbol,
+                    action="STOP_LOSS_FAILED",
+                    quantity=float(remaining_qty),
+                    entry_price=float(position.entry_price),
+                    exit_price=float(current_price),
+                    pnl=0.0,
+                    pnl_pct=0.0,
+                )
+            except (
+                AttributeError,
+                aiohttp.ClientError,
+                asyncio.TimeoutError,
+                RuntimeError,
+            ) as notif_err:
                 logger.error(
-                    f"[LIMIT_STOP] ❌ Both limit and market orders failed for {position.symbol}"
+                    "notif emit failed inside limit-stop both-orders-failed "
+                    "critical branch for %s: %r",
+                    position.symbol,
+                    notif_err,
                 )
-                # Send critical alert
-                try:
-                    await self.notification_client.send_notification(
-                        title="🚨 CRITICAL - Stop Loss Failed to Execute",
-                        message=f"Failed to close {position.symbol}\n"
-                        f"Both limit and market orders failed\n"
-                        f"MANUAL INTERVENTION REQUIRED",
-                        severity="critical",
-                    )
-                except:
-                    pass
 
         except Exception as e:
             logger.error(
                 f"[LIMIT_STOP] ❌ Exception in limit order close for {position.symbol}: {e}",
                 exc_info=True,
             )
-            # Last resort: call regular close_position
+            # Last resort: regular (market) close path
             await self._close_position(position, current_price, reason)
 
     async def _execute_partial_exit(
@@ -3212,13 +3332,67 @@ class AutoTrader:
         try:
             position_mgr = get_position_manager()
             paper_engine = get_paper_engine()
-
-            # Execute the partial exit
-            updated_pos, partial_pnl = position_mgr.execute_partial_exit(
-                position.id, exit_info, Decimal(str(current_price))
-            )
-
             level = exit_info["level"]
+
+            # ================================================================
+            # FIX 2026-07-28: route the partial exit through the trading ENGINE
+            # (reduce-only, position-targeted) so cash is credited. Previously
+            # this called position_mgr.execute_partial_exit directly — the
+            # position shrank but NO cash ever moved, so every TP1/TP2 partial
+            # profit silently evaporated from the book.
+            # ================================================================
+            _pos_side = (
+                position.side.value
+                if hasattr(position.side, "value")
+                else str(position.side)
+            ).upper()
+            exit_side = OrderSide.SELL if _pos_side == "LONG" else OrderSide.BUY
+            exit_qty = Decimal(str(exit_info["exit_quantity"]))
+
+            if self.settings.trading_mode == "LIVE":
+                logger.warning(
+                    "[MONITOR] LIVE partial exits not implemented — skipping "
+                    f"{level} for {position.symbol} (position unchanged)"
+                )
+                return
+
+            order = OrderCreate(
+                symbol=position.symbol,
+                side=exit_side,
+                type=OrderType.MARKET,
+                quantity=exit_qty,
+                reduce_only=True,
+                position_id=position.id,
+                strategy=f"partial_exit_{level.lower()}",
+            )
+            executed, exec_err = await paper_engine.execute_market_order(
+                order, Decimal(str(current_price))
+            )
+            if executed is None or executed.status != OrderStatus.FILLED or exec_err:
+                logger.error(
+                    f"[MONITOR] Partial exit order failed for {position.symbol} "
+                    f"{level}: {exec_err}"
+                )
+                return
+
+            # Engine reduced the position and credited margin+P&L; now record
+            # the TP-level state on the position (flags + trailing activation).
+            if level == "TP1":
+                position.tp1_hit = True
+                position.trailing_stop_enabled = True
+            elif level == "TP2":
+                position.tp2_hit = True
+
+            if _pos_side == "LONG":
+                partial_pnl = (
+                    Decimal(str(current_price)) - position.entry_price
+                ) * exit_qty
+            else:
+                partial_pnl = (
+                    position.entry_price - Decimal(str(current_price))
+                ) * exit_qty
+
+            updated_pos = position_mgr.get_position(position.id) or position
             logger.info(
                 f"[MONITOR] Partial exit executed: {position.symbol} {level} | "
                 f"P&L: ${float(partial_pnl):.2f} | "
@@ -3231,7 +3405,7 @@ class AutoTrader:
                 pnl_pct = (
                     (
                         float(partial_pnl)
-                        / (float(position.entry_price) * exit_info["exit_quantity"])
+                        / (float(position.entry_price) * float(exit_qty))
                     )
                     * 100
                     if position.entry_price
@@ -3281,11 +3455,16 @@ class AutoTrader:
             # Create exit order (opposite side to close)
             exit_side = OrderSide.SELL if partial_exit.side == "LONG" else OrderSide.BUY
 
+            # FIX 2026-07-28: reduce-only + position-targeted, so this order
+            # reduces THIS position instead of potentially closing a different
+            # same-symbol position (or opening an opposite one on a mismatch).
             order = OrderCreate(
                 symbol=partial_exit.symbol,
                 side=exit_side,
                 type=OrderType.MARKET,
                 quantity=Decimal(str(partial_exit.quantity_to_exit)),
+                reduce_only=True,
+                position_id=position.id,
                 strategy="partial_profit_taker",
             )
 
@@ -3394,11 +3573,15 @@ class AutoTrader:
             ).upper()
             side = OrderSide.BUY if _pos_side_str == "LONG" else OrderSide.SELL
 
+            # FIX 2026-07-28: pass position_id so the paper engine SCALES INTO
+            # the existing position (weighted-average entry) instead of opening
+            # a DUPLICATE position with its own default stops.
             order = OrderCreate(
                 symbol=position.symbol,
                 side=side,
                 type=OrderType.MARKET,
                 quantity=Decimal(str(safety_order.quantity)),
+                position_id=position.id,
                 strategy="dca_safety_order",
             )
 
@@ -3562,6 +3745,56 @@ class AutoTrader:
                 f"| Qty: {quantity:.4f}"
             )
             logger.info(f"Reasoning: {size_result.reasoning}")
+
+            # ================================================================
+            # FIX 2026-07-28: side + risk gates on the DEFAULT ("standard")
+            # path. These gates previously existed only in
+            # _execute_trade_with_setup (research/hybrid), so the default mode
+            # bypassed allowed_trade_sides, short_trading_enabled,
+            # short_min_confidence AND the per-trade cap entirely.
+            # ================================================================
+            intended_side = "LONG" if action == "BUY" else "SHORT"
+            if intended_side not in self.settings.allowed_trade_sides:
+                logger.warning(
+                    f"[RISK_GATE] ❌ Trade side {intended_side} NOT in "
+                    f"allowed_trade_sides: {self.settings.allowed_trade_sides} | "
+                    f"Symbol: {symbol} | REJECTING"
+                )
+                self.total_trades_rejected += 1
+                return
+            if intended_side == "SHORT":
+                if not self.settings.short_trading_enabled:
+                    logger.warning(
+                        f"[RISK_GATE] ❌ SHORT trading DISABLED "
+                        f"(short_trading_enabled=False) | {symbol} | REJECTING"
+                    )
+                    self.total_trades_rejected += 1
+                    return
+                short_min_conf = getattr(self.settings, "short_min_confidence", 0.0)
+                if confidence < short_min_conf:
+                    logger.warning(
+                        f"[RISK_GATE] ❌ SHORT confidence {confidence:.2f} < "
+                        f"short_min_confidence {short_min_conf:.2f} | {symbol} | "
+                        f"REJECTING"
+                    )
+                    self.total_trades_rejected += 1
+                    return
+
+            # Per-trade cap (ADR-010): clamp position value to the cap; hard
+            # 2% in LIVE mode regardless of paper relaxation.
+            cap_fraction = self.settings.max_risk_per_trade
+            if str(self.settings.trading_mode).upper() == "LIVE":
+                cap_fraction = min(cap_fraction, 0.02)
+            cap_value = Decimal(str(balance)) * Decimal(str(cap_fraction))
+            if position_value > cap_value:
+                logger.warning(
+                    f"[RISK_GATE] PER_TRADE_CAP CLAMP | {symbol} "
+                    f"attempted=${float(position_value):.2f} → "
+                    f"clamped=${float(cap_value):.2f} "
+                    f"({cap_fraction:.1%} of ${float(balance):.2f})"
+                )
+                position_value = cap_value
+                quantity = position_value / Decimal(str(current_price))
 
             # Check if we already have an open position
             open_positions = (
@@ -3984,8 +4217,28 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
-            position_value = float(balance) * ens_signal.position_size_pct
+            # Apply leverage to ensemble sizing (fix 2026-05-19).
+            # ensemble.position_size_pct sets the MARGIN fraction (already capped
+            # at max_risk_per_trade by ensemble's own cascade). Multiplying by
+            # leverage converts margin to notional position value. paper_engine
+            # then divides notional by default_leverage to compute margin
+            # deducted, so cash impact = balance × position_size_pct regardless
+            # of leverage; leverage only scales notional (P&L exposure).
+            leverage = 1.0
+            if self.settings.leverage_enabled:
+                leverage = max(
+                    self.settings.min_leverage,
+                    min(self.settings.default_leverage, self.settings.max_leverage),
+                )
+            margin_value = float(balance) * ens_signal.position_size_pct
+            position_value = margin_value * leverage
             quantity = position_value / current_price
+
+            if self.settings.leverage_enabled:
+                logger.info(
+                    f"[ENSEMBLE][LEVERAGE] {symbol}: margin=${margin_value:.2f} × "
+                    f"{leverage:.0f}x = notional ${position_value:.2f}"
+                )
 
             from decimal import Decimal
 

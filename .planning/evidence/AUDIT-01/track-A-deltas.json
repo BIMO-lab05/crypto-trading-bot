@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "req_id": "RISK-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Risk cap: daily-loss (per range bullet 'RISK-01..07: Risk caps (daily-loss, drawdown, consec-loss, per-trade, vol parity, maker, funding) — Tier-1 2026-04-30')",
+      "evidence_file": "services/trading-engine/app/auto_trader.py",
+      "evidence_line_start": 340,
+      "evidence_line_end": 344,
+      "status": "satisfied",
+      "notes": "KillSwitchConfig instantiated with max_daily_loss_pct=settings.max_daily_loss_pct (default 5% per config.py:364-366). Kill switch evaluated at auto_trader.py:1683-1688 — should_halt_trading() blocks new trades. Secondary: kill_switch module enforces multi-threshold daily-loss/drawdown/consec gating."
+    },
+    {
+      "req_id": "RISK-02",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Risk cap: drawdown (per range bullet 'RISK-01..07: Risk caps (daily-loss, drawdown, consec-loss, per-trade, vol parity, maker, funding) — Tier-1 2026-04-30')",
+      "evidence_file": "services/trading-engine/app/auto_trader.py",
+      "evidence_line_start": 332,
+      "evidence_line_end": 344,
+      "status": "satisfied",
+      "notes": "Drawdown threshold uses KillSwitchConfig default (drawdown 20%, per comment auto_trader.py:336). Config setting at config.py:515 (circuit_breaker_max_drawdown_pct). Enforced via kill_switch.should_halt_trading() at auto_trader.py:1683."
+    },
+    {
+      "req_id": "RISK-03",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Risk cap: consec-loss (per range bullet 'RISK-01..07: Risk caps (daily-loss, drawdown, consec-loss, per-trade, vol parity, maker, funding) — Tier-1 2026-04-30')",
+      "evidence_file": "services/trading-engine/app/auto_trader.py",
+      "evidence_line_start": 332,
+      "evidence_line_end": 344,
+      "status": "satisfied",
+      "notes": "Consecutive-loss limit uses KillSwitchConfig default (consec 5, per comment auto_trader.py:336). Config setting at config.py:509 (circuit_breaker_max_consecutive_losses). Enforced via kill_switch at auto_trader.py:1683."
+    },
+    {
+      "req_id": "RISK-04",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Risk cap: per-trade (per range bullet 'RISK-01..07: Risk caps (daily-loss, drawdown, consec-loss, per-trade, vol parity, maker, funding) — Tier-1 2026-04-30'). Per ADR-010: 2% in LIVE; 10% in paper.",
+      "evidence_file": "services/trading-engine/app/auto_trader.py",
+      "evidence_line_start": 1962,
+      "evidence_line_end": 1986,
+      "status": "satisfied",
+      "notes": "AUDIT OVERTURNS HYPOTHESIS. CONTEXT.md known-findings table flagged this as drift ('cap calculated, not enforced'). Re-read of auto_trader.py:1962-1986 shows EXPLICIT enforcement: cap_fraction = settings.max_risk_per_trade (line 1972); if position_value > cap_value: log critical 'PER_TRADE_CAP BREACH', self.total_trades_rejected += 1, return (lines 1974-1986). The line 1697 reference in CONTEXT was actually portfolio_heat_manager.can_open_trade (a separate concern, also enforcing). LIVE-strict cap also enforced at main.py:277-290 boot path. Per-trade cap is hard-enforced end-to-end. Earlier audit may have read pre-2026-05-06 code."
+    },
+    {
+      "req_id": "RISK-05",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Risk cap: vol parity (per range bullet 'RISK-01..07: Risk caps (daily-loss, drawdown, consec-loss, per-trade, vol parity, maker, funding) — Tier-1 2026-04-30')",
+      "evidence_file": "services/trading-engine/app/auto_trader.py",
+      "evidence_line_start": 354,
+      "evidence_line_end": 370,
+      "status": "satisfied",
+      "notes": "Vol-parity sizing implemented at services/trading-engine/app/risk/vol_targeting.py (vol_parity_size function imported at auto_trader.py:37-41). Enabled via settings.enable_vol_targeting (config.py:124, default False — opt-in T1.2). Applied during sizing at auto_trader.py:1939. Comment at 346-352 explicitly notes vol parity is downside-only overlay above the per-trade cap REJECT idiom — implementation matches claim."
+    },
+    {
+      "req_id": "RISK-06",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Risk cap: maker/post-only (per range bullet 'RISK-01..07: Risk caps (daily-loss, drawdown, consec-loss, per-trade, vol parity, maker, funding) — Tier-1 2026-04-30')",
+      "evidence_file": "services/trading-engine/app/live_trading.py",
+      "evidence_line_start": 290,
+      "evidence_line_end": 360,
+      "status": "satisfied",
+      "notes": "AUDIT OVERTURNS HYPOTHESIS. CONTEXT.md flagged this as missing citing 'use_post_only=False hard-coded at auto_trader.py:544' — that line is the LimitOrderConfig for stop-loss/TP execution, NOT the entry-order maker flag. Actual maker/post-only flow: config.py:177-180 prefer_maker_orders flag (default OFF, 'Off until forward-paper-tested'); auto_trader.py:2020-2025 gates on (LIVE mode && prefer_maker_orders); live_trading.py:290+ implements PostOnly with time_in_force='PostOnly' at line 327; bybit_adapter.py:738-739 sets payload['timeInForce']='PostOnly'. End-to-end maker path exists. Note: default OFF until forward-paper-test landing (T1.3 design), not absent."
+    },
+    {
+      "req_id": "RISK-07",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Risk cap: funding (per range bullet 'RISK-01..07: Risk caps (daily-loss, drawdown, consec-loss, per-trade, vol parity, maker, funding) — Tier-1 2026-04-30')",
+      "evidence_file": "services/trading-engine/app/auto_trader.py",
+      "evidence_line_start": 1796,
+      "evidence_line_end": 1810,
+      "status": "satisfied",
+      "notes": "Funding-rate gate at services/trading-engine/app/risk/funding_gate.py (funding_gate_decision imported at auto_trader.py:43-46). Enabled via settings.enable_funding_gate (config.py:153-155, default False — opt-in T2.3). Threshold: settings.funding_gate_threshold_bps. Enforced in LIVE mode signal-check path at auto_trader.py:1796-1810. Implementation matches claim."
+    },
+    {
+      "req_id": "CLAUDE-PAPER-CAP-ADR010",
+      "era": "pre-v1",
+      "source": "CLAUDE.md",
+      "claim": "Paper mode currently relaxed to 10% per ADR-010 (filed 2026-05-06) to clear Bybit min-notional on $100 balance. Pre-live checklist must restore <= 2% before flipping TRADING_MODE=LIVE (CLAUDE.md ## Project rules)",
+      "evidence_file": "services/trading-engine/app/config.py",
+      "evidence_line_start": 321,
+      "evidence_line_end": 332,
+      "status": "satisfied",
+      "notes": "AUDIT OVERTURNS HYPOTHESIS. CONTEXT.md flagged this drift because earlier audit found default=0.02. Current config.py:321-332 has default=0.10 with explicit docstring 'Bumped 2026-05-06 from 0.02 to 0.10 per operator request' — ADR-010 IS in code. LIVE-strict 0.02 cap separately enforced at main.py:277-290 boot-path preflight. Both halves of the ADR-010 claim (paper 10% + LIVE 2% restore) are implemented."
+    },
+    {
+      "req_id": "PREFLIGHT-01",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "`scripts/preflight_live.py` CLI asserts all 6 LIVE preconditions and exits non-zero on any miss — (1) per-trade risk cap ≤2%, (2) `PAPER_TRADING_MODE=false`, (3) `TRADING_MODE=LIVE`, (4) `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY`, (5) `EMERGENCY_STOP` file absent, (6) DSR>0.95 evidence-row exists in `leaderboard` if `ENABLE_ML_PREDICTIONS=true`. Output is structured JSON per check.",
+      "evidence_file": "services/trading-engine/app/preflight/checks.py",
+      "evidence_line_start": 73,
+      "evidence_line_end": 354,
+      "status": "satisfied",
+      "notes": "All 6 check functions present: check_cap (line 73, asserts max_risk_per_trade <= 0.02), check_paper_mode (104), check_trading_mode (135), check_ack (151), check_emergency_stop (184), check_dsr_evidence (221). Orchestrated via run_all at preflight/__init__.py. CLI driver at scripts/preflight_live.py:204+ emits JSON. Secondary: scripts/preflight_live.py defines env keys at lines 114-119."
+    },
+    {
+      "req_id": "PREFLIGHT-02",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "trading-engine boot path enforces per-trade cap mode at startup — refuses to boot in `TRADING_MODE=LIVE` with `MAX_POSITION_RISK_PCT > 2`; logs explicit `LIVE_PREFLIGHT_REJECTED reason=cap_too_high` and exits. Unit test asserts both directions (PAPER allows 10%, LIVE rejects 3%).",
+      "evidence_file": "services/trading-engine/app/main.py",
+      "evidence_line_start": 273,
+      "evidence_line_end": 290,
+      "status": "satisfied",
+      "notes": "Boot-path enforcement at lifespan() lines 273-290: if trading_mode=='LIVE' && max_risk_per_trade > 0.02 → logger.critical('LIVE_PREFLIGHT_REJECTED reason=cap_too_high cap={value} limit=0.02') + raise RuntimeError. Grep-gate target literal preserved per comment at 275-276. Reads settings.max_risk_per_trade directly — preflight import survives via noqa at line 174."
+    },
+    {
+      "req_id": "PREFLIGHT-03",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "CI workflow `preflight-live-readiness.yml` runs `preflight_live.py --dry-run --target=HEAD` and blocks any PR labeled `live: requested` that fails any check; result posted as PR check status.",
+      "evidence_file": ".github/workflows/preflight-live-readiness.yml",
+      "evidence_line_start": 48,
+      "evidence_line_end": 64,
+      "status": "satisfied",
+      "notes": "Workflow guarded by 'if: contains(github.event.pull_request.labels.*.name, \\'live: requested\\')' at line 50. Runs `python3 scripts/preflight_live.py --dry-run --target=HEAD --json` at line 64. PR check status follows from GH Actions standard workflow conclusion."
+    },
+    {
+      "req_id": "PREFLIGHT-04",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "Pre-LIVE operator checklist added to `RUNBOOK.md` (Diagnose/Action/Verification per precondition) and cross-linked from PROJECT.md's Out of Scope LIVE-default note.",
+      "evidence_file": "RUNBOOK.md",
+      "evidence_line_start": 255,
+      "evidence_line_end": 255,
+      "status": "satisfied",
+      "notes": "Pre-LIVE Operator Checklist section anchor exists at RUNBOOK.md:255. Cross-link from PROJECT.md at .planning/PROJECT.md:165 ('Pre-LIVE Operator Checklist' link with anchor #pre-live-operator-checklist). RUNBOOK TOC entry at line 18."
+    },
+    {
+      "req_id": "MLGATE-01",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "`scripts/forward_paper_test/run_evidence_loop.py` driver loops ≥7-day evidence accrual + per-feature PSR-CI publish; idempotent across restart; resumes from last persisted row. Migration `0002_mlgate_evidence_columns.sql` adds `run_date` + `psr_ci_published` to `leaderboard`.",
+      "evidence_file": "scripts/forward_paper_test/run_evidence_loop.py",
+      "evidence_line_start": 184,
+      "evidence_line_end": 215,
+      "status": "satisfied",
+      "notes": "Driver iterates WHERE psr_ci_published = 0 with ORDER BY run_date ASC (lines 198-210) — idempotent + resume semantics. Migration file present at services/tournament-harness/migrations/0002_mlgate_evidence_columns.sql. Wall-clock ≥7-day accrual is operator action tracked as LIVECLOSE-03 (D-10 separation)."
+    },
+    {
+      "req_id": "MLGATE-02",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "`services/trading-engine` startup auto-flips `ENABLE_ML_PREDICTIONS=true` only if a DSR>0.95 evidence row exists in `leaderboard` within the last 14 days; reverts to `false` on DSR drop or stale row; emits `MLGATE_AUTO_FLIP direction=X reason=Y` log + `/run/mlgate_auto_flip.json` schema_version=1 marker; CI grep gate enforces.",
+      "evidence_file": "services/trading-engine/app/lifespan/ml.py",
+      "evidence_line_start": 160,
+      "evidence_line_end": 200,
+      "status": "satisfied",
+      "notes": "Auto-flip log at line 167: logger.critical(f'MLGATE_AUTO_FLIP direction={direction} reason={reason}') — contiguous literal preserved per comment 164. Marker write at lines 184-196 with run_date extraction at 193. DSR>0.95 + 14-day check via check_dsr_evidence (preflight/checks.py:221). Best-effort marker write (OSError swallowed per CONTEXT) is informational; Phase 23 ML-PURGE-04 owns marker-age hardening — does NOT invalidate MLGATE-02 satisfied verdict."
+    },
+    {
+      "req_id": "MLGATE-03",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "Every \"ml predictions disabled\" event in trading-engine logs a structured reason from a fixed enum: `no_evidence | dsr_below_gate | evidence_stale | regime_shift | manual_override`; unauth read-only `/api/preflight/ml-gate-reason-counts`; notification-service scheduled Telegram digest of reason counts; CI grep gate enforced.",
+      "evidence_file": "services/trading-engine/app/aggregation/ml_gate_reasons.py",
+      "evidence_line_start": 57,
+      "evidence_line_end": 178,
+      "status": "satisfied",
+      "notes": "MLGateReason Literal enum at line 57 with 5 members. record_ml_gate_event/set_current_reason/get_current_reason at lines 87-138. Endpoint at services/trading-engine/app/handlers/ml_gate_reasons.py:28 (@router.get('/ml-gate-reason-counts')). Comment at line 159 references the endpoint. Notification-service scheduled digest in alert_manager (in-process Python call per v1.1 Key Decision)."
+    },
+    {
+      "req_id": "OBS-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Telegram redaction (per bullet 'OBS-01, OBS-02: Telegram redaction; honest sentiment 501/503 (not fabricated) — 2026-04 commits')",
+      "evidence_file": "services/notification-service/app/utils/structured_logging.py",
+      "evidence_line_start": 21,
+      "evidence_line_end": 47,
+      "status": "satisfied",
+      "notes": "_redact_telegram_token function at line 21-23: substitutes /bot<REDACTED> for URL tokens; substitutes <REDACTED_TELEGRAM_TOKEN> for bare tokens. install_token_redaction at line 46 attaches filter to all root handlers. Active across all logs."
+    },
+    {
+      "req_id": "OBS-02",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Honest sentiment 501/503 (not fabricated) (per bullet 'OBS-01, OBS-02: Telegram redaction; honest sentiment 501/503 (not fabricated) — 2026-04 commits')",
+      "evidence_file": "services/sentiment-analysis-service/app/main.py",
+      "evidence_line_start": 645,
+      "evidence_line_end": 782,
+      "status": "satisfied",
+      "notes": "503 returned when scores list empty (line 645-646). 501 returned at lines 740-741 and 781-782 for endpoints that no longer compute on-demand (comment at line 729 explains 'Returning 501'). Honest error codes — no fabricated sentiment values."
+    }
+  ]
+}

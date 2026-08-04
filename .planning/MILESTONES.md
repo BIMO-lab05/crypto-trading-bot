@@ -1,5 +1,33 @@
 # Milestones
 
+## v1.2 Polish & Real-Time (Shipped: 2026-05-23)
+
+**Phases completed:** 3 phases, 19 plans, 38 tasks
+
+**Key accomplishments:**
+
+- 1. [Rule 2 - Missing critical functionality] Extended rotate_secrets URL routing to `/api/v1/account/balance`
+- Pytest dual-form grep gate at `tests/ci/test_no_bybit_bypass.py` plus standalone GitHub Actions workflow `.github/workflows/bybit-bypass-gate.yml`, intentionally RED on main today (20-violation inventory across 17 files) — flips GREEN as Wave 1 (BC-02 refactor plans) and Wave 2 (BC-04 archival) close out the inventory.
+- Three TDD RED-first test files committed to lock the acceptance contract Wave 1 plans must satisfy: tape preservation (BC-07), script fail-fast (BC-02/D-04), and market-data default-port fix (BC-05).
+- Orderbook handler refactor (TDD):
+- 1. [Rule 3 - Blocking] `psycopg2` / `scipy` / `pandas` / `numpy` are not installed on the test host
+- BC-02 closure for scripts/fetch_real_historical_data, scripts/collect_6months_historical, and backtesting/bybit_data_fetcher (with dual-path fail-fast on both __main__ and class-level fetch_klines); BC-05 one-line default-port fix (`bybit_connector_url` default `:8002` → `:8001`); two unused diagnostic-test files deleted.
+- Last two non-Binance bypass sites closed: rotate_secrets.py now validates rotated credentials via bybit-connector /api/v1/account/balance with Option A restart-then-ping, and shared/health_check.py probes bybit-connector /health instead of api.bybit.com directly.
+- Pre-plan (Wave 1 close):
+- Phase 13 close-out.
+- Locked Tailwind sm/md/lg/xl breakpoint contract (Option A), shipped audit_responsive.py with 25-entry pre-populated allowlist, and committed responsive-audit.json proving zero unallowlisted hits across frontend/src/
+- One-liner:
+- Both target components already conform to UI-SPEC reflow class signatures (Dashboard.jsx sections at lines 159/201/222 use grid-cols-1 mobile baseline; KeyMetricsStrip.jsx line 284 uses grid grid-cols-2 mobile baseline) — zero source edits required, verified via the plan's automated gates with one documented plan-author bug.
+- Reflowed `PathToLiveTile.jsx` chip + carry-in row containers (11 rows) from inline horizontal layout to mobile-stacked vertical layout at ≤768px, restoring `md:flex-row md:flex-wrap` at the `md:` breakpoint. All 4 `data-testid` markers preserved verbatim; banner state-token unchanged at top of tile.
+- Dual-rendered TournamentDashboard.jsx so mobile users get stacked cards (md:hidden) while desktop keeps the existing TournamentLeaderboard table (hidden md:block) — same `tournament-row-<runId>` testid on both branches — and made all 13 filter chips + Clear button tap-target compliant (>=44px) at <=768px via Tailwind `py-3 md:py-1 min-h-[44px] md:min-h-0` without redesigning the chip palette.
+- Phase 14 CI surface extended to run the responsive matrix on every frontend PR; local-run evidence captured against a freshly-rebuilt frontend container (not the stale image the executor first hit).
+- Shipped the TOOL-01 repo-side CI grep gate (tests/ci/test_no_placeholder_one_liners.py, 4 named tests, dual-form pytest+grep parity, candidate-position extractor mirroring core.cjs::extractOneLinerFromBody) plus the upstream-port spec doc (.planning/sdk-proposals/TOOL-01-spec.md, 7 named sections, 5 named BANNED_PATTERNS shared with the gate) and an empty placeholder-allowlist.json; the scanner test ships RED on one real Phase 13 placeholder per plan done criteria.
+- Asymmetric CI gate pinning the upstream `gsd-sdk query roadmap.analyze --apply` umbrella-supersession verb contract, plus Phase 11 → 11.1 replay fixture and 114-line SDK port spec at `.planning/sdk-proposals/TOOL-02-spec.md`.
+- Repo-local CI grep gate + canonical v1.1 13h-gap replay fixture + documentation-only SDK port spec pinning the /gsd-complete-milestone audit-freshness contract against drift.
+- Wave-2 integration ships three deliverables that wire the three Wave-1 grep gates into both the operator-side dev loop and the CI required-check set: a 118-line standalone CI workflow with three named jobs surfacing as required PR checks, a 73-line idempotent opt-in pre-commit installer mirroring the bootstrap.sh repo-local-opt-in pattern, and a 5306-byte planning-tooling-adapted verify-stack 4-check evidence report with every command output captured at execute time.
+
+---
+
 ## v1.1 Path to LIVE (Shipped: 2026-05-18)
 
 **Phases completed:** 5 phases (8, 9, 10, 11.1, 12 — Phase 11 superseded by 11.1), 19 plans, 32 tasks

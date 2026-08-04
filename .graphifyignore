@@ -28,6 +28,13 @@ logs/
 # graphify own output
 graphify-out/
 
+# archived/historical documentation — keep out of the knowledge graph
+docs/archive/
+_to_delete/
+.planning/milestones/
+.planning/debug/
+htmlcov/
+
 # generated/downloaded ML model artifacts
 *.h5
 *.pkl

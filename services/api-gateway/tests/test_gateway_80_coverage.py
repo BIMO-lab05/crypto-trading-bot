@@ -49,17 +49,17 @@ class TestRouteForwarding:
         response = test_client.get("/api/portfolio/trades?limit=50&symbol=BTCUSDT")
         assert response.status_code in [200, 500, 503]
 
-    def test_buy_asset_endpoint_exists(self, test_client):
-        """Test buy asset endpoint exists"""
-        response = test_client.post(
+    def test_buy_asset_endpoint_exists(self, admin_client):
+        """Test buy asset endpoint exists (auth required)"""
+        response = admin_client.post(
             "/api/portfolio/buy",
             params={"symbol": "BTCUSDT", "quantity": "0.5", "price": "50000.00"},
         )
         assert response.status_code in [200, 500, 503]
 
-    def test_sell_asset_endpoint_exists(self, test_client):
-        """Test sell asset endpoint exists"""
-        response = test_client.post(
+    def test_sell_asset_endpoint_exists(self, admin_client):
+        """Test sell asset endpoint exists (auth required)"""
+        response = admin_client.post(
             "/api/portfolio/sell",
             params={"symbol": "ETHUSDT", "quantity": "1.0", "price": "3000.00"},
         )
@@ -81,9 +81,9 @@ class TestRiskMetricsRouting:
         )
         assert response.status_code in [200, 500, 503]
 
-    def test_circuit_breaker_reset_endpoint_exists(self, test_client):
-        """Test circuit breaker reset endpoint exists"""
-        response = test_client.post("/api/risk/circuit-breaker/reset")
+    def test_circuit_breaker_reset_endpoint_exists(self, admin_client):
+        """Test circuit breaker reset endpoint exists (admin auth required)"""
+        response = admin_client.post("/api/risk/circuit-breaker/reset")
         assert response.status_code in [200, 500, 503]
 
     def test_exposure_metrics_endpoint(self, test_client):
@@ -337,9 +337,9 @@ class TestAdvancedSignalGeneration:
         response = test_client.get("/api/trading/signals/BTCUSDT")
         assert response.status_code in [200, 500, 503]
 
-    def test_analyze_and_trade_endpoint_exists(self, test_client):
-        """Test analyze and trade endpoint exists"""
-        response = test_client.post("/api/trading/signals/BTCUSDT/analyze")
+    def test_analyze_and_trade_endpoint_exists(self, admin_client):
+        """Test analyze and trade endpoint exists (auth required)"""
+        response = admin_client.post("/api/trading/signals/BTCUSDT/analyze")
         assert response.status_code in [200, 500, 503]
 
     def test_positions_endpoint_exists(self, test_client):
@@ -386,9 +386,9 @@ class TestMLPredictionEndpoints:
         response = test_client.get("/api/ml/models/BTCUSDT")
         assert response.status_code in [200, 500, 503]
 
-    def test_ml_train_model_endpoint_exists(self, test_client):
-        """Test ML model training endpoint exists"""
-        response = test_client.post("/api/ml/models/train?symbol=BTCUSDT")
+    def test_ml_train_model_endpoint_exists(self, admin_client):
+        """Test ML model training endpoint exists (auth required)"""
+        response = admin_client.post("/api/ml/models/train?symbol=BTCUSDT")
         assert response.status_code in [200, 500, 503]
 
     def test_ml_compare_models_endpoint_exists(self, test_client):

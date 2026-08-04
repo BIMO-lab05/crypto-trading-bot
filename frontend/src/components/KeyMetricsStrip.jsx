@@ -1,6 +1,7 @@
 import React from 'react'
 import { usePositions, useTradingStatus, usePerformance } from '../hooks/usePositions'
 import TileState from './TileState'
+import { toFiniteNumber, PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 /**
  * KeyMetricsStrip — Editorial Trading Floor metric strip.
@@ -66,6 +67,18 @@ const tone = (trend) => {
   return C.text
 }
 
+// Phase 14 CR-02 fix: derive a stable per-cell testid from the eyebrow
+// label so test_key_metrics_2col can probe the real metric cells via
+// `[data-testid^="metric-"]` instead of falling back to opaque children
+// of a `display:contents` wrapper (which yielded one vacuously-passing
+// row). Lowercase + non-alphanum -> hyphen + strip leading/trailing
+// hyphens. Same shape Tailwind's `kebab-case` utility uses.
+const slugifyEyebrow = (s) =>
+  String(s ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
 /**
  * Cell — single metric tile. Hero variant gets larger display type
  * and corner-tick decoration.
@@ -74,6 +87,7 @@ const Cell = ({ eyebrow, value, sub, trend, hero = false, isLoading = false }) =
   const valueColor = tone(trend)
   return (
     <div
+      data-testid={`metric-${slugifyEyebrow(eyebrow)}`}
       className="relative px-5 py-4"
       style={{
         background: C.surface,
@@ -179,7 +193,11 @@ export default function KeyMetricsStrip() {
   const unrealizedPnL = positions.reduce((t, p) => t + parseFloat(p.unrealized_pnl || 0), 0)
   const portfolioLoading = positionsLoading || performanceLoading
 
-  const totalBalance = parseFloat(metrics.current_balance) || 100
+  // Shared with PortfolioCard so the two tiles cannot disagree on the same field.
+  const totalBalance = toFiniteNumber(
+    metrics.current_balance,
+    toFiniteNumber(metrics.initial_balance, PAPER_DEFAULT_BALANCE),
+  )
   const realizedPnL = parseFloat(metrics.realized_pnl) || 0
   const currentDrawdown = parseFloat(metrics.max_drawdown) || 0
   const winRate = parseFloat(metrics.win_rate) || 0
@@ -199,7 +217,13 @@ export default function KeyMetricsStrip() {
   else if (isRunning) { stateLabel = 'live'; stateColor = C.gain }
 
   return (
-    <div data-testid="key-metrics-strip" style={{ display: 'contents' }}>
+    // Phase 14 CR-02 fix: previously the outer wrapper carried both the
+    // `data-testid="key-metrics-strip"` attribute AND `display:contents`,
+    // which made `getBoundingClientRect()` return 0x0 and silently
+    // defeated test_dashboard_single_column_mobile + test_key_metrics_2col.
+    // The testid now lives on the real layout box (the inner div that IS
+    // the visual strip), so width-vs-viewport assertions resolve against
+    // a real bbox.
     <TileState
       query={perfQuery}
       title="Key Metrics"
@@ -208,6 +232,7 @@ export default function KeyMetricsStrip() {
       isEmpty={(d) => !d || !d.metrics || Object.keys(d.metrics).length === 0}
     >
     <div
+      data-testid="key-metrics-strip"
       style={{
         background: C.bg,
         borderBottom: `1px solid ${C.border}`,
@@ -336,6 +361,5 @@ export default function KeyMetricsStrip() {
       `}</style>
     </div>
     </TileState>
-    </div>
   )
 }

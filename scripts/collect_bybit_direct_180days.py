@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Direct Bybit Historical Data Collection
-========================================
-Purpose: Collect 180 days of historical kline data directly from Bybit API
+Historical Data Collection via bybit-connector (formerly direct Bybit).
+=======================================================================
+Purpose: Collect 180 days of historical kline data via bybit-connector REST.
 
-This script bypasses the market-data-service and fetches data directly
-from Bybit's public API to get the full 180 days of historical data.
+Phase 13 / BC-02: All direct Bybit access removed. Despite the filename
+("bybit_direct"), the script now routes through services/bybit-connector,
+which handles testnet/mainnet selection via BYBIT_TESTNET internally.
+Fail-fast (D-04) on connector unreachable.
 
 Features:
-- Direct Bybit API connection using pybit
+- bybit-connector REST: GET /api/v1/market/kline
 - 180 days of hourly candle data
 - Rate limit handling
 - Progress tracking
@@ -19,56 +21,80 @@ Author: Phase 2.1.3 - Historical Data Collection
 Date: 2025-12-08
 """
 
-import os
+import os  # noqa: F401  -- used by BYBIT_CONNECTOR_URL os.getenv below; guard against autoflake
 from pathlib import Path as _Path
+
 _REPO_ROOT = _Path(__file__).resolve().parent.parent
 import sys
 import time
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict
 import logging
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# Phase 13 / BC-02: route through bybit-connector REST (no direct Bybit URLs).
+BYBIT_CONNECTOR_URL = os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001")
+
+
+def assert_connector_reachable() -> None:
+    """D-04 fail-fast: exit 2 with operator-readable error if connector unreachable.
+
+    Runs BEFORE any other __main__ logic so `tests/integration/test_scripts_fail_fast.py`
+    (no-args invocation) triggers the probe. Uses the same sync `requests` library
+    the rest of this script depends on.
+    """
+    try:
+        response = requests.get(f"{BYBIT_CONNECTOR_URL}/health", timeout=5.0)
+        response.raise_for_status()
+    except Exception as e:
+        print(
+            f"\nERROR: bybit-connector is not reachable at {BYBIT_CONNECTOR_URL}.\n"
+            f"  Cause: {e!r}\n"
+            f"  Fix:   Run `docker compose -f docker-compose.unified.yml up -d bybit-connector`\n"
+            f"  (or set BYBIT_CONNECTOR_URL if running against a non-default host).\n",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
 # Symbols to collect
 SYMBOLS = [
-    'SOLUSDT',
-    'BNBUSDT',
-    'ADAUSDT',
-    'APTUSDT',
-    'DOTUSDT',
-    'LTCUSDT',
-    'POLUSDT',
-    'ETHUSDT',
-    'BTCUSDT',
-    'AVAXUSDT'
+    "SOLUSDT",
+    "BNBUSDT",
+    "ADAUSDT",
+    "APTUSDT",
+    "DOTUSDT",
+    "LTCUSDT",
+    "POLUSDT",
+    "ETHUSDT",
+    "BTCUSDT",
+    "AVAXUSDT",
 ]
 
 # Configuration
 DAYS_TO_COLLECT = 180
-INTERVAL = '60'  # 60 minutes (hourly candles)
+INTERVAL = "60"  # 60 minutes (hourly candles)
 CANDLES_PER_DAY = 24
 EXPECTED_CANDLES = DAYS_TO_COLLECT * CANDLES_PER_DAY  # 4,320 candles
-BYBIT_API_ENDPOINT = 'https://api.bybit.com'
-MAX_LIMIT = 200  # Bybit allows max 200 candles per request
+MAX_LIMIT = 200  # Bybit V5 connector preserves the 200-candle batch limit
 RATE_LIMIT_DELAY = 0.5  # Delay between requests to avoid rate limits
 
 # Database configuration
-DB_HOST = os.getenv('DB_HOST', 'localhost')
-DB_PORT = int(os.getenv('DB_PORT', '5434'))
-DB_NAME = os.getenv('DB_NAME', 'cryptobot')
-DB_USER = os.getenv('DB_USER', 'cryptobot')
-DB_PASSWORD = os.getenv('DB_PASSWORD', 'your_password_here')
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", "5434"))
+DB_NAME = os.getenv("DB_NAME", "cryptobot")
+DB_USER = os.getenv("DB_USER", "cryptobot")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "your_password_here")
 
 # Output directory for CSV backups
-OUTPUT_DIR = str(_REPO_ROOT / 'data/historical')
+OUTPUT_DIR = str(_REPO_ROOT / "data/historical")
 
 
 def print_header():
@@ -82,19 +108,15 @@ def print_header():
     print(f"Collection period: {DAYS_TO_COLLECT} days (6 months)")
     print(f"Interval: {INTERVAL} minutes (hourly candles)")
     print(f"Expected candles per symbol: ~{EXPECTED_CANDLES:,}")
-    print(f"Bybit API: {BYBIT_API_ENDPOINT}")
+    print(f"bybit-connector: {BYBIT_CONNECTOR_URL}")
     print()
 
 
 def get_bybit_klines(
-    symbol: str,
-    interval: str,
-    start_time: int,
-    end_time: int,
-    limit: int = 200
+    symbol: str, interval: str, start_time: int, end_time: int, limit: int = 200
 ) -> List[Dict]:
     """
-    Fetch kline data directly from Bybit public API
+    Fetch kline data via bybit-connector REST.
 
     Args:
         symbol: Trading pair (e.g., 'SOLUSDT')
@@ -104,17 +126,18 @@ def get_bybit_klines(
         limit: Number of candles to fetch (max 200)
 
     Returns:
-        List of kline dictionaries
+        List of kline arrays preserved from Bybit V5 shape:
+        [start_ms, open, high, low, close, volume, turnover]
     """
-    url = f"{BYBIT_API_ENDPOINT}/v5/market/kline"
+    url = f"{BYBIT_CONNECTOR_URL}/api/v1/market/kline"
 
     params = {
-        'category': 'linear',  # USDT perpetual
-        'symbol': symbol,
-        'interval': interval,
-        'start': start_time,
-        'end': end_time,
-        'limit': limit
+        "category": "linear",  # USDT perpetual
+        "symbol": symbol,
+        "interval": interval,
+        "start": start_time,
+        "end": end_time,
+        "limit": limit,
     }
 
     try:
@@ -123,12 +146,14 @@ def get_bybit_klines(
 
         data = response.json()
 
-        if data.get('retCode') != 0:
-            logger.error(f"Bybit API error: {data.get('retMsg')}")
+        if not data.get("success"):
+            logger.error(
+                f"bybit-connector error: {data.get('error') or data.get('message')}"
+            )
             return []
 
-        result = data.get('result', {})
-        klines = result.get('list', [])
+        result = data.get("data", {})
+        klines = result.get("list", [])
 
         return klines
 
@@ -176,15 +201,17 @@ def process_kline_data(klines: List[List]) -> pd.DataFrame:
             volume = float(kline[5])
             turnover = float(kline[6])
 
-            df_data.append({
-                'timestamp': pd.to_datetime(timestamp, unit='ms'),
-                'open': open_price,
-                'high': high_price,
-                'low': low_price,
-                'close': close_price,
-                'volume': volume,
-                'turnover': turnover
-            })
+            df_data.append(
+                {
+                    "timestamp": pd.to_datetime(timestamp, unit="ms"),
+                    "open": open_price,
+                    "high": high_price,
+                    "low": low_price,
+                    "close": close_price,
+                    "volume": volume,
+                    "turnover": turnover,
+                }
+            )
         except (IndexError, ValueError) as e:
             logger.warning(f"Error processing kline: {e}")
             continue
@@ -195,18 +222,16 @@ def process_kline_data(klines: List[List]) -> pd.DataFrame:
     df = pd.DataFrame(df_data)
 
     # Sort by timestamp ascending (oldest first)
-    df = df.sort_values('timestamp')
+    df = df.sort_values("timestamp")
 
     # Remove duplicates
-    df = df.drop_duplicates(subset=['timestamp'])
+    df = df.drop_duplicates(subset=["timestamp"])
 
     return df
 
 
 def collect_symbol_data(
-    symbol: str,
-    days: int = 180,
-    interval: str = '60'
+    symbol: str, days: int = 180, interval: str = "60"
 ) -> pd.DataFrame:
     """
     Collect historical data for a symbol
@@ -227,8 +252,10 @@ def collect_symbol_data(
     end_time = datetime.now()
     start_time = end_time - timedelta(days=days)
 
-    print(f"Time range: {start_time.strftime('%Y-%m-%d')} to {end_time.strftime('%Y-%m-%d')}")
-    print(f"Fetching hourly candles from Bybit API...")
+    print(
+        f"Time range: {start_time.strftime('%Y-%m-%d')} to {end_time.strftime('%Y-%m-%d')}"
+    )
+    print("Fetching hourly candles from Bybit API...")
 
     all_klines = []
     current_start = start_time
@@ -237,10 +264,7 @@ def collect_symbol_data(
     # Fetch data in chunks (Bybit max 200 candles per request)
     while current_start < end_time:
         # Calculate chunk end time (200 candles * 60 minutes)
-        chunk_end = min(
-            current_start + timedelta(hours=200),
-            end_time
-        )
+        chunk_end = min(current_start + timedelta(hours=200), end_time)
 
         # Convert to milliseconds
         start_ms = int(current_start.timestamp() * 1000)
@@ -257,14 +281,14 @@ def collect_symbol_data(
             interval=interval,
             start_time=start_ms,
             end_time=end_ms,
-            limit=MAX_LIMIT
+            limit=MAX_LIMIT,
         )
 
         if klines:
             all_klines.extend(klines)
             logger.info(f"    Got {len(klines)} candles")
         else:
-            logger.warning(f"    Got 0 candles (may have reached end of available data)")
+            logger.warning("    Got 0 candles (may have reached end of available data)")
 
         request_count += 1
 
@@ -276,7 +300,9 @@ def collect_symbol_data(
 
         # Progress update every 10 requests
         if request_count % 10 == 0:
-            print(f"  Progress: {len(all_klines):,} candles collected ({request_count} requests)...")
+            print(
+                f"  Progress: {len(all_klines):,} candles collected ({request_count} requests)..."
+            )
 
     # Process all klines into DataFrame
     df = process_kline_data(all_klines)
@@ -331,24 +357,26 @@ def save_to_database(df: pd.DataFrame, symbol: str):
             port=DB_PORT,
             database=DB_NAME,
             user=DB_USER,
-            password=DB_PASSWORD
+            password=DB_PASSWORD,
         )
         cur = conn.cursor()
 
         # Prepare data for insertion
         records = []
         for _, row in df.iterrows():
-            records.append((
-                symbol,
-                row['timestamp'],
-                row['open'],
-                row['high'],
-                row['low'],
-                row['close'],
-                row['volume'],
-                '60',  # interval
-                row.get('turnover', 0)
-            ))
+            records.append(
+                (
+                    symbol,
+                    row["timestamp"],
+                    row["open"],
+                    row["high"],
+                    row["low"],
+                    row["close"],
+                    row["volume"],
+                    "60",  # interval
+                    row.get("turnover", 0),
+                )
+            )
 
         # Insert data (upsert to handle duplicates)
         insert_query = """
@@ -436,18 +464,20 @@ def main():
     print(f"Successful: {successful}")
     print(f"Failed: {failed}")
     print(f"Total candles: {total_candles:,}")
-    print(f"Average per symbol: {total_candles // successful if successful > 0 else 0:,}")
-    print(f"Duration: {duration:.1f} seconds ({duration/60:.1f} minutes)")
+    print(
+        f"Average per symbol: {total_candles // successful if successful > 0 else 0:,}"
+    )
+    print(f"Duration: {duration:.1f} seconds ({duration / 60:.1f} minutes)")
     print(f"CSV backups saved to: {OUTPUT_DIR}")
     print()
 
     if successful > 0:
         print("✅ Data collection successful!")
-        print(f"\nNext steps:")
+        print("\nNext steps:")
         print(f"1. Verify CSV files in: {OUTPUT_DIR}")
-        print(f"2. Check database records if applicable")
-        print(f"3. Run S/R strategy validation with full dataset")
-        print(f"4. Train ML models with 180 days of data")
+        print("2. Check database records if applicable")
+        print("3. Run S/R strategy validation with full dataset")
+        print("4. Train ML models with 180 days of data")
     else:
         print("❌ Data collection failed!")
         print("Check logs above for error details")
@@ -455,7 +485,10 @@ def main():
     return 0 if successful > 0 else 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    # D-04 fail-fast: BEFORE any other __main__ logic so no-args invocation triggers the probe.
+    assert_connector_reachable()
+
     try:
         exit_code = main()
         sys.exit(exit_code)

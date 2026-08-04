@@ -27,8 +27,20 @@ import os
 # Add parent directory to path to import app modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+# Repo root on sys.path so `shared.account` resolves. This file is HOST-RUN
+# ONLY -- services/technical-analysis/Dockerfile copies only `app/`, so
+# `backtesting/` never ships in the image. That is what makes importing the
+# declaration of record directly legal here, unlike code under
+# `services/*/app/**`. See the table in `shared/account.py`.
+_REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', '..', '..')
+)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 from app.indicators.squeeze_momentum import SqueezeMomentumIndicator
 from app.strategies.squeeze_momentum_strategy import SqueezeMomentumStrategy
+from shared.account import PAPER_INITIAL_BALANCE
 
 # Configure logging
 logging.basicConfig(
@@ -132,7 +144,13 @@ class SQZMOMBacktester:
     def __init__(
         self,
         db_config: Dict,
-        initial_capital: float = 10000.0,
+        # FIX 2026-08-03 (capital audit): was 10000.0, 100x the real account.
+        # NOTE this default is SHADOWED for the four standalone runners
+        # (run_backtest.py, run_btc_eth_backtest.py, quick_test.py,
+        # optimize_parameters.py), which pass 10000.0 explicitly. Their runtime
+        # behaviour is unchanged by this fix -- they are a known residual,
+        # recorded in the EXPANSION_QUEUE of tests/test_account_size_invariant.py.
+        initial_capital: float = PAPER_INITIAL_BALANCE,
         commission: float = 0.001,  # 0.1% per trade
         risk_per_trade: float = 0.02  # 2% risk per trade
     ):
@@ -141,7 +159,8 @@ class SQZMOMBacktester:
 
         Args:
             db_config: Database connection configuration
-            initial_capital: Starting capital in USD
+            initial_capital: Starting capital in USD. Defaults to the
+                declared account size (shared.account.PAPER_INITIAL_BALANCE).
             commission: Commission rate per trade (0.001 = 0.1%)
             risk_per_trade: Maximum risk per trade as fraction of capital (0.02 = 2%)
         """

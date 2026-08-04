@@ -1,0 +1,269 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "req_id": "EXEC-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "15-container microservices stack — existing",
+      "evidence_file": "docker-compose.unified.yml",
+      "evidence_line_start": 33,
+      "evidence_line_end": 928,
+      "status": "satisfied",
+      "notes": "17 service blocks present (postgres, timescaledb, redis, rabbitmq, prometheus, grafana, api-gateway, frontend, bybit-connector, market-data, portfolio-manager, technical-analysis, trading-engine, notification-service, ml-prediction, tournament-harness, sentiment-analysis, risk-metrics). PROJECT.md claim 15 was a 2026-04 snapshot. Per plan guidance ('spirit is microservices-stack exists'), satisfied; container count grew 15→17 with tournament-harness + sentiment retention."
+    },
+    {
+      "req_id": "EXEC-02",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Bybit mainnet price feed; paper trading default — existing",
+      "evidence_file": "services/bybit-connector/app/config.py",
+      "evidence_line_start": 32,
+      "evidence_line_end": 35,
+      "status": "satisfied",
+      "notes": "bybit_testnet defaults False (production prices) per services/bybit-connector/app/config.py:32-35. Compose pins BYBIT_TESTNET=${BYBIT_TESTNET:-false} at docker-compose.unified.yml:399,747. PAPER_TRADING_MODE defaults true per compose lines 291,595 (api-gateway + trading-engine env). Mainnet prices + simulated orders confirmed end-to-end."
+    },
+    {
+      "req_id": "DATA-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "`is_mainnet` column on klines/tickers (per bullet 'DATA-01, DATA-02: `is_mainnet` column + backtest filter; confidence sentinel chain cleaned — 2026-04 commits')",
+      "evidence_file": "services/market-data-service/app/database.py",
+      "evidence_line_start": 169,
+      "evidence_line_end": 174,
+      "status": "satisfied",
+      "notes": "Idempotent ALTER TABLE applies is_mainnet BOOLEAN NOT NULL DEFAULT true on klines (services/market-data-service/app/database.py:172) + creates idx_klines_mainnet (line 173). ORM model declares column at services/market-data-service/app/models.py:43-49 with server_default text('true'). Note: column migration only covers klines table; tickers table not in column_migrations list — claim mentions both but klines is the load-bearing audit per ADR-013."
+    },
+    {
+      "req_id": "DATA-02",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "Backtest filter on is_mainnet to avoid testnet-flip contamination (per bullet 'DATA-01, DATA-02: `is_mainnet` column + backtest filter; confidence sentinel chain cleaned — 2026-04 commits')",
+      "evidence_file": "backtesting/run_walk_forward_ensemble.py",
+      "evidence_line_start": 563,
+      "evidence_line_end": 571,
+      "status": "satisfied",
+      "notes": "ADR-013 testnet-taint rule enforced at backtesting/run_walk_forward_ensemble.py:563-571 (`raw[raw['is_mainnet'] == True]` with drop-count logging). Repository layer additionally filters at services/market-data-service/app/repository.py:128-129 (`mainnet_only=True` default). DOCSTRING reference also at backtesting/bybit_data_fetcher.py:11. CSV fixtures carry is_mainnet column."
+    },
+    {
+      "req_id": "UI-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "React dashboard with REST-polling (dead WS scaffolding stripped)",
+      "evidence_file": "frontend/src/hooks/useGatewayWebSocket.js",
+      "evidence_line_start": 11,
+      "evidence_line_end": 38,
+      "status": "satisfied",
+      "notes": "REST-polling dominant pattern — useQuery used in HybridStrategyPanel, PerformanceAnalyticsPanel, RegimeIndicator, TradeHistory, useAutoTrader, useCarryIns, useLiveReadiness, useSafetyState, usePerformanceMetrics, etc. Sole `new WebSocket(...)` call at frontend/src/hooks/useGatewayWebSocket.js:138 is opt-in (Phase 6 DASH-02 feature gated by VITE_ENABLE_WEBSOCKET='false' flag, line 38). Dashboard.jsx does NOT mount useGatewayWebSocket — components fall back to polling per hook docstring. UI-01 spirit preserved: no dead scaffolding."
+    },
+    {
+      "req_id": "TEST-01",
+      "era": "pre-v1",
+      "source": "PROJECT.md",
+      "claim": "~101 Tier-1 tests green",
+      "evidence_file": "tests",
+      "evidence_line_start": 0,
+      "evidence_line_end": 0,
+      "status": "satisfied",
+      "notes": "Test surface grew: 337 `test_*.py` files (find tests services -name 'test_*.py' | wc -l = 337; 72 in tests/, 287 in services/*/tests/). Claim '~101' was a 2026-04 snapshot. Per plan guidance, satisfied for 'tests green' spirit; absolute count grew 101→337 as Phases 02-15 shipped. No grep-able Tier-1 tag in test files — Tier-1 is a roadmap classification, not a code marker."
+    },
+    {
+      "req_id": "CLAUDE-VALIDATED-SYMBOLS",
+      "era": "pre-v1",
+      "source": "CLAUDE.md",
+      "claim": "Validated symbols: BTC, ETH, SOL, BNB, ADA (5 active as of 2026-05-03). XRP / DOGE excluded by paper-trading data — no silent re-add (CLAUDE.md ## Project rules)",
+      "evidence_file": "services/market-data-service/app/config.py",
+      "evidence_line_start": 73,
+      "evidence_line_end": 86,
+      "status": "drift",
+      "notes": "DRIFT: market-data-service default_symbols lists 14 symbols, not 5. services/market-data-service/app/config.py:77-86 declares default 'BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,ARBUSDT,OPUSDT,SUIUSDT,APTUSDT,DOTUSDT,LTCUSDT,POLUSDT' with comment '14 ACTIVE symbols (2026-05-03)' — directly contradicts CLAUDE.md '5 active as of 2026-05-03'. XRP/DOGE absent (CLAUDE rule preserved for those two), but the 9 extra symbols (AVAX, LINK, ARB, OP, SUI, APT, DOT, LTC, POL) violate the validated-set rule. Trading-engine config.py:207-235 correctly holds 5 Tier-1 (BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, ADAUSDT). Divergence: market-data ingests for 14, trading-engine trades 5 — extra ingest wastes bandwidth and the CLAUDE 'no silent re-add' rule is broken at market-data. Downstream owner: market-data-service config update OR CLAUDE.md amendment. NEW finding (not pre-mapped in CONTEXT D-12). Owner: propose:demote-out-of-scope (operator menu: propose:new-phase | propose:demote-out-of-scope — see Plan 06 prompt; resolve at Plan 07 checkpoint)."
+    },
+    {
+      "req_id": "CLAUDE-EXEC-MAINNET-PRICES",
+      "era": "pre-v1",
+      "source": "CLAUDE.md",
+      "claim": "Market data feed from Bybit mainnet (BYBIT_TESTNET=false) for real prices; orders simulated internally via PAPER_TRADING_MODE=true (CLAUDE.md top + ## Project rules)",
+      "evidence_file": "docker-compose.unified.yml",
+      "evidence_line_start": 288,
+      "evidence_line_end": 399,
+      "status": "satisfied",
+      "notes": "Both flags match CLAUDE.md exactly. docker-compose.unified.yml:399 sets BYBIT_TESTNET=${BYBIT_TESTNET:-false} on bybit-connector; line 747 same on ml-prediction. PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true} on api-gateway (line 291) and trading-engine (line 595). bybit-connector config default also False (services/bybit-connector/app/config.py:32-35). Mainnet REST URL 'https://api.bybit.com' selected by config.py:58-60. EXEC-MAINNET-PRICES posture fully aligned with safety claim."
+    },
+    {
+      "req_id": "INFRA-01",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "pytest+testcontainers integration suite asserts full stack health from a fresh `git clone` into a tmp directory: services healthy, real exchange prices via recorded tape, ML models loaded if `ENABLE_ML_PREDICTIONS=true`, notifications delivered, paper trade end-to-end <60s",
+      "evidence_file": "tests/integration/test_fresh_clone_round_trip.py",
+      "evidence_line_start": 1,
+      "evidence_line_end": 156,
+      "status": "satisfied",
+      "notes": "Per CONTEXT D-10 (harness-shipped is satisfied): Phase 2 INFRA-01 harness test_fresh_clone_round_trip.py (156 lines) asserts the four ROADMAP success criteria (all services healthy via bootstrap_stack, recorded-tape prices flow, paper-trade round-trip <60s, notification delivers). CI variant lives at .github/workflows/integration-ml-on.yml (nightly cron 06:00 UTC). PROJECT.md:96 marks ⚠ partial — code complete; live-stack run pending OP-04 (GH Actions billing). Deferred operator action does not affect harness-shipped verdict."
+    },
+    {
+      "req_id": "INFRA-02",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "`bootstrap.sh` provisions `.env` from a template, brings up the docker-compose stack, and idles waiting for the integration suite — no destructive `git clean -fdx` against the working tree. (DB migrations deferred to Phase 2 per Phase 1 CONTEXT.md `<deferred>`: compose-managed init scripts cover v1; revisit if Phase 2 integration suite hits schema drift.)",
+      "evidence_file": "bootstrap.sh",
+      "evidence_line_start": 1,
+      "evidence_line_end": 136,
+      "status": "satisfied",
+      "notes": "Per CONTEXT D-10: bootstrap.sh (136 lines) implements 6-step provision flow — Step 1 (line 34-40) `cp -n .env.example .env` no-clobber; Step 2 (line 42-44) WSL2 BuildKit guard. LIVECLOSE-01 harness at scripts/closure/liveclose-01-fresh-clone.sh layered on top. PROJECT.md:97 marks ⚠ partial — code complete; SC-1+SC-3 fresh-clone checkpoint never executed by operator (OP-INFRA-02 carry-in). Per D-10, harness-shipped = satisfied; deferred operator-execution noted."
+    },
+    {
+      "req_id": "INFRA-03",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "Recorded-tape exchange data fixtures + replay loader for deterministic test runs; one nightly live smoke test allowed to be flaky",
+      "evidence_file": "services/bybit-connector/app/tape_replay_client.py",
+      "evidence_line_start": 1,
+      "evidence_line_end": 100,
+      "status": "satisfied",
+      "notes": "Tape replay client streams JSONL fixtures from tests/fixtures/tape/{klines,ticker}/<SYMBOL>USDT.jsonl per docstring (services/bybit-connector/app/tape_replay_client.py:4-12); 5-symbol coverage (BTC, ETH, SOL, BNB, ADA). Selector in services/bybit-connector/app/main.py:346-353 emits 'BYBIT_PRICE_SOURCE: mode=tape' on settings.market_data_source=='tape'. Admin reset endpoint at main.py:1026-1028 (POST /admin/tape/reset). Live-smoke variant at .github/workflows/live-smoke.yml."
+    },
+    {
+      "req_id": "INFRA-04",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "Checkpointed iteration harness — fix one bug, run tests, present diff for review before next fix; no unattended \"iterate until 3 green runs\" loop",
+      "evidence_file": "scripts/iter-fix.sh",
+      "evidence_line_start": 1,
+      "evidence_line_end": 30,
+      "status": "satisfied",
+      "notes": "Per-fix granularity (D-11), anti-mock refusal (D-12), no auto-retry (D-13 carry-forward) enforced. scripts/iter-fix.sh:1-30 documents the 5-step flow (pytest → operator fixes → check-diff → Apply? prompt → commit). scripts/iter-fix-check-diff.sh:1-30 enforces D-12 anti-mock guard (refuses staged diffs adding unittest.mock, mocker.patch, pytest.skip, pytest.mark.xfail, or threshold-lowering inside tests/). Reused from .github/workflows/integration.yml per file header."
+    },
+    {
+      "req_id": "INFRA-05",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "RUNBOOK.md documents the WSL2 BuildKit hang (`DOCKER_BUILDKIT=0` workaround), docker context misconfig recovery, stale-model restart procedure, and bootstrap-test failure triage",
+      "evidence_file": "RUNBOOK.md",
+      "evidence_line_start": 23,
+      "evidence_line_end": 254,
+      "status": "satisfied",
+      "notes": "RUNBOOK.md (491 lines) carries 7 Symptom sections: BuildKit hang (line 23), Docker context misconfig (line 46), Bind-mount race (line 68), Stale in-memory ML model (line 89), bootstrap.sh UNHEALTHY (line 110), EMERGENCY_STOP recovery (line 140), Market-data stale (line 170 — added by v1.2 BC-06). Exceeds claim of 4 mandated sections."
+    },
+    {
+      "req_id": "INFRA-06",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "Pre-existing concrete bugs investigated and either fixed or documented as out-of-scope: stale in-memory ML model needing service restart, hardcoded `confidence=0` paths still emitting signals, WSL2 BuildKit env workaround",
+      "evidence_file": "RUNBOOK.md",
+      "evidence_line_start": 403,
+      "evidence_line_end": 411,
+      "status": "satisfied",
+      "notes": "INFRA-06 Bug Triage Outcomes table at RUNBOOK.md:403-411 enumerates all 3 bugs with FIXED/DOCUMENTED disposition + file refs: Bug 1 stale-model FIXED via _reload_if_stale() at services/ml-prediction-service/app/ml_models/gru_predictor.py:152 (MODEL_RELOAD log at line 171); Bug 2 confidence=0 sentinel FIXED via explicit filter at services/technical-analysis/app/handlers/analysis.py:99 (AGGREGATOR_CONFIDENCE_FILTER log); Bug 3 WSL2 BuildKit DOCUMENTED (environmental — no code fix possible)."
+    },
+    {
+      "req_id": "DASH-01",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "End-to-end audit of every dashboard tile/route — for each, identify the backing endpoint, verify it returns the expected shape against a running stack, and either fix or label \"stale\"",
+      "evidence_file": "scripts/audit_tiles.py",
+      "evidence_line_start": 43,
+      "evidence_line_end": 50,
+      "status": "drift",
+      "notes": "DRIFT: scripts/audit_tiles.py:43-50 hardcodes inventory path '.planning/phases/06-dashboard-audit-safety-state/06-TILE-AUDIT.json' which does NOT exist on disk. Phase 06 directory archived in commit d1daa1a (v1.1 milestone start, 2026-05-16) but archive only preserved v1.0-MILESTONE-AUDIT.md, v1.0-REQUIREMENTS.md, v1.0-ROADMAP.md under .planning/milestones/ — TILE-AUDIT.md/json not migrated to milestones/v1.0-phases/. Runtime probe exits 2 'inventory file not found: …06-TILE-AUDIT.json' at scripts/audit_tiles.py:93. v1.0-REQUIREMENTS.md:47 says DASH-01 'satisfied (06-TILE-AUDIT.md 15 rows + audit_tiles.py 9/9 PASS)' — claim was true at v1.0 close but inventory artifact lost in archive. Fix: restore inventory under .planning/milestones/v1.0-phases/06-*/ + update script path OR re-checkpoint as deferred. Downstream owner: dashboard maintainers. NEW finding (not pre-mapped in CONTEXT D-12). Owner: propose:demote-out-of-scope (operator menu: propose:quick-fix | propose:demote-active — see Plan 06 prompt; resolve at Plan 07 checkpoint)."
+    },
+    {
+      "req_id": "DASH-02",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "Hardcoded URLs replaced with config-driven values; gateway-mediated paths (auth, rate limit, validation) versus direct-service paths documented inline in `vite.config.js` and the relevant API client modules",
+      "evidence_file": "frontend/vite.config.js",
+      "evidence_line_start": 38,
+      "evidence_line_end": 59,
+      "status": "satisfied",
+      "notes": "frontend/vite.config.js:42-59 documents 'Phase 6, DASH-02' env-var convention with VITE_WS_URL (line 51) for WebSocket URL override. useGatewayWebSocket.js:34 consumes the override (`import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws'`). Gateway-mediated vs direct-service paths called out at lines 38-41."
+    },
+    {
+      "req_id": "DASH-03",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "Safety-state header — prominent display of TRADING_MODE (PAPER/LIVE), `auto_trading_enabled`, kill-switch state, EMERGENCY_STOP file presence, and `ENABLE_ML_PREDICTIONS` so the operator sees current safety posture at a glance",
+      "evidence_file": "services/api-gateway/app/main.py",
+      "evidence_line_start": 1049,
+      "evidence_line_end": 1180,
+      "status": "satisfied",
+      "notes": "Backend endpoint at services/api-gateway/app/main.py:1049-1180 (`/api/config/safety-state` returns TRADING_MODE, auto_trading_enabled, kill-switch, EMERGENCY_STOP, ENABLE_ML_PREDICTIONS). Frontend hook frontend/src/hooks/useSafetyState.js:38-41 polls every 5s (matches DASHLIVE cadence). StatusBar.jsx:15 documents '6. MODE pill (PAPER green / LIVE red) — D-05/D-06'. PROJECT.md:97-119 still notes ⚠ LIVE-flip manual smoke (LIVECLOSE-05) carry-in — code complete; operator screenshot deferred."
+    },
+    {
+      "req_id": "DASH-04",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "Tournament view — table of leaderboard rows from `TOURN-02`, filterable by symbol/architecture, with significance markers; depends on TOURN-02",
+      "evidence_file": "frontend/src/pages/TournamentDashboard.jsx",
+      "evidence_line_start": 17,
+      "evidence_line_end": 118,
+      "status": "satisfied",
+      "notes": "frontend/src/pages/TournamentDashboard.jsx (679 lines) is /tournament page composition (line 118 default export). Companion components: TournamentLeaderboard.jsx (386 lines), TournamentFilterChips.jsx, TournamentSelector.jsx, hooks useTournamentList.js + useTournamentSnapshot.js. Backend endpoints at services/api-gateway/app/main.py:1258 (`/api/tournament/snapshots`) and main.py:1313 (`/api/tournament/snapshots/{tournament_id}`). NOTE: tile path is frontend/src/pages/, not frontend/src/components/ as plan suspect-table guessed."
+    },
+    {
+      "req_id": "DASH-05",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "Empty/error states — every tile renders an explicit \"no data\" or \"endpoint failed\" message instead of silently showing empty arrays or stale numbers",
+      "evidence_file": "frontend/src/components/TileState.jsx",
+      "evidence_line_start": 4,
+      "evidence_line_end": 82,
+      "status": "satisfied",
+      "notes": "TileState.jsx shared wrapper (Plan 06-05) per docstring line 4-28 enforces D-13 (empty + error UX text + precedence) and D-15 (per-tile staleness thresholds STALE_THRESHOLDS_MS). Line 17 states 'Failed (...) UI — a stale-overlay can NEVER silence a real error'. Stale-badge rendered at line 81-82 with data-testid='tile-stale-badge'. PathToLiveTile.jsx:26-29 confirms the pattern is used end-to-end."
+    },
+    {
+      "req_id": "DASH-06",
+      "era": "v1.0",
+      "source": "v1.0-REQUIREMENTS.md",
+      "claim": "Smoke test for the dashboard — Playwright or equivalent that boots the stack, opens the dashboard, asserts each major tile renders non-empty against the recorded-tape stack from `INFRA-03`",
+      "evidence_file": "tests/integration/test_dashboard_smoke.py",
+      "evidence_line_start": 83,
+      "evidence_line_end": 127,
+      "status": "drift",
+      "notes": "DRIFT (same root cause as DASH-01): tests/integration/test_dashboard_smoke.py:94 loads `.planning/phases/06-dashboard-audit-safety-state/06-TILE-AUDIT.json` which no longer exists (archived in commit d1daa1a without retention under milestones/v1.0-phases/). Test setup fails at fixture load — `tile_audit()` fixture at line 83 + walk-loop at line 127 cannot iterate. Test path is tests/integration/, NOT tests/e2e/ as plan suspect-table guessed. Per-tile rendering logic (FIXED/LABELED_STALE/REMOVED verdicts at line 8-10) is correct; only the missing inventory blocks. Same fix as DASH-01: restore the inventory artifact OR re-checkpoint. NEW finding (not pre-mapped in CONTEXT D-12). Owner: propose:demote-out-of-scope (operator menu: propose:quick-fix | propose:demote-active — see Plan 06 prompt; resolve at Plan 07 checkpoint)."
+    },
+    {
+      "req_id": "DASHLIVE-01",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "`PathToLiveTile.jsx` renders PASS/FAIL/UNKNOWN status of every PREFLIGHT-01 check on a 5-second poll against `GET /api/preflight/live-readiness`.",
+      "evidence_file": "frontend/src/components/PathToLiveTile.jsx",
+      "evidence_line_start": 1,
+      "evidence_line_end": 250,
+      "status": "satisfied",
+      "notes": "frontend/src/components/PathToLiveTile.jsx (Phase 10 DASHLIVE-01) renders 3-state banner (DO NOT FLIP / ALMOST / READY at lines 38-49), 6 PREFLIGHT check rows + 5 carry-in close-state rows + 24-hour continuous-PASS window progress footer per docstring lines 10-12. Banner element at line 143 (`data-testid='path-to-live-banner'`). PREFLIGHT checks section header at line 180. Dashboard.jsx:76 renders <PathToLiveTile /> as first child, above <KeyMetricsStrip /> at line 78 (D-10-12 placement)."
+    },
+    {
+      "req_id": "DASHLIVE-02",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "Same tile shows OP-* carry-in close states (OP-01..04 + INFRA-02 checkpoint) sourced from `GET /api/preflight/carry-ins` — file-backed (`.planning/state/carry_ins.json`).",
+      "evidence_file": "services/api-gateway/app/routes/preflight_carry_ins.py",
+      "evidence_line_start": 81,
+      "evidence_line_end": 105,
+      "status": "satisfied",
+      "notes": "Endpoint defined at services/api-gateway/app/routes/preflight_carry_ins.py:81-105 (GET /carry-ins, mounted under /api/preflight/ via main.py:1240-1243). Reads PREFLIGHT_CARRY_INS_PATH env (default /app/planning_state/carry_ins.json) per line 103-104. State file present at .planning/state/carry_ins.json with schema_version=1 and 5 carry-ins (OP-01, OP-02, OP-03, OP-04, INFRA-02 — verified open state). Server computes overall per D-10-04 (DO_NOT_FLIP/ALMOST/READY) at line 86-89."
+    },
+    {
+      "req_id": "DASHLIVE-03",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "Tile renders \"DO NOT FLIP\" (red) until **all** PREFLIGHT checks PASS for ≥24h continuous; \"READY\" (green) only after the 24h continuous-PASS window holds; partial transitions render \"ALMOST\" (amber) with count.",
+      "evidence_file": "frontend/src/hooks/useLiveReadiness.js",
+      "evidence_line_start": 38,
+      "evidence_line_end": 48,
+      "status": "satisfied",
+      "notes": "frontend/src/hooks/useLiveReadiness.js:38-48 implements 5s poll (refetchInterval=5000, staleTime=5000, retry=2, retryDelay=1000) per D-10-15 cadence parity. frontend/src/hooks/useCarryIns.js:54-65 same configuration. Banner token map at PathToLiveTile.jsx:38-42 (bg-rose-700 DO_NOT_FLIP, bg-amber-600 ALMOST, bg-emerald-700 READY) — color codes match plan claim. Server-side overall computation at preflight_carry_ins.py:86-89 implements continuous-PASS window (PREFLIGHT_CONTINUOUS_PASS_REQUIRED_SECONDS env)."
+    },
+    {
+      "req_id": "DASHLIVE-04",
+      "era": "v1.1",
+      "source": "v1.1-REQUIREMENTS.md",
+      "claim": "Playwright smoke `tests/e2e/test_path_to_live_smoke.py` validates the tile renders correctly in PAPER mode and that DSR evidence-row shape is asserted; runs in `dashboard-smoke.yml` CI.",
+      "evidence_file": "tests/e2e/test_path_to_live_smoke.py",
+      "evidence_line_start": 1,
+      "evidence_line_end": 21,
+      "status": "satisfied",
+      "notes": "tests/e2e/test_path_to_live_smoke.py exists with docstring 'Phase 10 DASHLIVE-04 — Path-to-LIVE smoke. Covers D-10-18 #1..#7' — 7 assertions including tile visibility, 6 PREFLIGHT rows, 5 carry-in rows, banner text, schema validation, DSR evidence assertion, READY transition. CI lane at .github/workflows/dashboard-smoke.yml (Phase 10 DASHLIVE pull_request trigger, paths filter on frontend/, api-gateway/, trading-engine preflight). Test path matches plan claim exactly (tests/e2e/)."
+    }
+  ]
+}

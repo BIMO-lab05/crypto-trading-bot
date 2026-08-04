@@ -16,7 +16,10 @@
       "jsx": true
     }
   },
-  "plugins": ["react", "react-hooks"],
+  "plugins": [
+    "react",
+    "react-hooks"
+  ],
   "settings": {
     "react": {
       "version": "detect"
@@ -27,7 +30,18 @@
     "react/react-in-jsx-scope": "off",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
-    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
     "no-console": "off"
-  }
+  },
+  "ignorePatterns": [
+    "dist/",
+    "node_modules/",
+    "**/*.ts",
+    "**/*.tsx"
+  ]
 }

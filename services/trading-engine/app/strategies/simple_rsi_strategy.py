@@ -49,16 +49,22 @@ class SimpleRSIStrategy:
         capital: float = 100.0,
     ) -> Optional[SimpleRSISignal]:
         rsi_sig = indicators.get("RSI")
-        if not rsi_sig or not rsi_sig.metadata:
+        if not rsi_sig:
             return None
-        rsi = rsi_sig.metadata.get("value")
+        # The reading lives on .value; metadata carries period/weight only.
+        # Reading it from metadata returned None on every call — audit F-1.
+        rsi = rsi_sig.numeric_value()
         if rsi is None:
             return None
 
         atr_sig = indicators.get("ATR")
         atr_pct = 0.02
-        if atr_sig and atr_sig.metadata:
-            atr_pct = float(atr_sig.metadata.get("atr_pct") or atr_sig.metadata.get("value", 0.02))
+        if atr_sig:
+            atr_pct = float(
+                (atr_sig.metadata or {}).get("atr_pct")
+                or atr_sig.numeric_value()
+                or 0.02
+            )
             if atr_pct > 1.0:
                 atr_pct = atr_pct / 100.0
 
@@ -72,7 +78,10 @@ class SimpleRSIStrategy:
             reasoning.append(f"RSI {rsi:.1f} extreme oversold")
         elif rsi <= self.OVERSOLD:
             action = SignalAction.BUY
-            confidence = 0.45 + (self.OVERSOLD - rsi) / (self.OVERSOLD - self.EXTREME_OVERSOLD) * 0.30
+            confidence = (
+                0.45
+                + (self.OVERSOLD - rsi) / (self.OVERSOLD - self.EXTREME_OVERSOLD) * 0.30
+            )
             reasoning.append(f"RSI {rsi:.1f} oversold")
         elif rsi >= self.EXTREME_OVERBOUGHT:
             action = SignalAction.SELL
@@ -80,7 +89,12 @@ class SimpleRSIStrategy:
             reasoning.append(f"RSI {rsi:.1f} extreme overbought")
         elif rsi >= self.OVERBOUGHT:
             action = SignalAction.SELL
-            confidence = 0.45 + (rsi - self.OVERBOUGHT) / (self.EXTREME_OVERBOUGHT - self.OVERBOUGHT) * 0.30
+            confidence = (
+                0.45
+                + (rsi - self.OVERBOUGHT)
+                / (self.EXTREME_OVERBOUGHT - self.OVERBOUGHT)
+                * 0.30
+            )
             reasoning.append(f"RSI {rsi:.1f} overbought")
         else:
             return None
@@ -96,7 +110,9 @@ class SimpleRSIStrategy:
             stop_loss = current_price + stop_distance
             take_profit = current_price - stop_distance * self.REWARD_RISK
 
-        reasoning.append(f"ATR-based stop {atr_pct*100:.2f}% × {self.ATR_STOP_MULT}x, R/R 1:{self.REWARD_RISK}")
+        reasoning.append(
+            f"ATR-based stop {atr_pct * 100:.2f}% × {self.ATR_STOP_MULT}x, R/R 1:{self.REWARD_RISK}"
+        )
 
         return SimpleRSISignal(
             action=action,

@@ -253,20 +253,20 @@ class TestRateLimitConfig:
     def test_default_config(self):
         """Test default rate limit configuration."""
         config = RateLimitConfig()
-        assert config.trading_limit == 10
-        assert config.auth_limit == 5
-        assert config.health_limit == 60
-        assert config.general_limit == 30
+        assert config.trading_write_limit == 60
+        assert config.auth_limit == 10
+        assert config.health_limit == 1200
+        assert config.general_limit == 1200
         assert config.enabled is True
 
     def test_custom_config(self):
         """Test custom rate limit configuration."""
         config = RateLimitConfig(
-            trading_limit=20,
+            trading_write_limit=20,
             auth_limit=10,
             enabled=False
         )
-        assert config.trading_limit == 20
+        assert config.trading_write_limit == 20
         assert config.auth_limit == 10
         assert config.enabled is False
 
