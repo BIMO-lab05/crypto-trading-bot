@@ -1,0 +1,3 @@
+ERROR services/trading-engine/tests/unit/test_auto_trader_smart_mode.py - pyd...
+!!!!!!!!!!!!!!!!!!! Interrupted: 13 errors during collection !!!!!!!!!!!!!!!!!!!
+======================== 5 skipped, 13 errors in 25.33s ========================
