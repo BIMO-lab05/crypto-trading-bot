@@ -18,7 +18,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository }}
+  # IMAGE_PREFIX is set per-job by the "Lowercase image prefix" step —
+  # github.repository is mixed-case (BIMO-lab05/...) and ghcr requires lowercase.
   ENVIRONMENT: production
 
 jobs:
@@ -74,6 +75,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # ghcr rejects mixed-case repository paths (BIMO-lab05/...); metadata-action
+      # lowercases image tags itself but the raw cache-from/cache-to refs do not.
+      - name: Lowercase image prefix
+        run: echo "IMAGE_PREFIX=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -192,6 +198,9 @@ jobs:
         run: |
           VERSION=$(git describe --tags --always)
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Lowercase image prefix
+        run: echo "IMAGE_PREFIX=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Update image tags in production overlay
         run: |

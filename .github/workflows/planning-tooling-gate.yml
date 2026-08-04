@@ -90,7 +90,7 @@ jobs:
       - name: Install pytest
         run: |
           python -m pip install --upgrade pip
-          pip install pytest==7.4.4
+          pip install pytest==7.4.4 pytest-cov pytest-asyncio pytest-timeout
 
       - name: Run TOOL-01 placeholder grep gate
         # IMPORTANT: do NOT add `continue-on-error: true`. Failures must block
@@ -112,7 +112,7 @@ jobs:
       - name: Install pytest
         run: |
           python -m pip install --upgrade pip
-          pip install pytest==7.4.4
+          pip install pytest==7.4.4 pytest-cov pytest-asyncio pytest-timeout
 
       - name: Run TOOL-02 wiring + supersession-fixture gate
         # test_roadmap_analyze_apply_wired_before_archive SKIPs in CI runners
@@ -136,7 +136,7 @@ jobs:
       - name: Install pytest
         run: |
           python -m pip install --upgrade pip
-          pip install pytest==7.4.4
+          pip install pytest==7.4.4 pytest-cov pytest-asyncio pytest-timeout
 
       - name: Run TOOL-03 audit-freshness + 13h-gap fixture gate
         # test_audit_freshness_check_unconditional_in_workflow SKIPs in CI

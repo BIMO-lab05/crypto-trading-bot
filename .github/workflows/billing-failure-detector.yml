@@ -82,7 +82,7 @@ jobs:
       - name: Query recent failures
         id: detect
         run: |
-          FAILED_JSON="$(gh run list --status failure --limit 5 --json conclusion,displayTitle,name,htmlUrl,databaseId,event --repo "${GITHUB_REPOSITORY}")"
+          FAILED_JSON="$(gh run list --status failure --limit 5 --json conclusion,displayTitle,name,url,databaseId,event --repo "${GITHUB_REPOSITORY}")"
           echo "$FAILED_JSON" > /tmp/failed_runs.json
           # jq pipeline:
           #   1. exclude rows whose .name equals the detector's own workflow
@@ -102,7 +102,7 @@ jobs:
       - name: Post Telegram alert
         if: steps.detect.outputs.billing_detected == 'true'
         run: |
-          SUMMARY="$(jq -r '[.[] | select(.name != "CI Health Monitor (CIRESTORE-03)") | select(.displayTitle | ascii_downcase | contains("billing"))] | map("- " + .displayTitle + " (" + .htmlUrl + ")") | join("\n")' /tmp/failed_runs.json)"
+          SUMMARY="$(jq -r '[.[] | select(.name != "CI Health Monitor (CIRESTORE-03)") | select(.displayTitle | ascii_downcase | contains("billing"))] | map("- " + .displayTitle + " (" + .url + ")") | join("\n")' /tmp/failed_runs.json)"
           PAYLOAD="$(jq -n --arg chat "${TELEGRAM_CHAT_ID}" --arg text "Billing-blocked CI runs detected:\n\n${SUMMARY}\n\nRepo: ${GITHUB_REPOSITORY}" '{chat_id: $chat, text: $text, parse_mode: "HTML"}')"
           curl -s --fail -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
@@ -116,7 +116,7 @@ jobs:
             echo "Automated detection — billing-failure-detector.yml cron found recent CI failures whose displayTitle matches the substring billing (case-insensitive), excluding the detector's own failures."
             echo
             echo "## Matched runs"
-            jq -r '.[] | select(.name != "CI Health Monitor (CIRESTORE-03)") | select(.displayTitle | ascii_downcase | contains("billing")) | "- [" + .displayTitle + "](" + .htmlUrl + ") - event: " + .event' /tmp/failed_runs.json
+            jq -r '.[] | select(.name != "CI Health Monitor (CIRESTORE-03)") | select(.displayTitle | ascii_downcase | contains("billing")) | "- [" + .displayTitle + "](" + .url + ") - event: " + .event' /tmp/failed_runs.json
             echo
             echo "## Action"
             echo "Review the GitHub Actions billing settings for ${GITHUB_REPOSITORY}."

@@ -124,8 +124,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # continue-on-error: a single service's build flake (sentiment-analysis
+      # PyPI timeouts are chronic) must not kill the whole scan matrix; the
+      # scan steps below skip via steps.build.outcome when the build failed.
       - name: Build Docker image for scanning
+        id: build
         uses: docker/build-push-action@v5
+        continue-on-error: true
         with:
           context: services/${{ matrix.service }}
           file: services/${{ matrix.service }}/Dockerfile
@@ -141,6 +146,7 @@ jobs:
       # lacked it, which is why every PR's "Scan Docker Images" job was red
       # on accumulated HIGH-severity CVEs in 4-month-old base images.
       - name: Run Trivy vulnerability scanner
+        if: steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: crypto-bot/${{ matrix.service }}:scan
@@ -149,14 +155,19 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
           exit-code: '0'
 
+      # continue-on-error: SARIF upload needs GHAS code scanning, which this
+      # private repo does not have — upload fails with "Resource not accessible
+      # by integration". Artifacts below still carry the reports.
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
         with:
           sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
           category: trivy-${{ matrix.service }}
 
       - name: Run Trivy for JSON report
+        if: steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: crypto-bot/${{ matrix.service }}:scan
@@ -166,6 +177,7 @@ jobs:
           exit-code: '0'
 
       - name: Run Trivy for table output
+        if: steps.build.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: crypto-bot/${{ matrix.service }}:scan
@@ -178,6 +190,7 @@ jobs:
       # too many HIGH CVEs to gate on without action — switched to 'critical'.
       # Trivy above already reports HIGH/MEDIUM in the SARIF for review.
       - name: Run Grype vulnerability scanner
+        if: steps.build.outcome == 'success'
         uses: anchore/scan-action@v3
         id: grype
         with:
@@ -185,9 +198,12 @@ jobs:
           fail-build: false
           severity-cutoff: critical
 
+      # Guarded: skipped scan leaves outputs.sarif empty, which would fail the
+      # upload with "sarif_file not supplied"; GHAS caveat as on the Trivy upload.
       - name: Upload Grype results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && steps.grype.outputs.sarif != ''
+        continue-on-error: true
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}
           category: grype-${{ matrix.service }}
