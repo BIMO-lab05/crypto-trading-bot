@@ -1,291 +1,128 @@
-# Dependabot configuration for automated dependency updates
+# Dependabot configuration — grouped monthly updates
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+#
+# Rewritten 2026-08-04: the old per-package weekly config accumulated 65 stale
+# PRs (Dec 2025) that rotted against a frozen main. Policy now:
+#   - monthly cadence, ONE grouped PR per service directory
+#   - small open-pull-requests limits so a red CI can't breed a backlog
+#   - known-landmine majors ignored; take them as deliberate migrations:
+#       * fastapi/starlette frozen — api-gateway pins fastapi 0.109 on purpose
+#         (HTTPBearer 403-vs-401 test contract, see .claude/rules/testing.md)
+#       * pydantic/pydantic-settings frozen — 2.5→2.12 changes settings
+#         deep-merge behavior (documented in .claude/rules/testing.md)
+#       * numpy 2.x — breaks tensorflow 2.16 / pandas 2.2 ABI in ml services
+#       * pytest 9 / pytest-asyncio 1.x — breaking majors, migrate in lockstep
+#       * python-json-logger 3+ / redis 6+ — breaking majors
+#       * react 19 family, @vitejs/plugin-react 5, zustand 5 — React 18 frontend
 
 version: 2
 updates:
-  # GitHub Actions dependencies
+  # ---------- GitHub Actions: one grouped PR ----------
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "github-actions"
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    labels: ["dependencies", "github-actions"]
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      actions-all:
+        patterns: ["*"]
 
-  # Python dependencies for all services
+  # ---------- Python: one grouped PR per service ----------
   - package-ecosystem: "pip"
-    directory: "/services/api-gateway"
+    directories:
+      - "/services/api-gateway"
+      - "/services/trading-engine"
+      - "/services/portfolio-manager"
+      - "/services/technical-analysis"
+      - "/services/bybit-connector"
+      - "/services/market-data-service"
+      - "/services/notification-service"
+      - "/services/ml-prediction-service"
+      - "/services/risk-metrics-service"
+      - "/services/sentiment-analysis-service"
     schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "api-gateway"
-    commit-message:
-      prefix: "chore"
-      prefix-development: "chore"
+      interval: "monthly"
     open-pull-requests-limit: 10
-    reviewers:
-      - "devops-team"
-    assignees:
-      - "devops-team"
-
-  - package-ecosystem: "pip"
-    directory: "/services/trading-engine"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "trading-engine"
+    labels: ["dependencies", "python"]
     commit-message:
       prefix: "chore"
+      include: "scope"
+    groups:
+      python-deps:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "fastapi"
+      - dependency-name: "starlette"
+      - dependency-name: "pydantic"
+      - dependency-name: "pydantic-settings"
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pytest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pytest-asyncio"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "python-json-logger"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tensorflow"
+        update-types: ["version-update:semver-major"]
 
-  - package-ecosystem: "pip"
-    directory: "/services/portfolio-manager"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "portfolio-manager"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "pip"
-    directory: "/services/technical-analysis"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "technical-analysis"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "pip"
-    directory: "/services/bybit-connector"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "bybit-connector"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "pip"
-    directory: "/services/market-data-service"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "market-data-service"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "pip"
-    directory: "/services/notification-service"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "notification-service"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "pip"
-    directory: "/services/ml-prediction-service"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "ml-prediction-service"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "pip"
-    directory: "/services/risk-metrics-service"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "risk-metrics-service"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "pip"
-    directory: "/services/sentiment-analysis-service"
-    schedule:
-      interval: "weekly"
-      day: "tuesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "python"
-      - "sentiment-analysis-service"
-    commit-message:
-      prefix: "chore"
-
-  # Docker dependencies
+  # ---------- Docker base images: one grouped PR per service ----------
   - package-ecosystem: "docker"
-    directory: "/services/api-gateway"
+    directories:
+      - "/services/api-gateway"
+      - "/services/trading-engine"
+      - "/services/portfolio-manager"
+      - "/services/technical-analysis"
+      - "/services/bybit-connector"
+      - "/services/market-data-service"
+      - "/services/notification-service"
+      - "/services/ml-prediction-service"
+      - "/services/risk-metrics-service"
+      - "/services/sentiment-analysis-service"
     schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "docker"]
     commit-message:
       prefix: "chore"
+      include: "scope"
+    groups:
+      docker-base:
+        patterns: ["*"]
+    ignore:
+      # Stay on the 3.12 line — services are built and tested against it.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
-  - package-ecosystem: "docker"
-    directory: "/services/trading-engine"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "docker"
-    directory: "/services/portfolio-manager"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "docker"
-    directory: "/services/technical-analysis"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "docker"
-    directory: "/services/bybit-connector"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "docker"
-    directory: "/services/market-data-service"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "docker"
-    directory: "/services/notification-service"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "docker"
-    directory: "/services/ml-prediction-service"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "docker"
-    directory: "/services/risk-metrics-service"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "docker"
-    directory: "/services/sentiment-analysis-service"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore"
-
-  # Frontend dependencies (npm)
+  # ---------- npm (frontend): one grouped PR ----------
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
-      day: "thursday"
-      time: "03:00"
-    labels:
-      - "dependencies"
-      - "javascript"
-      - "frontend"
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    labels: ["dependencies", "javascript"]
     commit-message:
       prefix: "chore"
-    versioning-strategy: increase
+      include: "scope"
+    groups:
+      npm-deps:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "zustand"
+        update-types: ["version-update:semver-major"]
