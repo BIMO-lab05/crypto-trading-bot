@@ -18,6 +18,14 @@
 
 version: '3.8'
 
+# Applied to every service via `logging: *default-logging`. Without this the
+# json-file driver is unbounded — market-data alone accumulated 889 MB in 4 days.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 # =============================================================================
 # SERVICES
 # =============================================================================
@@ -33,6 +41,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: crypto-bot-postgres
+    logging: *default-logging
     hostname: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-cryptobot}
@@ -70,6 +79,7 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
     container_name: crypto-bot-timescaledb
+    logging: *default-logging
     hostname: timescaledb
     environment:
       POSTGRES_USER: ${TIMESCALE_USER:-cryptobot}
@@ -105,6 +115,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: crypto-bot-redis
+    logging: *default-logging
     hostname: redis
     command: >
       redis-server
@@ -139,6 +150,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: crypto-bot-rabbitmq
+    logging: *default-logging
     hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cryptobot}
@@ -177,6 +189,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: crypto-bot-prometheus
+    logging: *default-logging
     hostname: prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -209,6 +222,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: crypto-bot-grafana
+    logging: *default-logging
     hostname: grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
@@ -247,6 +261,7 @@ services:
       context: ./services/api-gateway
       dockerfile: Dockerfile
     container_name: crypto-bot-api-gateway
+    logging: *default-logging
     hostname: api-gateway
     ports:
       - "${API_GATEWAY_PORT:-8000}:8000"
@@ -355,6 +370,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: crypto-bot-frontend
+    logging: *default-logging
     hostname: frontend
     ports:
       - "${FRONTEND_PORT:-3000}:80"
@@ -386,6 +402,7 @@ services:
       context: ./services/bybit-connector
       dockerfile: Dockerfile
     container_name: crypto-bot-bybit
+    logging: *default-logging
     hostname: bybit-connector
     ports:
       # SEC-0: loopback-only. This service holds live mainnet credentials and
@@ -440,6 +457,7 @@ services:
       context: ./services/market-data-service
       dockerfile: Dockerfile
     container_name: crypto-bot-market-data
+    logging: *default-logging
     hostname: market-data
     ports:
       - "${MARKET_DATA_PORT:-8002}:8002"
@@ -487,6 +505,7 @@ services:
       context: ./services/portfolio-manager
       dockerfile: Dockerfile
     container_name: crypto-bot-portfolio
+    logging: *default-logging
     hostname: portfolio-manager
     ports:
       # SEC-1: loopback-only. This service has no authentication on any route,
@@ -542,6 +561,7 @@ services:
       context: ./services/technical-analysis
       dockerfile: Dockerfile
     container_name: crypto-bot-ta
+    logging: *default-logging
     hostname: technical-analysis
     ports:
       - "${TA_PORT:-8004}:8004"
@@ -585,6 +605,7 @@ services:
       context: ./services/trading-engine
       dockerfile: Dockerfile
     container_name: crypto-bot-trading
+    logging: *default-logging
     hostname: trading-engine
     ports:
       # SEC-1: loopback-only. 51 mutating routes, zero auth schemes -- verified
@@ -695,6 +716,7 @@ services:
       context: ./services/notification-service
       dockerfile: Dockerfile
     container_name: crypto-bot-notification
+    logging: *default-logging
     hostname: notification-service
     ports:
       - "${NOTIFICATION_PORT:-8006}:8006"
@@ -760,6 +782,7 @@ services:
       context: ./services/ml-prediction-service
       dockerfile: Dockerfile
     container_name: crypto-bot-ml-prediction
+    logging: *default-logging
     hostname: ml-prediction
     ports:
       - "${ML_PORT:-8007}:8007"
@@ -825,6 +848,7 @@ services:
       context: .
       dockerfile: services/tournament-harness/Dockerfile
     container_name: crypto-bot-tournament-harness
+    logging: *default-logging
     hostname: tournament-harness
     ports:
       - "${TOURNAMENT_PORT:-8010}:8010"
@@ -871,6 +895,7 @@ services:
       context: ./services/sentiment-analysis-service
       dockerfile: Dockerfile
     container_name: crypto-bot-sentiment
+    logging: *default-logging
     hostname: sentiment-analysis
     ports:
       - "${SENTIMENT_PORT:-8008}:8008"
@@ -913,6 +938,7 @@ services:
       context: ./services/risk-metrics-service
       dockerfile: Dockerfile
     container_name: crypto-bot-risk-metrics
+    logging: *default-logging
     hostname: risk-metrics
     ports:
       - "${RISK_PORT:-8009}:8009"
