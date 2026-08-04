@@ -41,7 +41,7 @@ Do not propose new features without confronting this table.
 | Trend-following | 0.0% | **−0.22** | 5 |
 | GRU ensemble | chance-level | — | loses to naive persistence |
 
-Two things make this **worse** than it looks: the paper engine has **no slippage model** (PAPER-01), so these are already optimistic; and all figures were produced at **$10,000**, which hides the min-notional constraint entirely.
+Two things make this **worse** than it looks: every one of these figures was measured through a **frictionless** paper engine — the slippage model landed 2026-08-03 (`fb45efe`, `app/paper_slippage.py`), *after* the table — so they are optimistic by an unmeasured amount; and all figures were produced at **$10,000**, which hides the min-notional constraint entirely. Re-run before citing. *(This line claimed no slippage model existed until 2026-08-04 — corrected. PAPER-01 is closed.)*
 
 Consequences for how you work here:
 

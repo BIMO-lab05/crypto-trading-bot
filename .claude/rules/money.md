@@ -96,7 +96,7 @@ Any P&L number — backtest, walk-forward, paper, dashboard — must be net of:
 - funding if the position crosses a funding timestamp,
 - a slippage model.
 
-The paper engine has **no slippage model yet** (`PAPER-01`). Until it does, label every paper P&L figure as *gross of slippage* wherever it is reported. Do not present it as a realistic expectation.
+The paper engine **has a slippage model** as of 2026-08-03 (`fb45efe`, PAPER-01) — `services/trading-engine/app/paper_slippage.py`, gated by `paper_slippage_enabled`. *(This file said "no slippage model yet" until 2026-08-04; corrected against the filesystem. Do not restore the old wording.)* Two things still hold: every backtest figure produced **before** 2026-08-03 was measured through a frictionless engine and is optimistic, so re-run before citing; and when the flag is off, label the P&L *gross of slippage* wherever it is reported.
 
 ## Decimal, not float, for money
 
