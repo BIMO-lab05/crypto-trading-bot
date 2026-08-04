@@ -804,3 +804,30 @@ Not "profitable trades today." Not even one fill yet. The structural blocker is 
 - Risk caps untouched. Paper-trading mode unchanged. Live trading gates unchanged.
 - Validated symbols (5: BTC/ETH/SOL/BNB/ADA) unchanged.
 - No commit yet — user holds the call per CLAUDE.md "commit in logical chunks, propose grouping before each commit and wait for approval."
+
+---
+
+## 2026-08-04 (PM) — Full-state assessment, doc archive executed, stale-image redeploy
+
+### Assessment (4 parallel investigators, workflow wf_09975185-4d8)
+
+1. **Capital residue** (post-2026-08-03 audit): P0 order-path still clean. All 8 recovery-plan P1 tasks verified landed. NEW runtime finds the audit missed: `advanced_metrics.py:724/:2852` singleton defaults $10,000, never seeded, feeds 8 live analytics endpoints (same defect class as fixed A1); orchestration stack pinned $100k (`orchestration/models.py:678`, `risk_coordinator.py:241-244`, zero external callers); frontend live fallbacks `usePerformanceMetrics.js:283`, `useChartData.js:112`, `EquityCurveChart.jsx:211`, `PerformanceDashboard.jsx:302` all hardcode 10000 while `balance.js` exports `PAPER_DEFAULT_BALANCE=100`.
+2. **Trading performance** (postgres + engine API, gross of slippage): realized −$8.77 on $100 since 2026-07-29; 11 closed positions, 18.2% win rate; 5 stop-loss exits −$7.43; fees $1.79 on ~$1,787 volume (17.9× account turnover in 6 days). **Cap violation live**: entries $33.5–$95.8 notional vs $10 documented cap; concurrent open notional peaked ~$328 (~229 later) vs 80% exposure rail — paper engine never debits cash for notional, so exposure checks have no basis. Running image built 2026-08-01, i.e. BEFORE F-1 (`d5d31c6`), F-2 (`1c21eac`), slippage (`fb45efe`).
+3. **Containers**: nothing crashing — 17 up, RestartCount 0; problem is staleness (restarted, never recreated) + unbounded logs (market-data json 889 MB in 4 days; bind-mounted service.log: portfolio-manager 1.08 GiB, api-gateway 913 MiB). `/ready` 404 on api-gateway + portfolio-manager — routes don't exist in source (CLAUDE.md §3 overclaims). portfolio-manager reports `database_connection:false`, snapshot equity stale.
+4. **Docs**: 1,191 md files; triage from 2026-08-03 was complete but unexecuted.
+
+### Actions taken this session
+
+- `touch safety/EMERGENCY_STOP` — auto-trader paused before maintenance (was ACTIVE, sizing 33–96%/trade on stale image).
+- Executed `.planning/audits/2026-08-03-doc-archive-plan.sh` after review: 73 files → `docs/archive/2026-08-03/`, 8 conventional commits (`3feaa1e`..`7bd40ea`), root md count 6 → 4. Script behaved exactly as banner promised (git mv only, no deletions).
+- `docker-compose.unified.yml`: added `x-logging` anchor, `logging: *default-logging` (json-file 50m×3) to all 18 services.
+- `services/trading-engine/.dockerignore`: dropped `tests/standalone/` exclusion (OP-15 resolved — accounting harness stays in image).
+- Removed 3 dead failed-build orphan containers (amazing_mcclintock, peaceful_mccarthy, thirsty_hellman).
+- Rebuild dispatched: `DOCKER_BUILDKIT=0 docker compose -f docker-compose.unified.yml up -d --build trading-engine api-gateway market-data bybit-connector risk-metrics` (deploys F-1/F-2/slippage/auth/capital fixes; applies log caps).
+
+### Blocked / operator-needed
+
+- OP-13: `sudo chown $USER:$USER .planning/state/carry_ins.json` (uid 999, mode 600 — aborts whole-tree git diff).
+- Truncate bind-mounted logs (denied to agent): `: > services/portfolio-manager/logs/service.log; : > services/api-gateway/logs/service.log` (~2 GiB).
+- Post-rebuild incident: dashboard 502s — frontend nginx cached stale api-gateway container IP after recreate. Fixed with `docker restart crypto-bot-frontend`; all routes 200. Permanent fix queued: nginx `resolver 127.0.0.11` + variable proxy_pass.
+- Trading resumed 16:00Z (operator approved): kill switch cleared, auto-trader running, rejections logging reasons (regime hard-block observed), boot log shows $100.00 capital, slippage manager active.
