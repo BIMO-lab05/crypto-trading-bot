@@ -7,11 +7,10 @@ Strategy: Mock database dependencies to avoid requiring actual database connecti
 import os
 import sys
 import pytest
-import asyncio
 import logging
 from decimal import Decimal
 from uuid import uuid4
-from typing import AsyncGenerator, Any, Dict
+from typing import AsyncGenerator
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
@@ -20,6 +19,41 @@ from pathlib import Path
 SHARED_DIR = Path(__file__).parent.parent.parent.parent / "shared"
 if str(SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(SHARED_DIR))
+
+# ==========================================
+# ENVIRONMENT ISOLATION  (must run at import time)
+# ==========================================
+#
+# `config.py` declares `env_file=".env"`, which pydantic-settings resolves
+# RELATIVE TO CWD. Host test runs have to start from `services/trading-engine/`,
+# so they pick up whatever untracked operator `.env` happens to sit there — a
+# file that is gitignored, unversioned, and in practice years stale.
+#
+# That is not a hypothetical. The .env found on 2026-08-04 declared an obsolete
+# 11-symbol `TRADING_SYMBOLS` against a differently-obsolete 5-key
+# `SYMBOL_ALLOCATIONS`, so `Settings.validate_allocations()` correctly refused
+# to boot and `test_lifespan_startup` failed for reasons that had nothing to do
+# with the code under test. It also silently disagreed with production on
+# max_total_exposure_pct, max_daily_loss_pct, default_leverage, leverage_enabled,
+# auto_trading_enabled and default_symbol.
+#
+# Production is unaffected: the Dockerfile copies `app/` only, no `.env` enters
+# the image, and the trading-engine block in docker-compose.unified.yml sets
+# neither symbol variable. The container falls through to the config defaults,
+# which are self-consistent and pass. So the defaults ARE the production config,
+# and pinning tests to them aligns the two.
+#
+# This must happen at module import, not in a fixture: `app/main.py` builds the
+# `get_settings()` singleton at import time, which is during collection — long
+# before any autouse fixture runs.
+#
+# Do NOT try to fix this by exporting TRADING_SYMBOLS / SYMBOL_ALLOCATIONS as
+# env vars. pydantic-settings v2 DEEP-MERGES Dict fields across sources, so an
+# env var unions with the dotenv value instead of replacing it, and the
+# allocations then sum to 1.25 rather than 1.0.
+from app.config import Settings  # noqa: E402
+
+Settings.model_config["env_file"] = None
 
 # Configure logging for tests
 logging.basicConfig(level=logging.DEBUG)
@@ -30,25 +64,21 @@ logger = logging.getLogger(__name__)
 # PYTEST CONFIGURATION
 # ==========================================
 
+
 def pytest_configure(config):
     """Configure pytest with custom markers for trading-engine"""
     config.addinivalue_line(
         "markers", "integration: Integration tests requiring database"
     )
-    config.addinivalue_line(
-        "markers", "unit: Fast unit tests"
-    )
-    config.addinivalue_line(
-        "markers", "slow: Slow-running tests"
-    )
-    config.addinivalue_line(
-        "markers", "benchmark: Performance benchmark tests"
-    )
+    config.addinivalue_line("markers", "unit: Fast unit tests")
+    config.addinivalue_line("markers", "slow: Slow-running tests")
+    config.addinivalue_line("markers", "benchmark: Performance benchmark tests")
 
 
 # ==========================================
 # MOCK DATABASE CONNECTION MODULE
 # ==========================================
+
 
 @pytest.fixture(autouse=True)
 def mock_database_connection():
@@ -67,9 +97,9 @@ def mock_database_connection():
     mock_db_manager.get_async_session.return_value = mock_session_generator()
 
     # Patch the database.connection module
-    with patch.dict('sys.modules', {
-        'database.connection': MagicMock(db_manager=mock_db_manager)
-    }):
+    with patch.dict(
+        "sys.modules", {"database.connection": MagicMock(db_manager=mock_db_manager)}
+    ):
         logger.debug("Mocked database.connection module")
         yield mock_db_manager
 
@@ -77,6 +107,7 @@ def mock_database_connection():
 # ==========================================
 # MOCK DATABASE SESSION
 # ==========================================
+
 
 class MockAsyncSession:
     """
@@ -151,6 +182,7 @@ class MockDBManager:
 # DATABASE SESSION FIXTURES
 # ==========================================
 
+
 @pytest.fixture
 async def db_session() -> AsyncGenerator[MockAsyncSession, None]:
     """
@@ -187,6 +219,7 @@ def mock_db_manager():
 # ==========================================
 # REPOSITORY FIXTURES WITH MOCKS
 # ==========================================
+
 
 @pytest.fixture
 def position_repository(db_session):
@@ -264,11 +297,11 @@ def portfolio_repository(db_session):
             portfolio_id="test_portfolio_001",
             name="Test Portfolio",
             cash_balance=Decimal("10000.00"),
-            is_active=True
+            is_active=True,
         )
 
     async def mock_update_balance(*args, **kwargs):
-        return MagicMock(cash_balance=kwargs.get('new_balance', Decimal("10000.00")))
+        return MagicMock(cash_balance=kwargs.get("new_balance", Decimal("10000.00")))
 
     repo.get = mock_get
     repo.update_balance = mock_update_balance
@@ -280,6 +313,7 @@ def portfolio_repository(db_session):
 # ==========================================
 # TEST DATA FIXTURES
 # ==========================================
+
 
 @pytest.fixture
 def sample_portfolio_id():
@@ -334,7 +368,9 @@ def test_position(sample_portfolio_id, sample_position_data):
     position.quantity = sample_position_data["quantity"]
     position.entry_price = sample_position_data["entry_price"]
     position.current_price = sample_position_data["entry_price"]
-    position.cost_basis = sample_position_data["entry_price"] * sample_position_data["quantity"]
+    position.cost_basis = (
+        sample_position_data["entry_price"] * sample_position_data["quantity"]
+    )
     position.stop_loss = sample_position_data["stop_loss"]
     position.take_profit = sample_position_data["take_profit"]
     position.status = "OPEN"
@@ -351,6 +387,7 @@ def test_position(sample_portfolio_id, sample_position_data):
 @pytest.fixture
 def create_app_position(sample_position_data):
     """Factory fixture to create position data dictionaries"""
+
     def _create_position(**overrides):
         data = {**sample_position_data, **overrides}
         return data
@@ -361,6 +398,7 @@ def create_app_position(sample_position_data):
 # ==========================================
 # MOCK FIXTURES FOR EXTERNAL DEPENDENCIES
 # ==========================================
+
 
 @pytest.fixture
 def mock_bybit_connector():
@@ -434,6 +472,7 @@ def mock_message_bus():
 # ENVIRONMENT CONFIGURATION
 # ==========================================
 
+
 @pytest.fixture(autouse=True)
 def test_environment():
     """
@@ -445,19 +484,19 @@ def test_environment():
 
     # Set test environment variables
     test_env = {
-        'ENVIRONMENT': 'test',
-        'DB_HOST': 'localhost',
-        'DB_PORT': '5434',
-        'DB_NAME': 'cryptobot_test',
-        'DB_USER': 'cryptobot_test',
-        'DB_PASSWORD': 'test_password_123',
-        'REDIS_HOST': 'localhost',
-        'REDIS_PORT': '6380',
-        'LOG_LEVEL': 'DEBUG',
-        'BYBIT_API_KEY': 'test_api_key',
-        'BYBIT_API_SECRET': 'test_api_secret',
-        'RABBITMQ_HOST': 'localhost',
-        'RABBITMQ_PORT': '5672',
+        "ENVIRONMENT": "test",
+        "DB_HOST": "localhost",
+        "DB_PORT": "5434",
+        "DB_NAME": "cryptobot_test",
+        "DB_USER": "cryptobot_test",
+        "DB_PASSWORD": "test_password_123",
+        "REDIS_HOST": "localhost",
+        "REDIS_PORT": "6380",
+        "LOG_LEVEL": "DEBUG",
+        "BYBIT_API_KEY": "test_api_key",
+        "BYBIT_API_SECRET": "test_api_secret",
+        "RABBITMQ_HOST": "localhost",
+        "RABBITMQ_PORT": "5672",
     }
 
     os.environ.update(test_env)
@@ -475,6 +514,7 @@ def test_environment():
 # HELPER FIXTURES
 # ==========================================
 
+
 @pytest.fixture
 def assert_decimal_equal():
     """
@@ -485,10 +525,9 @@ def assert_decimal_equal():
             result = calculate_pnl()
             assert_decimal_equal(result, Decimal("123.45"), tolerance=Decimal("0.01"))
     """
+
     def _assert_equal(
-        actual: Decimal,
-        expected: Decimal,
-        tolerance: Decimal = Decimal("0.00000001")
+        actual: Decimal, expected: Decimal, tolerance: Decimal = Decimal("0.00000001")
     ):
         """Assert two Decimals are equal within tolerance"""
         diff = abs(actual - expected)
@@ -529,13 +568,15 @@ def benchmark_timer():
         def assert_faster_than(self, max_ms: float, message: str = None):
             """Assert operation completed faster than threshold"""
             assert self.elapsed_ms < max_ms, (
-                message or f"Operation took {self.elapsed_ms:.2f}ms, expected < {max_ms}ms"
+                message
+                or f"Operation took {self.elapsed_ms:.2f}ms, expected < {max_ms}ms"
             )
 
         def assert_slower_than(self, min_ms: float, message: str = None):
             """Assert operation took at least minimum time"""
             assert self.elapsed_ms >= min_ms, (
-                message or f"Operation took {self.elapsed_ms:.2f}ms, expected >= {min_ms}ms"
+                message
+                or f"Operation took {self.elapsed_ms:.2f}ms, expected >= {min_ms}ms"
             )
 
     return Timer
@@ -572,6 +613,7 @@ def mock_cache():
 # TEST STATISTICS FIXTURES
 # ==========================================
 
+
 @pytest.fixture
 def test_stats():
     """
@@ -579,10 +621,10 @@ def test_stats():
     Useful for tracking test performance over time
     """
     stats = {
-        'queries_executed': 0,
-        'rows_inserted': 0,
-        'rows_updated': 0,
-        'test_duration_ms': 0,
+        "queries_executed": 0,
+        "rows_inserted": 0,
+        "rows_updated": 0,
+        "test_duration_ms": 0,
     }
 
     yield stats
