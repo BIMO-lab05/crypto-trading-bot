@@ -723,7 +723,9 @@ services:
     env_file:
       # Real Telegram/Slack/SMTP creds live here (gitignored).
       # env_file is loaded first; the `environment:` block below can override.
-      - ./services/notification-service/.env
+      # required:false — CI runners have no operator .env; compose must still boot.
+      - path: ./services/notification-service/.env
+        required: false
     environment:
       - SERVICE_NAME=notification-service
       - SERVICE_PORT=8006
