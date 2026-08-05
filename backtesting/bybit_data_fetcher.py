@@ -182,13 +182,19 @@ class BybitDataFetcher:
 
             data = response.json()
 
-            # bybit-connector wrapper shape: {"success": bool, "data": {"list": [...]}}
+            # bybit-connector wrapper shape: {"success": bool, "data": [...]}.
+            # The connector's own get_kline() already unwraps Bybit's nested
+            # {"result": {"list": [...]}} server-side (bybit_rest_client.py:581
+            # `return result.get("list", [])`), so "data" here is already the
+            # flat V5 row list — NOT {"list": [...]} again. Confirmed live via
+            # `curl .../api/v1/market/kline` during Task 2 (2026-08-05); a prior
+            # double-unwrap here silently returned [] on every call since 57b0d72.
             if not data.get("success"):
                 logger.error(f"bybit-connector kline error: {data}")
                 return []
 
-            # Extract klines (V5 row list preserved through the wrapper)
-            klines = data.get("data", {}).get("list", [])
+            # Extract klines (flat V5 row list; see comment above)
+            klines = data.get("data", [])
 
             return klines
 

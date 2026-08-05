@@ -5,13 +5,45 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 import pandas as pd
 import pytest
+import respx
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
 import bybit_data_fetcher as bdf  # noqa: E402
+
+
+@respx.mock
+def test_fetch_klines_unwraps_flat_connector_list():
+    """Regression: bybit-connector wraps as {"success": true, "data": [...]} —
+    already a flat V5 row list, since BybitRestClient.get_kline() unwraps
+    Bybit's {"result": {"list": [...]}} server-side before the connector
+    route re-wraps it. A prior double-unwrap
+    (`data.get("data", {}).get("list", [])`) silently returned [] on every
+    real HTTP call since 57b0d72 — only invisible because FakeFetcher above
+    overrides fetch_klines and never exercises this parsing path. This test
+    hits the real HTTP path via respx so it can't regress silently again.
+    """
+    rows = [["1700000000000", "100", "101", "99", "100.5", "10", "1000"]]
+    respx.get("http://localhost:8001/health").mock(
+        return_value=httpx.Response(200, json={"status": "healthy"})
+    )
+    respx.get("http://localhost:8001/api/v1/market/kline").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": rows})
+    )
+
+    async def _run():
+        f = bdf.BybitDataFetcher(base_url="http://localhost:8001")
+        try:
+            return await f.fetch_klines("BTCUSDT", "60", limit=5)
+        finally:
+            await f.close()
+
+    assert asyncio.run(_run()) == rows
+
 
 KLINES_COLUMNS = [
     "timestamp",
