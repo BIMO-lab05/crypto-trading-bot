@@ -189,9 +189,9 @@ repos:
   - repo: local
     hooks:
       - id: docker-compose-check
-        name: Validate docker-compose.yml
+        name: Validate docker-compose.unified.yml
         entry: docker-compose
-        args: ['config', '--quiet']
+        args: ['-f', 'docker-compose.unified.yml', 'config', '--quiet']
         language: system
         files: ^docker-compose.*\.yml$
         pass_filenames: false

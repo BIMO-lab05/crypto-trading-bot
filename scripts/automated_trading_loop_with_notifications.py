@@ -18,30 +18,34 @@ import logging
 import signal
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+# Host-run script: repo-root shared/ is importable (CLAUDE.md money rules).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/trading_loop.log'),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("logs/trading_loop.log"), logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
 
 class TradingMode(Enum):
     """Trading modes"""
+
     PAPER = "paper"  # Paper trading (simulation)
-    LIVE = "live"    # Live trading with real money
+    LIVE = "live"  # Live trading with real money
 
 
 class SignalStrength(Enum):
     """Signal strength levels"""
+
     STRONG_BUY = "strong_buy"
     BUY = "buy"
     HOLD = "hold"
@@ -52,6 +56,7 @@ class SignalStrength(Enum):
 @dataclass
 class TradingConfig:
     """Trading configuration"""
+
     # API endpoints
     api_gateway_url: str = "http://localhost:8000"
     notification_service_url: str = "http://localhost:8007"
@@ -69,7 +74,9 @@ class TradingConfig:
     max_total_exposure_pct: float = 20.0  # Max 20% total portfolio exposure
 
     # Signal requirements - ADJUSTED 2026-02-25: Lowered from 0.65 to 0.40 to enable trading
-    min_confidence: float = 0.40  # Minimum signal confidence to trade (40% - balanced for current market)
+    min_confidence: float = (
+        0.40  # Minimum signal confidence to trade (40% - balanced for current market)
+    )
     require_consensus: bool = True  # Require multiple indicators to agree
 
     # Trading mode
@@ -111,7 +118,9 @@ class TradingBot:
         logger.info(f"Trading Bot initialized in {config.mode.value} mode")
         logger.info(f"Monitoring symbols: {config.symbols}")
         logger.info(f"Check interval: {config.interval_minutes} minutes")
-        logger.info(f"Notifications: {'Enabled' if config.enable_notifications else 'Disabled'}")
+        logger.info(
+            f"Notifications: {'Enabled' if config.enable_notifications else 'Disabled'}"
+        )
 
     async def _send_notification(self, endpoint: str, data: Dict) -> bool:
         """
@@ -158,10 +167,13 @@ class TradingBot:
         except Exception as e:
             logger.error(f"Fatal error in trading loop: {e}", exc_info=True)
             # Send error notification
-            await self._send_notification("notify/error", {
-                "error_message": f"Fatal error in trading loop: {str(e)}",
-                "context": {"timestamp": datetime.now().isoformat()}
-            })
+            await self._send_notification(
+                "notify/error",
+                {
+                    "error_message": f"Fatal error in trading loop: {str(e)}",
+                    "context": {"timestamp": datetime.now().isoformat()},
+                },
+            )
         finally:
             await self.stop()
 
@@ -174,7 +186,7 @@ class TradingBot:
             "capital": 10000.0,  # TODO: Get from portfolio
             "max_position_pct": self.config.max_position_size_pct,
             "daily_loss_limit": self.config.daily_loss_limit_pct,
-            "stop_loss_pct": self.config.stop_loss_pct
+            "stop_loss_pct": self.config.stop_loss_pct,
         }
         await self._send_notification("notify/startup", config_summary)
 
@@ -208,7 +220,7 @@ class TradingBot:
             if self._check_daily_loss_limit(portfolio):
                 logger.warning("Daily loss limit reached - halting trading")
                 # Send critical notification
-                total_loss = float(portfolio.get('total_pnl', 0))
+                total_loss = float(portfolio.get("total_pnl", 0))
                 await self._send_notification("notify/daily-limit", total_loss)
                 self.running = False
                 return
@@ -220,7 +232,9 @@ class TradingBot:
 
             # Check max trades limit
             if self.trades_today >= self.config.max_trades_per_day:
-                logger.warning(f"Max trades per day ({self.config.max_trades_per_day}) reached")
+                logger.warning(
+                    f"Max trades per day ({self.config.max_trades_per_day}) reached"
+                )
                 return
 
             # Process each symbol
@@ -230,16 +244,21 @@ class TradingBot:
             # Log cycle completion
             cycle_duration = (datetime.now() - cycle_start).total_seconds()
             logger.info(f"Trading cycle completed in {cycle_duration:.2f} seconds")
-            logger.info(f"Trades today: {self.trades_today}/{self.config.max_trades_per_day}")
+            logger.info(
+                f"Trades today: {self.trades_today}/{self.config.max_trades_per_day}"
+            )
             logger.info(f"Daily P&L: ${self.daily_pnl:.2f}")
 
         except Exception as e:
             logger.error(f"Error in trading cycle: {e}", exc_info=True)
             # Send error notification
-            await self._send_notification("notify/error", {
-                "error_message": f"Error in trading cycle: {str(e)}",
-                "context": {"cycle_start": cycle_start.isoformat()}
-            })
+            await self._send_notification(
+                "notify/error",
+                {
+                    "error_message": f"Error in trading cycle: {str(e)}",
+                    "context": {"cycle_start": cycle_start.isoformat()},
+                },
+            )
 
     async def _process_symbol(self, symbol: str, portfolio: Dict):
         """Process trading signals for a symbol"""
@@ -252,7 +271,7 @@ class TradingBot:
                 logger.warning(f"Failed to get ticker for {symbol}")
                 return
 
-            current_price = float(ticker['last_price'])
+            current_price = float(ticker["last_price"])
             logger.info(f"{symbol} current price: ${current_price:,.2f}")
 
             # Get trading signal
@@ -266,7 +285,9 @@ class TradingBot:
 
             # Execute trade if appropriate
             if action in ["BUY", "SELL"]:
-                await self._execute_trade(symbol, action, current_price, signal, portfolio)
+                await self._execute_trade(
+                    symbol, action, current_price, signal, portfolio
+                )
             else:
                 logger.info(f"✋ {symbol}: No trade executed - {action}")
 
@@ -280,7 +301,7 @@ class TradingBot:
             response = await self.client.get(url)
             response.raise_for_status()
             data = response.json()
-            return data.get('portfolio')
+            return data.get("portfolio")
         except Exception as e:
             logger.error(f"Error fetching portfolio: {e}")
             return None
@@ -292,7 +313,7 @@ class TradingBot:
             response = await self.client.get(url)
             response.raise_for_status()
             data = response.json()
-            return data.get('ticker')
+            return data.get("ticker")
         except Exception as e:
             logger.error(f"Error fetching ticker for {symbol}: {e}")
             return None
@@ -305,7 +326,7 @@ class TradingBot:
             response = await self.client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
-            return data.get('signal')
+            return data.get("signal")
         except Exception as e:
             logger.error(f"Error fetching signal for {symbol}: {e}")
             return None
@@ -326,26 +347,34 @@ class TradingBot:
             return "HOLD"
 
         # Extract signal details
-        signal_action = signal.get('action', 'HOLD')
-        confidence = signal.get('confidence', 0)
-        aggregated_score = signal.get('aggregated_score', 0)
-        consensus_count = signal.get('consensus_count', 0)
-        indicators = signal.get('indicators', {})
-        metadata = signal.get('metadata', {})
+        signal_action = signal.get("action", "HOLD")
+        confidence = signal.get("confidence", 0)
+        aggregated_score = signal.get("aggregated_score", 0)
+        consensus_count = signal.get("consensus_count", 0)
+        indicators = signal.get("indicators", {})
+        metadata = signal.get("metadata", {})
 
         # Get thresholds from metadata or use config
-        min_confidence = metadata.get('min_confidence_required', self.config.min_confidence)
-        min_consensus = metadata.get('min_consensus_required', 3)
+        min_confidence = metadata.get(
+            "min_confidence_required", self.config.min_confidence
+        )
+        min_consensus = metadata.get("min_consensus_required", 3)
 
         # Print detailed signal diagnostics
         logger.info("=" * 80)
         logger.info(f"📊 SIGNAL DIAGNOSTICS FOR {symbol}")
         logger.info("=" * 80)
-        logger.info(f"Current Price: ${signal.get('metadata', {}).get('current_price', 'N/A')}")
+        logger.info(
+            f"Current Price: ${signal.get('metadata', {}).get('current_price', 'N/A')}"
+        )
         logger.info(f"Signal Action: {signal_action}")
         logger.info(f"Aggregated Score: {aggregated_score:.3f}")
-        logger.info(f"Confidence: {confidence:.1%} (min required: {min_confidence:.1%})")
-        logger.info(f"Consensus: {consensus_count} indicators (min required: {min_consensus})")
+        logger.info(
+            f"Confidence: {confidence:.1%} (min required: {min_confidence:.1%})"
+        )
+        logger.info(
+            f"Consensus: {consensus_count} indicators (min required: {min_consensus})"
+        )
         logger.info("-" * 80)
 
         # Show individual indicators
@@ -355,19 +384,19 @@ class TradingBot:
         hold_count = 0
 
         for name, data in indicators.items():
-            if name == 'ATR':  # Skip ATR as it's not a signal
+            if name == "ATR":  # Skip ATR as it's not a signal
                 continue
 
-            ind_signal = data.get('signal', 'HOLD')
-            ind_confidence = data.get('confidence', 0)
-            ind_value = data.get('value', 'N/A')
-            ind_metadata = data.get('metadata', {})
+            ind_signal = data.get("signal", "HOLD")
+            ind_confidence = data.get("confidence", 0)
+            ind_value = data.get("value", "N/A")
+            ind_metadata = data.get("metadata", {})
 
             # Count votes
-            if ind_signal == 'BUY':
+            if ind_signal == "BUY":
                 buy_count += 1
                 emoji = "🟢"
-            elif ind_signal == 'SELL':
+            elif ind_signal == "SELL":
                 sell_count += 1
                 emoji = "🔴"
             else:
@@ -376,21 +405,25 @@ class TradingBot:
 
             # Format metadata highlights
             highlights = []
-            if 'weight' in ind_metadata:
+            if "weight" in ind_metadata:
                 highlights.append(f"weight: {ind_metadata['weight']}x")
-            if 'role' in ind_metadata:
+            if "role" in ind_metadata:
                 highlights.append(f"role: {ind_metadata['role']}")
-            if 'trend' in ind_metadata:
+            if "trend" in ind_metadata:
                 highlights.append(f"trend: {ind_metadata['trend']}")
-            if 'confirmed' in ind_metadata:
+            if "confirmed" in ind_metadata:
                 highlights.append(f"confirmed: {ind_metadata['confirmed']}")
 
             meta_str = f" [{', '.join(highlights)}]" if highlights else ""
 
-            logger.info(f"  {emoji} {name:20s}: {ind_signal:4s} (conf: {ind_confidence:5.1%}) {meta_str}")
+            logger.info(
+                f"  {emoji} {name:20s}: {ind_signal:4s} (conf: {ind_confidence:5.1%}) {meta_str}"
+            )
 
         logger.info("-" * 80)
-        logger.info(f"📊 VOTE SUMMARY: 🟢 BUY: {buy_count} | 🔴 SELL: {sell_count} | ⚪ HOLD: {hold_count}")
+        logger.info(
+            f"📊 VOTE SUMMARY: 🟢 BUY: {buy_count} | 🔴 SELL: {sell_count} | ⚪ HOLD: {hold_count}"
+        )
         logger.info("-" * 80)
 
         # Check requirements with detailed feedback
@@ -413,10 +446,12 @@ class TradingBot:
             )
 
         # Check for trend blocks or volume issues
-        if metadata.get('trend_blocked'):
-            reasons_to_hold.append(f"Trend filter blocked: {metadata.get('trend_reason', 'N/A')}")
+        if metadata.get("trend_blocked"):
+            reasons_to_hold.append(
+                f"Trend filter blocked: {metadata.get('trend_reason', 'N/A')}"
+            )
 
-        volume_penalty = metadata.get('volume_penalty', 1.0)
+        volume_penalty = metadata.get("volume_penalty", 1.0)
         if volume_penalty < 1.0:
             reasons_to_hold.append(
                 f"Volume penalty applied: {volume_penalty:.0%} "
@@ -424,12 +459,18 @@ class TradingBot:
             )
 
         # Check if requirements met
-        meets_requirements = metadata.get('meets_requirements', False)
+        meets_requirements = metadata.get("meets_requirements", False)
 
         logger.info("✅ REQUIREMENT CHECKS:")
-        logger.info(f"  {'✓' if confidence_pass else '✗'} Confidence: {confidence:.1%} {'≥' if confidence_pass else '<'} {min_confidence:.1%}")
-        logger.info(f"  {'✓' if consensus_pass else '✗'} Consensus: {consensus_count} {'≥' if consensus_pass else '<'} {min_consensus}")
-        logger.info(f"  {'✓' if meets_requirements else '✗'} Overall: Requirements {'MET' if meets_requirements else 'NOT MET'}")
+        logger.info(
+            f"  {'✓' if confidence_pass else '✗'} Confidence: {confidence:.1%} {'≥' if confidence_pass else '<'} {min_confidence:.1%}"
+        )
+        logger.info(
+            f"  {'✓' if consensus_pass else '✗'} Consensus: {consensus_count} {'≥' if consensus_pass else '<'} {min_consensus}"
+        )
+        logger.info(
+            f"  {'✓' if meets_requirements else '✗'} Overall: Requirements {'MET' if meets_requirements else 'NOT MET'}"
+        )
 
         if reasons_to_hold:
             logger.info("-" * 80)
@@ -441,19 +482,22 @@ class TradingBot:
 
         # Make final decision
         if not meets_requirements or reasons_to_hold:
-            logger.info(f"🛑 DECISION: HOLD - Not trading {symbol} (requirements not met)")
+            logger.info(
+                f"🛑 DECISION: HOLD - Not trading {symbol} (requirements not met)"
+            )
             return "HOLD"
 
         # All checks passed
         logger.info(f"✅ DECISION: {signal_action} - All requirements met!")
         return signal_action
 
-    async def _execute_trade(self, symbol: str, action: str, price: float,
-                            signal: Dict, portfolio: Dict):
+    async def _execute_trade(
+        self, symbol: str, action: str, price: float, signal: Dict, portfolio: Dict
+    ):
         """Execute a trade"""
         try:
             # Calculate position size
-            cash_balance = float(portfolio.get('cash_balance', 0))
+            cash_balance = float(portfolio.get("cash_balance", 0))
             position_size = self._calculate_position_size(cash_balance, price)
 
             if position_size <= 0:
@@ -466,11 +510,7 @@ class TradingBot:
             else:  # SELL
                 url = f"{self.config.api_gateway_url}/api/portfolio/sell"
 
-            params = {
-                "symbol": symbol,
-                "quantity": position_size,
-                "price": price
-            }
+            params = {"symbol": symbol, "quantity": position_size, "price": price}
 
             # Execute trade
             logger.info(f"Executing {action} {position_size} {symbol} @ ${price:,.2f}")
@@ -486,14 +526,17 @@ class TradingBot:
             logger.info(f"Trade executed successfully: {result}")
 
             # Send trade notification
-            await self._send_notification("notify/trade", {
-                "action": action,
-                "symbol": symbol,
-                "quantity": position_size,
-                "price": price,
-                "timestamp": datetime.now().isoformat(),
-                "signal_confidence": signal.get('confidence', 0)
-            })
+            await self._send_notification(
+                "notify/trade",
+                {
+                    "action": action,
+                    "symbol": symbol,
+                    "quantity": position_size,
+                    "price": price,
+                    "timestamp": datetime.now().isoformat(),
+                    "signal_confidence": signal.get("confidence", 0),
+                },
+            )
 
             # Log trade details
             self._log_trade(symbol, action, position_size, price, signal, result)
@@ -501,12 +544,17 @@ class TradingBot:
         except Exception as e:
             logger.error(f"Error executing trade for {symbol}: {e}", exc_info=True)
             # Send error notification
-            await self._send_notification("notify/error", {
-                "error_message": f"Trade execution failed for {symbol}: {str(e)}",
-                "context": {"symbol": symbol, "action": action, "price": price}
-            })
+            await self._send_notification(
+                "notify/error",
+                {
+                    "error_message": f"Trade execution failed for {symbol}: {str(e)}",
+                    "context": {"symbol": symbol, "action": action, "price": price},
+                },
+            )
             # Enter cooldown after failed trade
-            self.cooldown_until = datetime.now() + timedelta(minutes=self.config.cooldown_after_loss_minutes)
+            self.cooldown_until = datetime.now() + timedelta(
+                minutes=self.config.cooldown_after_loss_minutes
+            )
 
     def _calculate_position_size(self, cash_balance: float, price: float) -> float:
         """Calculate position size based on risk management rules"""
@@ -523,8 +571,15 @@ class TradingBot:
 
     def _check_daily_loss_limit(self, portfolio: Dict) -> bool:
         """Check if daily loss limit has been reached"""
-        total_pnl = float(portfolio.get('total_pnl', 0))
-        initial_balance = 10000.0  # TODO: Get from config or portfolio
+        total_pnl = float(portfolio.get("total_pnl", 0))
+        # FIX 2026-08-05 (AUDIT 2.5): was a hardcoded 10000.0, which made this
+        # breaker 100x too lenient on the real $100 account. Prefer the live
+        # portfolio figure; otherwise the declaration of record
+        # (shared/account.py).
+        if "initial_balance" in portfolio:
+            initial_balance = float(portfolio["initial_balance"])
+        else:
+            initial_balance = PAPER_INITIAL_BALANCE
 
         loss_pct = abs(total_pnl / initial_balance * 100)
 
@@ -541,8 +596,15 @@ class TradingBot:
         self.cooldown_until = None
         return False
 
-    def _log_trade(self, symbol: str, action: str, quantity: float, price: float,
-                   signal: Dict, result: Dict):
+    def _log_trade(
+        self,
+        symbol: str,
+        action: str,
+        quantity: float,
+        price: float,
+        signal: Dict,
+        result: Dict,
+    ):
         """Log trade details"""
         trade_log = {
             "timestamp": datetime.now().isoformat(),
@@ -551,14 +613,14 @@ class TradingBot:
             "quantity": quantity,
             "price": price,
             "total_value": quantity * price,
-            "signal_confidence": signal.get('confidence'),
-            "signal_consensus": signal.get('consensus_strength'),
-            "result": result
+            "signal_confidence": signal.get("confidence"),
+            "signal_consensus": signal.get("consensus_strength"),
+            "result": result,
         }
 
         # Write to trade log file
-        with open('logs/trades.jsonl', 'a') as f:
-            f.write(json.dumps(trade_log) + '\n')
+        with open("logs/trades.jsonl", "a") as f:
+            f.write(json.dumps(trade_log) + "\n")
 
     def _print_summary(self):
         """Print trading session summary"""
@@ -585,7 +647,7 @@ async def main():
         min_confidence=0.40,  # Lowered from 0.65 to enable trading in current market
         mode=TradingMode.PAPER,
         max_trades_per_day=20,
-        enable_notifications=True  # Enable notifications
+        enable_notifications=True,  # Enable notifications
     )
 
     # Create and start bot
@@ -596,7 +658,8 @@ async def main():
 if __name__ == "__main__":
     # Create logs directory
     import os
-    os.makedirs('logs', exist_ok=True)
+
+    os.makedirs("logs", exist_ok=True)
 
     # Run the bot
     try:

@@ -20,19 +20,24 @@ import asyncio
 import sys
 import argparse
 import signal
-from typing import Dict, List, Optional, Set
+from pathlib import Path
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
 import httpx
 import json
 
+# Host-run script: repo-root shared/ is importable (CLAUDE.md money rules).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
+
 # ANSI color codes
-GREEN = '\033[0;32m'
-RED = '\033[0;31m'
-YELLOW = '\033[1;33m'
-BLUE = '\033[0;34m'
-CYAN = '\033[0;36m'
-NC = '\033[0m'
+GREEN = "\033[0;32m"
+RED = "\033[0;31m"
+YELLOW = "\033[1;33m"
+BLUE = "\033[0;34m"
+CYAN = "\033[0;36m"
+NC = "\033[0m"
 
 # Service configuration
 SERVICES = {
@@ -45,17 +50,17 @@ SERVICES = {
     "notification-service": {"port": 8006, "critical": False},
     "ml-prediction": {"port": 8007, "critical": False},
     "sentiment-analysis": {"port": 8008, "critical": False},
-    "risk-metrics": {"port": 8009, "critical": True}
+    "risk-metrics": {"port": 8009, "critical": True},
 }
 
 # Alert thresholds
 THRESHOLDS = {
-    "service_failures": 3,      # Alert after N consecutive failures
-    "critical_failures": 1,     # Alert immediately for critical services
-    "response_time_ms": 1000,   # Alert if response > 1s
-    "daily_loss_pct": 4.0,      # Alert at 4% daily loss (before 5% limit)
-    "position_count": 5,        # Alert if positions exceed limit
-    "error_rate": 0.1           # Alert if >10% requests fail
+    "service_failures": 3,  # Alert after N consecutive failures
+    "critical_failures": 1,  # Alert immediately for critical services
+    "response_time_ms": 1000,  # Alert if response > 1s
+    "daily_loss_pct": 10.0,  # Alert at 10% daily loss (before 12% breaker, ADR-028)
+    "position_count": 5,  # Alert if positions exceed limit
+    "error_rate": 0.1,  # Alert if >10% requests fail
 }
 
 
@@ -81,7 +86,7 @@ class SystemMonitor:
             "SUCCESS": GREEN,
             "WARNING": YELLOW,
             "ERROR": RED,
-            "ALERT": f"{RED}\033[1m"  # Bold red
+            "ALERT": f"{RED}\033[1m",  # Bold red
         }.get(level, NC)
 
         print(f"{color}[{timestamp}] {level}: {message}{NC}")
@@ -120,7 +125,7 @@ class SystemMonitor:
             "healthy": False,
             "response_time_ms": None,
             "status_code": None,
-            "error": None
+            "error": None,
         }
 
         try:
@@ -141,7 +146,7 @@ class SystemMonitor:
                 self.send_alert(
                     f"slow_response_{name}",
                     f"{name} is slow: {response_time_ms:.0f}ms response time",
-                    "WARNING"
+                    "WARNING",
                 )
 
             # Reset failure count on success
@@ -163,13 +168,13 @@ class SystemMonitor:
                 self.send_alert(
                     f"critical_failure_{name}",
                     f"CRITICAL: {name} is down! ({failure_count} consecutive failures)",
-                    "CRITICAL"
+                    "CRITICAL",
                 )
             elif failure_count >= THRESHOLDS["service_failures"]:
                 self.send_alert(
                     f"service_failure_{name}",
                     f"{name} is down ({failure_count} consecutive failures)",
-                    "WARNING"
+                    "WARNING",
                 )
 
         return result
@@ -177,8 +182,7 @@ class SystemMonitor:
     async def check_all_services(self) -> List[Dict]:
         """Check health of all services"""
         tasks = [
-            self.check_service_health(name, config)
-            for name, config in SERVICES.items()
+            self.check_service_health(name, config) for name, config in SERVICES.items()
         ]
 
         results = await asyncio.gather(*tasks)
@@ -189,28 +193,50 @@ class SystemMonitor:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # Get portfolio balance
-                balance_response = await client.get("http://localhost:8003/api/v1/balance")
+                balance_response = await client.get(
+                    "http://localhost:8003/api/v1/balance"
+                )
 
                 if balance_response.status_code == 200:
                     balance_data = balance_response.json()
 
                     current_balance = balance_data.get("total_balance", 0)
-                    initial_balance = balance_data.get("initial_balance", 10000)
+                    # FIX 2026-08-05 (AUDIT 2.5): the old fallback here was
+                    # 10000 — 100x the real account, which made the daily-loss
+                    # alert below unreachable. If the API omits the field, use
+                    # the declaration of record (shared/account.py) and say so.
+                    if "initial_balance" in balance_data:
+                        initial_balance = float(balance_data["initial_balance"])
+                    else:
+                        initial_balance = PAPER_INITIAL_BALANCE
+                        self.send_alert(
+                            "missing_initial_balance",
+                            "portfolio /balance response has no "
+                            f"'initial_balance'; using shared.account "
+                            f"PAPER_INITIAL_BALANCE=${PAPER_INITIAL_BALANCE:.2f}",
+                            "WARNING",
+                        )
 
                     # Calculate daily P&L
                     daily_pnl = current_balance - initial_balance
-                    daily_pnl_pct = (daily_pnl / initial_balance * 100) if initial_balance > 0 else 0
+                    daily_pnl_pct = (
+                        (daily_pnl / initial_balance * 100)
+                        if initial_balance > 0
+                        else 0
+                    )
 
                     # Alert if approaching daily loss limit
                     if daily_pnl_pct < -THRESHOLDS["daily_loss_pct"]:
                         self.send_alert(
                             "daily_loss_warning",
                             f"Daily loss at {daily_pnl_pct:.2f}% (${daily_pnl:.2f}) - approaching 5% limit!",
-                            "WARNING"
+                            "WARNING",
                         )
 
                     # Get open positions
-                    positions_response = await client.get("http://localhost:8005/api/v1/positions?status=open")
+                    positions_response = await client.get(
+                        "http://localhost:8005/api/v1/positions?status=open"
+                    )
 
                     if positions_response.status_code == 200:
                         positions_data = positions_response.json()
@@ -222,7 +248,7 @@ class SystemMonitor:
                             self.send_alert(
                                 "position_limit",
                                 f"Position count at {position_count}/{THRESHOLDS['position_count']} limit",
-                                "WARNING"
+                                "WARNING",
                             )
 
                         # Calculate total unrealized P&L
@@ -233,7 +259,7 @@ class SystemMonitor:
                             "daily_pnl": daily_pnl,
                             "daily_pnl_pct": daily_pnl_pct,
                             "open_positions": position_count,
-                            "unrealized_pnl": total_unrealized_pnl
+                            "unrealized_pnl": total_unrealized_pnl,
                         }
 
         except Exception as e:
@@ -261,20 +287,22 @@ class SystemMonitor:
 
                         # Parse timestamp
                         try:
-                            latest_dt = datetime.fromisoformat(latest_timestamp.replace('Z', '+00:00'))
+                            latest_dt = datetime.fromisoformat(
+                                latest_timestamp.replace("Z", "+00:00")
+                            )
                             data_age = datetime.now() - latest_dt.replace(tzinfo=None)
 
                             if data_age > timedelta(hours=2):
                                 self.send_alert(
                                     "stale_data",
-                                    f"Market data is stale: Last update {data_age.total_seconds()/3600:.1f} hours ago",
-                                    "WARNING"
+                                    f"Market data is stale: Last update {data_age.total_seconds() / 3600:.1f} hours ago",
+                                    "WARNING",
                                 )
 
                             return {
                                 "candle_count": len(candles),
                                 "latest_timestamp": latest_timestamp,
-                                "data_age_minutes": data_age.total_seconds() / 60
+                                "data_age_minutes": data_age.total_seconds() / 60,
                             }
                         except:
                             pass
@@ -284,13 +312,17 @@ class SystemMonitor:
 
         return None
 
-    def print_status_summary(self, services: List[Dict], trading: Optional[Dict], data: Optional[Dict]):
+    def print_status_summary(
+        self, services: List[Dict], trading: Optional[Dict], data: Optional[Dict]
+    ):
         """Print current system status"""
         # Clear screen (optional)
         # print("\033[H\033[J", end="")
 
         print("\n" + "=" * 70)
-        print(f"{CYAN}System Monitor - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{NC}")
+        print(
+            f"{CYAN}System Monitor - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{NC}"
+        )
         print(f"Uptime: {datetime.now() - self.start_time}")
         print("=" * 70)
 
@@ -308,7 +340,9 @@ class SystemMonitor:
             status_color = RED
             status_text = "CRITICAL"
 
-        print(f"\n{status_color}Services: {healthy_count}/{total_count} healthy - {status_text}{NC}")
+        print(
+            f"\n{status_color}Services: {healthy_count}/{total_count} healthy - {status_text}{NC}"
+        )
 
         # Show unhealthy services
         unhealthy = [s for s in services if not s["healthy"]]
@@ -324,7 +358,9 @@ class SystemMonitor:
             print(f"\n{CYAN}Trading Metrics:{NC}")
             pnl_color = GREEN if trading["daily_pnl"] >= 0 else RED
             print(f"  Balance: ${trading['current_balance']:.2f}")
-            print(f"  Daily P&L: {pnl_color}${trading['daily_pnl']:.2f} ({trading['daily_pnl_pct']:.2f}%){NC}")
+            print(
+                f"  Daily P&L: {pnl_color}${trading['daily_pnl']:.2f} ({trading['daily_pnl_pct']:.2f}%){NC}"
+            )
             print(f"  Open Positions: {trading['open_positions']}")
             print(f"  Unrealized P&L: ${trading['unrealized_pnl']:.2f}")
 
@@ -346,12 +382,12 @@ class SystemMonitor:
                 s["name"]: {
                     "healthy": s["healthy"],
                     "response_time_ms": s["response_time_ms"],
-                    "status_code": s["status_code"]
+                    "status_code": s["status_code"],
                 }
                 for s in services
             },
             "trading": trading,
-            "alerts_sent": len(self.last_alerts)
+            "alerts_sent": len(self.last_alerts),
         }
 
         # Store in history (keep last 100 data points)
@@ -369,7 +405,9 @@ class SystemMonitor:
     async def monitor_loop(self):
         """Main monitoring loop"""
         self.log(f"Starting system monitor (interval: {self.interval}s)", "INFO")
-        self.log(f"Alert threshold: {self.alert_threshold} consecutive failures", "INFO")
+        self.log(
+            f"Alert threshold: {self.alert_threshold} consecutive failures", "INFO"
+        )
 
         cycle_count = 0
 
@@ -427,13 +465,13 @@ async def main():
         "--interval",
         type=int,
         default=60,
-        help="Monitoring interval in seconds (default: 60)"
+        help="Monitoring interval in seconds (default: 60)",
     )
     parser.add_argument(
         "--alert-threshold",
         type=int,
         default=3,
-        help="Alert after N consecutive failures (default: 3)"
+        help="Alert after N consecutive failures (default: 3)",
     )
     args = parser.parse_args()
 
@@ -442,7 +480,9 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     # Create and run monitor
-    monitor = SystemMonitor(interval=args.interval, alert_threshold=args.alert_threshold)
+    monitor = SystemMonitor(
+        interval=args.interval, alert_threshold=args.alert_threshold
+    )
 
     try:
         await monitor.monitor_loop()

@@ -26,7 +26,8 @@ groups:
 
       # Alert 2: Daily Loss Exceeded
       - alert: DailyLossExceeded
-        expr: daily_loss_percentage > 5
+        # ADR-028: daily-loss breaker is 12% (was 5%)
+        expr: daily_loss_percentage > 12
         for: 1m
         labels:
           severity: critical
