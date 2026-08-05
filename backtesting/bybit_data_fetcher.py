@@ -77,6 +77,31 @@ async def assert_connector_reachable(target_url: Optional[str] = None) -> None:
         sys.exit(2)
 
 
+async def assert_connector_live(
+    fetcher: "BybitDataFetcher", symbol: str = "BTCUSDT", interval: str = "60"
+) -> None:
+    """Refuse to backfill from a connector serving frozen tape fixtures.
+
+    A connector in MARKET_DATA_SOURCE=tape mode answers /health and serves
+    klines, but the newest candle is weeks old. Fresh mainnet data must have
+    a candle newer than 3 intervals ago.
+    """
+    rows = await fetcher.fetch_klines(symbol=symbol, interval=interval, limit=5)
+    if not rows:
+        raise RuntimeError("connector returned no candles; cannot verify liveness")
+    newest_ms = max(int(r[0]) for r in rows)
+    interval_ms = (
+        fetcher.convert_interval_to_minutes(interval) * 60 * 1000
+    )  # instance method (bybit_data_fetcher.py:193)
+    age = int(time.time() * 1000) - newest_ms
+    if age > 3 * interval_ms:
+        raise RuntimeError(
+            f"connector data is stale: newest {symbol}/{interval} candle is "
+            f"{age / 3600000:.1f}h old — is bybit-connector in tape mode? "
+            f"(MARKET_DATA_SOURCE must be 'live', see docker-compose.unified.yml:453)"
+        )
+
+
 class BybitDataFetcher:
     """
     Fetches historical market data via the bybit-connector service.
@@ -116,7 +141,7 @@ class BybitDataFetcher:
         interval: str,
         start_time: Optional[int] = None,
         end_time: Optional[int] = None,
-        limit: int = 200,
+        limit: int = 1000,
     ) -> list:
         """
         Get kline/candlestick data via bybit-connector.
@@ -126,7 +151,7 @@ class BybitDataFetcher:
             interval: Kline interval (1, 3, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M)
             start_time: Start timestamp in milliseconds (optional)
             end_time: End timestamp in milliseconds (optional)
-            limit: Number of candles to fetch (max 200)
+            limit: Number of candles to fetch (max 1000, Bybit v5 hard cap)
 
         Returns:
             List of kline rows (Bybit V5 shape preserved by the connector wrapper).
@@ -180,7 +205,7 @@ class BybitDataFetcher:
         interval: str,
         start_time: int,
         end_time: int,
-        limit: int = 200,
+        limit: int = 1000,
     ) -> list:
         return await self.fetch_klines(
             symbol=symbol,
@@ -215,6 +240,7 @@ class BybitDataFetcher:
         interval: str = "60",  # 1 hour
         days: int = 90,
         output_file: Optional[str] = None,
+        schema: str = "legacy",
     ) -> pd.DataFrame:
         """
         Download historical OHLCV data from Bybit
@@ -224,6 +250,9 @@ class BybitDataFetcher:
             interval: Candle interval in minutes (1, 5, 15, 30, 60, 240, D)
             days: Number of days of historical data
             output_file: Optional CSV file to save data
+            schema: 'legacy' (timestamp, open, high, low, close, volume) or
+                'klines' (11-col: adds symbol, interval, turnover, is_mainnet,
+                created_at) for CSV output
 
         Returns:
             DataFrame with columns: timestamp, open, high, low, close, volume
@@ -243,7 +272,9 @@ class BybitDataFetcher:
 
         all_klines = []
         current_end = end_time
-        max_candles_per_request = 200  # Bybit limit
+        max_candles_per_request = (
+            1000  # Bybit v5 hard cap (connector clamps via min(limit, 1000))
+        )
 
         # Calculate total candles needed
         total_candles_needed = int((days * 24 * 60) / interval_minutes)
@@ -327,6 +358,7 @@ class BybitDataFetcher:
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
         # Keep only required columns
+        turnover_series = df["turnover"].copy()
         df = df[["timestamp", "open", "high", "low", "close", "volume"]]
 
         logger.info(f"Total candles downloaded: {len(df)}")
@@ -339,8 +371,32 @@ class BybitDataFetcher:
 
         # Save to CSV if requested
         if output_file:
-            df.to_csv(output_file, index=False)
-            logger.info(f"Data saved to: {output_file}")
+            if schema == "klines":
+                out = df.copy()
+                out["symbol"] = symbol
+                out["interval"] = interval
+                out["turnover"] = turnover_series.values  # kept from pre-trim df
+                out["is_mainnet"] = True
+                out["created_at"] = int(time.time() * 1000)
+                out = out[
+                    [
+                        "timestamp",
+                        "symbol",
+                        "interval",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "turnover",
+                        "is_mainnet",
+                        "created_at",
+                    ]
+                ]
+                out.to_csv(output_file, index=False)
+            else:
+                df.to_csv(output_file, index=False)
+            logger.info(f"Data saved to: {output_file} (schema={schema})")
 
         return df
 
@@ -350,6 +406,7 @@ class BybitDataFetcher:
         interval: str = "60",
         days: int = 90,
         output_dir: str = "backtesting/data",
+        schema: str = "legacy",
     ):
         """
         Download data for multiple symbols
@@ -359,6 +416,7 @@ class BybitDataFetcher:
             interval: Candle interval
             days: Days of historical data
             output_dir: Directory to save CSV files
+            schema: 'legacy' or 'klines' — forwarded to download_historical_data
         """
         import os
 
@@ -372,7 +430,11 @@ class BybitDataFetcher:
             output_file = f"{output_dir}/{symbol}_{interval}m_{days}d_bybit.csv"
 
             df = await self.download_historical_data(
-                symbol=symbol, interval=interval, days=days, output_file=output_file
+                symbol=symbol,
+                interval=interval,
+                days=days,
+                output_file=output_file,
+                schema=schema,
             )
 
             logger.info(f"✓ {symbol} complete: {len(df)} candles\n")
@@ -412,16 +474,34 @@ async def main():
         ),
     )
     parser.add_argument("--multiple", nargs="+", help="Download multiple symbols")
+    parser.add_argument(
+        "--schema",
+        choices=["legacy", "klines"],
+        default="legacy",
+        help="CSV schema: 'legacy' (6-col) or 'klines' (11-col, default: legacy)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=str,
+        default="backtesting/data",
+        help="Output directory for --multiple downloads (default: backtesting/data)",
+    )
 
     args = parser.parse_args()
 
     fetcher = BybitDataFetcher(base_url=args.connector_url)
 
     try:
+        await assert_connector_live(fetcher)
+
         if args.multiple:
             # Download multiple symbols
             await fetcher.download_multiple_symbols(
-                symbols=args.multiple, interval=args.interval, days=args.days
+                symbols=args.multiple,
+                interval=args.interval,
+                days=args.days,
+                output_dir=args.out_dir,
+                schema=args.schema,
             )
         else:
             # Download single symbol
@@ -435,6 +515,7 @@ async def main():
                 interval=args.interval,
                 days=args.days,
                 output_file=output_file,
+                schema=args.schema,
             )
 
             if not df.empty:
