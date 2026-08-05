@@ -134,6 +134,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # Added 2026-08-04 (AUDIT.md §4.4): redis was the only infra healthcheck
+      # without a start_period, so slow AOF loads burned retries during boot.
+      start_period: 10s
     restart: unless-stopped
     deploy:
       resources:
@@ -207,6 +210,15 @@ services:
       - crypto-bot-network
     depends_on:
       - redis
+    # Healthcheck restored 2026-08-04 (AUDIT.md §4.4): the canonical file had
+    # regressed to no healthcheck at all; definition copied from the legacy
+    # compose file (now docker-compose.legacy.yml.DISABLED).
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     profiles:
       - monitoring
@@ -238,8 +250,18 @@ services:
       - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - crypto-bot-network
+    # service_healthy (was bare service_started) + healthcheck restored
+    # 2026-08-04 (AUDIT.md §4.4); definitions copied from the legacy compose
+    # file (now docker-compose.legacy.yml.DISABLED).
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
     profiles:
       - monitoring
@@ -531,6 +553,12 @@ services:
       # defaults from app/config.py and chronically fails its 60s sync poll.
       - TRADING_ENGINE_URL=http://trading-engine:8005
       - MARKET_DATA_URL=http://market-data:8002
+      # AUDIT.md §2.2 mechanism 2 (2026-08-04): this block previously carried
+      # zero capital keys, so operator edits aimed at this service could never
+      # land and the service ran on its config.py default alone. Same value and
+      # style as trading-engine's PAPER_INITIAL_BALANCE above; app/config.py
+      # now REQUIRES this env var and refuses to boot without it.
+      - INITIAL_CAPITAL=100.0
     volumes:
       - ./services/portfolio-manager/logs:/app/logs
     networks:
@@ -670,12 +698,16 @@ services:
       # AUTO_TRADING_ENABLED=false in .env or `touch EMERGENCY_STOP` (file
       # present = halt). PAPER_TRADING_MODE=true ensures orders simulated.
       - AUTO_TRADING_ENABLED=${AUTO_TRADING_ENABLED:-true}
-      # Leverage configuration (2026-05-09): 10x default, paper-trading only.
-      # Effective notional per trade = MAX_RISK_PER_TRADE × balance × DEFAULT_LEVERAGE.
-      # At 10% × $100 × 10x = $100 notional — clears Bybit min-notional comfortably.
-      # WARNING: must drop DEFAULT_LEVERAGE back to 1.0 before flipping to LIVE.
+      # Leverage configuration — owner decision 2026-08-04 (AUDIT.md §6.4/H1):
+      # DEFAULT_LEVERAGE dropped 10.0 → 1.0. The old 10x default multiplied the
+      # 10% per-trade cap back up to ~100% of balance per trade (notional =
+      # balance × position_size_pct × leverage). The sizing cap must bind
+      # regardless of leverage: leverage may never scale a position past
+      # MAX_POSITION_SIZE_PCT of equity. Do not raise this default again to
+      # "clear min-notional" — trades below the venue floor must be rejected
+      # with a reason, never levered or clamped up.
       - LEVERAGE_ENABLED=${LEVERAGE_ENABLED:-true}
-      - DEFAULT_LEVERAGE=${DEFAULT_LEVERAGE:-10.0}
+      - DEFAULT_LEVERAGE=${DEFAULT_LEVERAGE:-1.0}
       - MAX_LEVERAGE=${MAX_LEVERAGE:-20.0}
       - MIN_LEVERAGE=${MIN_LEVERAGE:-1.0}
     volumes:
@@ -958,11 +990,15 @@ services:
       - ./services/risk-metrics-service/logs:/app/logs
     networks:
       - crypto-bot-network
+    # Relaxed service_healthy → service_started 2026-08-04 (AUDIT.md §4.4
+    # audit decision): risk-metrics needs its upstreams REACHABLE, not healthy,
+    # and sitting at the end of a 5-deep service_healthy chain added minutes to
+    # every cold boot. Its own /health degrades gracefully while they warm up.
     depends_on:
       trading-engine:
-        condition: service_healthy
+        condition: service_started
       portfolio-manager:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
       interval: 30s
