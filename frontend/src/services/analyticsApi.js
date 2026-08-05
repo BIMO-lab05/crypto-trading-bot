@@ -16,6 +16,7 @@
  */
 
 import axios from 'axios'
+import { PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 // ============================================================================
 // API CLIENT CONFIGURATION
@@ -200,7 +201,7 @@ export const analyticsAPI = {
  * @param {number} initialBalance - Starting balance
  * @returns {Array} Equity curve data points
  */
-export function calculateEquityCurve(trades, initialBalance = 100) {
+export function calculateEquityCurve(trades, initialBalance = PAPER_DEFAULT_BALANCE) {
   // Guard against non-array payloads (e.g. an error object) before spreading/sorting
   if (!Array.isArray(trades) || trades.length === 0) {
     return [{ timestamp: Date.now(), equity: initialBalance, pnl: 0 }]
@@ -355,7 +356,7 @@ export function calculateReturnsDistribution(trades, bins = 20) {
  * @param {number} initialBalance - Starting balance used as the equity-curve baseline (paper default $100)
  * @returns {Object} Performance metrics
  */
-export function calculatePerformanceMetrics(trades, initialBalance = 100) {
+export function calculatePerformanceMetrics(trades, initialBalance = PAPER_DEFAULT_BALANCE) {
   if (!trades || trades.length === 0) {
     return null
   }

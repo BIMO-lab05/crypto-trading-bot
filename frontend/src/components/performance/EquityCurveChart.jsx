@@ -33,6 +33,7 @@ import {
 } from 'recharts'
 import { format, parseISO, isValid } from 'date-fns'
 import ChartFigure from '../a11y/ChartFigure'
+import { PAPER_DEFAULT_BALANCE } from '../../utils/balance'
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -208,7 +209,10 @@ function EquityCurveChart({
   period = '30d',
   onPeriodChange,
   height = 300,
-  initialEquity = 10000,
+  // Baseline for the "Initial" reference line. Callers should pass the
+  // server-sent initial balance; the default matches the $100 paper account
+  // (trading-engine PAPER_INITIAL_BALANCE), never a fabricated figure.
+  initialEquity = PAPER_DEFAULT_BALANCE,
   showBenchmark = false,
   className = '',
 }) {
@@ -371,9 +375,15 @@ function EquityCurveChart({
               />
 
               {/* Y-Axis */}
+              {/* $100-account scale: "$0.1k" ticks are unreadable — only
+                  abbreviate to $Xk when values actually reach thousands. */}
               <YAxis
                 domain={yDomain}
-                tickFormatter={(val) => `$${(val / 1000).toFixed(1)}k`}
+                tickFormatter={(val) =>
+                  Math.abs(val) >= 1000
+                    ? `$${(val / 1000).toFixed(1)}k`
+                    : `$${Number(val).toFixed(0)}`
+                }
                 stroke="#64748b"
                 tick={{ fill: '#94a3b8', fontSize: 11 }}
                 axisLine={{ stroke: '#475569' }}

@@ -66,15 +66,17 @@ function TestWrapper({ children }) {
 }
 
 /**
- * Generate mock trade data for testing
+ * Generate mock trade data for testing.
+ * Scaled to the real $100 paper account (PAPER_INITIAL_BALANCE) — the old
+ * $10,000 fixtures modeled an account size that never existed here.
  */
 function generateMockTrades(count = 20) {
   const trades = []
-  let balance = 10000
+  let balance = 100
 
   for (let i = 0; i < count; i++) {
-    // Random P&L between -500 and +800 (slightly positive bias)
-    const pnl = Math.random() * 1300 - 500
+    // Random P&L between -$5 and +$8 (slightly positive bias)
+    const pnl = Math.random() * 13 - 5
     balance += pnl
 
     trades.push({
@@ -98,26 +100,26 @@ function generateMockTrades(count = 20) {
  * Mock equity curve data
  */
 const mockEquityCurve = [
-  { timestamp: Date.now() - 6 * 86400000, equity: 10000, pnl: 0, cumulativePnl: 0 },
-  { timestamp: Date.now() - 5 * 86400000, equity: 10200, pnl: 200, cumulativePnl: 200 },
-  { timestamp: Date.now() - 4 * 86400000, equity: 10150, pnl: -50, cumulativePnl: 150 },
-  { timestamp: Date.now() - 3 * 86400000, equity: 10400, pnl: 250, cumulativePnl: 400 },
-  { timestamp: Date.now() - 2 * 86400000, equity: 10350, pnl: -50, cumulativePnl: 350 },
-  { timestamp: Date.now() - 1 * 86400000, equity: 10500, pnl: 150, cumulativePnl: 500 },
-  { timestamp: Date.now(), equity: 10650, pnl: 150, cumulativePnl: 650 },
+  { timestamp: Date.now() - 6 * 86400000, equity: 100, pnl: 0, cumulativePnl: 0 },
+  { timestamp: Date.now() - 5 * 86400000, equity: 102, pnl: 2, cumulativePnl: 2 },
+  { timestamp: Date.now() - 4 * 86400000, equity: 101.5, pnl: -0.5, cumulativePnl: 1.5 },
+  { timestamp: Date.now() - 3 * 86400000, equity: 104, pnl: 2.5, cumulativePnl: 4 },
+  { timestamp: Date.now() - 2 * 86400000, equity: 103.5, pnl: -0.5, cumulativePnl: 3.5 },
+  { timestamp: Date.now() - 1 * 86400000, equity: 105, pnl: 1.5, cumulativePnl: 5 },
+  { timestamp: Date.now(), equity: 106.5, pnl: 1.5, cumulativePnl: 6.5 },
 ]
 
 /**
  * Mock drawdown data
  */
 const mockDrawdownData = [
-  { timestamp: Date.now() - 6 * 86400000, drawdownPercent: 0, equity: 10000, peak: 10000 },
-  { timestamp: Date.now() - 5 * 86400000, drawdownPercent: 0, equity: 10200, peak: 10200 },
-  { timestamp: Date.now() - 4 * 86400000, drawdownPercent: 0.49, equity: 10150, peak: 10200 },
-  { timestamp: Date.now() - 3 * 86400000, drawdownPercent: 0, equity: 10400, peak: 10400 },
-  { timestamp: Date.now() - 2 * 86400000, drawdownPercent: 0.48, equity: 10350, peak: 10400 },
-  { timestamp: Date.now() - 1 * 86400000, drawdownPercent: 0, equity: 10500, peak: 10500 },
-  { timestamp: Date.now(), drawdownPercent: 0, equity: 10650, peak: 10650 },
+  { timestamp: Date.now() - 6 * 86400000, drawdownPercent: 0, equity: 100, peak: 100 },
+  { timestamp: Date.now() - 5 * 86400000, drawdownPercent: 0, equity: 102, peak: 102 },
+  { timestamp: Date.now() - 4 * 86400000, drawdownPercent: 0.49, equity: 101.5, peak: 102 },
+  { timestamp: Date.now() - 3 * 86400000, drawdownPercent: 0, equity: 104, peak: 104 },
+  { timestamp: Date.now() - 2 * 86400000, drawdownPercent: 0.48, equity: 103.5, peak: 104 },
+  { timestamp: Date.now() - 1 * 86400000, drawdownPercent: 0, equity: 105, peak: 105 },
+  { timestamp: Date.now(), drawdownPercent: 0, equity: 106.5, peak: 106.5 },
 ]
 
 /**
@@ -125,23 +127,23 @@ const mockDrawdownData = [
  */
 const mockReturnsDistribution = {
   bins: [
-    { binStart: -500, binEnd: -300, binMid: -400, count: 2, frequency: 0.1 },
-    { binStart: -300, binEnd: -100, binMid: -200, count: 3, frequency: 0.15 },
-    { binStart: -100, binEnd: 100, binMid: 0, count: 5, frequency: 0.25 },
-    { binStart: 100, binEnd: 300, binMid: 200, count: 6, frequency: 0.3 },
-    { binStart: 300, binEnd: 500, binMid: 400, count: 4, frequency: 0.2 },
+    { binStart: -5, binEnd: -3, binMid: -4, count: 2, frequency: 0.1 },
+    { binStart: -3, binEnd: -1, binMid: -2, count: 3, frequency: 0.15 },
+    { binStart: -1, binEnd: 1, binMid: 0, count: 5, frequency: 0.25 },
+    { binStart: 1, binEnd: 3, binMid: 2, count: 6, frequency: 0.3 },
+    { binStart: 3, binEnd: 5, binMid: 4, count: 4, frequency: 0.2 },
   ],
   stats: {
     count: 20,
-    mean: 50,
-    median: 75,
-    stdDev: 250,
-    variance: 62500,
-    min: -450,
-    max: 480,
+    mean: 0.5,
+    median: 0.75,
+    stdDev: 2.5,
+    variance: 6.25,
+    min: -4.5,
+    max: 4.8,
     skewness: -0.15,
     kurtosis: -0.5,
-    range: 930,
+    range: 9.3,
   },
 }
 
@@ -256,8 +258,10 @@ describe('EquityCurveChart Component', () => {
   it('displays current equity value', () => {
     render(<EquityCurveChart data={mockEquityCurve} loading={false} />)
 
-    // Should show the last equity value formatted as currency
-    expect(screen.getByText('$10,650.00')).toBeInTheDocument()
+    // Should show the last equity value formatted as currency. The figure
+    // legitimately repeats (header, footer High, accessible data table), so
+    // assert presence rather than uniqueness.
+    expect(screen.getAllByText('$106.50').length).toBeGreaterThan(0)
   })
 
   it('renders period selector buttons', () => {
@@ -426,33 +430,36 @@ describe('Analytics Utility Functions', () => {
   describe('calculateEquityCurve', () => {
     it('calculates equity curve from trades', () => {
       const trades = generateMockTrades(5)
-      const curve = calculateEquityCurve(trades, 10000)
+      const curve = calculateEquityCurve(trades, 100)
 
       expect(curve.length).toBeGreaterThan(0)
-      expect(curve[0].equity).toBe(10000)
+      expect(curve[0].equity).toBe(100)
     })
 
     it('handles empty trades array', () => {
-      const curve = calculateEquityCurve([], 10000)
+      const curve = calculateEquityCurve([], 100)
 
       expect(curve.length).toBe(1)
-      expect(curve[0].equity).toBe(10000)
+      expect(curve[0].equity).toBe(100)
     })
   })
 
   describe('calculateDrawdownSeries', () => {
     it('calculates drawdown from equity curve', () => {
       const equityCurve = [
-        { timestamp: Date.now(), equity: 10000 },
-        { timestamp: Date.now(), equity: 10200 },
-        { timestamp: Date.now(), equity: 10000 }, // 1.96% drawdown from peak
+        { timestamp: Date.now(), equity: 100 },
+        { timestamp: Date.now(), equity: 102 },
+        { timestamp: Date.now(), equity: 100 }, // 1.96% drawdown from peak
       ]
 
       const drawdown = calculateDrawdownSeries(equityCurve)
 
       expect(drawdown.length).toBe(3)
       expect(drawdown[0].drawdownPercent).toBe(0)
-      expect(drawdown[2].drawdownPercent).toBeCloseTo(0.0196, 2)
+      // drawdownPercent is in percent units (0–100), per analyticsApi.js
+      // ("drawdown * 100"): (102 - 100) / 102 * 100 = 1.9608.
+      // The old expectation (0.0196) was in fraction units and never matched.
+      expect(drawdown[2].drawdownPercent).toBeCloseTo(1.9608, 2)
     })
 
     it('handles empty equity curve', () => {
@@ -517,7 +524,7 @@ describe('Analytics Utility Functions', () => {
 
     it('matches calculateDrawdownSeries when using the same initialBalance', () => {
       const trades = generateMockTrades(30)
-      const initialBalance = 10000
+      const initialBalance = 100
       const metrics = calculatePerformanceMetrics(trades, initialBalance)
       const equity = calculateEquityCurve(trades, initialBalance)
       const ddSeries = calculateDrawdownSeries(equity)

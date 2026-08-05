@@ -18,6 +18,7 @@
 
 import React, { useMemo } from 'react'
 import PropTypes from 'prop-types'
+import { PAPER_DEFAULT_BALANCE } from '../../utils/balance'
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -485,7 +486,9 @@ function RiskMetrics({ metrics = {}, loading = false, className = '' }) {
             format="currency"
             metricType="var"
             description="Max daily loss at 95% confidence"
-            maxGaugeValue={metrics.portfolioValue ? metrics.portfolioValue * 0.15 : 5000}
+            maxGaugeValue={
+              (metrics.portfolioValue > 0 ? metrics.portfolioValue : PAPER_DEFAULT_BALANCE) * 0.15
+            }
           />
 
           {/* CVaR (95%) */}
@@ -495,7 +498,9 @@ function RiskMetrics({ metrics = {}, loading = false, className = '' }) {
             format="currency"
             metricType="cvar"
             description="Expected shortfall beyond VaR"
-            maxGaugeValue={metrics.portfolioValue ? metrics.portfolioValue * 0.2 : 7500}
+            maxGaugeValue={
+              (metrics.portfolioValue > 0 ? metrics.portfolioValue : PAPER_DEFAULT_BALANCE) * 0.2
+            }
           />
 
           {/* Max Drawdown */}
