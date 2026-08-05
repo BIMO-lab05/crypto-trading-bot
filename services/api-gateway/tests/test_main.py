@@ -78,7 +78,9 @@ class TestHealthEndpoint:
         with patch("app.main.get_proxy", return_value=mock_service_proxy):
             response = test_client.get("/health")
 
-        assert response.status_code == 200
+        # 503 on degraded since 2026-08-05 (AUDIT 4.4): a 200 here made the
+        # container healthcheck pass while required backends were down.
+        assert response.status_code == 503
         data = response.json()
         assert data["status"] == "degraded"
         assert data["backend_services"]["market_data"] is False

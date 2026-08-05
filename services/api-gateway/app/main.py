@@ -87,15 +87,17 @@ from app.security.security_headers import (
 )
 from slowapi.errors import RateLimitExceeded
 
-# Configure logging
-# Ensure logs directory exists before opening the file handler — pytest runs
-# from various cwds (services/api-gateway/ in CI, repo root locally) so
-# eagerly create it relative to wherever Python is started.
-Path("logs").mkdir(parents=True, exist_ok=True)
+# Configure logging — stdout/stderr ONLY (AUDIT.md §4.1, fixed 2026-08-04).
+# The previous module-level logging.FileHandler("logs/service.log") could kill
+# both uvicorn workers at import whenever the WSL bind-mount race left
+# /app/logs as an unwritable root-owned tmpfs, leaving the container "Up" but
+# serving nothing (zombie — observed on risk-metrics; all services shared the
+# pattern). Container stdout is already rotated by the compose json-file
+# driver (50m x 3). Never reintroduce a file handler at import time.
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("logs/service.log"), logging.StreamHandler()],
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
@@ -169,9 +171,9 @@ _rate_limiting_active = settings.rate_limit_enabled and (
 # MUTATING trade actions (see RateLimitMiddleware._get_rate_limit_key).
 rate_limit_config = RateLimitConfig(
     trading_write_limit=60,  # Mutating trade actions (start/stop/buy/sell): 60/min
-    auth_limit=10,           # Auth endpoints (brute-force guard): 10/min
-    health_limit=1200,       # Health/status polls: 1200/min
-    general_limit=1200,      # General API + read polls: 1200/min
+    auth_limit=10,  # Auth endpoints (brute-force guard): 10/min
+    health_limit=1200,  # Health/status polls: 1200/min
+    general_limit=1200,  # General API + read polls: 1200/min
     enabled=_rate_limiting_active,
     redis_url=settings.redis_url if _rate_limiting_active else None,
 )
@@ -570,20 +572,52 @@ async def gateway_info():
 
 @app.get("/health")
 async def health_check():
-    """Gateway health check with backend service status"""
+    """Gateway health check with backend service status.
+
+    Contract (AUDIT.md §4.4, fixed 2026-08-04):
+    - HTTP 200, status "healthy": every REQUIRED backend answered its probe.
+    - HTTP 503, status "degraded": at least one REQUIRED backend is down, so
+      the compose healthcheck (curl -f .../health) finally carries signal.
+
+    Profile-disabled services (ml-prediction behind --profile ml,
+    sentiment-analysis behind --profile analytics) are excluded from the
+    required set while their feature flags are off — previously they counted
+    as failures, so the gateway could NEVER report healthy in the default
+    profile set. They still appear in backend_services (informational) and
+    are listed under optional_services. Response body shape is unchanged
+    apart from the additive optional_services key.
+    """
     proxy = get_proxy()
 
     # Check all backend services
     health_checks = await proxy.aggregate_health_checks()
 
-    all_healthy = all(health_checks.values())
+    # Same env-flag pattern as /api/config/safety-state (F-04): compose wires
+    # ENABLE_ML_PREDICTIONS / ENABLE_SENTIMENT_ANALYSIS into this container.
+    ml_enabled = os.getenv("ENABLE_ML_PREDICTIONS", "false").lower() == "true"
+    sentiment_enabled = (
+        os.getenv("ENABLE_SENTIMENT_ANALYSIS", "false").lower() == "true"
+    )
+    optional_services = set()
+    if not ml_enabled:
+        optional_services.add("ml-prediction")
+    if not sentiment_enabled:
+        optional_services.add("sentiment-analysis")
 
-    # Update backend service health metrics
+    required_healthy = all(
+        is_healthy
+        for service_name, is_healthy in health_checks.items()
+        if service_name not in optional_services
+    )
+
+    # Update backend service health metrics — optional services included:
+    # the per-service gauge reports reality, only the aggregate verdict
+    # excludes them.
     for service_name, is_healthy in health_checks.items():
         backend_service_health.labels(service=service_name).set(1 if is_healthy else 0)
 
-    return {
-        "status": "healthy" if all_healthy else "degraded",
+    body = {
+        "status": "healthy" if required_healthy else "degraded",
         "service": settings.service_name,
         "version": settings.api_version,
         "timestamp": int(time.time() * 1000),
@@ -602,7 +636,10 @@ async def health_check():
             "sentiment_analysis": health_checks.get("sentiment-analysis", False),
             "notification_service": True,  # Runs independently
         },
+        # Profile-disabled services excluded from the required set (info only).
+        "optional_services": sorted(optional_services),
     }
+    return JSONResponse(content=body, status_code=200 if required_healthy else 503)
 
 
 # ============================================================================
@@ -666,7 +703,9 @@ async def login(user_login: UserLogin):
 
 
 @app.get("/auth/me", response_model=User)
-async def get_current_user_info(current_user: User = Depends(get_current_active_user_strict)):
+async def get_current_user_info(
+    current_user: User = Depends(get_current_active_user_strict),
+):
     """
     Get current authenticated user information
 
@@ -2108,9 +2147,7 @@ async def list_ml_models():
 
 @app.get("/api/ml/models/{symbol}")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def get_ml_model_info(
-    symbol: str, interval: str = "60", model_type: str = "GRU"
-):
+async def get_ml_model_info(symbol: str, interval: str = "60", model_type: str = "GRU"):
     """Get detailed information about a specific ML model"""
     validated_symbol = validate_symbol(symbol)
     validated_interval = validate_interval(interval)
