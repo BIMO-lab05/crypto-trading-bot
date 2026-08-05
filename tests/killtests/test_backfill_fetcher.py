@@ -124,6 +124,42 @@ def test_klines_schema_csv(tmp_path):
     assert (df["interval"].astype(str) == "60").all()
 
 
+def test_klines_schema_drops_trailing_forming_bar(tmp_path):
+    """Regression: Bybit V5 always reports the currently-forming bar as the
+    newest row, even though its close time is still in the future. H3's
+    replay driver walks the full frame and would otherwise exit on a
+    still-forming close price. The klines schema must trim it; the legacy
+    schema (test_legacy_schema_unchanged) is intentionally left untouched.
+    """
+    now_ms = int(time.time() * 1000)
+    step_ms = 60 * 60 * 1000  # 60m interval
+    closed_starts = [now_ms - (i + 1) * step_ms for i in range(5, 0, -1)]
+    forming_start = now_ms - 5 * 60 * 1000  # opened 5 minutes ago, not yet closed
+    starts = closed_starts + [forming_start]
+    rows = [[str(ts), "100", "101", "99", "100.5", "10", "1000"] for ts in starts]
+    rows.reverse()  # Bybit convention: newest first
+
+    f = FakeFetcher([rows])
+    out = tmp_path / "BTCUSDT_60m_1d_bybit.csv"
+    asyncio.run(
+        f.download_historical_data(
+            "BTCUSDT", interval="60", days=1, output_file=str(out), schema="klines"
+        )
+    )
+    df = pd.read_csv(out)
+    # Resolution-independent: pandas infers a different datetime64 storage
+    # resolution reading this back from CSV than it used in-memory, so a
+    # raw int64 cast is not reliably milliseconds (see production code
+    # comment in bybit_data_fetcher.py for the same issue).
+    ts_ms = (
+        (pd.to_datetime(df["timestamp"]) - pd.Timestamp("1970-01-01"))
+        // pd.Timedelta(milliseconds=1)
+    ).tolist()
+    assert len(df) == 5
+    assert forming_start not in ts_ms
+    assert set(ts_ms) == set(closed_starts)
+
+
 def test_legacy_schema_unchanged(tmp_path):
     now_ms = int(time.time() * 1000)
     f = FakeFetcher([_mk_rows(48, now_ms - 48 * 3600 * 1000), []])

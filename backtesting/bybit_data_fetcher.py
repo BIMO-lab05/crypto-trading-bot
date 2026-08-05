@@ -378,12 +378,13 @@ class BybitDataFetcher:
         # Save to CSV if requested
         if output_file:
             if schema == "klines":
+                fetch_time_ms = int(time.time() * 1000)
                 out = df.copy()
                 out["symbol"] = symbol
                 out["interval"] = interval
                 out["turnover"] = turnover_series.values  # kept from pre-trim df
                 out["is_mainnet"] = True
-                out["created_at"] = int(time.time() * 1000)
+                out["created_at"] = fetch_time_ms
                 out = out[
                     [
                         "timestamp",
@@ -399,6 +400,22 @@ class BybitDataFetcher:
                         "created_at",
                     ]
                 ]
+                # Drop trailing forming/in-progress bar(s): Bybit V5 always
+                # returns the newest bar even when it hasn't closed yet.
+                # Consumers that walk the full frame (e.g. H3's replay
+                # driver) must never see a still-forming close price, so
+                # keep only rows whose bar has actually closed as of write
+                # time. Legacy schema is intentionally left untouched.
+                interval_ms = interval_minutes * 60 * 1000
+                # Epoch-anchored subtraction rather than `.astype("int64")`:
+                # pandas' datetime64 storage resolution (ns/us/ms) varies by
+                # version and by how the column was constructed, so a raw
+                # int64 cast is not reliably milliseconds. This division is
+                # resolution-independent.
+                ts_ms = (out["timestamp"] - pd.Timestamp("1970-01-01")) // pd.Timedelta(
+                    milliseconds=1
+                )
+                out = out[ts_ms + interval_ms <= fetch_time_ms]
                 out.to_csv(output_file, index=False)
             else:
                 df.to_csv(output_file, index=False)
