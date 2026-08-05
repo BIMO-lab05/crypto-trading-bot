@@ -831,3 +831,57 @@ Not "profitable trades today." Not even one fill yet. The structural blocker is 
 - Truncate bind-mounted logs (denied to agent): `: > services/portfolio-manager/logs/service.log; : > services/api-gateway/logs/service.log` (~2 GiB).
 - Post-rebuild incident: dashboard 502s — frontend nginx cached stale api-gateway container IP after recreate. Fixed with `docker restart crypto-bot-frontend`; all routes 200. Permanent fix queued: nginx `resolver 127.0.0.11` + variable proxy_pass.
 - Trading resumed 16:00Z (operator approved): kill switch cleared, auto-trader running, rejections logging reasons (regime hard-block observed), boot log shows $100.00 capital, slippage manager active.
+
+---
+
+## 2026-08-04 (evening) — Phase 0 reconnaissance audit (read-only)
+
+Owner requested a methodical four-problem repair (capital sizing, containers, repo hygiene, losing paper trades) starting with a read-only audit. Five parallel agents (architecture trace, capital audit, docker diagnosis, docs triage, trade forensics) + live venue-spec queries. **Full findings: `AUDIT.md` at repo root.** No code/config/container state changed; only AUDIT.md and this entry written.
+
+Headlines (details + file:line all in AUDIT.md):
+
+- **H1 CONFIRMED:** ensemble path sizes notional = balance × 0.10 × DEFAULT_LEVERAGE(10) = ~100% of balance per trade (`auto_trader.py:4233-4235`, reconstructed exactly against 4 recorded orders); ensemble entry path has no exposure/size/min-notional gates (`:4211-4258`). Peak open exposure 328% of equity.
+- **H2 CONFIRMED:** every stop-loss exit fills 0.5% beyond the stop by construction (`auto_trader.py:3057,3163-3174,:3202-3205`) — $1.49 of the $7.43 stop losses is pure artifact.
+- **H5/H7 CONFIRMED:** partial exits not persisted (no `remaining_quantity` column; one position's P&L overstated $1.70, defect live on open positions 57/60); `realized_pnl` persisted gross of fees; `portfolios.realized_pnl` overwritten not accumulated (+3.09 shown vs −5.68 actual gross).
+- **Cost model:** commission 0.1%/side ≈ 1.8× Bybit taker 0.055%; funding not modelled at all; slippage inactive for 17/31 legs (predate fb45efe).
+- **Data/look-ahead REFUTED:** klines gap-free, dup-free, testnet quarantined; closed-candle convention enforced at fetch layer (`technical-analysis/app/fetcher.py:220-230`).
+- **Strategy verdict: UNVERIFIABLE at n=12.** Expectancy −$0.47/trade gross (before fees). 2% stops = 0.37–0.97 daily ATR (inside noise); `atr_stops.py` unwired; ensemble thresholds were walked down until trades fired.
+- **Capital constant:** running engine config correct at $100 (verified via container printenv). "Changes ignored" = frontend $10k fallbacks on API failure + portfolio-manager getting zero capital env vars from compose + hardcoded `* 10000` in `auto_trader.py:1851`. Migration split-brain: `infrastructure/migrations/001_initial_schema.sql` still seeds $10k (matches live stale row); `database/migrations/` seeds $100.
+- **$100 feasibility (live venue specs):** min-qty walls — BTC min position $62.55 (62.6% of account), ETH $18.36; only SOL ($7.10)/BNB ($5.76)/ADA ($5.00) fit under the $10 cap. 1% risk/trade impossible within the 10% cap at sane stops (max ≈ 0.2%). LIVE at $100 mechanically impossible (2% cap = $2 < $5 min notional).
+- **Docker:** risk-metrics zombie (tmpfs-instead-of-bind WSL race + module-level FileHandler kills workers; PID 1 survives so restart policy never fires; victim random per boot). Running containers predate current compose edit (`docker start` ≠ recreate). Stray `docker-compose.yml` carries pre-ADR risk caps — live hazard with armed auto-trader.
+- **Docs:** 2026-08-03 archive executed+verified; residue = ~9 in-place text fixes; recommendation: do NOT create real ARCHITECTURE.md/STRATEGY.md (stubs at most).
+
+Next: awaiting owner approval on prioritized repair plan (in AUDIT.md §7 + chat). Kill-test order: H2 (one constant) → H1 (leverage+gates) → H7/H5 (SQL asserts) → H6 → H3 (ATR replay) → H4 (signal information, DSR>0.95 bar).
+
+---
+
+## 2026-08-05 — Phase 1 executed: money path + containers + fallback long-tail + docs (branch fix/audit-phase1, uncommitted)
+
+Owner approved all five decisions (plan/order, pause trader, DEFAULT_LEVERAGE=1.0, database/migrations/ authoritative, ARCHITECTURE/STRATEGY as stubs). Executed via 6 parallel file-disjoint workstreams + lead fixes. **All work verified running; commits pending owner-approved grouping.**
+
+### What changed (evidence in workstream reports; key file:line)
+
+- **H2** stop exits no longer carry the deterministic 0.5% penalty — `limit_buffer_pct` 0.005→0.0; paper fill reference = stop price through the slippage model (`auto_trader.py:3106,:3232-3239`).
+- **H1** ensemble path gated: notional capped at balance×`max_position_size_pct`/100 regardless of leverage; exposure gate rejects with logged arithmetic; `_passes_min_notional` + qty snap-DOWN (`_snap_quantity_to_step`) wired into all three entry paths (`auto_trader.py:4293-4400,:1651-1686`). Min-notional gate now ACTIVE in paper (early-out removed) so paper mirrors the real $100 venue constraints.
+- **H6** max-hold exits arm the SL cooldown; ensemble entries check it (`auto_trader.py:2986-2993,:4287-4296`).
+- **H7** `positions.realized_pnl` persisted NET of both-leg fees (new `entry_fee`/`exit_fee` columns); `portfolios.realized_pnl` accumulates SQL-side (`repositories.py:543`). **H5** `remaining_quantity` column persisted through reduce/close/scale-in; reload restores it. Migration `database/migrations/007_position_fee_partial_exit_accounting.sql` (applied to live DB). One-time DB repair: `initial_balance` 10000→100, backfilled fees + net P&L for all 15 positions (pos 59 corrected by exactly the $1.7029 phantom), `portfolios.realized_pnl` = −7.42133969 = sum of closed net (invariant query returns t).
+- Commission default 0.1→0.055%/side (`config.py:576`). Boot-time capital-env validation in containers (`config.py:755-809`, raises listing missing keys).
+- **Docker:** `docker-compose.yml` → `docker-compose.legacy.yml.DISABLED` (git mv). Unified: `DEFAULT_LEVERAGE=1.0`, portfolio-manager gets `INITIAL_CAPITAL=100.0` (first time), prometheus/grafana healthchecks, redis start_period, risk-metrics deps relaxed to service_started. Module-level FileHandlers removed from risk-metrics/api-gateway/portfolio-manager mains (zombie class dead). api-gateway `/health` returns 503 on degraded and excludes profile-disabled services. `portfolio-manager` `initial_capital` now a REQUIRED field.
+- **Long tail:** analytics `or 10000` fallbacks → Settings-or-raise; handler/schema defaults settings-derived; broken funding-arb endpoint fixed (`main.py:1439-1477`, was TypeError on every call); fabricated DOGE "+630%" claims removed from code; 14 strategy ctor defaults resolved per call-site verdicts; grid-v2 clamp-UP → reject; `infrastructure/migrations/001` seed → 100.00; scripts constants → `shared.account`; Prometheus daily-loss alert 5→12 (ADR-028); `stat_arb_models` capital defaults → settings.
+- **Frontend:** all $10k fallbacks gone — `PAPER_DEFAULT_BALANCE` or explicit error states; fixtures rescaled to $100; production build passes (via alt outDir; `frontend/dist` root-owned, needs operator chown). 28 previously-failing frontend tests fixed; 23 remaining failures proven pre-existing at HEAD.
+- **Docs:** $100 examples, compose canon, 12% daily-loss sweep, docs index fixed, SQZMOM table matches config, root `ARCHITECTURE.md`/`STRATEGY.md` one-sentence stubs.
+
+### Verification (all outputs in session log)
+
+- trading-engine host suite: 1604 passed / 13 failed — all 13 proven pre-existing at HEAD (2 connector-envelope, 11 pairs_trading pandas freq='H'). New suites: sizing caps 15/15, accounting invariants 9/9, capital defaults 22/22.
+- Rebuild+recreate (5 images, BuildKit off): 14/14 healthy incl. **risk-metrics genuinely serving** (was zombie). `/proc/mounts` = 9p (not tmpfs) on all checked services. Gateway `/health` HTTP 200 `healthy` — first time possible.
+- In-container: api-gateway 434 passed / 3 failed → 9/9 pass with `RATE_LIMIT_ENABLED=false` (rate-limiter/test interaction, not a regression); portfolio-manager 99 passed / 0 failed (one collection error = host-only path-depth test).
+- Restart survival: positions reload with persisted `remaining_quantity` (0.00102585 / 0.04690498 / 0.08097700) — H5 resurrection dead. DB repairs survived recreation.
+- Trading resumed (kill-switch lifted + `/api/trading/start`): first cycles show correct behavior — `[ENSEMBLE][RISK_GATE] EXPOSURE REJECT | open=$150.27 + new=$12.21 > cap=$97.66 (80.0% of $122.08)`. New size $12.21 (10%) vs $95 pre-fix; entries blocked until legacy over-exposed positions unwind (max-hold ≈ 2026-08-06 14:10 or stops).
+
+### Open items (not Phase 1 scope)
+
+- Operator: `sudo chown -R $USER:$USER frontend/dist` (host npm build EACCES); confirm `services/portfolio-manager/.env` INITIAL_CAPITAL agrees with shared/account.py; `.env.example` needs INITIAL_CAPITAL documented.
+- `portfolios.cash_balance=73.30` may embed ~$4.23 phantom margin from the pre-fix H5 bug — needs owner decision on cash reconstruction (unverified estimate).
+- Pre-existing test debt: 13 trading-engine, 23 frontend, api-gateway rate-limiter-vs-suite. `scripts/validate_risk_limits.py` deeply stale (tautological checks, $10K/$50K tables). RUNBOOK/K8s docs still contain bare `docker-compose` commands (fail loudly now). `.gitlab-ci.yml` likely vestigial. `ml-retraining-service` defined in no compose file.
+- Phase 4 (measurement): funding accrual, signal-time snapshots, slippage attribution, H3 ATR-stop replay, H4 signal-information test (DSR>0.95 bar, ≥200 trades). LIVE at $100 remains mechanically impossible (2% cap = $2 < $5 venue min) — unchanged and unchangeable by code.
