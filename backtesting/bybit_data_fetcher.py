@@ -484,7 +484,11 @@ async def main():
         "--out-dir",
         type=str,
         default="backtesting/data",
-        help="Output directory for --multiple downloads (default: backtesting/data)",
+        help=(
+            "Output directory for downloaded CSVs, single-symbol or --multiple "
+            "(overridden by --output for the single-symbol path; default: "
+            "backtesting/data)"
+        ),
     )
 
     args = parser.parse_args()
@@ -507,7 +511,7 @@ async def main():
             # Download single symbol
             output_file = (
                 args.output
-                or f"backtesting/data/{args.symbol}_{args.interval}m_{args.days}d_bybit.csv"
+                or f"{args.out_dir}/{args.symbol}_{args.interval}m_{args.days}d_bybit.csv"
             )
 
             df = await fetcher.download_historical_data(
