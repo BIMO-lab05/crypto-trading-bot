@@ -67,7 +67,11 @@ class EquityCurveResponse(BaseModel):
     curve: List[EquityCurvePoint] = Field(default_factory=list)
     period: str = "30d"
     interval: str = "1h"
-    initial_equity: float = 10000.0
+    # REQUIRED — no default. The old 10000.0 default was inert (the single
+    # constructor at get_equity_curve always passes the real balance) but would
+    # have silently reported a $10,000 baseline on a $100 account if any new
+    # caller omitted it (AUDIT 2.5). Omission is now a ValidationError.
+    initial_equity: float
 
 
 class DrawdownPoint(BaseModel):

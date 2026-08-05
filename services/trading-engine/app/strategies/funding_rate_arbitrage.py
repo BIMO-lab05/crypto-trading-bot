@@ -30,11 +30,9 @@ Author: Trading Bot Development Team
 Date: 2025-12-07
 """
 
-import pandas as pd
-import numpy as np
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,6 +56,7 @@ class FundingRateSignal:
         confidence: Signal confidence (0-100)
         reason: Reason for signal
     """
+
     timestamp: datetime
     symbol: str
     action: str
@@ -101,9 +100,9 @@ class FundingRateArbitrageStrategy:
         self,
         symbol: str,
         min_funding_rate: float = 0.0003,  # 0.03% per 8h = ~11% annually
-        max_funding_rate: float = 0.01,    # 1% per 8h = ~365% annually (too risky)
-        max_basis_pct: float = 2.0,         # Max 2% basis divergence
-        position_size_pct: float = 0.2,     # 20% of portfolio per side
+        max_funding_rate: float = 0.01,  # 1% per 8h = ~365% annually (too risky)
+        max_basis_pct: float = 2.0,  # Max 2% basis divergence
+        position_size_pct: float = 0.2,  # 20% of portfolio per side
         funding_collection_threshold: float = 0.0001,  # Min 0.01% to stay in position
     ):
         """
@@ -135,7 +134,7 @@ class FundingRateArbitrageStrategy:
             f"FundingRateArbitrageStrategy initialized: {symbol}\n"
             f"  Min funding rate: {min_funding_rate:.4f} ({self._annualize_funding(min_funding_rate):.2f}% annually)\n"
             f"  Max basis: {max_basis_pct}%\n"
-            f"  Position size: {position_size_pct*100}% per side"
+            f"  Position size: {position_size_pct * 100}% per side"
         )
 
     def _annualize_funding(self, funding_rate: float) -> float:
@@ -152,9 +151,7 @@ class FundingRateArbitrageStrategy:
         return funding_rate * 3 * 365 * 100
 
     def _calculate_basis(
-        self,
-        spot_price: float,
-        futures_price: float
+        self, spot_price: float, futures_price: float
     ) -> Tuple[float, float]:
         """
         Calculate basis and basis percentage
@@ -174,10 +171,7 @@ class FundingRateArbitrageStrategy:
         return basis, basis_pct
 
     def _calculate_position_sizes(
-        self,
-        spot_price: float,
-        futures_price: float,
-        portfolio_value: float
+        self, spot_price: float, futures_price: float, portfolio_value: float
     ) -> Tuple[float, float]:
         """
         Calculate position sizes for spot and futures
@@ -211,10 +205,7 @@ class FundingRateArbitrageStrategy:
         return spot_position_size, futures_position_size
 
     def record_funding_payment(
-        self,
-        funding_rate: float,
-        position_size: float,
-        futures_price: float
+        self, funding_rate: float, position_size: float, futures_price: float
     ):
         """
         Record funding payment received/paid
@@ -230,14 +221,16 @@ class FundingRateArbitrageStrategy:
 
         self.total_funding_collected += funding_payment
 
-        self.funding_history.append({
-            'timestamp': datetime.now(),
-            'funding_rate': funding_rate,
-            'position_size': position_size,
-            'futures_price': futures_price,
-            'funding_payment': funding_payment,
-            'total_collected': self.total_funding_collected
-        })
+        self.funding_history.append(
+            {
+                "timestamp": datetime.now(),
+                "funding_rate": funding_rate,
+                "position_size": position_size,
+                "futures_price": futures_price,
+                "funding_payment": funding_payment,
+                "total_collected": self.total_funding_collected,
+            }
+        )
 
         logger.info(
             f"Funding payment: ${funding_payment:.2f} "
@@ -249,8 +242,8 @@ class FundingRateArbitrageStrategy:
         current_funding_rate: float,
         spot_price: float,
         futures_price: float,
-        portfolio_value: float = 10000.0,
-        next_funding_time: Optional[datetime] = None
+        portfolio_value: float,
+        next_funding_time: Optional[datetime] = None,
     ) -> Optional[FundingRateSignal]:
         """
         Generate trading signal based on funding rate and basis
@@ -259,7 +252,10 @@ class FundingRateArbitrageStrategy:
             current_funding_rate: Current funding rate (per 8h)
             spot_price: Current spot price
             futures_price: Current futures price
-            portfolio_value: Total portfolio value
+            portfolio_value: Total portfolio value. REQUIRED — the old
+                10000.0 default was 100x the real account; every live caller
+                (StatisticalArbitrageManager) passes allocated capital
+                explicitly (AUDIT 2.5).
             next_funding_time: Next funding payment time
 
         Returns:
@@ -274,16 +270,12 @@ class FundingRateArbitrageStrategy:
 
             # Determine action
             action, reason, confidence = self._determine_action(
-                current_funding_rate,
-                basis_pct,
-                annualized_yield
+                current_funding_rate, basis_pct, annualized_yield
             )
 
             # Calculate position sizes
             spot_size, futures_size = self._calculate_position_sizes(
-                spot_price,
-                futures_price,
-                portfolio_value
+                spot_price, futures_price, portfolio_value
             )
 
             # Create signal
@@ -298,15 +290,15 @@ class FundingRateArbitrageStrategy:
                 spot_position_size=spot_size,
                 futures_position_size=futures_size,
                 confidence=confidence,
-                reason=reason
+                reason=reason,
             )
 
             # Update state
-            if action == 'OPEN_HEDGE':
-                self.current_position = 'HEDGED'
+            if action == "OPEN_HEDGE":
+                self.current_position = "HEDGED"
                 self.entry_funding_rate = current_funding_rate
                 self.entry_basis = basis
-            elif action == 'CLOSE_HEDGE':
+            elif action == "CLOSE_HEDGE":
                 self.current_position = None
                 self.entry_funding_rate = None
                 self.entry_basis = None
@@ -324,10 +316,7 @@ class FundingRateArbitrageStrategy:
             return None
 
     def _determine_action(
-        self,
-        funding_rate: float,
-        basis_pct: float,
-        annualized_yield: float
+        self, funding_rate: float, basis_pct: float, annualized_yield: float
     ) -> Tuple[str, str, float]:
         """
         Determine trading action based on funding rate and basis
@@ -347,77 +336,84 @@ class FundingRateArbitrageStrategy:
         """
         # Safety check: funding rate too high (abnormal market)
         if abs(funding_rate) > self.max_funding_rate:
-            if self.current_position == 'HEDGED':
+            if self.current_position == "HEDGED":
                 return (
-                    'CLOSE_HEDGE',
-                    f'Abnormal funding rate (|rate|={abs(funding_rate):.4f} > {self.max_funding_rate})',
-                    100.0
+                    "CLOSE_HEDGE",
+                    f"Abnormal funding rate (|rate|={abs(funding_rate):.4f} > {self.max_funding_rate})",
+                    100.0,
                 )
             else:
-                return (
-                    'HOLD',
-                    f'Funding rate too high (abnormal market)',
-                    0.0
-                )
+                return ("HOLD", "Funding rate too high (abnormal market)", 0.0)
 
         # Exit condition 1: Basis risk too high
         if abs(basis_pct) > self.max_basis_pct:
-            if self.current_position == 'HEDGED':
+            if self.current_position == "HEDGED":
                 return (
-                    'CLOSE_HEDGE',
-                    f'Basis risk exceeded (|basis|={abs(basis_pct):.2f}% > {self.max_basis_pct}%)',
-                    95.0
+                    "CLOSE_HEDGE",
+                    f"Basis risk exceeded (|basis|={abs(basis_pct):.2f}% > {self.max_basis_pct}%)",
+                    95.0,
                 )
 
         # Exit condition 2: Funding rate became unfavorable
-        if self.current_position == 'HEDGED':
+        if self.current_position == "HEDGED":
             if funding_rate < self.funding_collection_threshold:
                 return (
-                    'CLOSE_HEDGE',
-                    f'Funding rate too low (rate={funding_rate:.4f} < {self.funding_collection_threshold})',
-                    90.0
+                    "CLOSE_HEDGE",
+                    f"Funding rate too low (rate={funding_rate:.4f} < {self.funding_collection_threshold})",
+                    90.0,
                 )
 
             # Funding rate reversed sign
             if self.entry_funding_rate is not None:
-                if (self.entry_funding_rate > 0 and funding_rate < 0) or \
-                   (self.entry_funding_rate < 0 and funding_rate > 0):
+                if (self.entry_funding_rate > 0 and funding_rate < 0) or (
+                    self.entry_funding_rate < 0 and funding_rate > 0
+                ):
                     return (
-                        'CLOSE_HEDGE',
-                        f'Funding rate reversed (entry={self.entry_funding_rate:.4f}, current={funding_rate:.4f})',
-                        95.0
+                        "CLOSE_HEDGE",
+                        f"Funding rate reversed (entry={self.entry_funding_rate:.4f}, current={funding_rate:.4f})",
+                        95.0,
                     )
 
         # Entry condition: Good funding rate with acceptable basis
         if self.current_position is None:
-            if funding_rate >= self.min_funding_rate and abs(basis_pct) < self.max_basis_pct:
-                confidence = min(100.0, (funding_rate / self.min_funding_rate) * 70 + 30)
+            if (
+                funding_rate >= self.min_funding_rate
+                and abs(basis_pct) < self.max_basis_pct
+            ):
+                confidence = min(
+                    100.0, (funding_rate / self.min_funding_rate) * 70 + 30
+                )
                 return (
-                    'OPEN_HEDGE',
-                    f'Attractive funding rate (rate={funding_rate:.4f}, APY={annualized_yield:.2f}%, basis={basis_pct:.2f}%)',
-                    confidence
+                    "OPEN_HEDGE",
+                    f"Attractive funding rate (rate={funding_rate:.4f}, APY={annualized_yield:.2f}%, basis={basis_pct:.2f}%)",
+                    confidence,
                 )
 
-            if funding_rate <= -self.min_funding_rate and abs(basis_pct) < self.max_basis_pct:
-                confidence = min(100.0, (abs(funding_rate) / self.min_funding_rate) * 70 + 30)
+            if (
+                funding_rate <= -self.min_funding_rate
+                and abs(basis_pct) < self.max_basis_pct
+            ):
+                confidence = min(
+                    100.0, (abs(funding_rate) / self.min_funding_rate) * 70 + 30
+                )
                 return (
-                    'OPEN_HEDGE',
-                    f'Attractive negative funding (rate={funding_rate:.4f}, APY={annualized_yield:.2f}%, basis={basis_pct:.2f}%)',
-                    confidence
+                    "OPEN_HEDGE",
+                    f"Attractive negative funding (rate={funding_rate:.4f}, APY={annualized_yield:.2f}%, basis={basis_pct:.2f}%)",
+                    confidence,
                 )
 
         # Hold condition
-        if self.current_position == 'HEDGED':
+        if self.current_position == "HEDGED":
             return (
-                'HOLD',
-                f'Maintaining hedge (funding={funding_rate:.4f}, APY={annualized_yield:.2f}%, basis={basis_pct:.2f}%)',
-                0.0
+                "HOLD",
+                f"Maintaining hedge (funding={funding_rate:.4f}, APY={annualized_yield:.2f}%, basis={basis_pct:.2f}%)",
+                0.0,
             )
         else:
             return (
-                'HOLD',
-                f'Funding rate insufficient (rate={funding_rate:.4f}, min={self.min_funding_rate})',
-                0.0
+                "HOLD",
+                f"Funding rate insufficient (rate={funding_rate:.4f}, min={self.min_funding_rate})",
+                0.0,
             )
 
     def get_status(self) -> Dict:
@@ -428,23 +424,25 @@ class FundingRateArbitrageStrategy:
             Dictionary with strategy state
         """
         return {
-            'symbol': self.symbol,
-            'current_position': self.current_position,
-            'entry_funding_rate': self.entry_funding_rate,
-            'entry_basis': self.entry_basis,
-            'total_funding_collected': self.total_funding_collected,
-            'num_funding_payments': len(self.funding_history),
-            'parameters': {
-                'min_funding_rate': self.min_funding_rate,
-                'max_funding_rate': self.max_funding_rate,
-                'max_basis_pct': self.max_basis_pct,
-                'position_size_pct': self.position_size_pct,
-                'funding_collection_threshold': self.funding_collection_threshold,
+            "symbol": self.symbol,
+            "current_position": self.current_position,
+            "entry_funding_rate": self.entry_funding_rate,
+            "entry_basis": self.entry_basis,
+            "total_funding_collected": self.total_funding_collected,
+            "num_funding_payments": len(self.funding_history),
+            "parameters": {
+                "min_funding_rate": self.min_funding_rate,
+                "max_funding_rate": self.max_funding_rate,
+                "max_basis_pct": self.max_basis_pct,
+                "position_size_pct": self.position_size_pct,
+                "funding_collection_threshold": self.funding_collection_threshold,
             },
-            'annualized_targets': {
-                'min_apy': self._annualize_funding(self.min_funding_rate),
-                'threshold_apy': self._annualize_funding(self.funding_collection_threshold),
-            }
+            "annualized_targets": {
+                "min_apy": self._annualize_funding(self.min_funding_rate),
+                "threshold_apy": self._annualize_funding(
+                    self.funding_collection_threshold
+                ),
+            },
         }
 
     def get_funding_history(self, limit: int = 10) -> List[Dict]:
@@ -459,11 +457,7 @@ class FundingRateArbitrageStrategy:
         """
         return self.funding_history[-limit:]
 
-    def calculate_current_yield(
-        self,
-        funding_rate: float,
-        days_held: int = 1
-    ) -> Dict:
+    def calculate_current_yield(self, funding_rate: float, days_held: int = 1) -> Dict:
         """
         Calculate current yield metrics
 
@@ -478,10 +472,10 @@ class FundingRateArbitrageStrategy:
         annualized_rate = daily_rate * 365
 
         return {
-            'funding_rate_8h': funding_rate,
-            'daily_rate': daily_rate,
-            'annualized_rate': annualized_rate,
-            'daily_rate_pct': daily_rate * 100,
-            'annualized_rate_pct': annualized_rate * 100,
-            'projected_30d_return': daily_rate * 30 * 100,
+            "funding_rate_8h": funding_rate,
+            "daily_rate": daily_rate,
+            "annualized_rate": annualized_rate,
+            "daily_rate_pct": daily_rate * 100,
+            "annualized_rate_pct": annualized_rate * 100,
+            "projected_30d_return": daily_rate * 30 * 100,
         }

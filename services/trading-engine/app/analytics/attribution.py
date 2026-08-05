@@ -21,13 +21,17 @@ Date: 2025-12-11
 
 import logging
 from typing import List, Dict, Optional, Tuple, Any
-from decimal import Decimal
+
 from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
 import math
 import numpy as np
+
+# Used in __init__/reset bodies below; the noqa keeps autoflake from stripping
+# it after refactors (known repo gotcha).
+from app.config import get_settings  # noqa: F401
 
 # Configure logging for attribution module
 logger = logging.getLogger(__name__)
@@ -37,32 +41,37 @@ logger = logging.getLogger(__name__)
 # ENUMS FOR ATTRIBUTION DIMENSIONS
 # =============================================================================
 
+
 class AttributionDimension(str, Enum):
     """Dimensions available for P&L attribution analysis"""
-    STRATEGY = "strategy"           # By trading strategy
-    SYMBOL = "symbol"               # By trading pair/symbol
-    TIMEFRAME = "timeframe"         # By time period (hourly, daily, weekly)
-    DIRECTION = "direction"         # By trade direction (long/short)
+
+    STRATEGY = "strategy"  # By trading strategy
+    SYMBOL = "symbol"  # By trading pair/symbol
+    TIMEFRAME = "timeframe"  # By time period (hourly, daily, weekly)
+    DIRECTION = "direction"  # By trade direction (long/short)
     MARKET_CONDITION = "market_condition"  # By market condition (trending/ranging)
 
 
 class MarketCondition(str, Enum):
     """Market condition classification for trades"""
-    TRENDING_UP = "trending_up"     # Price moving up consistently
-    TRENDING_DOWN = "trending_down" # Price moving down consistently
-    RANGING = "ranging"             # Price moving sideways
-    VOLATILE = "volatile"           # High volatility, no clear trend
-    UNKNOWN = "unknown"             # Could not determine condition
+
+    TRENDING_UP = "trending_up"  # Price moving up consistently
+    TRENDING_DOWN = "trending_down"  # Price moving down consistently
+    RANGING = "ranging"  # Price moving sideways
+    VOLATILE = "volatile"  # High volatility, no clear trend
+    UNKNOWN = "unknown"  # Could not determine condition
 
 
 class TradeDirection(str, Enum):
     """Trade direction for attribution"""
-    LONG = "long"   # Buy low, sell high
-    SHORT = "short" # Sell high, buy low
+
+    LONG = "long"  # Buy low, sell high
+    SHORT = "short"  # Sell high, buy low
 
 
 class TradePeriod(str, Enum):
     """Time periods for attribution aggregation"""
+
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
@@ -72,6 +81,7 @@ class TradePeriod(str, Enum):
 # =============================================================================
 # DATA MODELS
 # =============================================================================
+
 
 @dataclass
 class AttributionMetrics:
@@ -93,6 +103,7 @@ class AttributionMetrics:
         sortino_ratio: Risk-adjusted return using downside deviation
         calmar_ratio: Return divided by max drawdown
     """
+
     total_pnl: float = 0.0
     win_rate: float = 0.0
     sharpe_ratio: float = 0.0
@@ -145,6 +156,7 @@ class TradeRecord:
         timeframe: Aggregation timeframe for the trade
         metadata: Additional trade metadata
     """
+
     trade_id: str
     symbol: str
     strategy: str
@@ -208,6 +220,7 @@ class AttributionResult:
         contribution_pct: Percentage contribution to total P&L
         trades: List of trades in this attribution bucket
     """
+
     dimension: AttributionDimension
     value: str
     metrics: AttributionMetrics
@@ -243,6 +256,7 @@ class AttributionSummary:
         period_start: Start of analysis period
         period_end: End of analysis period
     """
+
     overall_metrics: AttributionMetrics
     by_strategy: List[AttributionResult] = field(default_factory=list)
     by_symbol: List[AttributionResult] = field(default_factory=list)
@@ -261,7 +275,9 @@ class AttributionSummary:
             "by_direction": [r.to_dict() for r in self.by_direction],
             "by_market_condition": [r.to_dict() for r in self.by_market_condition],
             "generated_at": self.generated_at.isoformat(),
-            "period_start": self.period_start.isoformat() if self.period_start else None,
+            "period_start": self.period_start.isoformat()
+            if self.period_start
+            else None,
             "period_end": self.period_end.isoformat() if self.period_end else None,
         }
 
@@ -284,6 +300,7 @@ class TrendAnalysis:
         moving_avg_pnl: Moving average of P&L
         trend_direction: Overall trend direction (up, down, flat)
     """
+
     dimension: AttributionDimension
     value: str
     periods: List[str] = field(default_factory=list)
@@ -327,6 +344,7 @@ class PerformanceDecomposition:
         benchmark_return: Benchmark (market) return
         information_ratio: Risk-adjusted excess return
     """
+
     strategy: str
     alpha: float = 0.0
     beta: float = 0.0
@@ -354,6 +372,7 @@ class PerformanceDecomposition:
 # MAIN ATTRIBUTION ANALYZER CLASS
 # =============================================================================
 
+
 class AttributionAnalyzer:
     """
     Comprehensive P&L Attribution Analyzer
@@ -370,24 +389,28 @@ class AttributionAnalyzer:
     - Trend analysis over configurable time periods
 
     Usage:
-        analyzer = AttributionAnalyzer(initial_capital=10000.0)
+        analyzer = AttributionAnalyzer()  # capital from Settings.paper_initial_balance
         analyzer.add_trade(trade_record)
         summary = analyzer.get_attribution_summary()
     """
 
     def __init__(
         self,
-        initial_capital: float = 10000.0,
+        initial_capital: Optional[float] = None,
         risk_free_rate: float = 0.02,  # Annual risk-free rate (2%)
     ):
         """
         Initialize the Attribution Analyzer
 
         Args:
-            initial_capital: Starting capital for percentage calculations
+            initial_capital: Starting capital for percentage calculations.
+                None (default) resolves to Settings.paper_initial_balance —
+                never a hardcoded account size.
             risk_free_rate: Annual risk-free rate for Sharpe ratio calculation
         """
         # Store initialization parameters
+        if initial_capital is None:
+            initial_capital = get_settings().paper_initial_balance
         self.initial_capital = initial_capital
         self.risk_free_rate = risk_free_rate
 
@@ -395,7 +418,9 @@ class AttributionAnalyzer:
         self._trades: List[TradeRecord] = []
 
         # Attribution caches (invalidated on new trades)
-        self._attribution_cache: Dict[AttributionDimension, List[AttributionResult]] = {}
+        self._attribution_cache: Dict[
+            AttributionDimension, List[AttributionResult]
+        ] = {}
         self._cache_valid = False
 
         # Equity tracking for drawdown calculation
@@ -530,7 +555,7 @@ class AttributionAnalyzer:
         avg_loss = gross_loss / len(losing_trades) if losing_trades else 0.0
 
         # Profit factor (gross profit / gross loss)
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
         if math.isinf(profit_factor):
             profit_factor = gross_profit if gross_profit > 0 else 0.0
 
@@ -541,7 +566,9 @@ class AttributionAnalyzer:
         max_drawdown = self._calculate_max_drawdown(trades)
 
         # Calmar ratio (return / max drawdown)
-        total_return = total_pnl / self.initial_capital if self.initial_capital > 0 else 0.0
+        total_return = (
+            total_pnl / self.initial_capital if self.initial_capital > 0 else 0.0
+        )
         calmar_ratio = total_return / abs(max_drawdown) if max_drawdown != 0 else 0.0
 
         return AttributionMetrics(
@@ -624,7 +651,7 @@ class AttributionAnalyzer:
         downside_returns = returns_array[returns_array < 0]
 
         if len(downside_returns) == 0:
-            return float('inf') if mean_return > 0 else 0.0
+            return float("inf") if mean_return > 0 else 0.0
 
         downside_std = np.std(downside_returns, ddof=1)
 
@@ -749,7 +776,9 @@ class AttributionAnalyzer:
             List of attribution results for each market condition
         """
         trades = self.get_trades(start_time=start_time, end_time=end_time)
-        return self._calculate_attribution(trades, AttributionDimension.MARKET_CONDITION)
+        return self._calculate_attribution(
+            trades, AttributionDimension.MARKET_CONDITION
+        )
 
     def _calculate_attribution(
         self,
@@ -841,7 +870,9 @@ class AttributionAnalyzer:
         # Get attribution by each dimension
         by_strategy = self._calculate_attribution(trades, AttributionDimension.STRATEGY)
         by_symbol = self._calculate_attribution(trades, AttributionDimension.SYMBOL)
-        by_direction = self._calculate_attribution(trades, AttributionDimension.DIRECTION)
+        by_direction = self._calculate_attribution(
+            trades, AttributionDimension.DIRECTION
+        )
         by_market_condition = self._calculate_attribution(
             trades, AttributionDimension.MARKET_CONDITION
         )
@@ -907,16 +938,11 @@ class AttributionAnalyzer:
         # Analyze each dimension value
         trends = []
         for value in unique_values:
-            trend = self._analyze_trend(
-                trades, dimension, value, periods, period
-            )
+            trend = self._analyze_trend(trades, dimension, value, periods, period)
             trends.append(trend)
 
         # Sort by latest P&L
-        trends.sort(
-            key=lambda t: t.pnl_trend[-1] if t.pnl_trend else 0,
-            reverse=True
-        )
+        trends.sort(key=lambda t: t.pnl_trend[-1] if t.pnl_trend else 0, reverse=True)
 
         return trends
 
@@ -1008,15 +1034,16 @@ class AttributionAnalyzer:
         for period_start, period_end, label in periods:
             # Get trades in this period
             period_trades = [
-                t for t in filtered_trades
-                if period_start <= t.exit_time < period_end
+                t for t in filtered_trades if period_start <= t.exit_time < period_end
             ]
 
             period_labels.append(label)
 
             if period_trades:
                 total_pnl = sum(t.pnl for t in period_trades)
-                win_rate = len([t for t in period_trades if t.is_winner]) / len(period_trades)
+                win_rate = len([t for t in period_trades if t.is_winner]) / len(
+                    period_trades
+                )
                 trades_count = len(period_trades)
             else:
                 total_pnl = 0.0
@@ -1065,7 +1092,7 @@ class AttributionAnalyzer:
         moving_avg = []
         for i in range(len(values)):
             start_idx = max(0, i - window + 1)
-            avg = sum(values[start_idx:i + 1]) / (i - start_idx + 1)
+            avg = sum(values[start_idx : i + 1]) / (i - start_idx + 1)
             moving_avg.append(avg)
 
         return moving_avg
@@ -1089,7 +1116,7 @@ class AttributionAnalyzer:
             return "flat"
 
         # Calculate average slope over recent periods
-        recent_values = moving_avg[-min(5, len(moving_avg)):]
+        recent_values = moving_avg[-min(5, len(moving_avg)) :]
         if len(recent_values) < 2:
             return "flat"
 
@@ -1098,7 +1125,9 @@ class AttributionAnalyzer:
         x_mean = (n - 1) / 2
         y_mean = sum(recent_values) / n
 
-        numerator = sum((i - x_mean) * (y - y_mean) for i, y in enumerate(recent_values))
+        numerator = sum(
+            (i - x_mean) * (y - y_mean) for i, y in enumerate(recent_values)
+        )
         denominator = sum((i - x_mean) ** 2 for i in range(n))
 
         if denominator == 0:
@@ -1192,7 +1221,9 @@ class AttributionAnalyzer:
         total_return = sum(strategy_returns)
 
         # If no benchmark, return simple metrics
-        if not self._benchmark_returns or len(self._benchmark_returns) < len(strategy_returns):
+        if not self._benchmark_returns or len(self._benchmark_returns) < len(
+            strategy_returns
+        ):
             return PerformanceDecomposition(
                 strategy=strategy,
                 alpha=total_return / len(strategy_returns) if strategy_returns else 0.0,
@@ -1206,7 +1237,7 @@ class AttributionAnalyzer:
 
         # Align benchmark returns with strategy trades
         # (simplified - assumes benchmark aligns with trade exits)
-        benchmark = self._benchmark_returns[:len(strategy_returns)]
+        benchmark = self._benchmark_returns[: len(strategy_returns)]
 
         # Calculate regression (Alpha and Beta)
         strategy_arr = np.array(strategy_returns)
@@ -1229,7 +1260,11 @@ class AttributionAnalyzer:
         if cov_matrix.ndim < 2:
             beta = 0.0
         else:
-            beta = cov_matrix[0, 1] / np.var(benchmark_arr) if np.var(benchmark_arr) > 0 else 0.0
+            beta = (
+                cov_matrix[0, 1] / np.var(benchmark_arr)
+                if np.var(benchmark_arr) > 0
+                else 0.0
+            )
 
         alpha = np.mean(strategy_arr) - beta * np.mean(benchmark_arr)
 
@@ -1336,19 +1371,23 @@ class AttributionAnalyzer:
             "win_rate": summary.overall_metrics.win_rate,
             "summary": summary.to_dict(),
             "performance_decomposition": [d.to_dict() for d in decomposition],
-            "top_strategies": [
-                r.to_dict() for r in summary.by_strategy[:3]
-            ] if summary.by_strategy else [],
-            "top_symbols": [
-                r.to_dict() for r in summary.by_symbol[:3]
-            ] if summary.by_symbol else [],
+            "top_strategies": [r.to_dict() for r in summary.by_strategy[:3]]
+            if summary.by_strategy
+            else [],
+            "top_symbols": [r.to_dict() for r in summary.by_symbol[:3]]
+            if summary.by_symbol
+            else [],
             "current_equity": self._current_equity,
             "peak_equity": self._peak_equity,
-            "current_drawdown": (self._current_equity - self._peak_equity) / self._peak_equity
-                if self._peak_equity > 0 else 0.0,
+            "current_drawdown": (self._current_equity - self._peak_equity)
+            / self._peak_equity
+            if self._peak_equity > 0
+            else 0.0,
         }
 
-        logger.info(f"Generated daily attribution report for {now.strftime('%Y-%m-%d')}")
+        logger.info(
+            f"Generated daily attribution report for {now.strftime('%Y-%m-%d')}"
+        )
         return report
 
     # =========================================================================
@@ -1383,7 +1422,13 @@ class AttributionAnalyzer:
         Args:
             state: State dictionary from get_state()
         """
-        self.initial_capital = state.get("initial_capital", 10000.0)
+        if "initial_capital" not in state:
+            raise ValueError(
+                "Attribution state is missing 'initial_capital' — refusing to "
+                "guess an account size. State produced by get_state() always "
+                "carries it; a missing key means the state is corrupt."
+            )
+        self.initial_capital = float(state["initial_capital"])
         self.risk_free_rate = state.get("risk_free_rate", 0.02)
         self._current_equity = state.get("current_equity", self.initial_capital)
         self._peak_equity = state.get("peak_equity", self.initial_capital)
@@ -1457,7 +1502,13 @@ def get_attribution_analyzer(
     global _attribution_analyzer
 
     if _attribution_analyzer is None:
-        capital = initial_capital or 10000.0
+        # `is None` check, NOT `or`: an explicit capital of 0.0 must not be
+        # silently replaced by a fallback (the falsy-fallback bug, AUDIT §2.5).
+        capital = (
+            get_settings().paper_initial_balance
+            if initial_capital is None
+            else initial_capital
+        )
         _attribution_analyzer = AttributionAnalyzer(initial_capital=capital)
         logger.info(f"Created new AttributionAnalyzer with ${capital:,.2f} capital")
 

@@ -6,6 +6,18 @@ Provides request/response validation and OpenAPI documentation
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from app.config import get_settings
+
+
+def _default_max_position_size_usdt() -> float:
+    """Venue-cap default: configured paper balance x per-position cap.
+
+    Resolved at request time from Settings (AUDIT 2.5) — never a hardcoded
+    account size. With the $100 account and the 10% position cap this is $10.
+    """
+    settings = get_settings()
+    return settings.paper_initial_balance * settings.max_position_size_pct / 100.0
+
 
 # ============================================================================
 # REQUEST MODELS
@@ -16,10 +28,12 @@ class InitializeManagerRequest(BaseModel):
     """Request model for initializing Statistical Arbitrage Manager"""
 
     total_capital: float = Field(
-        default=100000.0,
+        default_factory=lambda: get_settings().paper_initial_balance,
         gt=0,
-        description="Total capital to allocate across strategies",
-        example=100000.0,
+        description=(
+            "Total capital to allocate across strategies. Defaults to the "
+            "configured paper balance — never a hardcoded account size."
+        ),
     )
     pairs_allocation: float = Field(
         default=0.4,
@@ -72,7 +86,7 @@ class InitializeManagerRequest(BaseModel):
     class Config:
         schema_extra = {
             "example": {
-                "total_capital": 100000.0,
+                "total_capital": 100.0,
                 "pairs_allocation": 0.4,
                 "funding_allocation": 0.4,
                 "triangular_allocation": 0.2,
@@ -175,10 +189,12 @@ class AddFundingStrategyRequest(BaseModel):
         example=0.0001,
     )
     max_position_size: float = Field(
-        default=10000.0,
+        default_factory=_default_max_position_size_usdt,
         gt=0,
-        description="Maximum position size in USDT",
-        example=10000.0,
+        description=(
+            "Maximum position size in USDT (defaults to configured paper "
+            "balance x max_position_size_pct)"
+        ),
     )
 
     @field_validator("symbol")
@@ -194,7 +210,8 @@ class AddFundingStrategyRequest(BaseModel):
             "example": {
                 "symbol": "BTCUSDT",
                 "min_funding_rate": 0.0001,
-                "max_position_size": 10000.0,
+                # "max_position_size" intentionally absent: the schema default
+                # (derived from Settings) applies.
             }
         }
 
@@ -324,7 +341,7 @@ class InitializeManagerResponse(BaseModel):
             "example": {
                 "status": "success",
                 "config": {
-                    "total_capital": 100000.0,
+                    "total_capital": 100.0,
                     "allocation": {
                         "pairs_trading": 0.4,
                         "funding_rate": 0.4,
@@ -458,7 +475,7 @@ class PerformanceResponse(BaseModel):
             "example": {
                 "status": "success",
                 "performance": {
-                    "total_capital": 100000.0,
+                    "total_capital": 100.0,
                     "total_pnl": 5234.50,
                     "total_trades": 47,
                     "winning_trades": 31,
@@ -498,7 +515,7 @@ class StatusResponse(BaseModel):
             "example": {
                 "status": "active",
                 "initialized": True,
-                "total_capital": 100000.0,
+                "total_capital": 100.0,
                 "active_strategies": {
                     "pairs_trading": 3,
                     "funding_rate": 2,

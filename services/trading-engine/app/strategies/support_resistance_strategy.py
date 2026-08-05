@@ -33,12 +33,11 @@ Date: 2025-12-07
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 # Import models from trading engine
@@ -49,8 +48,6 @@ from app.utils.support_resistance_detector import (
     SupportResistanceDetector,
     SupportLevel,
     ResistanceLevel,
-    LevelStrength,
-    get_detector,
 )
 
 # Configure logging for this module
@@ -62,42 +59,42 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # RSI Parameters for entry confirmation
-RSI_OVERSOLD = 35          # RSI below this indicates oversold (buy zone)
-RSI_OVERBOUGHT = 65        # RSI above this indicates overbought (sell zone)
+RSI_OVERSOLD = 35  # RSI below this indicates oversold (buy zone)
+RSI_OVERBOUGHT = 65  # RSI above this indicates overbought (sell zone)
 RSI_EXTREME_OVERSOLD = 25  # Extreme oversold for high-confidence entries
 RSI_EXTREME_OVERBOUGHT = 75  # Extreme overbought for high-confidence exits
 
 # Support/Resistance detection parameters
 SR_LOOKBACK_PERIODS = 250  # Number of candles to analyze for S/R levels (raised from 100 — at 1H candles that's ~10 days of history, surfacing weekly-level zones that 100-bar window missed)
-SR_TOLERANCE_PCT = 0.005   # 0.5% tolerance for "near" S/R level detection
-SR_MIN_STRENGTH = 0.40     # Minimum level strength to consider (0-1)
+SR_TOLERANCE_PCT = 0.005  # 0.5% tolerance for "near" S/R level detection
+SR_MIN_STRENGTH = 0.40  # Minimum level strength to consider (0-1)
 
 # EMA parameters for trend detection
-EMA_FAST_PERIOD = 21       # Fast EMA period (research-optimized)
-EMA_SLOW_PERIOD = 50       # Slow EMA period
+EMA_FAST_PERIOD = 21  # Fast EMA period (research-optimized)
+EMA_SLOW_PERIOD = 50  # Slow EMA period
 
 # ATR-based risk management
-ATR_PERIOD = 14            # ATR calculation period
+ATR_PERIOD = 14  # ATR calculation period
 ATR_STOP_MULTIPLIER = 2.5  # Stop loss distance as ATR multiple
-ATR_MIN_STOP_PCT = 0.01    # Minimum 1% stop loss
-ATR_MAX_STOP_PCT = 0.05    # Maximum 5% stop loss
+ATR_MIN_STOP_PCT = 0.01  # Minimum 1% stop loss
+ATR_MAX_STOP_PCT = 0.05  # Maximum 5% stop loss
 
 # Volume confirmation parameters
 VOLUME_CONFIRMATION_MULT = 1.2  # Volume must be 1.2x average for confirmation
 
 # Confidence calculation weights
-WEIGHT_LEVEL_STRENGTH = 0.40   # 40% for S/R level strength
+WEIGHT_LEVEL_STRENGTH = 0.40  # 40% for S/R level strength
 WEIGHT_RSI_CONFIRMATION = 0.30  # 30% for RSI confirmation
-WEIGHT_TREND_ALIGNMENT = 0.20   # 20% for trend direction
-WEIGHT_VOLUME_CONFIRM = 0.10    # 10% for volume confirmation
+WEIGHT_TREND_ALIGNMENT = 0.20  # 20% for trend direction
+WEIGHT_VOLUME_CONFIRM = 0.10  # 10% for volume confirmation
 
 # Minimum confidence thresholds
-MIN_CONFIDENCE_LONG = 0.55   # Minimum confidence for LONG trades
+MIN_CONFIDENCE_LONG = 0.55  # Minimum confidence for LONG trades
 MIN_CONFIDENCE_SHORT = 0.70  # Minimum confidence for SHORT trades (stricter)
 
 # Position sizing (inherited from ResearchOptimizedStrategy)
-MAX_POSITION_SIZE = 0.08     # Maximum 8% of capital per trade
-MIN_POSITION_SIZE = 0.015    # Minimum 1.5% position size
+MAX_POSITION_SIZE = 0.08  # Maximum 8% of capital per trade
+MIN_POSITION_SIZE = 0.015  # Minimum 1.5% position size
 
 
 class MarketCondition(Enum):
@@ -106,11 +103,12 @@ class MarketCondition(Enum):
 
     Based on ADX and trend strength indicators
     """
-    STRONG_TREND = "STRONG_TREND"      # ADX >= 30, clear direction
-    TRENDING = "TRENDING"               # ADX 25-30, moderate trend
-    WEAK_TREND = "WEAK_TREND"          # ADX 20-25, weak trend
-    RANGING = "RANGING"                 # ADX < 20, sideways market
-    VOLATILE = "VOLATILE"               # High ATR, unpredictable
+
+    STRONG_TREND = "STRONG_TREND"  # ADX >= 30, clear direction
+    TRENDING = "TRENDING"  # ADX 25-30, moderate trend
+    WEAK_TREND = "WEAK_TREND"  # ADX 20-25, weak trend
+    RANGING = "RANGING"  # ADX < 20, sideways market
+    VOLATILE = "VOLATILE"  # High ATR, unpredictable
 
 
 class SignalStrength(Enum):
@@ -119,10 +117,11 @@ class SignalStrength(Enum):
 
     Determines how much capital to allocate to the trade
     """
-    STRONG = "STRONG"       # High confidence, multiple confirmations
-    MODERATE = "MODERATE"   # Medium confidence, some confirmations
-    WEAK = "WEAK"          # Low confidence, minimal confirmations
-    NONE = "NONE"          # No actionable signal
+
+    STRONG = "STRONG"  # High confidence, multiple confirmations
+    MODERATE = "MODERATE"  # Medium confidence, some confirmations
+    WEAK = "WEAK"  # Low confidence, minimal confirmations
+    NONE = "NONE"  # No actionable signal
 
 
 @dataclass
@@ -132,10 +131,11 @@ class PartialExitLevel:
 
     Allows scaling out of positions at multiple price targets
     """
-    price: float           # Price level for this exit
-    exit_percent: float    # Percentage of position to exit (0.0-1.0)
-    atr_multiple: float    # ATR multiple from entry
-    label: str             # Label for this level (TP1, TP2, TP3)
+
+    price: float  # Price level for this exit
+    exit_percent: float  # Percentage of position to exit (0.0-1.0)
+    atr_multiple: float  # ATR multiple from entry
+    label: str  # Label for this level (TP1, TP2, TP3)
 
 
 @dataclass
@@ -145,6 +145,7 @@ class TradeSetup:
 
     This dataclass is compatible with the auto_trader system
     """
+
     action: SignalAction
     confidence: float
     signal_strength: SignalStrength
@@ -198,7 +199,7 @@ class SupportResistanceStrategy:
             indicators=indicator_dict,
             current_price=95000.0,
             df=ohlcv_dataframe,
-            capital=10000.0
+            capital=available_capital,  # e.g. paper_engine.get_balance()
         )
 
         if setup and setup.action == SignalAction.BUY:
@@ -232,9 +233,7 @@ class SupportResistanceStrategy:
 
         # Initialize the S/R detector
         self.sr_detector = SupportResistanceDetector(
-            swing_window=5,
-            cluster_tolerance_pct=0.003,
-            min_touches=2
+            swing_window=5, cluster_tolerance_pct=0.003, min_touches=2
         )
 
         # Track strategy performance
@@ -251,7 +250,9 @@ class SupportResistanceStrategy:
         # Log initialization
         logger.info("SupportResistanceStrategy initialized with parameters:")
         logger.info(f"  RSI: oversold={rsi_oversold}, overbought={rsi_overbought}")
-        logger.info(f"  S/R: lookback={sr_lookback}, tolerance={sr_tolerance_pct*100:.2f}%")
+        logger.info(
+            f"  S/R: lookback={sr_lookback}, tolerance={sr_tolerance_pct * 100:.2f}%"
+        )
         logger.info(f"  ATR Stop: {atr_stop_mult}x ATR")
 
     def _should_refresh_cache(self) -> bool:
@@ -267,11 +268,7 @@ class SupportResistanceStrategy:
         elapsed = (datetime.now() - self._cache_timestamp).total_seconds()
         return elapsed > self._cache_duration_seconds
 
-    def _update_sr_levels(
-        self,
-        df: pd.DataFrame,
-        force_refresh: bool = False
-    ) -> None:
+    def _update_sr_levels(self, df: pd.DataFrame, force_refresh: bool = False) -> None:
         """
         Update cached support and resistance levels
 
@@ -286,14 +283,12 @@ class SupportResistanceStrategy:
 
         # Detect support levels
         self._cached_support_levels = self.sr_detector.find_support_levels(
-            df=df,
-            lookback=self.sr_lookback
+            df=df, lookback=self.sr_lookback
         )
 
         # Detect resistance levels
         self._cached_resistance_levels = self.sr_detector.find_resistance_levels(
-            df=df,
-            lookback=self.sr_lookback
+            df=df, lookback=self.sr_lookback
         )
 
         # Update cache timestamp
@@ -304,11 +299,7 @@ class SupportResistanceStrategy:
             f"{len(self._cached_resistance_levels)} resistance levels"
         )
 
-    def _calculate_rsi(
-        self,
-        df: pd.DataFrame,
-        period: int = 14
-    ) -> float:
+    def _calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> float:
         """
         Calculate current RSI value from price data
 
@@ -323,7 +314,7 @@ class SupportResistanceStrategy:
             return 50.0  # Neutral if not enough data
 
         # Calculate price changes
-        delta = df['close'].diff()
+        delta = df["close"].diff()
 
         # Separate gains and losses
         gains = delta.where(delta > 0, 0.0)
@@ -343,11 +334,7 @@ class SupportResistanceStrategy:
 
         return round(rsi, 2)
 
-    def _calculate_ema(
-        self,
-        df: pd.DataFrame,
-        period: int
-    ) -> float:
+    def _calculate_ema(self, df: pd.DataFrame, period: int) -> float:
         """
         Calculate current EMA value from price data
 
@@ -359,16 +346,12 @@ class SupportResistanceStrategy:
             Current EMA value
         """
         if len(df) < period:
-            return df['close'].iloc[-1]
+            return df["close"].iloc[-1]
 
-        ema = df['close'].ewm(span=period, adjust=False).mean()
+        ema = df["close"].ewm(span=period, adjust=False).mean()
         return round(ema.iloc[-1], 2)
 
-    def _calculate_atr(
-        self,
-        df: pd.DataFrame,
-        period: int = 14
-    ) -> float:
+    def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> float:
         """
         Calculate current ATR (Average True Range)
 
@@ -381,12 +364,12 @@ class SupportResistanceStrategy:
         """
         if len(df) < period + 1:
             # Default to 2% of current price
-            return df['close'].iloc[-1] * 0.02
+            return df["close"].iloc[-1] * 0.02
 
         # Calculate True Range components
-        high_low = df['high'] - df['low']
-        high_close_prev = abs(df['high'] - df['close'].shift(1))
-        low_close_prev = abs(df['low'] - df['close'].shift(1))
+        high_low = df["high"] - df["low"]
+        high_close_prev = abs(df["high"] - df["close"].shift(1))
+        low_close_prev = abs(df["low"] - df["close"].shift(1))
 
         # True Range is the maximum of the three
         tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
@@ -396,11 +379,7 @@ class SupportResistanceStrategy:
 
         return round(atr.iloc[-1], 2)
 
-    def _calculate_volume_ratio(
-        self,
-        df: pd.DataFrame,
-        lookback: int = 20
-    ) -> float:
+    def _calculate_volume_ratio(self, df: pd.DataFrame, lookback: int = 20) -> float:
         """
         Calculate current volume relative to average
 
@@ -411,22 +390,19 @@ class SupportResistanceStrategy:
         Returns:
             Volume ratio (current / average)
         """
-        if 'volume' not in df.columns or len(df) < lookback:
+        if "volume" not in df.columns or len(df) < lookback:
             return 1.0  # Neutral if no volume data
 
-        avg_volume = df['volume'].tail(lookback).mean()
+        avg_volume = df["volume"].tail(lookback).mean()
 
         if avg_volume <= 0:
             return 1.0
 
-        current_volume = df['volume'].iloc[-1]
+        current_volume = df["volume"].iloc[-1]
         return round(current_volume / avg_volume, 2)
 
     def _classify_market_condition(
-        self,
-        df: pd.DataFrame,
-        atr: float,
-        current_price: float
+        self, df: pd.DataFrame, atr: float, current_price: float
     ) -> MarketCondition:
         """
         Classify current market condition
@@ -471,7 +447,7 @@ class SupportResistanceStrategy:
         rsi_value: float,
         is_long: bool,
         ema_aligned: bool,
-        volume_confirmed: bool
+        volume_confirmed: bool,
     ) -> Tuple[float, List[str]]:
         """
         Calculate confidence score for the signal
@@ -503,13 +479,17 @@ class SupportResistanceStrategy:
             # For longs, lower RSI = better (oversold bounce)
             if rsi_value <= RSI_EXTREME_OVERSOLD:
                 rsi_score = 1.0
-                reasoning.append(f"RSI extreme oversold ({rsi_value:.1f}) - strong bounce signal")
+                reasoning.append(
+                    f"RSI extreme oversold ({rsi_value:.1f}) - strong bounce signal"
+                )
             elif rsi_value <= self.rsi_oversold:
                 rsi_score = 0.7 + (self.rsi_oversold - rsi_value) / 50
                 reasoning.append(f"RSI oversold ({rsi_value:.1f}) - bounce likely")
             elif rsi_value <= 45:
                 rsi_score = 0.4
-                reasoning.append(f"RSI neutral-low ({rsi_value:.1f}) - weak confirmation")
+                reasoning.append(
+                    f"RSI neutral-low ({rsi_value:.1f}) - weak confirmation"
+                )
             else:
                 rsi_score = 0.2
                 reasoning.append(f"RSI neutral ({rsi_value:.1f}) - no RSI confirmation")
@@ -517,13 +497,17 @@ class SupportResistanceStrategy:
             # For shorts, higher RSI = better (overbought rejection)
             if rsi_value >= RSI_EXTREME_OVERBOUGHT:
                 rsi_score = 1.0
-                reasoning.append(f"RSI extreme overbought ({rsi_value:.1f}) - strong rejection signal")
+                reasoning.append(
+                    f"RSI extreme overbought ({rsi_value:.1f}) - strong rejection signal"
+                )
             elif rsi_value >= self.rsi_overbought:
                 rsi_score = 0.7 + (rsi_value - self.rsi_overbought) / 50
                 reasoning.append(f"RSI overbought ({rsi_value:.1f}) - rejection likely")
             elif rsi_value >= 55:
                 rsi_score = 0.4
-                reasoning.append(f"RSI neutral-high ({rsi_value:.1f}) - weak confirmation")
+                reasoning.append(
+                    f"RSI neutral-high ({rsi_value:.1f}) - weak confirmation"
+                )
             else:
                 rsi_score = 0.2
                 reasoning.append(f"RSI neutral ({rsi_value:.1f}) - no RSI confirmation")
@@ -532,7 +516,9 @@ class SupportResistanceStrategy:
         if ema_aligned:
             trend_score = 1.0
             trend_dir = "bullish" if is_long else "bearish"
-            reasoning.append(f"Trend aligned ({trend_dir}) - EMA20 {'>' if is_long else '<'} EMA50")
+            reasoning.append(
+                f"Trend aligned ({trend_dir}) - EMA20 {'>' if is_long else '<'} EMA50"
+            )
         else:
             trend_score = 0.3
             reasoning.append("Trend not aligned - counter-trend trade")
@@ -547,10 +533,10 @@ class SupportResistanceStrategy:
 
         # Calculate weighted confidence
         confidence = (
-            level_score * WEIGHT_LEVEL_STRENGTH +
-            rsi_score * WEIGHT_RSI_CONFIRMATION +
-            trend_score * WEIGHT_TREND_ALIGNMENT +
-            volume_score * WEIGHT_VOLUME_CONFIRM
+            level_score * WEIGHT_LEVEL_STRENGTH
+            + rsi_score * WEIGHT_RSI_CONFIRMATION
+            + trend_score * WEIGHT_TREND_ALIGNMENT
+            + volume_score * WEIGHT_VOLUME_CONFIRM
         )
 
         # Cap confidence at 0.95
@@ -571,7 +557,7 @@ class SupportResistanceStrategy:
         atr: float,
         is_long: bool,
         support_levels: List[SupportLevel],
-        resistance_levels: List[ResistanceLevel]
+        resistance_levels: List[ResistanceLevel],
     ) -> Tuple[float, float, List[PartialExitLevel]]:
         """
         Calculate stop loss, take profit, and partial exits
@@ -609,9 +595,7 @@ class SupportResistanceStrategy:
             if next_resistance and next_resistance.price > entry_price * 1.01:
                 # Use next resistance as take profit (at least 1% profit)
                 take_profit = next_resistance.price
-                logger.debug(
-                    f"Using resistance level {take_profit:.2f} as take profit"
-                )
+                logger.debug(f"Using resistance level {take_profit:.2f} as take profit")
             else:
                 # Default: 2:1 R/R ratio
                 take_profit = entry_price + (stop_distance * 2)
@@ -628,9 +612,7 @@ class SupportResistanceStrategy:
             if next_support and next_support.price < entry_price * 0.99:
                 # Use next support as take profit (at least 1% profit)
                 take_profit = next_support.price
-                logger.debug(
-                    f"Using support level {take_profit:.2f} as take profit"
-                )
+                logger.debug(f"Using support level {take_profit:.2f} as take profit")
             else:
                 # Default: 2:1 R/R ratio
                 take_profit = entry_price - (stop_distance * 2)
@@ -643,11 +625,7 @@ class SupportResistanceStrategy:
         return round(stop_loss, 2), round(take_profit, 2), partial_exits
 
     def _calculate_partial_exits(
-        self,
-        entry_price: float,
-        atr: float,
-        is_long: bool,
-        final_target: float
+        self, entry_price: float, atr: float, is_long: bool, final_target: float
     ) -> List[PartialExitLevel]:
         """
         Calculate partial exit levels for scaled profit taking
@@ -677,38 +655,46 @@ class SupportResistanceStrategy:
 
         # TP1: 25% at 1x ATR (1:1 R/R approximately)
         tp1_distance = atr * 1.0
-        tp1_price = entry_price + tp1_distance if is_long else entry_price - tp1_distance
-        partial_exits.append(PartialExitLevel(
-            price=round(tp1_price, 2),
-            exit_percent=0.25,
-            atr_multiple=1.0,
-            label="TP1"
-        ))
+        tp1_price = (
+            entry_price + tp1_distance if is_long else entry_price - tp1_distance
+        )
+        partial_exits.append(
+            PartialExitLevel(
+                price=round(tp1_price, 2),
+                exit_percent=0.25,
+                atr_multiple=1.0,
+                label="TP1",
+            )
+        )
 
         # TP2: 35% at 1.5x ATR
         tp2_distance = atr * 1.5
-        tp2_price = entry_price + tp2_distance if is_long else entry_price - tp2_distance
-        partial_exits.append(PartialExitLevel(
-            price=round(tp2_price, 2),
-            exit_percent=0.35,
-            atr_multiple=1.5,
-            label="TP2"
-        ))
+        tp2_price = (
+            entry_price + tp2_distance if is_long else entry_price - tp2_distance
+        )
+        partial_exits.append(
+            PartialExitLevel(
+                price=round(tp2_price, 2),
+                exit_percent=0.35,
+                atr_multiple=1.5,
+                label="TP2",
+            )
+        )
 
         # TP3: 40% at final target
-        partial_exits.append(PartialExitLevel(
-            price=round(final_target, 2),
-            exit_percent=0.40,
-            atr_multiple=abs(total_distance) / atr,
-            label="TP3"
-        ))
+        partial_exits.append(
+            PartialExitLevel(
+                price=round(final_target, 2),
+                exit_percent=0.40,
+                atr_multiple=abs(total_distance) / atr,
+                label="TP3",
+            )
+        )
 
         return partial_exits
 
     def _classify_signal_strength(
-        self,
-        confidence: float,
-        indicators_aligned: int
+        self, confidence: float, indicators_aligned: int
     ) -> SignalStrength:
         """
         Classify signal strength based on confidence and confirmations
@@ -730,11 +716,7 @@ class SupportResistanceStrategy:
             return SignalStrength.NONE
 
     def _calculate_position_size(
-        self,
-        capital: float,
-        entry_price: float,
-        stop_loss: float,
-        confidence: float
+        self, capital: float, entry_price: float, stop_loss: float, confidence: float
     ) -> float:
         """
         Calculate position size based on risk and confidence
@@ -764,8 +746,7 @@ class SupportResistanceStrategy:
 
         # Clamp to min/max
         final_position = max(
-            MIN_POSITION_SIZE,
-            min(adjusted_position, MAX_POSITION_SIZE)
+            MIN_POSITION_SIZE, min(adjusted_position, MAX_POSITION_SIZE)
         )
 
         logger.debug(
@@ -780,7 +761,10 @@ class SupportResistanceStrategy:
         indicators: Dict[str, IndicatorSignal],
         current_price: float,
         df: Optional[pd.DataFrame] = None,
-        capital: float = 10000.0
+        # Effectively REQUIRED: None raises ValueError below. Kept in place
+        # (not reordered) so existing positional callers keep working. The old
+        # 10000.0 default was 100x the real account (AUDIT 2.5).
+        capital: Optional[float] = None,
     ) -> Optional[TradeSetup]:
         """
         Generate a trading signal based on S/R levels and confirmations
@@ -806,6 +790,12 @@ class SupportResistanceStrategy:
         Returns:
             TradeSetup if valid signal found, None otherwise
         """
+        if capital is None:
+            raise ValueError(
+                "generate_signal requires capital — pass the live balance "
+                "(e.g. paper_engine.get_balance()); refusing to assume an "
+                "account size (AUDIT 2.5)"
+            )
         logger.debug(f"Generating S/R signal at price {current_price:.2f}")
 
         # Need OHLCV data for S/R detection
@@ -837,16 +827,12 @@ class SupportResistanceStrategy:
 
         # Check if near support (potential BUY)
         near_support, support_level = self.sr_detector.is_near_support(
-            current_price,
-            self._cached_support_levels,
-            self.sr_tolerance_pct
+            current_price, self._cached_support_levels, self.sr_tolerance_pct
         )
 
         # Check if near resistance (potential SELL)
         near_resistance, resistance_level = self.sr_detector.is_near_resistance(
-            current_price,
-            self._cached_resistance_levels,
-            self.sr_tolerance_pct
+            current_price, self._cached_resistance_levels, self.sr_tolerance_pct
         )
 
         # Initialize reasoning
@@ -872,17 +858,19 @@ class SupportResistanceStrategy:
                     rsi_value=rsi_value,
                     is_long=True,
                     ema_aligned=trend_bullish,
-                    volume_confirmed=volume_confirmed
+                    volume_confirmed=volume_confirmed,
                 )
                 reasoning.extend(conf_reasoning)
 
                 # Count indicators aligned
-                indicators_aligned = sum([
-                    1 if support_level.strength >= 0.5 else 0,
-                    1 if rsi_oversold else 0,
-                    1 if trend_bullish else 0,
-                    1 if volume_confirmed else 0
-                ])
+                indicators_aligned = sum(
+                    [
+                        1 if support_level.strength >= 0.5 else 0,
+                        1 if rsi_oversold else 0,
+                        1 if trend_bullish else 0,
+                        1 if volume_confirmed else 0,
+                    ]
+                )
 
                 # Check minimum confidence for long
                 if confidence >= MIN_CONFIDENCE_LONG:
@@ -892,12 +880,14 @@ class SupportResistanceStrategy:
                     )
 
                     # Calculate stops and targets
-                    stop_loss, take_profit, partial_exits = self._calculate_stops_and_targets(
-                        entry_price=current_price,
-                        atr=atr,
-                        is_long=True,
-                        support_levels=self._cached_support_levels,
-                        resistance_levels=self._cached_resistance_levels
+                    stop_loss, take_profit, partial_exits = (
+                        self._calculate_stops_and_targets(
+                            entry_price=current_price,
+                            atr=atr,
+                            is_long=True,
+                            support_levels=self._cached_support_levels,
+                            resistance_levels=self._cached_resistance_levels,
+                        )
                     )
 
                     # Calculate position size
@@ -918,7 +908,7 @@ class SupportResistanceStrategy:
                     )
                     reasoning.append(
                         f"SL: {stop_loss:.2f}, TP: {take_profit:.2f}, "
-                        f"Position: {position_size*100:.1f}%"
+                        f"Position: {position_size * 100:.1f}%"
                     )
 
                     logger.info(
@@ -942,8 +932,8 @@ class SupportResistanceStrategy:
                         market_condition=market_condition,
                         sr_level_price=support_level.price,
                         sr_level_strength=support_level.strength,
-                        sr_level_type='support',
-                        partial_exits=partial_exits
+                        sr_level_type="support",
+                        partial_exits=partial_exits,
                     )
                 else:
                     logger.debug(
@@ -971,17 +961,19 @@ class SupportResistanceStrategy:
                     rsi_value=rsi_value,
                     is_long=False,
                     ema_aligned=trend_bearish,
-                    volume_confirmed=volume_confirmed
+                    volume_confirmed=volume_confirmed,
                 )
                 reasoning.extend(conf_reasoning)
 
                 # Count indicators aligned
-                indicators_aligned = sum([
-                    1 if resistance_level.strength >= 0.5 else 0,
-                    1 if rsi_overbought else 0,
-                    1 if trend_bearish else 0,
-                    1 if volume_confirmed else 0
-                ])
+                indicators_aligned = sum(
+                    [
+                        1 if resistance_level.strength >= 0.5 else 0,
+                        1 if rsi_overbought else 0,
+                        1 if trend_bearish else 0,
+                        1 if volume_confirmed else 0,
+                    ]
+                )
 
                 # Check minimum confidence for short (stricter)
                 if confidence >= MIN_CONFIDENCE_SHORT:
@@ -991,12 +983,14 @@ class SupportResistanceStrategy:
                     )
 
                     # Calculate stops and targets
-                    stop_loss, take_profit, partial_exits = self._calculate_stops_and_targets(
-                        entry_price=current_price,
-                        atr=atr,
-                        is_long=False,
-                        support_levels=self._cached_support_levels,
-                        resistance_levels=self._cached_resistance_levels
+                    stop_loss, take_profit, partial_exits = (
+                        self._calculate_stops_and_targets(
+                            entry_price=current_price,
+                            atr=atr,
+                            is_long=False,
+                            support_levels=self._cached_support_levels,
+                            resistance_levels=self._cached_resistance_levels,
+                        )
                     )
 
                     # Calculate position size
@@ -1017,7 +1011,7 @@ class SupportResistanceStrategy:
                     )
                     reasoning.append(
                         f"SL: {stop_loss:.2f}, TP: {take_profit:.2f}, "
-                        f"Position: {position_size*100:.1f}%"
+                        f"Position: {position_size * 100:.1f}%"
                     )
 
                     logger.info(
@@ -1041,8 +1035,8 @@ class SupportResistanceStrategy:
                         market_condition=market_condition,
                         sr_level_price=resistance_level.price,
                         sr_level_strength=resistance_level.strength,
-                        sr_level_type='resistance',
-                        partial_exits=partial_exits
+                        sr_level_type="resistance",
+                        partial_exits=partial_exits,
                     )
                 else:
                     logger.debug(
@@ -1070,40 +1064,37 @@ class SupportResistanceStrategy:
                 "oversold": self.rsi_oversold,
                 "overbought": self.rsi_overbought,
                 "extreme_oversold": RSI_EXTREME_OVERSOLD,
-                "extreme_overbought": RSI_EXTREME_OVERBOUGHT
+                "extreme_overbought": RSI_EXTREME_OVERBOUGHT,
             },
             "support_resistance": {
                 "lookback": self.sr_lookback,
                 "tolerance_pct": self.sr_tolerance_pct,
                 "min_strength": SR_MIN_STRENGTH,
                 "cached_support_count": len(self._cached_support_levels),
-                "cached_resistance_count": len(self._cached_resistance_levels)
+                "cached_resistance_count": len(self._cached_resistance_levels),
             },
-            "ema": {
-                "fast_period": EMA_FAST_PERIOD,
-                "slow_period": EMA_SLOW_PERIOD
-            },
+            "ema": {"fast_period": EMA_FAST_PERIOD, "slow_period": EMA_SLOW_PERIOD},
             "atr_stops": {
                 "period": ATR_PERIOD,
                 "stop_multiplier": self.atr_stop_mult,
                 "min_stop_pct": ATR_MIN_STOP_PCT,
-                "max_stop_pct": ATR_MAX_STOP_PCT
+                "max_stop_pct": ATR_MAX_STOP_PCT,
             },
             "confidence_weights": {
                 "level_strength": WEIGHT_LEVEL_STRENGTH,
                 "rsi_confirmation": WEIGHT_RSI_CONFIRMATION,
                 "trend_alignment": WEIGHT_TREND_ALIGNMENT,
-                "volume_confirmation": WEIGHT_VOLUME_CONFIRM
+                "volume_confirmation": WEIGHT_VOLUME_CONFIRM,
             },
             "position_sizing": {
                 "min_size": MIN_POSITION_SIZE,
-                "max_size": MAX_POSITION_SIZE
+                "max_size": MAX_POSITION_SIZE,
             },
             "thresholds": {
                 "min_confidence_long": MIN_CONFIDENCE_LONG,
                 "min_confidence_short": MIN_CONFIDENCE_SHORT,
-                "volume_confirmation_mult": VOLUME_CONFIRMATION_MULT
-            }
+                "volume_confirmation_mult": VOLUME_CONFIRMATION_MULT,
+            },
         }
 
     def get_current_levels(self) -> Dict:
@@ -1122,7 +1113,7 @@ class SupportResistanceStrategy:
                     "touch_count": level.touch_count,
                     "last_touch": level.last_touch_time.isoformat()
                     if isinstance(level.last_touch_time, datetime)
-                    else str(level.last_touch_time)
+                    else str(level.last_touch_time),
                 }
                 for level in self._cached_support_levels[:5]  # Top 5
             ],
@@ -1134,14 +1125,15 @@ class SupportResistanceStrategy:
                     "touch_count": level.touch_count,
                     "last_touch": level.last_touch_time.isoformat()
                     if isinstance(level.last_touch_time, datetime)
-                    else str(level.last_touch_time)
+                    else str(level.last_touch_time),
                 }
                 for level in self._cached_resistance_levels[:5]  # Top 5
             ],
             "cache_age_seconds": (
                 (datetime.now() - self._cache_timestamp).total_seconds()
-                if self._cache_timestamp else None
-            )
+                if self._cache_timestamp
+                else None
+            ),
         }
 
 
@@ -1172,7 +1164,9 @@ def generate_sr_signal(
     indicators: Dict[str, IndicatorSignal],
     current_price: float,
     df: Optional[pd.DataFrame] = None,
-    capital: float = 10000.0
+    # Effectively REQUIRED: None raises ValueError in generate_signal. The old
+    # 10000.0 default was 100x the real account (AUDIT 2.5).
+    capital: Optional[float] = None,
 ) -> Optional[TradeSetup]:
     """
     Convenience function to generate S/R signal using default strategy
@@ -1181,7 +1175,7 @@ def generate_sr_signal(
         indicators: Dictionary of indicator signals
         current_price: Current market price
         df: DataFrame with OHLCV data
-        capital: Available trading capital
+        capital: Available trading capital. REQUIRED — None raises ValueError.
 
     Returns:
         TradeSetup if valid signal found, None otherwise

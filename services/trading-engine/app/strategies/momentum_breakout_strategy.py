@@ -60,112 +60,116 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Bollinger Band Squeeze Detection Parameters
-BB_PERIOD = 20                    # Bollinger Bands calculation period
-BB_STD_DEV = 2.0                  # Standard deviation multiplier for bands
-BB_SQUEEZE_THRESHOLD = 0.03       # BB width < 3% of price = squeeze detected
-BB_SQUEEZE_MIN_PERIODS = 5        # Minimum periods of squeeze for valid setup
+BB_PERIOD = 20  # Bollinger Bands calculation period
+BB_STD_DEV = 2.0  # Standard deviation multiplier for bands
+BB_SQUEEZE_THRESHOLD = 0.03  # BB width < 3% of price = squeeze detected
+BB_SQUEEZE_MIN_PERIODS = 5  # Minimum periods of squeeze for valid setup
 
 # Keltner Channel Parameters (for squeeze detection)
-KC_PERIOD = 20                    # Keltner Channel period
-KC_ATR_MULT = 1.5                 # ATR multiplier for Keltner Channel
+KC_PERIOD = 20  # Keltner Channel period
+KC_ATR_MULT = 1.5  # ATR multiplier for Keltner Channel
 
 # ATR Parameters for Volatility Analysis
-ATR_PERIOD = 14                   # ATR calculation period
-ATR_CONTRACTION_THRESHOLD = 0.6   # ATR < 60% of recent average = contraction
-ATR_LOOKBACK_PERIODS = 50         # Lookback for ATR comparison
+ATR_PERIOD = 14  # ATR calculation period
+ATR_CONTRACTION_THRESHOLD = 0.6  # ATR < 60% of recent average = contraction
+ATR_LOOKBACK_PERIODS = 50  # Lookback for ATR comparison
 
 # Volume Confirmation Parameters
-VOLUME_BREAKOUT_MULT = 1.5        # Require 1.5x average volume on breakout
-VOLUME_LOOKBACK = 20              # Periods for average volume calculation
-VOLUME_SPIKE_MULT = 2.0           # 2x volume = strong conviction
+VOLUME_BREAKOUT_MULT = 1.5  # Require 1.5x average volume on breakout
+VOLUME_LOOKBACK = 20  # Periods for average volume calculation
+VOLUME_SPIKE_MULT = 2.0  # 2x volume = strong conviction
 
 # ADX Parameters for Trend Strength
-ADX_PERIOD = 14                   # ADX calculation period
-ADX_MIN_VALUE = 20                # Minimum ADX for breakout confirmation
-ADX_RISING_PERIODS = 3            # ADX must be rising for this many periods
-ADX_STRONG_TREND = 25             # ADX > 25 = strong breakout confirmation
+ADX_PERIOD = 14  # ADX calculation period
+ADX_MIN_VALUE = 20  # Minimum ADX for breakout confirmation
+ADX_RISING_PERIODS = 3  # ADX must be rising for this many periods
+ADX_STRONG_TREND = 25  # ADX > 25 = strong breakout confirmation
 
 # RSI Momentum Parameters
-RSI_PERIOD = 14                   # RSI calculation period
-RSI_BULLISH_MIN = 50              # RSI must be > 50 for bullish breakout
-RSI_BEARISH_MAX = 50              # RSI must be < 50 for bearish breakout
-RSI_STRONG_BULLISH = 60           # RSI > 60 = strong bullish momentum
-RSI_STRONG_BEARISH = 40           # RSI < 40 = strong bearish momentum
+RSI_PERIOD = 14  # RSI calculation period
+RSI_BULLISH_MIN = 50  # RSI must be > 50 for bullish breakout
+RSI_BEARISH_MAX = 50  # RSI must be < 50 for bearish breakout
+RSI_STRONG_BULLISH = 60  # RSI > 60 = strong bullish momentum
+RSI_STRONG_BEARISH = 40  # RSI < 40 = strong bearish momentum
 
 # Rate of Change (ROC) Parameters
-ROC_PERIOD = 10                   # ROC calculation period
-ROC_BREAKOUT_THRESHOLD = 0.02     # 2% price change confirms momentum
+ROC_PERIOD = 10  # ROC calculation period
+ROC_BREAKOUT_THRESHOLD = 0.02  # 2% price change confirms momentum
 
 # MACD Parameters for Momentum Confirmation
-MACD_FAST = 12                    # Fast EMA period
-MACD_SLOW = 26                    # Slow EMA period
-MACD_SIGNAL = 9                   # Signal line period
+MACD_FAST = 12  # Fast EMA period
+MACD_SLOW = 26  # Slow EMA period
+MACD_SIGNAL = 9  # Signal line period
 
 # Consolidation Detection Parameters
-CONSOLIDATION_MIN_PERIODS = 10    # Minimum periods for valid consolidation
-CONSOLIDATION_MAX_PERIODS = 50    # Maximum periods (avoid too long ranges)
-CONSOLIDATION_RANGE_PCT = 0.05    # Max 5% range for consolidation
+CONSOLIDATION_MIN_PERIODS = 10  # Minimum periods for valid consolidation
+CONSOLIDATION_MAX_PERIODS = 50  # Maximum periods (avoid too long ranges)
+CONSOLIDATION_RANGE_PCT = 0.05  # Max 5% range for consolidation
 
 # Risk Management Parameters
-ATR_STOP_MULTIPLIER = 2.5         # Stop loss at 2.5x ATR from entry
-MEASURED_MOVE_MULT = 2.0          # Take profit at 2x range height
-TRAILING_STOP_ATR_MULT = 2.0      # Trailing stop at 2x ATR
-TRAILING_START_ATR_MULT = 2.0     # Start trailing after 2x ATR profit (1R)
+ATR_STOP_MULTIPLIER = 2.5  # Stop loss at 2.5x ATR from entry
+MEASURED_MOVE_MULT = 2.0  # Take profit at 2x range height
+TRAILING_STOP_ATR_MULT = 2.0  # Trailing stop at 2x ATR
+TRAILING_START_ATR_MULT = 2.0  # Start trailing after 2x ATR profit (1R)
 
 # Position Sizing Parameters
-MAX_POSITION_SIZE = 0.08          # Maximum 8% of capital per trade
-MIN_POSITION_SIZE = 0.015         # Minimum 1.5% position size
-BASE_RISK_PER_TRADE = 0.02        # 2% risk per trade base
+MAX_POSITION_SIZE = 0.08  # Maximum 8% of capital per trade
+MIN_POSITION_SIZE = 0.015  # Minimum 1.5% position size
+BASE_RISK_PER_TRADE = 0.02  # 2% risk per trade base
 
 # Confidence Score Weights
-WEIGHT_SQUEEZE = 0.25             # 25% for squeeze detection
-WEIGHT_VOLUME = 0.25              # 25% for volume confirmation
-WEIGHT_ADX = 0.20                 # 20% for trend strength
-WEIGHT_MOMENTUM = 0.20            # 20% for momentum indicators
-WEIGHT_BREAKOUT_STRENGTH = 0.10   # 10% for breakout strength
+WEIGHT_SQUEEZE = 0.25  # 25% for squeeze detection
+WEIGHT_VOLUME = 0.25  # 25% for volume confirmation
+WEIGHT_ADX = 0.20  # 20% for trend strength
+WEIGHT_MOMENTUM = 0.20  # 20% for momentum indicators
+WEIGHT_BREAKOUT_STRENGTH = 0.10  # 10% for breakout strength
 
 # Minimum Thresholds
-MIN_CONFIDENCE_LONG = 0.55        # Minimum confidence for long breakout
-MIN_CONFIDENCE_SHORT = 0.70       # Minimum confidence for short breakout
+MIN_CONFIDENCE_LONG = 0.55  # Minimum confidence for long breakout
+MIN_CONFIDENCE_SHORT = 0.70  # Minimum confidence for short breakout
 
 
 class BreakoutDirection(Enum):
     """
     Direction of the breakout from consolidation
     """
-    BULLISH = "BULLISH"           # Upward breakout
-    BEARISH = "BEARISH"           # Downward breakout
-    NONE = "NONE"                 # No breakout detected
+
+    BULLISH = "BULLISH"  # Upward breakout
+    BEARISH = "BEARISH"  # Downward breakout
+    NONE = "NONE"  # No breakout detected
 
 
 class SqueezeState(Enum):
     """
     Current state of the Bollinger Band squeeze
     """
-    SQUEEZE_ON = "SQUEEZE_ON"     # In squeeze (low volatility)
-    SQUEEZE_OFF = "SQUEEZE_OFF"   # Breakout from squeeze
-    NO_SQUEEZE = "NO_SQUEEZE"     # Normal volatility
+
+    SQUEEZE_ON = "SQUEEZE_ON"  # In squeeze (low volatility)
+    SQUEEZE_OFF = "SQUEEZE_OFF"  # Breakout from squeeze
+    NO_SQUEEZE = "NO_SQUEEZE"  # Normal volatility
 
 
 class SignalStrength(Enum):
     """
     Signal strength classification for position sizing
     """
-    STRONG = "STRONG"             # High confidence, multiple confirmations
-    MODERATE = "MODERATE"         # Medium confidence, some confirmations
-    WEAK = "WEAK"                 # Low confidence, minimal confirmations
-    NONE = "NONE"                 # No actionable signal
+
+    STRONG = "STRONG"  # High confidence, multiple confirmations
+    MODERATE = "MODERATE"  # Medium confidence, some confirmations
+    WEAK = "WEAK"  # Low confidence, minimal confirmations
+    NONE = "NONE"  # No actionable signal
 
 
 class MarketCondition(Enum):
     """
     Market condition classification
     """
-    STRONG_TREND = "STRONG_TREND"   # ADX >= 30, clear direction
-    TRENDING = "TRENDING"            # ADX 25-30, moderate trend
-    WEAK_TREND = "WEAK_TREND"       # ADX 20-25, weak trend
-    RANGING = "RANGING"              # ADX < 20, sideways market
-    BREAKOUT = "BREAKOUT"            # Fresh breakout from consolidation
+
+    STRONG_TREND = "STRONG_TREND"  # ADX >= 30, clear direction
+    TRENDING = "TRENDING"  # ADX 25-30, moderate trend
+    WEAK_TREND = "WEAK_TREND"  # ADX 20-25, weak trend
+    RANGING = "RANGING"  # ADX < 20, sideways market
+    BREAKOUT = "BREAKOUT"  # Fresh breakout from consolidation
 
 
 @dataclass
@@ -182,6 +186,7 @@ class ConsolidationRange:
         avg_volume: Average volume during consolidation
         squeeze_detected: Whether Bollinger squeeze was detected
     """
+
     high: float
     low: float
     periods: int
@@ -216,6 +221,7 @@ class BreakoutSignal:
         rsi_value: Current RSI value
         reasoning: List of reasons for the signal
     """
+
     direction: BreakoutDirection
     entry_price: float
     stop_loss: float
@@ -233,6 +239,7 @@ class PartialExitLevel:
     """
     Partial profit taking level for breakout trades
     """
+
     price: float
     exit_percent: float
     atr_multiple: float
@@ -244,6 +251,7 @@ class TradeSetup:
     """
     Complete trade setup compatible with auto_trader system
     """
+
     action: SignalAction
     confidence: float
     signal_strength: SignalStrength
@@ -297,7 +305,7 @@ class MomentumBreakoutStrategy:
         setup = strategy.generate_signal(
             df=ohlcv_dataframe,
             current_price=95000.0,
-            capital=10000.0
+            capital=available_capital,  # e.g. paper_engine.get_balance()
         )
 
         if setup and setup.action == SignalAction.BUY:
@@ -350,10 +358,7 @@ class MomentumBreakoutStrategy:
     # =========================================================================
 
     def _calculate_bollinger_bands(
-        self,
-        df: pd.DataFrame,
-        period: int = BB_PERIOD,
-        std_dev: float = BB_STD_DEV
+        self, df: pd.DataFrame, period: int = BB_PERIOD, std_dev: float = BB_STD_DEV
     ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
         """
         Calculate Bollinger Bands and band width
@@ -367,10 +372,10 @@ class MomentumBreakoutStrategy:
             Tuple of (upper_band, middle_band, lower_band, band_width_pct)
         """
         # Calculate middle band (SMA)
-        middle = df['close'].rolling(window=period, min_periods=period).mean()
+        middle = df["close"].rolling(window=period, min_periods=period).mean()
 
         # Calculate standard deviation
-        rolling_std = df['close'].rolling(window=period, min_periods=period).std()
+        rolling_std = df["close"].rolling(window=period, min_periods=period).std()
 
         # Calculate upper and lower bands
         upper = middle + (rolling_std * std_dev)
@@ -382,10 +387,7 @@ class MomentumBreakoutStrategy:
         return upper, middle, lower, band_width_pct
 
     def _calculate_keltner_channel(
-        self,
-        df: pd.DataFrame,
-        period: int = KC_PERIOD,
-        atr_mult: float = KC_ATR_MULT
+        self, df: pd.DataFrame, period: int = KC_PERIOD, atr_mult: float = KC_ATR_MULT
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate Keltner Channel for squeeze detection
@@ -399,7 +401,7 @@ class MomentumBreakoutStrategy:
             Tuple of (upper_channel, middle_line, lower_channel)
         """
         # Calculate middle line (EMA)
-        middle = df['close'].ewm(span=period, adjust=False).mean()
+        middle = df["close"].ewm(span=period, adjust=False).mean()
 
         # Calculate ATR
         atr = self._calculate_atr(df, period)
@@ -410,11 +412,7 @@ class MomentumBreakoutStrategy:
 
         return upper, middle, lower
 
-    def _calculate_atr(
-        self,
-        df: pd.DataFrame,
-        period: int = ATR_PERIOD
-    ) -> pd.Series:
+    def _calculate_atr(self, df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.Series:
         """
         Calculate Average True Range
 
@@ -426,9 +424,9 @@ class MomentumBreakoutStrategy:
             ATR series
         """
         # Calculate True Range components
-        high_low = df['high'] - df['low']
-        high_close_prev = abs(df['high'] - df['close'].shift(1))
-        low_close_prev = abs(df['low'] - df['close'].shift(1))
+        high_low = df["high"] - df["low"]
+        high_close_prev = abs(df["high"] - df["close"].shift(1))
+        low_close_prev = abs(df["low"] - df["close"].shift(1))
 
         # True Range is the maximum of the three
         tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
@@ -439,9 +437,7 @@ class MomentumBreakoutStrategy:
         return atr
 
     def _calculate_adx(
-        self,
-        df: pd.DataFrame,
-        period: int = ADX_PERIOD
+        self, df: pd.DataFrame, period: int = ADX_PERIOD
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate ADX (Average Directional Index) and DI lines
@@ -454,8 +450,8 @@ class MomentumBreakoutStrategy:
             Tuple of (ADX, +DI, -DI)
         """
         # Calculate +DM and -DM
-        high_diff = df['high'].diff()
-        low_diff = -df['low'].diff()
+        high_diff = df["high"].diff()
+        low_diff = -df["low"].diff()
 
         plus_dm = np.where((high_diff > low_diff) & (high_diff > 0), high_diff, 0)
         minus_dm = np.where((low_diff > high_diff) & (low_diff > 0), low_diff, 0)
@@ -484,11 +480,7 @@ class MomentumBreakoutStrategy:
 
         return adx, plus_di, minus_di
 
-    def _calculate_rsi(
-        self,
-        df: pd.DataFrame,
-        period: int = RSI_PERIOD
-    ) -> pd.Series:
+    def _calculate_rsi(self, df: pd.DataFrame, period: int = RSI_PERIOD) -> pd.Series:
         """
         Calculate RSI (Relative Strength Index)
 
@@ -500,7 +492,7 @@ class MomentumBreakoutStrategy:
             RSI series
         """
         # Calculate price changes
-        delta = df['close'].diff()
+        delta = df["close"].diff()
 
         # Separate gains and losses
         gains = delta.where(delta > 0, 0.0)
@@ -521,7 +513,7 @@ class MomentumBreakoutStrategy:
         df: pd.DataFrame,
         fast: int = MACD_FAST,
         slow: int = MACD_SLOW,
-        signal: int = MACD_SIGNAL
+        signal: int = MACD_SIGNAL,
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate MACD indicator
@@ -536,8 +528,8 @@ class MomentumBreakoutStrategy:
             Tuple of (MACD line, signal line, histogram)
         """
         # Calculate EMAs
-        ema_fast = df['close'].ewm(span=fast, adjust=False).mean()
-        ema_slow = df['close'].ewm(span=slow, adjust=False).mean()
+        ema_fast = df["close"].ewm(span=fast, adjust=False).mean()
+        ema_slow = df["close"].ewm(span=slow, adjust=False).mean()
 
         # MACD line
         macd_line = ema_fast - ema_slow
@@ -550,11 +542,7 @@ class MomentumBreakoutStrategy:
 
         return macd_line, signal_line, histogram
 
-    def _calculate_roc(
-        self,
-        df: pd.DataFrame,
-        period: int = ROC_PERIOD
-    ) -> pd.Series:
+    def _calculate_roc(self, df: pd.DataFrame, period: int = ROC_PERIOD) -> pd.Series:
         """
         Calculate Rate of Change (momentum)
 
@@ -565,13 +553,11 @@ class MomentumBreakoutStrategy:
         Returns:
             ROC series (percentage change)
         """
-        roc = (df['close'] - df['close'].shift(period)) / df['close'].shift(period)
+        roc = (df["close"] - df["close"].shift(period)) / df["close"].shift(period)
         return roc
 
     def _calculate_volume_ratio(
-        self,
-        df: pd.DataFrame,
-        lookback: int = VOLUME_LOOKBACK
+        self, df: pd.DataFrame, lookback: int = VOLUME_LOOKBACK
     ) -> float:
         """
         Calculate current volume relative to average
@@ -583,25 +569,22 @@ class MomentumBreakoutStrategy:
         Returns:
             Volume ratio (current / average)
         """
-        if 'volume' not in df.columns or len(df) < lookback:
+        if "volume" not in df.columns or len(df) < lookback:
             return 1.0
 
-        avg_volume = df['volume'].tail(lookback + 1).head(lookback).mean()
+        avg_volume = df["volume"].tail(lookback + 1).head(lookback).mean()
 
         if avg_volume <= 0:
             return 1.0
 
-        current_volume = df['volume'].iloc[-1]
+        current_volume = df["volume"].iloc[-1]
         return round(current_volume / avg_volume, 2)
 
     # =========================================================================
     # SQUEEZE AND CONSOLIDATION DETECTION
     # =========================================================================
 
-    def _detect_squeeze_state(
-        self,
-        df: pd.DataFrame
-    ) -> Tuple[SqueezeState, int]:
+    def _detect_squeeze_state(self, df: pd.DataFrame) -> Tuple[SqueezeState, int]:
         """
         Detect Bollinger Band squeeze (BB inside Keltner Channel)
 
@@ -637,16 +620,16 @@ class MomentumBreakoutStrategy:
         # Determine state
         if squeeze_on.iloc[-1]:
             return SqueezeState.SQUEEZE_ON, squeeze_count
-        elif squeeze_count > 0 and squeeze_on.iloc[-2] if len(squeeze_on) > 1 else False:
+        elif (
+            squeeze_count > 0 and squeeze_on.iloc[-2] if len(squeeze_on) > 1 else False
+        ):
             # Just broke out of squeeze
             return SqueezeState.SQUEEZE_OFF, squeeze_count
         else:
             return SqueezeState.NO_SQUEEZE, 0
 
     def _detect_consolidation(
-        self,
-        df: pd.DataFrame,
-        lookback: int = CONSOLIDATION_MAX_PERIODS
+        self, df: pd.DataFrame, lookback: int = CONSOLIDATION_MAX_PERIODS
     ) -> Optional[ConsolidationRange]:
         """
         Detect consolidation range in price data
@@ -670,8 +653,8 @@ class MomentumBreakoutStrategy:
         recent = df.tail(lookback)
 
         # Find local highs and lows
-        range_high = recent['high'].max()
-        range_low = recent['low'].min()
+        range_high = recent["high"].max()
+        range_low = recent["low"].min()
         range_pct = (range_high - range_low) / range_low
 
         # Check if range is narrow enough for consolidation
@@ -680,8 +663,8 @@ class MomentumBreakoutStrategy:
             return None
 
         # Verify price has respected range boundaries
-        touches_high = (recent['high'] >= range_high * 0.998).sum()
-        touches_low = (recent['low'] <= range_low * 1.002).sum()
+        touches_high = (recent["high"] >= range_high * 0.998).sum()
+        touches_low = (recent["low"] <= range_low * 1.002).sum()
 
         # Need at least 2 touches on each boundary
         if touches_high < 2 or touches_low < 2:
@@ -689,13 +672,17 @@ class MomentumBreakoutStrategy:
 
         # Check for squeeze
         squeeze_state, squeeze_periods = self._detect_squeeze_state(df)
-        squeeze_detected = squeeze_state == SqueezeState.SQUEEZE_ON and squeeze_periods >= 3
+        squeeze_detected = (
+            squeeze_state == SqueezeState.SQUEEZE_ON and squeeze_periods >= 3
+        )
 
         # Calculate average volume during consolidation
-        avg_volume = recent['volume'].mean() if 'volume' in recent.columns else 0
+        avg_volume = recent["volume"].mean() if "volume" in recent.columns else 0
 
         # Get start time
-        start_time = recent.index[0] if isinstance(recent.index[0], datetime) else datetime.now()
+        start_time = (
+            recent.index[0] if isinstance(recent.index[0], datetime) else datetime.now()
+        )
 
         consolidation = ConsolidationRange(
             high=range_high,
@@ -704,12 +691,12 @@ class MomentumBreakoutStrategy:
             start_time=start_time,
             range_pct=range_pct,
             avg_volume=avg_volume,
-            squeeze_detected=squeeze_detected
+            squeeze_detected=squeeze_detected,
         )
 
         logger.debug(
             f"Consolidation detected: {range_low:.2f} - {range_high:.2f} "
-            f"({range_pct*100:.2f}%), {len(recent)} periods, squeeze={squeeze_detected}"
+            f"({range_pct * 100:.2f}%), {len(recent)} periods, squeeze={squeeze_detected}"
         )
 
         return consolidation
@@ -719,10 +706,7 @@ class MomentumBreakoutStrategy:
     # =========================================================================
 
     def _detect_breakout(
-        self,
-        df: pd.DataFrame,
-        consolidation: ConsolidationRange,
-        current_price: float
+        self, df: pd.DataFrame, consolidation: ConsolidationRange, current_price: float
     ) -> Optional[BreakoutDirection]:
         """
         Detect if price has broken out of consolidation
@@ -744,21 +728,19 @@ class MomentumBreakoutStrategy:
         # Check for bullish breakout
         if current_price > bullish_breakout_level:
             # Verify with close above level (not just wick)
-            if df['close'].iloc[-1] > consolidation.high:
+            if df["close"].iloc[-1] > consolidation.high:
                 return BreakoutDirection.BULLISH
 
         # Check for bearish breakout
         if current_price < bearish_breakout_level:
             # Verify with close below level
-            if df['close'].iloc[-1] < consolidation.low:
+            if df["close"].iloc[-1] < consolidation.low:
                 return BreakoutDirection.BEARISH
 
         return BreakoutDirection.NONE
 
     def _validate_breakout_volume(
-        self,
-        df: pd.DataFrame,
-        direction: BreakoutDirection
+        self, df: pd.DataFrame, direction: BreakoutDirection
     ) -> Tuple[bool, float]:
         """
         Validate breakout with volume confirmation
@@ -778,14 +760,14 @@ class MomentumBreakoutStrategy:
         if is_valid:
             logger.debug(f"Volume confirmed breakout: {volume_ratio:.2f}x average")
         else:
-            logger.debug(f"Volume insufficient for breakout: {volume_ratio:.2f}x (need {self.volume_mult}x)")
+            logger.debug(
+                f"Volume insufficient for breakout: {volume_ratio:.2f}x (need {self.volume_mult}x)"
+            )
 
         return is_valid, volume_ratio
 
     def _validate_breakout_adx(
-        self,
-        df: pd.DataFrame,
-        direction: BreakoutDirection
+        self, df: pd.DataFrame, direction: BreakoutDirection
     ) -> Tuple[bool, float, bool]:
         """
         Validate breakout with ADX trend strength
@@ -815,7 +797,9 @@ class MomentumBreakoutStrategy:
             di_aligned = minus_di.iloc[-1] > plus_di.iloc[-1]
 
         # Valid if ADX above minimum and rising, or ADX is strong
-        is_valid = (current_adx >= self.adx_min and (adx_rising or di_aligned)) or current_adx >= ADX_STRONG_TREND
+        is_valid = (
+            current_adx >= self.adx_min and (adx_rising or di_aligned)
+        ) or current_adx >= ADX_STRONG_TREND
 
         logger.debug(
             f"ADX validation: value={current_adx:.1f}, rising={adx_rising}, "
@@ -825,9 +809,7 @@ class MomentumBreakoutStrategy:
         return is_valid, current_adx, adx_rising
 
     def _validate_breakout_momentum(
-        self,
-        df: pd.DataFrame,
-        direction: BreakoutDirection
+        self, df: pd.DataFrame, direction: BreakoutDirection
     ) -> Tuple[bool, float, Dict]:
         """
         Validate breakout with momentum indicators
@@ -845,66 +827,74 @@ class MomentumBreakoutStrategy:
         # RSI validation
         rsi = self._calculate_rsi(df)
         current_rsi = rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else 50
-        momentum_details['rsi'] = current_rsi
+        momentum_details["rsi"] = current_rsi
 
         if direction == BreakoutDirection.BULLISH:
             if current_rsi >= RSI_STRONG_BULLISH:
                 momentum_score += 0.4
-                momentum_details['rsi_aligned'] = True
+                momentum_details["rsi_aligned"] = True
             elif current_rsi >= RSI_BULLISH_MIN:
                 momentum_score += 0.2
-                momentum_details['rsi_aligned'] = True
+                momentum_details["rsi_aligned"] = True
             else:
-                momentum_details['rsi_aligned'] = False
+                momentum_details["rsi_aligned"] = False
         elif direction == BreakoutDirection.BEARISH:
             if current_rsi <= RSI_STRONG_BEARISH:
                 momentum_score += 0.4
-                momentum_details['rsi_aligned'] = True
+                momentum_details["rsi_aligned"] = True
             elif current_rsi <= RSI_BEARISH_MAX:
                 momentum_score += 0.2
-                momentum_details['rsi_aligned'] = True
+                momentum_details["rsi_aligned"] = True
             else:
-                momentum_details['rsi_aligned'] = False
+                momentum_details["rsi_aligned"] = False
 
         # MACD validation
         macd_line, signal_line, histogram = self._calculate_macd(df)
         current_histogram = histogram.iloc[-1] if not pd.isna(histogram.iloc[-1]) else 0
-        momentum_details['macd_histogram'] = current_histogram
+        momentum_details["macd_histogram"] = current_histogram
 
         if direction == BreakoutDirection.BULLISH and current_histogram > 0:
             momentum_score += 0.3
-            momentum_details['macd_aligned'] = True
+            momentum_details["macd_aligned"] = True
         elif direction == BreakoutDirection.BEARISH and current_histogram < 0:
             momentum_score += 0.3
-            momentum_details['macd_aligned'] = True
+            momentum_details["macd_aligned"] = True
         else:
-            momentum_details['macd_aligned'] = False
+            momentum_details["macd_aligned"] = False
 
         # ROC validation
         roc = self._calculate_roc(df)
         current_roc = roc.iloc[-1] if not pd.isna(roc.iloc[-1]) else 0
-        momentum_details['roc'] = current_roc
+        momentum_details["roc"] = current_roc
 
-        if direction == BreakoutDirection.BULLISH and current_roc >= ROC_BREAKOUT_THRESHOLD:
+        if (
+            direction == BreakoutDirection.BULLISH
+            and current_roc >= ROC_BREAKOUT_THRESHOLD
+        ):
             momentum_score += 0.3
-            momentum_details['roc_aligned'] = True
-        elif direction == BreakoutDirection.BEARISH and current_roc <= -ROC_BREAKOUT_THRESHOLD:
+            momentum_details["roc_aligned"] = True
+        elif (
+            direction == BreakoutDirection.BEARISH
+            and current_roc <= -ROC_BREAKOUT_THRESHOLD
+        ):
             momentum_score += 0.3
-            momentum_details['roc_aligned'] = True
+            momentum_details["roc_aligned"] = True
         else:
-            momentum_details['roc_aligned'] = False
+            momentum_details["roc_aligned"] = False
 
         # Valid if at least 2 momentum indicators align
-        aligned_count = sum([
-            momentum_details.get('rsi_aligned', False),
-            momentum_details.get('macd_aligned', False),
-            momentum_details.get('roc_aligned', False)
-        ])
+        aligned_count = sum(
+            [
+                momentum_details.get("rsi_aligned", False),
+                momentum_details.get("macd_aligned", False),
+                momentum_details.get("roc_aligned", False),
+            ]
+        )
         is_valid = aligned_count >= 2
 
         logger.debug(
             f"Momentum validation: RSI={current_rsi:.1f}, MACD_hist={current_histogram:.4f}, "
-            f"ROC={current_roc*100:.2f}%, aligned={aligned_count}/3"
+            f"ROC={current_roc * 100:.2f}%, aligned={aligned_count}/3"
         )
 
         return is_valid, momentum_score, momentum_details
@@ -916,7 +906,7 @@ class MomentumBreakoutStrategy:
         adx_value: float,
         adx_rising: bool,
         momentum_score: float,
-        direction: BreakoutDirection
+        direction: BreakoutDirection,
     ) -> Tuple[float, List[str]]:
         """
         Calculate confidence score for the breakout signal
@@ -941,10 +931,14 @@ class MomentumBreakoutStrategy:
             reasoning.append("Bollinger squeeze detected - high probability setup")
         elif consolidation.range_pct <= 0.03:
             squeeze_score = 0.7
-            reasoning.append(f"Tight consolidation ({consolidation.range_pct*100:.1f}% range)")
+            reasoning.append(
+                f"Tight consolidation ({consolidation.range_pct * 100:.1f}% range)"
+            )
         else:
             squeeze_score = 0.4
-            reasoning.append(f"Moderate consolidation ({consolidation.range_pct*100:.1f}% range)")
+            reasoning.append(
+                f"Moderate consolidation ({consolidation.range_pct * 100:.1f}% range)"
+            )
 
         confidence += squeeze_score * WEIGHT_SQUEEZE
 
@@ -985,8 +979,15 @@ class MomentumBreakoutStrategy:
 
         # 5. Breakout strength score (10%)
         # Based on how far price has moved beyond range
-        current_price = consolidation.high if direction == BreakoutDirection.BULLISH else consolidation.low
-        breakout_distance = abs(current_price - consolidation.get_midpoint()) / consolidation.get_height()
+        current_price = (
+            consolidation.high
+            if direction == BreakoutDirection.BULLISH
+            else consolidation.low
+        )
+        breakout_distance = (
+            abs(current_price - consolidation.get_midpoint())
+            / consolidation.get_height()
+        )
 
         if breakout_distance >= 1.2:
             breakout_score = 1.0
@@ -1004,7 +1005,11 @@ class MomentumBreakoutStrategy:
         confidence = min(confidence, 0.95)
 
         # Add direction to reasoning
-        direction_str = "BULLISH (Long)" if direction == BreakoutDirection.BULLISH else "BEARISH (Short)"
+        direction_str = (
+            "BULLISH (Long)"
+            if direction == BreakoutDirection.BULLISH
+            else "BEARISH (Short)"
+        )
         reasoning.insert(0, f"{direction_str} breakout from consolidation")
 
         return confidence, reasoning
@@ -1014,7 +1019,7 @@ class MomentumBreakoutStrategy:
         entry_price: float,
         consolidation: ConsolidationRange,
         direction: BreakoutDirection,
-        atr: float
+        atr: float,
     ) -> Tuple[float, float, List[PartialExitLevel]]:
         """
         Calculate stop loss, take profit, and partial exits
@@ -1063,7 +1068,7 @@ class MomentumBreakoutStrategy:
         entry_price: float,
         atr: float,
         direction: BreakoutDirection,
-        final_target: float
+        final_target: float,
     ) -> List[PartialExitLevel]:
         """
         Calculate partial exit levels for scaled profit taking
@@ -1093,31 +1098,41 @@ class MomentumBreakoutStrategy:
 
         # TP1: 30% at 1x ATR (approximately 1R)
         tp1_distance = atr * 2.5  # Match ATR_STOP_MULTIPLIER for 1:1
-        tp1_price = entry_price + tp1_distance if is_long else entry_price - tp1_distance
-        partial_exits.append(PartialExitLevel(
-            price=round(tp1_price, 2),
-            exit_percent=0.30,
-            atr_multiple=2.5,
-            label="TP1"
-        ))
+        tp1_price = (
+            entry_price + tp1_distance if is_long else entry_price - tp1_distance
+        )
+        partial_exits.append(
+            PartialExitLevel(
+                price=round(tp1_price, 2),
+                exit_percent=0.30,
+                atr_multiple=2.5,
+                label="TP1",
+            )
+        )
 
         # TP2: 40% at 1.5x ATR (1.5R)
         tp2_distance = atr * 3.75
-        tp2_price = entry_price + tp2_distance if is_long else entry_price - tp2_distance
-        partial_exits.append(PartialExitLevel(
-            price=round(tp2_price, 2),
-            exit_percent=0.40,
-            atr_multiple=3.75,
-            label="TP2"
-        ))
+        tp2_price = (
+            entry_price + tp2_distance if is_long else entry_price - tp2_distance
+        )
+        partial_exits.append(
+            PartialExitLevel(
+                price=round(tp2_price, 2),
+                exit_percent=0.40,
+                atr_multiple=3.75,
+                label="TP2",
+            )
+        )
 
         # TP3: 30% at final target
-        partial_exits.append(PartialExitLevel(
-            price=round(final_target, 2),
-            exit_percent=0.30,
-            atr_multiple=abs(total_distance) / atr,
-            label="TP3"
-        ))
+        partial_exits.append(
+            PartialExitLevel(
+                price=round(final_target, 2),
+                exit_percent=0.30,
+                atr_multiple=abs(total_distance) / atr,
+                label="TP3",
+            )
+        )
 
         return partial_exits
 
@@ -1127,7 +1142,7 @@ class MomentumBreakoutStrategy:
         entry_price: float,
         stop_loss: float,
         confidence: float,
-        atr: float
+        atr: float,
     ) -> float:
         """
         Calculate position size based on risk and confidence
@@ -1164,8 +1179,7 @@ class MomentumBreakoutStrategy:
 
         # Clamp to min/max
         final_position = max(
-            MIN_POSITION_SIZE,
-            min(adjusted_position, MAX_POSITION_SIZE)
+            MIN_POSITION_SIZE, min(adjusted_position, MAX_POSITION_SIZE)
         )
 
         logger.debug(
@@ -1176,9 +1190,7 @@ class MomentumBreakoutStrategy:
         return round(final_position, 4)
 
     def _classify_signal_strength(
-        self,
-        confidence: float,
-        indicators_aligned: int
+        self, confidence: float, indicators_aligned: int
     ) -> SignalStrength:
         """
         Classify signal strength based on confidence and confirmations
@@ -1200,10 +1212,7 @@ class MomentumBreakoutStrategy:
             return SignalStrength.NONE
 
     def _classify_market_condition(
-        self,
-        adx_value: float,
-        squeeze_state: SqueezeState,
-        adx_rising: bool
+        self, adx_value: float, squeeze_state: SqueezeState, adx_rising: bool
     ) -> MarketCondition:
         """
         Classify current market condition
@@ -1236,8 +1245,10 @@ class MomentumBreakoutStrategy:
         self,
         df: pd.DataFrame,
         current_price: float,
-        capital: float = 10000.0,
-        indicators: Optional[Dict[str, IndicatorSignal]] = None
+        # REQUIRED — the old 10000.0 default was 100x the real account; the
+        # only caller (generate_breakout_signal) passes capital (AUDIT 2.5).
+        capital: float,
+        indicators: Optional[Dict[str, IndicatorSignal]] = None,
     ) -> Optional[TradeSetup]:
         """
         Generate a breakout trading signal
@@ -1267,7 +1278,10 @@ class MomentumBreakoutStrategy:
         logger.debug(f"Generating breakout signal at price {current_price:.2f}")
 
         # Need sufficient data
-        if df is None or len(df) < max(self.bb_period, ADX_PERIOD, CONSOLIDATION_MIN_PERIODS) + 20:
+        if (
+            df is None
+            or len(df) < max(self.bb_period, ADX_PERIOD, CONSOLIDATION_MIN_PERIODS) + 20
+        ):
             logger.warning("Insufficient data for breakout strategy")
             return None
 
@@ -1293,15 +1307,14 @@ class MomentumBreakoutStrategy:
         adx_valid, adx_value, adx_rising = self._validate_breakout_adx(df, direction)
 
         # Step 5: Validate with momentum
-        momentum_valid, momentum_score, momentum_details = self._validate_breakout_momentum(df, direction)
+        momentum_valid, momentum_score, momentum_details = (
+            self._validate_breakout_momentum(df, direction)
+        )
 
         # Count aligned indicators
-        indicators_aligned = sum([
-            consolidation.squeeze_detected,
-            volume_valid,
-            adx_valid,
-            momentum_valid
-        ])
+        indicators_aligned = sum(
+            [consolidation.squeeze_detected, volume_valid, adx_valid, momentum_valid]
+        )
 
         # Need at least 2 confirmations
         if indicators_aligned < 2:
@@ -1315,24 +1328,30 @@ class MomentumBreakoutStrategy:
             adx_value=adx_value,
             adx_rising=adx_rising,
             momentum_score=momentum_score,
-            direction=direction
+            direction=direction,
         )
 
         # Check minimum confidence
-        min_conf = MIN_CONFIDENCE_LONG if direction == BreakoutDirection.BULLISH else MIN_CONFIDENCE_SHORT
+        min_conf = (
+            MIN_CONFIDENCE_LONG
+            if direction == BreakoutDirection.BULLISH
+            else MIN_CONFIDENCE_SHORT
+        )
         if confidence < min_conf:
             logger.debug(f"Confidence too low: {confidence:.2f} < {min_conf}")
             return None
 
         # Step 7: Calculate stops and targets
         atr = self._calculate_atr(df)
-        current_atr = atr.iloc[-1] if not pd.isna(atr.iloc[-1]) else current_price * 0.02
+        current_atr = (
+            atr.iloc[-1] if not pd.isna(atr.iloc[-1]) else current_price * 0.02
+        )
 
         stop_loss, take_profit, partial_exits = self._calculate_stops_and_targets(
             entry_price=current_price,
             consolidation=consolidation,
             direction=direction,
-            atr=current_atr
+            atr=current_atr,
         )
 
         # Step 8: Calculate position size
@@ -1345,14 +1364,22 @@ class MomentumBreakoutStrategy:
 
         # Classify market condition
         squeeze_state, _ = self._detect_squeeze_state(df)
-        market_condition = self._classify_market_condition(adx_value, squeeze_state, adx_rising)
+        market_condition = self._classify_market_condition(
+            adx_value, squeeze_state, adx_rising
+        )
 
         # Determine action
-        action = SignalAction.BUY if direction == BreakoutDirection.BULLISH else SignalAction.SELL
+        action = (
+            SignalAction.BUY
+            if direction == BreakoutDirection.BULLISH
+            else SignalAction.SELL
+        )
 
         # Add final details to reasoning
-        reasoning.append(f"Entry: {current_price:.2f}, SL: {stop_loss:.2f}, TP: {take_profit:.2f}")
-        reasoning.append(f"Position size: {position_size*100:.1f}% of capital")
+        reasoning.append(
+            f"Entry: {current_price:.2f}, SL: {stop_loss:.2f}, TP: {take_profit:.2f}"
+        )
+        reasoning.append(f"Position size: {position_size * 100:.1f}% of capital")
         reasoning.append(f"RSI: {momentum_details.get('rsi', 0):.1f}")
 
         logger.info(
@@ -1376,7 +1403,7 @@ class MomentumBreakoutStrategy:
             consolidation_range=consolidation,
             volume_ratio=volume_ratio,
             adx_value=adx_value,
-            partial_exits=partial_exits
+            partial_exits=partial_exits,
         )
 
     def get_strategy_params(self) -> Dict:
@@ -1391,26 +1418,20 @@ class MomentumBreakoutStrategy:
             "bollinger_bands": {
                 "period": self.bb_period,
                 "std_dev": self.bb_std_dev,
-                "squeeze_threshold": BB_SQUEEZE_THRESHOLD
+                "squeeze_threshold": BB_SQUEEZE_THRESHOLD,
             },
-            "keltner_channel": {
-                "period": KC_PERIOD,
-                "atr_mult": KC_ATR_MULT
-            },
-            "atr": {
-                "period": self.atr_period,
-                "stop_multiplier": ATR_STOP_MULTIPLIER
-            },
+            "keltner_channel": {"period": KC_PERIOD, "atr_mult": KC_ATR_MULT},
+            "atr": {"period": self.atr_period, "stop_multiplier": ATR_STOP_MULTIPLIER},
             "volume": {
                 "breakout_mult": self.volume_mult,
                 "spike_mult": VOLUME_SPIKE_MULT,
-                "lookback": VOLUME_LOOKBACK
+                "lookback": VOLUME_LOOKBACK,
             },
             "adx": {
                 "period": ADX_PERIOD,
                 "min_value": self.adx_min,
                 "strong_trend": ADX_STRONG_TREND,
-                "rising_periods": ADX_RISING_PERIODS
+                "rising_periods": ADX_RISING_PERIODS,
             },
             "momentum": {
                 "rsi_period": RSI_PERIOD,
@@ -1418,29 +1439,29 @@ class MomentumBreakoutStrategy:
                 "rsi_bearish_max": RSI_BEARISH_MAX,
                 "macd": f"{MACD_FAST}/{MACD_SLOW}/{MACD_SIGNAL}",
                 "roc_period": ROC_PERIOD,
-                "roc_threshold": ROC_BREAKOUT_THRESHOLD
+                "roc_threshold": ROC_BREAKOUT_THRESHOLD,
             },
             "consolidation": {
                 "min_periods": CONSOLIDATION_MIN_PERIODS,
                 "max_periods": CONSOLIDATION_MAX_PERIODS,
-                "range_pct": CONSOLIDATION_RANGE_PCT
+                "range_pct": CONSOLIDATION_RANGE_PCT,
             },
             "risk_management": {
                 "measured_move_mult": MEASURED_MOVE_MULT,
-                "trailing_atr_mult": TRAILING_STOP_ATR_MULT
+                "trailing_atr_mult": TRAILING_STOP_ATR_MULT,
             },
             "position_sizing": {
                 "min_size": MIN_POSITION_SIZE,
                 "max_size": MAX_POSITION_SIZE,
-                "base_risk": BASE_RISK_PER_TRADE
+                "base_risk": BASE_RISK_PER_TRADE,
             },
             "confidence_weights": {
                 "squeeze": WEIGHT_SQUEEZE,
                 "volume": WEIGHT_VOLUME,
                 "adx": WEIGHT_ADX,
                 "momentum": WEIGHT_MOMENTUM,
-                "breakout_strength": WEIGHT_BREAKOUT_STRENGTH
-            }
+                "breakout_strength": WEIGHT_BREAKOUT_STRENGTH,
+            },
         }
 
 
@@ -1470,8 +1491,10 @@ def get_breakout_strategy() -> MomentumBreakoutStrategy:
 def generate_breakout_signal(
     df: pd.DataFrame,
     current_price: float,
-    capital: float = 10000.0,
-    indicators: Optional[Dict[str, IndicatorSignal]] = None
+    # REQUIRED — the old 10000.0 default was 100x the real account; no caller
+    # in the repo omits capital (AUDIT 2.5).
+    capital: float,
+    indicators: Optional[Dict[str, IndicatorSignal]] = None,
 ) -> Optional[TradeSetup]:
     """
     Convenience function to generate breakout signal using default strategy

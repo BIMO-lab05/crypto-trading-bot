@@ -30,22 +30,20 @@ Date: 2025-12-11
 """
 
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, List, Optional, Any, Tuple
 import statistics
 
 from app.strategies.base import (
     StrategyBase,
-    StrategyMetadata,
     StrategySignal,
     AnalysisResult,
     StrategyCategory,
     StrategyRiskLevel,
     SignalType,
     MarketCondition,
-    create_signal
+    create_signal,
 )
 
 # Configure logging
@@ -56,6 +54,7 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
+
 @dataclass
 class MeanReversionConfig:
     """
@@ -63,6 +62,7 @@ class MeanReversionConfig:
 
     Contains all tunable parameters for the strategy.
     """
+
     # Bollinger Bands parameters
     bb_period: int = 20  # Lookback period for SMA
     bb_std_dev: float = 2.0  # Standard deviation multiplier
@@ -117,6 +117,7 @@ class MeanReversionConfig:
 # MEAN REVERSION STRATEGY
 # =============================================================================
 
+
 class MeanReversionStrategy(StrategyBase):
     """
     Mean Reversion Trading Strategy
@@ -148,15 +149,17 @@ class MeanReversionStrategy(StrategyBase):
         # Generate signals
         signals = await strategy.generate_signals("BTCUSDT", analysis, Decimal("42000"))
 
-        # Calculate position size
-        size, risk = strategy.calculate_position_size(signals[0], 10000, 1.5)
+        # Calculate position size (capital = the live balance, never hardcoded)
+        size, risk = strategy.calculate_position_size(
+            signals[0], available_capital, 1.5
+        )
     """
 
     def __init__(
         self,
         strategy_config: Optional[MeanReversionConfig] = None,
         supported_symbols: Optional[List[str]] = None,
-        primary_timeframe: str = "60"
+        primary_timeframe: str = "60",
     ):
         """
         Initialize Mean Reversion Strategy
@@ -175,20 +178,18 @@ class MeanReversionStrategy(StrategyBase):
             risk_level=StrategyRiskLevel.MODERATE,
             supported_symbols=supported_symbols,
             primary_timeframe=primary_timeframe,
-            description="Trades price reversions to statistical mean using Bollinger Bands and RSI"
+            description="Trades price reversions to statistical mean using Bollinger Bands and RSI",
         )
 
         # Store strategy configuration
         self.strategy_config = strategy_config or MeanReversionConfig()
 
         # Update metadata with configuration
-        self.metadata.required_indicators = [
-            "bollinger_bands", "rsi", "volume", "atr"
-        ]
+        self.metadata.required_indicators = ["bollinger_bands", "rsi", "volume", "atr"]
         self.metadata.required_data_history_bars = max(
             self.strategy_config.bb_period + 50,
             self.strategy_config.rsi_period + 50,
-            self.strategy_config.volume_lookback + 50
+            self.strategy_config.volume_lookback + 50,
         )
         self.metadata.expected_win_rate = 0.55
         self.metadata.expected_profit_factor = 1.4
@@ -210,10 +211,7 @@ class MeanReversionStrategy(StrategyBase):
     # =========================================================================
 
     def _calculate_bollinger_bands(
-        self,
-        closes: List[float],
-        period: int = None,
-        std_dev: float = None
+        self, closes: List[float], period: int = None, std_dev: float = None
     ) -> Dict[str, Optional[float]]:
         """
         Calculate Bollinger Bands
@@ -230,12 +228,7 @@ class MeanReversionStrategy(StrategyBase):
         std_dev = std_dev or self.strategy_config.bb_std_dev
 
         if len(closes) < period:
-            return {
-                "upper": None,
-                "middle": None,
-                "lower": None,
-                "width_pct": None
-            }
+            return {"upper": None, "middle": None, "lower": None, "width_pct": None}
 
         # Get recent closes
         recent_closes = closes[-period:]
@@ -257,13 +250,11 @@ class MeanReversionStrategy(StrategyBase):
             "upper": upper,
             "middle": middle,
             "lower": lower,
-            "width_pct": width_pct
+            "width_pct": width_pct,
         }
 
     def _calculate_rsi(
-        self,
-        closes: List[float],
-        period: int = None
+        self, closes: List[float], period: int = None
     ) -> Optional[float]:
         """
         Calculate Relative Strength Index
@@ -281,7 +272,7 @@ class MeanReversionStrategy(StrategyBase):
             return None
 
         # Calculate price changes
-        changes = [closes[i] - closes[i-1] for i in range(1, len(closes))]
+        changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
         recent_changes = changes[-(period):]
 
         # Separate gains and losses
@@ -306,7 +297,7 @@ class MeanReversionStrategy(StrategyBase):
         highs: List[float],
         lows: List[float],
         closes: List[float],
-        period: int = 14
+        period: int = 14,
     ) -> Optional[float]:
         """
         Calculate Average True Range
@@ -327,17 +318,13 @@ class MeanReversionStrategy(StrategyBase):
         for i in range(1, len(highs)):
             high = highs[i]
             low = lows[i]
-            prev_close = closes[i-1]
+            prev_close = closes[i - 1]
 
             # True range is max of:
             # 1. High - Low (current bar range)
             # 2. abs(High - Previous Close)
             # 3. abs(Low - Previous Close)
-            tr = max(
-                high - low,
-                abs(high - prev_close),
-                abs(low - prev_close)
-            )
+            tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
             true_ranges.append(tr)
 
         # Average of recent true ranges
@@ -345,9 +332,7 @@ class MeanReversionStrategy(StrategyBase):
         return statistics.mean(recent_tr) if recent_tr else None
 
     def _calculate_volume_spike(
-        self,
-        volumes: List[float],
-        lookback: int = None
+        self, volumes: List[float], lookback: int = None
     ) -> Tuple[bool, float]:
         """
         Check for volume spike
@@ -365,7 +350,7 @@ class MeanReversionStrategy(StrategyBase):
             return False, 1.0
 
         current_vol = volumes[-1]
-        avg_vol = statistics.mean(volumes[-(lookback+1):-1])
+        avg_vol = statistics.mean(volumes[-(lookback + 1) : -1])
 
         if avg_vol <= 0:
             return False, 1.0
@@ -379,11 +364,7 @@ class MeanReversionStrategy(StrategyBase):
     # ANALYSIS IMPLEMENTATION
     # =========================================================================
 
-    async def analyze(
-        self,
-        symbol: str,
-        data: Dict[str, Any]
-    ) -> AnalysisResult:
+    async def analyze(self, symbol: str, data: Dict[str, Any]) -> AnalysisResult:
         """
         Analyze market conditions for mean reversion opportunities
 
@@ -401,22 +382,22 @@ class MeanReversionStrategy(StrategyBase):
             AnalysisResult with mean reversion assessment
         """
         # Extract data
-        candles = data.get('candles', [])
+        candles = data.get("candles", [])
         if not candles or len(candles) < self.metadata.required_data_history_bars:
             logger.warning(f"Insufficient data for {symbol}: {len(candles)} candles")
             return AnalysisResult(
                 symbol=symbol,
                 condition=MarketCondition.UNKNOWN,
                 confidence=0.0,
-                recommendation="no_action"
+                recommendation="no_action",
             )
 
         # Extract OHLCV arrays
-        opens = [float(c.get('open', c.get('o', 0))) for c in candles]
-        highs = [float(c.get('high', c.get('h', 0))) for c in candles]
-        lows = [float(c.get('low', c.get('l', 0))) for c in candles]
-        closes = [float(c.get('close', c.get('c', 0))) for c in candles]
-        volumes = [float(c.get('volume', c.get('v', 0))) for c in candles]
+        opens = [float(c.get("open", c.get("o", 0))) for c in candles]
+        highs = [float(c.get("high", c.get("h", 0))) for c in candles]
+        lows = [float(c.get("low", c.get("l", 0))) for c in candles]
+        closes = [float(c.get("close", c.get("c", 0))) for c in candles]
+        volumes = [float(c.get("volume", c.get("v", 0))) for c in candles]
 
         current_price = closes[-1]
 
@@ -427,18 +408,16 @@ class MeanReversionStrategy(StrategyBase):
         has_volume_spike, volume_ratio = self._calculate_volume_spike(volumes)
 
         # Pre-calculated indicators from data (if available)
-        indicators = data.get('indicators', {})
-        if not rsi and 'rsi' in indicators:
-            rsi = indicators['rsi']
+        indicators = data.get("indicators", {})
+        if not rsi and "rsi" in indicators:
+            rsi = indicators["rsi"]
 
         # Default RSI if calculation failed
         if rsi is None:
             rsi = 50.0
 
         # Assess market condition
-        condition = self._assess_market_condition(
-            current_price, bb, rsi, volume_ratio
-        )
+        condition = self._assess_market_condition(current_price, bb, rsi, volume_ratio)
 
         # Determine trend (for context)
         trend_direction = "neutral"
@@ -448,22 +427,22 @@ class MeanReversionStrategy(StrategyBase):
             trend_direction = "bullish"
 
         # Calculate trend strength (deviation from mean)
-        if bb['middle'] and bb['middle'] > 0:
-            deviation_pct = abs(current_price - bb['middle']) / bb['middle'] * 100
+        if bb["middle"] and bb["middle"] > 0:
+            deviation_pct = abs(current_price - bb["middle"]) / bb["middle"] * 100
             trend_strength = min(100, deviation_pct * 20)  # Scale to 0-100
         else:
             trend_strength = 0.0
 
         # Build indicator dictionary
         indicator_values = {
-            "bb_upper": bb['upper'],
-            "bb_middle": bb['middle'],
-            "bb_lower": bb['lower'],
-            "bb_width_pct": bb['width_pct'],
+            "bb_upper": bb["upper"],
+            "bb_middle": bb["middle"],
+            "bb_lower": bb["lower"],
+            "bb_width_pct": bb["width_pct"],
             "rsi": rsi,
             "atr": atr,
             "volume_ratio": volume_ratio,
-            "has_volume_spike": has_volume_spike
+            "has_volume_spike": has_volume_spike,
         }
 
         # Calculate confidence based on signal clarity
@@ -479,13 +458,13 @@ class MeanReversionStrategy(StrategyBase):
         # Identify support/resistance levels
         support_levels = []
         resistance_levels = []
-        if bb['lower']:
-            support_levels.append(bb['lower'])
-        if bb['middle']:
-            support_levels.append(bb['middle'] * 0.99)
-            resistance_levels.append(bb['middle'] * 1.01)
-        if bb['upper']:
-            resistance_levels.append(bb['upper'])
+        if bb["lower"]:
+            support_levels.append(bb["lower"])
+        if bb["middle"]:
+            support_levels.append(bb["middle"] * 0.99)
+            resistance_levels.append(bb["middle"] * 1.01)
+        if bb["upper"]:
+            resistance_levels.append(bb["upper"])
 
         # Create analysis result
         result = AnalysisResult(
@@ -493,14 +472,14 @@ class MeanReversionStrategy(StrategyBase):
             condition=condition,
             trend_direction=trend_direction,
             trend_strength=trend_strength,
-            volatility=bb['width_pct'] or 0.0,
+            volatility=bb["width_pct"] or 0.0,
             volatility_percentile=50.0,  # Would need historical data
             atr_value=atr,
             support_levels=support_levels,
             resistance_levels=resistance_levels,
             indicators=indicator_values,
             confidence=confidence,
-            recommendation=recommendation
+            recommendation=recommendation,
         )
 
         # Cache result
@@ -519,13 +498,13 @@ class MeanReversionStrategy(StrategyBase):
         price: float,
         bb: Dict[str, Optional[float]],
         rsi: float,
-        volume_ratio: float
+        volume_ratio: float,
     ) -> MarketCondition:
         """Assess current market condition for mean reversion"""
-        if bb['upper'] is None or bb['lower'] is None:
+        if bb["upper"] is None or bb["lower"] is None:
             return MarketCondition.UNKNOWN
 
-        bb_width = bb.get('width_pct', 0)
+        bb_width = bb.get("width_pct", 0)
 
         # Check for extreme volatility
         if bb_width > self.strategy_config.max_bb_width_pct:
@@ -542,9 +521,9 @@ class MeanReversionStrategy(StrategyBase):
             return MarketCondition.STRONG_DOWNTREND
 
         # Check position relative to bands
-        if price >= bb['upper']:
+        if price >= bb["upper"]:
             return MarketCondition.UPTREND
-        elif price <= bb['lower']:
+        elif price <= bb["lower"]:
             return MarketCondition.DOWNTREND
 
         # Default: ranging market
@@ -555,12 +534,12 @@ class MeanReversionStrategy(StrategyBase):
         price: float,
         bb: Dict[str, Optional[float]],
         rsi: float,
-        has_volume_spike: bool
+        has_volume_spike: bool,
     ) -> float:
         """Calculate confidence in analysis"""
         confidence = 0.5  # Base confidence
 
-        if bb['upper'] is None or bb['lower'] is None:
+        if bb["upper"] is None or bb["lower"] is None:
             return 0.0
 
         # Add confidence for RSI extremes
@@ -571,9 +550,9 @@ class MeanReversionStrategy(StrategyBase):
 
         # Add confidence for BB touches
         touch_threshold = self.strategy_config.bb_touch_threshold
-        if bb['upper'] and price >= bb['upper'] * (1 - touch_threshold):
+        if bb["upper"] and price >= bb["upper"] * (1 - touch_threshold):
             confidence += 0.15
-        elif bb['lower'] and price <= bb['lower'] * (1 + touch_threshold):
+        elif bb["lower"] and price <= bb["lower"] * (1 + touch_threshold):
             confidence += 0.15
 
         # Add confidence for volume spike
@@ -587,14 +566,14 @@ class MeanReversionStrategy(StrategyBase):
         price: float,
         bb: Dict[str, Optional[float]],
         rsi: float,
-        has_volume_spike: bool
+        has_volume_spike: bool,
     ) -> str:
         """Get trading recommendation"""
-        if bb['lower'] is None or bb['upper'] is None:
+        if bb["lower"] is None or bb["upper"] is None:
             return "no_action"
 
         # Check BB width for tradability
-        bb_width = bb.get('width_pct', 0)
+        bb_width = bb.get("width_pct", 0)
         if bb_width < self.strategy_config.min_bb_width_pct:
             return "no_action"  # Squeeze - wait
         if bb_width > self.strategy_config.max_bb_width_pct:
@@ -603,18 +582,24 @@ class MeanReversionStrategy(StrategyBase):
         touch_threshold = self.strategy_config.bb_touch_threshold
 
         # Long signal conditions
-        if (price <= bb['lower'] * (1 + touch_threshold) and
-            rsi <= self.strategy_config.rsi_oversold):
+        if (
+            price <= bb["lower"] * (1 + touch_threshold)
+            and rsi <= self.strategy_config.rsi_oversold
+        ):
             return "long"
 
         # Short signal conditions
-        if (price >= bb['upper'] * (1 - touch_threshold) and
-            rsi >= self.strategy_config.rsi_overbought):
+        if (
+            price >= bb["upper"] * (1 - touch_threshold)
+            and rsi >= self.strategy_config.rsi_overbought
+        ):
             return "short"
 
         # Exit conditions
-        if (rsi >= self.strategy_config.rsi_neutral_low and
-            rsi <= self.strategy_config.rsi_neutral_high):
+        if (
+            rsi >= self.strategy_config.rsi_neutral_low
+            and rsi <= self.strategy_config.rsi_neutral_high
+        ):
             return "exit_to_neutral"
 
         return "no_action"
@@ -624,10 +609,7 @@ class MeanReversionStrategy(StrategyBase):
     # =========================================================================
 
     async def generate_signals(
-        self,
-        symbol: str,
-        analysis: AnalysisResult,
-        current_price: Decimal
+        self, symbol: str, analysis: AnalysisResult, current_price: Decimal
     ) -> List[StrategySignal]:
         """
         Generate trading signals based on mean reversion analysis
@@ -657,17 +639,20 @@ class MeanReversionStrategy(StrategyBase):
         # Check signal cooldown
         current_bar = self._current_bar.get(symbol, 0)
         last_signal_bar = self._last_signal_bar.get(symbol, -100)
-        if current_bar - last_signal_bar < self.strategy_config.min_bars_between_signals:
+        if (
+            current_bar - last_signal_bar
+            < self.strategy_config.min_bars_between_signals
+        ):
             logger.debug(f"Signal skipped for {symbol}: cooldown active")
             return signals
 
         # Get indicator values from analysis
         indicators = analysis.indicators
-        bb_lower = indicators.get('bb_lower')
-        bb_middle = indicators.get('bb_middle')
-        bb_upper = indicators.get('bb_upper')
-        atr = indicators.get('atr')
-        rsi = indicators.get('rsi', 50)
+        bb_lower = indicators.get("bb_lower")
+        bb_middle = indicators.get("bb_middle")
+        bb_upper = indicators.get("bb_upper")
+        atr = indicators.get("atr")
+        rsi = indicators.get("rsi", 50)
 
         # Calculate stop loss and take profit
         if self.strategy_config.use_atr_stops and atr:
@@ -696,7 +681,7 @@ class MeanReversionStrategy(StrategyBase):
                 stop_loss_pct=sl_pct,
                 take_profit_pct=tp_pct,
                 confidence=analysis.confidence,
-                reasoning=self._build_reasoning("long", indicators)
+                reasoning=self._build_reasoning("long", indicators),
             )
             signal.market_condition = analysis.condition
             signal.timeframe = self.metadata.primary_timeframe
@@ -716,7 +701,7 @@ class MeanReversionStrategy(StrategyBase):
                 stop_loss_pct=sl_pct,
                 take_profit_pct=tp_pct,
                 confidence=analysis.confidence,
-                reasoning=self._build_reasoning("short", indicators)
+                reasoning=self._build_reasoning("short", indicators),
             )
             signal.market_condition = analysis.condition
             signal.timeframe = self.metadata.primary_timeframe
@@ -734,15 +719,11 @@ class MeanReversionStrategy(StrategyBase):
 
         return signals
 
-    def _build_reasoning(
-        self,
-        direction: str,
-        indicators: Dict[str, Any]
-    ) -> str:
+    def _build_reasoning(self, direction: str, indicators: Dict[str, Any]) -> str:
         """Build explanation for the signal"""
-        rsi = indicators.get('rsi', 50)
-        bb_width = indicators.get('bb_width_pct', 0)
-        volume_ratio = indicators.get('volume_ratio', 1.0)
+        rsi = indicators.get("rsi", 50)
+        bb_width = indicators.get("bb_width_pct", 0)
+        volume_ratio = indicators.get("volume_ratio", 1.0)
 
         parts = []
 
@@ -770,7 +751,7 @@ class MeanReversionStrategy(StrategyBase):
         self,
         signal: StrategySignal,
         available_capital: float,
-        risk_per_trade_pct: Optional[float] = None
+        risk_per_trade_pct: Optional[float] = None,
     ) -> Tuple[Decimal, float]:
         """
         Calculate optimal position size for mean reversion trade
@@ -793,7 +774,9 @@ class MeanReversionStrategy(StrategyBase):
         risk_amount = available_capital * (risk_pct / 100)
 
         # Get stop loss percentage
-        stop_loss_pct = signal.stop_loss_pct or self.strategy_config.default_stop_loss_pct
+        stop_loss_pct = (
+            signal.stop_loss_pct or self.strategy_config.default_stop_loss_pct
+        )
 
         if stop_loss_pct <= 0:
             stop_loss_pct = self.strategy_config.default_stop_loss_pct
@@ -803,17 +786,19 @@ class MeanReversionStrategy(StrategyBase):
         position_value = risk_amount / (stop_loss_pct / 100)
 
         # Apply maximum position limit
-        max_position_value = available_capital * (self.strategy_config.max_position_pct / 100)
+        max_position_value = available_capital * (
+            self.strategy_config.max_position_pct / 100
+        )
         position_value = min(position_value, max_position_value)
 
         # Calculate quantity
         if signal.entry_price and signal.entry_price > 0:
             quantity = Decimal(str(position_value)) / signal.entry_price
         else:
-            quantity = Decimal('0')
+            quantity = Decimal("0")
 
         # Round to reasonable precision (8 decimal places)
-        quantity = quantity.quantize(Decimal('0.00000001'))
+        quantity = quantity.quantize(Decimal("0.00000001"))
 
         logger.debug(
             f"Position size calculated: {quantity} units, "
@@ -835,7 +820,9 @@ class MeanReversionStrategy(StrategyBase):
             self._last_signal_bar[symbol] = -100
             self._current_bar[symbol] = 0
 
-        logger.info(f"MeanReversionStrategy ready for {len(self.metadata.supported_symbols)} symbols")
+        logger.info(
+            f"MeanReversionStrategy ready for {len(self.metadata.supported_symbols)} symbols"
+        )
 
     async def on_start(self) -> None:
         """Start trading"""
@@ -878,10 +865,11 @@ class MeanReversionStrategy(StrategyBase):
 # FACTORY FUNCTION
 # =============================================================================
 
+
 def create_mean_reversion_strategy(
     symbols: Optional[List[str]] = None,
     timeframe: str = "60",
-    config_overrides: Optional[Dict[str, Any]] = None
+    config_overrides: Optional[Dict[str, Any]] = None,
 ) -> MeanReversionStrategy:
     """
     Factory function to create a Mean Reversion strategy instance
@@ -907,7 +895,7 @@ def create_mean_reversion_strategy(
     strategy = MeanReversionStrategy(
         strategy_config=config,
         supported_symbols=symbols or [],
-        primary_timeframe=timeframe
+        primary_timeframe=timeframe,
     )
 
     return strategy
