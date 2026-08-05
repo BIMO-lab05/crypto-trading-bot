@@ -211,7 +211,7 @@ Key files: `app/aggregation/signal_cache.py`, `app/monitoring/health.py`, `app/m
 | `kc_length` | 20 | Keltner Channel period |
 | `min_momentum_threshold` | 0.3 | reduced from 0.5 for more signals |
 | `stop_loss_pct` | 1.5% | tighter than default 2.0%; automatic, cannot be disabled |
-| `take_profit_pct` | 3.0–3.5% | symbol-specific |
+| `take_profit_pct` | 3.0% | all symbols |
 | `position_size_pct` | 1.5–2.5% | symbol-specific |
 | `max_positions` | 3 | max exposure 7.5% (3 × 2.5%) |
 | `require_squeeze_release` | False | more entry opportunities |
@@ -219,17 +219,19 @@ Key files: `app/aggregation/signal_cache.py`, `app/monitoring/health.py`, `app/m
 
 ### Symbol whitelist (as configured)
 
+Defaults from `app/strategies/sqzmom_config.py` (`enabled_symbols` + `symbol_config`):
+
 | Symbol | Position size | Min confidence |
 |--------|---------------|----------------|
-| SOLUSDT | 2.5% | 65% |
-| DOGEUSDT | 1.5% | 75% |
-| BNBUSDT | 2.0% | 70% |
+| SOLUSDT | 2.5% | 45% |
+| BNBUSDT | 2.0% | 50% |
+| ADAUSDT | 1.5% | 55% |
 
-Explicitly disabled: BTCUSDT, ETHUSDT, XRPUSDT, ADAUSDT (whitelist enforced in code).
+Not enabled: BTCUSDT, ETHUSDT, XRPUSDT, DOGEUSDT (whitelist enforced in code; DOGEUSDT was removed 2026-04-25 for marginal live performance).
 
-**Caveats (2026-07-30):**
-- The 2025-11 backtest results that justified this whitelist (SOL +2,706%, DOGE +630%, BNB +330%; disabled symbols "lost >99%") are **history only, not evidence**: all pre-2026-07-28 P&L numbers are measurement-corrupted (broken paper accounting + testnet-polluted candles pre-2026-04-25). Re-backtest on `is_mainnet=true` data before relying on any of these figures.
-- DOGEUSDT is in the SQZMOM whitelist but **not** in the validated trading symbols (BTC/ETH/SOL/BNB/ADA as of 2026-05-03) — engine-level position-taking restricts to the validated set; reconcile before Phase 21.
+**Caveats (updated 2026-08-05):**
+- The 2025-11/12 paper-trading results that justified this whitelist (SOL +$55.90, BNB +$44.22, ADA +$27.43) are **history only, not evidence**: all pre-2026-07-28 P&L numbers are measurement-corrupted (broken paper accounting + testnet-polluted candles pre-2026-04-25). Re-backtest on `is_mainnet=true` data before relying on any of these figures.
+- The earlier DOGEUSDT mismatch with the validated trading symbols (BTC/ETH/SOL/BNB/ADA) is resolved — the whitelist is now a subset of the validated set, so the pre-Phase-21 reconcile item is closed.
 
 ### Endpoints (service-internal)
 

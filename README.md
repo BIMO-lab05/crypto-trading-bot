@@ -10,7 +10,7 @@ Autonomous Bybit crypto trading bot. 11 Python microservices + React frontend. C
 
 - **Backend:** Python 3.12, FastAPI, asyncio (one process per service)
 - **Frontend:** React 18 + Vite + Tailwind, dark theme
-- **Data:** TimescaleDB (candles), PostgreSQL (app state), Redis (cache), RabbitMQ (events)
+- **Data:** TimescaleDB (candles), PostgreSQL (app state), Redis (cache), RabbitMQ (deployed but unused — nothing wires AMQP; the service mesh is synchronous REST, see ADR-016)
 - **Orchestration:** Docker Compose (local), Kubernetes + Helm (prod, `infrastructure/`)
 - **ML:** 16 GRU price-prediction models, currently gated **off** by default (see ML status below)
 - **Observability:** Prometheus + Grafana (opt-in via `--profile monitoring`)

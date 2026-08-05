@@ -15,8 +15,8 @@ Reorganized 2026-07-30. Everything here is a **living** guide or reference. Poin
 | `deploy/` | Deploy options index, Oracle free-tier quickstart + headless deploy, `KUBERNETES_RUNBOOK.md` |
 | `security/` | Secrets management, Vault integration, password rotation, hardening, best practices, pre-deploy checklist |
 | `reference/` | Performance-metric definitions, portfolio optimization module |
-| `ml/` | ML data collection guide |
-| `strategy/` | `RESEARCH_PLAN_2026-04-29.md` (active framework), `research-*/` (designs + evidence), `evidence/` (walk-forward gate results) |
+| `ml/` | Empty since the 2026-08-03 archive batch — `ML_DATA_COLLECTION_GUIDE.md` now lives in `archive/2026-08-03/docs/ml/` |
+| `strategy/` | Research artifacts only (`research-2026-04-29/`, `research-2026-05-21/`: scripts + result JSON). Narrative docs incl. `RESEARCH_PLAN_2026-04-29.md` moved to `archive/2026-08-03/docs/strategy/`; strategy authority is CLAUDE.md §2 + ADR-013 |
 | `archive/` | **Historical** reports Nov 2025 – May 2026, by theme — excluded from the Graphify graph. See `archive/README.md` |
 
 ## Failure triage

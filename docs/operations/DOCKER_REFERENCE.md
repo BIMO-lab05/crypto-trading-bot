@@ -612,28 +612,21 @@ docker system prune -a -f --volumes
 
 ## Environment-Specific Commands
 
+**The canonical compose file is `docker-compose.unified.yml` (ADR-009).** The old plain `docker-compose.yml` could not boot on its own (no postgres/timescaledb/redis/rabbitmq) and carried pre-ADR risk values; it was renamed to `docker-compose.legacy.yml.DISABLED` — do not resurrect it. Always pass `-f docker-compose.unified.yml` explicitly; a bare `docker compose up` no longer finds a config file, by design.
+
 ### Development Environment
 ```bash
-# Start with dev profile
-docker compose --profile dev up -d
+# Start the full stack
+docker compose -f docker-compose.unified.yml up -d
 
-# Enable debug logging
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-
-# Hot reload for development
-docker compose up -d --build
+# Rebuild one service (BuildKit hangs on WSL2 — disable it)
+DOCKER_BUILDKIT=0 docker compose -f docker-compose.unified.yml up -d --build <service>
 ```
 
 ### Production Environment
 ```bash
-# Start with production settings
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-# Enable production optimizations
-COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker compose up -d --build
-
-# Run with resource limits
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Start with production overrides
+docker compose -f docker-compose.unified.yml -f docker-compose.prod.yml up -d
 ```
 
 ---
@@ -693,7 +686,7 @@ alias cb-status='./scripts/deploy.sh status'
 ## Additional Resources
 
 - **Automation Scripts**: `/scripts/deploy.sh` and `/scripts/health-check-monitor.sh`
-- **Docker Compose Files**: `/docker-compose.yml` and `/infrastructure/docker-compose.yml`
+- **Docker Compose Files**: `/docker-compose.unified.yml` (canonical, ADR-009) and `/infrastructure/docker-compose.yml` (infra-only). The old `/docker-compose.yml` was renamed to `/docker-compose.legacy.yml.DISABLED`
 - **Optimized Dockerfile Template**: `/Dockerfile.optimized.template`
 - **Logs Directory**: `/logs/`
 - **Backups Directory**: `/backups/`

@@ -21,6 +21,8 @@
 
 ## Service Management
 
+> **Canonical compose file:** `docker-compose.unified.yml` (ADR-009). The old plain `docker-compose.yml` was renamed to `docker-compose.legacy.yml.DISABLED` (it could not boot standalone and carried pre-ADR risk values), so every bare `docker-compose <cmd>` below needs `-f docker-compose.unified.yml` prepended to its arguments.
+
 ### Starting Services
 
 #### Development Environment
@@ -279,7 +281,7 @@ docker stats --no-stream | sort -k 4 -h
 docker-compose restart [service-name]
 
 # 3. If persistent, check for memory leaks in code
-# 4. Increase memory limits in docker-compose.yml
+# 4. Increase memory limits in docker-compose.unified.yml
 ```
 
 ### Issue 3: Slow API Responses
@@ -341,7 +343,7 @@ docker-compose exec postgres psql -U cryptobot -c \
     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle' AND state_change < NOW() - INTERVAL '10 minutes';"
 
 # 2. Increase pool size (temporary)
-# Edit docker-compose.yml environment variables
+# Edit docker-compose.unified.yml environment variables
 
 # 3. Restart services
 docker-compose restart
@@ -661,8 +663,8 @@ find /backups -mtime +30 -delete
 ```
 /mnt/d/Bimo_max/crypto-trading-bot/
 ├── .env                              # Environment configuration
-├── docker-compose.yml                # Service definitions
-├── EMERGENCY_STOP                    # Emergency stop flag
+├── docker-compose.unified.yml        # Service definitions (canonical, ADR-009; old docker-compose.yml renamed docker-compose.legacy.yml.DISABLED)
+├── safety/EMERGENCY_STOP             # Emergency stop flag (dir-to-dir bind mount)
 ├── services/*/logs/service.log       # Service logs
 ├── /backups/postgres/                # Database backups
 ├── /backups/redis/                   # Redis backups

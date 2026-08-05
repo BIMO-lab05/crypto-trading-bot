@@ -102,7 +102,7 @@ curl "http://localhost:8006/api/v1/performance?portfolio_id=default&include_dail
   "success": true,
   "portfolio_id": "default",
   "metrics": {
-    "total_return": "500.00",
+    "total_return": "5.00",
     "total_return_pct": "5.00",
     "sharpe_ratio": 1.5,
     "win_rate": 60.0,
@@ -111,16 +111,16 @@ curl "http://localhost:8006/api/v1/performance?portfolio_id=default&include_dail
   "daily_performance": [
     {
       "date": "2025-11-18",
-      "portfolio_value": "10000.00",
-      "daily_pnl": "100.00",
+      "portfolio_value": "100.00",
+      "daily_pnl": "1.00",
       "daily_return_pct": "1.00",
       "cumulative_return_pct": "0.00",
       "trades_count": 2
     },
     {
       "date": "2025-11-19",
-      "portfolio_value": "10200.00",
-      "daily_pnl": "200.00",
+      "portfolio_value": "102.00",
+      "daily_pnl": "2.00",
       "daily_return_pct": "2.00",
       "cumulative_return_pct": "2.00",
       "trades_count": 3
@@ -131,9 +131,9 @@ curl "http://localhost:8006/api/v1/performance?portfolio_id=default&include_dail
       "period": "week",
       "start_date": "2025-11-13",
       "end_date": "2025-11-20",
-      "start_value": "10000.00",
-      "end_value": "10500.00",
-      "total_return": "500.00",
+      "start_value": "100.00",
+      "end_value": "105.00",
+      "total_return": "5.00",
       "total_return_pct": "5.00",
       "volatility": 0.15,
       "trades_count": 15
@@ -142,9 +142,9 @@ curl "http://localhost:8006/api/v1/performance?portfolio_id=default&include_dail
       "period": "month",
       "start_date": "2025-10-20",
       "end_date": "2025-11-20",
-      "start_value": "9500.00",
-      "end_value": "10500.00",
-      "total_return": "1000.00",
+      "start_value": "95.00",
+      "end_value": "105.00",
+      "total_return": "10.00",
       "total_return_pct": "10.53",
       "volatility": 0.18,
       "trades_count": 45

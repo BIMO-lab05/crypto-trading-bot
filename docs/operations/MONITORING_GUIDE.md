@@ -211,8 +211,8 @@ daily_loss_percentage
 # Risk violations in last hour
 increase(risk_limit_violations_total[1h])
 
-# Alert if daily loss exceeds 5%
-daily_loss_percentage > 5
+# Alert if daily loss exceeds the 12% breaker (ADR-028)
+daily_loss_percentage > 12
 ```
 
 ---
@@ -668,7 +668,7 @@ sum(rate(http_requests_total{job="bybit-connector", status_code="429"}[5m]))
 #### Alert 2: Daily Loss Exceeded
 ```yaml
 - alert: DailyLossExceeded
-  expr: daily_loss_percentage > 5
+  expr: daily_loss_percentage > 12  # ADR-028 daily-loss breaker
   for: 1m
   labels:
     severity: critical

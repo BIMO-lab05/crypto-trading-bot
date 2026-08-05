@@ -213,7 +213,7 @@ curl -X POST http://localhost:8000/api/portfolio/emergency-stop \
 | Live directional accuracy (24h) | within 5pp of test-set | `risk-metrics-service /api/risk/ml-directional-accuracy` |
 | Latency p95 of `/predict/{symbol}/gru` | < 100 ms | Grafana / ml-prediction logs |
 | Win-rate of ML-influenced trades | not below pre-ML baseline | portfolio-manager + Grafana |
-| Daily-loss circuit-breaker hits | 0 | trading-engine logs (`5% daily-loss`) |
+| Daily-loss circuit-breaker hits | 0 | trading-engine logs (`12% daily-loss`, ADR-028) |
 | Model-reload events | only on retrain | ml-prediction logs (`Stale GRU model ... reloading`) |
 | Open positions vs cap | within 2% per-trade | `portfolio-manager /api/portfolio/positions` |
 

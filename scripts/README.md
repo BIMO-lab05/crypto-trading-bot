@@ -97,7 +97,7 @@ python3 scripts/monitor.py --interval 60
    - Configures routing
 
 9. **Initialize Paper Trading** (5-10 seconds)
-   - Sets up $10,000 initial balance
+   - Sets up $100 initial balance (`shared/account.py` is the declaration of record)
    - Configures paper trading mode
 
 10. **Run Health Checks** (30-60 seconds)
@@ -266,7 +266,7 @@ python3 scripts/validate_risk_limits.py [OPTIONS]
    - Edge case handling
 
 3. **Daily Loss Limit** (Test 3/8)
-   - 5% daily loss limit enforced
+   - 12% daily loss limit enforced (ADR-028)
    - Remaining allowance calculation
    - Trading halt when limit reached
 
@@ -335,7 +335,7 @@ Pass Rate: 100.0%
 
 Risk controls are properly configured:
   • Position sizing: 2% risk per trade
-  • Daily loss limit: 5% of portfolio
+  • Daily loss limit: 12% of portfolio (ADR-028)
   • Circuit breaker: 10% drawdown
   • Stop-loss: ATR-based dynamic
   • Max positions: 5 concurrent
@@ -390,7 +390,7 @@ python3 scripts/monitor.py [OPTIONS]
 - Service down (3+ consecutive failures)
 - Critical service down (immediate alert)
 - Slow response time (>1000ms)
-- Daily loss approaching 4% (before 5% limit)
+- Daily loss approaching 10% (before the 12% ADR-028 limit)
 - Position count at limit
 - Stale data (>2 hours old)
 
@@ -428,7 +428,7 @@ Next check in 60 seconds (Ctrl+C to stop)
 ```
 [2025-11-14 10:46:00] ALERT (WARNING): market-data is down (3 consecutive failures)
 [2025-11-14 10:47:00] ALERT (CRITICAL): trading-engine is down! (1 consecutive failures)
-[2025-11-14 11:00:00] ALERT (WARNING): Daily loss at -4.20% ($420.00) - approaching 5% limit!
+[2025-11-14 11:00:00] ALERT (WARNING): Daily loss at -10.20% ($10.20) - approaching 12% limit!
 [2025-11-14 11:15:00] ALERT (WARNING): market-data is slow: 1250ms response time
 ```
 
