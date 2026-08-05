@@ -71,6 +71,7 @@ class FakePositionManager:
         quantity: Decimal,
         strategy: Optional[str] = None,
         entry_signal_confidence: Optional[float] = None,
+        entry_fee: Decimal = Decimal("0"),
     ) -> Position:
         pos = Position(
             symbol=symbol,
@@ -96,7 +97,11 @@ class FakePositionManager:
         return Decimal("0")
 
     def close_position(
-        self, position_id: UUID, exit_price: Decimal, reason: Optional[str] = None
+        self,
+        position_id: UUID,
+        exit_price: Decimal,
+        reason: Optional[str] = None,
+        close_commission: Decimal = Decimal("0"),
     ) -> Position:
         pos = self.positions[position_id]
         qty = pos.remaining_quantity or pos.quantity
@@ -117,6 +122,7 @@ class FakePositionManager:
         quantity: Decimal,
         exit_price: Decimal,
         realized_pnl: Decimal,
+        close_commission: Decimal = Decimal("0"),
     ) -> Position:
         pos = self.positions[position_id]
         pos.remaining_quantity = (pos.remaining_quantity or pos.quantity) - quantity
@@ -124,7 +130,11 @@ class FakePositionManager:
         return pos
 
     def scale_in(
-        self, position_id: UUID, quantity: Decimal, price: Decimal
+        self,
+        position_id: UUID,
+        quantity: Decimal,
+        price: Decimal,
+        entry_fee: Decimal = Decimal("0"),
     ) -> Position:
         pos = self.positions[position_id]
         old_qty = pos.remaining_quantity or pos.quantity

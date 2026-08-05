@@ -215,6 +215,9 @@ class TestPaperTradingEngine:
             quantity=Decimal("0.001"),
             strategy="test",
             entry_signal_confidence=None,
+            # entry_fee joined the contract 2026-08-05 (H7 fee-netting):
+            # 0.1% of the $50 notional at the fixture's commission rate.
+            entry_fee=Decimal("0.05"),
         )
 
     @pytest.mark.asyncio
@@ -269,6 +272,9 @@ class TestPaperTradingEngine:
         mock_open_position.quantity = Decimal("0.001")
         mock_open_position.remaining_quantity = Decimal("0.001")
         mock_open_position.entry_price = Decimal("50000.00")
+        # H7 fee-netting computes the closed-minus-before P&L delta, so the
+        # pre-close value must be a real Decimal, not a Mock attribute.
+        mock_open_position.realized_pnl = Decimal("0")
         mock_position_manager.get_open_positions.return_value = [mock_open_position]
 
         # Mock closed position with profit (rescaled from 200.00 for the $100

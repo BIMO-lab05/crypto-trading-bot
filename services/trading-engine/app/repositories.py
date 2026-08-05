@@ -17,7 +17,7 @@ from app.database.models import (
     Position as DBPosition,
     Portfolio as DBPortfolio,
 )
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.models import Position
 
@@ -41,7 +41,10 @@ class PositionRepository:
         logger.info("PositionRepository initialized")
 
     async def create(
-        self, position: Position, portfolio_id: str = "paper_trading"
+        self,
+        position: Position,
+        portfolio_id: str = "paper_trading",
+        entry_fee: Decimal = Decimal("0"),
     ) -> UUID:
         """
         Create a new position in database
@@ -49,6 +52,7 @@ class PositionRepository:
         Args:
             position: Position object from app.models
             portfolio_id: Portfolio ID (default: paper_trading)
+            entry_fee: Commission charged on the opening leg (AUDIT H7)
 
         Returns:
             Position ID (UUID)
@@ -71,6 +75,13 @@ class PositionRepository:
                     status=position.status.value,
                     strategy=position.strategy,
                     opened_at=position.opened_at,  # Fixed: was entry_time
+                    remaining_quantity=(
+                        position.remaining_quantity
+                        if position.remaining_quantity is not None
+                        else position.quantity
+                    ),
+                    entry_fee=entry_fee,
+                    exit_fee=Decimal("0"),
                 )
 
                 session.add(db_position)
@@ -121,6 +132,7 @@ class PositionRepository:
         exit_price: Decimal,
         realized_pnl: Decimal,
         exit_reason: Optional[str] = None,
+        exit_fee: Optional[Decimal] = None,
     ):
         """
         Close a position in database
@@ -128,8 +140,71 @@ class PositionRepository:
         Args:
             position_id: Position UUID
             exit_price: Exit price
-            realized_pnl: Realized P&L
+            realized_pnl: Realized P&L, NET of entry + exit commissions
+                (2026-08-04, AUDIT H7 — was persisted gross before)
             exit_reason: Reason for closing (optional)
+            exit_fee: Total accumulated exit-leg commission (optional so the
+                live-trading caller, which has no paper fee model, is
+                unaffected; the paper engine always passes it)
+        """
+        try:
+            async with self.db.get_async_session() as session:
+                values = {
+                    "status": "CLOSED",
+                    "exit_price": exit_price,
+                    "realized_pnl": realized_pnl,
+                    "exit_reason": exit_reason,
+                    # A closed position has nothing left open; without this the
+                    # sold quantity resurrected on restart (AUDIT H5).
+                    "remaining_quantity": Decimal("0"),
+                    "closed_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+                if exit_fee is not None:
+                    values["exit_fee"] = exit_fee
+
+                stmt = (
+                    update(DBPosition)
+                    .where(DBPosition.position_id == position_id)
+                    .values(**values)
+                )
+
+                await session.execute(stmt)
+                await session.commit()
+
+                logger.info(
+                    f"✓ Position {position_id} closed in database "
+                    f"(net P&L: ${realized_pnl}, exit fee: {exit_fee})"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to close position in database: {e}")
+            raise
+
+    async def record_reduction(
+        self,
+        position_id: UUID,
+        remaining_quantity: Decimal,
+        realized_pnl: Decimal,
+        exit_fee: Decimal,
+        current_price: Decimal,
+        unrealized_pnl: Decimal,
+    ):
+        """
+        Persist a partial exit (2026-08-04, AUDIT H5).
+
+        Before this method existed, reduce_position updated memory only, so a
+        restart resurrected the sold quantity and the close then manufactured
+        P&L on it (one position overstated by exactly $1.7029).
+
+        Args:
+            position_id: Position UUID
+            remaining_quantity: Quantity still open after this reduction
+            realized_pnl: Position's ACCUMULATED realized P&L so far, net of
+                the exit-leg commissions and the proportional entry fee
+            exit_fee: Accumulated exit-leg commission so far
+            current_price: Fill price of the reducing leg
+            unrealized_pnl: Unrealized P&L on the remaining quantity
         """
         try:
             async with self.db.get_async_session() as session:
@@ -137,11 +212,11 @@ class PositionRepository:
                     update(DBPosition)
                     .where(DBPosition.position_id == position_id)
                     .values(
-                        status="CLOSED",
-                        exit_price=exit_price,
+                        remaining_quantity=remaining_quantity,
                         realized_pnl=realized_pnl,
-                        exit_reason=exit_reason,
-                        closed_at=datetime.now(timezone.utc),
+                        exit_fee=exit_fee,
+                        current_price=current_price,
+                        unrealized_pnl=unrealized_pnl,
                         updated_at=datetime.now(timezone.utc),
                     )
                 )
@@ -150,11 +225,67 @@ class PositionRepository:
                 await session.commit()
 
                 logger.info(
-                    f"✓ Position {position_id} closed in database (P&L: ${realized_pnl})"
+                    f"✓ Position {position_id} reduction persisted "
+                    f"(remaining: {remaining_quantity}, net realized: ${realized_pnl})"
                 )
 
         except Exception as e:
-            logger.error(f"Failed to close position in database: {e}")
+            logger.error(f"Failed to persist position reduction: {e}")
+            raise
+
+    async def record_scale_in(
+        self,
+        position_id: UUID,
+        quantity: Decimal,
+        entry_price: Decimal,
+        remaining_quantity: Decimal,
+        entry_fee: Decimal,
+        current_price: Decimal,
+        unrealized_pnl: Decimal,
+    ):
+        """
+        Persist a scale-in (DCA averaging) — 2026-08-04.
+
+        scale_in previously persisted only a price update, so the added
+        quantity and re-averaged entry price were lost on restart (same
+        defect class as AUDIT H5, opposite direction).
+
+        Args:
+            position_id: Position UUID
+            quantity: New TOTAL position quantity
+            entry_price: New weighted-average entry price
+            remaining_quantity: Quantity open after the scale-in
+            entry_fee: Accumulated entry-leg commission (open + scale-ins)
+            current_price: Fill price of the scale-in leg
+            unrealized_pnl: Updated unrealized P&L
+        """
+        try:
+            async with self.db.get_async_session() as session:
+                stmt = (
+                    update(DBPosition)
+                    .where(DBPosition.position_id == position_id)
+                    .values(
+                        quantity=quantity,
+                        entry_price=entry_price,
+                        cost_basis=entry_price * quantity,
+                        remaining_quantity=remaining_quantity,
+                        entry_fee=entry_fee,
+                        current_price=current_price,
+                        unrealized_pnl=unrealized_pnl,
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                )
+
+                await session.execute(stmt)
+                await session.commit()
+
+                logger.info(
+                    f"✓ Position {position_id} scale-in persisted "
+                    f"(qty: {quantity} @ avg {entry_price})"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to persist position scale-in: {e}")
             raise
 
     async def get_by_id(self, position_id: UUID) -> Optional[DBPosition]:
@@ -273,6 +404,9 @@ class TradeRepository:
                 (entry-side trades pass None; persisted to `realized_pnl`).
                 Added 2026-05-15: prior to this all rows had NULL realized_pnl
                 because close callers had the value but never passed it.
+                Since 2026-08-04 (AUDIT H7) the paper engine passes this NET
+                of the leg's commission and the proportional entry fee; rows
+                before that date hold gross price P&L.
             order_type: Accepted for caller compat; not persisted
             action: Legacy alias for `side`
         """
@@ -406,11 +540,70 @@ class PortfolioRepository:
             logger.error(f"Failed to get/create portfolio: {e}")
             raise
 
+    async def record_position_close(
+        self,
+        portfolio_id: str,
+        cash_balance: Decimal,
+        realized_pnl_delta: Decimal,
+    ):
+        """
+        Persist a position close into the portfolio ledger (2026-08-04, H7).
+
+        ACCUMULATES `realized_pnl` SQL-side (`realized_pnl = COALESCE(...) +
+        delta`) instead of overwriting it with a caller-computed total. The
+        previous write path passed `get_total_realized_pnl()` — a sum over
+        IN-MEMORY closed positions — which resets on every restart, so
+        `portfolios.realized_pnl` held exactly the last post-restart trade
+        (observed: 3.0901) while the account was down ~$7 (AUDIT 6.2).
+
+        Args:
+            portfolio_id: Portfolio ID
+            cash_balance: Current cash balance from the paper engine ledger
+            realized_pnl_delta: THIS position's total net realized P&L
+                (fees deducted, partial exits included) — a delta, not a total
+        """
+        try:
+            async with self.db.get_async_session() as session:
+                stmt = (
+                    update(DBPortfolio)
+                    .where(DBPortfolio.portfolio_id == portfolio_id)
+                    .values(
+                        cash_balance=cash_balance,
+                        realized_pnl=func.coalesce(DBPortfolio.realized_pnl, 0)
+                        + realized_pnl_delta,
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                )
+
+                result = await session.execute(stmt)
+                await session.commit()
+
+                if result.rowcount == 0:
+                    # A close against a missing portfolio row must not vanish.
+                    raise RuntimeError(
+                        f"record_position_close matched no portfolio row "
+                        f"for '{portfolio_id}'"
+                    )
+
+                logger.info(
+                    f"✓ Portfolio {portfolio_id} realized P&L accumulated "
+                    f"by {realized_pnl_delta} (cash: {cash_balance})"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to record position close on portfolio: {e}")
+            raise
+
     async def update_balance(
         self, portfolio_id: str, cash_balance: Decimal, realized_pnl: Decimal = None
     ):
         """
         Update portfolio balance and P&L
+
+        WARNING (2026-08-04): `realized_pnl` here OVERWRITES the stored value.
+        Do not call this from position-close paths — use
+        `record_position_close`, which accumulates. This method remains for
+        explicit balance administration only.
 
         Args:
             portfolio_id: Portfolio ID

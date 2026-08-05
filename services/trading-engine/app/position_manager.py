@@ -40,6 +40,41 @@ def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
 logger = logging.getLogger(__name__)
 
 
+def _persist_done(task) -> None:
+    """asyncio.Task done-callback: surface persistence failures LOUDLY.
+
+    Fire-and-forget create_task() swallows coroutine exceptions unless a
+    done-callback re-raises them into the log — the same GIGO chain that left
+    `trades` empty for weeks (see paper_trading._trade_log_done).
+    """
+    import asyncio
+
+    try:
+        exc = task.exception()
+    except (asyncio.CancelledError, asyncio.InvalidStateError):
+        return
+    if exc is not None:
+        logger.error("position persistence task failed: %s", exc, exc_info=exc)
+
+
+def _spawn_persist(coro, what: str) -> None:
+    """Schedule a persistence coroutine with an error-visible done-callback.
+
+    Scheduling itself can fail when no event loop is running (sync callers in
+    tests); that is logged and tolerated — matching the pre-existing contract
+    of every persistence call in this module — but a scheduled task that
+    FAILS is always logged as an error by the callback above.
+    """
+    import asyncio
+
+    try:
+        task = asyncio.create_task(coro)
+        task.add_done_callback(_persist_done)
+    except Exception as e:
+        coro.close()
+        logger.warning(f"Failed to schedule persistence ({what}): {e}")
+
+
 class PositionManager:
     """
     Manages trading positions
@@ -57,7 +92,25 @@ class PositionManager:
         self.risk_manager = get_risk_manager()
         self.position_repo = get_position_repository()
         self.portfolio_repo = get_portfolio_repository()
+        # Fee ledgers per position (2026-08-04, AUDIT H7). The in-memory
+        # Position model has no fee fields, so commissions are tracked here
+        # and persisted to positions.entry_fee / positions.exit_fee; they are
+        # reloaded from the DB on restart (load_positions_from_db).
+        self._entry_fees: dict[UUID, Decimal] = {}
+        self._exit_fees: dict[UUID, Decimal] = {}
         logger.info("PositionManager initialized with database persistence")
+
+    def _entry_fee_portion(self, position: Position, quantity: Decimal) -> Decimal:
+        """Entry commission attributable to `quantity` of this position.
+
+        Proportional accrual: each exit consumes entry_fee × (qty / total
+        quantity), so across all partial exits plus the final close exactly
+        the full entry fee is deducted from net realized P&L.
+        """
+        entry_fee = self._entry_fees.get(position.id, Decimal("0"))
+        if entry_fee == 0 or position.quantity == 0:
+            return Decimal("0")
+        return entry_fee * quantity / position.quantity
 
     def create_position(
         self,
@@ -72,6 +125,7 @@ class PositionManager:
         take_profit_2: Optional[Decimal] = None,
         take_profit_3: Optional[Decimal] = None,
         entry_signal_confidence: Optional[float] = None,  # CRITICAL FIX 2025-12-05
+        entry_fee: Decimal = Decimal("0"),  # AUDIT H7 (2026-08-04)
     ) -> Position:
         """
         Create a new position
@@ -88,6 +142,8 @@ class PositionManager:
             take_profit_2: Optional TP2 - second partial exit target
             take_profit_3: Optional TP3 - third partial exit target
             entry_signal_confidence: Optional entry signal confidence (0.0-1.0)
+            entry_fee: Commission charged on the opening leg; deducted from
+                net realized P&L proportionally as quantity is closed
 
         Returns:
             Created position
@@ -131,11 +187,13 @@ class PositionManager:
 
         # Store position in memory
         self.positions[position.id] = position
+        self._entry_fees[position.id] = entry_fee
+        self._exit_fees[position.id] = Decimal("0")
 
         logger.info(
             f"✓ Position created: {position.id} | "
             f"{symbol} {side.value} {quantity} @ {entry_price} | "
-            f"SL: {stop_loss} | TP: {take_profit}"
+            f"SL: {stop_loss} | TP: {take_profit} | Entry fee: {entry_fee}"
         )
         if take_profit_1:
             logger.info(
@@ -143,14 +201,12 @@ class PositionManager:
             )
 
         # Persist to database (async, non-blocking)
-        import asyncio
-
-        try:
-            asyncio.create_task(
-                self.position_repo.create(position, portfolio_id="paper_trading")
-            )
-        except Exception as e:
-            logger.warning(f"Failed to persist position to database: {e}")
+        _spawn_persist(
+            self.position_repo.create(
+                position, portfolio_id="paper_trading", entry_fee=entry_fee
+            ),
+            "position create",
+        )
 
         return position
 
@@ -292,7 +348,11 @@ class PositionManager:
         return self.risk_manager.should_close_position(position, current_price)
 
     def close_position(
-        self, position_id: UUID, close_price: Decimal, reason: Optional[str] = None
+        self,
+        position_id: UUID,
+        close_price: Decimal,
+        reason: Optional[str] = None,
+        close_commission: Decimal = Decimal("0"),
     ) -> Position:
         """
         Close a position
@@ -301,9 +361,12 @@ class PositionManager:
             position_id: Position ID
             close_price: Closing price
             reason: Reason for closing
+            close_commission: Commission charged on this closing leg. The
+                paper engine always passes it; callers without a fee model
+                (live path) default to 0.
 
         Returns:
-            Closed position
+            Closed position (realized_pnl NET of entry + exit commissions)
         """
         position = self.positions.get(position_id)
         if not position:
@@ -317,6 +380,11 @@ class PositionManager:
         # position that had taken partial exits (TP1/TP2) had its realized P&L
         # overwritten at close with a full-quantity mark — double counting the
         # already-exited quantity and corrupting daily-P&L / circuit breakers.
+        #
+        # FIX 2026-08-04 (AUDIT H7): realized P&L is NET of commissions — this
+        # closing leg's commission plus the not-yet-accrued portion of the
+        # entry fee. The cash ledger always subtracted fees; the persisted and
+        # reported P&L did not, so every DB row and dashboard overstated.
         remaining = (
             position.remaining_quantity
             if position.remaining_quantity is not None
@@ -327,8 +395,11 @@ class PositionManager:
         else:  # SHORT
             pnl_on_remaining = (position.entry_price - close_price) * remaining
 
+        entry_fee_portion = self._entry_fee_portion(position, remaining)
+        net_close_pnl = pnl_on_remaining - close_commission - entry_fee_portion
+
         position.current_price = close_price
-        position.realized_pnl += pnl_on_remaining
+        position.realized_pnl += net_close_pnl
         position.unrealized_pnl = Decimal("0")
         position.remaining_quantity = Decimal("0")
         position.status = PositionStatus.CLOSED
@@ -336,56 +407,60 @@ class PositionManager:
         position.exit_price = close_price
         position.exit_reason = reason
 
-        # Update risk manager daily P&L with THIS close's P&L only
-        self.risk_manager.update_daily_pnl(pnl_on_remaining)
+        total_exit_fee = (
+            self._exit_fees.get(position_id, Decimal("0")) + close_commission
+        )
+        self._exit_fees[position_id] = total_exit_fee
+
+        # Update risk manager daily P&L with THIS close's net P&L only
+        self.risk_manager.update_daily_pnl(net_close_pnl)
 
         logger.info(
             f"✓ Position closed: {position_id} | "
             f"{position.symbol} at {close_price} | "
-            f"P&L: {position.realized_pnl} ({position.pnl_percentage:+.2f}%) | "
-            f"Reason: {reason or 'Manual'}"
+            f"Net P&L: {position.realized_pnl} ({position.pnl_percentage:+.2f}%) | "
+            f"Fees (entry/exit): {self._entry_fees.get(position_id, Decimal('0'))}"
+            f"/{total_exit_fee} | Reason: {reason or 'Manual'}"
         )
 
         # Close position in database (async, non-blocking)
-        import asyncio
+        _spawn_persist(
+            self.position_repo.close(
+                position_id,
+                close_price,
+                position.realized_pnl,
+                exit_reason=reason,
+                exit_fee=total_exit_fee,
+            ),
+            "position close",
+        )
 
+        # Portfolio ledger (2025-12-18 FIX, refixed 2026-05-01, refixed
+        # 2026-08-04 per AUDIT 6.2/H7): cash is owned by PaperTradingEngine
+        # and passed through; realized P&L is ACCUMULATED SQL-side with this
+        # position's total net P&L as the delta. The previous code wrote
+        # get_total_realized_pnl() — a sum over in-memory closed positions,
+        # which resets on restart — so portfolios.realized_pnl held exactly
+        # the last post-restart trade instead of the account's history.
+        _cash_now = None
         try:
-            asyncio.create_task(
-                self.position_repo.close(
-                    position_id, close_price, position.realized_pnl, exit_reason=reason
-                )
-            )
+            from app.paper_trading import get_paper_engine
 
-            # Update portfolio realized P&L only (2025-12-18 FIX, refixed 2026-05-01).
-            # Audit 2026-05-01 found this branch was passing the literal
-            # cash_balance=Decimal("100.00") on every close — overwriting the
-            # portfolio's true cash balance to $100 each time a position closed,
-            # corrupting the DB row that the paper engine reconciles against on
-            # restart. The right owner of cash is PaperTradingEngine; the close
-            # path here only knows realized PnL. Read current cash from the
-            # paper engine and pass it through, so the DB stays consistent.
-            total_realized_pnl = self.get_total_realized_pnl()
-            try:
-                from app.paper_trading import get_paper_engine
-
-                _cash_now = get_paper_engine().get_balance()
-            except Exception:
-                # Best-effort: if the engine isn't available, skip the cash
-                # write rather than overwrite with a garbage constant.
-                _cash_now = None
-            if _cash_now is not None:
-                asyncio.create_task(
-                    self.portfolio_repo.update_balance(
-                        portfolio_id="paper_trading",
-                        cash_balance=_cash_now,
-                        realized_pnl=total_realized_pnl,
-                    )
-                )
-            logger.info(
-                f"Portfolio updated: total realized P&L = ${total_realized_pnl}"
-            )
+            _cash_now = get_paper_engine().get_balance()
         except Exception as e:
-            logger.warning(f"Failed to close position in database: {e}")
+            logger.error(
+                "Could not read cash balance from paper engine; portfolio "
+                f"ledger NOT updated for close of {position_id}: {e}"
+            )
+        if _cash_now is not None:
+            _spawn_persist(
+                self.portfolio_repo.record_position_close(
+                    portfolio_id="paper_trading",
+                    cash_balance=_cash_now,
+                    realized_pnl_delta=position.realized_pnl,
+                ),
+                "portfolio close ledger",
+            )
 
         return position
 
@@ -395,12 +470,30 @@ class PositionManager:
         quantity: Decimal,
         price: Decimal,
         realized_pnl: Decimal,
+        close_commission: Decimal = Decimal("0"),
     ) -> Position:
         """
         Reduce an open position by a quantity (partial close). Added 2026-07-28.
 
         The caller (paper/live engine) is responsible for cash accounting;
-        this method updates position state and daily P&L only.
+        this method updates position state and daily P&L.
+
+        FIX 2026-08-04 (AUDIT H5 + H7): previously this persisted only a
+        price update — neither the reduced quantity nor the incremental
+        realized P&L reached the DB, so a restart resurrected the sold
+        quantity and the eventual close manufactured P&L on it (one position
+        overstated by exactly $1.7029). Now the reduced remaining_quantity,
+        the accumulated NET realized P&L (this leg's gross price P&L minus
+        its commission minus the proportional entry fee) and the accumulated
+        exit fee are persisted on every reduction.
+
+        Args:
+            position_id: Position ID
+            quantity: Quantity to close (must be < remaining)
+            price: Fill price of the reducing leg
+            realized_pnl: GROSS price P&L for this leg ((exit-entry)×qty,
+                sign per side) — fees are netted here, not by the caller
+            close_commission: Commission charged on this reducing leg
         """
         position = self.positions.get(position_id)
         if not position:
@@ -419,28 +512,39 @@ class PositionManager:
                 f"use close_position for full closes"
             )
 
+        entry_fee_portion = self._entry_fee_portion(position, quantity)
+        net_leg_pnl = realized_pnl - close_commission - entry_fee_portion
+
         position.remaining_quantity = remaining - quantity
-        position.realized_pnl += realized_pnl
+        position.realized_pnl += net_leg_pnl
         position.update_pnl(price)
 
-        self.risk_manager.update_daily_pnl(realized_pnl)
+        total_exit_fee = (
+            self._exit_fees.get(position_id, Decimal("0")) + close_commission
+        )
+        self._exit_fees[position_id] = total_exit_fee
+
+        self.risk_manager.update_daily_pnl(net_leg_pnl)
 
         logger.info(
             f"✓ Position reduced: {position_id} | {position.symbol} "
-            f"-{quantity} @ {price} | Realized: {realized_pnl:+.4f} | "
+            f"-{quantity} @ {price} | Net realized: {net_leg_pnl:+.4f} "
+            f"(gross {realized_pnl:+.4f}, fee {close_commission}, "
+            f"entry-fee portion {entry_fee_portion:.8f}) | "
             f"Remaining: {position.remaining_quantity}"
         )
 
-        import asyncio
-
-        try:
-            asyncio.create_task(
-                self.position_repo.update_price(
-                    position_id, price, position.unrealized_pnl
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Failed to persist position reduction: {e}")
+        _spawn_persist(
+            self.position_repo.record_reduction(
+                position_id,
+                remaining_quantity=position.remaining_quantity,
+                realized_pnl=position.realized_pnl,
+                exit_fee=total_exit_fee,
+                current_price=price,
+                unrealized_pnl=position.unrealized_pnl,
+            ),
+            "position reduction",
+        )
 
         return position
 
@@ -449,6 +553,7 @@ class PositionManager:
         position_id: UUID,
         quantity: Decimal,
         price: Decimal,
+        entry_fee: Decimal = Decimal("0"),
     ) -> Position:
         """
         Add quantity to an open position at a new price (DCA averaging).
@@ -457,6 +562,15 @@ class PositionManager:
 
         Entry price becomes the weighted average of remaining + added quantity.
         The caller is responsible for cash accounting.
+
+        FIX 2026-08-04: the new quantity, weighted entry price, remaining
+        quantity and accumulated entry fee are persisted (previously only a
+        price update was written — the scale-in vanished on restart, the
+        mirror image of AUDIT H5).
+
+        Args:
+            entry_fee: Commission charged on this scale-in leg; accumulates
+                into the position's entry fee.
         """
         position = self.positions.get(position_id)
         if not position:
@@ -479,22 +593,28 @@ class PositionManager:
         position.remaining_quantity = new_remaining
         position.update_pnl(price)
 
+        total_entry_fee = self._entry_fees.get(position_id, Decimal("0")) + entry_fee
+        self._entry_fees[position_id] = total_entry_fee
+
         logger.info(
             f"✓ Position scaled in: {position_id} | {position.symbol} "
             f"+{quantity} @ {price} | New avg entry: {position.entry_price:.6f} | "
-            f"Remaining: {position.remaining_quantity}"
+            f"Remaining: {position.remaining_quantity} | "
+            f"Entry fee total: {total_entry_fee}"
         )
 
-        import asyncio
-
-        try:
-            asyncio.create_task(
-                self.position_repo.update_price(
-                    position_id, price, position.unrealized_pnl
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Failed to persist position scale-in: {e}")
+        _spawn_persist(
+            self.position_repo.record_scale_in(
+                position_id,
+                quantity=position.quantity,
+                entry_price=position.entry_price,
+                remaining_quantity=position.remaining_quantity,
+                entry_fee=total_entry_fee,
+                current_price=price,
+                unrealized_pnl=position.unrealized_pnl,
+            ),
+            "position scale-in",
+        )
 
         return position
 
@@ -771,6 +891,8 @@ class PositionManager:
 
         # Store position
         self.positions[position.id] = position
+        self._entry_fees.setdefault(position.id, Decimal("0"))
+        self._exit_fees.setdefault(position.id, Decimal("0"))
 
         logger.info(
             f"✓ Position created with ATR stops: {position.id} | "
@@ -780,14 +902,10 @@ class PositionManager:
         )
 
         # Persist to database
-        import asyncio
-
-        try:
-            asyncio.create_task(
-                self.position_repo.create(position, portfolio_id="paper_trading")
-            )
-        except Exception as e:
-            logger.warning(f"Failed to persist position to database: {e}")
+        _spawn_persist(
+            self.position_repo.create(position, portfolio_id="paper_trading"),
+            "position create (ATR stops)",
+        )
 
         return position
 
@@ -833,11 +951,36 @@ class PositionManager:
                 # Use the DB position_id
                 position.id = db_pos.position_id
 
+                # FIX 2026-08-04 (AUDIT H5): restore the persisted remaining
+                # quantity. Omitting it let Position.__init__ default it to
+                # the FULL quantity, resurrecting partially-sold quantity on
+                # every restart (position 59's close P&L was overstated by
+                # exactly $1.7029 this way). A NULL here means migration 007
+                # has not been applied — say so loudly instead of silently
+                # re-inflating the position.
+                if db_pos.remaining_quantity is not None:
+                    position.remaining_quantity = Decimal(
+                        str(db_pos.remaining_quantity)
+                    )
+                else:
+                    logger.error(
+                        f"positions.remaining_quantity is NULL for "
+                        f"{db_pos.position_id} — migration 007 not applied? "
+                        f"Falling back to full quantity {db_pos.quantity}; "
+                        f"any prior partial exits on this position are LOST."
+                    )
+
+                # Restore fee ledgers (AUDIT H7) so net-P&L math survives
+                # restarts. Columns are NOT NULL DEFAULT 0 as of migration 007.
+                self._entry_fees[position.id] = Decimal(str(db_pos.entry_fee or 0))
+                self._exit_fees[position.id] = Decimal(str(db_pos.exit_fee or 0))
+
                 self.positions[position.id] = position
                 loaded_count += 1
                 logger.info(
                     f"Loaded position from DB: {db_pos.symbol} {db_pos.side} "
-                    f"@ {db_pos.entry_price} (ID: {db_pos.position_id})"
+                    f"@ {db_pos.entry_price} (ID: {db_pos.position_id}, "
+                    f"remaining: {position.remaining_quantity})"
                 )
 
             logger.info(f"✅ Loaded {loaded_count} open positions from database")
