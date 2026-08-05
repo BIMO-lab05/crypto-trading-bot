@@ -227,7 +227,7 @@ def main() -> None:
     path = write_verdict(
         "H3",
         "ACCEPT" if accept else "REJECT",
-        "stop-out rate < 40% AND gross expectancy > 0 pre-fee (either ATR variant)",
+        'AUDIT.md:261 verbatim — "stop-out rate <40% AND gross expectancy >0 pre-fee"',
         metrics=metrics,
         caveats=[
             f"n={results[1.5]['n']} — percentages describe these trades, not true rates",
@@ -238,6 +238,32 @@ def main() -> None:
             f"truncated windows (exit=end_of_data at data end): "
             f"{ {m: r['truncated_windows'] for m, r in results.items()} }",
             f"resolution fallbacks to 60m: { {m: r['resolution_fallbacks'] for m, r in results.items()} }",
+            "both ATR variants clear the AUDIT.md criterion INDEPENDENTLY (1.5x: 7.7% "
+            "stop-out, +1.21 expectancy; 2.5x: 0.0% stop-out, +1.20 expectancy) — the "
+            "criterion has no either/any-variant clause and none is invoked here",
+            "BRACKET INERTNESS: zero take-profit touches across all 26 outcomes "
+            "(13 trades x 2 variants). Max favorable excursion across the 13 trades is "
+            "2.64 ATR, below the 3.0 ATR (1.5x) and 5.0 ATR (2.5x) TP requirement in "
+            "both variants — no trade could reach TP either way. Widening the stop 67% "
+            "(1.5x to 2.5x) changed exactly 1 of 26 outcomes. The brackets almost never "
+            "bind: this test primarily measures 48h directional drift of the recorded "
+            'entries, not ATR bracket design. Read ACCEPT as "not falsified by this '
+            'sample", not "brackets validated".',
+            "REGIME CONCENTRATION: 10 of 13 entries are LONG, contributing +14.67 of "
+            "+15.67 total gross, all within one week (2026-07-29 to 2026-08-05) of a "
+            "rising tape; the top 4 trades carry 82% of gross.",
+            "STALE-ENTRY CONTAMINATION (reviewer-computed): trades 11 (SOLUSDT LONG, "
+            "recorded entry 71.04 vs true market 73.59) and 12 (BNBUSDT LONG, recorded "
+            "576.3 vs true market 589.7), both opened 2026-08-04 14:10:3x, were booked "
+            "at prices the market had not traded for 60+ hours (stuck-ticker gotcha, "
+            "CLAUDE.md section 10) — the paper engine itself recorded the phantom P&L "
+            "upstream of this replay. $4.37 of $15.67 total gross is phantom. Repricing "
+            "both at the true close of their entry bar (reviewer calculation, not "
+            "recomputed by this script): gross +15.67 -> +11.30, expectancy "
+            "+1.2056 -> +0.8691 for the 1.5x variant — ACCEPT still clears both "
+            "criterion legs after repricing. The bias is directional (stale-low longs "
+            "in a rising tape) and will not average out at larger n. This is an "
+            "upstream H1/H2 data-quality issue, not something this replay fixes.",
         ],
         config={
             "stop_mults": [1.5, 2.5],
