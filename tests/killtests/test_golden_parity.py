@@ -7,10 +7,17 @@ Two layers:
      offline ASGI app — TradingSignal fields must match.
 Requires the docker stack; skips (loudly) otherwise. On full pass, writes
 the parity stamp consumed by the H4 CLI gate.
+
+KILLTESTS_DATA_DIR overrides the CSV dir for the offline leg (default
+backtesting/data). Use a freshly-fetched parity copy when the canonical
+data dir must stay frozen as the provenance of an in-flight signal-series
+run — the stamp certifies seam parity (code-path equivalence at the live
+latest bar), not the identity of any particular CSV snapshot.
 """
 
 import asyncio
 import json
+import os
 import sys
 import time
 from datetime import date
@@ -80,7 +87,7 @@ def offline():
     from killtests.offline_ensemble import ReplayClock, load_stack
 
     store = CandleStore(
-        "backtesting/data",
+        os.environ.get("KILLTESTS_DATA_DIR", "backtesting/data"),
         ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"],
         ["15", "60", "240", "1440"],
     )
@@ -152,7 +159,7 @@ def test_indicator_endpoint_parity(offline):
 _CHAIN_ACTIONS: list = []  # collected by test_full_chain_parity; gates the stamp
 
 
-def _run_chain_leg(stack, symbol, client, regime_httpx):
+def _run_chain_leg(stack, symbol, client_factory, regime_httpx):
     """One full-chain evaluation with BOTH transports (aggregator client and the
     regime module's inline-httpx factory) pointed at the same target.
 
@@ -170,18 +177,33 @@ def _run_chain_leg(stack, symbol, client, regime_httpx):
     absolute URL, so it would try to actually resolve "ta.offline" and fail
     name resolution. Point both base URLs at the real TA host for the live
     leg too, restoring the offline fake host after.
+
+    client_factory (not a client): each leg runs in its own asyncio.run()
+    loop, and an AsyncClient's keep-alive pool binds connections to the loop
+    of first use. A client shared across legs hands a later leg a connection
+    whose loop is closed — every fetch then dies with "Event loop is closed",
+    the aggregator degrades that timeframe to an error/HOLD signal, and the
+    MTF modifier silently flips (observed: live leg 0.9 vs offline 1.05 for
+    whichever symbol ran within the ~5s keep-alive window of the previous
+    leg). The client must be born and closed inside the leg's own loop.
     """
     agg = stack.aggregator
     det = agg.core_aggregator.regime_detector
     saved_client, saved_httpx = agg.client, stack.regime_mod.httpx
     saved_base_url, saved_ta_url = agg.base_url, det.settings.technical_analysis_url
     ta_url = TA_URL if regime_httpx is httpx else "http://ta.offline"
-    agg.client, stack.regime_mod.httpx = client, regime_httpx
+    stack.regime_mod.httpx = regime_httpx
     agg.base_url = ta_url
     det.settings.technical_analysis_url = ta_url
     det._cache.clear()
+
+    async def _leg():
+        async with client_factory() as client:
+            agg.client = client
+            return await agg.get_trading_signal_multi_timeframe(symbol, "60")
+
     try:
-        return asyncio.run(agg.get_trading_signal_multi_timeframe(symbol, "60"))
+        return asyncio.run(_leg())
     finally:
         agg.client, stack.regime_mod.httpx = saved_client, saved_httpx
         agg.base_url = saved_base_url
@@ -193,17 +215,21 @@ def test_full_chain_parity(offline):
     field-for-field on TradingSignal, per-indicator, AND the ensemble output
     (spec §7.1). All 3 golden symbols."""
     stack, store, clock = offline
-    asgi_client = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=stack.ta_app),
-        base_url="http://ta.offline",
-        timeout=30.0,
-    )
-    live_client = httpx.AsyncClient(base_url=TA_URL, timeout=30.0)
+
+    def asgi_factory():
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=stack.ta_app),
+            base_url="http://ta.offline",
+            timeout=30.0,
+        )
+
+    def live_factory():
+        return httpx.AsyncClient(base_url=TA_URL, timeout=30.0)
 
     for sym in SYMBOLS:
-        sig_off = _run_chain_leg(stack, sym, asgi_client, stack.regime_mod.httpx)
+        sig_off = _run_chain_leg(stack, sym, asgi_factory, stack.regime_mod.httpx)
         sig_live = _run_chain_leg(
-            stack, sym, live_client, httpx
+            stack, sym, live_factory, httpx
         )  # live leg: REAL httpx
         assert sig_off.action == sig_live.action, sym
         assert sig_off.confidence == pytest.approx(sig_live.confidence, abs=1e-9), sym
