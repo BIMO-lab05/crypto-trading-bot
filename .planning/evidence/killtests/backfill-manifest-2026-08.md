@@ -2,26 +2,26 @@
 
 | file | rows | first | last | expected step (min) | gaps | sha256[:12] |
 |---|---|---|---|---|---|---|
-| BTCUSDT_15m_365d_bybit.csv | 35039 | 2025-08-06 01:45:00 | 2026-08-06 01:15:00 | 15 | 0 | 6726be62bacc |
-| BTCUSDT_60m_365d_bybit.csv | 8759 | 2025-08-06 02:00:00 | 2026-08-06 00:00:00 | 60 | 0 | 1defc591c536 |
-| BTCUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 04:00:00 | 2026-08-05 20:00:00 | 240 | 0 | be01677a1481 |
-| BTCUSDT_1440m_365d_bybit.csv | 364 | 2025-08-06 00:00:00 | 2026-08-04 00:00:00 | 1440 | 0 | ea3da0d848f1 |
-| ETHUSDT_15m_365d_bybit.csv | 35039 | 2025-08-05 20:15:00 | 2026-08-05 19:45:00 | 15 | 0 | 49a9d6b05db5 |
-| ETHUSDT_60m_365d_bybit.csv | 8759 | 2025-08-05 21:00:00 | 2026-08-05 19:00:00 | 60 | 0 | a78a1d5f06f3 |
-| ETHUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 00:00:00 | 2026-08-05 16:00:00 | 240 | 0 | c153c579f22b |
-| ETHUSDT_1440m_365d_bybit.csv | 364 | 2025-08-06 00:00:00 | 2026-08-04 00:00:00 | 1440 | 0 | 1904f90be1e2 |
-| SOLUSDT_15m_365d_bybit.csv | 35039 | 2025-08-06 01:45:00 | 2026-08-06 01:15:00 | 15 | 0 | a0f78d5a016d |
-| SOLUSDT_60m_365d_bybit.csv | 8759 | 2025-08-06 02:00:00 | 2026-08-06 00:00:00 | 60 | 0 | 1cb28f150933 |
-| SOLUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 04:00:00 | 2026-08-05 20:00:00 | 240 | 0 | 5daec0f208ce |
-| SOLUSDT_1440m_365d_bybit.csv | 364 | 2025-08-06 00:00:00 | 2026-08-04 00:00:00 | 1440 | 0 | 0ce6c21d83eb |
-| BNBUSDT_15m_365d_bybit.csv | 35039 | 2025-08-05 20:15:00 | 2026-08-05 19:45:00 | 15 | 0 | 9bc6ee34fde8 |
-| BNBUSDT_60m_365d_bybit.csv | 8759 | 2025-08-05 21:00:00 | 2026-08-05 19:00:00 | 60 | 0 | ac64a813eee5 |
-| BNBUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 00:00:00 | 2026-08-05 16:00:00 | 240 | 0 | 25d452bd7700 |
-| BNBUSDT_1440m_365d_bybit.csv | 364 | 2025-08-06 00:00:00 | 2026-08-04 00:00:00 | 1440 | 0 | aa0956777fa6 |
-| ADAUSDT_15m_365d_bybit.csv | 35039 | 2025-08-06 01:45:00 | 2026-08-06 01:15:00 | 15 | 0 | 1f5496e81879 |
-| ADAUSDT_60m_365d_bybit.csv | 8759 | 2025-08-06 02:00:00 | 2026-08-06 00:00:00 | 60 | 0 | 768cf06713ee |
-| ADAUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 04:00:00 | 2026-08-05 20:00:00 | 240 | 0 | 15dd7fa6263b |
-| ADAUSDT_1440m_365d_bybit.csv | 364 | 2025-08-06 00:00:00 | 2026-08-04 00:00:00 | 1440 | 0 | 2a3999fa7c35 |
+| BTCUSDT_15m_365d_bybit.csv | 35039 | 2025-08-06 03:15:00 | 2026-08-06 02:45:00 | 15 | 0 | 95c6c8e2791c |
+| BTCUSDT_60m_365d_bybit.csv | 8759 | 2025-08-06 04:00:00 | 2026-08-06 02:00:00 | 60 | 0 | 8c9137e68266 |
+| BTCUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 04:00:00 | 2026-08-05 20:00:00 | 240 | 0 | d7ab3cac146b |
+| BTCUSDT_1440m_365d_bybit.csv | 364 | 2025-08-07 00:00:00 | 2026-08-05 00:00:00 | 1440 | 0 | dd45dddb860d |
+| ETHUSDT_15m_365d_bybit.csv | 35039 | 2025-08-06 03:15:00 | 2026-08-06 02:45:00 | 15 | 0 | 5ae6308ff28a |
+| ETHUSDT_60m_365d_bybit.csv | 8759 | 2025-08-06 04:00:00 | 2026-08-06 02:00:00 | 60 | 0 | 437aa7661a1f |
+| ETHUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 04:00:00 | 2026-08-05 20:00:00 | 240 | 0 | 9abca3eaf3ff |
+| ETHUSDT_1440m_365d_bybit.csv | 364 | 2025-08-07 00:00:00 | 2026-08-05 00:00:00 | 1440 | 0 | 53c6d827aafd |
+| SOLUSDT_15m_365d_bybit.csv | 35039 | 2025-08-06 03:15:00 | 2026-08-06 02:45:00 | 15 | 0 | f52dbdc0d8f5 |
+| SOLUSDT_60m_365d_bybit.csv | 8759 | 2025-08-06 04:00:00 | 2026-08-06 02:00:00 | 60 | 0 | 71a8b981fdf5 |
+| SOLUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 04:00:00 | 2026-08-05 20:00:00 | 240 | 0 | 2fd0bd0751cc |
+| SOLUSDT_1440m_365d_bybit.csv | 364 | 2025-08-07 00:00:00 | 2026-08-05 00:00:00 | 1440 | 0 | 0f181a3b9fa2 |
+| BNBUSDT_15m_365d_bybit.csv | 35039 | 2025-08-06 03:15:00 | 2026-08-06 02:45:00 | 15 | 0 | 0360ebb2bd8c |
+| BNBUSDT_60m_365d_bybit.csv | 8759 | 2025-08-06 04:00:00 | 2026-08-06 02:00:00 | 60 | 0 | 2c0541877f36 |
+| BNBUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 04:00:00 | 2026-08-05 20:00:00 | 240 | 0 | 883ee96df7e4 |
+| BNBUSDT_1440m_365d_bybit.csv | 364 | 2025-08-07 00:00:00 | 2026-08-05 00:00:00 | 1440 | 0 | ba579e72a29d |
+| ADAUSDT_15m_365d_bybit.csv | 35039 | 2025-08-06 03:15:00 | 2026-08-06 02:45:00 | 15 | 0 | 72e1836f3cec |
+| ADAUSDT_60m_365d_bybit.csv | 8759 | 2025-08-06 04:00:00 | 2026-08-06 02:00:00 | 60 | 0 | 9e061c1b3eaf |
+| ADAUSDT_240m_365d_bybit.csv | 2189 | 2025-08-06 04:00:00 | 2026-08-05 20:00:00 | 240 | 0 | 58063816a0e0 |
+| ADAUSDT_1440m_365d_bybit.csv | 364 | 2025-08-07 00:00:00 | 2026-08-05 00:00:00 | 1440 | 0 | d6a6c01fabc1 |
 
 ## Mainnet provenance check (pre-backfill, 2026-08-05)
 
@@ -39,3 +39,5 @@ Note: the probe initially returned `0` with an internal parsing error, not a cle
 ## Manifest refresh log
 
 2026-08-06: 9 files (BTC/SOL/ADA × 15m/60m/240m) refreshed by Task 11 golden-parity backfill; table regenerated to match disk.
+
+2026-08-06 (Task 13): all 20 files (5 symbols × 4 intervals) refreshed ahead of the H4 full-series run — the golden-parity CSVs had lagged live data again by the time this task started (same staleness pattern Task 11 hit), so the whole dataset was re-pulled for coherence rather than patching individual symbols. `--interval 1440` was tried first and silently returned 0 candles for all 5 symbols (confirmed harmless — the fetcher only writes a file when the downloaded frame is non-empty, so the stale pre-existing `*_1440m_365d_bybit.csv` files were untouched by the failed attempt); Bybit's v5 kline endpoint does not recognize `1440` as an interval value, only `D` — re-ran with `--interval D --days 365` per the Task 2 precedent, then renamed `{sym}_Dm_365d_bybit.csv` -> `{sym}_1440m_365d_bybit.csv` for all 5 symbols. All 20 files: 0 gaps, coherent `is_mainnet=True` fresh mainnet pull, forming trailing candle already dropped by the fetcher (row counts 35039/8759/2189/364 match the trimmed expectation from commit `4f92643`).
