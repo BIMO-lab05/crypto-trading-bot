@@ -8,7 +8,10 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
 from killtests.entries import Entry  # noqa: E402
-from killtests.h3_atr_replay import replay_entry  # noqa: E402
+from killtests.h3_atr_replay import (  # noqa: E402
+    load_entries_from_series,
+    replay_entry,
+)
 
 
 def _bars(prices, start_ms=1_700_000_000_000, step_ms=900_000, spread=0.5):
@@ -114,6 +117,93 @@ def test_end_of_data():
     assert out.exit_reason == "end_of_data"
 
 
+def _series_csv(tmp_path, rows):
+    path = tmp_path / "series.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return str(path)
+
+
+def test_load_entries_from_series_filters_and_converts(tmp_path):
+    from shared.account import PAPER_INITIAL_BALANCE
+
+    path = _series_csv(
+        tmp_path,
+        [
+            {
+                "symbol": "BTCUSDT",
+                "ts_ms": 1_700_000_000_000,
+                "ens_action": "BUY",
+                "ens_confidence": 0.75,
+                "ens_position_size_pct": 0.10,
+                "close": 50_000.0,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "ts_ms": 1_700_003_600_000,
+                "ens_action": "SELL",
+                "ens_confidence": 0.5,
+                "ens_position_size_pct": 0.05,
+                "close": 3_000.0,
+            },
+            {  # HOLD row — must be dropped, not synthesized as an entry
+                "symbol": "SOLUSDT",
+                "ts_ms": 1_700_007_200_000,
+                "ens_action": None,
+                "ens_confidence": None,
+                "ens_position_size_pct": None,
+                "close": 150.0,
+            },
+        ],
+    )
+    entries = load_entries_from_series(path)
+    assert len(entries) == 2
+    buy, sell = entries
+    assert buy.symbol == "BTCUSDT"
+    assert buy.side == "LONG"
+    assert buy.entry_price == 50_000.0
+    assert buy.quantity == pytest.approx(0.10 * PAPER_INITIAL_BALANCE / 50_000.0)
+    assert buy.signal_confidence == pytest.approx(0.75)
+    assert sell.symbol == "ETHUSDT"
+    assert sell.side == "SHORT"
+    assert sell.quantity == pytest.approx(0.05 * PAPER_INITIAL_BALANCE / 3_000.0)
+
+
+def test_load_entries_from_series_rejects_missing_size(tmp_path):
+    path = _series_csv(
+        tmp_path,
+        [
+            {
+                "symbol": "BTCUSDT",
+                "ts_ms": 1_700_000_000_000,
+                "ens_action": "BUY",
+                "ens_confidence": 0.75,
+                "ens_position_size_pct": None,
+                "close": 50_000.0,
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="ens_position_size_pct is missing"):
+        load_entries_from_series(path)
+
+
+def test_load_entries_from_series_rejects_nonpositive_close(tmp_path):
+    path = _series_csv(
+        tmp_path,
+        [
+            {
+                "symbol": "BTCUSDT",
+                "ts_ms": 1_700_000_000_000,
+                "ens_action": "BUY",
+                "ens_confidence": 0.75,
+                "ens_position_size_pct": 0.10,
+                "close": 0.0,
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="non-positive close"):
+        load_entries_from_series(path)
+
+
 def test_daily_atr_known_values(tmp_path):
     """ATR = SMA of last 14 true ranges; constant bars => TR = high-low = 2."""
     from killtests.candles import CandleStore
@@ -140,3 +230,52 @@ def test_daily_atr_known_values(tmp_path):
     store = CandleStore(str(tmp_path), ["TESTUSDT"], ["1440"])
     cut = int(pd.Timestamp("2026-05-19 12:00:00").timestamp() * 1000)
     assert daily_atr(store, "TESTUSDT", cut) == pytest.approx(2.0)
+
+
+def _write_interval_csv(tmp_path, iv, start, periods, freq):
+    ts = pd.date_range(start, periods=periods, freq=freq)
+    pd.DataFrame(
+        {
+            "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "symbol": "TESTUSDT",
+            "interval": iv,
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.0,
+            "volume": 1.0,
+            "turnover": 1.0,
+            "is_mainnet": True,
+            "created_at": 1,
+        }
+    ).to_csv(tmp_path / f"TESTUSDT_{iv}m_365d_bybit.csv", index=False)
+
+
+def test_secondary_skips_entries_before_atr_warmup(tmp_path):
+    """Series-sourced entries predating daily ATR(14) warmup are skipped and
+    counted when skip_missing_atr=True (H3-secondary); primary semantics
+    (hard abort) preserved when False."""
+    from dataclasses import replace
+
+    from killtests.candles import CandleValidationError
+    from killtests.h3_atr_replay import run_h3
+
+    _write_interval_csv(tmp_path, "1440", "2026-05-01", 22, "D")
+    _write_interval_csv(tmp_path, "15", "2026-05-04", 18 * 96, "15min")
+    _write_interval_csv(tmp_path, "60", "2026-05-04", 18 * 24, "h")
+
+    def ts_ms(s):
+        return int(pd.Timestamp(s).timestamp() * 1000)
+
+    early = replace(_entry(ts=ts_ms("2026-05-05 12:00:00")), position_id="early")
+    valid = replace(_entry(ts=ts_ms("2026-05-19 12:00:00")), position_id="valid")
+
+    out = run_h3(
+        str(tmp_path), 1.5, "15", entries=[early, valid], skip_missing_atr=True
+    )
+    assert out["n"] == 1
+    assert out["atr_skipped"] == 1
+    assert out["per_trade"][0]["position_id"] == "valid"
+
+    with pytest.raises(CandleValidationError):
+        run_h3(str(tmp_path), 1.5, "15", entries=[early, valid])

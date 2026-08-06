@@ -36,7 +36,11 @@ sys.path.insert(0, os.path.join(_REPO, "backtesting"))
 
 from shared.account import PAPER_INITIAL_BALANCE, TAKER_FEE_PER_SIDE  # noqa: E402
 
-from killtests.candles import INTERVAL_MS, CandleStore  # noqa: E402
+from killtests.candles import (  # noqa: E402
+    INTERVAL_MS,
+    CandleStore,
+    CandleValidationError,
+)
 from killtests.entries import DEFAULT_FIXTURE, Entry, load_entries  # noqa: E402
 from killtests.report import write_verdict  # noqa: E402
 
@@ -127,18 +131,77 @@ def _pick_resolution(store: CandleStore, entry, preferred: str) -> str:
     )
 
 
+def load_entries_from_series(series_path: str) -> list:
+    """Build synthetic Entry objects from an offline_ensemble.py signal series
+    (spec §5 staged item — H3 secondary run for larger n).
+
+    Only rows where `ens_action` fired (BUY/SELL) become entries — HOLD rows
+    carry no position. entry price = row `close` (the bar-close price the
+    ensemble decided against, per offline_ensemble.py:416-431); quantity =
+    `ens_position_size_pct * PAPER_INITIAL_BALANCE / close` (ens_position_size_pct
+    is a fraction of capital, not a percent — see multi_strategy_ensemble.py:302,
+    `cap = settings.max_risk_per_trade`, itself a fraction); ts = `ts_ms`.
+
+    exit_ts_ms / actual_exit_price / actual_realized_pnl have no real value
+    here (there is no recorded close for a synthetic entry) — filled with
+    inert placeholders since replay_entry/run_h3 never read them for the
+    replay itself. signal_confidence is repurposed to carry the row's
+    `ens_confidence` (more informative than None).
+    """
+    df = pd.read_csv(series_path)
+    fired = df[df["ens_action"].notna()].copy()
+    entries = []
+    for row in fired.itertuples():
+        close = float(row.close)
+        if not (close > 0):
+            raise ValueError(
+                f"{row.symbol} ts_ms={row.ts_ms}: non-positive close {close} — "
+                "refusing to synthesize an entry with an invalid price"
+            )
+        size_pct = row.ens_position_size_pct
+        if size_pct is None or pd.isna(size_pct):
+            raise ValueError(
+                f"{row.symbol} ts_ms={row.ts_ms}: ens_action={row.ens_action!r} "
+                "fired but ens_position_size_pct is missing — series writer bug"
+            )
+        side = "LONG" if row.ens_action == "BUY" else "SHORT"
+        quantity = float(size_pct) * PAPER_INITIAL_BALANCE / close
+        entries.append(
+            Entry(
+                position_id=f"series-{row.symbol}-{int(row.ts_ms)}",
+                symbol=row.symbol,
+                side=side,
+                quantity=quantity,
+                entry_price=close,
+                entry_ts_ms=int(row.ts_ms),
+                exit_ts_ms=int(row.ts_ms) + 1,
+                actual_exit_price=close,
+                actual_realized_pnl=0.0,
+                signal_confidence=(
+                    float(row.ens_confidence)
+                    if not pd.isna(row.ens_confidence)
+                    else None
+                ),
+            )
+        )
+    return entries
+
+
 def run_h3(
     data_dir: str,
     stop_mult: float,
     resolution: str = "15",
     fixture: str = DEFAULT_FIXTURE,
+    entries: list = None,
+    skip_missing_atr: bool = False,
 ) -> dict:
-    entries = load_entries(fixture)
+    entries = entries if entries is not None else load_entries(fixture)
     symbols = sorted({e.symbol for e in entries})
     store = CandleStore(data_dir, symbols, [resolution, "60", "1440"])
     rows = []
     truncated = 0
     fallbacks = 0
+    atr_skipped = 0
     for e in entries:
         res = _pick_resolution(store, e, resolution)
         fallbacks += res != resolution
@@ -147,7 +210,16 @@ def run_h3(
         # Truncation at the DATA END is allowed (exits via end_of_data, counted
         # as a caveat). A frame that starts AFTER the entry is a hard abort
         # (interior hole — spec §8), handled inside _pick_resolution.
-        atr = daily_atr(store, e.symbol, e.entry_ts_ms)
+        try:
+            atr = daily_atr(store, e.symbol, e.entry_ts_ms)
+        except CandleValidationError:
+            if not skip_missing_atr:
+                raise
+            # Series-sourced entries can predate the daily CSV's ATR(14)
+            # warmup (first ~15 days of the backfill window). The 13-trade
+            # primary fixture never does — its hard abort stays intact.
+            atr_skipped += 1
+            continue
         risk = stop_mult * atr
         if e.side == "LONG":
             stop, tp = e.entry_price - risk, e.entry_price + 2 * risk
@@ -191,6 +263,7 @@ def run_h3(
         "ambiguous_bars_total": int(df["ambiguous_bars"].sum()),
         "truncated_windows": int(truncated),
         "resolution_fallbacks": int(fallbacks),
+        "atr_skipped": int(atr_skipped),
         "exit_reasons": df["exit_reason"].value_counts().to_dict(),
         "per_trade": rows,
         "accept": stop_out_rate < 0.40 and gross_expectancy > 0,
@@ -202,9 +275,30 @@ def main() -> None:
     ap.add_argument("--data-dir", default="backtesting/data")
     ap.add_argument("--resolution", default="15")
     ap.add_argument("--fixture", default=DEFAULT_FIXTURE)
+    ap.add_argument(
+        "--entries-from-series",
+        default=None,
+        help=(
+            "Path to an offline_ensemble.py signal-series CSV. When set, entries "
+            "are synthesized from every fired (BUY/SELL) row instead of the "
+            "committed 13-trade fixture, and the verdict is written as "
+            "'H3-secondary' — secondary evidence at larger n, never merged into "
+            "the primary audit-faithful H3 verdict (spec §5 staged item)."
+        ),
+    )
     args = ap.parse_args()
+    secondary = args.entries_from_series is not None
+    entries = load_entries_from_series(args.entries_from_series) if secondary else None
     results = {
-        m: run_h3(args.data_dir, m, args.resolution, args.fixture) for m in (1.5, 2.5)
+        m: run_h3(
+            args.data_dir,
+            m,
+            args.resolution,
+            args.fixture,
+            entries=entries,
+            skip_missing_atr=secondary,
+        )
+        for m in (1.5, 2.5)
     }
     accept = any(r["accept"] for r in results.values())
     metrics = {}
@@ -220,24 +314,44 @@ def main() -> None:
     def _sha(p):
         return hashlib.sha256(open(p, "rb").read()).hexdigest()[:12]
 
-    input_hashes = {"entries_fixture": _sha(args.fixture)}
+    if secondary:
+        input_hashes = {"signal_series": _sha(args.entries_from_series)}
+    else:
+        input_hashes = {"entries_fixture": _sha(args.fixture)}
     manifest = ".planning/evidence/killtests/backfill-manifest-2026-08.md"
     if os.path.exists(manifest):  # carries per-CSV digests (spec §9 input-data hash)
         input_hashes["backfill_manifest"] = _sha(manifest)
-    path = write_verdict(
-        "H3",
-        "ACCEPT" if accept else "REJECT",
-        'AUDIT.md:261 verbatim — "stop-out rate <40% AND gross expectancy >0 pre-fee"',
-        metrics=metrics,
-        caveats=[
-            f"n={results[1.5]['n']} — percentages describe these trades, not true rates",
-            "gross P&L is pre-fee (the criterion); net shown under both fee conventions",
-            "funding not modelled live; overlay estimate reported (0.01%/8h of entry notional)",
-            "walk starts at first full bar after entry; partial entry bar excluded (conservative)",
-            f"resolution {args.resolution}m with per-entry 60m fallback; stop-before-TP on ambiguous bars (pessimistic)",
-            f"truncated windows (exit=end_of_data at data end): "
-            f"{ {m: r['truncated_windows'] for m, r in results.items()} }",
-            f"resolution fallbacks to 60m: { {m: r['resolution_fallbacks'] for m, r in results.items()} }",
+
+    common_caveats = [
+        f"n={results[1.5]['n']} — percentages describe these trades, not true rates",
+        "gross P&L is pre-fee (the criterion); net shown under both fee conventions",
+        "funding not modelled live; overlay estimate reported (0.01%/8h of entry notional)",
+        "walk starts at first full bar after entry; partial entry bar excluded (conservative)",
+        f"resolution {args.resolution}m with per-entry 60m fallback; stop-before-TP on ambiguous bars (pessimistic)",
+        f"truncated windows (exit=end_of_data at data end): "
+        f"{ {m: r['truncated_windows'] for m, r in results.items()} }",
+        f"resolution fallbacks to 60m: { {m: r['resolution_fallbacks'] for m, r in results.items()} }",
+    ]
+
+    if secondary:
+        test_id = "H3-secondary"
+        criterion = 'AUDIT.md:261 verbatim — "stop-out rate <40% AND gross expectancy >0 pre-fee"'
+        caveats = common_caveats + [
+            "regenerated entries — secondary evidence, never merged into the "
+            "primary n=13 verdict",
+            "entries synthesized from the offline ensemble's own fired signals "
+            "(entry price = signal-bar close, quantity = ens_position_size_pct * "
+            "PAPER_INITIAL_BALANCE / close) — this measures the SAME ATR-bracket "
+            "exit design against a much larger, ensemble-generated entry set, not "
+            "an independent confirmation of the 13 real paper trades",
+            f"entries predating daily ATR(14) warmup skipped (first ~15 days of "
+            f"the backfill window): "
+            f"{ {m: r['atr_skipped'] for m, r in results.items()} }",
+        ]
+    else:
+        test_id = "H3"
+        criterion = 'AUDIT.md:261 verbatim — "stop-out rate <40% AND gross expectancy >0 pre-fee"'
+        caveats = common_caveats + [
             "both ATR variants clear the AUDIT.md criterion INDEPENDENTLY (1.5x: 7.7% "
             "stop-out, +1.21 expectancy; 2.5x: 0.0% stop-out, +1.20 expectancy) — the "
             "criterion has no either/any-variant clause and none is invoked here",
@@ -264,18 +378,26 @@ def main() -> None:
             "criterion legs after repricing. The bias is directional (stale-low longs "
             "in a rising tape) and will not average out at larger n. This is an "
             "upstream H1/H2 data-quality issue, not something this replay fixes.",
-        ],
+        ]
+
+    path = write_verdict(
+        test_id,
+        "ACCEPT" if accept else "REJECT",
+        criterion,
+        metrics=metrics,
+        caveats=caveats,
         config={
             "stop_mults": [1.5, 2.5],
             "tp_r_multiple": 2.0,
             "max_hold_hours": MAX_HOLD_HOURS,
             "atr_period": 14,
             "initial_capital_source": f"shared.account ({PAPER_INITIAL_BALANCE})",
+            "entries_source": (args.entries_from_series if secondary else args.fixture),
         },
         input_hashes=input_hashes,
         tables={f"per_trade_{m}x": r["per_trade"] for m, r in results.items()},
     )
-    print(f"H3 verdict written: {path}")
+    print(f"{test_id} verdict written: {path}")
     for m, r in results.items():
         print(
             f"  {m}x: stop-out {r['stop_out_rate']:.1%}, "
