@@ -34,6 +34,8 @@ def load_num_trials(path: str = NUM_TRIALS_FIXTURE) -> dict:
 
 def score_signals(series: pd.DataFrame, store, horizon_bars: int = 24) -> pd.DataFrame:
     out = []
+    join_miss = 0
+    horizon_drop = 0
     fired = series[series["ens_action"].notna()].copy()
     for symbol, grp in fired.groupby("symbol"):
         f = store.frame(symbol, "60").reset_index(drop=True)
@@ -41,8 +43,20 @@ def score_signals(series: pd.DataFrame, store, horizon_bars: int = 24) -> pd.Dat
         for row in grp.itertuples():
             # row.ts_ms is the decision time = close of bar i => bar open at ts_ms - 1h
             i = pos_by_ts.get(int(row.ts_ms) - 3_600_000)
-            if i is None or i + horizon_bars >= len(f):
-                continue  # tail signal without a full horizon — dropped, counted below
+            if i is None:
+                # ts_ms doesn't land on this symbol's hourly grid at all — a data
+                # bug (e.g. the series and the CandleStore disagree on alignment),
+                # NOT the same thing as a tail signal genuinely lacking a forward
+                # horizon. Counted separately and refused on below — silently
+                # folding this into the tail-drop count let an entire symbol's
+                # signals vanish from the verdict with no error (see fix-round-1
+                # reviewer repro: all-ETHUSDT ts_ms shifted +30min discarded all
+                # 6,874 ETH signals and still exited 0).
+                join_miss += 1
+                continue
+            if i + horizon_bars >= len(f):
+                horizon_drop += 1
+                continue  # genuine tail attrition — no full horizon exists yet
             store_close = float(f["close"].iloc[i])
             # Cheap checksum against the ts_ms convention above: the series already
             # carries the decision-bar close it was scored against live. If the
@@ -73,8 +87,24 @@ def score_signals(series: pd.DataFrame, store, horizon_bars: int = 24) -> pd.Dat
                     "hit": fwd * direction > 0,
                 }
             )
+    if join_miss > 0:
+        # A join miss means ts_ms values in the signal series don't align to the
+        # CandleStore's hourly grid for at least one symbol — a data-pipeline bug
+        # (misaligned generation, wrong interval, clock drift), not a legitimate
+        # market outcome like all-HOLD. Silently continuing would let the verdict
+        # be computed on a subset of the universe while reporting success (exit 0).
+        # Raise rather than REJECT: a REJECT-with-reason implies "we measured
+        # honestly and found no edge," which is false here — we didn't measure
+        # the misaligned symbol(s) at all.
+        raise ValueError(
+            f"{join_miss} signal(s) had no matching bar in the CandleStore "
+            f"(ts_ms off the hourly grid) — refusing to silently drop them and "
+            f"compute a verdict on a partial universe. horizon_drop={horizon_drop} "
+            f"(genuine tail attrition, not affected by this)."
+        )
     scored = pd.DataFrame(out)
-    scored.attrs["dropped_tail"] = int(len(fired) - len(scored))
+    scored.attrs["join_miss"] = join_miss
+    scored.attrs["horizon_drop"] = horizon_drop
     return scored
 
 
@@ -97,7 +127,8 @@ def h4_stats(scored: pd.DataFrame, num_trials: int) -> dict:
     # grouped by symbol — sort by time or the leakage protection is fictional.
     # (With sparse multi-symbol signals a 24-sample purge in index space spans
     # >= 24h in time — conservative; noted in the verdict config.)
-    dropped_tail = scored.attrs.get("dropped_tail", 0)
+    join_miss = scored.attrs.get("join_miss", 0)
+    horizon_drop = scored.attrs.get("horizon_drop", 0)
     scored = scored.sort_values("ts_ms").reset_index(drop=True)
     rets = scored["signed_ret"].to_numpy(dtype=float)
     cv = k["CombinatorialPurgedCV"](n_groups=10, k_test_groups=2, embargo_pct=0.01)
@@ -134,7 +165,8 @@ def h4_stats(scored: pd.DataFrame, num_trials: int) -> dict:
         "n_cpcv_paths": n_valid,
         "num_trials_used": max(num_trials, n_valid),
         "pf_pooled": wins / losses if losses else float("inf"),
-        "dropped_tail_signals": dropped_tail,
+        "join_miss_signals": join_miss,
+        "horizon_drop_signals": horizon_drop,
         "path_sharpe_variance_source": "cpcv_sharpe_distribution (kernel)",
     }
 

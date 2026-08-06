@@ -77,6 +77,26 @@ def test_close_mismatch_raises():
         score_signals(series, store, horizon_bars=24)
 
 
+def test_join_miss_raises_and_is_distinct_from_horizon_drop():
+    # A signal ts_ms that doesn't land on the CandleStore's hourly grid must be
+    # refused loudly, not silently folded into the (legitimate) tail-horizon
+    # drop count -- see fix-round-1 reviewer repro: an entire symbol shifted off
+    # the grid was previously discarded silently and the CLI still exited 0.
+    series, store = _series_and_store()
+    series = series.copy()
+    series.loc[series.index[0], "ts_ms"] = series["ts_ms"].iloc[0] + 1_800_000
+    with pytest.raises(ValueError, match="no matching bar"):
+        score_signals(series, store, horizon_bars=24)
+
+
+def test_h4_stats_reports_join_miss_and_horizon_drop_separately():
+    series, store = _series_and_store(informative=True)
+    scored = score_signals(series, store, horizon_bars=24)
+    stats = h4_stats(scored, num_trials=8)
+    assert stats["join_miss_signals"] == 0
+    assert stats["horizon_drop_signals"] > 0
+
+
 def test_empty_scored_raises_insufficient_signals():
     from killtests.h4_information import InsufficientSignalsError
 
@@ -109,14 +129,17 @@ def test_num_trials_floor():
 
 
 def test_pf_is_pooled():
-    series, store = _series_and_store(informative=True)
+    # informative=True makes losses exactly 0.0 (oracle never scores a loser), so
+    # both a correctly-pooled PF and a mean-of-folds PF would land on the same
+    # inf -- vacuous. Use the random (informative=False) fixture instead, which
+    # has non-zero wins AND losses and actually discriminates the two formulas.
+    series, store = _series_and_store(informative=False)
     scored = score_signals(series, store, horizon_bars=24)
     stats = h4_stats(scored, num_trials=8)
     wins = scored.loc[scored["signed_ret"] > 0, "signed_ret"].sum()
     losses = abs(scored.loc[scored["signed_ret"] < 0, "signed_ret"].sum())
-    assert stats["pf_pooled"] == pytest.approx(
-        wins / losses if losses else float("inf")
-    )
+    assert losses > 0  # sanity: this fixture must not be vacuous either
+    assert stats["pf_pooled"] == pytest.approx(wins / losses)
 
 
 def test_gate_refuses_without_h3_verdict(tmp_path):
