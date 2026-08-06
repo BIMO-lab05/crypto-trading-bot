@@ -293,3 +293,8 @@ services/tournament-harness/data/snapshots/*.db
 # tree clean; re-run `/graphify` locally when fresh signal is needed.
 # ============================================================================
 .planning/graphs/
+
+# killtests: bulky replay artifacts (hashes recorded in verdicts instead)
+backtesting/data-parity/
+.planning/evidence/killtests/series-parts/
+.planning/evidence/killtests/signal-series.csv
