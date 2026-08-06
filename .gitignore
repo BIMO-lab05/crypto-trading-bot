@@ -298,3 +298,4 @@ services/tournament-harness/data/snapshots/*.db
 backtesting/data-parity/
 .planning/evidence/killtests/series-parts/
 .planning/evidence/killtests/signal-series.csv
+.planning/evidence/killtests/*-verdict-*-table-*.csv

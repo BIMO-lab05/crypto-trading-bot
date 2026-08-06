@@ -1,0 +1,54 @@
+# H3-secondary verdict: ACCEPT
+
+**Criterion (AUDIT.md §7, verbatim):** AUDIT.md:261 verbatim — "stop-out rate <40% AND gross expectancy >0 pre-fee"
+
+## Metrics
+
+- ambiguous_bars_1.5x: 0
+- ambiguous_bars_2.5x: 0
+- exit_reasons_1.5x: {"end_of_data": 25, "max_hold": 10578, "stop_loss": 1402, "take_profit": 292}
+- exit_reasons_2.5x: {"end_of_data": 25, "max_hold": 11813, "stop_loss": 414, "take_profit": 45}
+- funding_est_total_1.5x: 48.61602249868749
+- funding_est_total_2.5x: 50.80019870447916
+- gross_expectancy_1.5x: 0.0034049591261342224
+- gross_expectancy_2.5x: 0.0008924480747560387
+- net_total_bybit_est_1.5x: -52.48960851633921
+- net_total_bybit_est_2.5x: -83.368850180799
+- net_total_modelled_1.5x: -129.6935646994034
+- net_total_modelled_2.5x: -160.5588099448596
+- stop_out_rate_1.5x: 0.11401154753191835
+- stop_out_rate_2.5x: 0.03366674798731398
+
+## Caveats
+
+- n=12297 — percentages describe these trades, not true rates
+- gross P&L is pre-fee (the criterion); net shown under both fee conventions
+- funding not modelled live; overlay estimate reported (0.01%/8h of entry notional)
+- walk starts at first full bar after entry; partial entry bar excluded (conservative)
+- resolution 15m with per-entry 60m fallback; stop-before-TP on ambiguous bars (pessimistic)
+- truncated windows (exit=end_of_data at data end): {1.5: 25, 2.5: 25}
+- resolution fallbacks to 60m: {1.5: 0, 2.5: 0}
+- regenerated entries — secondary evidence, never merged into the primary n=13 verdict
+- entries synthesized from the offline ensemble's own fired signals (entry price = signal-bar close, quantity = ens_position_size_pct * PAPER_INITIAL_BALANCE / close) — this measures the SAME ATR-bracket exit design against a much larger, ensemble-generated entry set, not an independent confirmation of the 13 real paper trades
+- entries predating daily ATR(14) warmup skipped (first ~15 days of the backfill window): {1.5: 103, 2.5: 103}
+
+## Config
+
+```json
+{
+  "atr_period": 14,
+  "entries_source": ".planning/evidence/killtests/signal-series.csv",
+  "initial_capital_source": "shared.account (100.0)",
+  "max_hold_hours": 48,
+  "stop_mults": [
+    1.5,
+    2.5
+  ],
+  "tp_r_multiple": 2.0
+}
+```
+
+## Input hashes
+
+- backfill_manifest: e63ac88f8f9d
+- signal_series: 9626e30a51db
