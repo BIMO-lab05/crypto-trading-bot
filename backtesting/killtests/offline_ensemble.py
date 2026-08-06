@@ -389,6 +389,12 @@ async def run_replay(
     look-ahead. Deployed-path bugs are preserved, not fixed (spec §3.3): a
     weird/flat/degenerate signal here IS the measurement.
     """
+    assert clock is stack.clock, (
+        "clock must be the same object load_stack rewired the market-data "
+        "transport onto -- a different instance leaves the mocked transport "
+        "reading a stale now_ms while this loop advances a detached clock, "
+        "silently starving as_of() of any closed bars"
+    )
     import pandas as pd  # local: keeps module import light
 
     from killtests.candles import INTERVAL_MS
