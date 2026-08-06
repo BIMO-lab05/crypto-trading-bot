@@ -7,6 +7,13 @@ Only the market-data HTTP boundary is faked (MockTransport -> CandleStore).
 
 MUST be loaded once per process (TA app registers Prometheus collectors in
 the global registry; a second import raises Duplicated timeseries).
+`load_stack` enforces this itself: only the first call imports the TA app
+and builds the TE namespace. A second call does not re-import — it rewires
+the already-loaded stack onto the new (store, clock) pair (fresh
+market-data MockTransport swapped onto the TA fetcher's httpx client,
+`stack.clock` rebound) and returns the same Stack instance. This lets
+`run_replay` and multiple pytest modules share one loaded stack across
+different CandleStore/ReplayClock instances within one process.
 """
 
 import importlib.util
@@ -64,6 +71,7 @@ class Stack:
 
 
 _LOADED: Stack = None
+_TA_FETCHER_MOD = None  # cached for rewiring fetcher.client on a second load_stack call
 
 
 def _purge_app_modules() -> None:
@@ -285,14 +293,25 @@ def _swap_httpx_clients(
 
 
 def load_stack(store: CandleStore, clock: ReplayClock) -> Stack:
-    global _LOADED
+    global _LOADED, _TA_FETCHER_MOD
     if _LOADED is not None:
-        raise RuntimeError(
-            "load_stack may only run once per process (Prometheus registry)"
+        # Cache-and-rewire: the TA app cannot be re-imported (Prometheus
+        # registry), so rebuild only what closed over the FIRST caller's
+        # store/clock -- the market-data transport -- and rebind the clock
+        # reference. The ta_transport (ASGITransport into ta_app) and the
+        # regime_mod httpx shim are unaffected: they call into the TA app,
+        # which itself resolves candles through the fetcher we just rewired.
+        md_transport = _mk_market_data_transport(store, clock)
+        fetcher = _TA_FETCHER_MOD.get_fetcher()
+        fetcher.client = httpx.AsyncClient(
+            transport=md_transport, base_url="http://md.offline", timeout=30.0
         )
+        _LOADED.clock = clock
+        return _LOADED
 
     kernels = _load_kernels()
     ta_app, ta_fetcher_mod = _load_ta_app()
+    _TA_FETCHER_MOD = ta_fetcher_mod
 
     # Patch market-data boundary: real TA fetcher keeps its validation pipeline,
     # only its HTTP client is mocked to serve CandleStore rows as-of the clock.
@@ -351,3 +370,99 @@ def load_stack(store: CandleStore, clock: ReplayClock) -> Stack:
         clock=clock,
     )
     return _LOADED
+
+
+async def run_replay(
+    store: CandleStore,
+    stack: Stack,
+    clock: ReplayClock,
+    symbols: list,
+    warmup_bars: int = 300,
+):
+    """Walk the 60m bar-close clock for each symbol, calling the real deployed
+    aggregator+ensemble stack (spec §3.1) at every decision point.
+
+    Decision time for bar i is the CLOSE of bar i: `clock.now_ms` is set to
+    bar_close_ms BEFORE the aggregator call, so `CandleStore.as_of`
+    (close + step <= now_ms) serves bar i itself as the latest closed candle
+    and nothing later -- matching the live forming-candle drop, no
+    look-ahead. Deployed-path bugs are preserved, not fixed (spec §3.3): a
+    weird/flat/degenerate signal here IS the measurement.
+    """
+    import pandas as pd  # local: keeps module import light
+
+    from killtests.candles import INTERVAL_MS
+
+    rows = []
+    step = INTERVAL_MS["60"]
+    for symbol in symbols:
+        f60 = store.frame(symbol, "60")
+        for i in range(warmup_bars, len(f60)):
+            bar_close_ms = int(f60["ts_ms"].iloc[i]) + step
+            clock.now_ms = bar_close_ms
+            _clear_regime_cache(stack.aggregator)
+            with frozen_time(
+                clock
+            ):  # pins time.time -> bar close (function-local imports)
+                sig = await stack.aggregator.get_trading_signal_multi_timeframe(
+                    symbol, "60"
+                )
+            close = float(f60["close"].iloc[i])
+            ens = stack.ensemble.generate_signal(sig, current_price=close)
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "ts_ms": bar_close_ms,
+                    "action": sig.action.value,
+                    "confidence": float(sig.confidence),
+                    "aggregated_score": float(sig.aggregated_score),
+                    "consensus_count": int(sig.consensus_count),
+                    "ens_action": ens.action.value if ens else None,
+                    "ens_confidence": float(ens.confidence) if ens else None,
+                    "ens_position_size_pct": (
+                        float(ens.position_size_pct) if ens else None
+                    ),
+                    "close": close,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _clear_regime_cache(aggregator) -> None:
+    # Verified location: aggregator_core.py:119 -- NOT on the aggregator itself.
+    det = aggregator.core_aggregator.regime_detector
+    assert det is not None, "regime detector missing -- determinism pin broken"
+    det._cache.clear()
+
+
+# The 5 symbols validated for position-taking (CLAUDE.md section 5); market-data
+# ingests a wider 14-symbol universe for research, but trading-engine restricts
+# to these.
+_VALIDATED_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
+
+
+def main() -> None:
+    import argparse
+    import asyncio
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data-dir", default="backtesting/data")
+    ap.add_argument("--symbols", nargs="+", default=_VALIDATED_SYMBOLS)
+    ap.add_argument("--warmup", type=int, default=300)
+    ap.add_argument("--out", default=".planning/evidence/killtests/signal-series.csv")
+    args = ap.parse_args()
+
+    intervals = ["15", "60", "240", "1440"]
+    store = CandleStore(args.data_dir, args.symbols, intervals)
+    clock = ReplayClock(now_ms=0)
+    stack = load_stack(store, clock)
+    df = asyncio.run(
+        run_replay(store, stack, clock, args.symbols, warmup_bars=args.warmup)
+    )
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    df.to_csv(args.out, index=False)
+    print(f"wrote {len(df)} rows to {args.out}")
+
+
+if __name__ == "__main__":
+    main()
