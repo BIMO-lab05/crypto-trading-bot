@@ -61,6 +61,32 @@ def test_score_signals_shapes_and_horizon_drop():
     assert len(scored) < len(series)
 
 
+def test_unexpected_ens_action_raises():
+    series, store = _series_and_store()
+    series = series.copy()
+    series.loc[series.index[0], "ens_action"] = "HOLD"
+    with pytest.raises(ValueError, match="unexpected ens_action"):
+        score_signals(series, store, horizon_bars=24)
+
+
+def test_close_mismatch_raises():
+    series, store = _series_and_store()
+    series = series.copy()
+    series.loc[series.index[0], "close"] = series["close"].iloc[0] * 2 + 1
+    with pytest.raises(ValueError, match="ts_ms convention mismatch"):
+        score_signals(series, store, horizon_bars=24)
+
+
+def test_empty_scored_raises_insufficient_signals():
+    from killtests.h4_information import InsufficientSignalsError
+
+    empty = pd.DataFrame(
+        columns=["symbol", "ts_ms", "ens_action", "fwd_ret", "signed_ret", "hit"]
+    )
+    with pytest.raises(InsufficientSignalsError):
+        h4_stats(empty, num_trials=8)
+
+
 def test_oracle_signals_score_high():
     series, store = _series_and_store(informative=True)
     scored = score_signals(series, store, horizon_bars=24)
