@@ -8,6 +8,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
@@ -62,6 +64,45 @@ def test_ensemble_constants_pinned():
     src = MSE.read_text()
     assert re.search(r"AGGREGATION_THRESHOLD\s*=\s*\(?\s*0\.10", src)
     assert re.search(r"MIN_AGREEING_LEGS\s*=\s*\(?\s*1", src)
+
+
+TE_CONFIG = REPO / "services" / "trading-engine" / "app" / "config.py"
+OFFLINE_ENSEMBLE = REPO / "backtesting" / "killtests" / "offline_ensemble.py"
+
+# Ensemble sizing cascade (ADR-015): position_pct =
+#   max(ensemble_min_position_pct,
+#       min(max_risk_per_trade,
+#           confidence * max_risk_per_trade * ensemble_confidence_size_multiplier))
+# The offline replay stubs app.config.get_settings, so these two values are
+# written out by hand in offline_ensemble.py. They size every synthetic entry
+# the H3-secondary run replays. If the deployed default moves and the stub
+# does not, the harness silently measures a sizing regime the engine no
+# longer runs — with no test failure anywhere.
+_SIZING_FIELDS = ("ensemble_min_position_pct", "ensemble_confidence_size_multiplier")
+
+
+def _deployed_default(field: str) -> float:
+    m = re.search(
+        rf"{field}:\s*float\s*=\s*Field\(\s*default=([0-9.]+)", TE_CONFIG.read_text()
+    )
+    assert m, f"{field} default not found in {TE_CONFIG} — did the Field shape change?"
+    return float(m.group(1))
+
+
+def _replay_stub_value(field: str) -> float:
+    m = re.search(rf"^\s*{field}=([0-9.]+),", OFFLINE_ENSEMBLE.read_text(), re.M)
+    assert m, f"{field} not found in the offline get_settings stub"
+    return float(m.group(1))
+
+
+@pytest.mark.parametrize("field", _SIZING_FIELDS)
+def test_offline_ensemble_sizing_matches_deployed_default(field):
+    assert _replay_stub_value(field) == _deployed_default(field), (
+        f"{field} drifted: offline replay stub says {_replay_stub_value(field)}, "
+        f"deployed default is {_deployed_default(field)}. Update the stub in "
+        f"{OFFLINE_ENSEMBLE.name} AND re-run any standing H3-secondary/H4 verdict "
+        "— every synthetic entry was sized with the old value."
+    )
 
 
 def test_voting_weights_canary():
