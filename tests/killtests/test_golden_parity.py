@@ -5,8 +5,10 @@ Two layers:
      for the identical candle window (window equality asserted first).
   B) full aggregator chain: SignalAggregator against live TA vs against the
      offline ASGI app — TradingSignal fields must match.
-Requires the docker stack; skips (loudly) otherwise. On full pass, writes
-the parity stamp consumed by the H4 CLI gate.
+Requires the docker stack; skips (loudly) otherwise. Each test records its
+own outcome into `killtests.parity_stamp.RUN`; the stamp consumed by the H4
+CLI gate is minted once, from `conftest.pytest_sessionfinish`, and only when
+the whole session came back clean. Nothing in this module writes it.
 
 KILLTESTS_DATA_DIR overrides the CSV dir for the offline leg (default
 backtesting/data). Use a freshly-fetched parity copy when the canonical
@@ -16,11 +18,9 @@ latest bar), not the identity of any particular CSV snapshot.
 """
 
 import asyncio
-import json
 import os
 import sys
 import time
-from datetime import date
 from pathlib import Path
 
 import httpx
@@ -31,7 +31,7 @@ sys.path.insert(0, str(REPO / "backtesting"))
 
 TA_URL = "http://localhost:8004"
 MD_URL = "http://localhost:8002"
-STAMP = REPO / ".planning" / "evidence" / "killtests" / "golden-parity-stamp.json"
+DATA_DIR = os.environ.get("KILLTESTS_DATA_DIR", "backtesting/data")
 
 pytestmark = pytest.mark.golden
 
@@ -52,6 +52,8 @@ if not _stack_up():
         "until this suite passes. Start: docker compose -f docker-compose.unified.yml up -d",
         allow_module_level=True,
     )
+
+from killtests.parity_stamp import RUN  # noqa: E402,F401 (import after the skip)
 
 SYMBOLS = [
     "BTCUSDT",
@@ -80,6 +82,11 @@ ENDPOINTS = [  # (path template, params) — the full active fetch set (fetch_al
     ("/api/v1/indicators/atr/{s}", {"interval": "60"}),
 ]
 
+# Arms the stamp machinery and snapshots the inputs (data-dir fingerprint,
+# backfill-manifest digest) that end up inside the stamp. Reached only after
+# the stack probe above, so a skipped module never arms anything.
+RUN.begin(symbols=SYMBOLS, data_dir=DATA_DIR)
+
 
 @pytest.fixture(scope="module")
 def offline():
@@ -87,7 +94,7 @@ def offline():
     from killtests.offline_ensemble import ReplayClock, load_stack
 
     store = CandleStore(
-        os.environ.get("KILLTESTS_DATA_DIR", "backtesting/data"),
+        DATA_DIR,
         ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"],
         ["15", "60", "240", "1440"],
     )
@@ -97,6 +104,7 @@ def offline():
 
 def test_candle_window_equality(offline):
     """Precondition: DB candles == CSV candles for the comparison window."""
+    RUN.record_start("test_candle_window_equality")
     _, store, clock = offline
     for sym in SYMBOLS:
         live = httpx.get(
@@ -118,6 +126,7 @@ def test_candle_window_equality(offline):
         assert matched >= 40, (
             f"{sym}: only {matched}/50 overlapping candles (backfill stale? refresh it)"
         )
+    RUN.record_pass("test_candle_window_equality")
 
 
 def _strip_timestamps(obj):
@@ -138,6 +147,7 @@ def _strip_timestamps(obj):
 
 
 def test_indicator_endpoint_parity(offline):
+    RUN.record_start("test_indicator_endpoint_parity")
     stack, store, clock = offline
     transport = httpx.ASGITransport(app=stack.ta_app)
 
@@ -154,9 +164,7 @@ def test_indicator_endpoint_parity(offline):
                     assert o == l, f"parity break {sym} {path}:\noffline={o}\nlive={l}"
 
     asyncio.run(compare())
-
-
-_CHAIN_ACTIONS: list = []  # collected by test_full_chain_parity; gates the stamp
+    RUN.record_pass("test_indicator_endpoint_parity")
 
 
 def _run_chain_leg(stack, symbol, client_factory, regime_httpx):
@@ -214,6 +222,7 @@ def test_full_chain_parity(offline):
     """SignalAggregator vs live TA == SignalAggregator vs offline ASGI —
     field-for-field on TradingSignal, per-indicator, AND the ensemble output
     (spec §7.1). All 3 golden symbols."""
+    RUN.record_start("test_full_chain_parity")
     stack, store, clock = offline
 
     def asgi_factory():
@@ -256,20 +265,5 @@ def test_full_chain_parity(offline):
         assert (ens_off is None) == (ens_live is None), sym
         if ens_off is not None:
             assert ens_off == ens_live, f"{sym}: EnsembleSignal diverged"
-        _CHAIN_ACTIONS.append(sig_off.action.value)
-
-
-def test_write_stamp(offline):
-    """Stamp only after full-chain parity produced >= 1 non-HOLD signal
-    (spec §7.1). All-HOLD parity never exercised the ensemble legs — no stamp."""
-    non_hold = [a for a in _CHAIN_ACTIONS if a != "HOLD"]
-    if not non_hold:
-        pytest.skip(
-            "GOLDEN PARITY all-HOLD across all symbols — stamp NOT written; "
-            "re-run when the market produces a live non-HOLD signal (H4 stays gated)"
-        )
-    STAMP.parent.mkdir(parents=True, exist_ok=True)
-    STAMP.write_text(
-        json.dumps({"date": date.today().strftime("%Y%m%d"), "passed": True})
-    )
-    assert STAMP.exists()
+        RUN.record_chain_action(sym, sig_off.action.value)
+    RUN.record_pass("test_full_chain_parity")

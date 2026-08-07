@@ -73,7 +73,31 @@ The stamp comes from:
 python3 -m pytest tests/killtests/test_golden_parity.py -m golden --no-cov
 ```
 This requires the docker stack up (`docker compose -f docker-compose.unified.yml up -d`)
-— it skips loudly otherwise.
+— it skips loudly otherwise. Run it **on its own**, not folded into a wider
+pytest invocation: the minting rule below counts failures session-wide, so an
+unrelated failing test elsewhere in the same session will (deliberately)
+produce a `passed: false` stamp.
+
+**Who writes the stamp, and when.** Nothing inside `test_golden_parity.py`
+writes it. Each parity test records that it started and (on its last line)
+that it passed; `tests/killtests/conftest.py::pytest_sessionfinish` then
+applies the rules in `backtesting/killtests/parity_stamp.py`:
+
+| Session outcome | Stamp |
+|---|---|
+| module skipped (stack down), or collected but no parity test executed (`-m "not golden"`, `-k`) | untouched |
+| any failure/error in the session, or a required parity test that did not reach its last line | `passed: false`, with `refused_because` naming the reason |
+| clean, but all-HOLD across every symbol | not written (spec §7.1 — the ensemble legs were never exercised; an earlier same-day pass stays valid) |
+| clean, ≥1 non-HOLD chain action | `passed: true` |
+
+Until 2026-08-07 the stamp was written by an ordinary test whose only
+condition was "some chain action was recorded" — pytest runs that test even
+when the parity assertions above it fail, so a session that had just proven
+the seam BROKEN could still mint `passed: true` and open the H4 gate. The
+stamp is now self-describing (test outcomes, symbols, observed actions, data
+dir + its content fingerprint, backfill-manifest sha256) so a reader can tell
+what a given stamp actually certifies. Its full manifest digest corresponds
+to the first 12 characters recorded in each verdict's `input_hashes`.
 
 **Freshness discipline for the stamp run.** The live leg always answers at
 the current latest closed bar, so the offline leg's CSVs must reach the same
