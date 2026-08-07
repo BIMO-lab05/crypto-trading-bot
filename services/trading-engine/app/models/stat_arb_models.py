@@ -4,7 +4,7 @@ Provides request/response validation and OpenAPI documentation
 """
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from app.config import get_settings
 
@@ -17,6 +17,51 @@ def _default_max_position_size_usdt() -> float:
     """
     settings = get_settings()
     return settings.paper_initial_balance * settings.max_position_size_pct / 100.0
+
+
+def _default_total_capital() -> float:
+    """Configured account size, resolved at call time.
+
+    Every OpenAPI example below that mentions capital passes a CALLABLE to
+    json_schema_extra rather than a dict literal. A dict literal is evaluated
+    at class-definition time, which would freeze the account size at import —
+    what .claude/rules/money.md forbids, and invisible to the capital-literal
+    detector. A callable runs when the schema is generated.
+    """
+    return get_settings().paper_initial_balance
+
+
+def _example_performance() -> Dict[str, Any]:
+    """Illustrative performance payload for the OpenAPI docs.
+
+    These are NOT measured results, and they deliberately show a small net
+    LOSS with a negative Sharpe. No strategy in this repo has demonstrated a
+    positive edge, so a documented example implying one is an unsourced edge
+    claim. The figures this replaces paired the account size with a $5,234.50
+    profit — a 5,234% return on a $100 account.
+
+    P&L is expressed as a fraction of the configured capital so the example
+    stays arithmetically coherent if the account size changes.
+    """
+    capital = _default_total_capital()
+    return {
+        "total_capital": capital,
+        "total_pnl": round(-0.0185 * capital, 2),
+        "total_trades": 47,
+        "winning_trades": 21,
+        "losing_trades": 26,
+        "win_rate": 0.447,
+        "sharpe_ratio": -0.31,
+        "max_drawdown": 0.062,
+        "strategies": {
+            "BTCUSDT_ETHUSDT": {
+                "strategy_type": "pairs_trading",
+                "trades": 15,
+                "pnl": round(-0.0074 * capital, 2),
+                "win_rate": 0.467,
+            }
+        },
+    }
 
 
 # ============================================================================
@@ -83,15 +128,16 @@ class InitializeManagerRequest(BaseModel):
             )
         return v
 
-    class Config:
-        schema_extra = {
-            "example": {
-                "total_capital": 100.0,
+    model_config = ConfigDict(
+        json_schema_extra=lambda schema: schema.update(
+            example={
+                "total_capital": _default_total_capital(),
                 "pairs_allocation": 0.4,
                 "funding_allocation": 0.4,
                 "triangular_allocation": 0.2,
             }
-        }
+        )
+    )
 
 
 class AddPairsStrategyRequest(BaseModel):
@@ -141,8 +187,8 @@ class AddPairsStrategyRequest(BaseModel):
             )
         return v
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "symbol_x": "BTCUSDT",
                 "symbol_y": "ETHUSDT",
@@ -152,6 +198,7 @@ class AddPairsStrategyRequest(BaseModel):
                 "stop_loss_z": 3.0,
             }
         }
+    )
 
 
 class CalibratePairsStrategyRequest(BaseModel):
@@ -164,8 +211,8 @@ class CalibratePairsStrategyRequest(BaseModel):
         default=None, description="Historical price data for calibration"
     )
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "strategy_id": "BTCUSDT_ETHUSDT",
                 "historical_data": {
@@ -174,6 +221,7 @@ class CalibratePairsStrategyRequest(BaseModel):
                 },
             }
         }
+    )
 
 
 class AddFundingStrategyRequest(BaseModel):
@@ -205,8 +253,8 @@ class AddFundingStrategyRequest(BaseModel):
             raise ValueError(f"Invalid symbol: {v}")
         return v.upper()
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "symbol": "BTCUSDT",
                 "min_funding_rate": 0.0001,
@@ -214,6 +262,7 @@ class AddFundingStrategyRequest(BaseModel):
                 # (derived from Settings) applies.
             }
         }
+    )
 
 
 class SetupTriangularArbitrageRequest(BaseModel):
@@ -251,14 +300,15 @@ class SetupTriangularArbitrageRequest(BaseModel):
             raise ValueError("Duplicate assets found in list")
         return unique_assets
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "assets": ["BTC", "ETH", "BNB", "USDT"],
                 "min_profit_threshold": 0.005,
                 "max_latency_ms": 100.0,
             }
         }
+    )
 
 
 class GenerateSignalsRequest(BaseModel):
@@ -290,8 +340,8 @@ class GenerateSignalsRequest(BaseModel):
 
         return v
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "market_data": {
                     "BTCUSDT": {
@@ -307,6 +357,7 @@ class GenerateSignalsRequest(BaseModel):
                 }
             }
         }
+    )
 
 
 # ============================================================================
@@ -323,10 +374,11 @@ class StrategyAllocationResponse(BaseModel):
     )
     triangular: float = Field(description="Triangular arbitrage allocation percentage")
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"pairs_trading": 0.4, "funding_rate": 0.4, "triangular": 0.2}
         }
+    )
 
 
 class InitializeManagerResponse(BaseModel):
@@ -336,12 +388,12 @@ class InitializeManagerResponse(BaseModel):
     config: Dict[str, Any] = Field(description="Manager configuration")
     message: str = Field(description="Human-readable message")
 
-    class Config:
-        schema_extra = {
-            "example": {
+    model_config = ConfigDict(
+        json_schema_extra=lambda schema: schema.update(
+            example={
                 "status": "success",
                 "config": {
-                    "total_capital": 100.0,
+                    "total_capital": _default_total_capital(),
                     "allocation": {
                         "pairs_trading": 0.4,
                         "funding_rate": 0.4,
@@ -350,7 +402,8 @@ class InitializeManagerResponse(BaseModel):
                 },
                 "message": "Statistical Arbitrage Manager initialized successfully",
             }
-        }
+        )
+    )
 
 
 class StrategyResponse(BaseModel):
@@ -362,9 +415,9 @@ class StrategyResponse(BaseModel):
     config: Dict[str, Any] = Field(description="Strategy configuration")
     allocated_capital: float = Field(description="Capital allocated to this strategy")
 
-    class Config:
-        schema_extra = {
-            "example": {
+    model_config = ConfigDict(
+        json_schema_extra=lambda schema: schema.update(
+            example={
                 "status": "success",
                 "strategy_id": "BTCUSDT_ETHUSDT",
                 "strategy_type": "pairs_trading",
@@ -374,9 +427,12 @@ class StrategyResponse(BaseModel):
                     "entry_threshold": 2.0,
                     "exit_threshold": 0.5,
                 },
-                "allocated_capital": 13333.33,
+                # The pairs leg's share of the account: capital x the 0.4
+                # pairs_allocation used throughout these examples.
+                "allocated_capital": round(_default_total_capital() * 0.4, 2),
             }
-        }
+        )
+    )
 
 
 class PairsTradeSignalResponse(BaseModel):
@@ -427,8 +483,8 @@ class SignalsResponse(BaseModel):
     timestamp: str = Field(description="Generation timestamp")
     total_signals: int = Field(description="Total number of signals generated")
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "success",
                 "signals": {
@@ -449,6 +505,7 @@ class SignalsResponse(BaseModel):
                 "total_signals": 1,
             }
         }
+    )
 
 
 class StrategyPerformanceResponse(BaseModel):
@@ -470,31 +527,15 @@ class PerformanceResponse(BaseModel):
     performance: Dict[str, Any] = Field(description="Performance metrics")
     timestamp: str = Field(description="Report timestamp")
 
-    class Config:
-        schema_extra = {
-            "example": {
+    model_config = ConfigDict(
+        json_schema_extra=lambda schema: schema.update(
+            example={
                 "status": "success",
-                "performance": {
-                    "total_capital": 100.0,
-                    "total_pnl": 5234.50,
-                    "total_trades": 47,
-                    "winning_trades": 31,
-                    "losing_trades": 16,
-                    "win_rate": 0.659,
-                    "sharpe_ratio": 2.34,
-                    "max_drawdown": 0.032,
-                    "strategies": {
-                        "BTCUSDT_ETHUSDT": {
-                            "strategy_type": "pairs_trading",
-                            "trades": 15,
-                            "pnl": 1234.50,
-                            "win_rate": 0.733,
-                        }
-                    },
-                },
+                "performance": _example_performance(),
                 "timestamp": "2025-12-07T10:00:00",
             }
-        }
+        )
+    )
 
 
 class StatusResponse(BaseModel):
@@ -510,12 +551,12 @@ class StatusResponse(BaseModel):
         description="Capital allocation percentages"
     )
 
-    class Config:
-        schema_extra = {
-            "example": {
+    model_config = ConfigDict(
+        json_schema_extra=lambda schema: schema.update(
+            example={
                 "status": "active",
                 "initialized": True,
-                "total_capital": 100.0,
+                "total_capital": _default_total_capital(),
                 "active_strategies": {
                     "pairs_trading": 3,
                     "funding_rate": 2,
@@ -527,7 +568,8 @@ class StatusResponse(BaseModel):
                     "triangular": 0.2,
                 },
             }
-        }
+        )
+    )
 
 
 class ResetResponse(BaseModel):
@@ -537,14 +579,15 @@ class ResetResponse(BaseModel):
     message: str = Field(description="Human-readable message")
     strategies_cleared: int = Field(description="Number of strategies removed")
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "success",
                 "message": "Statistical Arbitrage Manager reset successfully",
                 "strategies_cleared": 6,
             }
         }
+    )
 
 
 class ErrorResponse(BaseModel):
@@ -556,11 +599,12 @@ class ErrorResponse(BaseModel):
         default=None, description="Detailed error information"
     )
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "error",
                 "error": "Manager not initialized",
                 "detail": "Please call /initialize endpoint first",
             }
         }
+    )
