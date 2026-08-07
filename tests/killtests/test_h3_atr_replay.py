@@ -9,6 +9,7 @@ sys.path.insert(0, str(REPO / "backtesting"))
 
 from killtests.entries import Entry  # noqa: E402
 from killtests.h3_atr_replay import (  # noqa: E402
+    headline_accept,
     load_entries_from_series,
     replay_entry,
 )
@@ -279,3 +280,93 @@ def test_secondary_skips_entries_before_atr_warmup(tmp_path):
 
     with pytest.raises(CandleValidationError):
         run_h3(str(tmp_path), 1.5, "15", entries=[early, valid])
+
+
+def test_mixed_variant_result_is_reject():
+    """The audit criterion has no any-variant clause: one bracket geometry
+    clearing while the other fails is not "the exit design passed".
+
+    Pinned because the code said `any(...)` until 2026-08-07 while the
+    committed verdict's caveat claimed both variants had to clear — true of
+    that data, false of the code, and nothing would have caught the drift.
+    """
+    mixed = {1.5: {"accept": True}, 2.5: {"accept": False}}
+    d = headline_accept(mixed)
+    assert d["accept"] is False
+    assert d["accept_all"] is False
+    assert d["accept_any"] is True  # recorded, deliberately not used
+    assert d["per_variant"] == {1.5: True, 2.5: False}
+
+
+def test_all_variants_passing_accepts():
+    d = headline_accept({1.5: {"accept": True}, 2.5: {"accept": True}})
+    assert d["accept"] is True and d["accept_all"] is True
+
+
+def test_no_variant_passing_rejects():
+    d = headline_accept({1.5: {"accept": False}, 2.5: {"accept": False}})
+    assert d["accept"] is False and d["accept_any"] is False
+
+
+def _warmup_frames(tmp_path):
+    _write_interval_csv(tmp_path, "1440", "2026-05-01", 22, "D")
+    _write_interval_csv(tmp_path, "15", "2026-05-04", 18 * 96, "15min")
+    _write_interval_csv(tmp_path, "60", "2026-05-04", 18 * 24, "h")
+
+
+def test_truncated_trades_are_split_out_of_the_headline(tmp_path):
+    """A trade whose walk runs off the end of the CSV got no exit decision
+    from these rules — its outcome is a fact about backfill length, not about
+    bracket design — so it must not sit inside the headline expectancy. It is
+    reported separately, never dropped."""
+    from dataclasses import replace
+
+    from killtests.h3_atr_replay import run_h3
+
+    _warmup_frames(tmp_path)
+
+    def ts_ms(s):
+        return int(pd.Timestamp(s).timestamp() * 1000)
+
+    decided = replace(_entry(ts=ts_ms("2026-05-19 12:00:00")), position_id="decided")
+    runs_out = replace(_entry(ts=ts_ms("2026-05-21 00:00:00")), position_id="runs_out")
+
+    out = run_h3(str(tmp_path), 1.5, "15", entries=[decided, runs_out])
+    assert out["n_replayed"] == 2
+    assert out["n"] == 1  # headline denominator excludes the truncated one
+    assert out["truncated_n"] == 1
+    reasons = {r["position_id"]: r["exit_reason"] for r in out["per_trade"]}
+    assert reasons == {"decided": "max_hold", "runs_out": "end_of_data"}
+    assert len(out["per_trade"]) == 2  # reported, not dropped
+
+
+def test_max_hold_exits_stay_in_the_headline(tmp_path):
+    """The 48h cutoff IS part of the exit design under test — unlike
+    end_of_data, it must not be split out."""
+    from dataclasses import replace
+
+    from killtests.h3_atr_replay import run_h3
+
+    _warmup_frames(tmp_path)
+    e = replace(
+        _entry(ts=int(pd.Timestamp("2026-05-19 12:00:00").timestamp() * 1000)),
+        position_id="held",
+    )
+    out = run_h3(str(tmp_path), 1.5, "15", entries=[e])
+    assert out["per_trade"][0]["exit_reason"] == "max_hold"
+    assert out["n"] == 1 and out["truncated_n"] == 0
+
+
+def test_all_entries_skipped_raises_a_readable_error(tmp_path):
+    """Previously a KeyError out of pandas on an empty frame."""
+    from dataclasses import replace
+
+    from killtests.h3_atr_replay import run_h3
+
+    _warmup_frames(tmp_path)
+    early = replace(
+        _entry(ts=int(pd.Timestamp("2026-05-05 12:00:00").timestamp() * 1000)),
+        position_id="early",
+    )
+    with pytest.raises(ValueError, match="no entries survived setup"):
+        run_h3(str(tmp_path), 1.5, "15", entries=[early], skip_missing_atr=True)
