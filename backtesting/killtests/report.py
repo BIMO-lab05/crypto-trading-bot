@@ -68,8 +68,19 @@ def write_verdict(
     return base + ".md"
 
 
-def latest_verdict(test_id, out_dir=EVIDENCE_DIR):
+def latest_verdict(test_id, out_dir=EVIDENCE_DIR, exclude_date=None):
+    """Newest verdict for `test_id`, by dated filename.
+
+    exclude_date (YYYYMMDD): skip verdicts stamped with that date. Needed to
+    pick a genuine PRIOR baseline, because `write_verdict` keys on test_id +
+    *today* — so a second run on the same day would otherwise compare itself
+    against its own output from an hour earlier, find everything identical,
+    and report no change.
+    """
     paths = sorted(glob.glob(os.path.join(out_dir, f"{test_id}-verdict-*.json")))
+    if exclude_date:
+        suffix = f"-verdict-{exclude_date}.json"
+        paths = [p for p in paths if not p.endswith(suffix)]
     if not paths:
         return None
     with open(paths[-1]) as f:

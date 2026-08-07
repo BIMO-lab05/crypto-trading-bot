@@ -183,7 +183,11 @@ caveat (plus a stderr warning) when they differ. It does not refuse: refusing
 would make the harness unrunnable after any legitimate data refresh, which is
 the opposite of "kill bad strategies cheaply". Treat that caveat as meaning
 *this is a different measurement, not a reproduction* — see the 2026-08-07
-amendment on `H3-verdict-20260805.md` for a worked example.
+amendment on `H3-verdict-20260805.md` for a worked example. The baseline it
+compares against deliberately skips any verdict dated **today**: because
+same-day runs overwrite in place, a second run would otherwise compare itself
+against its own output from an hour earlier, match trivially, and leave the
+warning-free file on disk.
 
 Also re-run if the backfilled CSVs go stale relative to the live stack —
 `test_candle_window_equality` (part of the golden-parity suite) catches this

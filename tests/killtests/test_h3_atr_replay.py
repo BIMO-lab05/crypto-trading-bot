@@ -370,3 +370,38 @@ def test_all_entries_skipped_raises_a_readable_error(tmp_path):
     )
     with pytest.raises(ValueError, match="no entries survived setup"):
         run_h3(str(tmp_path), 1.5, "15", entries=[early], skip_missing_atr=True)
+
+
+def test_vintage_guard_ignores_a_verdict_written_today(tmp_path):
+    """write_verdict keys on test_id + today, so a second run on the same day
+    would otherwise take its OWN earlier output as the baseline, match
+    trivially, and leave the warning-free artifact on disk — the exact case
+    the guard exists to catch."""
+    import json
+    from datetime import date
+
+    from killtests.h3_atr_replay import _vintage_caveats
+
+    today = date.today().strftime("%Y%m%d")
+    (tmp_path / f"H3-verdict-20260805.json").write_text(
+        json.dumps({"date": "20260805", "input_hashes": {"backfill_manifest": "old0"}})
+    )
+    # Same-day rerun output: must NOT become the comparison baseline.
+    (tmp_path / f"H3-verdict-{today}.json").write_text(
+        json.dumps({"date": today, "input_hashes": {"backfill_manifest": "new1"}})
+    )
+    caveats, _ = _vintage_caveats("H3", "new1", out_dir=str(tmp_path))
+    assert any("VINTAGE MISMATCH" in c for c in caveats)
+    assert any("old0" in c for c in caveats)
+
+
+def test_vintage_guard_quiet_when_inputs_match(tmp_path):
+    import json
+
+    from killtests.h3_atr_replay import _vintage_caveats
+
+    (tmp_path / "H3-verdict-20260805.json").write_text(
+        json.dumps({"date": "20260805", "input_hashes": {"backfill_manifest": "same"}})
+    )
+    caveats, _ = _vintage_caveats("H3", "same", out_dir=str(tmp_path))
+    assert not any("VINTAGE MISMATCH" in c for c in caveats)

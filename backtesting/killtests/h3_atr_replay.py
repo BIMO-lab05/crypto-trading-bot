@@ -35,6 +35,7 @@ import json
 import os
 import sys
 from dataclasses import asdict, dataclass
+from datetime import date
 
 import pandas as pd
 
@@ -348,7 +349,9 @@ def headline_accept(results: dict) -> dict:
     }
 
 
-def _vintage_caveats(test_id: str, current_sha12: str | None) -> tuple:
+def _vintage_caveats(
+    test_id: str, current_sha12: str | None, out_dir: str | None = None
+) -> tuple:
     """Compare this run's backfill-manifest digest against the standing verdict's.
 
     Returns `(caveats, narrative_valid)`. A standing verdict is committed
@@ -362,7 +365,14 @@ def _vintage_caveats(test_id: str, current_sha12: str | None) -> tuple:
     """
     caveats = []
     narrative_valid = current_sha12 == NARRATIVE_MANIFEST_SHA12
-    standing = latest_verdict(test_id)
+    # Exclude today's file. write_verdict keys on test_id + today, so a second
+    # run on the same day would otherwise take its OWN earlier output as the
+    # baseline, match trivially, and leave the warning-free artifact on disk —
+    # exactly the case this guard exists to catch.
+    kwargs = {"exclude_date": date.today().strftime("%Y%m%d")}
+    if out_dir is not None:
+        kwargs["out_dir"] = out_dir
+    standing = latest_verdict(test_id, **kwargs)
     prior = (standing or {}).get("input_hashes", {}).get("backfill_manifest")
     if prior and current_sha12 and prior != current_sha12:
         msg = (

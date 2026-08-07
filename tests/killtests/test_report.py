@@ -34,3 +34,22 @@ def test_invalid_verdict_rejected(tmp_path):
 
 def test_latest_verdict_none_when_absent(tmp_path):
     assert latest_verdict("H4", out_dir=str(tmp_path)) is None
+
+
+def test_latest_verdict_can_exclude_a_date(tmp_path):
+    """Same-day re-runs overwrite in place, so picking a genuine prior
+    baseline means skipping today's file (see h3_atr_replay._vintage_caveats)."""
+    import json
+
+    from killtests.report import latest_verdict
+
+    for d in ("20260805", "20260807"):
+        (tmp_path / f"H3-verdict-{d}.json").write_text(json.dumps({"date": d}))
+    assert latest_verdict("H3", out_dir=str(tmp_path))["date"] == "20260807"
+    assert (
+        latest_verdict("H3", out_dir=str(tmp_path), exclude_date="20260807")["date"]
+        == "20260805"
+    )
+    assert (
+        latest_verdict("H3", out_dir=str(tmp_path), exclude_date="20260805") is not None
+    )

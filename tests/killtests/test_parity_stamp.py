@@ -178,3 +178,49 @@ def test_failed_stamp_overwrites_an_earlier_passing_one(tmp_path):
     on_disk = json.loads(Path(path).read_text())
     assert on_disk["passed"] is False
     assert on_disk["refused_because"]
+
+
+GOLDEN = Path(__file__).with_name("test_golden_parity.py")
+
+
+def _golden_calls():
+    import re
+
+    return re.findall(r"RUN\.(\w+)\(", GOLDEN.read_text())
+
+
+def test_golden_suite_only_calls_methods_that_exist():
+    """The golden suite needs the docker stack, so nothing in an ordinary test
+    run ever executes its RUN.* wiring. A typo there would surface only when
+    an operator runs it live, and the symptom (AttributeError mid-suite, or a
+    stamp that never appears) reads like a parity failure. Check it
+    statically instead."""
+    calls = set(_golden_calls())
+    assert calls, "no RUN.* calls found — did the golden suite stop recording?"
+    missing = [c for c in calls if not hasattr(ParityRun(), c)]
+    assert not missing, f"test_golden_parity.py calls ParityRun.{missing} — no such method"
+
+
+def test_golden_suite_records_exactly_the_required_test_names():
+    """The nastiest version of the typo: a misspelled name in record_pass()
+    leaves the suite green while the stamp silently refuses forever, because
+    mint_stamp never sees the required name it is looking for."""
+    import re
+
+    recorded = set(re.findall(r'RUN\.record_pass\("([^"]+)"\)', GOLDEN.read_text()))
+    assert recorded == set(REQUIRED_TESTS), (
+        f"record_pass names {sorted(recorded)} != REQUIRED_TESTS "
+        f"{sorted(REQUIRED_TESTS)} — the stamp would refuse forever"
+    )
+    started = set(re.findall(r'RUN\.record_start\("([^"]+)"\)', GOLDEN.read_text()))
+    assert started == set(REQUIRED_TESTS), (
+        f"record_start names {sorted(started)} != REQUIRED_TESTS {sorted(REQUIRED_TESTS)}"
+    )
+
+
+def test_each_required_name_matches_its_own_test_function():
+    """A name that exists in REQUIRED_TESTS but names no real test would pass
+    the check above and still be meaningless."""
+    src = GOLDEN.read_text()
+    for name in REQUIRED_TESTS:
+        assert f"def {name}(" in src, f"REQUIRED_TESTS names {name}, which is not a test"
