@@ -4332,12 +4332,23 @@ class AutoTrader:
             # every ensemble trade at ~100% of balance (observed: $34-$96
             # positions on a $100 account, 3 open = 251% of equity).
             # ================================================================
-            cap_notional = float(balance) * self.settings.max_position_size_pct / 100.0
+            cap_pct = self.settings.max_position_size_pct
+            # ================================================================
+            # ADR-010 hard, non-configurable 2% cap in LIVE mode — mirrors the
+            # clamps in _execute_trade_with_setup and _execute_trade. Note the
+            # knob difference is deliberate: those paths cap the MARGIN
+            # fraction (max_risk_per_trade, a fraction), this path caps the
+            # NOTIONAL percent (max_position_size_pct); both are 10 in paper
+            # and both must clamp to 2% before any LIVE order.
+            # ================================================================
+            if str(self.settings.trading_mode).upper() == "LIVE":
+                cap_pct = min(cap_pct, 2.0)
+            cap_notional = float(balance) * cap_pct / 100.0
             if position_value > cap_notional:
                 logger.warning(
                     f"[ENSEMBLE][RISK_GATE] PER_TRADE_CAP CLAMP | {symbol} "
                     f"attempted=${position_value:.2f} → clamped=${cap_notional:.2f} "
-                    f"({self.settings.max_position_size_pct:.1f}% of "
+                    f"({cap_pct:.1f}% of "
                     f"${float(balance):.2f}; leverage={leverage:.1f}x does not "
                     f"raise the cap)"
                 )
