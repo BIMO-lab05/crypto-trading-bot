@@ -5,6 +5,8 @@ Purpose: Centralized configuration management using Pydantic settings
 SECURITY UPDATE (2025-12-12): Added strict CORS configuration
 """
 
+import os
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, List, Dict
@@ -571,10 +573,15 @@ class Settings(BaseSettings):
         description="Initial balance for paper trading (matches portfolio-manager initial_capital and risk-budget base_equity)",
     )
     paper_commission_pct: float = Field(
-        default=0.1,
+        default=0.055,
         ge=0.0,
         le=1.0,
-        description="Commission percentage for paper trading",
+        description=(
+            "Commission percentage per side for paper trading. "
+            "0.055 = Bybit linear-perp taker fee (0.055%/side). "
+            "Was 0.1 until 2026-08-04 (AUDIT.md §6.2): the engine over-charged "
+            "fees ~1.8x vs the real venue, distorting every net-P&L figure."
+        ),
     )
 
     # Paper slippage (PAPER-01, 2026-08-03). ON by default: a frictionless
@@ -727,20 +734,77 @@ class Settings(BaseSettings):
     )
 
 
+# =============================================================================
+# BOOT-TIME CAPITAL-ENV VALIDATION (2026-08-04, AUDIT.md workstream B task 5)
+# =============================================================================
+# Owner spec: missing capital/risk config must raise, never fall back to a
+# default. Making these five Settings fields *required* (no default) was
+# attempted first and rejected with evidence:
+#   * tests/test_account_config_sync.py compares DECLARED defaults against
+#     shared/account.py — required fields have default=PydanticUndefined, so
+#     that mandated-green test fails by construction (4/4 parametrized cases).
+#   * tests/conftest.py pins env_file=None and the host-test runbook
+#     (.claude/rules/testing.md) does not export these env vars, so every
+#     module importing app.main dies at collection with
+#     "ValidationError: 5 validation errors for Settings ... Field required".
+# So instead: defaults stay (they are the production values, enforced by the
+# sync test), and any *containerized* boot must receive all five explicitly
+# from the environment (docker-compose.unified.yml injects them — verified in
+# AUDIT.md §2.1). A container missing one refuses to construct Settings.
+
+REQUIRED_CAPITAL_ENV_VARS = (
+    "PAPER_INITIAL_BALANCE",
+    "MAX_RISK_PER_TRADE",
+    "MAX_DAILY_LOSS_PCT",
+    "MAX_POSITION_SIZE_PCT",
+    "MAX_TOTAL_EXPOSURE_PCT",
+)
+
+
+def _running_in_container() -> bool:
+    """True when executing inside a Docker container (/.dockerenv marker)."""
+    return os.path.exists("/.dockerenv")
+
+
+def assert_capital_env_present() -> None:
+    """Raise loudly if any required capital/risk env var is absent.
+
+    Called on every Settings construction when running in a container. Host
+    runs (tests, backtests) are exempt: there the config-default path IS the
+    production configuration (see tests/conftest.py).
+    """
+    missing = [key for key in REQUIRED_CAPITAL_ENV_VARS if not os.environ.get(key)]
+    if missing:
+        raise RuntimeError(
+            "Refusing to boot: required capital/risk environment variables "
+            f"are not set: {', '.join(missing)}. These must be injected "
+            "explicitly (docker-compose.unified.yml does so); silently "
+            "falling back to code defaults for money parameters is forbidden. "
+            "See AUDIT.md §2.1 and CLAUDE.md §1."
+        )
+
+
 # Global settings instance
 _settings: Settings | None = None
+
+
+def _build_settings() -> Settings:
+    """Construct Settings, enforcing capital-env presence inside containers."""
+    if _running_in_container():
+        assert_capital_env_present()
+    return Settings()
 
 
 def get_settings() -> Settings:
     """Get or create settings instance"""
     global _settings
     if _settings is None:
-        _settings = Settings()
+        _settings = _build_settings()
     return _settings
 
 
 def reload_settings() -> Settings:
     """Reload settings from environment"""
     global _settings
-    _settings = Settings()
+    _settings = _build_settings()
     return _settings

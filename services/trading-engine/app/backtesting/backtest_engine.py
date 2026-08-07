@@ -10,10 +10,14 @@ from datetime import datetime, timedelta
 from enum import Enum
 import numpy as np
 
+# Used inside default_factory lambdas below; the noqa keeps autoflake from
+# stripping it (it cannot see lambda-body usage).
+from app.config import get_settings  # noqa: F401
+
 from app.backtesting.strategy_base import StrategyBase, Signal, SignalType, OHLCV
 from app.backtesting.performance_metrics import (
     PerformanceMetrics,
-    calculate_all_metrics
+    calculate_all_metrics,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 class OrderType(Enum):
     """Order types"""
+
     MARKET = "market"
     LIMIT = "limit"
     STOP = "stop"
@@ -29,6 +34,7 @@ class OrderType(Enum):
 
 class OrderSide(Enum):
     """Order side"""
+
     BUY = "buy"
     SELL = "sell"
 
@@ -40,6 +46,7 @@ class Position:
 
     Tracks entry, current P&L, and position parameters.
     """
+
     symbol: str
     side: str  # "long" or "short"
     entry_price: float
@@ -72,6 +79,7 @@ class Trade:
 
     Stores all trade details for analysis.
     """
+
     trade_id: str
     symbol: str
     side: str
@@ -107,7 +115,7 @@ class Trade:
             "slippage": round(self.slippage, 4),
             "exit_reason": self.exit_reason,
             "duration_hours": round(self.duration_hours, 2),
-            "metadata": self.metadata
+            "metadata": self.metadata,
         }
 
 
@@ -126,7 +134,13 @@ class BacktestConfig:
         use_take_profit: Enable take profit execution
         risk_per_trade_pct: Max risk per trade as % of equity
     """
-    initial_equity: float = 10000.0
+
+    # Resolved from Settings at instantiation — never a hardcoded account size
+    # (AUDIT 2.5; the account is $100, shared/account.py). default_factory, not
+    # a plain default, so the value is read at construction time.
+    initial_equity: float = field(
+        default_factory=lambda: get_settings().paper_initial_balance
+    )
     commission_pct: float = 0.1  # 0.1% = 10 bps
     slippage_pct: float = 0.05  # 0.05% slippage
     position_size_pct: float = 10.0  # 10% of equity per trade
@@ -143,6 +157,7 @@ class BacktestResult:
 
     Contains all data from a backtest run.
     """
+
     strategy_name: str
     symbol: str
     config: BacktestConfig
@@ -161,13 +176,13 @@ class BacktestResult:
                 "initial_equity": self.config.initial_equity,
                 "commission_pct": self.config.commission_pct,
                 "slippage_pct": self.config.slippage_pct,
-                "position_size_pct": self.config.position_size_pct
+                "position_size_pct": self.config.position_size_pct,
             },
             "metrics": self.metrics.to_dict(),
             "trades_count": len(self.trades),
             "signals_generated": self.signals_generated,
             "signals_executed": self.signals_executed,
-            "equity_curve_length": len(self.equity_curve)
+            "equity_curve_length": len(self.equity_curve),
         }
 
 
@@ -211,7 +226,9 @@ class BacktestEngine:
         # Strategy reference for position sync
         self._strategy: Optional[StrategyBase] = None
 
-        logger.info(f"BacktestEngine initialized with equity: ${self.config.initial_equity:,.2f}")
+        logger.info(
+            f"BacktestEngine initialized with equity: ${self.config.initial_equity:,.2f}"
+        )
 
     def reset(self) -> None:
         """Reset engine state for new backtest"""
@@ -230,7 +247,7 @@ class BacktestEngine:
         self,
         strategy: StrategyBase,
         data: List[OHLCV],
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> BacktestResult:
         """
         Run backtest on historical data
@@ -299,7 +316,7 @@ class BacktestEngine:
             trades=[t.to_dict() for t in self._trades],
             initial_equity=self.config.initial_equity,
             start_date=data[0].timestamp,
-            end_date=data[-1].timestamp
+            end_date=data[-1].timestamp,
         )
 
         # Build result
@@ -312,7 +329,7 @@ class BacktestEngine:
             equity_curve=self._equity_curve,
             equity_timestamps=self._equity_timestamps,
             signals_generated=self._signals_generated,
-            signals_executed=self._signals_executed
+            signals_executed=self._signals_executed,
         )
 
         logger.info(
@@ -323,7 +340,9 @@ class BacktestEngine:
 
         return result
 
-    def _process_signal(self, signal: Signal, bar: OHLCV, strategy: StrategyBase) -> None:
+    def _process_signal(
+        self, signal: Signal, bar: OHLCV, strategy: StrategyBase
+    ) -> None:
         """Process trading signal"""
 
         if signal.signal_type == SignalType.BUY:
@@ -347,16 +366,14 @@ class BacktestEngine:
         return self._position is None
 
     def _open_position(
-        self,
-        signal: Signal,
-        bar: OHLCV,
-        side: str,
-        strategy: StrategyBase
+        self, signal: Signal, bar: OHLCV, side: str, strategy: StrategyBase
     ) -> None:
         """Open a new position"""
 
         # Calculate position size
-        position_size_pct = self.config.position_size_pct * signal.position_size_pct / 100
+        position_size_pct = (
+            self.config.position_size_pct * signal.position_size_pct / 100
+        )
         position_value = self._cash * (position_size_pct / 100)
 
         # Apply slippage to entry price
@@ -380,11 +397,11 @@ class BacktestEngine:
             quantity=quantity,
             entry_time=bar.timestamp,
             stop_loss=signal.stop_loss,
-            take_profit=signal.take_profit
+            take_profit=signal.take_profit,
         )
 
         # Update cash (subtract position value and commission)
-        self._cash -= (position_value + commission)
+        self._cash -= position_value + commission
 
         # Update strategy position tracking
         strategy.update_position(side, entry_price)
@@ -440,7 +457,7 @@ class BacktestEngine:
             pnl_pct=pnl_pct,
             commission=commission * 2,  # Entry + exit commission
             slippage=slippage_amount * 2,
-            exit_reason=exit_reason
+            exit_reason=exit_reason,
         )
         self._trades.append(trade)
 
@@ -499,12 +516,18 @@ class BacktestEngine:
 
         if self._position.side == "long":
             new_stop = bar.high - self._position.trailing_stop_distance
-            if self._position.trailing_stop is None or new_stop > self._position.trailing_stop:
+            if (
+                self._position.trailing_stop is None
+                or new_stop > self._position.trailing_stop
+            ):
                 self._position.trailing_stop = new_stop
                 self._position.stop_loss = new_stop
         else:
             new_stop = bar.low + self._position.trailing_stop_distance
-            if self._position.trailing_stop is None or new_stop < self._position.trailing_stop:
+            if (
+                self._position.trailing_stop is None
+                or new_stop < self._position.trailing_stop
+            ):
                 self._position.trailing_stop = new_stop
                 self._position.stop_loss = new_stop
 
@@ -523,9 +546,9 @@ class BacktestEngine:
 def run_backtest(
     strategy: StrategyBase,
     data: List[OHLCV],
-    initial_equity: float = 10000.0,
+    initial_equity: Optional[float] = None,
     commission_pct: float = 0.1,
-    slippage_pct: float = 0.05
+    slippage_pct: float = 0.05,
 ) -> BacktestResult:
     """
     Convenience function to run a backtest
@@ -533,17 +556,21 @@ def run_backtest(
     Args:
         strategy: Strategy to test
         data: Historical OHLCV data
-        initial_equity: Starting capital
+        initial_equity: Starting capital. None (default) resolves to
+            Settings.paper_initial_balance — never a hardcoded account size
+            (AUDIT 2.5).
         commission_pct: Commission percentage
         slippage_pct: Slippage percentage
 
     Returns:
         BacktestResult
     """
+    if initial_equity is None:
+        initial_equity = get_settings().paper_initial_balance
     config = BacktestConfig(
         initial_equity=initial_equity,
         commission_pct=commission_pct,
-        slippage_pct=slippage_pct
+        slippage_pct=slippage_pct,
     )
 
     engine = BacktestEngine(config)
@@ -554,7 +581,7 @@ def generate_sample_data(
     symbol: str = "BTCUSDT",
     days: int = 365,
     start_price: float = 50000.0,
-    volatility: float = 0.02
+    volatility: float = 0.02,
 ) -> List[OHLCV]:
     """
     Generate sample OHLCV data for testing
@@ -584,8 +611,12 @@ def generate_sample_data(
         # Generate OHLC
         open_price = price
         close_price = price * (1 + np.random.normal(0, volatility / 4))
-        high_price = max(open_price, close_price) * (1 + abs(np.random.normal(0, volatility / 4)))
-        low_price = min(open_price, close_price) * (1 - abs(np.random.normal(0, volatility / 4)))
+        high_price = max(open_price, close_price) * (
+            1 + abs(np.random.normal(0, volatility / 4))
+        )
+        low_price = min(open_price, close_price) * (
+            1 - abs(np.random.normal(0, volatility / 4))
+        )
 
         # Volume
         volume = np.random.uniform(100, 1000) * price / 10000
@@ -596,7 +627,7 @@ def generate_sample_data(
             high=high_price,
             low=low_price,
             close=close_price,
-            volume=volume
+            volume=volume,
         )
         bars.append(bar)
 

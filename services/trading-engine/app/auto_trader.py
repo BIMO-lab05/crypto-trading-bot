@@ -1520,40 +1520,35 @@ class AutoTrader:
         """Pre-submit gate: reject orders below the exchange's min-notional.
 
         Returns ``(True, None)`` to proceed, ``(False, reason)`` to reject.
-        ``reason`` is one of ``"min_qty"`` / ``"min_notional"`` and matches
-        the Prometheus counter label.
+        ``reason`` is one of ``"min_qty"`` / ``"min_notional"`` /
+        ``"spec_unavailable"`` and matches the Prometheus counter label.
 
-        Fail-open: if the instruments cache has no entry for the symbol
-        (connector outage at boot, symbol not yet refreshed), this returns
-        ``(True, None)`` with a WARN log — refusing to trade because the
-        metadata service is down would be a worse failure mode than letting
-        the order through. Paper engine fills any quantity; LIVE mode would
-        surface Bybit's own rejection.
+        Missing spec (connector outage at boot, symbol not yet refreshed)
+        resolves by mode (2026-08-06, review I12):
 
-        We deliberately do NOT auto-upround the quantity here. On a $100
-        balance × 2% per-trade cap, forcing a $5 alt min-notional would
-        silently breach the risk cap (5% notional). Surface the reject so
-        the operator sees the cap configuration is incompatible with
-        live-mode minimums.
+        * LIVE — fail OPEN with a loud WARN. Bybit re-checks the order itself,
+          so refusing to trade because a metadata service is down would be the
+          worse failure mode.
+        * PAPER — fail CLOSED, reason ``"spec_unavailable"``. Nothing
+          downstream re-checks a paper fill, so fail-open let through exactly
+          the trade this gate exists to prevent, and the cold-cache window is
+          engine startup — when the first cycles run.
 
-        PAPER mode short-circuit: paper-engine fills any quantity
-        deterministically — exchange minimums don't apply. Enforcing the
-        gate in PAPER would zero out trading on small paper balances
-        ($100 × 2% = $2 cap, all crypto mins above). Gate's purpose is
-        LIVE-mode protection; in PAPER we let the order through and rely
-        on the paper-engine to fill it.
+        We deliberately do NOT auto-upround the quantity here. The per-trade
+        cap is a fraction of the configured paper balance
+        (``max_risk_per_trade``/``max_position_size_pct``, 10% in paper);
+        forcing a $5 alt min-notional onto a smaller sized order would
+        silently breach it. Surface the reject so the operator sees the cap
+        configuration is incompatible with live-mode minimums.
+
+        Enforced in ALL modes (2026-08-04, AUDIT §2.4 / H1): the gate used
+        to short-circuit to ``(True, None)`` in PAPER, so paper trading
+        measured an account that could never exist on the venue — BTC at
+        ~$62 min position sailed through a $10 cap. Paper must mirror the
+        real $100 account constraints; a paper trade the venue would reject
+        is rejected here too, with the same labeled reason.
         """
         from decimal import Decimal as _Decimal
-
-        try:
-            from app.config import get_settings
-
-            if get_settings().trading_mode != "LIVE":
-                return True, None
-        except Exception as e:
-            logger.warning(
-                f"min-notional gate: could not read trading_mode ({e!r}), enforcing gate"
-            )
 
         # Normalise call-site types (Decimal vs float vs int) to Decimal once.
         try:
@@ -1567,33 +1562,53 @@ class AutoTrader:
             )
             return True, None
 
+        def _no_spec(detail: str):
+            """Resolve a missing instrument spec by mode (review I12).
+
+            LIVE fails open — Bybit re-checks. PAPER fails closed, because
+            nothing downstream re-checks a simulated fill.
+            """
+            if str(self.settings.trading_mode).upper() == "LIVE":
+                logger.warning(
+                    f"[MIN_NOTIONAL][FAIL-OPEN] {symbol}: {detail} — gate NOT "
+                    f"enforced, order allowed through (LIVE: Bybit re-checks)"
+                )
+                return True, None
+            try:
+                from app.core.metrics import trades_rejected_min_notional_total
+
+                trades_rejected_min_notional_total.labels(
+                    symbol=symbol, reason="spec_unavailable"
+                ).inc()
+            except (ImportError, ValueError, AttributeError) as exc:
+                # Same survival contract as the min_qty / min_notional emits
+                # below: a metrics failure must never open the gate.
+                logger.warning("metrics emit failed (spec_unavailable): %r", exc)
+            logger.warning(
+                f"[MIN_NOTIONAL][FAIL-CLOSED] {symbol}: {detail} — rejecting in "
+                f"PAPER (qty {qty_d} @ {price_d}, balance ${balance_d:.2f}); "
+                f"paper must mirror the venue constraints it cannot verify"
+            )
+            return False, "spec_unavailable"
+
         # Deferred import: avoids a circular at module load and lets tests
         # monkeypatch app.main.get_instruments_cache cleanly.
         try:
             from app.main import get_instruments_cache
         except Exception as e:
-            logger.warning(
-                f"min-notional gate: instruments cache import failed for {symbol} ({e!r}), allowing"
-            )
-            return True, None
+            return _no_spec(f"instruments cache import failed ({e!r})")
 
         try:
             spec = await get_instruments_cache().get(symbol)
         except Exception as e:
-            logger.warning(
-                f"min-notional gate: cache.get({symbol}) raised {e!r}, allowing"
-            )
-            return True, None
+            return _no_spec(f"cache.get raised {e!r} (connector unreachable?)")
 
         if spec is None:
-            logger.warning(
-                f"min-notional cache miss for {symbol}, allowing trade "
-                f"(connector outage or symbol unlisted)"
+            return _no_spec(
+                "no instrument spec cached (connector outage or symbol unlisted)"
             )
-            return True, None
 
         notional = qty_d * price_d
-        cap = balance_d * _Decimal("0.02")
 
         if qty_d < spec.min_order_qty:
             try:
@@ -1614,8 +1629,7 @@ class AutoTrader:
                 logger.warning("metrics emit failed (min_qty): %r", e)
             logger.info(
                 f"rejecting {symbol}: qty {qty_d} below min {spec.min_order_qty} "
-                f"(notional ${notional:.2f}, balance ${balance_d:.2f}, "
-                f"cap 2% = ${cap:.2f})"
+                f"(notional ${notional:.2f}, balance ${balance_d:.2f})"
             )
             return False, "min_qty"
 
@@ -1638,12 +1652,96 @@ class AutoTrader:
                 logger.warning("metrics emit failed (min_notional): %r", e)
             logger.info(
                 f"rejecting {symbol}: notional ${notional:.2f} below min "
-                f"${spec.min_notional} (qty {qty_d}, balance ${balance_d:.2f}, "
-                f"cap 2% = ${cap:.2f})"
+                f"${spec.min_notional} (qty {qty_d}, balance ${balance_d:.2f})"
             )
             return False, "min_notional"
 
         return True, None
+
+    def _passes_exposure_gate(
+        self,
+        symbol: str,
+        new_notional,
+        balance,
+        position_mgr,
+        *,
+        tag: str = "[RISK_GATE]",
+    ) -> bool:
+        """Account-level exposure gate: open entry notionals plus the new
+        notional must stay under ``max_total_exposure_pct`` (a PERCENT) of
+        balance.
+
+        Rejects, never clamps — a silently resized order hides the breach.
+
+        Hoisted out of the ensemble path 2026-08-06 (review I20). It used to
+        exist inline in ``_check_and_trade_ensemble`` only, so the research/
+        hybrid and default entry paths could open a position with no
+        account-level check at all. Not breachable on today's configuration
+        (per-symbol dedup x 5 validated symbols x the per-trade cap cannot
+        reach the exposure cap), but that bound rests entirely on the symbol
+        list staying at 5 — which nothing in the sizing code checks.
+
+        Open notional is measured on each position's REMAINING quantity, so a
+        position that has taken partial exits occupies only what is left.
+        """
+        open_notional = 0.0
+        for p in position_mgr.get_open_positions():
+            p_qty = (
+                p.remaining_quantity
+                if getattr(p, "remaining_quantity", None) is not None
+                else p.quantity
+            )
+            open_notional += float(p.entry_price) * float(p_qty)
+
+        new_value = float(new_notional)
+        exposure_cap = float(balance) * self.settings.max_total_exposure_pct / 100.0
+        if open_notional + new_value > exposure_cap:
+            logger.warning(
+                f"{tag} EXPOSURE REJECT | {symbol} "
+                f"open=${open_notional:.2f} + new=${new_value:.2f} > "
+                f"cap=${exposure_cap:.2f} "
+                f"({self.settings.max_total_exposure_pct:.1f}% of "
+                f"${float(balance):.2f})"
+            )
+            return False
+        return True
+
+    async def _snap_quantity_to_step(self, symbol: str, quantity) -> Decimal:
+        """Floor an order quantity DOWN to the venue's qty_step.
+
+        Never rounds up: rounding a quantity UP silently inflates the
+        notional past the per-trade cap — the same failure mode as
+        min-notional uprounding (see _passes_min_notional docstring).
+        A quantity that floors to zero is returned as zero; callers must
+        treat that as a rejection, never as a fillable order.
+
+        Fail-open like _passes_min_notional: if no spec is available the
+        quantity is returned unchanged, with a loud WARN.
+        """
+        qty_d = Decimal(str(quantity))
+        try:
+            from app.main import get_instruments_cache
+
+            spec = await get_instruments_cache().get(symbol)
+        except Exception as e:
+            logger.warning(
+                f"[QTY_STEP][FAIL-OPEN] {symbol}: instruments cache unavailable "
+                f"({e!r}) — quantity {qty_d} passed through UNSNAPPED"
+            )
+            return qty_d
+        if spec is None or spec.qty_step is None or spec.qty_step <= 0:
+            logger.warning(
+                f"[QTY_STEP][FAIL-OPEN] {symbol}: no qty_step in spec — "
+                f"quantity {qty_d} passed through UNSNAPPED"
+            )
+            return qty_d
+        snapped = (qty_d // spec.qty_step) * spec.qty_step
+        if snapped != qty_d:
+            logger.info(
+                f"[QTY_STEP] {symbol}: quantity {qty_d} floored to {snapped} "
+                f"(step {spec.qty_step}) — snap is DOWN-only, never up"
+            )
+        return snapped
 
     async def _claim_open_slot(self, symbol: str) -> bool:
         """
@@ -1843,20 +1941,11 @@ class AutoTrader:
 
             logger.info(f"[{trading_mode}] Executing {action} trade for {symbol}")
 
-            # ================================================================
-            # SLIPPAGE CHECK (Enhanced 2025-11-30)
-            # ================================================================
-            # Check if limit order should be used based on order value
-            position_value_estimate = (
-                trade_setup.entry_price * trade_setup.position_size_pct * 10000
-            )  # Rough estimate
-            should_use_limit, limit_reason = (
-                self.slippage_manager.should_use_limit_order(
-                    position_value_estimate, symbol
-                )
-            )
-            if should_use_limit:
-                logger.info(f"[RESEARCH] Limit order recommended: {limit_reason}")
+            # NOTE 2026-08-04 (AUDIT §2.2 mechanism 3): the slippage
+            # limit-order check used to run HERE on
+            # `entry_price * position_size_pct * 10000` — dimensionally wrong
+            # (price × fraction, no quantity term) AND hardcoding a $10k
+            # account. It now runs after sizing, on the actual order notional.
 
             # Get appropriate trading engine based on mode
             position_mgr = get_position_manager()
@@ -2032,6 +2121,34 @@ class AutoTrader:
                     else quantity
                 )
 
+            # Account-level exposure gate (review I20): shared with the default
+            # and ensemble paths. Runs on the post-clamp notional, as it does
+            # on the ensemble path.
+            if not self._passes_exposure_gate(
+                symbol, position_value, balance, position_mgr
+            ):
+                self.total_trades_rejected += 1
+                return
+
+            # ================================================================
+            # SLIPPAGE CHECK (moved here 2026-08-04): uses the ACTUAL order
+            # notional. Previously ran pre-sizing on
+            # `entry_price * position_size_pct * 10000` — dimensionally wrong
+            # and hardcoding a $10k account (AUDIT §2.2 mechanism 3).
+            # ================================================================
+            should_use_limit, limit_reason = (
+                self.slippage_manager.should_use_limit_order(
+                    float(position_value), symbol
+                )
+            )
+            if should_use_limit:
+                logger.info(f"[RESEARCH] Limit order recommended: {limit_reason}")
+
+            # Venue quantity granularity: floor to qty_step, never up
+            # (2026-08-04). A zero-floored quantity is rejected by the
+            # min-notional gate below (qty 0 < min_order_qty).
+            quantity = float(await self._snap_quantity_to_step(symbol, quantity))
+
             # Min-notional / min-qty gate (added 2026-05-06).
             # Sub-cap sizing on small balances often produces qty < exchange min;
             # paper engine fills any quantity, but LIVE Bybit will reject.
@@ -2044,6 +2161,16 @@ class AutoTrader:
                 balance=balance,
             )
             if not ok:
+                self.total_trades_rejected += 1
+                return
+
+            if float(quantity) <= 0:
+                # Belt-and-braces for the gate's fail-open branches: a zero
+                # quantity must never become an order.
+                logger.warning(
+                    f"[RISK_GATE] {symbol}: quantity floored to zero at "
+                    f"qty_step — rejecting"
+                )
                 self.total_trades_rejected += 1
                 return
 
@@ -2937,8 +3064,13 @@ class AutoTrader:
         try:
             paper_engine = get_paper_engine()
 
-            # Arm SL cooldown if this close was a stop-loss event (2026-05-15)
-            if "stop" in reason.lower() or "loss" in reason.lower():
+            # Arm re-entry cooldown: stop-loss exits (2026-05-15) AND max-hold
+            # exits (H6 fix 2026-08-04, AUDIT §7-H2/H6). Max-hold closes used
+            # to bypass the cooldown: the 2026-08-04 restart sweep closed and
+            # instantly reopened 4 same-symbol positions at identical prices
+            # within 25s, burning ~$0.66 in fees for zero exposure change.
+            reason_lc = reason.lower()
+            if "stop" in reason_lc or "loss" in reason_lc or "max_hold" in reason_lc:
                 self._record_sl_hit(position.symbol, reason)
 
             # ================================================================
@@ -3054,7 +3186,7 @@ class AutoTrader:
         position,
         current_price: float,
         reason: str,
-        limit_buffer_pct: float = 0.005,  # 0.5% buffer
+        limit_buffer_pct: float = 0.0,
         timeout_seconds: int = 10,
     ):
         """
@@ -3066,8 +3198,19 @@ class AutoTrader:
         - Solution: Use limit orders with small buffer, fallback to market if not filled
         - Expected Impact: Reduce slippage from 60% to <5%
 
+        H2 FIX (2026-08-04, AUDIT §6.5c / §7-H2): limit_buffer_pct now
+        defaults to 0.0 and the PAPER fill reference is the STOP PRICE
+        itself, never stop ± buffer. The old 0.5% default fed straight into
+        the paper fill, so every paper stop exit realized stop-distance
+        + 0.5% as a deterministic penalty (all 5 observed stop exits landed
+        at exactly −2.49%/−2.51% on a 2% stop; cost $1.49 = 20% of stop
+        losses). The slippage model inside execute_market_order is the ONLY
+        adverse adjustment a paper stop fill gets now. The parameter is kept
+        for a future LIVE LIMIT-IOC close (where a buffer means "willing to
+        cross the spread this far"); the PAPER fill ignores it even if set.
+
         Flow:
-        1. Calculate limit price with buffer (0.5% beyond stop loss)
+        1. Determine the stop reference price (position.stop_loss)
         2. Place limit order (IOC - Immediate or Cancel)
         3. If not filled within timeout, place market order as fallback
         4. Update position manager with final execution price
@@ -3076,7 +3219,8 @@ class AutoTrader:
             position: Position to close
             current_price: Current market price
             reason: Reason for closing (e.g., "stop_loss")
-            limit_buffer_pct: Buffer percentage for limit order (default 0.5%)
+            limit_buffer_pct: Buffer for a LIVE limit close (default 0.0);
+                              PAPER fills ignore it
             timeout_seconds: Max wait time for limit order (default 10s)
         """
         # ====================================================================
@@ -3154,29 +3298,29 @@ class AutoTrader:
                     )
             return
 
-        # ---- PAPER: limit IOC with buffer, market fallback -----------------
+        # ---- PAPER: limit IOC at the stop, market fallback -----------------
         try:
             paper_engine = get_paper_engine()
 
-            # STEP 1: Calculate limit price with buffer
-            # LONG stop: sell slightly below the stop; SHORT stop: buy slightly above
+            # STEP 1 (H2 fix 2026-08-04): the paper fill reference is the
+            # STOP PRICE itself. The buffer is NOT applied to the paper fill —
+            # the old default 0.5% buffer landed every stop exit exactly 0.5%
+            # beyond the stop as a deterministic penalty. limit_price (with
+            # buffer, default 0.0) is retained only as the order's limit field
+            # for a future LIVE LIMIT-IOC close.
+            stop_ref = (
+                float(position.stop_loss) if position.stop_loss else current_price
+            )
             if _pos_side == "LONG":
-                limit_price = (
-                    float(position.stop_loss) * (1 - limit_buffer_pct)
-                    if position.stop_loss
-                    else current_price * (1 - limit_buffer_pct)
-                )
+                limit_price = stop_ref * (1 - limit_buffer_pct)
             else:  # SHORT
-                limit_price = (
-                    float(position.stop_loss) * (1 + limit_buffer_pct)
-                    if position.stop_loss
-                    else current_price * (1 + limit_buffer_pct)
-                )
+                limit_price = stop_ref * (1 + limit_buffer_pct)
 
             logger.info(
                 f"[LIMIT_STOP] {position.symbol} {_pos_side} | "
                 f"Stop: ${position.stop_loss} | Current: ${current_price:.2f} | "
-                f"Limit: ${limit_price:.2f} (buffer: {limit_buffer_pct * 100:.1f}%)"
+                f"Fill ref: ${stop_ref:.4f} (paper fill = stop + slippage model; "
+                f"buffer {limit_buffer_pct * 100:.1f}% not applied to paper fill)"
             )
 
             # STEP 2: Attempt limit order execution (IOC, reduce-only)
@@ -3201,7 +3345,9 @@ class AutoTrader:
             try:
                 limit_result = await paper_engine.execute_market_order(
                     limit_order,
-                    Decimal(str(limit_price)),  # Paper trading: fill at limit price
+                    # H2 fix: fill reference is the stop itself; the engine's
+                    # slippage model applies the only adverse adjustment.
+                    Decimal(str(stop_ref)),
                 )
             except Exception as limit_err:
                 limit_result, fill_error = None, str(limit_err)
@@ -3807,9 +3953,23 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
+            # Account-level exposure gate (review I20): shared with the
+            # research/hybrid and ensemble paths. Runs on the post-clamp
+            # notional, as it does on the ensemble path.
+            if not self._passes_exposure_gate(
+                symbol, position_value, balance, position_mgr
+            ):
+                self.total_trades_rejected += 1
+                return
+
+            # Venue quantity granularity: floor to qty_step, never up
+            # (2026-08-04). A zero-floored quantity is rejected by the
+            # min-notional gate below (qty 0 < min_order_qty).
+            quantity = await self._snap_quantity_to_step(symbol, quantity)
+
             # Min-notional / min-qty gate (added 2026-05-06).
             # See _passes_min_notional docstring; reject-not-upround keeps
-            # the 2% per-trade cap intact.
+            # the per-trade cap intact.
             ok, _reason = await self._passes_min_notional(
                 symbol=symbol,
                 quantity=quantity,
@@ -3817,6 +3977,16 @@ class AutoTrader:
                 balance=balance,
             )
             if not ok:
+                self.total_trades_rejected += 1
+                return
+
+            if float(quantity) <= 0:
+                # Belt-and-braces for the gate's fail-open branches: a zero
+                # quantity must never become an order.
+                logger.warning(
+                    f"[RISK_GATE] {symbol}: quantity floored to zero at "
+                    f"qty_step — rejecting"
+                )
                 self.total_trades_rejected += 1
                 return
 
@@ -4217,6 +4387,17 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
+            # H6 (AUDIT §7): SL / max-hold re-entry cooldown. Previously
+            # unchecked on this path — the 2026-08-04 restart sweep closed and
+            # instantly reopened 4 same-symbol positions at identical prices
+            # within 25 seconds because nothing blocked the re-entry.
+            if not self._check_symbol_cooldown(symbol):
+                logger.info(
+                    f"[ENSEMBLE] {symbol} in post-exit cooldown — rejecting re-entry"
+                )
+                self.total_trades_rejected += 1
+                return
+
             # Apply leverage to ensemble sizing (fix 2026-05-19).
             # ensemble.position_size_pct sets the MARGIN fraction (already capped
             # at max_risk_per_trade by ensemble's own cascade). Multiplying by
@@ -4232,7 +4413,85 @@ class AutoTrader:
                 )
             margin_value = float(balance) * ens_signal.position_size_pct
             position_value = margin_value * leverage
-            quantity = position_value / current_price
+
+            # ================================================================
+            # H1(a) (AUDIT §6.4, 2026-08-04): cap the NOTIONAL at
+            # max_position_size_pct of balance REGARDLESS of leverage.
+            # Leverage divides the margin posted; it must never multiply the
+            # cap ceiling. Before this fix, 10% size × 10x leverage sized
+            # every ensemble trade at ~100% of balance (observed: $34-$96
+            # positions on a $100 account, 3 open = 251% of equity).
+            # ================================================================
+            cap_pct = self.settings.max_position_size_pct
+            # ================================================================
+            # ADR-010 hard, non-configurable 2% cap in LIVE mode — mirrors the
+            # clamps in _execute_trade_with_setup and _execute_trade. Note the
+            # knob difference is deliberate: those paths cap the MARGIN
+            # fraction (max_risk_per_trade, a fraction), this path caps the
+            # NOTIONAL percent (max_position_size_pct); both are 10 in paper
+            # and both must clamp to 2% before any LIVE order.
+            # ================================================================
+            if str(self.settings.trading_mode).upper() == "LIVE":
+                cap_pct = min(cap_pct, 2.0)
+            cap_notional = float(balance) * cap_pct / 100.0
+            if position_value > cap_notional:
+                logger.warning(
+                    f"[ENSEMBLE][RISK_GATE] PER_TRADE_CAP CLAMP | {symbol} "
+                    f"attempted=${position_value:.2f} → clamped=${cap_notional:.2f} "
+                    f"({cap_pct:.1f}% of "
+                    f"${float(balance):.2f}; leverage={leverage:.1f}x does not "
+                    f"raise the cap)"
+                )
+                position_value = cap_notional
+                margin_value = position_value / leverage
+
+            # ================================================================
+            # H1(b): total-exposure gate. Shared with the other two entry paths
+            # since review I20 — see _passes_exposure_gate.
+            # ================================================================
+            if not self._passes_exposure_gate(
+                symbol,
+                position_value,
+                balance,
+                position_mgr,
+                tag="[ENSEMBLE][RISK_GATE]",
+            ):
+                self.total_trades_rejected += 1
+                return
+
+            # Venue quantity granularity: floor to qty_step, never up.
+            quantity = await self._snap_quantity_to_step(
+                symbol, position_value / current_price
+            )
+            position_value = float(quantity) * current_price
+
+            # ================================================================
+            # H1(c): min-notional / min-qty gate — enforced in PAPER too since
+            # 2026-08-04 (paper must mirror the real $100 account; see
+            # _passes_min_notional). BTC's 0.001 min qty ≈ $62 cannot fit a
+            # $10 per-trade cap and must be REJECTED (reason "min_qty" — a
+            # zero-floored quantity lands here too), never clamped up.
+            # ================================================================
+            ok, _reason = await self._passes_min_notional(
+                symbol=symbol,
+                quantity=quantity,
+                price=current_price,
+                balance=balance,
+            )
+            if not ok:
+                self.total_trades_rejected += 1
+                return
+
+            if quantity <= 0:
+                # Belt-and-braces for the gate's fail-open branches: a zero
+                # quantity must never become an order.
+                logger.warning(
+                    f"[ENSEMBLE][RISK_GATE] {symbol}: quantity floored to zero "
+                    f"at qty_step (notional ${position_value:.2f} @ "
+                    f"${current_price}) — rejecting"
+                )
+                self.total_trades_rejected += 1
+                return
 
             if self.settings.leverage_enabled:
                 logger.info(

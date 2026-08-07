@@ -313,6 +313,9 @@ class PaperTradingEngine:
             # exit price. A SELL close fills below the ticker and a BUY close
             # (covering a short) fills above it, so the exit costs on both
             # sides — the SHORT leg is the one this repo has inverted before.
+            # GROSS here: the position manager nets out this leg's commission
+            # plus the proportional entry fee before anything is persisted
+            # (AUDIT H7, 2026-08-04).
             if target.side == PositionSide.LONG:
                 realized_pnl = (fill_price - target.entry_price) * close_qty
             else:  # SHORT
@@ -321,7 +324,16 @@ class PaperTradingEngine:
             # Margin posted at open for this quantity, now returned
             margin_returned = (target.entry_price * close_qty) / leverage
 
+            # Cash ledger: gross P&L minus the exit commission. The entry fee
+            # already left the cash balance at open — netting it here again
+            # would double-charge cash; it is netted only in REPORTED P&L.
             self.balance += margin_returned + realized_pnl - close_commission
+
+            # Net P&L delta this leg contributes to the position's realized
+            # P&L (computed by the position manager, which owns the entry-fee
+            # ledger); captured via before/after so the trade log records the
+            # same net figure that the position row accumulates.
+            realized_before = target.realized_pnl
 
             full_close = close_qty >= qty_open
             if full_close:
@@ -331,13 +343,20 @@ class PaperTradingEngine:
                     reason=f"Market {order.side.value.lower()} order "
                     f"({target.side.value} close)"
                     + (f" [{order.strategy}]" if order.strategy else ""),
+                    close_commission=close_commission,
                 )
                 executed_order.position_id = closed_position.id
+                net_leg_pnl = closed_position.realized_pnl - realized_before
             else:
-                self.position_manager.reduce_position(
-                    target.id, close_qty, fill_price, realized_pnl
+                reduced_position = self.position_manager.reduce_position(
+                    target.id,
+                    close_qty,
+                    fill_price,
+                    realized_pnl,
+                    close_commission=close_commission,
                 )
                 executed_order.position_id = target.id
+                net_leg_pnl = reduced_position.realized_pnl - realized_before
 
             executed_order.filled_quantity = close_qty
 
@@ -345,7 +364,8 @@ class PaperTradingEngine:
                 f"✓ {target.side.value} {'closed' if full_close else 'reduced'}: "
                 f"{close_qty} {order.symbol} @ {fill_price} "
                 f"(ref {current_price}) | "
-                f"Margin returned: ${margin_returned:.4f} | P&L: ${realized_pnl:.4f} | "
+                f"Margin returned: ${margin_returned:.4f} | "
+                f"Gross P&L: ${realized_pnl:.4f} | Net P&L: ${net_leg_pnl:.4f} | "
                 f"Commission: ${close_commission:.4f} | Balance: ${self.balance:.4f}"
             )
 
@@ -360,7 +380,7 @@ class PaperTradingEngine:
                     commission=close_commission,
                     strategy=order.strategy,
                     signal_confidence=order.entry_signal_confidence,
-                    realized_pnl=realized_pnl,
+                    realized_pnl=net_leg_pnl,
                 )
             )
             return executed_order, None
@@ -396,7 +416,9 @@ class PaperTradingEngine:
                     return executed_order, error_msg
 
                 self.balance -= total_cost
-                self.position_manager.scale_in(pos.id, order.quantity, fill_price)
+                self.position_manager.scale_in(
+                    pos.id, order.quantity, fill_price, entry_fee=commission
+                )
                 executed_order.position_id = pos.id
 
                 logger.info(
@@ -446,6 +468,7 @@ class PaperTradingEngine:
             quantity=order.quantity,
             strategy=order.strategy,
             entry_signal_confidence=order.entry_signal_confidence,
+            entry_fee=commission,
         )
 
         executed_order.position_id = position.id

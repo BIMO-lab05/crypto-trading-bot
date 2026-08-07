@@ -101,7 +101,7 @@ class MeanReversionStrategy:
         self,
         indicators: Dict[str, IndicatorSignal],
         current_price: float,
-        capital: float = 10000.0,
+        capital: Optional[float] = None,
     ) -> Optional[MeanReversionSignal]:
         """
         Generate mean reversion signal
@@ -109,11 +109,17 @@ class MeanReversionStrategy:
         Args:
             indicators: Dict of indicator signals
             current_price: Current market price
-            capital: Available capital
+            capital: Available capital. None (default) resolves to
+                Settings.paper_initial_balance — the old hardcoded 10000.0
+                default was reachable by callers omitting capital (AUDIT 2.5).
 
         Returns:
             MeanReversionSignal or None if no setup
         """
+        if capital is None:
+            from app.config import get_settings
+
+            capital = get_settings().paper_initial_balance
         # Extract indicator values
         rsi_signal = indicators.get("RSI")
         bb_signal = indicators.get("BOLLINGER_BANDS")

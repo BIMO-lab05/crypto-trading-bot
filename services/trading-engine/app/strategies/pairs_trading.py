@@ -22,17 +22,13 @@ Date: 2025-12-07
 """
 
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 import logging
 
 from app.utils.statistical.cointegration import (
     test_engle_granger,
-    calculate_hedge_ratio,
-    calculate_half_life,
-    CointegrationResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +52,7 @@ class PairsTradeSignal:
         position_size_y: Position size for asset Y
         reason: Reason for signal
     """
+
     timestamp: datetime
     symbol_x: str
     symbol_y: str
@@ -89,7 +86,9 @@ class PairsTradingStrategy:
             stop_threshold=3.0
         )
 
-        signal = strategy.generate_signal(price_x, price_y, historical_data)
+        signal = strategy.generate_signal(
+            price_x, price_y, hist_x, hist_y, portfolio_value=allocated_capital
+        )
     """
 
     def __init__(
@@ -158,9 +157,7 @@ class PairsTradingStrategy:
 
             # Test cointegration
             result = test_engle_granger(
-                price_x,
-                price_y,
-                significance_level=self.significance_level
+                price_x, price_y, significance_level=self.significance_level
             )
 
             self.is_cointegrated = result.is_cointegrated
@@ -195,10 +192,7 @@ class PairsTradingStrategy:
             return False
 
     def _calculate_spread(
-        self,
-        price_x: pd.Series,
-        price_y: pd.Series,
-        hedge_ratio: float
+        self, price_x: pd.Series, price_y: pd.Series, hedge_ratio: float
     ) -> pd.Series:
         """
         Calculate spread: S = Y - β*X
@@ -214,10 +208,7 @@ class PairsTradingStrategy:
         return price_y - (hedge_ratio * price_x)
 
     def _calculate_z_score(
-        self,
-        spread: float,
-        spread_mean: float,
-        spread_std: float
+        self, spread: float, spread_mean: float, spread_std: float
     ) -> float:
         """
         Calculate Z-score: z = (S - μ) / σ
@@ -256,7 +247,7 @@ class PairsTradingStrategy:
         current_price_y: float,
         historical_data_x: pd.Series,
         historical_data_y: pd.Series,
-        portfolio_value: float = 10000.0,
+        portfolio_value: float,
     ) -> Optional[PairsTradeSignal]:
         """
         Generate trading signal based on current prices and historical data
@@ -266,7 +257,10 @@ class PairsTradingStrategy:
             current_price_y: Current price of asset Y
             historical_data_x: Historical prices for asset X (for calibration)
             historical_data_y: Historical prices for asset Y (for calibration)
-            portfolio_value: Total portfolio value for position sizing
+            portfolio_value: Total portfolio value for position sizing.
+                REQUIRED — the old 10000.0 default was 100x the real account;
+                every live caller (StatisticalArbitrageManager) passes the
+                allocated capital explicitly (AUDIT 2.5).
 
         Returns:
             PairsTradeSignal if signal generated, None otherwise
@@ -280,7 +274,9 @@ class PairsTradingStrategy:
 
             # Ensure we have calibration parameters
             if not self.is_cointegrated or self.hedge_ratio is None:
-                logger.warning(f"Strategy not calibrated for {self.symbol_x}/{self.symbol_y}")
+                logger.warning(
+                    f"Strategy not calibrated for {self.symbol_x}/{self.symbol_y}"
+                )
                 return None
 
             # Calculate current spread
@@ -288,9 +284,7 @@ class PairsTradingStrategy:
 
             # Calculate Z-score
             z_score = self._calculate_z_score(
-                current_spread,
-                self.spread_mean,
-                self.spread_std
+                current_spread, self.spread_mean, self.spread_std
             )
 
             # Determine action based on Z-score
@@ -298,10 +292,7 @@ class PairsTradingStrategy:
 
             # Calculate position sizes
             position_size_x, position_size_y = self._calculate_position_sizes(
-                current_price_x,
-                current_price_y,
-                portfolio_value,
-                abs(z_score)
+                current_price_x, current_price_y, portfolio_value, abs(z_score)
             )
 
             # Create signal
@@ -316,15 +307,15 @@ class PairsTradingStrategy:
                 confidence=confidence,
                 position_size_x=position_size_x,
                 position_size_y=position_size_y,
-                reason=reason
+                reason=reason,
             )
 
             # Update current position state
-            if action == 'OPEN_LONG_Y':
-                self.current_position = 'LONG_Y'
-            elif action == 'OPEN_SHORT_Y':
-                self.current_position = 'SHORT_Y'
-            elif action == 'CLOSE':
+            if action == "OPEN_LONG_Y":
+                self.current_position = "LONG_Y"
+            elif action == "OPEN_SHORT_Y":
+                self.current_position = "SHORT_Y"
+            elif action == "CLOSE":
                 self.current_position = None
 
             logger.debug(
@@ -336,7 +327,9 @@ class PairsTradingStrategy:
             return signal
 
         except Exception as e:
-            logger.error(f"Failed to generate signal for {self.symbol_x}/{self.symbol_y}: {e}")
+            logger.error(
+                f"Failed to generate signal for {self.symbol_x}/{self.symbol_y}: {e}"
+            )
             return None
 
     def _determine_action(self, z_score: float) -> Tuple[str, str, float]:
@@ -359,66 +352,62 @@ class PairsTradingStrategy:
         if abs(z_score) > self.stop_threshold:
             if self.current_position is not None:
                 return (
-                    'CLOSE',
-                    f'Stop loss triggered (|z|={abs(z_score):.2f} > {self.stop_threshold})',
-                    100.0
+                    "CLOSE",
+                    f"Stop loss triggered (|z|={abs(z_score):.2f} > {self.stop_threshold})",
+                    100.0,
                 )
 
         # Exit signal (mean reversion complete)
         if abs(z_score) < self.exit_threshold:
             if self.current_position is not None:
                 return (
-                    'CLOSE',
-                    f'Mean reversion complete (|z|={abs(z_score):.2f} < {self.exit_threshold})',
-                    90.0
+                    "CLOSE",
+                    f"Mean reversion complete (|z|={abs(z_score):.2f} < {self.exit_threshold})",
+                    90.0,
                 )
             else:
-                return ('HOLD', 'No position, spread near mean', 0.0)
+                return ("HOLD", "No position, spread near mean", 0.0)
 
         # Entry signals
         if z_score > self.entry_threshold:
-            if self.current_position == 'SHORT_Y':
-                return ('HOLD', 'Already in SHORT_Y position', 0.0)
-            elif self.current_position == 'LONG_Y':
+            if self.current_position == "SHORT_Y":
+                return ("HOLD", "Already in SHORT_Y position", 0.0)
+            elif self.current_position == "LONG_Y":
                 return (
-                    'CLOSE',
-                    f'Reverse signal detected (z={z_score:.2f}), close LONG_Y first',
-                    80.0
+                    "CLOSE",
+                    f"Reverse signal detected (z={z_score:.2f}), close LONG_Y first",
+                    80.0,
                 )
             else:
                 confidence = min(100.0, (abs(z_score) - self.entry_threshold) * 30 + 70)
                 return (
-                    'OPEN_SHORT_Y',
-                    f'Spread too high (z={z_score:.2f} > {self.entry_threshold}), SHORT Y / LONG X',
-                    confidence
+                    "OPEN_SHORT_Y",
+                    f"Spread too high (z={z_score:.2f} > {self.entry_threshold}), SHORT Y / LONG X",
+                    confidence,
                 )
 
         if z_score < -self.entry_threshold:
-            if self.current_position == 'LONG_Y':
-                return ('HOLD', 'Already in LONG_Y position', 0.0)
-            elif self.current_position == 'SHORT_Y':
+            if self.current_position == "LONG_Y":
+                return ("HOLD", "Already in LONG_Y position", 0.0)
+            elif self.current_position == "SHORT_Y":
                 return (
-                    'CLOSE',
-                    f'Reverse signal detected (z={z_score:.2f}), close SHORT_Y first',
-                    80.0
+                    "CLOSE",
+                    f"Reverse signal detected (z={z_score:.2f}), close SHORT_Y first",
+                    80.0,
                 )
             else:
                 confidence = min(100.0, (abs(z_score) - self.entry_threshold) * 30 + 70)
                 return (
-                    'OPEN_LONG_Y',
-                    f'Spread too low (z={z_score:.2f} < -{self.entry_threshold}), LONG Y / SHORT X',
-                    confidence
+                    "OPEN_LONG_Y",
+                    f"Spread too low (z={z_score:.2f} < -{self.entry_threshold}), LONG Y / SHORT X",
+                    confidence,
                 )
 
         # No signal
-        return ('HOLD', f'Z-score in neutral zone (z={z_score:.2f})', 0.0)
+        return ("HOLD", f"Z-score in neutral zone (z={z_score:.2f})", 0.0)
 
     def _calculate_position_sizes(
-        self,
-        price_x: float,
-        price_y: float,
-        portfolio_value: float,
-        z_score_abs: float
+        self, price_x: float, price_y: float, portfolio_value: float, z_score_abs: float
     ) -> Tuple[float, float]:
         """
         Calculate position sizes for both legs of the pair
@@ -471,21 +460,23 @@ class PairsTradingStrategy:
             Dictionary with strategy state
         """
         return {
-            'symbol_x': self.symbol_x,
-            'symbol_y': self.symbol_y,
-            'is_cointegrated': self.is_cointegrated,
-            'hedge_ratio': self.hedge_ratio,
-            'spread_mean': self.spread_mean,
-            'spread_std': self.spread_std,
-            'half_life': self.half_life,
-            'current_position': self.current_position,
-            'last_calibration': self.last_calibration.isoformat() if self.last_calibration else None,
-            'needs_recalibration': self._needs_recalibration(),
-            'parameters': {
-                'lookback_period': self.lookback_period,
-                'entry_threshold': self.entry_threshold,
-                'exit_threshold': self.exit_threshold,
-                'stop_threshold': self.stop_threshold,
-                'max_position_size': self.max_position_size,
-            }
+            "symbol_x": self.symbol_x,
+            "symbol_y": self.symbol_y,
+            "is_cointegrated": self.is_cointegrated,
+            "hedge_ratio": self.hedge_ratio,
+            "spread_mean": self.spread_mean,
+            "spread_std": self.spread_std,
+            "half_life": self.half_life,
+            "current_position": self.current_position,
+            "last_calibration": self.last_calibration.isoformat()
+            if self.last_calibration
+            else None,
+            "needs_recalibration": self._needs_recalibration(),
+            "parameters": {
+                "lookback_period": self.lookback_period,
+                "entry_threshold": self.entry_threshold,
+                "exit_threshold": self.exit_threshold,
+                "stop_threshold": self.stop_threshold,
+                "max_position_size": self.max_position_size,
+            },
         }

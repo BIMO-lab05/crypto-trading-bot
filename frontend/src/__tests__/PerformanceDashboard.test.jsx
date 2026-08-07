@@ -17,7 +17,7 @@
 
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Import components to test
@@ -50,51 +50,55 @@ const createWrapper = () => {
 }
 
 /**
- * Mock strategy attribution data
+ * Mock strategy attribution data.
+ * Dollar figures are scaled to the real $100 paper account
+ * (PAPER_INITIAL_BALANCE) — the old fixtures assumed $10,000.
  */
 const mockStrategyData = [
   {
     strategy: 'RSI_Momentum',
-    pnl: 1500.25,
+    pnl: 15.25,
     trades: 45,
     winRate: 62.5,
     profitFactor: 1.85,
-    avgWin: 85.50,
-    avgLoss: 45.30,
+    avgWin: 0.86,
+    avgLoss: 0.45,
   },
   {
     strategy: 'MACD_Crossover',
-    pnl: -250.75,
+    pnl: -2.75,
     trades: 32,
     winRate: 42.5,
     profitFactor: 0.75,
-    avgWin: 35.20,
-    avgLoss: 48.15,
+    avgWin: 0.35,
+    avgLoss: 0.48,
   },
   {
     strategy: 'Bollinger_Breakout',
-    pnl: 850.00,
+    pnl: 8.50,
     trades: 28,
     winRate: 55.0,
     profitFactor: 1.45,
-    avgWin: 65.00,
-    avgLoss: 50.00,
+    avgWin: 0.65,
+    avgLoss: 0.50,
   },
 ]
 
 /**
  * Mock risk metrics data
  */
+// Dollar figures scaled to the $100 paper account: a $2.50 daily VaR on a
+// $95 portfolio (~2.6%), not the old $10k-world $250.50.
 const mockRiskMetrics = {
-  var95: 250.50,
-  cvar95: 350.75,
+  var95: 2.50,
+  cvar95: 3.50,
   maxDrawdownPercent: 8.5,
   currentDrawdown: 2.3,
   volatility: 18.5,
   sharpeRatio: 1.65,
   sortinoRatio: 2.10,
   beta: 0.95,
-  portfolioValue: 15000,
+  portfolioValue: 95.00,
 }
 
 /**
@@ -102,15 +106,16 @@ const mockRiskMetrics = {
  */
 const mockExportData = {
   metrics: {
-    totalPnL: 2100.50,
+    // Coherent with the $100-account curve below: 100 → 108 = +$8.00
+    totalPnL: 8.00,
     totalTrades: 105,
     winRate: 55.5,
     sharpeRatio: 1.65,
   },
   equityCurve: [
-    { timestamp: '2025-12-01T00:00:00Z', equity: 10000, pnl: 0 },
-    { timestamp: '2025-12-05T00:00:00Z', equity: 10500, pnl: 500 },
-    { timestamp: '2025-12-10T00:00:00Z', equity: 10800, pnl: 300 },
+    { timestamp: '2025-12-01T00:00:00Z', equity: 100, pnl: 0 },
+    { timestamp: '2025-12-05T00:00:00Z', equity: 105, pnl: 5 },
+    { timestamp: '2025-12-10T00:00:00Z', equity: 108, pnl: 3 },
   ],
   drawdownSeries: [
     { timestamp: '2025-12-01T00:00:00Z', drawdownPercent: 0 },
@@ -156,8 +161,8 @@ describe('StrategyAttribution Component', () => {
   it('calculates total P&L correctly', () => {
     render(<StrategyAttribution data={mockStrategyData} loading={false} />)
 
-    // Total P&L should be sum: 1500.25 - 250.75 + 850 = 2099.50
-    const totalPnL = screen.getByText(/\+?\$2,099\.50/)
+    // Total P&L should be sum: 15.25 - 2.75 + 8.50 = 21.00
+    const totalPnL = screen.getByText(/\+?\$21\.00/)
     expect(totalPnL).toBeInTheDocument()
   })
 
@@ -220,16 +225,20 @@ describe('RiskMetrics Component', () => {
   it('shows risk level legend', () => {
     render(<RiskMetrics metrics={mockRiskMetrics} loading={false} />)
 
-    expect(screen.getByText('Low Risk')).toBeInTheDocument()
-    expect(screen.getByText('Moderate Risk')).toBeInTheDocument()
-    expect(screen.getByText('Elevated Risk')).toBeInTheDocument()
+    // Scope to the legend block: the same labels legitimately appear on the
+    // per-metric badges and the overall-risk badge, so an unscoped getByText
+    // reports multiple matches.
+    const legend = screen.getByText('Risk Level Guide').parentElement
+    expect(within(legend).getByText('Low Risk')).toBeInTheDocument()
+    expect(within(legend).getByText('Moderate Risk')).toBeInTheDocument()
+    expect(within(legend).getByText('Elevated Risk')).toBeInTheDocument()
   })
 
   it('displays VaR value correctly', () => {
     render(<RiskMetrics metrics={mockRiskMetrics} loading={false} />)
 
     // VaR should display as currency
-    expect(screen.getByText('$250.50')).toBeInTheDocument()
+    expect(screen.getByText('$2.50')).toBeInTheDocument()
   })
 
   it('displays Sharpe ratio correctly', () => {

@@ -216,6 +216,7 @@ function PerformanceDashboard({
     error,
     dataSource,
     metrics,
+    initialBalance,
     equityCurve,
     drawdownSeries,
     returnsDistribution,
@@ -297,10 +298,13 @@ function PerformanceDashboard({
     sharpeRatio: metrics?.sharpeRatio,
     sortinoRatio: metrics?.sortinoRatio,
     beta: null, // Would need market data to calculate
+    // With no closed trades the account still sits at its opening balance —
+    // use the hook's server-derived baseline, never a hardcoded figure.
+    // (API failures never reach here: isError renders the error state below.)
     portfolioValue: equityCurve.length > 0
       ? equityCurve[equityCurve.length - 1]?.equity
-      : 10000,
-  }), [metrics, drawdownSeries, equityCurve])
+      : initialBalance,
+  }), [metrics, drawdownSeries, equityCurve, initialBalance])
 
   // Prepare export data
   const exportData = useMemo(() => ({
@@ -409,6 +413,7 @@ function PerformanceDashboard({
             period={period}
             onPeriodChange={handlePeriodChange}
             height={350}
+            initialEquity={initialBalance}
           />
         )}
       </section>

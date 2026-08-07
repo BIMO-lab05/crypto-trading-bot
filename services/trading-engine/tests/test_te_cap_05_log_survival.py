@@ -46,11 +46,34 @@ import app.core.metrics  # noqa: F401
 from app.auto_trader import AutoTrader
 from app.models import OrderStatus
 from app.models.enums import SignalAction
+from app.services.instruments_cache import InstrumentSpec
 from app.strategies.research_optimized_strategy import (
     MarketCondition,
     SignalStrength,
     TradeSetup,
 )
+
+
+class _PermissiveInstrumentsCache:
+    """Spec that clears every venue floor, so the venue gates never mask the
+    cap-check behaviour under test.
+
+    qty_step is far finer than any real venue's so the DOWN-snap cannot move
+    the clamped quantity out of this test's tolerance — the assertion below is
+    about the cap arithmetic, not about granularity.
+    """
+
+    async def get(self, symbol: str) -> InstrumentSpec:
+        from datetime import datetime, timezone
+
+        return InstrumentSpec(
+            symbol=symbol,
+            min_order_qty=Decimal("1E-15"),
+            qty_step=Decimal("1E-15"),
+            tick_size=Decimal("0.10"),
+            min_notional=None,
+            fetched_at=datetime.now(timezone.utc),
+        )
 
 
 # ---------------------------------------------------------------- fixtures
@@ -166,6 +189,15 @@ def _patch_breach_path_deps(monkeypatch, trader, *, balance: float = 100.0):
         return_value=(False, "no")
     )
 
+    # Instruments cache: a permissive spec so the venue gates downstream of the
+    # cap check wave the (clamped) order through — this test is about the CLAMP
+    # log, not about min-notional. Required since review I12 made a missing spec
+    # fail CLOSED in PAPER; before that the unstubbed cache timed out reaching
+    # the connector and fell through fail-open.
+    monkeypatch.setattr(
+        "app.main.get_instruments_cache", lambda: _PermissiveInstrumentsCache()
+    )
+
     return paper_engine, position_mgr
 
 
@@ -248,9 +280,7 @@ async def test_per_trade_cap_clamp_log_survives_to_caplog(trader, monkeypatch, c
     expected_qty = (100.0 * cap_fraction) / 60000.0
     paper_engine.execute_market_order.assert_awaited_once()
     submitted_order = paper_engine.execute_market_order.await_args.args[0]
-    assert float(submitted_order.quantity) == pytest.approx(
-        expected_qty, rel=1e-6
-    ), (
+    assert float(submitted_order.quantity) == pytest.approx(expected_qty, rel=1e-6), (
         f"Order quantity was not clamped to the per-trade cap: "
         f"got {submitted_order.quantity}, expected {expected_qty} "
         f"(cap_fraction={cap_fraction})"

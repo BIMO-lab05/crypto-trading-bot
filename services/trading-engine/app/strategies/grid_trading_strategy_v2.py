@@ -49,7 +49,7 @@ Version: 2.0.0
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
 import uuid
@@ -72,106 +72,111 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION CONSTANTS - Grid Trading V2
 # =============================================================================
 
+
 # Grid Construction Parameters
 class GridSpacingType(Enum):
     """Grid spacing calculation method"""
-    ARITHMETIC = "arithmetic"       # Equal price intervals
-    GEOMETRIC = "geometric"         # Equal percentage intervals
-    ATR_BASED = "atr_based"        # Based on ATR volatility
-    BOLLINGER = "bollinger"        # Based on Bollinger Bands
+
+    ARITHMETIC = "arithmetic"  # Equal price intervals
+    GEOMETRIC = "geometric"  # Equal percentage intervals
+    ATR_BASED = "atr_based"  # Based on ATR volatility
+    BOLLINGER = "bollinger"  # Based on Bollinger Bands
 
 
 # Default Grid Settings
-DEFAULT_GRID_LEVELS = 10           # Total grid levels (5 buy + 5 sell)
-DEFAULT_GRID_RANGE_PCT = 0.08      # +/- 8% from mid-price
+DEFAULT_GRID_LEVELS = 10  # Total grid levels (5 buy + 5 sell)
+DEFAULT_GRID_RANGE_PCT = 0.08  # +/- 8% from mid-price
 DEFAULT_SPACING_TYPE = GridSpacingType.ATR_BASED
-MIN_GRID_SPACING_PCT = 0.005       # Minimum 0.5% between levels
-MAX_GRID_SPACING_PCT = 0.05        # Maximum 5% between levels
+MIN_GRID_SPACING_PCT = 0.005  # Minimum 0.5% between levels
+MAX_GRID_SPACING_PCT = 0.05  # Maximum 5% between levels
 
 # ATR-Based Spacing Configuration
-ATR_PERIOD = 14                    # Period for ATR calculation
-ATR_GRID_MULTIPLIER = 1.0          # Grid spacing = ATR * multiplier
-ATR_LOOKBACK_BARS = 100            # Bars to consider for ATR
+ATR_PERIOD = 14  # Period for ATR calculation
+ATR_GRID_MULTIPLIER = 1.0  # Grid spacing = ATR * multiplier
+ATR_LOOKBACK_BARS = 100  # Bars to consider for ATR
 
 # Bollinger Band Configuration
-BB_PERIOD = 20                     # Period for Bollinger Bands
-BB_STD_DEV = 2.0                   # Standard deviations for bands
-BB_GRID_COVERAGE = 0.80            # Use 80% of BB range for grid
+BB_PERIOD = 20  # Period for Bollinger Bands
+BB_STD_DEV = 2.0  # Standard deviations for bands
+BB_GRID_COVERAGE = 0.80  # Use 80% of BB range for grid
 
 # Position Management
-MAX_CONCURRENT_POSITIONS = 5       # Maximum open positions across all levels
-POSITION_SIZE_PCT = 0.02           # 2% of equity per position
-MIN_POSITION_VALUE_USD = 10.0      # Minimum $10 per position
-MAX_POSITION_VALUE_USD = 10000.0   # Maximum $10k per position
+MAX_CONCURRENT_POSITIONS = 5  # Maximum open positions across all levels
+POSITION_SIZE_PCT = 0.02  # 2% of equity per position
+MIN_POSITION_VALUE_USD = 10.0  # Minimum $10 per position
+MAX_POSITION_VALUE_USD = 10000.0  # Maximum $10k per position
 
 # Grid Rebalancing Triggers
-REBALANCE_THRESHOLD_PCT = 0.80     # Rebalance when price moves 80% through grid
+REBALANCE_THRESHOLD_PCT = 0.80  # Rebalance when price moves 80% through grid
 MIN_PRICE_MOVE_FOR_REBALANCE = 0.05  # Minimum 5% price move to trigger rebalance
-MIN_TIME_BETWEEN_REBALANCES = 3600   # Minimum 1 hour between rebalances (seconds)
+MIN_TIME_BETWEEN_REBALANCES = 3600  # Minimum 1 hour between rebalances (seconds)
 REBALANCE_ON_VOLATILITY_CHANGE = True  # Rebalance if volatility changes significantly
 
 # Risk Management - Grid Level
-INDIVIDUAL_STOP_ATR_MULT = 1.5     # Individual position stop at 1.5x ATR
-INDIVIDUAL_TP_ATR_MULT = 1.0       # Individual position TP at 1x ATR (next grid level)
-MAX_LOSS_PER_LEVEL_PCT = 0.02      # Max 2% loss per grid level
+INDIVIDUAL_STOP_ATR_MULT = 1.5  # Individual position stop at 1.5x ATR
+INDIVIDUAL_TP_ATR_MULT = 1.0  # Individual position TP at 1x ATR (next grid level)
+MAX_LOSS_PER_LEVEL_PCT = 0.02  # Max 2% loss per grid level
 
 # Risk Management - Grid Wide
-GRID_STOP_LOSS_PCT = 0.05          # Stop entire grid at 5% loss from avg entry
-GRID_MAX_DRAWDOWN_PCT = 0.10       # Reset grid at 10% max drawdown
-MAX_TOTAL_EXPOSURE_PCT = 0.20      # Maximum 20% of equity across all positions
-EMERGENCY_EXIT_LOSS_PCT = 0.15     # Emergency exit all positions at 15% loss
+GRID_STOP_LOSS_PCT = 0.05  # Stop entire grid at 5% loss from avg entry
+GRID_MAX_DRAWDOWN_PCT = 0.10  # Reset grid at 10% max drawdown
+MAX_TOTAL_EXPOSURE_PCT = 0.20  # Maximum 20% of equity across all positions
+EMERGENCY_EXIT_LOSS_PCT = 0.15  # Emergency exit all positions at 15% loss
 
 # Market Regime Detection
-ADX_PERIOD = 14                    # Period for ADX calculation
-ADX_RANGING_THRESHOLD = 25         # ADX < 25 = ranging market (favorable)
-ADX_STRONG_TREND_THRESHOLD = 40    # ADX > 40 = strong trend (unfavorable)
-TREND_PAUSE_THRESHOLD = 30         # Pause grid when ADX > 30
-BB_SQUEEZE_THRESHOLD = 0.02        # BB width < 2% = squeeze (expect breakout)
+ADX_PERIOD = 14  # Period for ADX calculation
+ADX_RANGING_THRESHOLD = 25  # ADX < 25 = ranging market (favorable)
+ADX_STRONG_TREND_THRESHOLD = 40  # ADX > 40 = strong trend (unfavorable)
+TREND_PAUSE_THRESHOLD = 30  # Pause grid when ADX > 30
+BB_SQUEEZE_THRESHOLD = 0.02  # BB width < 2% = squeeze (expect breakout)
 
 # RSI Filter for Entry Timing
-RSI_PERIOD = 14                    # Period for RSI calculation
-RSI_OVERSOLD = 35                  # Buy filter: RSI < 35
-RSI_OVERBOUGHT = 65                # Sell filter: RSI > 65
-USE_RSI_FILTER = True              # Enable RSI confirmation
+RSI_PERIOD = 14  # Period for RSI calculation
+RSI_OVERSOLD = 35  # Buy filter: RSI < 35
+RSI_OVERBOUGHT = 65  # Sell filter: RSI > 65
+USE_RSI_FILTER = True  # Enable RSI confirmation
 
 # Volume Confirmation
-VOLUME_MA_PERIOD = 20              # Period for volume moving average
-VOLUME_THRESHOLD_MULT = 0.8        # Minimum 0.8x average volume for trades
-USE_VOLUME_FILTER = True           # Enable volume confirmation
+VOLUME_MA_PERIOD = 20  # Period for volume moving average
+VOLUME_THRESHOLD_MULT = 0.8  # Minimum 0.8x average volume for trades
+USE_VOLUME_FILTER = True  # Enable volume confirmation
 
 # Signal Confidence Calculation
-BASE_BUY_CONFIDENCE = 0.65         # Base confidence for buy signals
-BASE_SELL_CONFIDENCE = 0.70        # Base confidence for sell signals
-CONFIDENCE_BOOST_RSI = 0.10        # Boost for extreme RSI
-CONFIDENCE_BOOST_VOLUME = 0.05     # Boost for volume confirmation
-CONFIDENCE_BOOST_REGIME = 0.10     # Boost for favorable market regime
-MAX_CONFIDENCE = 0.95              # Cap at 95%
+BASE_BUY_CONFIDENCE = 0.65  # Base confidence for buy signals
+BASE_SELL_CONFIDENCE = 0.70  # Base confidence for sell signals
+CONFIDENCE_BOOST_RSI = 0.10  # Boost for extreme RSI
+CONFIDENCE_BOOST_VOLUME = 0.05  # Boost for volume confirmation
+CONFIDENCE_BOOST_REGIME = 0.10  # Boost for favorable market regime
+MAX_CONFIDENCE = 0.95  # Cap at 95%
 
 # Grid Performance Tracking
-TRACK_LEVEL_PERFORMANCE = True     # Track performance per grid level
-MIN_TRADES_FOR_STATS = 10          # Min trades for statistical significance
+TRACK_LEVEL_PERFORMANCE = True  # Track performance per grid level
+MIN_TRADES_FOR_STATS = 10  # Min trades for statistical significance
 
 
 # =============================================================================
 # DATA STRUCTURES
 # =============================================================================
 
+
 class MarketRegime(Enum):
     """Market regime classification for grid trading"""
-    RANGING = "ranging"             # ADX < 25: Ideal for grid trading
-    WEAK_TREND = "weak_trend"       # 25 <= ADX < 40: Proceed with caution
-    STRONG_TREND = "strong_trend"   # ADX >= 40: Pause grid trading
-    SQUEEZE = "squeeze"             # BB squeeze: Expect breakout
-    UNKNOWN = "unknown"             # Insufficient data
+
+    RANGING = "ranging"  # ADX < 25: Ideal for grid trading
+    WEAK_TREND = "weak_trend"  # 25 <= ADX < 40: Proceed with caution
+    STRONG_TREND = "strong_trend"  # ADX >= 40: Pause grid trading
+    SQUEEZE = "squeeze"  # BB squeeze: Expect breakout
+    UNKNOWN = "unknown"  # Insufficient data
 
 
 class GridLevelStatus(Enum):
     """Status of a grid level"""
-    PENDING = "pending"             # Waiting for price to reach level
-    ACTIVE = "active"               # Order placed, awaiting fill
-    FILLED = "filled"               # Position opened at this level
-    COMPLETED = "completed"         # Position closed with profit/loss
-    EXPIRED = "expired"             # Level no longer valid (grid rebalanced)
+
+    PENDING = "pending"  # Waiting for price to reach level
+    ACTIVE = "active"  # Order placed, awaiting fill
+    FILLED = "filled"  # Position opened at this level
+    COMPLETED = "completed"  # Position closed with profit/loss
+    EXPIRED = "expired"  # Level no longer valid (grid rebalanced)
 
 
 @dataclass
@@ -207,11 +212,12 @@ class GridLevelV2:
         win_count: Number of profitable trades at this level
         total_pnl: Cumulative P&L from this level
     """
+
     # Core Identification
     level_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     price: float = 0.0
-    level_type: str = "buy"         # "buy" or "sell"
-    level_index: int = 0            # Position in grid
+    level_type: str = "buy"  # "buy" or "sell"
+    level_index: int = 0  # Position in grid
     status: GridLevelStatus = GridLevelStatus.PENDING
     distance_from_mid_pct: float = 0.0
 
@@ -254,10 +260,14 @@ class GridLevelV2:
         if self.status == GridLevelStatus.FILLED and self.fill_price:
             if self.level_type == "buy":
                 # Long position: profit when price goes up
-                self.current_pnl = (current_price - self.fill_price) * self.fill_quantity
+                self.current_pnl = (
+                    current_price - self.fill_price
+                ) * self.fill_quantity
             else:
                 # Short/close position: profit when price goes down
-                self.current_pnl = (self.fill_price - current_price) * self.fill_quantity
+                self.current_pnl = (
+                    self.fill_price - current_price
+                ) * self.fill_quantity
         self.last_updated = datetime.now()
 
     def close_position(self, exit_price: float, exit_timestamp: datetime) -> float:
@@ -335,6 +345,7 @@ class GridStateV2:
         is_paused: Whether grid is currently paused
         pause_reason: Reason for pause if paused
     """
+
     # Core Identification
     grid_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     symbol: str = ""
@@ -378,14 +389,14 @@ class GridStateV2:
         return sorted(
             [lvl for lvl in self.grid_levels if lvl.level_type == "buy"],
             key=lambda x: x.price,
-            reverse=True
+            reverse=True,
         )
 
     def get_sell_levels(self) -> List[GridLevelV2]:
         """Get all sell levels (above mid-price), sorted by price ascending"""
         return sorted(
             [lvl for lvl in self.grid_levels if lvl.level_type == "sell"],
-            key=lambda x: x.price
+            key=lambda x: x.price,
         )
 
     def get_active_levels(self) -> List[GridLevelV2]:
@@ -395,30 +406,30 @@ class GridStateV2:
     def get_pending_buy_levels(self) -> List[GridLevelV2]:
         """Get unfilled buy levels"""
         return [
-            lvl for lvl in self.get_buy_levels()
+            lvl
+            for lvl in self.get_buy_levels()
             if lvl.status == GridLevelStatus.PENDING
         ]
 
     def get_pending_sell_levels(self) -> List[GridLevelV2]:
         """Get unfilled sell levels"""
         return [
-            lvl for lvl in self.get_sell_levels()
+            lvl
+            for lvl in self.get_sell_levels()
             if lvl.status == GridLevelStatus.PENDING
         ]
 
     def get_nearest_buy_level(self, current_price: float) -> Optional[GridLevelV2]:
         """Get nearest pending buy level below current price"""
         pending_buys = [
-            lvl for lvl in self.get_pending_buy_levels()
-            if lvl.price <= current_price
+            lvl for lvl in self.get_pending_buy_levels() if lvl.price <= current_price
         ]
         return pending_buys[0] if pending_buys else None
 
     def get_nearest_sell_level(self, current_price: float) -> Optional[GridLevelV2]:
         """Get nearest pending sell level above current price"""
         pending_sells = [
-            lvl for lvl in self.get_pending_sell_levels()
-            if lvl.price >= current_price
+            lvl for lvl in self.get_pending_sell_levels() if lvl.price >= current_price
         ]
         return pending_sells[0] if pending_sells else None
 
@@ -433,12 +444,12 @@ class GridStateV2:
         gross_profit = sum(
             lvl.total_pnl for lvl in self.grid_levels if lvl.total_pnl > 0
         )
-        gross_loss = abs(sum(
-            lvl.total_pnl for lvl in self.grid_levels if lvl.total_pnl < 0
-        ))
+        gross_loss = abs(
+            sum(lvl.total_pnl for lvl in self.grid_levels if lvl.total_pnl < 0)
+        )
 
         if gross_loss == 0:
-            return float('inf') if gross_profit > 0 else 0.0
+            return float("inf") if gross_profit > 0 else 0.0
         return gross_profit / gross_loss
 
     def update_unrealized_pnl(self, current_price: float) -> None:
@@ -467,16 +478,17 @@ class GridStateV2:
             "profit_factor": f"{self.get_profit_factor():.2f}",
             "realized_pnl": f"${self.total_realized_pnl:.2f}",
             "unrealized_pnl": f"${self.total_unrealized_pnl:.2f}",
-            "current_drawdown": f"{self.current_drawdown*100:.1f}%",
+            "current_drawdown": f"{self.current_drawdown * 100:.1f}%",
             "market_regime": self.current_regime.value,
             "is_paused": self.is_paused,
-            "rebalance_count": self.rebalance_count
+            "rebalance_count": self.rebalance_count,
         }
 
 
 # =============================================================================
 # GRID TRADING STRATEGY V2 IMPLEMENTATION
 # =============================================================================
+
 
 class GridTradingStrategyV2(StrategyBase):
     """
@@ -560,18 +572,21 @@ class GridTradingStrategyV2(StrategyBase):
         self._session_start: datetime = datetime.now()
 
         # Initialize parent class
-        super().__init__(symbol, {
-            "grid_levels": grid_levels,
-            "grid_range_pct": grid_range_pct,
-            "spacing_type": spacing_type.value,
-            "max_positions": max_positions,
-            "position_size_pct": position_size_pct,
-            "use_filters": use_filters,
-        })
+        super().__init__(
+            symbol,
+            {
+                "grid_levels": grid_levels,
+                "grid_range_pct": grid_range_pct,
+                "spacing_type": spacing_type.value,
+                "max_positions": max_positions,
+                "position_size_pct": position_size_pct,
+                "use_filters": use_filters,
+            },
+        )
 
         logger.info(
             f"GridTradingStrategyV2 initialized for {symbol}: "
-            f"{grid_levels} levels, +/-{grid_range_pct*100}% range, "
+            f"{grid_levels} levels, +/-{grid_range_pct * 100}% range, "
             f"{spacing_type.value} spacing, max {max_positions} positions"
         )
 
@@ -603,9 +618,9 @@ class GridTradingStrategyV2(StrategyBase):
             return None
 
         # Get recent price data
-        highs = np.array(self._highs[-(period + 1):])
-        lows = np.array(self._lows[-(period + 1):])
-        closes = np.array(self._prices[-(period + 1):])
+        highs = np.array(self._highs[-(period + 1) :])
+        lows = np.array(self._lows[-(period + 1) :])
+        closes = np.array(self._prices[-(period + 1) :])
 
         # Calculate True Range for each bar
         # TR = max(H-L, abs(H-prevC), abs(L-prevC))
@@ -640,9 +655,9 @@ class GridTradingStrategyV2(StrategyBase):
             return 0.0
 
         # Get price data
-        highs = np.array(self._highs[-(period + 1):])
-        lows = np.array(self._lows[-(period + 1):])
-        closes = np.array(self._prices[-(period + 1):])
+        highs = np.array(self._highs[-(period + 1) :])
+        lows = np.array(self._lows[-(period + 1) :])
+        closes = np.array(self._prices[-(period + 1) :])
 
         # Calculate True Range
         high_low = highs[1:] - lows[1:]
@@ -654,12 +669,12 @@ class GridTradingStrategyV2(StrategyBase):
         plus_dm = np.where(
             (highs[1:] - highs[:-1]) > (lows[:-1] - lows[1:]),
             np.maximum(highs[1:] - highs[:-1], 0),
-            0
+            0,
         )
         minus_dm = np.where(
             (lows[:-1] - lows[1:]) > (highs[1:] - highs[:-1]),
             np.maximum(lows[:-1] - lows[1:], 0),
-            0
+            0,
         )
 
         # Calculate ATR (Average True Range)
@@ -702,7 +717,7 @@ class GridTradingStrategyV2(StrategyBase):
             return 50.0  # Neutral if insufficient data
 
         # Get price changes
-        prices = np.array(self._prices[-(period + 1):])
+        prices = np.array(self._prices[-(period + 1) :])
         deltas = np.diff(prices)
 
         # Separate gains and losses
@@ -725,9 +740,7 @@ class GridTradingStrategyV2(StrategyBase):
         return rsi
 
     def _calculate_bollinger_bands(
-        self,
-        period: int = BB_PERIOD,
-        std_dev: float = BB_STD_DEV
+        self, period: int = BB_PERIOD, std_dev: float = BB_STD_DEV
     ) -> Tuple[float, float, float]:
         """
         Calculate Bollinger Bands for grid range
@@ -845,7 +858,10 @@ class GridTradingStrategyV2(StrategyBase):
         if regime == MarketRegime.WEAK_TREND:
             adx = self._adx_cache or 0
             if adx > TREND_PAUSE_THRESHOLD:
-                return True, f"Trend strengthening (ADX={adx:.1f} > {TREND_PAUSE_THRESHOLD})"
+                return (
+                    True,
+                    f"Trend strengthening (ADX={adx:.1f} > {TREND_PAUSE_THRESHOLD})",
+                )
 
         return False, None
 
@@ -854,10 +870,7 @@ class GridTradingStrategyV2(StrategyBase):
     # =========================================================================
 
     def _initialize_grid(
-        self,
-        current_price: float,
-        timestamp: datetime,
-        equity: float
+        self, current_price: float, timestamp: datetime, equity: float
     ) -> None:
         """
         Initialize the trading grid around current price
@@ -881,8 +894,14 @@ class GridTradingStrategyV2(StrategyBase):
         buy_levels = [lvl for lvl in grid_levels if lvl.level_type == "buy"]
         sell_levels = [lvl for lvl in grid_levels if lvl.level_type == "sell"]
 
-        lower_boundary = min(lvl.price for lvl in buy_levels) if buy_levels else current_price * 0.92
-        upper_boundary = max(lvl.price for lvl in sell_levels) if sell_levels else current_price * 1.08
+        lower_boundary = (
+            min(lvl.price for lvl in buy_levels) if buy_levels else current_price * 0.92
+        )
+        upper_boundary = (
+            max(lvl.price for lvl in sell_levels)
+            if sell_levels
+            else current_price * 1.08
+        )
 
         # Initialize grid state
         self.grid_state = GridStateV2(
@@ -943,7 +962,9 @@ class GridTradingStrategyV2(StrategyBase):
             # Geometric spacing provides equal percentage intervals
             spacing_pct = self.grid_range_pct / (self.grid_levels_count / 2)
             spacing = current_price * spacing_pct
-            logger.debug(f"Geometric spacing: ${spacing:.2f} ({spacing_pct*100:.2f}%)")
+            logger.debug(
+                f"Geometric spacing: ${spacing:.2f} ({spacing_pct * 100:.2f}%)"
+            )
             return spacing
 
         # Default: Arithmetic (fixed) spacing
@@ -958,10 +979,7 @@ class GridTradingStrategyV2(StrategyBase):
         return spacing
 
     def _create_grid_levels(
-        self,
-        mid_price: float,
-        spacing: float,
-        timestamp: datetime
+        self, mid_price: float, spacing: float, timestamp: datetime
     ) -> List[GridLevelV2]:
         """
         Create grid levels with specified spacing
@@ -992,7 +1010,8 @@ class GridTradingStrategyV2(StrategyBase):
                     level_type="buy",
                     level_index=i,
                     distance_from_mid_pct=((mid_price - buy_price) / mid_price) * 100,
-                    stop_loss_price=buy_price - (current_atr * INDIVIDUAL_STOP_ATR_MULT),
+                    stop_loss_price=buy_price
+                    - (current_atr * INDIVIDUAL_STOP_ATR_MULT),
                     created_at=timestamp,
                 )
                 levels.append(buy_level)
@@ -1019,7 +1038,8 @@ class GridTradingStrategyV2(StrategyBase):
                     level_type="buy",
                     level_index=i,
                     distance_from_mid_pct=((mid_price - buy_price) / mid_price) * 100,
-                    stop_loss_price=buy_price - (current_atr * INDIVIDUAL_STOP_ATR_MULT),
+                    stop_loss_price=buy_price
+                    - (current_atr * INDIVIDUAL_STOP_ATR_MULT),
                     created_at=timestamp,
                 )
                 levels.append(buy_level)
@@ -1037,8 +1057,14 @@ class GridTradingStrategyV2(StrategyBase):
                 levels.append(sell_level)
 
         # Set take profit for buy levels (next sell level)
-        buy_levels = sorted([l for l in levels if l.level_type == "buy"], key=lambda x: x.price, reverse=True)
-        sell_levels = sorted([l for l in levels if l.level_type == "sell"], key=lambda x: x.price)
+        buy_levels = sorted(
+            [l for l in levels if l.level_type == "buy"],
+            key=lambda x: x.price,
+            reverse=True,
+        )
+        sell_levels = sorted(
+            [l for l in levels if l.level_type == "sell"], key=lambda x: x.price
+        )
 
         for buy_level in buy_levels:
             # TP is the nearest sell level above the buy price
@@ -1053,7 +1079,9 @@ class GridTradingStrategyV2(StrategyBase):
 
         return levels
 
-    def _should_rebalance_grid(self, current_price: float, timestamp: datetime) -> Tuple[bool, Optional[str]]:
+    def _should_rebalance_grid(
+        self, current_price: float, timestamp: datetime
+    ) -> Tuple[bool, Optional[str]]:
         """
         Determine if grid should be rebalanced
 
@@ -1075,27 +1103,43 @@ class GridTradingStrategyV2(StrategyBase):
 
         # Check minimum time between rebalances
         if self.grid_state.last_rebalance:
-            time_since_rebalance = (timestamp - self.grid_state.last_rebalance).total_seconds()
+            time_since_rebalance = (
+                timestamp - self.grid_state.last_rebalance
+            ).total_seconds()
             if time_since_rebalance < MIN_TIME_BETWEEN_REBALANCES:
                 return False, None
 
         # Check if price is outside grid boundaries
         if current_price < self.grid_state.lower_boundary:
-            return True, f"Price ${current_price:.2f} below grid boundary ${self.grid_state.lower_boundary:.2f}"
+            return (
+                True,
+                f"Price ${current_price:.2f} below grid boundary ${self.grid_state.lower_boundary:.2f}",
+            )
 
         if current_price > self.grid_state.upper_boundary:
-            return True, f"Price ${current_price:.2f} above grid boundary ${self.grid_state.upper_boundary:.2f}"
+            return (
+                True,
+                f"Price ${current_price:.2f} above grid boundary ${self.grid_state.upper_boundary:.2f}",
+            )
 
         # Check if price has moved significantly through the grid
         grid_range = self.grid_state.upper_boundary - self.grid_state.lower_boundary
         if grid_range > 0:
-            position_in_grid = (current_price - self.grid_state.lower_boundary) / grid_range
+            position_in_grid = (
+                current_price - self.grid_state.lower_boundary
+            ) / grid_range
 
             if position_in_grid > REBALANCE_THRESHOLD_PCT:
-                return True, f"Price at {position_in_grid*100:.1f}% of grid (upper threshold)"
+                return (
+                    True,
+                    f"Price at {position_in_grid * 100:.1f}% of grid (upper threshold)",
+                )
 
             if position_in_grid < (1 - REBALANCE_THRESHOLD_PCT):
-                return True, f"Price at {position_in_grid*100:.1f}% of grid (lower threshold)"
+                return (
+                    True,
+                    f"Price at {position_in_grid * 100:.1f}% of grid (lower threshold)",
+                )
 
         # Check for significant volatility change
         if REBALANCE_ON_VOLATILITY_CHANGE:
@@ -1103,18 +1147,20 @@ class GridTradingStrategyV2(StrategyBase):
             if current_atr and self.grid_state.spacing_value > 0:
                 atr_ratio = current_atr / self.grid_state.spacing_value
                 if atr_ratio > 2.0:  # ATR doubled
-                    return True, f"Volatility increased significantly (ATR ratio: {atr_ratio:.2f})"
+                    return (
+                        True,
+                        f"Volatility increased significantly (ATR ratio: {atr_ratio:.2f})",
+                    )
                 if atr_ratio < 0.5:  # ATR halved
-                    return True, f"Volatility decreased significantly (ATR ratio: {atr_ratio:.2f})"
+                    return (
+                        True,
+                        f"Volatility decreased significantly (ATR ratio: {atr_ratio:.2f})",
+                    )
 
         return False, None
 
     def _rebalance_grid(
-        self,
-        current_price: float,
-        timestamp: datetime,
-        equity: float,
-        reason: str
+        self, current_price: float, timestamp: datetime, equity: float, reason: str
     ) -> None:
         """
         Rebalance grid around new mid-price
@@ -1133,7 +1179,9 @@ class GridTradingStrategyV2(StrategyBase):
         logger.info(f"Rebalancing grid: {reason}")
 
         # Record performance before rebalance
-        old_pnl = self.grid_state.total_realized_pnl + self.grid_state.total_unrealized_pnl
+        old_pnl = (
+            self.grid_state.total_realized_pnl + self.grid_state.total_unrealized_pnl
+        )
         old_trades = self.grid_state.total_trades
         rebalance_count = self.grid_state.rebalance_count + 1
 
@@ -1222,7 +1270,9 @@ class GridTradingStrategyV2(StrategyBase):
             self.grid_state.pause_reason = None
 
         # Check for grid rebalancing
-        should_rebalance, rebalance_reason = self._should_rebalance_grid(current_price, bar.timestamp)
+        should_rebalance, rebalance_reason = self._should_rebalance_grid(
+            current_price, bar.timestamp
+        )
         if should_rebalance and rebalance_reason:
             self._rebalance_grid(current_price, bar.timestamp, equity, rebalance_reason)
 
@@ -1265,7 +1315,8 @@ class GridTradingStrategyV2(StrategyBase):
         if current_price <= self._prev_price:
             # Find crossed buy levels
             crossed_buy_levels = [
-                lvl for lvl in self.grid_state.get_pending_buy_levels()
+                lvl
+                for lvl in self.grid_state.get_pending_buy_levels()
                 if self._prev_price >= lvl.price >= current_price
             ]
 
@@ -1289,22 +1340,29 @@ class GridTradingStrategyV2(StrategyBase):
                 if self.use_filters:
                     # RSI filter: Only buy when RSI indicates oversold
                     if USE_RSI_FILTER and rsi > RSI_OVERSOLD:
-                        logger.debug(f"RSI filter blocked buy: RSI={rsi:.1f} > {RSI_OVERSOLD}")
+                        logger.debug(
+                            f"RSI filter blocked buy: RSI={rsi:.1f} > {RSI_OVERSOLD}"
+                        )
                         return None
 
                     # Volume filter: Require adequate volume
                     if USE_VOLUME_FILTER and volume_ratio < VOLUME_THRESHOLD_MULT:
-                        logger.debug(f"Volume filter blocked buy: ratio={volume_ratio:.2f}")
+                        logger.debug(
+                            f"Volume filter blocked buy: ratio={volume_ratio:.2f}"
+                        )
                         return None
 
                 # Create buy signal
-                return self._create_buy_signal(bar, buy_level, equity, rsi, volume_ratio)
+                return self._create_buy_signal(
+                    bar, buy_level, equity, rsi, volume_ratio
+                )
 
         # Check for SELL signal (price crossed above a sell level)
         elif current_price >= self._prev_price:
             # Find crossed sell levels
             crossed_sell_levels = [
-                lvl for lvl in self.grid_state.get_pending_sell_levels()
+                lvl
+                for lvl in self.grid_state.get_pending_sell_levels()
                 if self._prev_price <= lvl.price <= current_price
             ]
 
@@ -1321,12 +1379,16 @@ class GridTradingStrategyV2(StrategyBase):
                 if self.use_filters:
                     # RSI filter: Only sell when RSI indicates overbought
                     if USE_RSI_FILTER and rsi < RSI_OVERBOUGHT:
-                        logger.debug(f"RSI filter blocked sell: RSI={rsi:.1f} < {RSI_OVERBOUGHT}")
+                        logger.debug(
+                            f"RSI filter blocked sell: RSI={rsi:.1f} < {RSI_OVERBOUGHT}"
+                        )
                         return None
 
                     # Volume filter
                     if USE_VOLUME_FILTER and volume_ratio < VOLUME_THRESHOLD_MULT:
-                        logger.debug(f"Volume filter blocked sell: ratio={volume_ratio:.2f}")
+                        logger.debug(
+                            f"Volume filter blocked sell: ratio={volume_ratio:.2f}"
+                        )
                         return None
 
                 # Create sell signal
@@ -1340,8 +1402,8 @@ class GridTradingStrategyV2(StrategyBase):
         grid_level: GridLevelV2,
         equity: float,
         rsi: float,
-        volume_ratio: float
-    ) -> Signal:
+        volume_ratio: float,
+    ) -> Optional[Signal]:
         """
         Create BUY signal for grid level
 
@@ -1353,13 +1415,27 @@ class GridTradingStrategyV2(StrategyBase):
             volume_ratio: Current volume ratio
 
         Returns:
-            Buy Signal
+            Buy Signal, or None if the sized position falls below the venue
+            minimum (rejected — never rounded up).
         """
         current_price = bar.close
 
         # Calculate position size
         position_value = equity * self.position_size_pct
-        position_value = max(MIN_POSITION_VALUE_USD, min(position_value, MAX_POSITION_VALUE_USD))
+        # FIX 2026-08-05 (AUDIT 2.4, task E7): the old code did
+        # max(MIN_POSITION_VALUE_USD, ...) — silently rounding a sub-minimum
+        # trade UP to $10, which on a $100 account turns a configured cap into
+        # a much larger one. Sub-minimum trades are REJECTED with a reason,
+        # never clamped up (money.md sizing rule 4).
+        if position_value < MIN_POSITION_VALUE_USD:
+            logger.warning(
+                f"Grid BUY rejected at {current_price}: position value "
+                f"${position_value:.2f} (equity=${equity:.2f} x "
+                f"{self.position_size_pct}) is below the ${MIN_POSITION_VALUE_USD:.2f} "
+                f"minimum — refusing to round up to the venue floor"
+            )
+            return None
+        position_value = min(position_value, MAX_POSITION_VALUE_USD)
         position_size = position_value / current_price
 
         # Calculate ATR for stop/TP
@@ -1369,7 +1445,9 @@ class GridTradingStrategyV2(StrategyBase):
         stop_loss = current_price - (current_atr * INDIVIDUAL_STOP_ATR_MULT)
 
         # Set take profit at next sell level
-        take_profit = grid_level.take_profit_price or (current_price + current_atr * INDIVIDUAL_TP_ATR_MULT)
+        take_profit = grid_level.take_profit_price or (
+            current_price + current_atr * INDIVIDUAL_TP_ATR_MULT
+        )
 
         # Calculate confidence
         confidence = BASE_BUY_CONFIDENCE
@@ -1403,12 +1481,13 @@ class GridTradingStrategyV2(StrategyBase):
                 self.grid_state.total_position_size - position_size
             )
             total_value += current_price * position_size
-            self.grid_state.average_entry_price = total_value / self.grid_state.total_position_size
+            self.grid_state.average_entry_price = (
+                total_value / self.grid_state.total_position_size
+            )
 
             # Update max position value
             self.grid_state.max_position_value = max(
-                self.grid_state.max_position_value,
-                self.grid_state.get_total_exposure()
+                self.grid_state.max_position_value, self.grid_state.get_total_exposure()
             )
 
         logger.info(
@@ -1430,20 +1509,20 @@ class GridTradingStrategyV2(StrategyBase):
                 "strategy": "grid_trading_v2",
                 "grid_level": grid_level.price,
                 "grid_level_index": grid_level.level_index,
-                "active_positions": self.grid_state.active_positions if self.grid_state else 0,
-                "market_regime": self.grid_state.current_regime.value if self.grid_state else "unknown",
+                "active_positions": self.grid_state.active_positions
+                if self.grid_state
+                else 0,
+                "market_regime": self.grid_state.current_regime.value
+                if self.grid_state
+                else "unknown",
                 "rsi": rsi,
                 "volume_ratio": volume_ratio,
                 "atr": current_atr,
-            }
+            },
         )
 
     def _create_sell_signal(
-        self,
-        bar: OHLCV,
-        grid_level: GridLevelV2,
-        rsi: float,
-        volume_ratio: float
+        self, bar: OHLCV, grid_level: GridLevelV2, rsi: float, volume_ratio: float
     ) -> Signal:
         """
         Create SELL signal for grid level (close long position)
@@ -1464,7 +1543,9 @@ class GridTradingStrategyV2(StrategyBase):
 
         # Close the oldest buy position (FIFO)
         if active_buys:
-            position_to_close = min(active_buys, key=lambda x: x.fill_timestamp or datetime.min)
+            position_to_close = min(
+                active_buys, key=lambda x: x.fill_timestamp or datetime.min
+            )
             trade_pnl = position_to_close.close_position(current_price, bar.timestamp)
 
             # Update grid state
@@ -1515,10 +1596,14 @@ class GridTradingStrategyV2(StrategyBase):
                 "grid_level_index": grid_level.level_index,
                 "exit_reason": "grid_level_hit",
                 "trade_pnl": trade_pnl if active_buys else 0.0,
-                "active_positions": self.grid_state.active_positions if self.grid_state else 0,
-                "market_regime": self.grid_state.current_regime.value if self.grid_state else "unknown",
+                "active_positions": self.grid_state.active_positions
+                if self.grid_state
+                else 0,
+                "market_regime": self.grid_state.current_regime.value
+                if self.grid_state
+                else "unknown",
                 "rsi": rsi,
-            }
+            },
         )
 
     def _check_grid_stop_loss(self, bar: OHLCV) -> Optional[Signal]:
@@ -1540,12 +1625,14 @@ class GridTradingStrategyV2(StrategyBase):
         current_price = bar.close
 
         # Calculate current drawdown from average entry
-        drawdown_pct = (self.grid_state.average_entry_price - current_price) / self.grid_state.average_entry_price
+        drawdown_pct = (
+            self.grid_state.average_entry_price - current_price
+        ) / self.grid_state.average_entry_price
 
         # Check grid stop loss
         if drawdown_pct > GRID_STOP_LOSS_PCT:
             logger.warning(
-                f"Grid STOP LOSS triggered: Drawdown {drawdown_pct*100:.1f}% > {GRID_STOP_LOSS_PCT*100:.1f}%"
+                f"Grid STOP LOSS triggered: Drawdown {drawdown_pct * 100:.1f}% > {GRID_STOP_LOSS_PCT * 100:.1f}%"
             )
 
             # Close all positions
@@ -1571,13 +1658,13 @@ class GridTradingStrategyV2(StrategyBase):
                     "exit_reason": "grid_stop_loss",
                     "drawdown_pct": drawdown_pct,
                     "total_pnl": total_pnl,
-                }
+                },
             )
 
         # Check emergency exit (severe loss)
         if drawdown_pct > EMERGENCY_EXIT_LOSS_PCT:
             logger.critical(
-                f"EMERGENCY EXIT: Drawdown {drawdown_pct*100:.1f}% > {EMERGENCY_EXIT_LOSS_PCT*100:.1f}%"
+                f"EMERGENCY EXIT: Drawdown {drawdown_pct * 100:.1f}% > {EMERGENCY_EXIT_LOSS_PCT * 100:.1f}%"
             )
 
             # Force close all positions
@@ -1585,7 +1672,9 @@ class GridTradingStrategyV2(StrategyBase):
                 level.close_position(current_price, bar.timestamp)
 
             self.grid_state.is_paused = True
-            self.grid_state.pause_reason = f"Emergency exit at {drawdown_pct*100:.1f}% loss"
+            self.grid_state.pause_reason = (
+                f"Emergency exit at {drawdown_pct * 100:.1f}% loss"
+            )
 
             return Signal(
                 signal_type=SignalType.CLOSE_LONG,
@@ -1597,7 +1686,7 @@ class GridTradingStrategyV2(StrategyBase):
                     "strategy": "grid_trading_v2",
                     "exit_reason": "emergency_exit",
                     "drawdown_pct": drawdown_pct,
-                }
+                },
             )
 
         return None
@@ -1627,7 +1716,9 @@ class GridTradingStrategyV2(StrategyBase):
             return
 
         # Calculate final metrics
-        session_duration = (datetime.now() - self._session_start).total_seconds() / 3600  # hours
+        session_duration = (
+            datetime.now() - self._session_start
+        ).total_seconds() / 3600  # hours
         win_rate = self.grid_state.get_win_rate()
         profit_factor = self.grid_state.get_profit_factor()
 
@@ -1645,7 +1736,9 @@ class GridTradingStrategyV2(StrategyBase):
         logger.info("-" * 70)
         logger.info(f"Total Realized P&L: ${self.grid_state.total_realized_pnl:.2f}")
         logger.info(f"Unrealized P&L: ${self.grid_state.total_unrealized_pnl:.2f}")
-        logger.info(f"Average P&L per Trade: ${self.grid_state.total_realized_pnl/max(1, self.grid_state.total_trades):.2f}")
+        logger.info(
+            f"Average P&L per Trade: ${self.grid_state.total_realized_pnl / max(1, self.grid_state.total_trades):.2f}"
+        )
         logger.info("-" * 70)
         logger.info(f"Grid Rebalances: {self.grid_state.rebalance_count}")
         logger.info(f"Final Regime: {self.grid_state.current_regime.value}")
@@ -1655,7 +1748,9 @@ class GridTradingStrategyV2(StrategyBase):
         if TRACK_LEVEL_PERFORMANCE:
             logger.info("\nPER-LEVEL STATISTICS:")
             logger.info("-" * 70)
-            for level in sorted(self.grid_state.grid_levels, key=lambda x: x.price, reverse=True):
+            for level in sorted(
+                self.grid_state.grid_levels, key=lambda x: x.price, reverse=True
+            ):
                 if level.trade_count > 0:
                     logger.info(
                         f"  Level ${level.price:.2f} ({level.level_type}): "
@@ -1680,8 +1775,8 @@ class GridTradingStrategyV2(StrategyBase):
                 "market_regime_detection",
                 "volatility_adaptation",
                 "comprehensive_risk_management",
-                "per_level_performance_tracking"
-            ]
+                "per_level_performance_tracking",
+            ],
         }
 
     def get_grid_state(self) -> Optional[Dict[str, Any]]:
@@ -1695,9 +1790,9 @@ class GridTradingStrategyV2(StrategyBase):
 # FACTORY FUNCTION
 # =============================================================================
 
+
 def create_grid_trading_strategy_v2(
-    symbol: str,
-    config: Optional[Dict[str, Any]] = None
+    symbol: str, config: Optional[Dict[str, Any]] = None
 ) -> GridTradingStrategyV2:
     """
     Factory function to create Grid Trading Strategy V2
@@ -1716,7 +1811,9 @@ def create_grid_trading_strategy_v2(
         symbol=symbol,
         grid_levels=config.get("grid_levels", DEFAULT_GRID_LEVELS),
         grid_range_pct=config.get("grid_range_pct", DEFAULT_GRID_RANGE_PCT),
-        spacing_type=GridSpacingType(config.get("spacing_type", DEFAULT_SPACING_TYPE.value)),
+        spacing_type=GridSpacingType(
+            config.get("spacing_type", DEFAULT_SPACING_TYPE.value)
+        ),
         max_positions=config.get("max_positions", MAX_CONCURRENT_POSITIONS),
         position_size_pct=config.get("position_size_pct", POSITION_SIZE_PCT),
         use_filters=config.get("use_filters", True),

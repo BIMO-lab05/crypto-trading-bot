@@ -1,0 +1,1 @@
+Strategy authority lives in [CLAUDE.md section 2](CLAUDE.md) (current results table — no strategy has a positive edge yet) and [wiki/decisions/ADR-013-strategy-rebuild-plan.md](wiki/decisions/ADR-013-strategy-rebuild-plan.md) (rebuild plan) — this stub exists only for root-level discoverability and must stay a single sentence.

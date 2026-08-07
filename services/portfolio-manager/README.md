@@ -100,8 +100,8 @@ curl "http://localhost:8003/api/v1/portfolio?portfolio_id=default"
   "success": true,
   "portfolio": {
     "portfolio_id": "default",
-    "cash_balance": "10000.0",
-    "total_value": "10000.0",
+    "cash_balance": "100.0",
+    "total_value": "100.0",
     "total_pnl": "0",
     "total_return_pct": "0",
     "holdings": []
@@ -135,15 +135,15 @@ curl http://localhost:8003/api/v1/portfolio/holdings
   "holdings": [
     {
       "symbol": "BTCUSDT",
-      "quantity": "0.1",
+      "quantity": "0.001",
       "current_price": "67000",
-      "current_value": "6700",
-      "unrealized_pnl": "200",
+      "current_value": "67.00",
+      "unrealized_pnl": "2.00",
       "unrealized_pnl_pct": "3.08",
       "allocation_pct": "67.0"
     }
   ],
-  "total_value": "10000.0",
+  "total_value": "100.0",
   "count": 1
 }
 ```
@@ -353,7 +353,9 @@ TRADING_ENGINE_URL=http://localhost:8005
 MARKET_DATA_URL=http://localhost:8002
 
 # Portfolio Settings
-INITIAL_CAPITAL=10000.0
+# REQUIRED — the service refuses to boot without INITIAL_CAPITAL (no default).
+# The account is $100; shared/account.py is the declaration of record.
+INITIAL_CAPITAL=100.0
 REBALANCE_THRESHOLD_PCT=5.0
 MAX_POSITIONS=10
 MAX_SINGLE_ASSET_PCT=20.0

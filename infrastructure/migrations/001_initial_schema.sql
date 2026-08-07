@@ -2,6 +2,14 @@
 -- Purpose: Create core tables for crypto trading bot
 -- Date: 2025-11-09
 -- Author: Claude Code
+--
+-- NOTE (owner decision 2026-08-04): database/migrations/ is the AUTHORITATIVE
+-- migration directory. This file (infrastructure/migrations/) is kept in sync
+-- MANUALLY — when the seeds diverge, database/migrations/ wins.
+-- FIX 2026-08-05 (AUDIT 2.3): the portfolio seed below used to be one hundred
+-- times the real account. The account is $100 (shared/account.py is the
+-- declaration of record); production ran this copy, which is why the live
+-- portfolios row carried the wrong initial_balance.
 
 -- ============================================================================
 -- PORTFOLIOS TABLE
@@ -231,9 +239,9 @@ INSERT INTO portfolios (
 ) VALUES (
     'paper_trading',
     'Paper Trading Portfolio',
-    10000.00,
-    10000.00,
-    10000.00
+    100.00,
+    100.00,
+    100.00
 ) ON CONFLICT (portfolio_id) DO NOTHING;
 
 -- ============================================================================

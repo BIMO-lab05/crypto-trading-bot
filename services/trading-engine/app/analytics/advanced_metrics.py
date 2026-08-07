@@ -28,15 +28,18 @@ Version: 2.0 - Phase 5.2 Enhancement
 import logging
 import threading
 import math
-from typing import List, Dict, Optional, Tuple, Any, Union
-from decimal import Decimal
+from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
-from functools import lru_cache
 import numpy as np
 from scipy import stats
+
+# Used in __init__/factory bodies below; the noqa keeps autoflake from
+# stripping it after refactors (known repo gotcha).
+from app.config import get_settings  # noqa: F401
+
 
 # Configure logging for advanced metrics module
 logger = logging.getLogger(__name__)
@@ -46,8 +49,10 @@ logger = logging.getLogger(__name__)
 # ENUMS FOR METRICS CONFIGURATION
 # =============================================================================
 
+
 class MetricsPeriod(str, Enum):
     """Time periods for metrics calculation"""
+
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
@@ -58,6 +63,7 @@ class MetricsPeriod(str, Enum):
 
 class RiskLevel(str, Enum):
     """Risk level classification"""
+
     VERY_LOW = "very_low"
     LOW = "low"
     MODERATE = "moderate"
@@ -67,6 +73,7 @@ class RiskLevel(str, Enum):
 
 class DrawdownStatus(str, Enum):
     """Current drawdown status"""
+
     NO_DRAWDOWN = "no_drawdown"
     IN_DRAWDOWN = "in_drawdown"
     RECOVERING = "recovering"
@@ -76,6 +83,7 @@ class DrawdownStatus(str, Enum):
 # =============================================================================
 # DATA MODELS
 # =============================================================================
+
 
 @dataclass
 class RiskAdjustedMetrics:
@@ -96,6 +104,7 @@ class RiskAdjustedMetrics:
         sterling_ratio: (Annualized Return - Risk Free) / Average Drawdown
         burke_ratio: (Return - Risk Free) / Square Root of Sum of Squared Drawdowns
     """
+
     sharpe_ratio: float = 0.0
     sortino_ratio: float = 0.0
     calmar_ratio: float = 0.0
@@ -136,6 +145,7 @@ class DrawdownMetrics:
         time_underwater_pct: Percentage of time spent in drawdown
         current_drawdown: Current drawdown from peak
     """
+
     max_drawdown: float = 0.0
     avg_drawdown: float = 0.0
     drawdown_duration: int = 0
@@ -178,6 +188,7 @@ class WinLossMetrics:
         largest_win: Largest single winning trade
         largest_loss: Largest single losing trade
     """
+
     win_rate: float = 0.0
     profit_factor: float = 0.0
     payoff_ratio: float = 0.0
@@ -230,6 +241,7 @@ class RiskMetrics:
         tail_ratio: Ratio of 95th percentile to 5th percentile returns
         risk_level: Classified risk level based on metrics
     """
+
     var_95: float = 0.0
     var_99: float = 0.0
     cvar_95: float = 0.0
@@ -276,6 +288,7 @@ class EfficiencyMetrics:
         turnover_ratio: Annual portfolio turnover
         holding_period_return: Return per unit of holding time
     """
+
     avg_trade_duration: float = 0.0  # hours
     trades_per_day: float = 0.0
     trades_per_week: float = 0.0
@@ -316,6 +329,7 @@ class BenchmarkComparison:
         up_capture: Capture ratio in up markets
         down_capture: Capture ratio in down markets
     """
+
     strategy_return: float = 0.0
     benchmark_return: float = 0.0
     excess_return: float = 0.0
@@ -360,6 +374,7 @@ class StatisticalMetrics:
         annualized_return: Annualized return
         total_trades: Total number of trades
     """
+
     mean_return: float = 0.0
     median_return: float = 0.0
     std_deviation: float = 0.0
@@ -400,6 +415,7 @@ class DrawdownInfo:
         recovery_equity: Equity when recovered
         status: Current status of this drawdown
     """
+
     start_date: datetime
     end_date: Optional[datetime] = None
     trough_date: Optional[datetime] = None
@@ -422,7 +438,9 @@ class DrawdownInfo:
             "recovery_days": self.recovery_days,
             "peak_equity": round(self.peak_equity, 2),
             "trough_equity": round(self.trough_equity, 2),
-            "recovery_equity": round(self.recovery_equity, 2) if self.recovery_equity else None,
+            "recovery_equity": round(self.recovery_equity, 2)
+            if self.recovery_equity
+            else None,
             "status": self.status.value,
         }
 
@@ -445,6 +463,7 @@ class DrawdownAnalysis:
         time_in_drawdown_pct: Percentage of time spent in drawdown
         underwater_curve: Equity underwater curve data points
     """
+
     current_drawdown: float = 0.0
     current_drawdown_duration: int = 0
     max_drawdown: float = 0.0
@@ -468,7 +487,9 @@ class DrawdownAnalysis:
             "avg_recovery_time": round(self.avg_recovery_time, 1),
             "drawdown_count": self.drawdown_count,
             "current_status": self.current_status.value,
-            "drawdown_history": [d.to_dict() for d in self.drawdown_history[-10:]],  # Last 10
+            "drawdown_history": [
+                d.to_dict() for d in self.drawdown_history[-10:]
+            ],  # Last 10
             "time_in_drawdown_pct": round(self.time_in_drawdown_pct * 100, 2),
         }
 
@@ -489,6 +510,7 @@ class AttributionByDimension:
         sharpe_ratio: Risk-adjusted return
         max_drawdown: Maximum drawdown
     """
+
     dimension_name: str
     dimension_value: str
     total_pnl: float = 0.0
@@ -530,6 +552,7 @@ class RollingMetrics:
         rolling_pnl: Rolling cumulative P&L
         rolling_max_drawdown: Rolling maximum drawdown
     """
+
     window_size: int = 30
     period_type: MetricsPeriod = MetricsPeriod.DAILY
     timestamps: List[datetime] = field(default_factory=list)
@@ -549,10 +572,16 @@ class RollingMetrics:
             "timestamps": [ts.isoformat() for ts in self.timestamps[-50:]],  # Last 50
             "rolling_sharpe": [round(v, 4) for v in self.rolling_sharpe[-50:]],
             "rolling_sortino": [round(v, 4) for v in self.rolling_sortino[-50:]],
-            "rolling_volatility": [round(v * 100, 2) for v in self.rolling_volatility[-50:]],
-            "rolling_win_rate": [round(v * 100, 2) for v in self.rolling_win_rate[-50:]],
+            "rolling_volatility": [
+                round(v * 100, 2) for v in self.rolling_volatility[-50:]
+            ],
+            "rolling_win_rate": [
+                round(v * 100, 2) for v in self.rolling_win_rate[-50:]
+            ],
             "rolling_pnl": [round(v, 2) for v in self.rolling_pnl[-50:]],
-            "rolling_max_drawdown": [round(v * 100, 2) for v in self.rolling_max_drawdown[-50:]],
+            "rolling_max_drawdown": [
+                round(v * 100, 2) for v in self.rolling_max_drawdown[-50:]
+            ],
         }
 
 
@@ -577,6 +606,7 @@ class TradeMetadata:
         max_adverse_excursion: Maximum loss during trade (percentage)
         max_favorable_excursion: Maximum profit during trade (percentage)
     """
+
     trade_id: str
     timestamp: datetime
     pnl: float
@@ -608,6 +638,7 @@ class AllMetrics:
         total_pnl: Total profit/loss
         generated_at: When metrics were generated
     """
+
     risk_adjusted: RiskAdjustedMetrics = field(default_factory=RiskAdjustedMetrics)
     drawdown: DrawdownMetrics = field(default_factory=DrawdownMetrics)
     win_loss: WinLossMetrics = field(default_factory=WinLossMetrics)
@@ -649,6 +680,7 @@ class ComprehensiveMetrics:
         total_pnl: Total profit/loss
         generated_at: When metrics were generated
     """
+
     risk_adjusted: RiskAdjustedMetrics = field(default_factory=RiskAdjustedMetrics)
     risk_metrics: RiskMetrics = field(default_factory=RiskMetrics)
     statistical: StatisticalMetrics = field(default_factory=StatisticalMetrics)
@@ -668,10 +700,14 @@ class ComprehensiveMetrics:
             "risk_metrics": self.risk_metrics.to_dict(),
             "statistical": self.statistical.to_dict(),
             "drawdown_analysis": self.drawdown_analysis.to_dict(),
-            "attribution_by_strategy": [a.to_dict() for a in self.attribution_by_strategy],
+            "attribution_by_strategy": [
+                a.to_dict() for a in self.attribution_by_strategy
+            ],
             "attribution_by_symbol": [a.to_dict() for a in self.attribution_by_symbol],
             "attribution_by_period": [a.to_dict() for a in self.attribution_by_period],
-            "rolling_metrics": self.rolling_metrics.to_dict() if self.rolling_metrics else None,
+            "rolling_metrics": self.rolling_metrics.to_dict()
+            if self.rolling_metrics
+            else None,
             "total_trades": self.total_trades,
             "total_pnl": round(self.total_pnl, 2),
             "generated_at": self.generated_at.isoformat(),
@@ -681,6 +717,7 @@ class ComprehensiveMetrics:
 # =============================================================================
 # MAIN ADVANCED METRICS CALCULATOR CLASS
 # =============================================================================
+
 
 class AdvancedMetricsCalculator:
     """
@@ -697,12 +734,12 @@ class AdvancedMetricsCalculator:
     Thread-safe singleton pattern ensures consistent global state.
 
     Usage:
-        calculator = get_advanced_metrics_calculator(initial_capital=10000.0)
+        calculator = get_advanced_metrics_calculator()  # capital from Settings
         calculator.add_trade(trade_metadata)
         metrics = calculator.get_all_metrics()
 
     Example:
-        >>> calc = AdvancedMetricsCalculator(initial_capital=10000.0)
+        >>> calc = AdvancedMetricsCalculator()  # capital from Settings.paper_initial_balance
         >>> calc.add_trade(TradeMetadata(
         ...     trade_id="tr_001",
         ...     timestamp=datetime.now(timezone.utc),
@@ -721,7 +758,7 @@ class AdvancedMetricsCalculator:
 
     def __init__(
         self,
-        initial_capital: float = 10000.0,
+        initial_capital: Optional[float] = None,
         risk_free_rate: float = 0.02,
         benchmark_returns: Optional[List[float]] = None,
         rolling_window: int = 30,
@@ -731,13 +768,17 @@ class AdvancedMetricsCalculator:
         Initialize the Advanced Metrics Calculator
 
         Args:
-            initial_capital: Starting capital for calculations (default: $10,000)
+            initial_capital: Starting capital for calculations. None (default)
+                resolves to Settings.paper_initial_balance — never a hardcoded
+                account size.
             risk_free_rate: Annual risk-free rate for risk-adjusted metrics (default: 2%)
             benchmark_returns: Market benchmark returns for Beta calculation
             rolling_window: Window size for rolling metrics (default: 30 periods)
             annualization_factor: Factor to annualize returns (default: 252 trading days)
         """
         # Configuration parameters
+        if initial_capital is None:
+            initial_capital = get_settings().paper_initial_balance
         self.initial_capital = initial_capital
         self.risk_free_rate = risk_free_rate
         self.rolling_window = rolling_window
@@ -851,7 +892,9 @@ class AdvancedMetricsCalculator:
                 self._current_drawdown_start = current_time
                 self._current_drawdown_trough = self._current_equity
                 self._current_drawdown_trough_date = current_time
-            elif self._current_equity < (self._current_drawdown_trough or self._peak_equity):
+            elif self._current_equity < (
+                self._current_drawdown_trough or self._peak_equity
+            ):
                 # New trough in current drawdown
                 self._current_drawdown_trough = self._current_equity
                 self._current_drawdown_trough_date = current_time
@@ -1002,7 +1045,7 @@ class AdvancedMetricsCalculator:
         downside_returns = returns[returns < 0]
 
         if len(downside_returns) == 0:
-            return float('inf') if mean_return > 0 else 0.0
+            return float("inf") if mean_return > 0 else 0.0
 
         downside_std = np.std(downside_returns, ddof=1)
 
@@ -1046,7 +1089,7 @@ class AdvancedMetricsCalculator:
         max_dd = self._calculate_max_drawdown_from_returns(returns)
 
         if max_dd == 0:
-            return float('inf') if annualized_return > 0 else 0.0
+            return float("inf") if annualized_return > 0 else 0.0
 
         calmar = annualized_return / abs(max_dd)
 
@@ -1081,7 +1124,7 @@ class AdvancedMetricsCalculator:
         sum_losses = np.sum(losses)
 
         if sum_losses == 0:
-            return float('inf') if sum_gains > 0 else 1.0
+            return float("inf") if sum_gains > 0 else 1.0
 
         omega = sum_gains / sum_losses
 
@@ -1134,8 +1177,8 @@ class AdvancedMetricsCalculator:
             return 0.0
 
         # Align lengths
-        benchmark = np.array(self._benchmark_returns[:len(returns)])
-        strategy_returns = returns[:len(benchmark)]
+        benchmark = np.array(self._benchmark_returns[: len(returns)])
+        strategy_returns = returns[: len(benchmark)]
 
         if len(benchmark) < 2:
             return 0.0
@@ -1174,7 +1217,7 @@ class AdvancedMetricsCalculator:
         total_pain = abs(np.sum(negative_returns))
 
         if total_pain == 0:
-            return float('inf') if total_return > 0 else 0.0
+            return float("inf") if total_return > 0 else 0.0
 
         return float(total_return / total_pain)
 
@@ -1203,7 +1246,7 @@ class AdvancedMetricsCalculator:
         avg_dd = abs(self._calculate_average_drawdown(returns))
 
         if avg_dd == 0:
-            return float('inf') if annualized_return > 0 else 0.0
+            return float("inf") if annualized_return > 0 else 0.0
 
         # Sterling ratio: (Annualized Return - Risk Free Rate) / Average Drawdown
         risk_free_annual = self.risk_free_rate * self.annualization_factor
@@ -1238,11 +1281,11 @@ class AdvancedMetricsCalculator:
         drawdowns = running_max - cumulative
 
         # Sum of squared drawdowns
-        sum_squared_dd = np.sum(drawdowns ** 2)
+        sum_squared_dd = np.sum(drawdowns**2)
 
         if sum_squared_dd == 0:
             total_return = np.sum(returns)
-            return float('inf') if total_return > 0 else 0.0
+            return float("inf") if total_return > 0 else 0.0
 
         # Burke ratio: (Total Return - Risk Free) / sqrt(Sum of Squared Drawdowns)
         total_return = np.sum(returns)
@@ -1293,7 +1336,9 @@ class AdvancedMetricsCalculator:
             # Current drawdown
             current_dd = 0.0
             if self._current_equity < self._peak_equity:
-                current_dd = (self._current_equity - self._peak_equity) / self._peak_equity
+                current_dd = (
+                    self._current_equity - self._peak_equity
+                ) / self._peak_equity
 
             return DrawdownMetrics(
                 max_drawdown=max_dd,
@@ -1332,7 +1377,7 @@ class AdvancedMetricsCalculator:
         drawdowns = (cumulative - running_max) / running_max * 100
 
         # Calculate Ulcer Index (RMS of drawdowns)
-        ulcer_index = np.sqrt(np.mean(drawdowns ** 2))
+        ulcer_index = np.sqrt(np.mean(drawdowns**2))
 
         return float(ulcer_index)
 
@@ -1464,7 +1509,9 @@ class AdvancedMetricsCalculator:
             gross_loss = abs(sum(t.pnl for t in losers)) if losers else 0.0
 
             # Profit factor
-            profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+            profit_factor = (
+                gross_profit / gross_loss if gross_loss > 0 else float("inf")
+            )
             if math.isinf(profit_factor):
                 profit_factor = gross_profit if gross_profit > 0 else 0.0
 
@@ -1477,7 +1524,7 @@ class AdvancedMetricsCalculator:
             largest_loss = abs(min((t.pnl for t in losers), default=0.0))
 
             # Payoff ratio (avg win / avg loss)
-            payoff_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf')
+            payoff_ratio = avg_win / avg_loss if avg_loss > 0 else float("inf")
             if math.isinf(payoff_ratio):
                 payoff_ratio = avg_win if avg_win > 0 else 0.0
 
@@ -1488,8 +1535,9 @@ class AdvancedMetricsCalculator:
             kelly_pct = self._calculate_kelly_percentage(win_rate, payoff_ratio)
 
             # Consecutive wins/losses
-            max_consecutive_wins, max_consecutive_losses, current_streak = \
+            max_consecutive_wins, max_consecutive_losses, current_streak = (
                 self._calculate_streaks()
+            )
 
             return WinLossMetrics(
                 win_rate=win_rate,
@@ -1593,7 +1641,9 @@ class AdvancedMetricsCalculator:
             cvar_99 = self._calculate_cvar(returns, confidence=0.99)
             beta = self._calculate_beta(returns)
             max_dd = self._calculate_max_drawdown_from_returns(returns)
-            volatility = float(np.std(returns, ddof=1) * np.sqrt(self.annualization_factor))
+            volatility = float(
+                np.std(returns, ddof=1) * np.sqrt(self.annualization_factor)
+            )
             downside_vol = self._calculate_downside_volatility(returns)
             tail_ratio = self._calculate_tail_ratio(returns)
 
@@ -1698,8 +1748,8 @@ class AdvancedMetricsCalculator:
             return 1.0  # Assume market neutral if no benchmark
 
         # Align lengths
-        benchmark = np.array(self._benchmark_returns[:len(returns)])
-        strategy_returns = returns[:len(benchmark)]
+        benchmark = np.array(self._benchmark_returns[: len(returns)])
+        strategy_returns = returns[: len(benchmark)]
 
         if len(benchmark) < 2:
             return 1.0
@@ -1732,7 +1782,9 @@ class AdvancedMetricsCalculator:
         if not self._trades:
             return 0.0
 
-        mae_values = [t.max_adverse_excursion for t in self._trades if t.max_adverse_excursion > 0]
+        mae_values = [
+            t.max_adverse_excursion for t in self._trades if t.max_adverse_excursion > 0
+        ]
 
         if not mae_values:
             return 0.0
@@ -1751,7 +1803,11 @@ class AdvancedMetricsCalculator:
         if not self._trades:
             return 0.0
 
-        mfe_values = [t.max_favorable_excursion for t in self._trades if t.max_favorable_excursion > 0]
+        mfe_values = [
+            t.max_favorable_excursion
+            for t in self._trades
+            if t.max_favorable_excursion > 0
+        ]
 
         if not mfe_values:
             return 0.0
@@ -1853,7 +1909,9 @@ class AdvancedMetricsCalculator:
 
         # Check current drawdown
         if self._current_drawdown_start is not None:
-            current_duration = (datetime.now(timezone.utc) - self._current_drawdown_start).days
+            current_duration = (
+                datetime.now(timezone.utc) - self._current_drawdown_start
+            ).days
             if current_duration > max_duration:
                 max_duration = current_duration
 
@@ -1901,7 +1959,7 @@ class AdvancedMetricsCalculator:
         lower_tail = abs(np.percentile(returns, 5))
 
         if lower_tail == 0:
-            return float('inf') if upper_tail > 0 else 1.0
+            return float("inf") if upper_tail > 0 else 1.0
 
         return float(upper_tail / lower_tail)
 
@@ -1993,7 +2051,9 @@ class AdvancedMetricsCalculator:
             trades = self._trades
 
             # Average trade duration (in hours)
-            durations = [t.duration_seconds / 3600 for t in trades if t.duration_seconds > 0]
+            durations = [
+                t.duration_seconds / 3600 for t in trades if t.duration_seconds > 0
+            ]
             avg_duration = np.mean(durations) if durations else 0.0
 
             # Calculate trading period
@@ -2025,8 +2085,14 @@ class AdvancedMetricsCalculator:
             capital_util = min(avg_position_pct * 2, 1.0)  # Rough estimate
 
             # Turnover ratio (annualized)
-            total_volume = sum(t.position_size * t.entry_price for t in trades if t.position_size > 0 and t.entry_price > 0)
-            turnover_ratio = (total_volume / self.initial_capital) * (365 / max(total_days, 1))
+            total_volume = sum(
+                t.position_size * t.entry_price
+                for t in trades
+                if t.position_size > 0 and t.entry_price > 0
+            )
+            turnover_ratio = (total_volume / self.initial_capital) * (
+                365 / max(total_days, 1)
+            )
 
             # Holding period return (return per hour)
             total_return = sum(t.pnl_pct for t in trades)
@@ -2060,12 +2126,12 @@ class AdvancedMetricsCalculator:
                 return BenchmarkComparison()
 
             returns = np.array(self._returns)
-            benchmark = np.array(self._benchmark_returns[:len(returns)])
+            benchmark = np.array(self._benchmark_returns[: len(returns)])
 
             if len(benchmark) < 2:
                 return BenchmarkComparison()
 
-            strategy_returns = returns[:len(benchmark)]
+            strategy_returns = returns[: len(benchmark)]
 
             # Total returns
             strategy_return = np.sum(strategy_returns)
@@ -2085,17 +2151,25 @@ class AdvancedMetricsCalculator:
             alpha = strategy_return - (beta * benchmark_return)
 
             # Correlation
-            correlation = np.corrcoef(strategy_returns, benchmark)[0, 1] if len(strategy_returns) > 1 else 0.0
+            correlation = (
+                np.corrcoef(strategy_returns, benchmark)[0, 1]
+                if len(strategy_returns) > 1
+                else 0.0
+            )
 
             # Tracking error
             excess_returns = strategy_returns - benchmark
             tracking_error = np.std(excess_returns, ddof=1)
 
             # Information ratio
-            info_ratio = np.mean(excess_returns) / tracking_error if tracking_error > 0 else 0.0
+            info_ratio = (
+                np.mean(excess_returns) / tracking_error if tracking_error > 0 else 0.0
+            )
 
             # Up/Down capture ratios
-            up_capture, down_capture = self._calculate_capture_ratios(strategy_returns, benchmark)
+            up_capture, down_capture = self._calculate_capture_ratios(
+                strategy_returns, benchmark
+            )
 
             return BenchmarkComparison(
                 strategy_return=strategy_return,
@@ -2217,14 +2291,19 @@ class AdvancedMetricsCalculator:
             current_status = DrawdownStatus.NO_DRAWDOWN
 
             if self._current_equity < self._peak_equity:
-                current_dd = (self._current_equity - self._peak_equity) / self._peak_equity
+                current_dd = (
+                    self._current_equity - self._peak_equity
+                ) / self._peak_equity
                 current_status = DrawdownStatus.IN_DRAWDOWN
 
                 if self._current_drawdown_start:
                     current_dd_duration = (
                         datetime.now(timezone.utc) - self._current_drawdown_start
                     ).days
-            elif self._current_equity >= self._peak_equity and len(self._drawdown_history) > 0:
+            elif (
+                self._current_equity >= self._peak_equity
+                and len(self._drawdown_history) > 0
+            ):
                 current_status = DrawdownStatus.NEW_HIGH
 
             # Historical statistics
@@ -2249,7 +2328,9 @@ class AdvancedMetricsCalculator:
                 drawdown_count += 1
 
             avg_dd = total_dd_depth / drawdown_count if drawdown_count > 0 else 0.0
-            avg_recovery = total_recovery_time / recovery_count if recovery_count > 0 else 0.0
+            avg_recovery = (
+                total_recovery_time / recovery_count if recovery_count > 0 else 0.0
+            )
 
             # Time in drawdown percentage
             total_days = 0
@@ -2357,7 +2438,9 @@ class AdvancedMetricsCalculator:
                 elif dimension == "symbol":
                     key = trade.symbol
                 elif dimension == "period":
-                    key = self._get_period_key(trade.timestamp, period or MetricsPeriod.MONTHLY)
+                    key = self._get_period_key(
+                        trade.timestamp, period or MetricsPeriod.MONTHLY
+                    )
                 else:
                     key = "unknown"
 
@@ -2376,7 +2459,9 @@ class AdvancedMetricsCalculator:
                 # Calculate Sharpe for group
                 if len(group_returns) >= 2:
                     sharpe = self._calculate_sharpe_ratio(np.array(group_returns))
-                    max_dd = self._calculate_max_drawdown_from_returns(np.array(group_returns))
+                    max_dd = self._calculate_max_drawdown_from_returns(
+                        np.array(group_returns)
+                    )
                 else:
                     sharpe = 0.0
                     max_dd = 0.0
@@ -2385,7 +2470,9 @@ class AdvancedMetricsCalculator:
                     dimension_name=dimension,
                     dimension_value=value,
                     total_pnl=group_pnl,
-                    contribution_pct=(group_pnl / abs(total_pnl) * 100) if total_pnl != 0 else 0.0,
+                    contribution_pct=(group_pnl / abs(total_pnl) * 100)
+                    if total_pnl != 0
+                    else 0.0,
                     trades_count=len(trades),
                     win_rate=win_count / len(trades) if trades else 0.0,
                     avg_return=np.mean(group_returns) if group_returns else 0.0,
@@ -2463,8 +2550,8 @@ class AdvancedMetricsCalculator:
 
             for i in range(window - 1, n):
                 # Get window slice
-                window_returns = returns[i - window + 1:i + 1]
-                window_trades = self._trades[i - window + 1:i + 1]
+                window_returns = returns[i - window + 1 : i + 1]
+                window_trades = self._trades[i - window + 1 : i + 1]
 
                 # Timestamp
                 timestamps.append(window_trades[-1].timestamp)
@@ -2476,7 +2563,9 @@ class AdvancedMetricsCalculator:
                 rolling_sortino.append(self._calculate_sortino_ratio(window_returns))
 
                 # Volatility (annualized)
-                vol = float(np.std(window_returns, ddof=1) * np.sqrt(self.annualization_factor))
+                vol = float(
+                    np.std(window_returns, ddof=1) * np.sqrt(self.annualization_factor)
+                )
                 rolling_volatility.append(vol)
 
                 # Win rate
@@ -2487,7 +2576,9 @@ class AdvancedMetricsCalculator:
                 rolling_pnl.append(sum(t.pnl for t in window_trades))
 
                 # Max drawdown
-                rolling_max_dd.append(self._calculate_max_drawdown_from_returns(window_returns))
+                rolling_max_dd.append(
+                    self._calculate_max_drawdown_from_returns(window_returns)
+                )
 
             return RollingMetrics(
                 window_size=window,
@@ -2524,7 +2615,9 @@ class AdvancedMetricsCalculator:
                 generated_at=datetime.now(timezone.utc),
             )
 
-    def get_comprehensive_metrics(self, force_recalculate: bool = False) -> ComprehensiveMetrics:
+    def get_comprehensive_metrics(
+        self, force_recalculate: bool = False
+    ) -> ComprehensiveMetrics:
         """
         Get complete metrics summary combining all metric types
 
@@ -2550,7 +2643,9 @@ class AdvancedMetricsCalculator:
             # Attribution
             by_strategy = self._calculate_attribution("strategy")
             by_symbol = self._calculate_attribution("symbol")
-            by_period = self._calculate_attribution("period", period=MetricsPeriod.MONTHLY)
+            by_period = self._calculate_attribution(
+                "period", period=MetricsPeriod.MONTHLY
+            )
 
             # Rolling metrics (if enough data)
             rolling = None
@@ -2612,7 +2707,11 @@ class AdvancedMetricsCalculator:
 
             # Split trades by period
             current_trades = [t for t in self._trades if t.timestamp >= period_start]
-            prev_trades = [t for t in self._trades if prev_period_start <= t.timestamp < period_start]
+            prev_trades = [
+                t
+                for t in self._trades
+                if prev_period_start <= t.timestamp < period_start
+            ]
 
             def calculate_period_metrics(trades: List[TradeMetadata]) -> Dict[str, Any]:
                 if not trades:
@@ -2631,7 +2730,9 @@ class AdvancedMetricsCalculator:
                     "pnl": sum(t.pnl for t in trades),
                     "win_rate": winners / len(trades),
                     "avg_return": np.mean(returns),
-                    "sharpe": self._calculate_sharpe_ratio(np.array(returns)) if len(returns) >= 2 else 0.0,
+                    "sharpe": self._calculate_sharpe_ratio(np.array(returns))
+                    if len(returns) >= 2
+                    else 0.0,
                 }
 
             current = calculate_period_metrics(current_trades)
@@ -2640,7 +2741,7 @@ class AdvancedMetricsCalculator:
             # Calculate changes
             def calc_change(curr: float, prev: float) -> float:
                 if prev == 0:
-                    return 0.0 if curr == 0 else float('inf')
+                    return 0.0 if curr == 0 else float("inf")
                 return (curr - prev) / abs(prev) * 100
 
             return {
@@ -2658,8 +2759,11 @@ class AdvancedMetricsCalculator:
                 "changes": {
                     "trades_change": current["trades"] - previous["trades"],
                     "pnl_change": current["pnl"] - previous["pnl"],
-                    "win_rate_change_pct": calc_change(current["win_rate"], previous["win_rate"]),
-                    "sharpe_change": current.get("sharpe", 0) - previous.get("sharpe", 0),
+                    "win_rate_change_pct": calc_change(
+                        current["win_rate"], previous["win_rate"]
+                    ),
+                    "sharpe_change": current.get("sharpe", 0)
+                    - previous.get("sharpe", 0),
                 },
                 "generated_at": now.isoformat(),
             }
@@ -2714,7 +2818,14 @@ class AdvancedMetricsCalculator:
             state: State dictionary from get_state()
         """
         with self._lock:
-            self.initial_capital = state.get("initial_capital", 10000.0)
+            if "initial_capital" not in state:
+                raise ValueError(
+                    "Advanced-metrics state is missing 'initial_capital' — "
+                    "refusing to guess an account size. State produced by "
+                    "get_state() always carries it; a missing key means the "
+                    "state is corrupt."
+                )
+            self.initial_capital = float(state["initial_capital"])
             self.risk_free_rate = state.get("risk_free_rate", 0.02)
             self.rolling_window = state.get("rolling_window", 30)
             self.annualization_factor = state.get("annualization_factor", 252)
@@ -2743,7 +2854,9 @@ class AdvancedMetricsCalculator:
                     exit_price=trade_dict.get("exit_price", 0.0),
                     position_size=trade_dict.get("position_size", 0.0),
                     max_adverse_excursion=trade_dict.get("max_adverse_excursion", 0.0),
-                    max_favorable_excursion=trade_dict.get("max_favorable_excursion", 0.0),
+                    max_favorable_excursion=trade_dict.get(
+                        "max_favorable_excursion", 0.0
+                    ),
                 )
                 self._trades.append(trade)
                 self._returns.append(trade.pnl_pct)
@@ -2755,8 +2868,12 @@ class AdvancedMetricsCalculator:
             for dd_dict in state.get("drawdown_history", []):
                 dd = DrawdownInfo(
                     start_date=datetime.fromisoformat(dd_dict["start_date"]),
-                    end_date=datetime.fromisoformat(dd_dict["end_date"]) if dd_dict.get("end_date") else None,
-                    trough_date=datetime.fromisoformat(dd_dict["trough_date"]) if dd_dict.get("trough_date") else None,
+                    end_date=datetime.fromisoformat(dd_dict["end_date"])
+                    if dd_dict.get("end_date")
+                    else None,
+                    trough_date=datetime.fromisoformat(dd_dict["trough_date"])
+                    if dd_dict.get("trough_date")
+                    else None,
                     depth=dd_dict.get("depth", 0.0) / 100,  # Convert from percentage
                     duration_days=dd_dict.get("duration_days", 0),
                     recovery_days=dd_dict.get("recovery_days"),
@@ -2798,7 +2915,8 @@ class AdvancedMetricsCalculator:
             win_count = sum(1 for t in self._trades if t.is_winner)
             current_dd = (
                 (self._current_equity - self._peak_equity) / self._peak_equity
-                if self._peak_equity > 0 else 0.0
+                if self._peak_equity > 0
+                else 0.0
             )
 
             return {
@@ -2807,7 +2925,9 @@ class AdvancedMetricsCalculator:
                 "current_equity": round(self._current_equity, 2),
                 "peak_equity": round(self._peak_equity, 2),
                 "current_drawdown": round(current_dd * 100, 2),
-                "win_rate": round(win_count / len(self._trades) * 100, 2) if self._trades else 0.0,
+                "win_rate": round(win_count / len(self._trades) * 100, 2)
+                if self._trades
+                else 0.0,
                 "unique_strategies": len(set(t.strategy for t in self._trades)),
                 "unique_symbols": len(set(t.symbol for t in self._trades)),
             }
@@ -2841,7 +2961,7 @@ def get_advanced_metrics_calculator(
         Global AdvancedMetricsCalculator instance
 
     Example:
-        >>> calc = get_advanced_metrics_calculator(initial_capital=50000.0)
+        >>> calc = get_advanced_metrics_calculator()  # capital from Settings
         >>> calc.add_trade(trade_data)
         >>> metrics = calc.get_comprehensive_metrics()
     """
@@ -2849,8 +2969,14 @@ def get_advanced_metrics_calculator(
 
     with _instance_lock:
         if _advanced_metrics_calculator is None:
-            capital = initial_capital or 10000.0
-            rf_rate = risk_free_rate or 0.02
+            # `is None` check, NOT `or`: an explicit capital of 0.0 must not
+            # be silently replaced by a fallback (falsy-fallback, AUDIT §2.5).
+            capital = (
+                get_settings().paper_initial_balance
+                if initial_capital is None
+                else initial_capital
+            )
+            rf_rate = 0.02 if risk_free_rate is None else risk_free_rate
             _advanced_metrics_calculator = AdvancedMetricsCalculator(
                 initial_capital=capital,
                 risk_free_rate=rf_rate,

@@ -180,6 +180,9 @@ jobs:
           DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379/0
           ENVIRONMENT: test
+          # portfolio-manager's Settings requires initial_capital (no code
+          # default by design); harmless for the other services.
+          INITIAL_CAPITAL: "100.0"
         run: |
           cd services/${{ matrix.service }}
           # NOTE: --cov-fail-under intentionally omitted — coverage is reported

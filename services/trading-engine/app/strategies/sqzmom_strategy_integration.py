@@ -509,11 +509,13 @@ class SQZMOMStrategy:
                 "min_confidence": self.config.min_confidence,
             },
             "symbol_configs": self.config.symbol_config,
-            "backtesting_results": {
-                "SOLUSDT": "+2,706% (22% WR, 4.76 Sharpe)",
-                "DOGEUSDT": "+630% (28% WR, 5.41 Sharpe)",
-                "BNBUSDT": "+330% (31% WR)",
-            },
+            # AUDIT 2026-08-05 (AUDIT.md §1.4): the previous hardcoded
+            # "backtesting_results" (+2,706% SOL / +630% DOGE / +330% BNB) had
+            # no supporting artifact anywhere in the repo; the standalone doc
+            # carrying the same figures was archived as fabricated. Do not
+            # restore performance claims here without a reproducible backtest
+            # artifact (DSR/CPCV per CLAUDE.md §2).
+            "backtesting_results": None,
         }
 
     async def close(self):

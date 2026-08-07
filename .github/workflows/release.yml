@@ -321,7 +321,7 @@ jobs:
             ### Docker Compose
             ```bash
             export VERSION=${{ needs.validate-release.outputs.version }}
-            docker-compose up -d
+            docker compose -f docker-compose.unified.yml up -d
             ```
 
             ## Documentation
@@ -352,16 +352,16 @@ jobs:
       namespace: crypto-bot-prod
       image_tags: |
         {
-          "api-gateway": "${{ env.REGISTRY }}/${{ github.repository }}/api-gateway:${{ needs.validate-release.outputs.version }}",
-          "trading-engine": "${{ env.REGISTRY }}/${{ github.repository }}/trading-engine:${{ needs.validate-release.outputs.version }}",
-          "portfolio-manager": "${{ env.REGISTRY }}/${{ github.repository }}/portfolio-manager:${{ needs.validate-release.outputs.version }}",
-          "technical-analysis": "${{ env.REGISTRY }}/${{ github.repository }}/technical-analysis:${{ needs.validate-release.outputs.version }}",
-          "bybit-connector": "${{ env.REGISTRY }}/${{ github.repository }}/bybit-connector:${{ needs.validate-release.outputs.version }}",
-          "market-data-service": "${{ env.REGISTRY }}/${{ github.repository }}/market-data-service:${{ needs.validate-release.outputs.version }}",
-          "notification-service": "${{ env.REGISTRY }}/${{ github.repository }}/notification-service:${{ needs.validate-release.outputs.version }}",
-          "ml-prediction-service": "${{ env.REGISTRY }}/${{ github.repository }}/ml-prediction-service:${{ needs.validate-release.outputs.version }}",
-          "risk-metrics-service": "${{ env.REGISTRY }}/${{ github.repository }}/risk-metrics-service:${{ needs.validate-release.outputs.version }}",
-          "sentiment-analysis-service": "${{ env.REGISTRY }}/${{ github.repository }}/sentiment-analysis-service:${{ needs.validate-release.outputs.version }}"
+          "api-gateway": "ghcr.io/${{ github.repository }}/api-gateway:${{ needs.validate-release.outputs.version }}",
+          "trading-engine": "ghcr.io/${{ github.repository }}/trading-engine:${{ needs.validate-release.outputs.version }}",
+          "portfolio-manager": "ghcr.io/${{ github.repository }}/portfolio-manager:${{ needs.validate-release.outputs.version }}",
+          "technical-analysis": "ghcr.io/${{ github.repository }}/technical-analysis:${{ needs.validate-release.outputs.version }}",
+          "bybit-connector": "ghcr.io/${{ github.repository }}/bybit-connector:${{ needs.validate-release.outputs.version }}",
+          "market-data-service": "ghcr.io/${{ github.repository }}/market-data-service:${{ needs.validate-release.outputs.version }}",
+          "notification-service": "ghcr.io/${{ github.repository }}/notification-service:${{ needs.validate-release.outputs.version }}",
+          "ml-prediction-service": "ghcr.io/${{ github.repository }}/ml-prediction-service:${{ needs.validate-release.outputs.version }}",
+          "risk-metrics-service": "ghcr.io/${{ github.repository }}/risk-metrics-service:${{ needs.validate-release.outputs.version }}",
+          "sentiment-analysis-service": "ghcr.io/${{ github.repository }}/sentiment-analysis-service:${{ needs.validate-release.outputs.version }}"
         }
       deployment_strategy: blue-green
       run_smoke_tests: true

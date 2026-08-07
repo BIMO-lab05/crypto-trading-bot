@@ -26,6 +26,7 @@ import {
   eachHourOfInterval,
   differenceInDays,
 } from 'date-fns'
+import { PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -109,7 +110,10 @@ export function useChartData(options = {}) {
   const {
     trades = [],
     equityCurve = [],
-    initialBalance = 10000,
+    // Equity-curve baseline. Callers should pass the server-sent initial
+    // balance; the default matches the $100 paper account (trading-engine
+    // PAPER_INITIAL_BALANCE), never a fabricated figure.
+    initialBalance = PAPER_DEFAULT_BALANCE,
     period = '30d',
   } = options
 

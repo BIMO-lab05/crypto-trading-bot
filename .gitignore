@@ -202,7 +202,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-package-lock.json
+# package-lock.json  # un-ignored 2026-08-04: CI npm ci + setup-node cache require it committed
 yarn.lock
 
 # ============================================================================
@@ -293,3 +293,9 @@ services/tournament-harness/data/snapshots/*.db
 # tree clean; re-run `/graphify` locally when fresh signal is needed.
 # ============================================================================
 .planning/graphs/
+
+# killtests: bulky replay artifacts (hashes recorded in verdicts instead)
+backtesting/data-parity/
+.planning/evidence/killtests/series-parts/
+.planning/evidence/killtests/signal-series.csv
+.planning/evidence/killtests/*-verdict-*-table-*.csv

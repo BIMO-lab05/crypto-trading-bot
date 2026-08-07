@@ -8,10 +8,24 @@ Phase 13 (BC-02): routes through ``$BYBIT_CONNECTOR_URL/api/v1/market/kline``
 selection internally via its own ``BYBIT_TESTNET`` env, so this fetcher no
 longer accepts a ``testnet`` constructor parameter.
 
-NOTE on the ``is_mainnet`` filter (CLAUDE.md backtest data-integrity rule):
-that filter lives on the ``klines`` table query layer (see
-``backtesting/run_walk_forward_ensemble.py:563-566``), not in this fetcher.
-This refactor does not touch the filter elsewhere in the backtest pipeline.
+NOTE on ``is_mainnet`` (CLAUDE.md backtest data-integrity rule). Two separate
+things carry that name and only one of them is a filter:
+
+* the ``klines`` **table** query filter (``run_walk_forward_ensemble.py:563``)
+  — untouched by this module;
+* the ``is_mainnet`` **column this fetcher writes** into the 11-column
+  ``klines``-schema CSV, which ``backtesting/killtests/candles.py`` then
+  refuses to load if any row is False.
+
+The second is a taint stamp, and until 2026-08-07 it was stamped ``True``
+unconditionally — so the consumer's guard could never fire, no matter which
+network the connector was pointed at. This fetcher cannot observe that:
+bybit-connector selects testnet vs mainnet from its own ``BYBIT_TESTNET`` env
+and exposes it nowhere on its REST surface (it appears only in a startup log
+line, ``bybit-connector/app/main.py:339,370``). So the stamp is now backed by
+an explicit operator assertion — ``--assert-mainnet`` — that the writer must
+make and that the error message tells them how to check. See
+``_require_mainnet_assertion``.
 """
 
 import asyncio
@@ -31,6 +45,41 @@ logger = logging.getLogger(__name__)
 # Phase 13 BC-02: bybit-connector endpoint. Host-friendly default; the compose
 # stack overrides this to ``http://bybit-connector:8001`` via environment.
 BYBIT_CONNECTOR_URL = os.getenv("BYBIT_CONNECTOR_URL", "http://localhost:8001")
+
+
+MAINNET_ASSERTION_ENV = "BACKTEST_MAINNET_ASSERTED"
+
+
+def _require_mainnet_assertion(asserted: bool, target_url: str) -> None:
+    """Refuse to stamp ``is_mainnet=True`` on data nobody vouched for.
+
+    The stamp is a data-integrity claim consumed by
+    ``backtesting/killtests/candles.py`` and by every backtest that trusts the
+    CSV. bybit-connector does not expose its testnet flag on any endpoint, so
+    this process cannot verify the claim itself and will not invent it.
+
+    RESIDUAL GAP, stated plainly: this is an assertion, not a proof. A caller
+    who passes ``--assert-mainnet`` while the connector is on testnet still
+    produces poisoned CSVs. Closing it properly needs bybit-connector to
+    publish its ``bybit_testnet`` setting (e.g. on ``/health``), which is a
+    service change, deliberately out of scope here.
+    """
+    if asserted or os.getenv(MAINNET_ASSERTION_ENV) == "1":
+        return
+    raise SystemExit(
+        "\nREFUSING to write klines-schema CSVs: nothing has asserted that "
+        f"{target_url} is serving MAINNET data.\n"
+        "  Why:   the is_mainnet column this writes is a taint stamp that "
+        "downstream consumers trust and cannot re-derive.\n"
+        "  Check: docker compose -f docker-compose.unified.yml exec "
+        "bybit-connector env | grep BYBIT_TESTNET   (must be false)\n"
+        "         docker compose -f docker-compose.unified.yml logs "
+        "bybit-connector | grep BYBIT_PRICE_SOURCE   (must read "
+        "mode=live testnet=False)\n"
+        f"  Then:  re-run with --assert-mainnet (or {MAINNET_ASSERTION_ENV}=1).\n"
+        "  Note:  the legacy 6-column schema writes no is_mainnet column and "
+        "needs no assertion.\n"
+    )
 
 
 def _print_connector_unreachable(target_url: str, err: BaseException) -> None:
@@ -77,6 +126,31 @@ async def assert_connector_reachable(target_url: Optional[str] = None) -> None:
         sys.exit(2)
 
 
+async def assert_connector_live(
+    fetcher: "BybitDataFetcher", symbol: str = "BTCUSDT", interval: str = "60"
+) -> None:
+    """Refuse to backfill from a connector serving frozen tape fixtures.
+
+    A connector in MARKET_DATA_SOURCE=tape mode answers /health and serves
+    klines, but the newest candle is weeks old. Fresh mainnet data must have
+    a candle newer than 3 intervals ago.
+    """
+    rows = await fetcher.fetch_klines(symbol=symbol, interval=interval, limit=5)
+    if not rows:
+        raise RuntimeError("connector returned no candles; cannot verify liveness")
+    newest_ms = max(int(r[0]) for r in rows)
+    interval_ms = (
+        fetcher.convert_interval_to_minutes(interval) * 60 * 1000
+    )  # instance method (bybit_data_fetcher.py:193)
+    age = int(time.time() * 1000) - newest_ms
+    if age > 3 * interval_ms:
+        raise RuntimeError(
+            f"connector data is stale: newest {symbol}/{interval} candle is "
+            f"{age / 3600000:.1f}h old — is bybit-connector in tape mode? "
+            f"(MARKET_DATA_SOURCE must be 'live', see docker-compose.unified.yml:453)"
+        )
+
+
 class BybitDataFetcher:
     """
     Fetches historical market data via the bybit-connector service.
@@ -116,7 +190,7 @@ class BybitDataFetcher:
         interval: str,
         start_time: Optional[int] = None,
         end_time: Optional[int] = None,
-        limit: int = 200,
+        limit: int = 1000,
     ) -> list:
         """
         Get kline/candlestick data via bybit-connector.
@@ -126,7 +200,7 @@ class BybitDataFetcher:
             interval: Kline interval (1, 3, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M)
             start_time: Start timestamp in milliseconds (optional)
             end_time: End timestamp in milliseconds (optional)
-            limit: Number of candles to fetch (max 200)
+            limit: Number of candles to fetch (max 1000, Bybit v5 hard cap)
 
         Returns:
             List of kline rows (Bybit V5 shape preserved by the connector wrapper).
@@ -157,13 +231,19 @@ class BybitDataFetcher:
 
             data = response.json()
 
-            # bybit-connector wrapper shape: {"success": bool, "data": {"list": [...]}}
+            # bybit-connector wrapper shape: {"success": bool, "data": [...]}.
+            # The connector's own get_kline() already unwraps Bybit's nested
+            # {"result": {"list": [...]}} server-side (bybit_rest_client.py:581
+            # `return result.get("list", [])`), so "data" here is already the
+            # flat V5 row list — NOT {"list": [...]} again. Confirmed live via
+            # `curl .../api/v1/market/kline` during Task 2 (2026-08-05); a prior
+            # double-unwrap here silently returned [] on every call since 57b0d72.
             if not data.get("success"):
                 logger.error(f"bybit-connector kline error: {data}")
                 return []
 
-            # Extract klines (V5 row list preserved through the wrapper)
-            klines = data.get("data", {}).get("list", [])
+            # Extract klines (flat V5 row list; see comment above)
+            klines = data.get("data", [])
 
             return klines
 
@@ -180,7 +260,7 @@ class BybitDataFetcher:
         interval: str,
         start_time: int,
         end_time: int,
-        limit: int = 200,
+        limit: int = 1000,
     ) -> list:
         return await self.fetch_klines(
             symbol=symbol,
@@ -215,6 +295,8 @@ class BybitDataFetcher:
         interval: str = "60",  # 1 hour
         days: int = 90,
         output_file: Optional[str] = None,
+        schema: str = "legacy",
+        mainnet_asserted: bool = False,
     ) -> pd.DataFrame:
         """
         Download historical OHLCV data from Bybit
@@ -224,10 +306,18 @@ class BybitDataFetcher:
             interval: Candle interval in minutes (1, 5, 15, 30, 60, 240, D)
             days: Number of days of historical data
             output_file: Optional CSV file to save data
+            schema: 'legacy' (timestamp, open, high, low, close, volume) or
+                'klines' (11-col: adds symbol, interval, turnover, is_mainnet,
+                created_at) for CSV output
+            mainnet_asserted: caller vouches that the connector is on mainnet.
+                Required to write the klines schema — see
+                ``_require_mainnet_assertion``.
 
         Returns:
             DataFrame with columns: timestamp, open, high, low, close, volume
         """
+        if schema == "klines" and output_file:
+            _require_mainnet_assertion(mainnet_asserted, self.base_url)
         logger.info(
             f"Downloading {days} days of {symbol} data at {interval}m interval from Bybit..."
         )
@@ -243,7 +333,9 @@ class BybitDataFetcher:
 
         all_klines = []
         current_end = end_time
-        max_candles_per_request = 200  # Bybit limit
+        max_candles_per_request = (
+            1000  # Bybit v5 hard cap (connector clamps via min(limit, 1000))
+        )
 
         # Calculate total candles needed
         total_candles_needed = int((days * 24 * 60) / interval_minutes)
@@ -327,6 +419,7 @@ class BybitDataFetcher:
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
         # Keep only required columns
+        turnover_series = df["turnover"].copy()
         df = df[["timestamp", "open", "high", "low", "close", "volume"]]
 
         logger.info(f"Total candles downloaded: {len(df)}")
@@ -339,8 +432,52 @@ class BybitDataFetcher:
 
         # Save to CSV if requested
         if output_file:
-            df.to_csv(output_file, index=False)
-            logger.info(f"Data saved to: {output_file}")
+            if schema == "klines":
+                fetch_time_ms = int(time.time() * 1000)
+                out = df.copy()
+                out["symbol"] = symbol
+                out["interval"] = interval
+                out["turnover"] = turnover_series.values  # kept from pre-trim df
+                # Certified by the caller's --assert-mainnet, checked above.
+                # Never stamp this from nothing: candles.py refuses False rows,
+                # so an unconditional True makes that guard unfalsifiable.
+                out["is_mainnet"] = True
+                out["created_at"] = fetch_time_ms
+                out = out[
+                    [
+                        "timestamp",
+                        "symbol",
+                        "interval",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "turnover",
+                        "is_mainnet",
+                        "created_at",
+                    ]
+                ]
+                # Drop trailing forming/in-progress bar(s): Bybit V5 always
+                # returns the newest bar even when it hasn't closed yet.
+                # Consumers that walk the full frame (e.g. H3's replay
+                # driver) must never see a still-forming close price, so
+                # keep only rows whose bar has actually closed as of write
+                # time. Legacy schema is intentionally left untouched.
+                interval_ms = interval_minutes * 60 * 1000
+                # Epoch-anchored subtraction rather than `.astype("int64")`:
+                # pandas' datetime64 storage resolution (ns/us/ms) varies by
+                # version and by how the column was constructed, so a raw
+                # int64 cast is not reliably milliseconds. This division is
+                # resolution-independent.
+                ts_ms = (out["timestamp"] - pd.Timestamp("1970-01-01")) // pd.Timedelta(
+                    milliseconds=1
+                )
+                out = out[ts_ms + interval_ms <= fetch_time_ms]
+                out.to_csv(output_file, index=False)
+            else:
+                df.to_csv(output_file, index=False)
+            logger.info(f"Data saved to: {output_file} (schema={schema})")
 
         return df
 
@@ -350,6 +487,8 @@ class BybitDataFetcher:
         interval: str = "60",
         days: int = 90,
         output_dir: str = "backtesting/data",
+        schema: str = "legacy",
+        mainnet_asserted: bool = False,
     ):
         """
         Download data for multiple symbols
@@ -359,6 +498,8 @@ class BybitDataFetcher:
             interval: Candle interval
             days: Days of historical data
             output_dir: Directory to save CSV files
+            schema: 'legacy' or 'klines' — forwarded to download_historical_data
+            mainnet_asserted: forwarded; required for the klines schema
         """
         import os
 
@@ -372,7 +513,12 @@ class BybitDataFetcher:
             output_file = f"{output_dir}/{symbol}_{interval}m_{days}d_bybit.csv"
 
             df = await self.download_historical_data(
-                symbol=symbol, interval=interval, days=days, output_file=output_file
+                symbol=symbol,
+                interval=interval,
+                days=days,
+                output_file=output_file,
+                schema=schema,
+                mainnet_asserted=mainnet_asserted,
             )
 
             logger.info(f"✓ {symbol} complete: {len(df)} candles\n")
@@ -412,22 +558,61 @@ async def main():
         ),
     )
     parser.add_argument("--multiple", nargs="+", help="Download multiple symbols")
+    parser.add_argument(
+        "--schema",
+        choices=["legacy", "klines"],
+        default="legacy",
+        help="CSV schema: 'legacy' (6-col) or 'klines' (11-col, default: legacy)",
+    )
+    parser.add_argument(
+        "--assert-mainnet",
+        action="store_true",
+        help=(
+            "Assert that the connector is serving MAINNET data. Required to "
+            "write the klines schema, whose is_mainnet column downstream "
+            "consumers trust and cannot re-derive. bybit-connector does not "
+            "expose its BYBIT_TESTNET setting on any endpoint, so this cannot "
+            "be verified here — check it yourself first (the refusal message "
+            "lists the two commands)."
+        ),
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=str,
+        default="backtesting/data",
+        help=(
+            "Output directory for downloaded CSVs, single-symbol or --multiple "
+            "(overridden by --output for the single-symbol path; default: "
+            "backtesting/data)"
+        ),
+    )
 
     args = parser.parse_args()
 
     fetcher = BybitDataFetcher(base_url=args.connector_url)
 
+    # Refuse at arg-parse time rather than after a 20-minute download.
+    if args.schema == "klines":
+        _require_mainnet_assertion(args.assert_mainnet, fetcher.base_url)
+
     try:
+        await assert_connector_live(fetcher)
+
         if args.multiple:
             # Download multiple symbols
             await fetcher.download_multiple_symbols(
-                symbols=args.multiple, interval=args.interval, days=args.days
+                symbols=args.multiple,
+                interval=args.interval,
+                days=args.days,
+                output_dir=args.out_dir,
+                schema=args.schema,
+                mainnet_asserted=args.assert_mainnet,
             )
         else:
             # Download single symbol
             output_file = (
                 args.output
-                or f"backtesting/data/{args.symbol}_{args.interval}m_{args.days}d_bybit.csv"
+                or f"{args.out_dir}/{args.symbol}_{args.interval}m_{args.days}d_bybit.csv"
             )
 
             df = await fetcher.download_historical_data(
@@ -435,6 +620,8 @@ async def main():
                 interval=args.interval,
                 days=args.days,
                 output_file=output_file,
+                schema=args.schema,
+                mainnet_asserted=args.assert_mainnet,
             )
 
             if not df.empty:

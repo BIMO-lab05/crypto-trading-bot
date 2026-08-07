@@ -21,6 +21,10 @@ SKIP_BUILD=false
 VERBOSE=false
 START_TIME=$(date +%s)
 
+# Repo root, derived from this script's own location rather than assuming the
+# caller's cwd — initialize_paper_trading() imports shared/account.py from here.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -352,15 +356,29 @@ initialize_paper_trading() {
         local balance=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('balance', 0))" 2>/dev/null || echo "0")
         log INFO "Paper trading already initialized with balance: \$$balance"
     else
-        vlog "Initializing paper trading with $10,000 balance..."
+        # THE ACCOUNT IS $100. shared/account.py is the declaration of record,
+        # and this script is host-run so importing it is allowed (CLAUDE.md
+        # money rules). Deliberately NO literal fallback: this POST is the only
+        # place the startup path *writes* an account size, and a silent default
+        # here is how portfolios.initial_balance ended up at 10000 against a
+        # total_value of 100 (AUDIT 2.2). Refusing to guess is the safe failure.
+        local initial_balance
+        if ! initial_balance=$(cd "$REPO_ROOT" && python3 -c \
+            'from shared.account import PAPER_INITIAL_BALANCE; print(PAPER_INITIAL_BALANCE)'); then
+            log ERROR "Could not read PAPER_INITIAL_BALANCE from shared/account.py"
+            log ERROR "Refusing to seed the paper account with a guessed balance."
+            exit 1
+        fi
+
+        vlog "Initializing paper trading with \$${initial_balance} balance..."
 
         # Initialize paper trading
         local init_response=$(curl -s -X POST http://localhost:8005/api/v1/paper/reset \
             -H "Content-Type: application/json" \
-            -d '{"initial_balance": 10000}' 2>/dev/null)
+            -d "{\"initial_balance\": ${initial_balance}}" 2>/dev/null)
 
         if echo "$init_response" | grep -q '"success":true'; then
-            log SUCCESS "Paper trading initialized with \$10,000"
+            log SUCCESS "Paper trading initialized with \$${initial_balance}"
         else
             log WARNING "Could not initialize paper trading (may already be set up)"
         fi

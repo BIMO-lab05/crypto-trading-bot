@@ -138,7 +138,7 @@ class HybridStrategyRouter:
         self,
         indicators: Dict[str, IndicatorSignal],
         current_price: float,
-        capital: float = 10000.0,
+        capital: float,
     ) -> Optional[TradeSetup]:
         """
         Generate trading signal using appropriate strategy
@@ -146,7 +146,9 @@ class HybridStrategyRouter:
         Args:
             indicators: Dict of indicator signals
             current_price: Current market price
-            capital: Available capital
+            capital: Available capital. REQUIRED — the old 10000.0 default was
+                100x the real account; both auto_trader call sites pass the
+                live paper balance explicitly (AUDIT 2.5).
 
         Returns:
             TradeSetup or None

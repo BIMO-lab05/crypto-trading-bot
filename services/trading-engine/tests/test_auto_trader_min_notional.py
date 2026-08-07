@@ -60,8 +60,11 @@ class _StubInstrumentsCache:
 
 @pytest.fixture(autouse=True)
 def _force_live_mode(monkeypatch):
-    """Gate is LIVE-only (PAPER short-circuits to allow). Force LIVE for these
-    tests so they exercise the gate logic.
+    """Force LIVE so the cache-miss case here asserts the LIVE fail-OPEN branch.
+
+    The gate itself runs in every mode (since 2026-08-04) and a missing spec
+    fails CLOSED in PAPER (review I12) — that half is covered by
+    tests/test_min_notional_fail_closed_paper.py.
     """
     from app.config import get_settings
 
@@ -160,32 +163,35 @@ async def test_passes_when_min_notional_field_absent(trader, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_paper_mode_short_circuits_gate(trader, monkeypatch):
-    """In PAPER mode the gate must short-circuit to (True, None) regardless
-    of qty/notional. Paper-engine fills any size deterministically; gate's
-    purpose is LIVE-only protection. Without the short-circuit, $10 trades
-    on a $100 balance would fail every crypto exchange minimum and zero
-    out paper trading."""
+async def test_paper_mode_enforces_gate(trader, monkeypatch):
+    """PAPER mode must enforce the venue gate exactly like LIVE.
+
+    Inverted 2026-08-05 (Phase 1, AUDIT.md hop 4b): the old PAPER
+    short-circuit meant paper results could contain trades LIVE could never
+    place. Paper now mirrors the real $100 account, so a spec that would
+    reject in LIVE must reject in PAPER too — and the cache must actually
+    be consulted.
+    """
     from app.config import get_settings
 
     s = get_settings()
     # Override the autouse LIVE fixture for this single test.
     monkeypatch.setattr(s, "trading_mode", "PAPER", raising=False)
 
-    # A spec that *would* reject in LIVE: tiny qty + huge min_notional.
+    # A spec that rejects in LIVE: tiny qty + huge min_notional.
     cache = _StubInstrumentsCache(spec=_spec(min_qty="1.0", min_notional="1000"))
     monkeypatch.setattr("app.main.get_instruments_cache", lambda: cache)
 
     ok, reason = await trader._passes_min_notional(
         symbol="BTCUSDT",
-        quantity=Decimal("0.0000166"),  # would fail in LIVE
+        quantity=Decimal("0.0000166"),
         price=Decimal("60000"),
         balance=Decimal("100"),
     )
-    assert ok is True
-    assert reason is None
-    # Gate must NOT have hit the cache — short-circuit happens before lookup.
-    assert cache.calls == [], "cache.get() should not be invoked in PAPER mode"
+    assert ok is False
+    assert reason == "min_qty"
+    # The gate must have hit the cache — no short-circuit before lookup.
+    assert cache.calls == ["BTCUSDT"], "cache.get() must be invoked in PAPER mode"
 
 
 @pytest.mark.asyncio
