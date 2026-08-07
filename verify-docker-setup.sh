@@ -47,10 +47,10 @@ echo ""
 echo "Checking Docker Compose files..."
 
 # Check docker-compose files
-if [ -f "docker-compose.yml" ]; then
-    echo "✓ docker-compose.yml exists"
+if [ -f "docker-compose.unified.yml" ]; then
+    echo "✓ docker-compose.unified.yml exists"
 else
-    echo "✗ docker-compose.yml missing"
+    echo "✗ docker-compose.unified.yml missing"
     ((ERRORS++))
 fi
 

@@ -321,7 +321,7 @@ jobs:
             ### Docker Compose
             ```bash
             export VERSION=${{ needs.validate-release.outputs.version }}
-            docker-compose up -d
+            docker compose -f docker-compose.unified.yml up -d
             ```
 
             ## Documentation

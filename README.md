@@ -211,8 +211,8 @@ crypto-trading-bot/
 ├── tests/                          # Repo-level integration + e2e
 ├── .claude/                        # Agents, hooks, skills (start-system, graphify, …)
 ├── .github/                        # Workflows, dependabot, CI/CD docs
-├── docker-compose.unified.yml      # Canonical compose (16 services + DBs)
-├── docker-compose.yml              # Legacy / partial — prefer unified
+├── docker-compose.unified.yml      # Canonical compose (16 services + DBs, ADR-009)
+├── docker-compose.legacy.yml.DISABLED  # Retired — could not boot standalone
 ├── progress.md                     # Running session log
 ├── CLAUDE.md                       # Project-specific Claude Code instructions
 └── README.md
