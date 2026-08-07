@@ -55,6 +55,12 @@ services:
       - ./infrastructure/scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
       - ./infrastructure/migrations/003_portfolios_orm_align.sql:/docker-entrypoint-initdb.d/03-portfolios-orm-align.sql:ro
       - ./infrastructure/migrations/004_positions_orm_align.sql:/docker-entrypoint-initdb.d/04-positions-orm-align.sql:ro
+      # Migration 007 adds remaining_quantity/entry_fee/exit_fee, which the
+      # trading-engine ORM (models.py::Position) hard-requires: without it a
+      # fresh `docker compose down -v && up` boots a schema the engine can
+      # neither read nor insert positions against (total trading outage).
+      # The live DB was hand-patched 2026-08-04; this mount covers rebuilds.
+      - ./database/migrations/007_position_fee_partial_exit_accounting.sql:/docker-entrypoint-initdb.d/05-position-fee-accounting.sql:ro
     networks:
       - crypto-bot-network
     healthcheck:
