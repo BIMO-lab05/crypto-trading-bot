@@ -182,13 +182,22 @@ FALLBACK = Decimal("10")
 
 
 def test_costs_module_imports_stdlib_only():
-    """A single non-stdlib import makes this module unusable host-side."""
+    """A single non-stdlib import makes this module unusable host-side.
+
+    Reads the file by PATH rather than importing it. `app` is a regular package
+    name claimed by technical-analysis in some processes, so resolving
+    `app.costs` through the import system is exactly the fragility this test
+    exists to protect against.
+    """
     import ast
     import pathlib
     import sys
 
-    src = pathlib.Path(__import__("app.costs", fromlist=["costs"]).__file__).read_text()
-    tree = ast.parse(src)
+    here = pathlib.Path(__file__).resolve()
+    costs_path = here.parents[1] / "app" / "costs.py"
+    assert costs_path.is_file(), f"{costs_path} missing — coverage would be silent"
+
+    tree = ast.parse(costs_path.read_text())
     roots = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -1692,17 +1701,33 @@ Expected: PASS, 5 tests.
 
 - [ ] **Step 6: Quantify the behavior change on a known run**
 
-This is not a refactor, so measure it. Re-run one walk-forward before and after and record both:
+This is not a refactor, so measure it.
+
+**Do NOT use `run_walk_forward.py`.** Its `:105` validates `phase1_strategy_prod`, which
+produced **0 trades in every fold on all 5 symbols** (`backtesting/results/wf_2026-05-19`)
+while production runs ensemble mode. A diff over zero trades is empty in both directions and
+would read as "no change" — the exact false pass this step exists to prevent. Use
+`run_walk_forward_ensemble.py`, which exercises the live ensemble.
 
 ```bash
 git stash push -- backtesting/backtest_engine.py
-python3 backtesting/run_walk_forward.py --symbols SOLUSDT --days 180 2>&1 | tail -20 > /tmp/wf_before.txt
+python3 backtesting/run_walk_forward_ensemble.py --symbols SOLUSDT 2>&1 | tail -30 > "$TMPDIR/wf_before.txt"
 git stash pop
-python3 backtesting/run_walk_forward.py --symbols SOLUSDT --days 180 2>&1 | tail -20 > /tmp/wf_after.txt
-diff /tmp/wf_before.txt /tmp/wf_after.txt
+python3 backtesting/run_walk_forward_ensemble.py --symbols SOLUSDT 2>&1 | tail -30 > "$TMPDIR/wf_after.txt"
+diff "$TMPDIR/wf_before.txt" "$TMPDIR/wf_after.txt"
 ```
 
-Expected: results move **more negative** — the stop-out credit is gone, stops now pay slippage, and shorts now carry signed funding. Paste the diff into the commit message. If anything moved *less* negative, stop and find out why.
+**Precondition — check before reading the diff:** both runs must report a **non-zero trade
+count**. A zero-trade run means the harness is not exercising the cost paths at all, and the
+empty diff proves nothing. If trades are zero, stop and fix the harness selection first.
+
+Note `run_walk_forward_ensemble.py:198` sets `DAYS = 180` but 60m `is_mainnet=TRUE` rows only
+begin 2026-04-26, so the effective window is **~111 days**. Record the real window in the
+evidence, not the flag value.
+
+Expected: results move **more negative** — the stop-out credit is gone, stops now pay
+slippage, and shorts now carry signed funding. Paste the diff and the trade counts into the
+commit message. If anything moved *less* negative, stop and find out why.
 
 - [ ] **Step 7: Commit**
 

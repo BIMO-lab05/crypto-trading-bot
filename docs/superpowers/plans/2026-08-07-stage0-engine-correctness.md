@@ -26,8 +26,9 @@
 
 **Live ledger state, measured 2026-08-07 18:00 UTC** — re-measure at Task 1, it drifts on every close:
 - `portfolios`: one row, `portfolio_id='paper_trading'`, `initial_balance=100.00000000`, `cash_balance=255.97305338`, `realized_pnl=-0.41002416`, `updated_at=2026-08-07 15:00:55.18326`.
-- Coherent value = `100 − 0.41002416 − 20.6356` (open remaining notional at 1x) `≈ 78.95`. **Break ≈ +$177.02.**
-- Invariant C holds exactly: `portfolios.realized_pnl == SUM(positions.realized_pnl WHERE status='CLOSED') == -0.41002416`. **P&L is clean; cash alone is corrupt.**
+- `SUM(positions.realized_pnl)` over **all** rows = `−0.28337306`; over CLOSED only = `−0.41002416`. The `+0.1266511` gap is position 64's partial exit, accrued onto a still-OPEN row.
+- Coherent value = `100 − 0.28337306 − 20.63558` (open posted margin at 1x) `− 0.01134957` (unconsumed entry fee) `≈ 79.07`. **Break ≈ +$176.90.**
+- Invariant C holds exactly: `portfolios.realized_pnl == SUM(positions.realized_pnl WHERE status='CLOSED') == -0.41002416`. **P&L is clean; cash alone is corrupt.** Note this invariant is *narrower* than the cash identity — it deliberately excludes open-position partial realized, which is exactly why the repair must not key on `portfolios.realized_pnl`.
 - Open positions: id 61 BNBUSDT SHORT (`quantity=0.01`, `remaining_quantity=0.01`, `entry_price=602.69`, notional $6.0269) and id 64 SOLUSDT LONG (`quantity=0.30`, `remaining_quantity=0.201`, `entry_price=72.68`, remaining notional $14.6087). Both opened post-leverage-flip, i.e. at 1x.
 - 19 positions total, **all** `strategy='ensemble'`.
 
@@ -156,12 +157,22 @@ State plainly whether the reconstruction closes. The naive over-credit from the 
 First line of the file must be exactly `VERDICT: RECONCILED` or `VERDICT: UNRECONCILED`, followed by the residual in dollars. Then the proposed statement, with the *current* measured numbers substituted (do not copy these figures — re-derive them in Step 1):
 
 ```sql
--- Coherent cash = initial_balance + realized_pnl(closed) - posted_margin(open)
+-- Coherent cash = initial_balance
+--               + SUM(realized_pnl over ALL positions)      <- not just CLOSED
+--               - SUM(posted_margin on OPEN)
+--               - SUM(unconsumed entry fee on OPEN)         <- not optional
 UPDATE portfolios
 SET cash_balance = <computed>,
     updated_at = NOW()
 WHERE portfolio_id = 'paper_trading';
 ```
+
+Both of the non-obvious terms matter on the current data. `portfolios.realized_pnl` reads
+`−0.41002416` while `SUM(realized_pnl)` over all positions is `−0.28337306` — the
+`+0.1266511` gap is position 64's partial exit, which accrued onto a still-OPEN row and
+which `record_position_close` therefore never wrote. And the two open rows carry
+`entry_fee` of `0.00331480` (pos 61, fully unconsumed) and `0.01199220 × 0.201/0.30`
+(pos 64, partially consumed) that left cash at open but is not yet in any realized figure.
 
 If the verdict is `UNRECONCILED`, the file must state the residual and stop. Do not proceed to Task 4; report to the owner instead.
 
@@ -1226,7 +1237,19 @@ Create `services/trading-engine/tests/test_cash_conservation_invariant.py`:
 """
 Standing cash-conservation invariant (Stage 0, 2026-08-07).
 
-    cash + SUM(posted_margin on open positions) == initial_balance + SUM(realized_pnl)
+    cash
+  + SUM(posted_margin on open)
+  + SUM(unconsumed entry fee on open)
+  == initial_balance + SUM(realized_pnl over ALL positions)
+
+Both extra terms are load-bearing and the obvious two-term form is WRONG:
+
+  * the cash ledger debits the whole entry fee at open, while
+    position.realized_pnl nets only the CONSUMED portion, so an open position
+    with a partial exit leaves the difference stranded;
+  * realized P&L accrues onto OPEN positions via partial exits, so summing
+    only closed ones under-counts. portfolios.realized_pnl has the same blind
+    spot by construction - it is written only by record_position_close.
 
 Asserted over an in-memory round trip rather than the live portfolios row,
 because the live row carried a ~$177 break at the time this was written and a
@@ -1246,12 +1269,38 @@ from tests.test_posted_margin_ledger import (  # noqa: F401  - fixture reuse
 from app.models import OrderSide
 
 
+def _unconsumed_entry_fees(manager) -> Decimal:
+    """Entry commission already out of cash but not yet charged to any leg's P&L.
+
+    This term is NOT optional. The cash ledger debits the whole entry fee at
+    open, while position.realized_pnl is net of only the CONSUMED portion
+    (close_position/reduce_position call _consume_entry_fee per exit leg). Drop
+    it and the identity holds only for positions with nothing open.
+    """
+    total = Decimal("0")
+    for p in manager.get_open_positions():
+        total += manager._entry_fees.get(p.id, Decimal("0")) - manager._entry_fees_consumed.get(
+            p.id, Decimal("0")
+        )
+    return total
+
+
 def _identity_holds(engine, manager) -> bool:
     open_margin = sum(
         (p.posted_margin or Decimal("0")) for p in manager.get_open_positions()
     )
-    realized = sum(p.realized_pnl for p in manager.get_closed_positions())
-    return engine.balance + open_margin == engine.initial_balance + realized
+    # ALL positions, not just closed ones: a partial exit accrues realized P&L
+    # onto a position that is still OPEN. Live proof that this matters -
+    # portfolios.realized_pnl reads -0.41002416 while SUM over all positions is
+    # -0.28337306, the gap being position 64's +0.1266511 partial exit.
+    realized = sum(
+        p.realized_pnl
+        for p in list(manager.get_open_positions()) + list(manager.get_closed_positions())
+    )
+    return (
+        engine.balance + open_margin + _unconsumed_entry_fees(manager)
+        == engine.initial_balance + realized
+    )
 
 
 async def test_identity_holds_after_open(stack):
@@ -1262,11 +1311,9 @@ async def test_identity_holds_after_open(stack):
     await engine.execute_market_order(_order("SOLUSDT", OrderSide.BUY, "1"), Decimal("70"))
     await _drain_tasks()
 
-    # An open leg has paid its entry commission, which is realized cost not yet
-    # attributed to any closed position: account for it explicitly.
-    fee = engine.calculate_commission(Decimal("70"))
-    open_margin = sum(p.posted_margin for p in manager.get_open_positions())
-    assert engine.balance + open_margin + fee == engine.initial_balance
+    assert _identity_holds(engine, manager)
+    # And the fee term is genuinely load-bearing here, not decorative:
+    assert _unconsumed_entry_fees(manager) == engine.calculate_commission(Decimal("70"))
 
 
 async def test_identity_holds_after_full_round_trip(stack):
@@ -1352,23 +1399,39 @@ Create `database/migrations/one_time_repairs/2026-08-07-cash-ledger-repair.sql`.
 --     -f - < database/migrations/one_time_repairs/2026-08-07-cash-ledger-repair.sql
 -- ==========================================
 
+-- THREE TERMS, and the obvious two-term form is wrong:
+--   * realized P&L must sum over ALL positions, not just CLOSED ones - a
+--     partial exit accrues realized P&L onto a position that is still open.
+--     portfolios.realized_pnl has that blind spot by construction (it is
+--     written only by record_position_close), which is why the live row reads
+--     -0.41002416 while SUM over all positions is -0.28337306.
+--   * unconsumed entry fee must be subtracted: cash was debited the WHOLE
+--     entry fee at open, while realized_pnl nets only the consumed portion.
+--     For an open row that is entry_fee * remaining_quantity / quantity - the
+--     same reconstruction load_positions_from_db uses, exact whenever no
+--     scale-in intervened between partial exits.
+
 \echo '=== BEFORE ==='
 SELECT portfolio_id, initial_balance, cash_balance, realized_pnl, updated_at
 FROM portfolios;
 
-SELECT COALESCE(SUM(posted_margin), 0) AS open_margin
-FROM positions WHERE status = 'OPEN';
+SELECT
+    COALESCE((SELECT SUM(realized_pnl) FROM positions), 0)            AS realized_all,
+    COALESCE((SELECT SUM(posted_margin) FROM positions
+              WHERE status = 'OPEN'), 0)                              AS open_margin,
+    COALESCE((SELECT SUM(entry_fee * remaining_quantity / NULLIF(quantity, 0))
+              FROM positions WHERE status = 'OPEN'), 0)               AS unconsumed_entry_fee;
 
 BEGIN;
 
--- Coherent cash = initial_balance + realized_pnl - margin still posted.
 -- Computed, not hardcoded, so re-running after a further close stays correct.
 UPDATE portfolios p
 SET cash_balance = p.initial_balance
-                 + p.realized_pnl
-                 - COALESCE((SELECT SUM(posted_margin)
-                             FROM positions
-                             WHERE status = 'OPEN'), 0),
+                 + COALESCE((SELECT SUM(realized_pnl) FROM positions), 0)
+                 - COALESCE((SELECT SUM(posted_margin) FROM positions
+                             WHERE status = 'OPEN'), 0)
+                 - COALESCE((SELECT SUM(entry_fee * remaining_quantity / NULLIF(quantity, 0))
+                             FROM positions WHERE status = 'OPEN'), 0),
     updated_at = NOW()
 WHERE p.portfolio_id = 'paper_trading';
 
@@ -1380,7 +1443,10 @@ FROM portfolios;
 
 SELECT (p.cash_balance
         + COALESCE((SELECT SUM(posted_margin) FROM positions WHERE status = 'OPEN'), 0)
-        = p.initial_balance + p.realized_pnl) AS invariant_holds
+        + COALESCE((SELECT SUM(entry_fee * remaining_quantity / NULLIF(quantity, 0))
+                    FROM positions WHERE status = 'OPEN'), 0)
+        = p.initial_balance
+        + COALESCE((SELECT SUM(realized_pnl) FROM positions), 0)) AS invariant_holds
 FROM portfolios p WHERE p.portfolio_id = 'paper_trading';
 ```
 
@@ -2533,12 +2599,15 @@ it, so its pyramiding/no-hedging branch never fires." -- \
 Stage 0 is done when all of the following hold. Per CLAUDE.md §7, an HTTP 200 is not proof.
 
 1. `cd services/trading-engine && python3 -m pytest tests/ --no-cov -q` shows the 13 known pre-existing failures and no others.
-2. The invariant query returns `t`:
+2. The invariant query returns `t` — all three terms, realized summed over **all** positions:
    ```bash
    docker exec crypto-bot-postgres psql -U cryptobot -d cryptobot -c "
    SELECT (p.cash_balance
            + COALESCE((SELECT SUM(posted_margin) FROM positions WHERE status='OPEN'),0)
-           = p.initial_balance + p.realized_pnl) AS invariant_holds
+           + COALESCE((SELECT SUM(entry_fee * remaining_quantity / NULLIF(quantity,0))
+                       FROM positions WHERE status='OPEN'),0)
+           = p.initial_balance
+           + COALESCE((SELECT SUM(realized_pnl) FROM positions),0)) AS invariant_holds
    FROM portfolios p WHERE p.portfolio_id='paper_trading';"
    ```
 3. `docker compose -f docker-compose.unified.yml up -d --force-recreate trading-engine` is followed by a `Restored balance` log line agreeing with the DB, and no `posted_margin is NULL` errors.
