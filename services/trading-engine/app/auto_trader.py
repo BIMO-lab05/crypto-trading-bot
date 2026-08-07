@@ -1658,6 +1658,54 @@ class AutoTrader:
 
         return True, None
 
+    def _passes_exposure_gate(
+        self,
+        symbol: str,
+        new_notional,
+        balance,
+        position_mgr,
+        *,
+        tag: str = "[RISK_GATE]",
+    ) -> bool:
+        """Account-level exposure gate: open entry notionals plus the new
+        notional must stay under ``max_total_exposure_pct`` (a PERCENT) of
+        balance.
+
+        Rejects, never clamps — a silently resized order hides the breach.
+
+        Hoisted out of the ensemble path 2026-08-06 (review I20). It used to
+        exist inline in ``_check_and_trade_ensemble`` only, so the research/
+        hybrid and default entry paths could open a position with no
+        account-level check at all. Not breachable on today's configuration
+        (per-symbol dedup x 5 validated symbols x the per-trade cap cannot
+        reach the exposure cap), but that bound rests entirely on the symbol
+        list staying at 5 — which nothing in the sizing code checks.
+
+        Open notional is measured on each position's REMAINING quantity, so a
+        position that has taken partial exits occupies only what is left.
+        """
+        open_notional = 0.0
+        for p in position_mgr.get_open_positions():
+            p_qty = (
+                p.remaining_quantity
+                if getattr(p, "remaining_quantity", None) is not None
+                else p.quantity
+            )
+            open_notional += float(p.entry_price) * float(p_qty)
+
+        new_value = float(new_notional)
+        exposure_cap = float(balance) * self.settings.max_total_exposure_pct / 100.0
+        if open_notional + new_value > exposure_cap:
+            logger.warning(
+                f"{tag} EXPOSURE REJECT | {symbol} "
+                f"open=${open_notional:.2f} + new=${new_value:.2f} > "
+                f"cap=${exposure_cap:.2f} "
+                f"({self.settings.max_total_exposure_pct:.1f}% of "
+                f"${float(balance):.2f})"
+            )
+            return False
+        return True
+
     async def _snap_quantity_to_step(self, symbol: str, quantity) -> Decimal:
         """Floor an order quantity DOWN to the venue's qty_step.
 
@@ -2072,6 +2120,15 @@ class AutoTrader:
                     if trade_setup.entry_price
                     else quantity
                 )
+
+            # Account-level exposure gate (review I20): shared with the default
+            # and ensemble paths. Runs on the post-clamp notional, as it does
+            # on the ensemble path.
+            if not self._passes_exposure_gate(
+                symbol, position_value, balance, position_mgr
+            ):
+                self.total_trades_rejected += 1
+                return
 
             # ================================================================
             # SLIPPAGE CHECK (moved here 2026-08-04): uses the ACTUAL order
@@ -3896,6 +3953,15 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
+            # Account-level exposure gate (review I20): shared with the
+            # research/hybrid and ensemble paths. Runs on the post-clamp
+            # notional, as it does on the ensemble path.
+            if not self._passes_exposure_gate(
+                symbol, position_value, balance, position_mgr
+            ):
+                self.total_trades_rejected += 1
+                return
+
             # Venue quantity granularity: floor to qty_step, never up
             # (2026-08-04). A zero-floored quantity is rejected by the
             # min-notional gate below (qty 0 < min_order_qty).
@@ -4380,27 +4446,16 @@ class AutoTrader:
                 margin_value = position_value / leverage
 
             # ================================================================
-            # H1(b): total-exposure gate — open entry notionals plus the new
-            # notional must stay under max_total_exposure_pct of balance.
-            # Reject (never clamp) so the breach is observable.
+            # H1(b): total-exposure gate. Shared with the other two entry paths
+            # since review I20 — see _passes_exposure_gate.
             # ================================================================
-            open_notional = 0.0
-            for p in position_mgr.get_open_positions():
-                p_qty = (
-                    p.remaining_quantity
-                    if getattr(p, "remaining_quantity", None) is not None
-                    else p.quantity
-                )
-                open_notional += float(p.entry_price) * float(p_qty)
-            exposure_cap = float(balance) * self.settings.max_total_exposure_pct / 100.0
-            if open_notional + position_value > exposure_cap:
-                logger.warning(
-                    f"[ENSEMBLE][RISK_GATE] EXPOSURE REJECT | {symbol} "
-                    f"open=${open_notional:.2f} + new=${position_value:.2f} > "
-                    f"cap=${exposure_cap:.2f} "
-                    f"({self.settings.max_total_exposure_pct:.1f}% of "
-                    f"${float(balance):.2f})"
-                )
+            if not self._passes_exposure_gate(
+                symbol,
+                position_value,
+                balance,
+                position_mgr,
+                tag="[ENSEMBLE][RISK_GATE]",
+            ):
                 self.total_trades_rejected += 1
                 return
 
