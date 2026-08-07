@@ -1,4 +1,8 @@
-VERDICT: UNRECONCILED — residual **−$0.33900231** on a break of **+$176.90335601** (99.81% attributed; the reconstruction overshoots the observed break by 34 cents, which exceeds the $0.01 bar this task was given).
+VERDICT: UNRECONCILED
+
+Residual **−$0.33900231** on a break of **+$176.90335601** — 99.81% attributed. The
+reconstruction *overshoots* the observed break by 34 cents, which exceeds the $0.01 bar this task
+was given. **Task 4 is not cleared.**
 
 # Cash-ledger reconciliation — paper_trading portfolio
 
