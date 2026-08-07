@@ -69,6 +69,15 @@ def fingerprint_data_dir(data_dir: str) -> dict:
     this is recorded as provenance, never compared. Digest is over sorted
     `name:sha256` lines, so it is stable across filesystems and orderings.
     """
+    if not data_dir:
+        # os.listdir(None) silently walks the CWD — never let that pass for a
+        # provenance record.
+        return {
+            "data_dir": None,
+            "error": "no data dir set",
+            "files": 0,
+            "sha256": None,
+        }
     try:
         names = sorted(n for n in os.listdir(data_dir) if n.endswith("_365d_bybit.csv"))
     except OSError as exc:
