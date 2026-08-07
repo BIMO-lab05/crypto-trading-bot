@@ -721,45 +721,12 @@ class PositionManager:
 
         return position, partial_exit
 
-    def execute_partial_exit(
-        self, position_id: UUID, exit_info: Dict, exit_price: Decimal
-    ) -> Tuple[Position, Decimal]:
-        """
-        Execute a partial exit for a position
-
-        Args:
-            position_id: Position ID
-            exit_info: Exit info from check_partial_exit()
-            exit_price: Price at which to execute the exit
-
-        Returns:
-            Tuple of (updated_position, realized_pnl_from_exit)
-        """
-        position = self.positions.get(position_id)
-        if not position:
-            raise ValueError(f"Position {position_id} not found")
-
-        # Calculate realized P&L for this partial exit
-        exit_quantity = exit_info["exit_quantity"]
-        if position.side == PositionSide.LONG:
-            partial_pnl = (exit_price - position.entry_price) * exit_quantity
-        else:
-            partial_pnl = (position.entry_price - exit_price) * exit_quantity
-
-        # Apply the partial exit
-        position.apply_partial_exit(exit_info, partial_pnl)
-
-        logger.info(
-            f"✓ Partial exit executed: {position.symbol} {exit_info['level']} | "
-            f"Qty: {exit_quantity:.4f} @ {exit_price} | "
-            f"P&L: {partial_pnl:+.2f} | "
-            f"Remaining: {position.remaining_quantity:.4f}"
-        )
-
-        # Update risk manager with realized P&L
-        self.risk_manager.update_daily_pnl(partial_pnl)
-
-        return position, partial_pnl
+    # execute_partial_exit was REMOVED 2026-08-06. It persisted nothing and
+    # charged no commission — the exact AUDIT H5 defect, left standing beside
+    # its own fix. It had no callers: reduce_position (via
+    # PaperTradingEngine.execute_market_order) is the partial-exit path, and it
+    # persists the reduced remainder, the incremental net P&L and both fee
+    # legs. auto_trader._execute_partial_exit already routes there.
 
     def check_all_exit_conditions(
         self, position_id: UUID, current_price: Decimal
@@ -862,79 +829,14 @@ class PositionManager:
 
         return position
 
-    def create_position_with_atr_stops(
-        self,
-        symbol: str,
-        side: PositionSide,
-        entry_price: Decimal,
-        quantity: Decimal,
-        atr_value: float,
-        strategy: Optional[str] = None,
-        entry_signal_confidence: Optional[float] = None,  # CRITICAL FIX 2025-12-05
-    ) -> Position:
-        """
-        Create a position with ATR-based stop levels
-
-        This is the preferred method for creating positions as it:
-        - Sets dynamic stops based on market volatility
-        - Configures multiple take profit levels for partial exits
-        - Prepares trailing stop (enabled after TP1)
-
-        Args:
-            symbol: Trading symbol
-            side: Position side (LONG/SHORT)
-            entry_price: Entry price
-            quantity: Position quantity
-            atr_value: Current ATR value
-            strategy: Strategy name
-            entry_signal_confidence: Optional entry signal confidence (0.0-1.0)
-
-        Returns:
-            Created position with all stop levels set
-        """
-        atr_calc = get_atr_calculator()
-        stop_levels = atr_calc.calculate_stops(
-            float(entry_price), atr_value, side.value
-        )
-
-        # Create position with ATR-based stops
-        position = Position(
-            symbol=symbol,
-            side=side,
-            entry_price=entry_price,
-            quantity=quantity,
-            current_price=entry_price,
-            stop_loss=Decimal(str(stop_levels.stop_loss)),
-            take_profit=Decimal(str(stop_levels.take_profit_2)),  # Legacy: use TP2
-            take_profit_1=Decimal(str(stop_levels.take_profit_1)),
-            take_profit_2=Decimal(str(stop_levels.take_profit_2)),
-            take_profit_3=Decimal(str(stop_levels.take_profit_3)),
-            trailing_stop=Decimal(str(stop_levels.trailing_stop)),
-            trailing_stop_enabled=False,  # Enabled after TP1
-            strategy=strategy,
-            entry_signal_confidence=entry_signal_confidence,  # CRITICAL FIX 2025-12-05
-            status=PositionStatus.OPEN,
-        )
-
-        # Store position
-        self.positions[position.id] = position
-        self._entry_fees.setdefault(position.id, Decimal("0"))
-        self._exit_fees.setdefault(position.id, Decimal("0"))
-
-        logger.info(
-            f"✓ Position created with ATR stops: {position.id} | "
-            f"{symbol} {side.value} {quantity} @ {entry_price} | "
-            f"SL: {stop_levels.stop_loss:.2f} | "
-            f"TP1/2/3: {stop_levels.take_profit_1:.2f}/{stop_levels.take_profit_2:.2f}/{stop_levels.take_profit_3:.2f}"
-        )
-
-        # Persist to database
-        _spawn_persist(
-            self.position_repo.create(position, portfolio_id="paper_trading"),
-            "position create (ATR stops)",
-        )
-
-        return position
+    # create_position_with_atr_stops was REMOVED 2026-08-06. It dropped the
+    # entry commission entirely (never populated _entry_fees, and persisted
+    # the row without entry_fee) — the exact AUDIT H7 defect, left standing
+    # beside its own fix, under a docstring calling itself "the preferred
+    # method for creating positions". It had no callers. Use create_position,
+    # which carries entry_fee; pass ATR-derived stop_loss / take_profit_1..3
+    # from app.atr_stops.get_atr_calculator().calculate_stops() at the call
+    # site if ATR stops are wanted.
 
     async def load_positions_from_db(self) -> int:
         """

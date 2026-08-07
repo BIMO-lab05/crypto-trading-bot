@@ -603,9 +603,12 @@ class RiskValidator:
             "1x leverage eliminates liquidation possibility",
         )
 
-        # Test that position size never exceeds balance
-        test_balance = 10000
-        test_position = 8000
+        # Test that position size never exceeds balance. Uses the real
+        # account and the real position cap rather than invented figures —
+        # $8,000 against a $10,000 balance was never a scenario this system
+        # can produce.
+        test_balance = ACCOUNT_EQUITY_USD
+        test_position = ACCOUNT_EQUITY_USD * MAX_POSITION_SIZE_FRACTION
 
         if test_position <= test_balance:
             self.print_test(
