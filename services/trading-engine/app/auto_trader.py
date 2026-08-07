@@ -1520,20 +1520,26 @@ class AutoTrader:
         """Pre-submit gate: reject orders below the exchange's min-notional.
 
         Returns ``(True, None)`` to proceed, ``(False, reason)`` to reject.
-        ``reason`` is one of ``"min_qty"`` / ``"min_notional"`` and matches
-        the Prometheus counter label.
+        ``reason`` is one of ``"min_qty"`` / ``"min_notional"`` /
+        ``"spec_unavailable"`` and matches the Prometheus counter label.
 
-        Fail-open: if the instruments cache has no entry for the symbol
-        (connector outage at boot, symbol not yet refreshed), this returns
-        ``(True, None)`` with a loud WARN log — refusing to trade because the
-        metadata service is down would be a worse failure mode than letting
-        the order through. LIVE mode would surface Bybit's own rejection.
+        Missing spec (connector outage at boot, symbol not yet refreshed)
+        resolves by mode (2026-08-06, review I12):
 
-        We deliberately do NOT auto-upround the quantity here. On a $100
-        balance × 2% per-trade cap, forcing a $5 alt min-notional would
-        silently breach the risk cap (5% notional). Surface the reject so
-        the operator sees the cap configuration is incompatible with
-        live-mode minimums.
+        * LIVE — fail OPEN with a loud WARN. Bybit re-checks the order itself,
+          so refusing to trade because a metadata service is down would be the
+          worse failure mode.
+        * PAPER — fail CLOSED, reason ``"spec_unavailable"``. Nothing
+          downstream re-checks a paper fill, so fail-open let through exactly
+          the trade this gate exists to prevent, and the cold-cache window is
+          engine startup — when the first cycles run.
+
+        We deliberately do NOT auto-upround the quantity here. The per-trade
+        cap is a fraction of the configured paper balance
+        (``max_risk_per_trade``/``max_position_size_pct``, 10% in paper);
+        forcing a $5 alt min-notional onto a smaller sized order would
+        silently breach it. Surface the reject so the operator sees the cap
+        configuration is incompatible with live-mode minimums.
 
         Enforced in ALL modes (2026-08-04, AUDIT §2.4 / H1): the gate used
         to short-circuit to ``(True, None)`` in PAPER, so paper trading
@@ -1556,33 +1562,51 @@ class AutoTrader:
             )
             return True, None
 
+        def _no_spec(detail: str):
+            """Resolve a missing instrument spec by mode (review I12).
+
+            LIVE fails open — Bybit re-checks. PAPER fails closed, because
+            nothing downstream re-checks a simulated fill.
+            """
+            if str(self.settings.trading_mode).upper() == "LIVE":
+                logger.warning(
+                    f"[MIN_NOTIONAL][FAIL-OPEN] {symbol}: {detail} — gate NOT "
+                    f"enforced, order allowed through (LIVE: Bybit re-checks)"
+                )
+                return True, None
+            try:
+                from app.core.metrics import trades_rejected_min_notional_total
+
+                trades_rejected_min_notional_total.labels(
+                    symbol=symbol, reason="spec_unavailable"
+                ).inc()
+            except (ImportError, ValueError, AttributeError) as exc:
+                # Same survival contract as the min_qty / min_notional emits
+                # below: a metrics failure must never open the gate.
+                logger.warning("metrics emit failed (spec_unavailable): %r", exc)
+            logger.warning(
+                f"[MIN_NOTIONAL][FAIL-CLOSED] {symbol}: {detail} — rejecting in "
+                f"PAPER (qty {qty_d} @ {price_d}, balance ${balance_d:.2f}); "
+                f"paper must mirror the venue constraints it cannot verify"
+            )
+            return False, "spec_unavailable"
+
         # Deferred import: avoids a circular at module load and lets tests
         # monkeypatch app.main.get_instruments_cache cleanly.
         try:
             from app.main import get_instruments_cache
         except Exception as e:
-            logger.warning(
-                f"[MIN_NOTIONAL][FAIL-OPEN] {symbol}: instruments cache import "
-                f"failed ({e!r}) — gate NOT enforced, order allowed through"
-            )
-            return True, None
+            return _no_spec(f"instruments cache import failed ({e!r})")
 
         try:
             spec = await get_instruments_cache().get(symbol)
         except Exception as e:
-            logger.warning(
-                f"[MIN_NOTIONAL][FAIL-OPEN] {symbol}: cache.get raised {e!r} "
-                f"(connector unreachable?) — gate NOT enforced, order allowed through"
-            )
-            return True, None
+            return _no_spec(f"cache.get raised {e!r} (connector unreachable?)")
 
         if spec is None:
-            logger.warning(
-                f"[MIN_NOTIONAL][FAIL-OPEN] {symbol}: no instrument spec cached "
-                f"(connector outage or symbol unlisted) — gate NOT enforced, "
-                f"order allowed through"
+            return _no_spec(
+                "no instrument spec cached (connector outage or symbol unlisted)"
             )
-            return True, None
 
         notional = qty_d * price_d
 

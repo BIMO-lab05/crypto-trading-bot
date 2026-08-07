@@ -60,8 +60,11 @@ class _StubInstrumentsCache:
 
 @pytest.fixture(autouse=True)
 def _force_live_mode(monkeypatch):
-    """Gate is LIVE-only (PAPER short-circuits to allow). Force LIVE for these
-    tests so they exercise the gate logic.
+    """Force LIVE so the cache-miss case here asserts the LIVE fail-OPEN branch.
+
+    The gate itself runs in every mode (since 2026-08-04) and a missing spec
+    fails CLOSED in PAPER (review I12) — that half is covered by
+    tests/test_min_notional_fail_closed_paper.py.
     """
     from app.config import get_settings
 
