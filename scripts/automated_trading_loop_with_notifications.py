@@ -183,7 +183,10 @@ class TradingBot:
             "mode": self.config.mode.value,
             "symbols": self.config.symbols,
             "interval_minutes": self.config.interval_minutes,
-            "capital": 10000.0,  # TODO: Get from portfolio
+            # THE ACCOUNT IS $100 (shared/account.py). This value is announced
+            # to the operator over Telegram on every start; the old 10000.0
+            # literal meant the bot opened by reporting 100x the real account.
+            "capital": PAPER_INITIAL_BALANCE,
             "max_position_pct": self.config.max_position_size_pct,
             "daily_loss_limit": self.config.daily_loss_limit_pct,
             "stop_loss_pct": self.config.stop_loss_pct,
