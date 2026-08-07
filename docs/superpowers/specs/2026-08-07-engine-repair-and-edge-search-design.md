@@ -125,13 +125,23 @@ Separately, several in-code comments documenting threshold changes describe valu
 `gatekeeper.py:86`, `:99`). Every divergence understates the loosening. Those comments
 are not usable as history.
 
-## 2.7 Scope of the first implementation plan
+## 2.7 Scope of the implementation plans
 
-This document describes three stages. Only **Stage 0 (§4) plus L1 and L2 of Stage 1
-(§5.2, §5.3)** is a single implementation plan. L3, L4, the candidate work, and Stage 2
-each get their own plan once the preceding one has landed and been verified. Stage 2 is
-deliberately unplanned until a candidate survives L3, because its priority order depends
-on which candidate that is.
+This document describes three stages. Stage 0 and L1+L2 turned out to be **two** plans, not
+one — each produces working, testable software on its own, and Stage 0 alone is nine tasks:
+
+| Plan | Covers | Status |
+|---|---|---|
+| `docs/superpowers/plans/2026-08-07-stage0-engine-correctness.md` | §4 (S0-1, S0-2, S0-3) | written 2026-08-07 |
+| `docs/superpowers/plans/2026-08-07-cost-model-and-edge-screen.md` | §5.2 (L1), §5.3 (L2), plus the funding backfill from §5.7 | written 2026-08-07 |
+
+L3, L4, the candidate work, and Stage 2 each get their own plan once the preceding one has
+landed and been verified. Stage 2 is deliberately unplanned until a candidate survives L3,
+because its priority order depends on which candidate that is.
+
+Both plans carry amendments where the extraction pass proved a statement in this document
+wrong. Those amendments are inline above, marked **AMENDED**; the plans are authoritative
+on mechanism.
 
 ## 3. Non-goals
 
@@ -149,13 +159,29 @@ on which candidate that is.
 Small, live-critical, and deliberately free of anything that changes strategy behavior.
 Ships before any measurement is trusted.
 
-### S0-1 — leverage becomes an immutable property of a position
+### S0-1 — margin becomes an immutable property of a position
 
 Fixes E1 and E2.
 
-- Migration `008_position_leverage.sql`: add `positions.leverage NUMERIC(10,4) NOT NULL DEFAULT 1.0`.
-- Stamp it on open from `settings.default_leverage`; read it from the row at close,
-  reduce, and restart reconstruction. Three sites: `paper_trading.py:253`, `:93-107`, `:447`.
+> **AMENDED 2026-08-07 during planning — store posted margin in DOLLARS, not a leverage
+> ratio.** `PositionManager.scale_in` (`position_manager.py:616-619`) rewrites `entry_price`
+> to a weighted average, so a full-close credit of `entry_price × qty / L_stored` only
+> reconciles if every leg used the same leverage. A dollar amount consumed proportionally
+> is immune to that and to any future `DEFAULT_LEVERAGE` change, and it copies an idiom the
+> codebase already has (`_entry_fees` / `_entry_fees_consumed` / `_consume_entry_fee`).
+> `leverage` is stored **additionally**, for audit and backfill honesty; nothing reads it
+> arithmetically. Migration is `008_position_margin_leverage_exit_kind.sql`.
+
+- Migration 008: add `positions.posted_margin NUMERIC(20,8) NOT NULL DEFAULT 0` and
+  `positions.leverage NUMERIC(10,4) NOT NULL DEFAULT 1`.
+- Stamp margin on open; consume it proportionally at close and reduce; restore it at
+  restart. Two read sites stop consulting the global: `paper_trading.py:95` and `:253`
+  (four arithmetic uses at `:104`, `:325`, `:407`, `:447`).
+- **All four hand-written mappers must be edited** — `repositories.create`,
+  `handlers/trades.db_position_to_app_position`, `position_manager.load_positions_from_db`,
+  and ORM `to_dict`. There is no `model_dump()` propagation anywhere; proof that this
+  matters is `positions.entry_signal_confidence`, which has had a column since before 007
+  and is NULL on all 19 live rows because `create()` never mapped it.
 - Backfill existing rows from the actual cutoff, established by reading the commit that
   changed `DEFAULT_LEVERAGE` in `docker-compose.unified.yml` (`a51e815`) together with the
   container's recreation time — not assumed from the commit date alone. Positions opened
@@ -186,11 +212,36 @@ verifiable.
 
 Fixes E4 and E5.
 
-- Attach the strategy's own `stop_loss` / `take_profit` to `OrderCreate` at
-  `auto_trader.py:4504-4514`, matching what `_execute_trade_with_setup:2383-2386` already
-  does on the sibling path.
+> **AMENDED 2026-08-07 during planning — two mechanisms in the original wording were wrong.**
+>
+> 1. *"Attach the stops to `OrderCreate`"* would be a **silent no-op.** Neither `OrderBase`
+>    nor `OrderCreate` declares `stop_loss`/`take_profit`, and neither declares a
+>    `model_config`, so pydantic v2's default `extra='ignore'` drops them with **no
+>    `ValidationError`** (verified on the installed pydantic 2.13.3). `paper_trading.py:255`
+>    also does `Order(**order.model_dump(), ...)` against `OrderBase`, so an
+>    `OrderCreate`-only field vanishes there too. The route is
+>    `position_mgr.set_position_stops(...)`.
+> 2. *"matching what `_execute_trade_with_setup:2383-2386` does"* — that pattern is **itself
+>    defective.** `set_position_stops` is memory-only; `PositionRepository` has no
+>    update-stops method, and `stop_loss` reaches the database at exactly one line repo-wide
+>    (`repositories.py:73`, INSERT-time). Copying it yields stops that look right in memory
+>    and revert to the risk-manager default on the next restart. Persistence must be added
+>    first. That sibling path has never run in production — all 19 rows are
+>    `strategy='ensemble'`.
+>
+> Also: `min_signal_confidence` gates **nothing on any autonomous path** today. It is read
+> only by `RiskManager.validate_signal`, whose sole production caller is the REST `/signal`
+> endpoint. Enforcing it is a new gate, not the restoration of a lapsed one.
+
+- Add `PositionRepository.update_stops` and fire it from `set_position_stops`, then apply
+  `ens_signal.stop_loss` / `.take_profit` after the fill — with a **side-consistency
+  assertion**, because `EnsembleSignal` inherits both levels verbatim from the dominant leg
+  with no validation (`multi_strategy_ensemble.py:277-284`); precedent is the Jan 2026
+  inverted-R/R bug (`380a674`).
 - Enforce `min_signal_confidence`, `allowed_trade_sides` / `short_trading_enabled` /
-  `short_min_confidence`, and `portfolio_heat_manager.can_open_trade` on the ensemble path.
+  `short_min_confidence`, `_check_daily_trade_limit`, and
+  `portfolio_heat_manager.can_open_trade`, and replace the non-atomic duplicate-symbol scan
+  with `_claim_open_slot` plus a `try/finally` release (the method has 8 early returns).
 
 **Acceptance:** an entry at confidence 0.2357 is rejected with a logged reason; a
 persisted position's `stop_loss` matches the ATR value the aggregator emitted for that
