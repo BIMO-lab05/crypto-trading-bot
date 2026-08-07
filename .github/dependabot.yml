@@ -6,10 +6,12 @@
 #   - monthly cadence, ONE grouped PR per service directory
 #   - small open-pull-requests limits so a red CI can't breed a backlog
 #   - known-landmine majors ignored; take them as deliberate migrations:
-#       * fastapi/starlette frozen — api-gateway pins fastapi 0.109 on purpose
-#         (HTTPBearer 403-vs-401 test contract, see .claude/rules/testing.md)
-#       * pydantic/pydantic-settings frozen — 2.5→2.12 changes settings
-#         deep-merge behavior (documented in .claude/rules/testing.md)
+#       * fastapi/starlette held at their current minor line — api-gateway
+#         pins fastapi 0.109 on purpose (HTTPBearer 403-vs-401 test contract,
+#         see .claude/rules/testing.md). PATCH updates still flow, so security
+#         fixes are proposed; only major+minor bumps are suppressed.
+#       * pydantic/pydantic-settings held the same way — 2.5→2.12 changes
+#         settings deep-merge behavior (documented in .claude/rules/testing.md)
 #       * numpy 2.x — breaks tensorflow 2.16 / pandas 2.2 ABI in ml services
 #       * pytest 9 / pytest-asyncio 1.x — breaking majors, migrate in lockstep
 #       * python-json-logger 3+ / redis 6+ — breaking majors
@@ -55,10 +57,20 @@ updates:
       python-deps:
         patterns: ["*"]
     ignore:
+      # These four carried NO update-types key, which ignores every update
+      # type — so Dependabot would never propose a security patch for the
+      # HTTP-facing layer of all ten services. Blocking major+minor pins the
+      # line (fastapi is 0.x, so 0.109 -> 0.110 is classified semver-MINOR
+      # and stays blocked, preserving the api-gateway 403-vs-401 HTTPBearer
+      # contract) while letting 0.109.x patch releases through.
       - dependency-name: "fastapi"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "starlette"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "pydantic"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "pydantic-settings"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "numpy"
         update-types: ["version-update:semver-major"]
       - dependency-name: "pytest"
