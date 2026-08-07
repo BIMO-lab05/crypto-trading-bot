@@ -124,13 +124,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # continue-on-error: a single service's build flake (sentiment-analysis
-      # PyPI timeouts are chronic) must not kill the whole scan matrix; the
-      # scan steps below skip via steps.build.outcome when the build failed.
+      # continue-on-error is scoped to sentiment-analysis-service ONLY, whose
+      # PyPI timeouts are chronic (CLAUDE.md gotchas). It used to apply to all
+      # ten matrix services, and because every scan step below is gated on
+      # steps.build.outcome == 'success', ANY build flake produced a fully
+      # GREEN job with zero scanning performed and no signal anywhere. A
+      # build failure on the other nine now reds the job directly; the
+      # terminal step below records why in the run summary.
       - name: Build Docker image for scanning
         id: build
         uses: docker/build-push-action@v5
-        continue-on-error: true
+        continue-on-error: ${{ matrix.service == 'sentiment-analysis-service' }}
         with:
           context: services/${{ matrix.service }}
           file: services/${{ matrix.service }}/Dockerfile
@@ -217,6 +221,34 @@ jobs:
             trivy-results-${{ matrix.service }}.sarif
             trivy-results-${{ matrix.service }}.json
           retention-days: 90
+
+      # Terminal gate. Needs if: always() — for the nine non-sentiment
+      # services continue-on-error is false, so a build failure fails the step
+      # and every later step in the job would otherwise be skipped, including
+      # this one. Its job is to leave a readable reason in the run summary:
+      # "scans skipped because the build failed" is a different state from
+      # "scans ran and found nothing", and before this step the two were
+      # indistinguishable.
+      - name: Report build/scan outcome
+        if: always()
+        env:
+          SERVICE: ${{ matrix.service }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          if [ "$BUILD_OUTCOME" = "success" ]; then
+            echo "| ${SERVICE} | image built, scans ran |" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "$SERVICE" = "sentiment-analysis-service" ]; then
+            echo "| ${SERVICE} | :warning: build failed — NOT SCANNED (known-flaky, tolerated) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Image not scanned::${SERVICE} failed to build; no vulnerability scan was performed for it."
+            exit 0
+          fi
+
+          echo "| ${SERVICE} | :x: build failed — NOT SCANNED |" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Image not scanned::${SERVICE} failed to build, so every scan step was skipped. This job has no security signal for ${SERVICE}."
+          exit 1
 
   # Job 3: Static Application Security Testing (SAST)
   sast-scan:
