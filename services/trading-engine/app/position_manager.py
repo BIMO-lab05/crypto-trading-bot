@@ -98,19 +98,45 @@ class PositionManager:
         # reloaded from the DB on restart (load_positions_from_db).
         self._entry_fees: dict[UUID, Decimal] = {}
         self._exit_fees: dict[UUID, Decimal] = {}
+        # How much of each position's entry fee has already been charged to a
+        # closed leg (2026-08-06, review I16). Not a persisted column; it is
+        # reconstructed on reload (see load_positions_from_db).
+        self._entry_fees_consumed: dict[UUID, Decimal] = {}
         logger.info("PositionManager initialized with database persistence")
 
-    def _entry_fee_portion(self, position: Position, quantity: Decimal) -> Decimal:
-        """Entry commission attributable to `quantity` of this position.
+    def _consume_entry_fee(self, position: Position, quantity: Decimal) -> Decimal:
+        """Entry commission attributable to `quantity`, marked as consumed.
 
-        Proportional accrual: each exit consumes entry_fee × (qty / total
-        quantity), so across all partial exits plus the final close exactly
-        the full entry fee is deducted from net realized P&L.
+        Attribution spreads the still-UNCONSUMED entry fee over the REMAINING
+        quantity. It used to divide the whole entry fee by position.quantity,
+        which scale_in increments — so whenever a scale-in followed a partial
+        exit, part of the entry fee had already left the cash balance but was
+        never charged to any leg's reported P&L, and the two ledgers diverged
+        (review I16).
+
+        Call exactly once per exit leg, BEFORE remaining_quantity is reduced.
+        A leg that takes the whole remainder is handed the exact residual
+        rather than a computed share, so conservation is exact and not subject
+        to Decimal division rounding.
         """
         entry_fee = self._entry_fees.get(position.id, Decimal("0"))
-        if entry_fee == 0 or position.quantity == 0:
+        consumed = self._entry_fees_consumed.get(position.id, Decimal("0"))
+        unconsumed = entry_fee - consumed
+        remaining = (
+            position.remaining_quantity
+            if position.remaining_quantity is not None
+            else position.quantity
+        )
+        if unconsumed <= 0 or remaining <= 0 or quantity <= 0:
             return Decimal("0")
-        return entry_fee * quantity / position.quantity
+
+        if quantity >= remaining:
+            portion = unconsumed
+        else:
+            portion = unconsumed * quantity / remaining
+
+        self._entry_fees_consumed[position.id] = consumed + portion
+        return portion
 
     def create_position(
         self,
@@ -189,6 +215,7 @@ class PositionManager:
         self.positions[position.id] = position
         self._entry_fees[position.id] = entry_fee
         self._exit_fees[position.id] = Decimal("0")
+        self._entry_fees_consumed[position.id] = Decimal("0")
 
         logger.info(
             f"✓ Position created: {position.id} | "
@@ -395,7 +422,7 @@ class PositionManager:
         else:  # SHORT
             pnl_on_remaining = (position.entry_price - close_price) * remaining
 
-        entry_fee_portion = self._entry_fee_portion(position, remaining)
+        entry_fee_portion = self._consume_entry_fee(position, remaining)
         net_close_pnl = pnl_on_remaining - close_commission - entry_fee_portion
 
         position.current_price = close_price
@@ -512,7 +539,7 @@ class PositionManager:
                 f"use close_position for full closes"
             )
 
-        entry_fee_portion = self._entry_fee_portion(position, quantity)
+        entry_fee_portion = self._consume_entry_fee(position, quantity)
         net_leg_pnl = realized_pnl - close_commission - entry_fee_portion
 
         position.remaining_quantity = remaining - quantity
@@ -974,6 +1001,22 @@ class PositionManager:
                 # restarts. Columns are NOT NULL DEFAULT 0 as of migration 007.
                 self._entry_fees[position.id] = Decimal(str(db_pos.entry_fee or 0))
                 self._exit_fees[position.id] = Decimal(str(db_pos.exit_fee or 0))
+
+                # Consumed entry fee (review I16) has no persisted column, and
+                # is not derivable from the three stored scalars because it
+                # depends on leg ORDER. Reconstruct it from the quantity
+                # already exited: exact whenever the entry fee per unit was
+                # uniform — i.e. no scale-in intervened between partial exits,
+                # the common case — and otherwise degrading to the pre-I16
+                # attribution rather than double-charging the remainder.
+                qty_total = Decimal(str(db_pos.quantity))
+                exited = qty_total - position.remaining_quantity
+                if qty_total > 0 and exited > 0:
+                    self._entry_fees_consumed[position.id] = (
+                        self._entry_fees[position.id] * exited / qty_total
+                    )
+                else:
+                    self._entry_fees_consumed[position.id] = Decimal("0")
 
                 self.positions[position.id] = position
                 loaded_count += 1

@@ -417,6 +417,121 @@ async def test_remaining_quantity_survives_simulated_reload(stack):
 
 
 # =============================================================================
+# I16 — entry-fee attribution is conserved when a scale-in follows a partial
+# exit. _entry_fee_portion divided by position.quantity, which scale_in
+# increments, so part of the entry fee was debited from cash but never reached
+# reported P&L: the cash ledger and reported P&L silently diverged.
+# =============================================================================
+
+
+async def test_entry_fee_fully_attributed_across_scale_in_after_partial_exit(stack):
+    """Worked example from the review, scaled to the real commission rate.
+
+    open 10 -> partial-exit 5 -> scale in 10 -> close 15. Every dollar of entry
+    commission the cash ledger paid must reach reported P&L exactly once.
+
+    Prices are chosen so the weighted-average entry stays exact in Decimal:
+    (5 x 1.00 + 10 x 2.50) / 15 == 2.00, and the margin posted over the two
+    entry legs exactly matches the margin returned over the two exit legs.
+    """
+    engine = stack.engine
+    pct = engine.commission_pct
+    opening_balance = engine.balance
+
+    # ---- leg 1: open 10 @ 1.00 ------------------------------------------
+    order, err = await engine.execute_market_order(
+        _buy("ADAUSDT", "10"), Decimal("1.00")
+    )
+    assert err is None
+    pid = order.position_id
+    entry_fee_1 = Decimal("1.00") * Decimal("10") * pct
+
+    # ---- leg 2: partial exit 5 @ 1.20 -----------------------------------
+    _, err = await engine.execute_market_order(
+        _sell("ADAUSDT", "5", position_id=pid, reduce_only=True), Decimal("1.20")
+    )
+    assert err is None
+    exit_fee_1 = Decimal("1.20") * Decimal("5") * pct
+    gross_1 = (Decimal("1.20") - Decimal("1.00")) * Decimal("5")
+
+    # ---- leg 3: scale in 10 @ 2.50 --------------------------------------
+    _, err = await engine.execute_market_order(
+        _buy("ADAUSDT", "10", position_id=pid), Decimal("2.50")
+    )
+    assert err is None
+    entry_fee_2 = Decimal("2.50") * Decimal("10") * pct
+
+    position = stack.manager.get_position(pid)
+    assert position.remaining_quantity == Decimal("15")
+    assert position.entry_price == Decimal("2.00"), (
+        "weighted-average entry drifted; the rest of this test's arithmetic "
+        "assumes it is exact"
+    )
+
+    # ---- leg 4: close the remaining 15 @ 3.00 ---------------------------
+    _, err = await engine.execute_market_order(
+        _sell("ADAUSDT", "15", position_id=pid, reduce_only=True), Decimal("3.00")
+    )
+    assert err is None
+    exit_fee_2 = Decimal("3.00") * Decimal("15") * pct
+    gross_2 = (Decimal("3.00") - Decimal("2.00")) * Decimal("15")
+
+    entry_fee_paid = entry_fee_1 + entry_fee_2
+
+    # (1) Cash-ledger identity. Margin nets to zero across the four legs, so
+    # the change in cash must equal the reported net P&L exactly. This is the
+    # assertion the defect breaks: cash paid both entry fees, reported P&L
+    # only ever saw part of the second one.
+    closed = stack.manager.get_position(pid)
+    assert engine.balance - opening_balance == closed.realized_pnl, (
+        f"cash moved {engine.balance - opening_balance} but P&L reported "
+        f"{closed.realized_pnl} — the ledgers have diverged by "
+        f"{closed.realized_pnl - (engine.balance - opening_balance)}"
+    )
+
+    # (2) Reported net P&L is gross minus every fee, both legs of both entries.
+    expected_net = (
+        gross_1 + gross_2 - exit_fee_1 - exit_fee_2 - entry_fee_1 - entry_fee_2
+    )
+    assert closed.realized_pnl == expected_net
+
+    # (3) Stated directly: every unit of entry commission paid was attributed
+    # to some exit leg.
+    assert stack.manager._entry_fees[pid] == entry_fee_paid
+    assert stack.manager._entry_fees_consumed[pid] == entry_fee_paid, (
+        f"entry fee attributed to exits "
+        f"({stack.manager._entry_fees_consumed[pid]}) != entry fee paid "
+        f"({entry_fee_paid})"
+    )
+
+
+async def test_entry_fee_attribution_unchanged_without_scale_in(stack):
+    """Exactness guard for the common case: with no scale-in the attribution
+    is still a simple pro-rata split of the single entry fee."""
+    engine = stack.engine
+    pct = engine.commission_pct
+
+    order, err = await engine.execute_market_order(
+        _buy("SOLUSDT", "1.0"), Decimal("70")
+    )
+    assert err is None
+    pid = order.position_id
+    entry_fee = Decimal("70") * Decimal("1.0") * pct
+
+    _, err = await engine.execute_market_order(
+        _sell("SOLUSDT", "0.4", position_id=pid, reduce_only=True), Decimal("71")
+    )
+    assert err is None
+    assert stack.manager._entry_fees_consumed[pid] == entry_fee * Decimal("0.4")
+
+    _, err = await engine.execute_market_order(
+        _sell("SOLUSDT", "0.6", position_id=pid, reduce_only=True), Decimal("72")
+    )
+    assert err is None
+    assert stack.manager._entry_fees_consumed[pid] == entry_fee
+
+
+# =============================================================================
 # Fee rate — Bybit linear taker
 # =============================================================================
 
