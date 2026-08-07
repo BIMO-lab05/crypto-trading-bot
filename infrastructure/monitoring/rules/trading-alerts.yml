@@ -26,7 +26,10 @@ groups:
 
       # Alert 2: Daily Loss Exceeded
       - alert: DailyLossExceeded
-        # ADR-028: daily-loss breaker is 12% (was 5%)
+        # ADR-028: daily-loss breaker is 12% (was 5%). This fires only AFTER
+        # the breaker has tripped and trading has already halted, so it is a
+        # notification of an event, not a warning ahead of one — see
+        # DailyLossApproachingLimit below for the actionable pre-alert.
         expr: daily_loss_percentage > 12
         for: 1m
         labels:
@@ -36,8 +39,29 @@ groups:
           runbook: "https://github.com/crypto-bot/runbooks/daily-loss-exceeded.md"
         annotations:
           summary: "Daily loss limit exceeded"
-          description: "Current daily loss: {{ $value | humanizePercentage }}. Emergency stop may be required."
+          # daily_loss_percentage is already percent-scaled (12 means 12%).
+          # humanizePercentage expects a RATIO, so it rendered 12 as "1200%".
+          description: "Current daily loss: {{ printf \"%.2f%%\" $value }}. Emergency stop may be required."
           action: "1. Review recent trades in dashboard\n2. Check market conditions\n3. Consider emergency stop\n4. Analyze trading strategy performance"
+          dashboard: "http://localhost:3000/d/trading-performance"
+
+      # Alert 2b: Daily Loss Approaching Limit (pre-alert)
+      # Matches the 10-before-12 headroom used by scripts/monitor.py and
+      # scripts/health_monitor_cron.sh. Co-fires with DailyLossExceeded once
+      # the loss passes 12 — no inhibit_rules are configured for this repo, so
+      # both will page until one is added.
+      - alert: DailyLossApproachingLimit
+        expr: daily_loss_percentage > 10
+        for: 1m
+        labels:
+          severity: warning
+          component: risk-management
+          category: financial
+          runbook: "https://github.com/crypto-bot/runbooks/daily-loss-exceeded.md"
+        annotations:
+          summary: "Daily loss approaching the ADR-028 breaker"
+          description: "Current daily loss: {{ printf \"%.2f%%\" $value }} against a 12% breaker. Trading has NOT halted yet."
+          action: "1. Review open positions\n2. Consider reducing exposure before the breaker trips\n3. Check whether one strategy dominates the drawdown"
           dashboard: "http://localhost:3000/d/trading-performance"
 
       # Alert 3: Service Down (Generic)
