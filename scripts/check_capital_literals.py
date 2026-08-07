@@ -56,15 +56,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = REPO_ROOT / "scripts" / "capital_literals_baseline.txt"
 
 # Directories whose contents size, account for, or display real capital.
-MONEY_GLOBS = (
-    "services/*/app/**/*.py",
-    "scripts/**/*.py",
-    "scripts/**/*.sh",
-    "backtesting/**/*.py",
-    "frontend/src/**/*.js",
-    "frontend/src/**/*.jsx",
-    "frontend/src/**/*.ts",
-    "frontend/src/**/*.tsx",
+#
+# MONEY_GLOBS (used to build the baseline) and in_money_paths() (used on the
+# filenames pre-commit hands over) MUST agree. If they don't, a file the hook
+# scans but the baseline never saw fails for a reason nobody can reproduce.
+# Both derive from MONEY_DIRS x MONEY_SUFFIXES.
+MONEY_DIRS = ("services/*/app", "scripts", "backtesting", "frontend/src")
+MONEY_SUFFIXES = (".py", ".sh", ".js", ".jsx", ".ts", ".tsx")
+MONEY_GLOBS = tuple(
+    f"{d}/**/*{suffix}" for d in MONEY_DIRS for suffix in MONEY_SUFFIXES
 )
 
 # Identifiers/keys that mean "an amount of account money". Deliberately does
@@ -141,7 +141,7 @@ def in_money_paths(path: Path) -> bool:
     except ValueError:
         return False
 
-    if path.suffix not in (".py", ".sh", ".js", ".jsx", ".ts", ".tsx"):
+    if path.suffix not in MONEY_SUFFIXES:
         return False
     if rel.startswith(("scripts/", "backtesting/", "frontend/src/")):
         return True

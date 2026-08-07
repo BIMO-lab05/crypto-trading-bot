@@ -24,8 +24,16 @@ ALERT_FILE="$PROJECT_DIR/logs/paper_trading_alerts.log"
 # Daily-loss breaker, read from shared/account.py rather than restated here
 # (host-run script; CLAUDE.md money rules). The old hardcoded 5% predates
 # ADR-028, which raised the breaker to 12%.
-DAILY_LOSS_BREAKER_PCT="$(cd "$PROJECT_ROOT" && python3 -c \
-    'from shared.account import MAX_DAILY_LOSS_PCT; print(MAX_DAILY_LOSS_PCT)')"
+#
+# Not a bare `VAR=$(...)`: under `set -e` a failed import would kill this
+# monitor at startup, and a monitor that goes silent is worse than one running
+# on a stale threshold. Fall back, keep monitoring, and say so.
+if ! DAILY_LOSS_BREAKER_PCT="$(cd "$PROJECT_ROOT" && python3 -c \
+    'from shared.account import MAX_DAILY_LOSS_PCT; print(MAX_DAILY_LOSS_PCT)' \
+    2>/dev/null)"; then
+    DAILY_LOSS_BREAKER_PCT=12.0  # ADR-028 fallback
+    echo "WARNING: cannot read shared/account.py — daily-loss threshold fell back to ${DAILY_LOSS_BREAKER_PCT}%" >&2
+fi
 DAILY_LOSS_WARN_PCT="$(echo "$DAILY_LOSS_BREAKER_PCT - 2" | bc -l)"
 
 # Service endpoints

@@ -14,8 +14,20 @@ LAST_ALERT_FILE="/tmp/last_health_alert"
 # host-run scripts may import it per CLAUDE.md money rules). This script used
 # to hardcode a 5% breaker and send a CRITICAL "limit REACHED" Telegram alert
 # at 5% — seven points before the real ADR-028 breaker at 12%.
-DAILY_LOSS_BREAKER_PCT="$(cd "$REPO_ROOT" && python3 -c \
-    'from shared.account import MAX_DAILY_LOSS_PCT; print(MAX_DAILY_LOSS_PCT)')"
+#
+# This must NOT be a bare `VAR=$(...)`: under `set -e` a failed import would
+# exit here and this cron would stop monitoring entirely. A monitor that goes
+# silent is a worse failure than one using a stale threshold, so on failure we
+# fall back, keep running, and say so loudly. (startup.sh takes the opposite
+# stance deliberately — there, refusing to guess is correct, because it WRITES
+# an account size rather than reading one.)
+DAILY_LOSS_BREAKER_FALLBACK=12.0  # ADR-028; only used if the import fails
+if ! DAILY_LOSS_BREAKER_PCT="$(cd "$REPO_ROOT" && python3 -c \
+    'from shared.account import MAX_DAILY_LOSS_PCT; print(MAX_DAILY_LOSS_PCT)' \
+    2>/dev/null)"; then
+    DAILY_LOSS_BREAKER_PCT="$DAILY_LOSS_BREAKER_FALLBACK"
+    RISK_CONFIG_UNREADABLE=1
+fi
 # Pre-alert with headroom before the breaker, matching scripts/monitor.py's
 # THRESHOLDS["daily_loss_pct"] convention (warn at 10 ahead of the 12 breaker).
 DAILY_LOSS_WARN_PCT="$(echo "$DAILY_LOSS_BREAKER_PCT - 2" | bc -l)"
@@ -65,6 +77,12 @@ check_services() {
 
 # Check daily loss limit
 check_daily_loss() {
+    # Surface a stale-threshold run rather than letting it pass as normal.
+    if [ "${RISK_CONFIG_UNREADABLE:-0}" = "1" ] && should_send_alert "risk_config"; then
+        send_telegram_alert "⚠️  WARNING: cannot read shared/account.py — daily-loss thresholds fell back to ${DAILY_LOSS_BREAKER_PCT}%. Verify the risk config."
+        record_alert "risk_config"
+    fi
+
     PORTFOLIO=$(curl -s "http://localhost:8003/api/v1/portfolio" 2>/dev/null || echo "{}")
     DAILY_PNL=$(echo "$PORTFOLIO" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('portfolio', {}).get('total_return_pct', '0'))" 2>/dev/null || echo "0")
 
