@@ -1,5 +1,34 @@
 # H3-secondary verdict: ACCEPT
 
+> **AMENDMENT 2026-08-07 — ACCEPT HERE MEANS "NOT FALSIFIED PRE-FEE". THIS RUN IS
+> ECONOMICALLY NEGATIVE.** The recorded metrics below are unchanged; this note
+> states the arithmetic they already imply, because the verdict word at the top
+> of the file outlives the commit message that said it.
+>
+> The AUDIT.md criterion is explicitly *pre-fee*, so a positive gross expectancy
+> clears it no matter how small. Here it is very small:
+>
+> | | 1.5x | 2.5x |
+> |---|---|---|
+> | gross total | +$41.87 | +$10.97 |
+> | gross expectancy / trade | +$0.003405 | +$0.000892 |
+> | mean leg notional | $6.98 | $6.97 |
+> | gross edge as % of notional | **0.0488%** | **0.0128%** |
+> | round-trip cost, Bybit est. (2 x 0.055%) | 0.110% | 0.110% |
+> | round-trip cost, modelled (2 x 0.10%) | 0.200% | 0.200% |
+> | total fees vs total gross, Bybit est. | $94.36 = **2.25x gross** | $94.34 = **8.60x gross** |
+> | total fees vs total gross, modelled | $171.56 = **4.10x gross** | $171.53 = **15.63x gross** |
+> | net total, Bybit est. | **−$52.49** | **−$83.37** |
+> | net total, modelled | **−$129.69** | **−$160.56** |
+>
+> Costs exceed the gross edge by 2.3x–4.1x at 1.5x ATR and by 8.6x–15.6x at 2.5x.
+> Funding is not in those nets and would add a further ~$49–51 of cost. There is
+> no fee tier or execution improvement of this size available at a $100 account.
+> **Do not cite this ACCEPT as evidence that the ATR bracket design is tradeable.**
+> Notional figures are derived from the recorded `fees_modelled` column
+> (`fees = (notional_in + notional_out) x 0.001`); every other number is read
+> directly from the metrics below.
+
 **Criterion (AUDIT.md §7, verbatim):** AUDIT.md:261 verbatim — "stop-out rate <40% AND gross expectancy >0 pre-fee"
 
 ## Metrics

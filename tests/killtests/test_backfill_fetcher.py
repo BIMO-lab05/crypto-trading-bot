@@ -76,6 +76,7 @@ class FakeFetcher(bdf.BybitDataFetcher):
 
     def __init__(self, batches):
         # deliberately do NOT call super().__init__ — no httpx client needed
+        self.base_url = "http://fake-connector"  # named in the mainnet refusal
         self.rate_limit_delay = 0
         self._reachability_checked = True
         self._batches = list(batches)
@@ -114,7 +115,12 @@ def test_klines_schema_csv(tmp_path):
     out = tmp_path / "BTCUSDT_60m_2d_bybit.csv"
     asyncio.run(
         f.download_historical_data(
-            "BTCUSDT", interval="60", days=2, output_file=str(out), schema="klines"
+            "BTCUSDT",
+            interval="60",
+            days=2,
+            output_file=str(out),
+            schema="klines",
+            mainnet_asserted=True,
         )
     )
     df = pd.read_csv(out)
@@ -143,7 +149,12 @@ def test_klines_schema_drops_trailing_forming_bar(tmp_path):
     out = tmp_path / "BTCUSDT_60m_1d_bybit.csv"
     asyncio.run(
         f.download_historical_data(
-            "BTCUSDT", interval="60", days=1, output_file=str(out), schema="klines"
+            "BTCUSDT",
+            interval="60",
+            days=1,
+            output_file=str(out),
+            schema="klines",
+            mainnet_asserted=True,
         )
     )
     df = pd.read_csv(out)
@@ -158,6 +169,41 @@ def test_klines_schema_drops_trailing_forming_bar(tmp_path):
     assert len(df) == 5
     assert forming_start not in ts_ms
     assert set(ts_ms) == set(closed_starts)
+
+
+def test_klines_schema_refuses_without_mainnet_assertion(tmp_path, monkeypatch):
+    """The is_mainnet column is a taint stamp candles.py refuses False rows
+    on. It used to be written unconditionally, which made that guard
+    unfalsifiable — the fetcher cannot observe which network the connector is
+    on (no endpoint exposes BYBIT_TESTNET), so it must not invent the claim."""
+    monkeypatch.delenv(bdf.MAINNET_ASSERTION_ENV, raising=False)
+    now_ms = int(time.time() * 1000)
+    f = FakeFetcher([_mk_rows(48, now_ms - 48 * 3600 * 1000), []])
+    out = tmp_path / "BTCUSDT_60m_2d_bybit.csv"
+    with pytest.raises(SystemExit, match="MAINNET"):
+        asyncio.run(
+            f.download_historical_data(
+                "BTCUSDT",
+                interval="60",
+                days=2,
+                output_file=str(out),
+                schema="klines",
+            )
+        )
+    assert not out.exists()
+
+
+def test_env_var_satisfies_the_mainnet_assertion(tmp_path, monkeypatch):
+    monkeypatch.setenv(bdf.MAINNET_ASSERTION_ENV, "1")
+    now_ms = int(time.time() * 1000)
+    f = FakeFetcher([_mk_rows(48, now_ms - 48 * 3600 * 1000), []])
+    out = tmp_path / "BTCUSDT_60m_2d_bybit.csv"
+    asyncio.run(
+        f.download_historical_data(
+            "BTCUSDT", interval="60", days=2, output_file=str(out), schema="klines"
+        )
+    )
+    assert pd.read_csv(out)["is_mainnet"].all()
 
 
 def test_legacy_schema_unchanged(tmp_path):

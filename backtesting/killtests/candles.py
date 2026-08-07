@@ -48,6 +48,19 @@ class CandleStore:
         missing = _REQUIRED_COLS - set(raw.columns)
         if missing:
             raise CandleValidationError(f"{path}: missing columns {sorted(missing)}")
+        # HOW MUCH THIS GUARD IS WORTH — read before trusting it. The column
+        # it checks is written by backtesting/bybit_data_fetcher.py, which
+        # cannot observe which network it fetched from: bybit-connector picks
+        # testnet vs mainnet from its own BYBIT_TESTNET env and exposes that
+        # nowhere on its REST surface (only a startup log line,
+        # bybit-connector/app/main.py:339,370). Until 2026-08-07 the fetcher
+        # stamped True unconditionally, which made this check literally
+        # unfalsifiable. It now refuses to write klines-schema CSVs unless the
+        # operator passes --assert-mainnet, so a False row is at least
+        # possible in principle — but the stamp is a human assertion, not a
+        # proof. RESIDUAL GAP: an operator who asserts wrongly still poisons
+        # the CSV and this guard still passes. Closing it needs the connector
+        # to publish its testnet flag on /health.
         if not raw["is_mainnet"].astype(bool).all():
             raise CandleValidationError(f"{path}: contains is_mainnet=False rows")
         ts = pd.to_datetime(raw["timestamp"])

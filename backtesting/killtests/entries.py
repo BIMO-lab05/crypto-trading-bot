@@ -90,8 +90,16 @@ def extract() -> None:
         check=True,
     )
     rows = json.loads(out.stdout.strip())
+    # 13 is what the DB held when this fixture was first cut; the assert
+    # exists to catch a broken LEFT JOIN silently multiplying or dropping
+    # rows, not to claim the table can never legitimately grow.
     assert len(rows) == 13, (
-        f"expected 13 closed positions, got {len(rows)} (join multiplicity broke?)"
+        f"expected 13 closed positions, got {len(rows)}. More than 13 with "
+        "duplicate position_ids means the side-matched trades join went "
+        "multiplicative; fewer means rows were dropped. If paper trading has "
+        "genuinely closed more positions since 2026-08-05, that is a fixture "
+        "re-baseline (bump this number, re-run H3, and write a NEW dated "
+        "verdict) — not a bug to suppress."
     )
     shorts = [r for r in rows if r["side"] == "SHORT"]
     assert shorts, "no SHORT rows — side-matched join is wrong"

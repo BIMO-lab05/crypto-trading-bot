@@ -73,10 +73,17 @@ The stamp comes from:
 python3 -m pytest tests/killtests/test_golden_parity.py -m golden --no-cov
 ```
 This requires the docker stack up (`docker compose -f docker-compose.unified.yml up -d`)
-— it skips loudly otherwise. Run it **on its own**, not folded into a wider
-pytest invocation: the minting rule below counts failures session-wide, so an
-unrelated failing test elsewhere in the same session will (deliberately)
-produce a `passed: false` stamp.
+— it skips loudly otherwise. Run it **whole, and on its own**. Two ways to lose a good stamp, both
+deliberate and both conservative (they can only close the H4 gate, never open
+it falsely):
+
+* folded into a wider pytest invocation — the minting rule counts failures
+  session-wide, so an unrelated failure elsewhere writes `passed: false`;
+* a partial `-k` run inside the golden module for debugging — one parity test
+  starts, the other two are recorded as not-passed, and a genuine same-day
+  pass is overwritten with `passed: false`. (A run where *no* parity test
+  starts at all — `-m "not golden"`, or a `-k` that matches nothing here —
+  leaves the stamp untouched.)
 
 **Who writes the stamp, and when.** Nothing inside `test_golden_parity.py`
 writes it. Each parity test records that it started and (on its last line)
@@ -113,7 +120,8 @@ bar for every interval the chain touches (15/60/240/D). Two rules:
    mkdir -p backtesting/data-parity   # gitignored
    for iv in 15 60 240 D; do python3 backtesting/bybit_data_fetcher.py \
      --multiple BTCUSDT ETHUSDT SOLUSDT BNBUSDT ADAUSDT --interval $iv \
-     --days 365 --schema klines --out-dir backtesting/data-parity; done
+     --days 365 --schema klines --assert-mainnet \
+     --out-dir backtesting/data-parity; done
    # rename *_Dm_* -> *_1440m_* as usual, then:
    KILLTESTS_DATA_DIR=backtesting/data-parity python3 -m pytest \
      tests/killtests/test_golden_parity.py -m golden --no-cov
@@ -164,14 +172,65 @@ so a real engine fix breaks the harness loudly. When it fails:
 
 1. Re-baseline: update the offline replay/shims consciously to match the new deployed behavior.
 2. Re-run the full chain: fresh CSV backfill → golden-parity stamp → signal series → H4 → (H3 if entries or exit logic changed).
-3. Standing verdict files are dated and never overwritten in place — a re-run produces a new dated verdict; old ones stay as historical record, not silently superseded.
+3. Standing verdict files are dated, so a re-run **on a later day** produces a new
+   dated verdict and old ones stay as historical record. `write_verdict` keys on
+   `test_id` + *today's* date, so a re-run on the **same day overwrites in place**
+   — copy the file aside first if you need to compare two same-day runs.
+
+`h3_atr_replay.py` also compares its backfill-manifest digest against the one
+recorded in the standing verdict for the same `test_id`, and emits a loud
+caveat (plus a stderr warning) when they differ. It does not refuse: refusing
+would make the harness unrunnable after any legitimate data refresh, which is
+the opposite of "kill bad strategies cheaply". Treat that caveat as meaning
+*this is a different measurement, not a reproduction* — see the 2026-08-07
+amendment on `H3-verdict-20260805.md` for a worked example.
 
 Also re-run if the backfilled CSVs go stale relative to the live stack —
 `test_candle_window_equality` (part of the golden-parity suite) catches this
 directly (`only N/50 overlapping candles — backfill stale? refresh it`); if
 it fails on staleness alone (not a genuine signal/indicator divergence),
 refresh via `bybit_data_fetcher.py --multiple <5 symbols> --interval <iv>
---days 365 --schema klines --out-dir backtesting/data` for all 4 intervals
-(`15`, `60`, `240`, `D` — not `1440`, which is not a valid Bybit v5 interval
-value and silently returns 0 rows; rename `{sym}_Dm_...` → `{sym}_1440m_...`
-after), then regenerate the manifest.
+--days 365 --schema klines --assert-mainnet --out-dir backtesting/data` for all
+4 intervals (`15`, `60`, `240`, `D` — not `1440`, which is not a valid Bybit v5
+interval value and silently returns 0 rows; rename `{sym}_Dm_...` →
+`{sym}_1440m_...` after), then regenerate the manifest.
+
+## `--assert-mainnet` is not optional, and not a proof
+
+The 11-column `klines` schema carries an `is_mainnet` column that `candles.py`
+refuses to load if any row is False. Until 2026-08-07 the fetcher stamped it
+`True` unconditionally, so that guard could never fire — it read as a
+data-integrity check while checking nothing. The fetcher now refuses to write
+the klines schema without `--assert-mainnet` (or `BACKTEST_MAINNET_ASSERTED=1`).
+
+**Verify before you assert**, because nothing downstream can:
+
+```bash
+docker compose -f docker-compose.unified.yml exec bybit-connector env | grep BYBIT_TESTNET      # must be false
+docker compose -f docker-compose.unified.yml logs bybit-connector | grep BYBIT_PRICE_SOURCE     # must read mode=live testnet=False
+```
+
+**Residual gap, stated plainly:** this is an operator assertion, not a proof.
+bybit-connector chooses testnet vs mainnet from its own `BYBIT_TESTNET` env and
+publishes it on no endpoint (`bybit-connector/app/main.py:339,370` are log lines
+only), so the fetcher cannot check the claim it is being asked to stamp. An
+operator who asserts wrongly still poisons the CSVs and every guard downstream
+still passes. Closing this properly means having the connector expose
+`bybit_testnet` on `/health` — a service change, deliberately not done as part
+of harness cleanup.
+
+## CI status
+
+**None of this runs in CI today.** `tests/killtests/` is host-run only — no
+workflow in `.github/workflows/` references it, so nothing catches a
+harness regression except a human running it. The non-golden suite is fast,
+needs no docker stack, and would be the right thing to wire up:
+
+```bash
+python3 -m pytest tests/killtests/ --no-cov -m "not golden"
+```
+
+The `golden` marker must stay excluded in CI: that suite needs the full docker
+stack plus a freshly-fetched backfill inside a single 15-minute bar, and — by
+design — writes the parity stamp that gates H4. A CI runner minting stamps
+would be an evidence-integrity problem, not a convenience.
