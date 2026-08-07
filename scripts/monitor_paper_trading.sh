@@ -21,6 +21,13 @@ PROJECT_DIR="${PROJECT_ROOT}"
 LOG_FILE="$PROJECT_DIR/logs/paper_trading_monitor.log"
 ALERT_FILE="$PROJECT_DIR/logs/paper_trading_alerts.log"
 
+# Daily-loss breaker, read from shared/account.py rather than restated here
+# (host-run script; CLAUDE.md money rules). The old hardcoded 5% predates
+# ADR-028, which raised the breaker to 12%.
+DAILY_LOSS_BREAKER_PCT="$(cd "$PROJECT_ROOT" && python3 -c \
+    'from shared.account import MAX_DAILY_LOSS_PCT; print(MAX_DAILY_LOSS_PCT)')"
+DAILY_LOSS_WARN_PCT="$(echo "$DAILY_LOSS_BREAKER_PCT - 2" | bc -l)"
+
 # Service endpoints
 TRADING_ENGINE="http://localhost:8005"
 PORTFOLIO_MANAGER="http://localhost:8003"
@@ -302,8 +309,8 @@ check_alerts() {
     local risk=$(curl -s "$RISK_METRICS/api/v1/risk/current" 2>/dev/null)
     if [ -n "$risk" ]; then
         local daily_loss=$(echo "$risk" | python3 -c "import sys, json; print(json.load(sys.stdin).get('daily_loss_percent', 0))" 2>/dev/null || echo "0")
-        if (( $(echo "$daily_loss >= 4" | bc -l 2>/dev/null || echo "0") )); then
-            echo -e "  ${RED}WARNING: Daily loss at ${daily_loss}% - approaching 5% limit!${NC}"
+        if (( $(echo "$daily_loss >= $DAILY_LOSS_WARN_PCT" | bc -l 2>/dev/null || echo "0") )); then
+            echo -e "  ${RED}WARNING: Daily loss at ${daily_loss}% - approaching ${DAILY_LOSS_BREAKER_PCT}% limit!${NC}"
             alert "Daily loss at ${daily_loss}% - approaching emergency stop"
             ((alerts++))
         fi

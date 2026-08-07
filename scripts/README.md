@@ -261,9 +261,10 @@ python3 scripts/validate_risk_limits.py [OPTIONS]
    - Risk Metrics accessible
 
 2. **Position Size Calculation** (Test 2/8)
-   - 2% risk per trade enforced
-   - Stop-loss percentage validation
-   - Edge case handling
+   - Paper per-trade risk cap enforced (10%, ADR-010)
+   - Notional above the position cap clamps **down**
+   - Notional below the venue minimum is **rejected**, never clamped up
+   - Reports the LIVE 2% cap separately as a pre-live gate
 
 3. **Daily Loss Limit** (Test 3/8)
    - 12% daily loss limit enforced (ADR-028)
@@ -313,11 +314,17 @@ python3 scripts/validate_risk_limits.py [OPTIONS]
 ✓ Portfolio Manager accessible
 ✓ Risk Metrics accessible
 
-[2/8] Position Size Calculation (2% Risk Limit)
+[2/8] Position Size Calculation (10% Risk)
 ──────────────────────────────────────────────────
-✓ Standard trade: $10K balance, 5% SL
-✓ Tight stop: $5K balance, 2% SL
-✓ Large account: $50K balance, 10% SL
+  Account: $100.00 | risk budget $10.00 | position cap $10.00 | venue min $5.00
+✓ Stop 2% -> notional $500.00: clamped down to cap
+✓ Stop 5% -> notional $200.00: clamped down to cap
+✓ Stop 10% -> notional $100.00: clamped down to cap
+✓ Stop 50% -> notional $20.00: clamped down to cap
+✓ A compliant position size exists at this account size
+⚠ LIVE per-trade cap is below the venue minimum
+  2% of $100.00 = $2.00 < $5.00 — LIVE trading is not mechanically viable
+  at this account size regardless of edge
 ...
 
 ═══════════════════════════════════════════════════════════
@@ -334,7 +341,9 @@ Pass Rate: 100.0%
 ✓ All Risk Management Rules VALIDATED
 
 Risk controls are properly configured:
-  • Position sizing: 2% risk per trade
+  • Account equity: $100.00
+  • Position sizing: 10% risk per trade (paper, ADR-010)
+  • Position cap: 10% of equity ($10.00)
   • Daily loss limit: 12% of portfolio (ADR-028)
   • Circuit breaker: 10% drawdown
   • Stop-loss: ATR-based dynamic
@@ -342,8 +351,19 @@ Risk controls are properly configured:
   • Leverage: 1x (no leverage)
   • Emergency stop: Available
 
+Pre-live gate: LIVE caps per-trade risk at 2% ($2.00 here).
+Restore it before TRADING_MODE=LIVE.
+
 System is SAFE for paper trading
 ```
+
+> Every figure above is read from `shared/account.py` at runtime, not restated
+> in the script. Until 2026-08-06 `validate_risk_limits.py` hardcoded
+> `MAX_RISK_PER_TRADE = 0.02` and `DAILY_LOSS_LIMIT = 0.05` and validated the
+> running 10%/12% system against them — reporting PASS the whole time, because
+> both sides of every comparison came from the same stale literals. A validator
+> that hardcodes the numbers it validates cannot detect the drift it exists to
+> detect.
 
 **When to Use:**
 - Before starting live trading

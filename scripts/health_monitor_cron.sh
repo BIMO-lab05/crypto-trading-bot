@@ -5,9 +5,20 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOG_FILE="/tmp/health_monitor.log"
 ALERT_COOLDOWN=3600  # 1 hour cooldown for same alert
 LAST_ALERT_FILE="/tmp/last_health_alert"
+
+# Daily-loss breaker, read from shared/account.py (the declaration of record;
+# host-run scripts may import it per CLAUDE.md money rules). This script used
+# to hardcode a 5% breaker and send a CRITICAL "limit REACHED" Telegram alert
+# at 5% — seven points before the real ADR-028 breaker at 12%.
+DAILY_LOSS_BREAKER_PCT="$(cd "$REPO_ROOT" && python3 -c \
+    'from shared.account import MAX_DAILY_LOSS_PCT; print(MAX_DAILY_LOSS_PCT)')"
+# Pre-alert with headroom before the breaker, matching scripts/monitor.py's
+# THRESHOLDS["daily_loss_pct"] convention (warn at 10 ahead of the 12 breaker).
+DAILY_LOSS_WARN_PCT="$(echo "$DAILY_LOSS_BREAKER_PCT - 2" | bc -l)"
 
 # Check if last alert was sent recently
 should_send_alert() {
@@ -60,16 +71,16 @@ check_daily_loss() {
     # Convert to number and check
     LOSS_PCT=$(echo "$DAILY_PNL" | awk '{if ($1 < 0) print -$1; else print 0}')
 
-    # Check 4% warning threshold
-    if (( $(echo "$LOSS_PCT > 4" | bc -l) )); then
+    # Pre-alert, with headroom before the breaker
+    if (( $(echo "$LOSS_PCT > $DAILY_LOSS_WARN_PCT" | bc -l) )); then
         if should_send_alert "loss_warning"; then
-            send_telegram_alert "⚠️  WARNING: Daily loss at ${LOSS_PCT}% (approaching 5% limit)"
+            send_telegram_alert "⚠️  WARNING: Daily loss at ${LOSS_PCT}% (approaching ${DAILY_LOSS_BREAKER_PCT}% limit)"
             record_alert "loss_warning"
         fi
     fi
 
-    # Check 5% critical threshold
-    if (( $(echo "$LOSS_PCT >= 5" | bc -l) )); then
+    # Breaker threshold (ADR-028)
+    if (( $(echo "$LOSS_PCT >= $DAILY_LOSS_BREAKER_PCT" | bc -l) )); then
         if should_send_alert "loss_critical"; then
             send_telegram_alert "🚨 CRITICAL: Daily loss limit REACHED at ${LOSS_PCT}%! Trading should be stopped!"
             record_alert "loss_critical"

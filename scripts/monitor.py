@@ -29,6 +29,7 @@ import json
 
 # Host-run script: repo-root shared/ is importable (CLAUDE.md money rules).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.account import MAX_DAILY_LOSS_PCT  # noqa: E402
 from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
 
 # ANSI color codes
@@ -229,7 +230,8 @@ class SystemMonitor:
                     if daily_pnl_pct < -THRESHOLDS["daily_loss_pct"]:
                         self.send_alert(
                             "daily_loss_warning",
-                            f"Daily loss at {daily_pnl_pct:.2f}% (${daily_pnl:.2f}) - approaching 5% limit!",
+                            f"Daily loss at {daily_pnl_pct:.2f}% (${daily_pnl:.2f}) "
+                            f"- approaching {MAX_DAILY_LOSS_PCT:.0f}% limit!",
                             "WARNING",
                         )
 

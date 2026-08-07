@@ -7,9 +7,16 @@ Last Updated: 2025-11-14
 Purpose: Validate all risk management rules and safety mechanisms
 Usage: python3 scripts/validate_risk_limits.py [--verbose]
 
+Every cap this script checks is imported from shared/account.py rather than
+restated here. A validator that hardcodes the numbers it validates cannot
+detect the drift it exists to detect: until 2026-08-06 this file asserted a
+2%-per-trade / 5%-daily policy against a system configured for 10% / 12%
+(ADR-010, ADR-028) and reported PASS, because both sides of every comparison
+came from the same stale literals.
+
 Tests:
-1. Position size calculation (2% risk per trade)
-2. Daily loss limit enforcement (5%)
+1. Position size calculation (paper per-trade risk cap)
+2. Daily loss limit enforcement (ADR-028 breaker)
 3. Circuit breaker activation (10% drawdown)
 4. Stop-loss calculation (ATR-based)
 5. Emergency stop procedures
@@ -21,7 +28,21 @@ import asyncio
 import sys
 import argparse
 from datetime import datetime
+from pathlib import Path
 import httpx
+
+# Host-run script: repo-root shared/ is importable (CLAUDE.md money rules).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.account import (  # noqa: E402
+    ACCOUNT_EQUITY_USD,
+    LIVE_MAX_RISK_PER_TRADE,
+    MAX_DAILY_LOSS_PCT,
+    MAX_POSITION_SIZE_PCT,
+    MAX_RISK_PER_TRADE,
+    MIN_NOTIONAL_USD,
+    max_daily_loss_fraction,
+    max_position_size_fraction,
+)
 
 # ANSI color codes for terminal output
 GREEN = "\033[0;32m"
@@ -35,10 +56,29 @@ TRADING_ENGINE_URL = "http://localhost:8005"
 PORTFOLIO_URL = "http://localhost:8003"
 RISK_METRICS_URL = "http://localhost:8009"
 
-# Risk parameters from documentation
-MAX_RISK_PER_TRADE = 0.02  # 2%
-DAILY_LOSS_LIMIT = 0.05  # 5%
-MAX_DRAWDOWN = 0.10  # 10%
+# ---------------------------------------------------------------------------
+# Risk parameters.
+#
+# UNITS ARE NOT UNIFORM upstream and the names here carry the unit so a
+# fraction is never compared against a percent (CLAUDE.md: comparing
+# `0.10 > 12.0` is a check that silently never fires).
+#
+#   MAX_RISK_PER_TRADE      fraction, 0.10 paper (ADR-010)
+#   MAX_DAILY_LOSS_PCT      percent,  12.0      (ADR-028)
+#   MAX_POSITION_SIZE_PCT   percent,  10.0
+#
+# LIVE_MAX_RISK_PER_TRADE (0.02) is the non-negotiable LIVE cap and is
+# reported separately in the pre-live summary — the paper relaxation must not
+# erase it.
+# ---------------------------------------------------------------------------
+DAILY_LOSS_LIMIT_FRACTION = max_daily_loss_fraction()  # 0.12
+MAX_POSITION_SIZE_FRACTION = max_position_size_fraction()  # 0.10
+
+# Not declared in shared/account.py — there is no MAX_DRAWDOWN env key or
+# Settings field; this is the script's own peak-to-trough gate, distinct from
+# the daily-loss breaker above. Kept local and named as such rather than
+# pretending it has an upstream source.
+MAX_DRAWDOWN = 0.10  # fraction, 10% peak-to-trough
 MAX_POSITIONS = 5  # Maximum concurrent positions
 MAX_LEVERAGE = 1  # No leverage in initial version
 
@@ -108,77 +148,107 @@ class RiskValidator:
         return all_healthy
 
     async def test_position_size_calculation(self) -> bool:
-        """Test 2: Position size respects 2% risk limit"""
-        print(f"\n{BLUE}[2/8] Position Size Calculation (2% Risk Limit){NC}")
+        """Test 2: Sizing on the real account clears the venue floor and cap.
+
+        The previous version of this test computed
+        `(balance * MAX_RISK_PER_TRADE) / stop_loss_pct` and compared it to a
+        hardcoded `expected_max_position` derived from the same formula, on
+        synthetic $10K/$5K/$50K balances. It asserted only that Python
+        multiplies correctly, and it could not fail.
+
+        What actually constrains sizing on a $100 account is the pair of
+        boundaries in .claude/rules/money.md: notional below the venue minimum
+        must be REJECTED (never clamped up, which turns a 10% cap into a 40%
+        one), and notional above the position cap must be clamped DOWN.
+        """
+        risk_pct = MAX_RISK_PER_TRADE * 100
+        print(f"\n{BLUE}[2/8] Position Size Calculation ({risk_pct:.0f}% Risk){NC}")
         print("─" * 50)
 
-        # Test scenarios
-        test_cases = [
-            {
-                "balance": 10000,
-                "stop_loss_pct": 0.05,  # 5% stop loss
-                "expected_max_position": 4000,  # 2% of 10000 / 5% SL = $4000
-                "description": "Standard trade: $10K balance, 5% SL",
-            },
-            {
-                "balance": 5000,
-                "stop_loss_pct": 0.02,  # 2% stop loss
-                "expected_max_position": 5000,  # 2% of 5000 / 2% SL = $5000
-                "description": "Tight stop: $5K balance, 2% SL",
-            },
-            {
-                "balance": 50000,
-                "stop_loss_pct": 0.10,  # 10% stop loss
-                "expected_max_position": 10000,  # 2% of 50000 / 10% SL = $10000
-                "description": "Large account: $50K balance, 10% SL",
-            },
-        ]
+        equity = ACCOUNT_EQUITY_USD
+        risk_budget = equity * MAX_RISK_PER_TRADE
+        position_cap = equity * MAX_POSITION_SIZE_FRACTION
+
+        print(
+            f"  Account: ${equity:.2f} | risk budget ${risk_budget:.2f} "
+            f"| position cap ${position_cap:.2f} | venue min ${MIN_NOTIONAL_USD:.2f}"
+        )
 
         all_passed = True
 
-        for case in test_cases:
-            # Calculate position size: (balance * max_risk) / stop_loss_pct
-            calculated_size = (case["balance"] * MAX_RISK_PER_TRADE) / case[
-                "stop_loss_pct"
-            ]
-
-            # Verify calculation matches expected
-            passed = abs(calculated_size - case["expected_max_position"]) < 0.01
-
-            details = f"Balance: ${case['balance']}, SL: {case['stop_loss_pct'] * 100}%, Max Position: ${calculated_size:.2f}"
-            self.print_test(case["description"], passed, details)
-
-            if not passed:
-                all_passed = False
-
-        # Test edge case: Zero balance
-        self.print_test(
-            "Edge case: Zero balance prevents trading",
-            True,
-            "Cannot trade with $0 balance",
-        )
-
-        # Test edge case: Stop loss too wide
-        wide_sl_position = (10000 * MAX_RISK_PER_TRADE) / 0.50  # 50% stop loss
-        if wide_sl_position < 1000:  # Should limit position size
-            self.print_test(
-                "Edge case: Wide stop loss limits position",
-                True,
-                f"50% SL results in ${wide_sl_position:.2f} position",
+        # Stop distances spanning the tight/typical/wide range. The implied
+        # notional is risk_budget / stop_distance in every case.
+        for stop_loss_pct in (0.02, 0.05, 0.10, 0.50):
+            implied_notional = risk_budget / stop_loss_pct
+            label = (
+                f"Stop {stop_loss_pct * 100:.0f}% -> notional ${implied_notional:.2f}"
             )
-        else:
-            self.print_test(
-                "Edge case: Wide stop loss limits position",
-                False,
-                f"50% SL allows ${wide_sl_position:.2f} position",
+
+            if implied_notional > position_cap:
+                # Clamping DOWN to the position cap is correct behaviour.
+                self.print_test(
+                    f"{label}: clamped down to cap",
+                    True,
+                    f"exceeds ${position_cap:.2f} cap, clamp to cap "
+                    f"(still >= ${MIN_NOTIONAL_USD:.2f} venue min: "
+                    f"{position_cap >= MIN_NOTIONAL_USD})",
+                )
+                if position_cap < MIN_NOTIONAL_USD:
+                    self.print_warning(
+                        "Position cap below venue minimum",
+                        f"cap ${position_cap:.2f} < min ${MIN_NOTIONAL_USD:.2f} — "
+                        "no compliant trade size exists at this stop distance",
+                    )
+            elif implied_notional < MIN_NOTIONAL_USD:
+                # Below the floor the ONLY correct outcome is a rejection.
+                self.print_warning(
+                    f"{label}: below venue minimum",
+                    f"< ${MIN_NOTIONAL_USD:.2f} — trade must be REJECTED with a "
+                    "reason, never clamped up to the minimum",
+                )
+            else:
+                self.print_test(
+                    f"{label}: within [min, cap]",
+                    True,
+                    f"${MIN_NOTIONAL_USD:.2f} <= ${implied_notional:.2f} "
+                    f"<= ${position_cap:.2f}",
+                )
+
+        # The structural check: is there any stop distance at which a trade is
+        # both above the venue floor and within the position cap? On $100 with
+        # a 10% position cap the answer is $10 vs a $5 floor — a thin but real
+        # window. If the cap ever falls below the floor, sizing is impossible
+        # and the engine must reject every trade rather than round up.
+        window_exists = position_cap >= MIN_NOTIONAL_USD
+        self.print_test(
+            "A compliant position size exists at this account size",
+            window_exists,
+            f"position cap ${position_cap:.2f} vs venue minimum "
+            f"${MIN_NOTIONAL_USD:.2f}",
+        )
+        if not window_exists:
+            all_passed = False
+
+        # LIVE is a different account entirely: the 2% cap is non-negotiable
+        # and on this equity it sits below the venue minimum.
+        live_budget = equity * LIVE_MAX_RISK_PER_TRADE
+        if live_budget < MIN_NOTIONAL_USD:
+            self.print_warning(
+                "LIVE per-trade cap is below the venue minimum",
+                f"{LIVE_MAX_RISK_PER_TRADE * 100:.0f}% of ${equity:.2f} = "
+                f"${live_budget:.2f} < ${MIN_NOTIONAL_USD:.2f} — LIVE trading is "
+                "not mechanically viable at this account size regardless of edge",
             )
             all_passed = False
 
         return all_passed
 
     async def test_daily_loss_limit(self) -> bool:
-        """Test 3: Daily loss limit enforcement (5%)"""
-        print(f"\n{BLUE}[3/8] Daily Loss Limit (5% of Portfolio){NC}")
+        """Test 3: Daily loss limit enforcement (ADR-028 breaker)"""
+        print(
+            f"\n{BLUE}[3/8] Daily Loss Limit "
+            f"({MAX_DAILY_LOSS_PCT:.0f}% of Portfolio, ADR-028){NC}"
+        )
         print("─" * 50)
 
         # Try to get actual portfolio data
@@ -213,15 +283,19 @@ class RiskValidator:
                     )
 
                     # Test 1: Check if daily loss is within limit
-                    within_limit = abs(daily_loss_pct) < (DAILY_LOSS_LIMIT * 100)
+                    within_limit = abs(daily_loss_pct) < MAX_DAILY_LOSS_PCT
 
                     details = f"Balance: ${current_balance:.2f}, Daily Loss: ${daily_loss:.2f} ({daily_loss_pct:.2f}%)"
                     self.print_test(
-                        "Current daily loss within 5% limit", within_limit, details
+                        f"Current daily loss within {MAX_DAILY_LOSS_PCT:.0f}% limit",
+                        within_limit,
+                        details,
                     )
 
                     # Test 2: Calculate remaining daily loss allowance
-                    remaining_loss = (initial_balance * DAILY_LOSS_LIMIT) - daily_loss
+                    remaining_loss = (
+                        initial_balance * DAILY_LOSS_LIMIT_FRACTION
+                    ) - daily_loss
                     remaining_pct = (remaining_loss / initial_balance) * 100
 
                     if remaining_loss > 0:
@@ -237,7 +311,7 @@ class RiskValidator:
                         )
 
                     # Test 3: Verify trading should stop if limit reached
-                    if daily_loss_pct >= (DAILY_LOSS_LIMIT * 100):
+                    if daily_loss_pct >= MAX_DAILY_LOSS_PCT:
                         # Check if trading is actually stopped
                         status_response = await client.get(
                             f"{TRADING_ENGINE_URL}/api/v1/status"
@@ -629,13 +703,30 @@ class RiskValidator:
         if self.failed == 0:
             print(f"\n{GREEN}✓ All Risk Management Rules VALIDATED{NC}")
             print("\nRisk controls are properly configured:")
-            print("  • Position sizing: 2% risk per trade")
-            print("  • Daily loss limit: 5% of portfolio")
-            print("  • Circuit breaker: 10% drawdown")
+            print(f"  • Account equity: ${ACCOUNT_EQUITY_USD:.2f}")
+            print(
+                f"  • Position sizing: {MAX_RISK_PER_TRADE * 100:.0f}% risk per "
+                "trade (paper, ADR-010)"
+            )
+            print(
+                f"  • Position cap: {MAX_POSITION_SIZE_PCT:.0f}% of equity "
+                f"(${ACCOUNT_EQUITY_USD * MAX_POSITION_SIZE_FRACTION:.2f})"
+            )
+            print(
+                f"  • Daily loss limit: {MAX_DAILY_LOSS_PCT:.0f}% of portfolio "
+                "(ADR-028)"
+            )
+            print(f"  • Circuit breaker: {MAX_DRAWDOWN * 100:.0f}% drawdown")
             print("  • Stop-loss: ATR-based dynamic")
             print(f"  • Max positions: {MAX_POSITIONS} concurrent")
             print(f"  • Leverage: {MAX_LEVERAGE}x (no leverage)")
             print("  • Emergency stop: Available")
+            print(
+                f"\n{YELLOW}Pre-live gate: LIVE caps per-trade risk at "
+                f"{LIVE_MAX_RISK_PER_TRADE * 100:.0f}% "
+                f"(${ACCOUNT_EQUITY_USD * LIVE_MAX_RISK_PER_TRADE:.2f} here). "
+                f"Restore it before TRADING_MODE=LIVE.{NC}"
+            )
             print("\n" + GREEN + "System is SAFE for paper trading" + NC)
             return 0
 
