@@ -219,3 +219,53 @@ def check_tradeable(
     if spec.min_notional is not None and quantity * price < spec.min_notional:
         return RejectReason.MIN_NOTIONAL
     return None
+
+
+@dataclass(frozen=True)
+class FundingSettlement:
+    """One funding settlement. `rate` is a SIGNED FRACTION of notional.
+
+    Bybit returns fundingRate as a stringified decimal — feed it to Decimal,
+    never float. Settlement cadence is per-symbol (`fundingInterval` in
+    instruments-info, 480 minutes on all five validated symbols but 1h or 4h
+    on others), which is why this carries a timestamp instead of assuming a
+    fixed bar count. backtest_engine.py:218 assumes `_bar_count % 8`.
+    """
+
+    ts_ms: int
+    rate: Decimal
+
+
+def funding_cost(
+    notional: Decimal,
+    side: str,
+    settlements: "list[FundingSettlement]",
+    *,
+    entry_ts_ms: int,
+    exit_ts_ms: int,
+) -> Decimal:
+    """Net funding over a holding period. POSITIVE means the position PAID.
+
+    Signed on BOTH axes, which is the whole point:
+      * a LONG pays a positive rate and is paid a negative one;
+      * a SHORT is paid a positive rate and pays a negative one.
+
+    backtest_engine.py:220 charges only `BUY and funding_long_pays`, so a short
+    never receives funding — the short side of every backtest in this repo is
+    missing a real cash flow.
+
+    An empty series returns 0. Silence must never become an assumed rate: the
+    hardcoded 0.0001 elsewhere is the base-rate CLIP (the max observed on all
+    five symbols), roughly 3-7x the measured means, and it has the wrong sign
+    for a SOL long.
+    """
+    if side not in ("LONG", "SHORT"):
+        raise ValueError(f"side must be LONG or SHORT, got {side!r}")
+    if notional < 0:
+        raise ValueError(f"notional must be non-negative, got {notional}")
+
+    total = Decimal("0")
+    for s in settlements:
+        if entry_ts_ms <= s.ts_ms <= exit_ts_ms:
+            total += notional * s.rate
+    return total if side == "LONG" else -total
