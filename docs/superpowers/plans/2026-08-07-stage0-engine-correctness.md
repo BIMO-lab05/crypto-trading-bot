@@ -1487,7 +1487,22 @@ docker exec -i crypto-bot-postgres psql -U cryptobot -d cryptobot \
   -f - < database/migrations/one_time_repairs/2026-08-07-cash-ledger-repair.sql
 ```
 
-Expected: `invariant_holds` returns `t`. Paste the full BEFORE/AFTER output into the commit message. If it returns `f`, roll back from the Step 3 dump and stop.
+**The exact-equality form above is WRONG and would abort a correct repair — use a tolerance.**
+`portfolios.cash_balance` is `numeric(20,8)`, but the unconsumed-fee term evaluates to nine
+decimals (`0.011349574` on current data). The computed cash `79.069697366` therefore *stores*
+as `79.06969737`, and re-adding the full-scale terms to that rounded column leaves a residual
+of ~4e-9. Exact `=` returns `f` on a perfectly correct repair, and the instruction below would
+then roll it back. Compare with a tolerance and **print the raw residual beside it**, so the
+tolerance can never hide a genuine break:
+
+```sql
+SELECT ABS(<lhs> - <rhs>) < 1e-6 AS invariant_holds,
+       (<lhs> - <rhs>)        AS raw_residual;
+```
+
+Expected: `invariant_holds` is `t` **and** `raw_residual` is within a few 1e-9 of zero. Paste
+the full BEFORE/AFTER output into the commit message. If `invariant_holds` is `f`, or the
+residual is materially larger than column scale explains, roll back from the Step 3 dump and stop.
 
 - [ ] **Step 6: Recreate the engine so it reloads the repaired ledger**
 
@@ -1500,7 +1515,19 @@ docker logs crypto-bot-trading --tail 40 2>&1 | grep -E "Balance restored|Restor
 curl -s http://localhost:8005/api/v1/performance | python3 -m json.tool
 ```
 
-Expected: `Restored balance` matches the repaired `cash_balance`, no `posted_margin is NULL` lines, and `/api/v1/performance` `current_balance` agrees with the DB. Paste all three.
+**`/api/v1/performance` does NOT measure this repair — do not use it as the proof.**
+`app/handlers/performance.py:79` computes `current_balance = initial_balance + realized_pnl`
+from the **closed-only** P&L in the DB; it never reads `cash_balance`. It returns
+`99.58997584` both before and after a correct repair. Including it as a verification step was
+an error in this plan.
+
+The endpoint that does expose engine cash is `app/handlers/health.py:248`
+(`paper_engine.get_balance()`). The real end-to-end proof is the **startup log line** from
+`sync_balance_with_positions`, because that is the code path that reconstructs cash from the
+repaired row.
+
+Expected: `Restored balance` matches the repaired `cash_balance`, and there are no
+`posted_margin is 0 on OPEN position` lines. Paste both.
 
 - [ ] **Step 7: Commit**
 
@@ -2629,7 +2656,10 @@ it, so its pyramiding/no-hedging branch never fires." -- \
 Stage 0 is done when all of the following hold. Per CLAUDE.md §7, an HTTP 200 is not proof.
 
 1. `cd services/trading-engine && python3 -m pytest tests/ --no-cov -q` introduces **no new failure family** against the 2026-08-08 baseline (1638 passed / 36 failed / 795 skipped — see Global Constraints), **and** every test file this plan touched passes **in isolation**. Do not gate on the raw count; it drifts with unrelated work and the bulk of the 36 is singleton pollution that disappears in isolated runs.
-2. The invariant query returns `t` — all three terms, realized summed over **all** positions:
+2. The invariant holds **within tolerance** — all three terms, realized summed over **all**
+   positions. Compare with `ABS(lhs - rhs) < 1e-6` and print the raw residual beside it:
+   exact `=` returns `f` on a correct repair, because `cash_balance` is `numeric(20,8)` while
+   the unconsumed-fee term carries nine decimals.
    ```bash
    docker exec crypto-bot-postgres psql -U cryptobot -d cryptobot -c "
    SELECT (p.cash_balance
