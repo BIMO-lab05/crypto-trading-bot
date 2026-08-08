@@ -9,39 +9,77 @@ UPDATED 2025-11-29: Research-backed position management enhancements
 """
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, Dict
+from typing import Optional, Dict
 from decimal import Decimal
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
-from app.models.enums import PositionSide, PositionStatus
+from app.models.enums import PositionSide, PositionStatus, ExitKind
 
 
 class PositionBase(BaseModel):
     """Base position model"""
+
     symbol: str = Field(description="Trading symbol")
     side: PositionSide = Field(description="Position side (LONG/SHORT)")
     entry_price: Decimal = Field(description="Entry price")
     quantity: Decimal = Field(description="Position quantity")
     stop_loss: Optional[Decimal] = Field(default=None, description="Stop loss price")
-    take_profit: Optional[Decimal] = Field(default=None, description="Take profit price (legacy/primary)")
+    take_profit: Optional[Decimal] = Field(
+        default=None, description="Take profit price (legacy/primary)"
+    )
     strategy: Optional[str] = Field(default=None, description="Strategy name")
     # CRITICAL FIX 2025-12-05: Save entry signal confidence for performance analysis
-    entry_signal_confidence: Optional[float] = Field(default=None, description="Entry signal confidence (0.0-1.0)")
+    entry_signal_confidence: Optional[float] = Field(
+        default=None, description="Entry signal confidence (0.0-1.0)"
+    )
     # RESEARCH-BACKED: Multi-level take profits for partial exits (2025-11-29)
-    take_profit_1: Optional[Decimal] = Field(default=None, description="TP1 - 1:1 R:R (close 33%)")
-    take_profit_2: Optional[Decimal] = Field(default=None, description="TP2 - 2:1 R:R (close 33%)")
-    take_profit_3: Optional[Decimal] = Field(default=None, description="TP3 - 3:1 R:R (close final 34%)")
-    trailing_stop: Optional[Decimal] = Field(default=None, description="Trailing stop price")
-    trailing_stop_enabled: bool = Field(default=False, description="Enable trailing stop after TP1")
+    take_profit_1: Optional[Decimal] = Field(
+        default=None, description="TP1 - 1:1 R:R (close 33%)"
+    )
+    take_profit_2: Optional[Decimal] = Field(
+        default=None, description="TP2 - 2:1 R:R (close 33%)"
+    )
+    take_profit_3: Optional[Decimal] = Field(
+        default=None, description="TP3 - 3:1 R:R (close final 34%)"
+    )
+    trailing_stop: Optional[Decimal] = Field(
+        default=None, description="Trailing stop price"
+    )
+    trailing_stop_enabled: bool = Field(
+        default=False, description="Enable trailing stop after TP1"
+    )
+
+    # Stage 0 (2026-08-07): margin is a per-position DOLLAR amount posted at
+    # open and consumed proportionally at close. It replaces re-reading the
+    # global settings.default_leverage at close time, which credited back
+    # margin at whatever leverage was configured *then* — a 10x position
+    # closed after DEFAULT_LEVERAGE dropped to 1.0 returned 10x what it
+    # posted. A dollar amount is also immune to scale_in's entry_price
+    # averaging, which a stored leverage RATIO is not.
+    posted_margin: Decimal = Field(
+        default=Decimal("0"),
+        description="Margin currently posted and not yet returned, quote currency",
+    )
+    leverage: Decimal = Field(
+        default=Decimal("1"),
+        description="Leverage in force when this position opened (audit only; "
+        "no arithmetic reads this — posted_margin is authoritative)",
+    )
+    exit_kind: Optional[ExitKind] = Field(
+        default=None,
+        description="Structured close reason; None while OPEN and on pre-008 rows",
+    )
 
 
 class PositionCreate(PositionBase):
     """Create position request"""
+
     pass
 
 
 class PositionUpdate(BaseModel):
     """Update position request"""
+
     current_price: Optional[Decimal] = None
     stop_loss: Optional[Decimal] = None
     take_profit: Optional[Decimal] = None
@@ -57,23 +95,44 @@ class Position(PositionBase):
     - Partial exits: Scales out at TP1 (33%), TP2 (33%), TP3 (34%)
     - Exit tracking: Records which TPs have been hit
     """
+
     id: UUID = Field(default_factory=uuid4, description="Position ID")
     current_price: Optional[Decimal] = Field(default=None, description="Current price")
     unrealized_pnl: Decimal = Field(default=Decimal("0"), description="Unrealized P&L")
     realized_pnl: Decimal = Field(default=Decimal("0"), description="Realized P&L")
-    status: PositionStatus = Field(default=PositionStatus.OPEN, description="Position status")
-    opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Open timestamp")
+    status: PositionStatus = Field(
+        default=PositionStatus.OPEN, description="Position status"
+    )
+    opened_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), description="Open timestamp"
+    )
     closed_at: Optional[datetime] = Field(default=None, description="Close timestamp")
-    exit_price: Optional[Decimal] = Field(default=None, description="Exit price (for closed positions)")
-    exit_reason: Optional[str] = Field(default=None, description="Exit reason (stop_loss, take_profit, manual, etc)")
+    exit_price: Optional[Decimal] = Field(
+        default=None, description="Exit price (for closed positions)"
+    )
+    exit_reason: Optional[str] = Field(
+        default=None, description="Exit reason (stop_loss, take_profit, manual, etc)"
+    )
 
     # RESEARCH-BACKED: Partial exit tracking (2025-11-29)
-    remaining_quantity: Optional[Decimal] = Field(default=None, description="Remaining position size after partial exits")
-    tp1_hit: bool = Field(default=False, description="TP1 level reached and partial exit taken")
-    tp2_hit: bool = Field(default=False, description="TP2 level reached and partial exit taken")
-    tp3_hit: bool = Field(default=False, description="TP3 level reached and full exit taken")
-    highest_price: Optional[Decimal] = Field(default=None, description="Highest price reached (for trailing)")
-    lowest_price: Optional[Decimal] = Field(default=None, description="Lowest price reached (for trailing)")
+    remaining_quantity: Optional[Decimal] = Field(
+        default=None, description="Remaining position size after partial exits"
+    )
+    tp1_hit: bool = Field(
+        default=False, description="TP1 level reached and partial exit taken"
+    )
+    tp2_hit: bool = Field(
+        default=False, description="TP2 level reached and partial exit taken"
+    )
+    tp3_hit: bool = Field(
+        default=False, description="TP3 level reached and full exit taken"
+    )
+    highest_price: Optional[Decimal] = Field(
+        default=None, description="Highest price reached (for trailing)"
+    )
+    lowest_price: Optional[Decimal] = Field(
+        default=None, description="Lowest price reached (for trailing)"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -159,7 +218,9 @@ class Position(PositionBase):
         if self.lowest_price is None or current_price < self.lowest_price:
             self.lowest_price = current_price
 
-    def update_trailing_stop(self, current_price: Decimal, trail_distance: Decimal) -> bool:
+    def update_trailing_stop(
+        self, current_price: Decimal, trail_distance: Decimal
+    ) -> bool:
         """
         Update trailing stop based on favorable price movement
 
@@ -240,19 +301,45 @@ class Position(PositionBase):
         # Check TP levels in order
         if self.side == PositionSide.LONG:
             # LONG: Price goes UP to hit TPs
-            if not self.tp1_hit and self.take_profit_1 and current_price >= self.take_profit_1:
+            if (
+                not self.tp1_hit
+                and self.take_profit_1
+                and current_price >= self.take_profit_1
+            ):
                 return self._create_partial_exit("TP1", Decimal("0.33"))
-            elif not self.tp2_hit and self.take_profit_2 and current_price >= self.take_profit_2:
+            elif (
+                not self.tp2_hit
+                and self.take_profit_2
+                and current_price >= self.take_profit_2
+            ):
                 return self._create_partial_exit("TP2", Decimal("0.33"))
-            elif not self.tp3_hit and self.take_profit_3 and current_price >= self.take_profit_3:
-                return self._create_partial_exit("TP3", Decimal("1.0"))  # Exit remaining
+            elif (
+                not self.tp3_hit
+                and self.take_profit_3
+                and current_price >= self.take_profit_3
+            ):
+                return self._create_partial_exit(
+                    "TP3", Decimal("1.0")
+                )  # Exit remaining
         else:
             # SHORT: Price goes DOWN to hit TPs
-            if not self.tp1_hit and self.take_profit_1 and current_price <= self.take_profit_1:
+            if (
+                not self.tp1_hit
+                and self.take_profit_1
+                and current_price <= self.take_profit_1
+            ):
                 return self._create_partial_exit("TP1", Decimal("0.33"))
-            elif not self.tp2_hit and self.take_profit_2 and current_price <= self.take_profit_2:
+            elif (
+                not self.tp2_hit
+                and self.take_profit_2
+                and current_price <= self.take_profit_2
+            ):
                 return self._create_partial_exit("TP2", Decimal("0.33"))
-            elif not self.tp3_hit and self.take_profit_3 and current_price <= self.take_profit_3:
+            elif (
+                not self.tp3_hit
+                and self.take_profit_3
+                and current_price <= self.take_profit_3
+            ):
                 return self._create_partial_exit("TP3", Decimal("1.0"))
 
         return None
@@ -276,7 +363,7 @@ class Position(PositionBase):
             "exit_quantity": exit_quantity,
             "exit_percentage": float(percentage * 100),
             "remaining_quantity": new_remaining,
-            "enable_trailing": level == "TP1"  # Enable trailing after TP1
+            "enable_trailing": level == "TP1",  # Enable trailing after TP1
         }
 
     def apply_partial_exit(self, exit_info: Dict, realized_pnl: Decimal):

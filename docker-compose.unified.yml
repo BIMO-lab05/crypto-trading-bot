@@ -61,6 +61,10 @@ services:
       # neither read nor insert positions against (total trading outage).
       # The live DB was hand-patched 2026-08-04; this mount covers rebuilds.
       - ./database/migrations/007_position_fee_partial_exit_accounting.sql:/docker-entrypoint-initdb.d/05-position-fee-accounting.sql:ro
+      # Migration 008 adds posted_margin/leverage/exit_kind (Stage 0,
+      # 2026-08-07). Same rationale as 007 above: without this mount a fresh
+      # volume boots a schema the engine's ORM cannot insert positions against.
+      - ./database/migrations/008_position_margin_leverage_exit_kind.sql:/docker-entrypoint-initdb.d/06-position-margin-exit-kind.sql:ro
     networks:
       - crypto-bot-network
     healthcheck:

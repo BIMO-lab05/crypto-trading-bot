@@ -876,6 +876,15 @@ class PositionManager:
                     # which positions post-date the last persisted cash balance.
                     opened_at=_as_utc(db_pos.opened_at),
                     realized_pnl=Decimal(str(db_pos.realized_pnl or 0)),
+                    # Stage 0: restore the posted margin so a restart credits
+                    # back what was actually posted. NULL means 008 has not
+                    # been applied — Task 3 handles that case loudly.
+                    posted_margin=Decimal(str(db_pos.posted_margin))
+                    if db_pos.posted_margin is not None
+                    else Decimal("0"),
+                    leverage=Decimal(str(db_pos.leverage))
+                    if db_pos.leverage is not None
+                    else Decimal("1"),
                 )
                 # Use the DB position_id
                 position.id = db_pos.position_id

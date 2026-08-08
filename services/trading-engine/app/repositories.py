@@ -82,6 +82,12 @@ class PositionRepository:
                     ),
                     entry_fee=entry_fee,
                     exit_fee=Decimal("0"),
+                    posted_margin=position.posted_margin,
+                    leverage=position.leverage,
+                    # Pre-existing gap fixed here: the column has existed since
+                    # before 007 and was NULL on all 19 live rows because this
+                    # mapper never wrote it.
+                    entry_signal_confidence=position.entry_signal_confidence,
                 )
 
                 session.add(db_position)
@@ -133,6 +139,8 @@ class PositionRepository:
         realized_pnl: Decimal,
         exit_reason: Optional[str] = None,
         exit_fee: Optional[Decimal] = None,
+        exit_kind: Optional[str] = None,
+        posted_margin: Optional[Decimal] = None,
     ):
         """
         Close a position in database
@@ -146,6 +154,11 @@ class PositionRepository:
             exit_fee: Total accumulated exit-leg commission (optional so the
                 live-trading caller, which has no paper fee model, is
                 unaffected; the paper engine always passes it)
+            exit_kind: Structured close reason (Stage 0, 2026-08-07); optional
+                so callers not yet updated are unaffected
+            posted_margin: Remaining posted margin to write on close (Stage 0,
+                2026-08-07); optional, schema-only in this task — no caller
+                passes it yet
         """
         try:
             async with self.db.get_async_session() as session:
@@ -162,6 +175,10 @@ class PositionRepository:
                 }
                 if exit_fee is not None:
                     values["exit_fee"] = exit_fee
+                if exit_kind is not None:
+                    values["exit_kind"] = exit_kind
+                if posted_margin is not None:
+                    values["posted_margin"] = posted_margin
 
                 stmt = (
                     update(DBPosition)
