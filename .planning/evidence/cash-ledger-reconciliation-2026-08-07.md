@@ -203,15 +203,29 @@ B. undo pos63 open        (08-06 20:01:20)   270.84733109
 C. undo t99  pos62 close  (08-06 16:00:58)   247.77977069
 D. undo pos62 open        (08-06 15:01:12)   271.36913771
 E. undo t97  pos58 close  (08-06 14:10:55)   182.04554383
-F. cash just AFTER restart(08-06 13:48:32)   116.05005111
+F. undo t96  pos57 close  (08-06 14:10:53)   116.05005111   <- = cash just AFTER the restart
    + _open_position_cost(pos61) @ L=1        6.030214795
 G. persisted_cash at t94   (08-05 02:03:05) = 122.08026591
 ```
 
-**Independent corroboration of G.** The value implied for the ledger immediately *before* t94 is
-**$73.30308000**. `AUDIT.md §8.1` (written 2026-08-05) and `progress.md:885` both record the
-contemporaneous figure as **`portfolios.cash_balance=73.30`**. Two independent routes, one
-written by a different agent two days earlier, agree to the cent. The anchor is sound.
+Row F is both the t96 undo and the post-restart figure: t96 (2026-08-06 14:10:53) is the **first**
+cash event after the 13:48:32 restart, so undoing it lands exactly on the balance
+`sync_balance_with_positions` produced. Every close between the restart and now — t96, t97, t99,
+t102, t103 — is undone, and the two opens (pos62, pos63) are re-added; nothing in the window is
+skipped. *(An earlier revision of this table folded the t96 step into row F's label without naming
+it, which made the chain look like it skipped t96. The arithmetic always included it —
+`recon.py:48` — and no figure changed.)*
+
+**Corroboration of G.** The value implied for the ledger immediately *before* t94 is
+**$73.30308000**. `AUDIT.md §8.1` and `progress.md:885` record the contemporaneous figure as
+**`portfolios.cash_balance=73.30`** — agreeing to the cent with a computation made two days later
+from data those documents never touched.
+
+**This is one record, not two.** Both lines were added by the same commit — `f946cbc`,
+2026-08-05 14:58:10 +0100, `AUDIT.md` (+293) and `progress.md` (+54) together — so they are a
+single figure duplicated into two files, and must be counted once. It remains the only external
+check in this document, and it is a real one: a contemporaneous 2026-08-05 observation of
+`cash_balance` matching today's independent backward chain. The anchor is sound.
 
 ### 4.2 Attribution table
 
@@ -256,11 +270,14 @@ sum realized just after t93 =  −6.46738621
 open margin @10x            =  19.69359537
 unconsumed entry fee        =   0.19693611
 coherent just after t93     =  73.64208231
-actual   just after t93     =  73.30308000   (from §4.1, corroborated by AUDIT's $73.30)
+actual   just after t93     =  73.30308000   (from §4.1; matches the single 2026-08-05 record)
 BREAK at t93 (pre-flip)     =  −0.33900231
 ```
 
-The two routes agree to **1e-9**. So the residual is **dated to on-or-before 2026-08-04 16:07:16**,
+The two routes agree to **1e-9**. They are genuinely different computations — the first works
+backward from the live `portfolios` row and never touches the §4.1 chain; the second works forward
+from position state through that chain — though both necessarily read the same `positions` rows, so
+a defect in those rows would move both. So the residual is **dated to on-or-before 2026-08-04 16:07:16**,
 it is **negative** (the ledger held 34 cents *less* than coherent), and the leverage flip — which
 happened after — had nothing to do with it. The flip mechanism accounts for 100% of the break it
 created; this is a separate, older, sub-dollar defect it was layered on top of.
@@ -277,9 +294,10 @@ created; this is a separate, older, sub-dollar defect it was layered on top of.
    simulation in which every close has `L_close == L_open` is the §2 coherent identity re-evaluated
    event by event, so it necessarily agrees with the §4.3 figure — it is the same fact restated, and
    must not be counted twice. Its actual value is diagnostic: it confirms the residual is a single
-   out-of-band displacement rather than an accumulation across events. **The one genuinely
-   independent corroboration in this document is the AUDIT/`progress.md` `$73.30` figure** (§4.1),
-   which is what proves the residual is not an artifact of the backward chain.
+   out-of-band displacement rather than an accumulation across events. **The only external check in
+   this document is the `$73.30` figure** (§4.1) — a single contemporaneous 2026-08-05 record, since
+   `AUDIT.md` and `progress.md` received it in one commit (`f946cbc`). That one record is what shows
+   the residual is not an artifact of the backward chain.
 3. **Single-restart search.** A restart inserted at *every* inter-event gap from 2026-08-04 onward,
    across `L_now ∈ {1,10} × comm ∈ {0.1%, 0.055%}` — nearest results −0.15886269 and −2.04715787.
    **No fit within $0.01.**
@@ -331,7 +349,7 @@ not reconstructable.** Manufacturing a term to close it would be fabrication.
 0.19%; the ledger holds 34 cents *less* than the identified over-credits predict.
 
 The leverage mechanism itself reconciles **exactly**: three closes of 10x-opened positions credited
-back at 1x, agreeing to 1e-8 by two independent routes. What remains is a **separate, older,
+back at 1x, agreeing to 1e-8 by two separate computations (§4.2). What remains is a **separate, older,
 negative** discrepancy of 34 cents that already existed at 2026-08-04 16:07:16, before the flip.
 Every mechanism capable of producing it was tested and rejected (§4.4), and it originates inside a
 window whose one documented repair was, by its own record, executed interactively and not captured.
@@ -389,6 +407,12 @@ Task 2 must backfill `posted_margin` for the two OPEN rows as: **position 61 →
 ---
 
 ## 7. What the owner must decide
+
+> **Ruling given (2026-08-08): Task 4 is AUTHORIZED despite this UNRECONCILED verdict** — the
+> residual is 12× smaller than the $4.23 `AUDIT.md §8.1` already accepted, and it does not change
+> the value written. The override is recorded in the SDD ledger, not here; the verdict line at the
+> top of this file stands as measured and is deliberately left unchanged. The rest of this section
+> is the analysis that ruling was made against.
 
 **The residual does not change the number Task 4 would write.** `79.06969737` is computed from
 *current state* — today's `realized_pnl`, `posted_margin` and unconsumed fees — so it is the
