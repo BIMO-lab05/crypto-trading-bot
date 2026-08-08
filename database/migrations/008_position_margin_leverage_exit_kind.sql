@@ -106,17 +106,22 @@ WHERE opened_at < TIMESTAMPTZ '2026-08-05 02:03:05+00' AND leverage = 1;
 -- reconstruct that history, so recomputing it here after Task 3 ships would
 -- silently reintroduce the exact bug this column exists to prevent -- the
 -- reason this design chose a stored dollar amount over a stored ratio in
--- the first place (see header). Both guards below are required, not
--- redundant: `posted_margin = 0` alone still fires forever on the pathological
--- case where a live OPEN position's remainder is coincidentally fully repaid
--- back to zero without a status flip to CLOSED; the opened_at cutoff below
--- closes that gap by refusing to touch anything this migration didn't
--- already know about at authoring time. 2026-08-07 18:00:00 UTC is after
--- every position that existed in this database when 008 was authored
--- (latest opened_at among live rows: 2026-08-07 00:00:40) and before this
--- fix was written (2026-08-08 01:16 UTC) -- any position opened at or after
--- that instant must get posted_margin from the engine, never from this
--- migration.
+-- the first place (see header). `posted_margin = 0` is the primary guard —
+-- under the design this migration implements, a live OPEN position's margin
+-- is consumed proportionally and only reaches zero at the same moment the
+-- row closes, so an OPEN row with posted_margin = 0 should only ever be one
+-- this migration itself has not yet backfilled. The opened_at cutoff is
+-- defense in depth on top of that, not a fix for a gap in it: it protects
+-- against a bug in Task 3's future code, or against this migration being
+-- reapplied against a database state it cannot reason about, by refusing to
+-- touch anything opened after the boundary below regardless of what
+-- posted_margin holds. 2026-08-07 18:00:00 UTC is not this migration's
+-- authoring instant (008 was authored and first applied earlier that day) —
+-- it is a cutoff chosen, when this guard was added in code review, to sit
+-- after every row 008 has ever backfilled (latest opened_at among live rows:
+-- 2026-08-07 00:00:40) and before the fix landed (2026-08-08 01:16 UTC).
+-- Any position opened at or after that instant must get posted_margin from
+-- the engine, never from this migration.
 UPDATE positions
 SET posted_margin = ROUND(
         entry_price * COALESCE(remaining_quantity, quantity) / leverage, 8)
