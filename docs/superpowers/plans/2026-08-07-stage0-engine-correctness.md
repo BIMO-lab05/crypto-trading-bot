@@ -1429,9 +1429,17 @@ Create `database/migrations/one_time_repairs/2026-08-07-cash-ledger-repair.sql`.
 --     -0.41002416 while SUM over all positions is -0.28337306.
 --   * unconsumed entry fee must be subtracted: cash was debited the WHOLE
 --     entry fee at open, while realized_pnl nets only the consumed portion.
---     For an open row that is entry_fee * remaining_quantity / quantity - the
---     same reconstruction load_positions_from_db uses, exact whenever no
+--     For an open row that is
+--       entry_fee * COALESCE(remaining_quantity, quantity) / NULLIF(quantity, 0)
+--     - the same reconstruction load_positions_from_db uses, exact whenever no
 --     scale-in intervened between partial exits.
+--     The COALESCE is MANDATORY, not defensive. remaining_quantity is nullable
+--     (007 added it without NOT NULL) and the engine treats NULL as "full"
+--     (paper_trading.py:97-101). A bare `entry_fee * remaining_quantity / ...`
+--     yields NULL on such a row and SUM SILENTLY DROPS IT - under-subtracting
+--     the unconsumed fee and setting cash_balance too HIGH. Both live open rows
+--     happen to be populated today, so the bug is latent; this statement
+--     re-derives at execution time, when that may no longer hold.
 
 \echo '=== BEFORE ==='
 SELECT portfolio_id, initial_balance, cash_balance, realized_pnl, updated_at
@@ -1441,7 +1449,7 @@ SELECT
     COALESCE((SELECT SUM(realized_pnl) FROM positions), 0)            AS realized_all,
     COALESCE((SELECT SUM(posted_margin) FROM positions
               WHERE status = 'OPEN'), 0)                              AS open_margin,
-    COALESCE((SELECT SUM(entry_fee * remaining_quantity / NULLIF(quantity, 0))
+    COALESCE((SELECT SUM(entry_fee * COALESCE(remaining_quantity, quantity) / NULLIF(quantity, 0))
               FROM positions WHERE status = 'OPEN'), 0)               AS unconsumed_entry_fee;
 
 BEGIN;
@@ -1452,7 +1460,7 @@ SET cash_balance = p.initial_balance
                  + COALESCE((SELECT SUM(realized_pnl) FROM positions), 0)
                  - COALESCE((SELECT SUM(posted_margin) FROM positions
                              WHERE status = 'OPEN'), 0)
-                 - COALESCE((SELECT SUM(entry_fee * remaining_quantity / NULLIF(quantity, 0))
+                 - COALESCE((SELECT SUM(entry_fee * COALESCE(remaining_quantity, quantity) / NULLIF(quantity, 0))
                              FROM positions WHERE status = 'OPEN'), 0),
     updated_at = NOW()
 WHERE p.portfolio_id = 'paper_trading';
@@ -1465,7 +1473,7 @@ FROM portfolios;
 
 SELECT (p.cash_balance
         + COALESCE((SELECT SUM(posted_margin) FROM positions WHERE status = 'OPEN'), 0)
-        + COALESCE((SELECT SUM(entry_fee * remaining_quantity / NULLIF(quantity, 0))
+        + COALESCE((SELECT SUM(entry_fee * COALESCE(remaining_quantity, quantity) / NULLIF(quantity, 0))
                     FROM positions WHERE status = 'OPEN'), 0)
         = p.initial_balance
         + COALESCE((SELECT SUM(realized_pnl) FROM positions), 0)) AS invariant_holds
@@ -2626,7 +2634,7 @@ Stage 0 is done when all of the following hold. Per CLAUDE.md §7, an HTTP 200 i
    docker exec crypto-bot-postgres psql -U cryptobot -d cryptobot -c "
    SELECT (p.cash_balance
            + COALESCE((SELECT SUM(posted_margin) FROM positions WHERE status='OPEN'),0)
-           + COALESCE((SELECT SUM(entry_fee * remaining_quantity / NULLIF(quantity,0))
+           + COALESCE((SELECT SUM(entry_fee * COALESCE(remaining_quantity, quantity) / NULLIF(quantity,0))
                        FROM positions WHERE status='OPEN'),0)
            = p.initial_balance
            + COALESCE((SELECT SUM(realized_pnl) FROM positions),0)) AS invariant_holds
