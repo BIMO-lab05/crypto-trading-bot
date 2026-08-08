@@ -26,6 +26,20 @@ pattern, or guard the `sys.modules` install behind `if __name__ == "__main__"`.
 **Why it matters:** it would make the suite's real signal visible for the first time. Every
 "36 failures" figure in this ledger is mostly this one file.
 
+**RESOLVED 2026-08-08** (final fix wave). Renamed to
+`services/trading-engine/tests/standalone/accounting_fixes_harness.py` — the rename was
+chosen over the `__main__` guard because the file's module-level app imports depend on the
+stub being installed first, so guarding it would have meant restructuring the harness.
+Direct invocation is preserved and re-verified:
+`cd services/trading-engine && python3 tests/standalone/accounting_fixes_harness.py` →
+**25 passed, 3 failed**, byte-identical before and after the rename (the 3 are pre-existing
+PAPER-01 slippage drift, e.g. `realized pnl == +10 (got 9.790)`, not rename damage).
+One correction to the finding above: the 21 poisoned tests are in
+`tests/unit/test_repositories.py`, not `tests/test_repositories.py` — the latter is fully
+skipped ("stale tests after PR #86 refactor"). Historical references to the old filename in
+`docs/archive/`, `.planning/forensics/` and the 2026-07-31 audit were deliberately left
+alone; rewriting an archived record is worse than a stale command line inside it.
+
 ---
 
 ## 2. `load_positions_from_db` fails silently to zero positions
