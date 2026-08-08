@@ -156,3 +156,66 @@ def round_trip_cost_bps(
     if exit_liquidity is Liquidity.TAKER:
         slip_bps += slip
     return fee_bps + slip_bps
+
+
+class RejectReason(str, Enum):
+    """Why an order may not be placed. Rejection, never a clamp."""
+
+    ZERO_QTY = "ZERO_QTY"
+    MIN_QTY = "MIN_QTY"
+    MIN_NOTIONAL = "MIN_NOTIONAL"
+    SPEC_UNAVAILABLE = "SPEC_UNAVAILABLE"
+
+
+def snap_quantity(quantity: Decimal, spec: VenueSpec) -> Decimal:
+    """Floor `quantity` to the venue lot step. NEVER rounds up.
+
+    Rounding up is how a 10% per-trade cap silently becomes a 40% cap
+    (CLAUDE.md section 1). A quantity below one step floors to zero and must be
+    caught by `check_tradeable`, not turned into an order.
+    """
+    if spec.qty_step <= 0:
+        raise ValueError(f"qty_step must be positive for {spec.symbol}")
+    steps = (quantity / spec.qty_step).to_integral_value(rounding="ROUND_FLOOR")
+    return steps * spec.qty_step
+
+
+def quantize_price(
+    price: Decimal, spec: VenueSpec, *, adverse_for_buy: bool
+) -> Decimal:
+    """Quantize to the venue tick, AWAY from mid.
+
+    A buy lands at or above the reference, a sell at or below, so the tick
+    floor is always a cost and never an accidental gain. Never `round(p, 2)`:
+    that erased ADA precision and caused 30+ flip-flop losses (487d1bd).
+    """
+    if spec.tick_size <= 0:
+        raise ValueError(f"tick_size must be positive for {spec.symbol}")
+    ticks = price / spec.tick_size
+    rounding = "ROUND_CEILING" if adverse_for_buy else "ROUND_FLOOR"
+    return ticks.to_integral_value(rounding=rounding) * spec.tick_size
+
+
+def check_tradeable(
+    quantity: Decimal,
+    price: Decimal,
+    spec: Optional[VenueSpec],
+) -> Optional[RejectReason]:
+    """None if the order may be placed, else why not.
+
+    Gate order mirrors the live path (auto_trader.py:1611-1657): zero quantity,
+    then the minimum lot, then notional. The notional check is SKIPPED when
+    spec.min_notional is None, because Bybit omits lotSizeFilter.
+    minNotionalValue on many perps and the live enforced path has no fallback.
+    That is a faithful mirror, not an endorsement — a caller that needs a floor
+    must pass one.
+    """
+    if spec is None:
+        return RejectReason.SPEC_UNAVAILABLE
+    if quantity <= 0:
+        return RejectReason.ZERO_QTY
+    if quantity < spec.min_order_qty:
+        return RejectReason.MIN_QTY
+    if spec.min_notional is not None and quantity * price < spec.min_notional:
+        return RejectReason.MIN_NOTIONAL
+    return None
