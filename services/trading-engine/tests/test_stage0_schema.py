@@ -10,13 +10,15 @@ table but not to the mappers is a silent no-op.
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-
+from app.database.models import Position as DBPosition
 from app.handlers.trades import db_position_to_app_position
 from app.models.enums import ExitKind, PositionSide
 from app.models.position import Position
+from app.position_manager import PositionManager
+from app.repositories import PositionRepository
 
 
 def _db_row(**overrides):
@@ -100,3 +102,80 @@ def test_trade_history_mapper_tolerates_nulls_on_legacy_rows():
     assert pos.exit_kind is None
     assert pos.posted_margin == Decimal("0")
     assert pos.leverage == Decimal("1")
+
+
+async def test_create_position_mapper_persists_margin_leverage_and_confidence():
+    """MAPPER 1 — repositories.PositionRepository.create's DBPosition(...) kwargs.
+
+    This is the exact mapper that dropped entry_signal_confidence for months
+    (see module docstring): create() returning without raising proved
+    nothing, because nothing ever asserted on what was actually handed to
+    session.add(). Assert the constructed DBPosition directly.
+    """
+    position = Position(
+        symbol="SOLUSDT",
+        side=PositionSide.LONG,
+        entry_price=Decimal("72.68"),
+        quantity=Decimal("0.30"),
+        posted_margin=Decimal("21.804"),
+        leverage=Decimal("1"),
+        entry_signal_confidence=0.81,
+    )
+    repo = PositionRepository()
+    with patch.object(repo.db, "get_async_session") as mock_session:
+        mock_async_session = AsyncMock()
+        mock_session.return_value.__aenter__.return_value = mock_async_session
+
+        await repo.create(position)
+
+    mock_async_session.add.assert_called_once()
+    db_position = mock_async_session.add.call_args.args[0]
+    assert isinstance(db_position, DBPosition)
+    assert db_position.posted_margin == Decimal("21.804")
+    assert db_position.leverage == Decimal("1")
+    assert db_position.entry_signal_confidence == 0.81
+
+
+async def test_restart_hydrator_restores_margin_and_leverage():
+    """MAPPER 3 — position_manager.load_positions_from_db."""
+    row = _db_row(
+        status="OPEN",
+        posted_margin=Decimal("14.60868000"),
+        leverage=Decimal("1"),
+    )
+    mock_repo = MagicMock()
+    mock_repo.get_open_positions = AsyncMock(return_value=[row])
+
+    with (
+        patch("app.position_manager.get_risk_manager", return_value=MagicMock()),
+        patch("app.position_manager.get_position_repository", return_value=mock_repo),
+        patch(
+            "app.position_manager.get_portfolio_repository", return_value=MagicMock()
+        ),
+    ):
+        manager = PositionManager()
+        loaded = await manager.load_positions_from_db()
+
+    assert loaded == 1
+    position = manager.get_position(row.position_id)
+    assert position.posted_margin == Decimal("14.60868000")
+    assert position.leverage == Decimal("1")
+
+
+def test_to_dict_reports_new_columns():
+    """to_dict — database.models.Position.to_dict()."""
+    db_position = DBPosition(
+        symbol="ADAUSDT",
+        side="SHORT",
+        quantity=Decimal("100"),
+        entry_price=Decimal("0.45"),
+        cost_basis=Decimal("45"),
+        unrealized_pnl=Decimal("0"),
+        posted_margin=Decimal("4.5"),
+        leverage=Decimal("10"),
+        exit_kind="MAX_HOLD",
+    )
+    d = db_position.to_dict()
+    assert d["posted_margin"] == 4.5
+    assert d["leverage"] == 10.0
+    assert d["exit_kind"] == "MAX_HOLD"

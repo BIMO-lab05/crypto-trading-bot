@@ -74,21 +74,54 @@ COMMENT ON COLUMN positions.exit_kind IS
 -- means the same instant regardless of the connecting session's TimeZone
 -- setting (this deployment's session TimeZone is UTC today, but the SQL
 -- should not depend on that staying true).
+--
+-- ONLY the pre-flip statement below does real work. Its post-flip mirror
+-- (`SET leverage = 1 WHERE opened_at >= ...`) was deleted 2026-08-08 in
+-- code review: the column is `NOT NULL DEFAULT 1`, so every row this
+-- statement could touch already holds 1 the moment it's inserted. An
+-- unconditional UPDATE with no "still at default" guard is a standing
+-- liability, not a no-op forever -- nothing stops a future column default
+-- change or a future migration from giving `leverage` a different resting
+-- value, at which point this statement would silently start overwriting
+-- real data on every `setup_database.sh` reapply. Deleting it removes the
+-- risk instead of guarding it.
 UPDATE positions SET leverage = 10
 WHERE opened_at < TIMESTAMPTZ '2026-08-05 02:03:05+00' AND leverage = 1;
 
-UPDATE positions SET leverage = 1
-WHERE opened_at >= TIMESTAMPTZ '2026-08-05 02:03:05+00';
-
--- Backfill: closed positions have nothing posted.
-UPDATE positions SET posted_margin = 0 WHERE status = 'CLOSED';
+-- Backfill: closed positions have nothing posted. Also deleted 2026-08-08:
+-- `posted_margin` is `NOT NULL DEFAULT 0`, so this was a no-op against the
+-- column default from the moment the column existed, for the same reason
+-- as the leverage statement above.
 
 -- Backfill: open positions carry margin on their REMAINING quantity, at the
 -- inferred leverage. Both live open rows post-date the flip (leverage 1), so
 -- this equals their remaining notional.
+--
+-- setup_database.sh globs and reapplies every *.sql on every run, including
+-- this one, indefinitely into the future -- this is not a one-time script.
+-- Once Task 3 makes posted_margin authoritative, the live engine posts and
+-- consumes it directly, including through scale_in, which rewrites
+-- entry_price to a size-weighted average across postings that may have
+-- opened at different leverage. entry_price*qty/leverage does NOT
+-- reconstruct that history, so recomputing it here after Task 3 ships would
+-- silently reintroduce the exact bug this column exists to prevent -- the
+-- reason this design chose a stored dollar amount over a stored ratio in
+-- the first place (see header). Both guards below are required, not
+-- redundant: `posted_margin = 0` alone still fires forever on the pathological
+-- case where a live OPEN position's remainder is coincidentally fully repaid
+-- back to zero without a status flip to CLOSED; the opened_at cutoff below
+-- closes that gap by refusing to touch anything this migration didn't
+-- already know about at authoring time. 2026-08-07 18:00:00 UTC is after
+-- every position that existed in this database when 008 was authored
+-- (latest opened_at among live rows: 2026-08-07 00:00:40) and before this
+-- fix was written (2026-08-08 01:16 UTC) -- any position opened at or after
+-- that instant must get posted_margin from the engine, never from this
+-- migration.
 UPDATE positions
 SET posted_margin = ROUND(
         entry_price * COALESCE(remaining_quantity, quantity) / leverage, 8)
-WHERE status = 'OPEN';
+WHERE status = 'OPEN'
+  AND posted_margin = 0
+  AND opened_at < TIMESTAMPTZ '2026-08-07 18:00:00+00';
 
 COMMIT;
