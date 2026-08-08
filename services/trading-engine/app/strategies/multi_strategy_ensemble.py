@@ -34,6 +34,27 @@ LEG_RSI = "simple_rsi"
 LEG_MULTI = "multi_indicator"
 LEG_MEAN_REV = "mean_reversion"
 
+# Sentinel meaning "this leg has no usable stop/target level".
+#
+# The multi-indicator leg used to read flat metadata["atr_stop_loss"] /
+# ["atr_take_profit"] keys that NOTHING in production ever wrote. The
+# aggregator stores its ATR payload nested, as metadata["atr"], keyed
+# stop_loss_long / stop_loss_short / take_profit_long / take_profit_short
+# (aggregator_core.py `_build_metadata`, populated from
+# signal_aggregator.fetch_atr). So the dict.get() default fired on every
+# signal and the leg's stop landed on current_price — a ZERO-WIDTH stop.
+#
+# When the levels are genuinely absent we must not invent one. A plausible
+# fabricated level (entry x 0.98, say) is indistinguishable downstream from a
+# real ATR level: it would override the risk manager's own default with a
+# number nobody chose, and it would look correct in the Telegram message and
+# in the DB row. 0.0 is instead rejected by
+# AutoTrader._ensemble_stops_are_consistent's explicit `stop_loss <= 0`
+# branch — a check written to reject it, not an accident of NaN comparison
+# semantics — so the entry is refused pre-fill with an ERROR naming the
+# symbol, and no position is opened against an unknown risk model.
+UNUSABLE_LEVEL = 0.0
+
 
 @dataclass
 class EnsembleSignal:
@@ -174,6 +195,58 @@ class MultiStrategyEnsemble:
 
         return get_settings().max_risk_per_trade
 
+    @staticmethod
+    def _atr_levels(aggregator_signal: TradingSignal) -> Tuple[float, float]:
+        """Side-aware (stop_loss, take_profit) for the multi-indicator leg.
+
+        Reads the aggregator's real payload — nested `metadata["atr"]`, keyed
+        `stop_loss_long` / `stop_loss_short` / `take_profit_long` /
+        `take_profit_short`. Mirrors sqzmom_strategy_integration.py, the one
+        place in this codebase that already reads that payload correctly.
+
+        Returns `(UNUSABLE_LEVEL, UNUSABLE_LEVEL)` when the payload is absent
+        or incomplete — see the constant for why that beats a fabricated
+        level. A missing payload means the aggregator produced no ATR data at
+        all, which is itself a defect worth seeing, so it is logged loudly
+        rather than swallowed.
+        """
+        symbol = getattr(aggregator_signal, "symbol", "?")
+        action = aggregator_signal.action
+        atr_data = (aggregator_signal.metadata or {}).get("atr")
+
+        if not isinstance(atr_data, dict):
+            logger.warning(
+                f"[ENSEMBLE][ATR] {symbol}: aggregator emitted no metadata['atr'] "
+                f"(got {type(atr_data).__name__}) for a {getattr(action, 'value', action)} "
+                f"signal — {LEG_MULTI} leg has no stop/target. The ATR fetch in "
+                f"signal_aggregator.fetch_atr most likely failed."
+            )
+            return UNUSABLE_LEVEL, UNUSABLE_LEVEL
+
+        if action == SignalAction.BUY:
+            raw_sl, raw_tp = (
+                atr_data.get("stop_loss_long"),
+                atr_data.get("take_profit_long"),
+            )
+        else:
+            raw_sl, raw_tp = (
+                atr_data.get("stop_loss_short"),
+                atr_data.get("take_profit_short"),
+            )
+
+        try:
+            if raw_sl is None or raw_tp is None:
+                raise ValueError("missing key")
+            return float(raw_sl), float(raw_tp)
+        except (TypeError, ValueError):
+            logger.warning(
+                f"[ENSEMBLE][ATR] {symbol}: metadata['atr'] present but unusable for "
+                f"{getattr(action, 'value', action)} — sl={raw_sl!r} tp={raw_tp!r}. "
+                f"Keys available: {sorted(atr_data)}. {LEG_MULTI} leg has no "
+                f"stop/target."
+            )
+            return UNUSABLE_LEVEL, UNUSABLE_LEVEL
+
     def generate_signal(
         self,
         aggregator_signal: TradingSignal,
@@ -205,16 +278,21 @@ class MultiStrategyEnsemble:
             aggregator_signal.action != SignalAction.HOLD
             and aggregator_signal.confidence > 0
         ):
-            atr_sl = aggregator_signal.metadata.get("atr_stop_loss", current_price)
-            atr_tp = aggregator_signal.metadata.get("atr_take_profit", current_price)
+            atr_sl, atr_tp = self._atr_levels(aggregator_signal)
+            multi_reasoning = [
+                f"Aggregator score={aggregator_signal.aggregated_score:.3f}, consensus={aggregator_signal.consensus_count}"
+            ]
+            if atr_sl == UNUSABLE_LEVEL or atr_tp == UNUSABLE_LEVEL:
+                multi_reasoning.append(
+                    "ATR levels unavailable — leg votes but carries no usable "
+                    "stop/target; the entry is rejected if this leg dominates"
+                )
             leg_signals[LEG_MULTI] = (
                 aggregator_signal.action,
                 aggregator_signal.confidence,
-                float(atr_sl) if atr_sl else current_price,
-                float(atr_tp) if atr_tp else current_price,
-                [
-                    f"Aggregator score={aggregator_signal.aggregated_score:.3f}, consensus={aggregator_signal.consensus_count}"
-                ],
+                atr_sl,
+                atr_tp,
+                multi_reasoning,
             )
 
         # Leg 3: Mean reversion

@@ -31,6 +31,26 @@ from app.models.signal import IndicatorSignal, TradingSignal
 # --- payload builders: shaped exactly like SignalAggregator's output ---------
 
 
+def _atr_payload(price: float) -> dict:
+    """The dict `signal_aggregator.fetch_atr` returns, which
+    `aggregator_core._build_metadata` files under metadata["atr"].
+
+    This test used to build flat "atr_stop_loss"/"atr_take_profit" keys —
+    a shape no production writer has ever produced (2026-08-08 fix).
+    """
+    return {
+        "atr": price * 0.02,
+        "atr_pct": 2.0,
+        "stop_loss_long": price * 0.98,
+        "stop_loss_short": price * 1.02,
+        "take_profit_long": price * 1.04,
+        "take_profit_short": price * 0.96,
+        "volatility": "NORMAL",
+        "confidence": 0.7,
+        "risk_reward_ratio": 2.0,
+    }
+
+
 def _rsi(value: float, action: SignalAction = SignalAction.SELL, confidence=0.52):
     """RSI as `signal_aggregator.fetch_rsi` actually builds it: numeric reading on
     `.value`, metadata carrying only period + aggregation weight."""
@@ -252,7 +272,7 @@ def test_ensemble_votes_sell_when_rsi_leg_opposes_a_weak_multi_buy(ensemble_modu
             "BOLLINGER_BANDS": _bollinger(price, upper=0.1765, lower=0.1558),
             "SMA": _sma(0.1659, price),
         },
-        metadata={"atr_stop_loss": price * 0.98, "atr_take_profit": price * 1.03},
+        metadata={"atr": _atr_payload(price)},
     )
 
     out = ensemble_module.MultiStrategyEnsemble().generate_signal(
