@@ -132,6 +132,47 @@ class PositionRepository:
             logger.error(f"Failed to update position price in database: {e}")
             raise
 
+    async def update_stops(
+        self,
+        position_id: UUID,
+        stop_loss: Optional[Decimal] = None,
+        take_profit: Optional[Decimal] = None,
+    ):
+        """Persist refined stop / target levels for an open position.
+
+        Stage 0 (2026-08-07). Before this existed, stop_loss reached the
+        database at exactly one line repo-wide — inside create() — so every
+        post-fill refinement was lost on restart and replaced by the
+        risk-manager default written at INSERT time.
+
+        Only the two columns that exist are written. take_profit_1/2/3,
+        trailing_stop, trailing_stop_enabled, tp1/2/3_hit, highest_price and
+        lowest_price have NO columns on positions and are still lost on
+        restart — a schema decision deliberately out of this change's scope.
+
+        A None argument is OMITTED from the UPDATE, never written as NULL.
+        """
+        values = {"updated_at": datetime.now(timezone.utc)}
+        if stop_loss is not None:
+            values["stop_loss"] = stop_loss
+        if take_profit is not None:
+            values["take_profit"] = take_profit
+        if len(values) == 1:
+            return
+
+        try:
+            async with self.db.get_async_session() as session:
+                stmt = (
+                    update(DBPosition)
+                    .where(DBPosition.position_id == position_id)
+                    .values(**values)
+                )
+                await session.execute(stmt)
+                await session.commit()
+        except Exception as e:
+            logger.error(f"Failed to update stops for position {position_id}: {e}")
+            raise
+
     async def close(
         self,
         position_id: UUID,

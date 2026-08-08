@@ -944,6 +944,18 @@ class PositionManager:
             f"Trailing: {trailing_stop} ({'enabled' if enable_trailing else 'disabled'})"
         )
 
+        # Stage 0 (2026-08-07): persist. This method used to be memory-only,
+        # so load_positions_from_db re-read the create-time risk-manager
+        # default and every post-fill refinement vanished on restart.
+        _spawn_persist(
+            self.position_repo.update_stops(
+                position_id,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            ),
+            "position stops update",
+        )
+
         return position
 
     # create_position_with_atr_stops was REMOVED 2026-08-06. It dropped the

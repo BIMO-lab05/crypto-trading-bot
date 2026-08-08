@@ -41,6 +41,7 @@ def _mock_position_repo():
     repo.close = AsyncMock()
     repo.record_reduction = AsyncMock()
     repo.record_scale_in = AsyncMock()
+    repo.update_stops = AsyncMock()
     repo.get_open_positions = AsyncMock(return_value=[])
     return repo
 
