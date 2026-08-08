@@ -1106,20 +1106,40 @@ In `services/trading-engine/app/paper_trading.py`:
         self.commission_pct = Decimal(str(self.settings.paper_commission_pct)) / Decimal("100")
 ```
 
-- [ ] **Step 8: Handle a NULL `posted_margin` loudly at restart**
+- [ ] **Step 8: Handle an un-backfilled `posted_margin` loudly at restart**
 
-In `position_manager.load_positions_from_db`, alongside the existing `remaining_quantity` NULL branch, add:
+**A NULL check here would be dead code — do not write one.** Migration 008 declared the column
+`NOT NULL DEFAULT 0`, so a row that never got a real margin presents as **`0`**, never as NULL.
+The anomaly to detect is therefore *zero margin on an OPEN position*, which by this task's own
+design is unreachable: open sets `margin_required > 0`, a partial close leaves a positive
+remainder, and a full close zeroes it only while setting `status = CLOSED`. If you ever see it,
+something upstream is wrong.
+
+In `position_manager.load_positions_from_db`, alongside the existing `remaining_quantity` branch:
 
 ```python
-                if db_pos.posted_margin is None:
+                # Stage 0 (2026-08-07): migration 008 made this column
+                # NOT NULL DEFAULT 0, so an un-backfilled row reads 0, not NULL —
+                # a NULL check would never fire. Zero margin on an OPEN position
+                # is unreachable by design (open posts > 0; a partial close leaves
+                # a positive remainder; a full close zeroes it only while setting
+                # status=CLOSED), so it means either 008's backfill missed this row
+                # or the margin ledger has a defect. Either way the next close
+                # credits NO margin back — say so.
+                if (position.posted_margin or Decimal("0")) <= 0:
                     logger.error(
-                        f"positions.posted_margin is NULL for {db_pos.position_id} "
-                        f"— migration 008 not applied? Treating as 0, which means "
-                        f"closing this position will credit NO margin back."
+                        f"positions.posted_margin is 0 on OPEN position "
+                        f"{db_pos.position_id} ({db_pos.symbol}) — 008 backfill "
+                        f"missed it, or the margin ledger is broken. Closing this "
+                        f"position will credit NO margin back to cash."
                     )
 ```
 
 Silence here would be a second `entry_signal_confidence`.
+
+While you are in this method, **also correct the stale comment** on the neighbouring
+`remaining_quantity` branch if it claims a NULL indicates "migration 007 not applied" in terms
+that no longer hold post-008 — say what a NULL actually means now.
 
 - [ ] **Step 9: Update the stale coupling comment**
 
