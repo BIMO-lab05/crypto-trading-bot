@@ -93,12 +93,15 @@ def test_settings_default_matches_shared_account(field_name: str):
 def test_every_declared_default_is_covered_or_deliberately_not():
     """DEFAULTS keys with no trading-engine counterpart are venue constants.
 
-    `MIN_NOTIONAL_USD` and `TAKER_FEE_PER_SIDE` describe Bybit, not the account,
-    and have no `Settings` field to drift against. Asserting the split keeps a
-    newly-added DEFAULTS entry from silently escaping this test.
+    `MIN_NOTIONAL_USD`, `TAKER_FEE_PER_SIDE` and `MAKER_FEE_PER_SIDE` describe
+    Bybit, not the account, and have no unit-compatible `Settings` field to
+    drift against — `paper_commission_pct` is a PERCENT while both fee
+    constants are FRACTIONS, which is exactly why neither is paired here.
+    Asserting the split keeps a newly-added DEFAULTS entry from silently
+    escaping this test.
     """
     covered = {key for key, _ in FIELD_PAIRS.values()}
-    venue_only = {"MIN_NOTIONAL_USD", "TAKER_FEE_PER_SIDE"}
+    venue_only = {"MIN_NOTIONAL_USD", "TAKER_FEE_PER_SIDE", "MAKER_FEE_PER_SIDE"}
     assert set(DEFAULTS) == covered | venue_only, (
         "shared.account.DEFAULTS changed. Add the new key to FIELD_PAIRS (if "
         "trading-engine Settings has a counterpart) or to `venue_only`."

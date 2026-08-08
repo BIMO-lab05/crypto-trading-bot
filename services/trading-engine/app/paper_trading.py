@@ -75,7 +75,11 @@ class PaperTradingEngine:
         self.balance = (
             self.initial_balance
         )  # Will be adjusted in sync_balance_with_positions
-        self.commission_pct = Decimal(str(self.settings.paper_commission_pct / 100))
+        # `/ 100` after the Decimal wrap, not before: the old form did the
+        # division in float and handed Decimal an already-lossy value.
+        self.commission_pct = Decimal(
+            str(self.settings.paper_commission_pct)
+        ) / Decimal("100")
         self.slippage = build_slippage_model(self.settings)
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
@@ -91,19 +95,32 @@ class PaperTradingEngine:
         logger.info("  Database persistence: ENABLED")
 
     def _open_position_cost(self, positions) -> Decimal:
-        """Margin + commission actually debited when these positions opened."""
-        leverage = Decimal(str(self.settings.default_leverage))
+        """Margin + commission actually debited when these positions opened.
+
+        Stage 0 (2026-08-07): reads the margin each position RECORDED at open
+        rather than recomputing it from the current settings.default_leverage.
+        The previous form made this docstring false — after the 2026-08-04
+        DEFAULT_LEVERAGE 10.0 -> 1.0 flip it over-deducted for every 10x-era
+        position on every restart.
+
+        Fix round (2026-08-08): the commission term had the SAME defect one
+        line below the one being fixed. It recomputed
+        entry_price*qty*commission_pct from the CURRENT rate while
+        positions.entry_fee holds what was actually debited, so changing
+        PAPER_COMMISSION_PCT mis-deducted for every pre-change position on
+        every restart — structurally identical to the leverage flip that
+        caused this whole repair. Both terms now read what was recorded.
+
+        The fee term is the UNCONSUMED portion, matching the margin term: a
+        partial exit returns margin proportionally and charges the matching
+        slice of entry fee to that leg's realized P&L, so what remains owed
+        against the persisted cash figure is what neither has absorbed. At an
+        unchanged commission rate this equals the old recomputation exactly.
+        """
         total = Decimal("0")
         for pos in positions:
-            qty = (
-                pos.remaining_quantity
-                if pos.remaining_quantity is not None
-                else pos.quantity
-            )
-            position_value = pos.entry_price * qty
-            total += (position_value / leverage) + (
-                position_value * self.commission_pct
-            )
+            posted = getattr(pos, "posted_margin", None) or Decimal("0")
+            total += posted + self.position_manager.unconsumed_entry_fee(pos.id)
         return total
 
     async def sync_balance_with_positions(self):
@@ -250,7 +267,28 @@ class PaperTradingEngine:
 
         order_value = fill_price * order.quantity
         commission = self.calculate_commission(order_value)
-        leverage = Decimal(str(self.settings.default_leverage))
+        # Stage 0 (2026-08-07): this is the leverage a NEW leg posts margin at.
+        # It is stamped onto the position. The CLOSE leg no longer reads it —
+        # it consumes position.posted_margin instead. Gated on leverage_enabled
+        # AND clamped to [min_leverage, max_leverage] so this derives leverage
+        # identically to auto_trader.py:2008-2013 and :4410-4415, the two
+        # sizing sites. paper_trading did neither.
+        #
+        # The clamp is not cosmetic: config.py:617-626 permits default_leverage
+        # up to 100 while max_leverage defaults to 20. Unclamped, DEFAULT_LEVERAGE
+        # =50 had auto_trader size notional at 20x while this posted notional/50
+        # — 40% of the intended margin, so the per-trade cap under-bound by 2.5x
+        # in cash terms. Conservation still held (the close credits what was
+        # posted), but the sizing contract did not.
+        leverage = Decimal("1")
+        if getattr(self.settings, "leverage_enabled", False):
+            leverage = max(
+                Decimal(str(self.settings.min_leverage)),
+                min(
+                    Decimal(str(self.settings.default_leverage)),
+                    Decimal(str(self.settings.max_leverage)),
+                ),
+            )
 
         executed_order = Order(
             **order.model_dump(),
@@ -321,8 +359,16 @@ class PaperTradingEngine:
             else:  # SHORT
                 realized_pnl = (target.entry_price - fill_price) * close_qty
 
-            # Margin posted at open for this quantity, now returned
-            margin_returned = (target.entry_price * close_qty) / leverage
+            # Stage 0 (2026-08-07): return what this position POSTED, not what
+            # the current global leverage would imply. The old form recomputed
+            # entry_price*close_qty/settings.default_leverage; a position
+            # opened at 10x and closed after DEFAULT_LEVERAGE dropped to 1.0
+            # credited back 10x its margin (~$177 fabricated on a $100 account).
+            # Must run BEFORE close_position/reduce_position touch
+            # remaining_quantity.
+            margin_returned = self.position_manager.consume_posted_margin(
+                target.id, close_qty
+            )
 
             # Cash ledger: gross P&L minus the exit commission. The entry fee
             # already left the cash balance at open — netting it here again
@@ -344,6 +390,7 @@ class PaperTradingEngine:
                     f"({target.side.value} close)"
                     + (f" [{order.strategy}]" if order.strategy else ""),
                     close_commission=close_commission,
+                    exit_kind=order.exit_kind,
                 )
                 executed_order.position_id = closed_position.id
                 net_leg_pnl = closed_position.realized_pnl - realized_before
@@ -417,7 +464,11 @@ class PaperTradingEngine:
 
                 self.balance -= total_cost
                 self.position_manager.scale_in(
-                    pos.id, order.quantity, fill_price, entry_fee=commission
+                    pos.id,
+                    order.quantity,
+                    fill_price,
+                    entry_fee=commission,
+                    posted_margin=margin_required,
                 )
                 executed_order.position_id = pos.id
 
@@ -469,6 +520,8 @@ class PaperTradingEngine:
             strategy=order.strategy,
             entry_signal_confidence=order.entry_signal_confidence,
             entry_fee=commission,
+            posted_margin=margin_required,
+            leverage=leverage,
         )
 
         executed_order.position_id = position.id

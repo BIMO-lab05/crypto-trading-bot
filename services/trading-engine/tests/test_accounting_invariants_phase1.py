@@ -330,6 +330,12 @@ async def test_remaining_quantity_survives_simulated_reload(stack):
         realized_pnl=prior_net,
         entry_fee=entry_fee,
         exit_fee=prior_exit_fee,
+        # Stage 0 (migration 008, 2026-08-07): load_positions_from_db now
+        # reads these unconditionally. A SimpleNamespace has no fallback
+        # attribute like MagicMock, so a fixture missing them raises
+        # AttributeError inside the try/except and silently reports 0 loaded.
+        posted_margin=Decimal("42"),
+        leverage=Decimal("1"),
     )
     stack.position_repo.get_open_positions = AsyncMock(return_value=[db_row])
 

@@ -52,7 +52,7 @@ import app.core.metrics  # noqa: F401,E402
 
 from app.auto_trader import AutoTrader  # noqa: E402
 from app.models import OrderStatus  # noqa: E402
-from app.models.enums import SignalAction  # noqa: E402
+from app.models.enums import SignalAction, ExitKind  # noqa: E402
 from app.services.instruments_cache import InstrumentSpec  # noqa: E402
 
 BALANCE = Decimal(str(ACCOUNT_EQUITY_USD))
@@ -102,6 +102,15 @@ def instruments_cache(monkeypatch):
 
 @pytest.fixture
 def trader(monkeypatch):
+    # PortfolioHeatManager is a process-global singleton that earlier tests
+    # leave positions in. The ensemble path consults it since Stage 0 Task 9,
+    # so without this reset these sizing assertions fail on unrelated state.
+    from app.trading_enhancements.portfolio_heat import (
+        reset_portfolio_heat_manager,
+    )
+
+    reset_portfolio_heat_manager()
+
     t = AutoTrader(symbols=["BTCUSDT", "SOLUSDT"])
     # Deterministic risk config for the sizing math under test (mirrors the
     # compose/production values; percent vs fraction units per .claude/rules).
@@ -448,6 +457,10 @@ async def test_long_stop_exit_fills_at_stop_price_minus_2_pct(trader, monkeypatc
     )
     assert order.reduce_only is True
     assert order.strategy == "stop_loss_limit"
+    # Stage 0 (Task 6): _exit_kind_for is called on the undecorated "stop_loss"
+    # reason before the order is built, so the structured record agrees with
+    # the prose tag above.
+    assert order.exit_kind == ExitKind.HARD_STOP
 
     finalize.assert_awaited_once()
     actual_fill = finalize.await_args.args[2]
@@ -476,7 +489,7 @@ async def test_short_stop_exit_fills_at_stop_price(trader, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stop_exit_arms_symbol_cooldown(trader, monkeypatch):
-    _wire_stop_close(trader, monkeypatch)
+    paper_engine, _finalize = _wire_stop_close(trader, monkeypatch)
     position = _stop_position("LONG", "100.0", "98.0")
 
     assert trader._check_symbol_cooldown("SOLUSDT") is True
@@ -484,6 +497,11 @@ async def test_stop_exit_arms_symbol_cooldown(trader, monkeypatch):
         position=position, current_price=97.9, reason="stop_loss"
     )
     assert trader._check_symbol_cooldown("SOLUSDT") is False
+    # Stage 0 (Task 6): the same close that arms the :3073 cooldown predicate
+    # must persist the structured exit_kind via the independent :2883 routing
+    # predicate — they stay divergent, but both roads lead here.
+    order, _fill_ref = paper_engine.execute_market_order.await_args.args
+    assert order.exit_kind == ExitKind.HARD_STOP
 
 
 # ============================================================================
@@ -516,10 +534,13 @@ async def test_max_hold_exit_arms_cooldown(trader, monkeypatch):
     position = _stop_position("LONG", "71.0", "69.58")
 
     assert trader._check_symbol_cooldown("SOLUSDT") is True
-    await trader._finalize_closed_position(
-        position, _closed_mock(), 71.0, "MAX_HOLD_TIME_EXCEEDED (49.0h > 48h)"
-    )
+    reason = "MAX_HOLD_TIME_EXCEEDED (49.0h > 48h)"
+    await trader._finalize_closed_position(position, _closed_mock(), 71.0, reason)
     assert trader._check_symbol_cooldown("SOLUSDT") is False
+    # Stage 0 (Task 6): the :3073 cooldown predicate and _exit_kind_for read
+    # the same reason string and agree here, even though they're allowed to
+    # diverge in general (the enum drops the baked-in "49.0h" detail).
+    assert trader._exit_kind_for(reason) == ExitKind.MAX_HOLD
 
 
 @pytest.mark.asyncio
@@ -528,10 +549,12 @@ async def test_take_profit_exit_does_not_arm_cooldown(trader, monkeypatch):
     _wire_finalize(trader, monkeypatch)
     position = _stop_position("LONG", "71.0", "69.58")
 
-    await trader._finalize_closed_position(
-        position, _closed_mock(), 74.0, "Take profit TP3 hit"
-    )
+    reason = "Take profit TP3 hit"
+    await trader._finalize_closed_position(position, _closed_mock(), 74.0, reason)
     assert trader._check_symbol_cooldown("SOLUSDT") is True
+    # Stage 0 (Task 6): confirms the take-profit record is TAKE_PROFIT, not a
+    # side effect of the cooldown predicate not matching "loss"/"stop".
+    assert trader._exit_kind_for(reason) == ExitKind.TAKE_PROFIT
 
 
 @pytest.mark.asyncio

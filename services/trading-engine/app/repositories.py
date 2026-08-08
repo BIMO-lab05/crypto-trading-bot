@@ -82,6 +82,12 @@ class PositionRepository:
                     ),
                     entry_fee=entry_fee,
                     exit_fee=Decimal("0"),
+                    posted_margin=position.posted_margin,
+                    leverage=position.leverage,
+                    # Pre-existing gap fixed here: the column has existed since
+                    # before 007 and was NULL on all 19 live rows because this
+                    # mapper never wrote it.
+                    entry_signal_confidence=position.entry_signal_confidence,
                 )
 
                 session.add(db_position)
@@ -126,6 +132,47 @@ class PositionRepository:
             logger.error(f"Failed to update position price in database: {e}")
             raise
 
+    async def update_stops(
+        self,
+        position_id: UUID,
+        stop_loss: Optional[Decimal] = None,
+        take_profit: Optional[Decimal] = None,
+    ):
+        """Persist refined stop / target levels for an open position.
+
+        Stage 0 (2026-08-07). Before this existed, stop_loss reached the
+        database at exactly one line repo-wide — inside create() — so every
+        post-fill refinement was lost on restart and replaced by the
+        risk-manager default written at INSERT time.
+
+        Only the two columns that exist are written. take_profit_1/2/3,
+        trailing_stop, trailing_stop_enabled, tp1/2/3_hit, highest_price and
+        lowest_price have NO columns on positions and are still lost on
+        restart — a schema decision deliberately out of this change's scope.
+
+        A None argument is OMITTED from the UPDATE, never written as NULL.
+        """
+        values = {"updated_at": datetime.now(timezone.utc)}
+        if stop_loss is not None:
+            values["stop_loss"] = stop_loss
+        if take_profit is not None:
+            values["take_profit"] = take_profit
+        if len(values) == 1:
+            return
+
+        try:
+            async with self.db.get_async_session() as session:
+                stmt = (
+                    update(DBPosition)
+                    .where(DBPosition.position_id == position_id)
+                    .values(**values)
+                )
+                await session.execute(stmt)
+                await session.commit()
+        except Exception as e:
+            logger.error(f"Failed to update stops for position {position_id}: {e}")
+            raise
+
     async def close(
         self,
         position_id: UUID,
@@ -133,6 +180,8 @@ class PositionRepository:
         realized_pnl: Decimal,
         exit_reason: Optional[str] = None,
         exit_fee: Optional[Decimal] = None,
+        exit_kind: Optional[str] = None,
+        posted_margin: Optional[Decimal] = None,
     ):
         """
         Close a position in database
@@ -146,6 +195,11 @@ class PositionRepository:
             exit_fee: Total accumulated exit-leg commission (optional so the
                 live-trading caller, which has no paper fee model, is
                 unaffected; the paper engine always passes it)
+            exit_kind: Structured close reason (Stage 0, 2026-08-07); optional
+                so callers not yet updated are unaffected
+            posted_margin: Remaining posted margin to write on close (Stage 0,
+                2026-08-07); optional, schema-only in this task — no caller
+                passes it yet
         """
         try:
             async with self.db.get_async_session() as session:
@@ -162,6 +216,10 @@ class PositionRepository:
                 }
                 if exit_fee is not None:
                     values["exit_fee"] = exit_fee
+                if exit_kind is not None:
+                    values["exit_kind"] = exit_kind
+                if posted_margin is not None:
+                    values["posted_margin"] = posted_margin
 
                 stmt = (
                     update(DBPosition)
@@ -189,6 +247,7 @@ class PositionRepository:
         exit_fee: Decimal,
         current_price: Decimal,
         unrealized_pnl: Decimal,
+        posted_margin: Optional[Decimal] = None,
     ):
         """
         Persist a partial exit (2026-08-04, AUDIT H5).
@@ -205,20 +264,28 @@ class PositionRepository:
             exit_fee: Accumulated exit-leg commission so far
             current_price: Fill price of the reducing leg
             unrealized_pnl: Unrealized P&L on the remaining quantity
+            posted_margin: Margin STILL posted after this reduction (Stage 0,
+                2026-08-07). Optional and guarded exactly as `close` guards
+                exit_fee, so a caller that has not been updated writes nothing
+                rather than zeroing a live ledger entry.
         """
         try:
             async with self.db.get_async_session() as session:
+                values = {
+                    "remaining_quantity": remaining_quantity,
+                    "realized_pnl": realized_pnl,
+                    "exit_fee": exit_fee,
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+                if posted_margin is not None:
+                    values["posted_margin"] = posted_margin
+
                 stmt = (
                     update(DBPosition)
                     .where(DBPosition.position_id == position_id)
-                    .values(
-                        remaining_quantity=remaining_quantity,
-                        realized_pnl=realized_pnl,
-                        exit_fee=exit_fee,
-                        current_price=current_price,
-                        unrealized_pnl=unrealized_pnl,
-                        updated_at=datetime.now(timezone.utc),
-                    )
+                    .values(**values)
                 )
 
                 await session.execute(stmt)
@@ -242,6 +309,8 @@ class PositionRepository:
         entry_fee: Decimal,
         current_price: Decimal,
         unrealized_pnl: Decimal,
+        posted_margin: Optional[Decimal] = None,
+        leverage: Optional[Decimal] = None,
     ):
         """
         Persist a scale-in (DCA averaging) — 2026-08-04.
@@ -258,22 +327,35 @@ class PositionRepository:
             entry_fee: Accumulated entry-leg commission (open + scale-ins)
             current_price: Fill price of the scale-in leg
             unrealized_pnl: Updated unrealized P&L
+            posted_margin: ACCUMULATED margin posted across the open leg and
+                every scale-in (Stage 0, 2026-08-07). Optional and guarded as
+                `close` guards exit_fee.
+            leverage: RE-BLENDED effective leverage after this scale-in
+                (2026-08-08), i.e. entry_price * remaining / posted_margin.
+                Without it the row keeps the first leg's ratio and stops
+                reconciling. Audit only; posted_margin stays authoritative.
         """
         try:
             async with self.db.get_async_session() as session:
+                values = {
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "cost_basis": entry_price * quantity,
+                    "remaining_quantity": remaining_quantity,
+                    "entry_fee": entry_fee,
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+                if posted_margin is not None:
+                    values["posted_margin"] = posted_margin
+                if leverage is not None:
+                    values["leverage"] = leverage
+
                 stmt = (
                     update(DBPosition)
                     .where(DBPosition.position_id == position_id)
-                    .values(
-                        quantity=quantity,
-                        entry_price=entry_price,
-                        cost_basis=entry_price * quantity,
-                        remaining_quantity=remaining_quantity,
-                        entry_fee=entry_fee,
-                        current_price=current_price,
-                        unrealized_pnl=unrealized_pnl,
-                        updated_at=datetime.now(timezone.utc),
-                    )
+                    .values(**values)
                 )
 
                 await session.execute(stmt)

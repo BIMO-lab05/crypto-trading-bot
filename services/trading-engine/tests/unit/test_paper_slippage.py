@@ -29,6 +29,7 @@ from uuid import UUID
 import pytest
 
 from app.models import (
+    ExitKind,
     OrderCreate,
     OrderSide,
     OrderType,
@@ -72,6 +73,8 @@ class FakePositionManager:
         strategy: Optional[str] = None,
         entry_signal_confidence: Optional[float] = None,
         entry_fee: Decimal = Decimal("0"),
+        posted_margin: Decimal = Decimal("0"),  # Stage 0 (2026-08-07)
+        leverage: Decimal = Decimal("1"),
     ) -> Position:
         pos = Position(
             symbol=symbol,
@@ -80,9 +83,31 @@ class FakePositionManager:
             quantity=quantity,
             strategy=strategy,
             entry_signal_confidence=entry_signal_confidence,
+            posted_margin=posted_margin,
+            leverage=leverage,
         )
         self.positions[pos.id] = pos
         return pos
+
+    def consume_posted_margin(self, position_id: UUID, quantity: Decimal) -> Decimal:
+        """Stage 0 (2026-08-07): mirrors PositionManager.consume_posted_margin.
+
+        The engine calls this on the close leg instead of recomputing
+        entry_price*qty/settings.default_leverage, so the fake has to hold a
+        real margin ledger or every balance figure below would drift.
+        """
+        pos = self.positions[position_id]
+        posted = pos.posted_margin or Decimal("0")
+        remaining = (
+            pos.remaining_quantity
+            if pos.remaining_quantity is not None
+            else pos.quantity
+        )
+        if posted <= 0 or remaining <= 0 or quantity <= 0:
+            return Decimal("0")
+        portion = posted if quantity >= remaining else posted * quantity / remaining
+        pos.posted_margin = posted - portion
+        return portion
 
     def get_position(self, position_id: UUID) -> Optional[Position]:
         return self.positions.get(position_id)
@@ -102,6 +127,7 @@ class FakePositionManager:
         exit_price: Decimal,
         reason: Optional[str] = None,
         close_commission: Decimal = Decimal("0"),
+        exit_kind: Optional[ExitKind] = None,
     ) -> Position:
         pos = self.positions[position_id]
         qty = pos.remaining_quantity or pos.quantity
@@ -112,7 +138,9 @@ class FakePositionManager:
         pos.realized_pnl += pnl
         pos.exit_price = exit_price
         pos.exit_reason = reason
+        pos.exit_kind = exit_kind
         pos.remaining_quantity = Decimal("0")
+        pos.posted_margin = Decimal("0")
         pos.status = PositionStatus.CLOSED
         return pos
 
@@ -135,6 +163,7 @@ class FakePositionManager:
         quantity: Decimal,
         price: Decimal,
         entry_fee: Decimal = Decimal("0"),
+        posted_margin: Decimal = Decimal("0"),  # Stage 0 (2026-08-07)
     ) -> Position:
         pos = self.positions[position_id]
         old_qty = pos.remaining_quantity or pos.quantity
@@ -142,6 +171,7 @@ class FakePositionManager:
         pos.entry_price = ((pos.entry_price * old_qty) + (price * quantity)) / new_qty
         pos.quantity = pos.quantity + quantity
         pos.remaining_quantity = new_qty
+        pos.posted_margin = (pos.posted_margin or Decimal("0")) + posted_margin
         return pos
 
 
@@ -149,7 +179,15 @@ def _settings(slippage_enabled: bool = True) -> Mock:
     settings = Mock()
     settings.paper_initial_balance = 100.0
     settings.paper_commission_pct = 0.1
+    # Stage 0 (2026-08-07): paper_trading now gates its leverage read on
+    # leverage_enabled. Pinned explicitly rather than left to Mock's truthy
+    # auto-attribute, so the 1x arithmetic below is stated, not inferred.
+    settings.leverage_enabled = True
     settings.default_leverage = 1.0
+    # The engine clamps to [min, max] the way auto_trader does; a bare Mock()
+    # here would reach Decimal(str(Mock)) and raise InvalidOperation.
+    settings.min_leverage = 1.0
+    settings.max_leverage = 20.0
     settings.paper_slippage_enabled = slippage_enabled
     settings.paper_slippage_bps_by_symbol = {}
     settings.paper_slippage_default_bps = 10.0

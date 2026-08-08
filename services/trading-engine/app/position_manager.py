@@ -15,6 +15,7 @@ from decimal import Decimal
 from uuid import UUID
 from datetime import datetime, timezone
 from app.models import Position, PositionStatus, PositionSide
+from app.models.enums import ExitKind
 from app.risk_manager import get_risk_manager
 from app.repositories import get_position_repository, get_portfolio_repository
 from app.atr_stops import get_atr_calculator
@@ -138,6 +139,61 @@ class PositionManager:
         self._entry_fees_consumed[position.id] = consumed + portion
         return portion
 
+    def unconsumed_entry_fee(self, position_id: UUID) -> Decimal:
+        """Entry commission debited at open that no closed leg has absorbed yet.
+
+        Stage 0 fix round (2026-08-08). The cash ledger debits the WHOLE entry
+        fee at open, while realized_pnl nets only the CONSUMED portion — so the
+        unconsumed remainder is the part still owed against the persisted cash
+        figure. `_open_position_cost` reads this instead of recomputing
+        entry_price*qty*commission_pct from the CURRENT rate, which was the same
+        defect class as the leverage flip: change PAPER_COMMISSION_PCT and every
+        restart mis-deducts for positions opened at the old rate.
+
+        Returns 0 for an unknown position — a position with no ledger entry
+        posted no fee through this manager.
+        """
+        fee = self._entry_fees.get(position_id, Decimal("0"))
+        consumed = self._entry_fees_consumed.get(position_id, Decimal("0"))
+        remainder = fee - consumed
+        return remainder if remainder > 0 else Decimal("0")
+
+    def consume_posted_margin(self, position_id: UUID, quantity: Decimal) -> Decimal:
+        """Margin attributable to `quantity`, released from the position.
+
+        Stage 0 (2026-08-07). Mirrors `_consume_entry_fee`: spread the still-
+        posted margin over the REMAINING quantity, and hand a leg that takes
+        the whole remainder the exact residual rather than a computed share,
+        so conservation is exact and not subject to Decimal rounding.
+
+        MUST be called BEFORE close_position/reduce_position mutate
+        remaining_quantity — those methods set it to 0 / decrement it.
+
+        Public (not underscore-prefixed) because the cash ledger lives in
+        PaperTradingEngine, not here: reduce_position's docstring states that
+        'the caller is responsible for cash accounting'.
+        """
+        position = self.positions.get(position_id)
+        if not position:
+            raise ValueError(f"Position {position_id} not found")
+
+        posted = position.posted_margin or Decimal("0")
+        remaining = (
+            position.remaining_quantity
+            if position.remaining_quantity is not None
+            else position.quantity
+        )
+        if posted <= 0 or remaining <= 0 or quantity <= 0:
+            return Decimal("0")
+
+        if quantity >= remaining:
+            portion = posted
+        else:
+            portion = posted * quantity / remaining
+
+        position.posted_margin = posted - portion
+        return portion
+
     def create_position(
         self,
         symbol: str,
@@ -152,6 +208,8 @@ class PositionManager:
         take_profit_3: Optional[Decimal] = None,
         entry_signal_confidence: Optional[float] = None,  # CRITICAL FIX 2025-12-05
         entry_fee: Decimal = Decimal("0"),  # AUDIT H7 (2026-08-04)
+        posted_margin: Decimal = Decimal("0"),  # Stage 0 (2026-08-07)
+        leverage: Decimal = Decimal("1"),
     ) -> Position:
         """
         Create a new position
@@ -170,6 +228,14 @@ class PositionManager:
             entry_signal_confidence: Optional entry signal confidence (0.0-1.0)
             entry_fee: Commission charged on the opening leg; deducted from
                 net realized P&L proportionally as quantity is closed
+            posted_margin: Dollar margin the caller actually debited from cash
+                for this leg (Stage 0, 2026-08-07). Consumed proportionally by
+                consume_posted_margin as quantity is closed; it — not the
+                global settings.default_leverage — is what the close leg
+                credits back.
+            leverage: Leverage in force when this position opened. Audit only;
+                no cash arithmetic reads it. Stored so a position opened at 10x
+                is still identifiable after DEFAULT_LEVERAGE changes.
 
         Returns:
             Created position
@@ -209,6 +275,8 @@ class PositionManager:
             take_profit_2=take_profit_2,
             take_profit_3=take_profit_3,
             entry_signal_confidence=entry_signal_confidence,  # CRITICAL FIX 2025-12-05
+            posted_margin=posted_margin,
+            leverage=leverage,
         )
 
         # Store position in memory
@@ -220,7 +288,8 @@ class PositionManager:
         logger.info(
             f"✓ Position created: {position.id} | "
             f"{symbol} {side.value} {quantity} @ {entry_price} | "
-            f"SL: {stop_loss} | TP: {take_profit} | Entry fee: {entry_fee}"
+            f"SL: {stop_loss} | TP: {take_profit} | "
+            f"Entry fee: {entry_fee} | Margin: {posted_margin} ({leverage}x)"
         )
         if take_profit_1:
             logger.info(
@@ -380,6 +449,7 @@ class PositionManager:
         close_price: Decimal,
         reason: Optional[str] = None,
         close_commission: Decimal = Decimal("0"),
+        exit_kind: Optional[ExitKind] = None,
     ) -> Position:
         """
         Close a position
@@ -387,10 +457,14 @@ class PositionManager:
         Args:
             position_id: Position ID
             close_price: Closing price
-            reason: Reason for closing
+            reason: Reason for closing (prose, API-visible via
+                TradeHistoryResponse; unchanged by this parameter)
             close_commission: Commission charged on this closing leg. The
                 paper engine always passes it; callers without a fee model
                 (live path) default to 0.
+            exit_kind: Structured close reason (Stage 0, 2026-08-07) — a
+                second, additive channel alongside `reason`. Full closes
+                only; None for legacy callers and partial exits.
 
         Returns:
             Closed position (realized_pnl NET of entry + exit commissions)
@@ -429,10 +503,16 @@ class PositionManager:
         position.realized_pnl += net_close_pnl
         position.unrealized_pnl = Decimal("0")
         position.remaining_quantity = Decimal("0")
+        # Stage 0 (2026-08-07): a closed position has no margin posted. The
+        # caller has already consumed it via consume_posted_margin (which is
+        # why that call MUST precede this one); this is belt-and-braces for a
+        # caller with no cash ledger, e.g. live_trading.close_position.
+        position.posted_margin = Decimal("0")
         position.status = PositionStatus.CLOSED
         position.closed_at = datetime.now(timezone.utc)
         position.exit_price = close_price
         position.exit_reason = reason
+        position.exit_kind = exit_kind
 
         total_exit_fee = (
             self._exit_fees.get(position_id, Decimal("0")) + close_commission
@@ -447,7 +527,8 @@ class PositionManager:
             f"{position.symbol} at {close_price} | "
             f"Net P&L: {position.realized_pnl} ({position.pnl_percentage:+.2f}%) | "
             f"Fees (entry/exit): {self._entry_fees.get(position_id, Decimal('0'))}"
-            f"/{total_exit_fee} | Reason: {reason or 'Manual'}"
+            f"/{total_exit_fee} | Reason: {reason or 'Manual'} | "
+            f"ExitKind: {exit_kind.value if exit_kind else 'None'}"
         )
 
         # Close position in database (async, non-blocking)
@@ -458,6 +539,8 @@ class PositionManager:
                 position.realized_pnl,
                 exit_reason=reason,
                 exit_fee=total_exit_fee,
+                posted_margin=Decimal("0"),
+                exit_kind=exit_kind.value if exit_kind else None,
             ),
             "position close",
         )
@@ -569,6 +652,7 @@ class PositionManager:
                 exit_fee=total_exit_fee,
                 current_price=price,
                 unrealized_pnl=position.unrealized_pnl,
+                posted_margin=position.posted_margin,
             ),
             "position reduction",
         )
@@ -581,6 +665,7 @@ class PositionManager:
         quantity: Decimal,
         price: Decimal,
         entry_fee: Decimal = Decimal("0"),
+        posted_margin: Decimal = Decimal("0"),
     ) -> Position:
         """
         Add quantity to an open position at a new price (DCA averaging).
@@ -598,6 +683,12 @@ class PositionManager:
         Args:
             entry_fee: Commission charged on this scale-in leg; accumulates
                 into the position's entry fee.
+            posted_margin: Dollar margin debited from cash for THIS leg (Stage
+                0, 2026-08-07); accumulates onto position.posted_margin. This
+                is why margin is stored as dollars and not as a leverage ratio:
+                this method rewrites entry_price to a weighted average, so a
+                single stored ratio could not reconcile legs opened at
+                different leverage. A summed dollar amount can.
         """
         position = self.positions.get(position_id)
         if not position:
@@ -622,12 +713,36 @@ class PositionManager:
 
         total_entry_fee = self._entry_fees.get(position_id, Decimal("0")) + entry_fee
         self._entry_fees[position_id] = total_entry_fee
+        position.posted_margin = (
+            position.posted_margin or Decimal("0")
+        ) + posted_margin
+
+        # Stage 0 fix round (2026-08-08): re-blend the recorded leverage.
+        # Leaving it at the FIRST leg's value made the row say 10x when the
+        # blend across legs was ~3.19x, and broke the reconciliation
+        # `entry_price * remaining / leverage == posted_margin` that migration
+        # 008's own backfill uses — anyone auditing a scaled-in row got the
+        # wrong answer.
+        #
+        # Derived FROM posted_margin, never the reverse: posted_margin stays
+        # authoritative and no cash path reads this. Reconstructing margin from
+        # a stored ratio is what 008's header warns against; this is the
+        # opposite direction and leaves that guarantee intact.
+        #
+        # Invariant under partial exits: consume_posted_margin scales margin and
+        # remaining quantity by the same factor, so the ratio does not drift and
+        # only a scale-in needs to recompute it.
+        if position.posted_margin > 0:
+            position.leverage = (
+                position.entry_price * position.remaining_quantity
+            ) / position.posted_margin
 
         logger.info(
             f"✓ Position scaled in: {position_id} | {position.symbol} "
             f"+{quantity} @ {price} | New avg entry: {position.entry_price:.6f} | "
             f"Remaining: {position.remaining_quantity} | "
-            f"Entry fee total: {total_entry_fee}"
+            f"Entry fee total: {total_entry_fee} | "
+            f"Margin total: {position.posted_margin}"
         )
 
         _spawn_persist(
@@ -639,6 +754,8 @@ class PositionManager:
                 entry_fee=total_entry_fee,
                 current_price=price,
                 unrealized_pnl=position.unrealized_pnl,
+                posted_margin=position.posted_margin,
+                leverage=position.leverage,
             ),
             "position scale-in",
         )
@@ -785,6 +902,7 @@ class PositionManager:
         tp3: Optional[Decimal] = None,
         trailing_stop: Optional[Decimal] = None,
         enable_trailing: bool = False,
+        clear_partial_levels: bool = False,
     ) -> Position:
         """
         Set stop loss and take profit levels for a position
@@ -798,6 +916,16 @@ class PositionManager:
             tp3: Take profit level 3 (3:1 R:R)
             trailing_stop: Initial trailing stop level
             enable_trailing: Whether to enable trailing stop
+            clear_partial_levels: Drop TP1/TP2/TP3 entirely, so
+                check_all_exit_conditions falls through the partial-exit step
+                and only ``take_profit`` governs the exit. Needed because
+                create_position auto-derives the ladder from whatever stop was
+                known at INSERT time; a caller that refines the stop afterwards
+                would otherwise leave a ladder anchored to the superseded R.
+                Passing tp1/tp2/tp3 is NOT a way to clear them — every
+                assignment below is truthiness-gated, so None and Decimal("0")
+                are both no-ops. Applied before the explicit tpN sets, so a
+                caller can clear and re-set in one call.
 
         Returns:
             Updated position
@@ -805,6 +933,11 @@ class PositionManager:
         position = self.positions.get(position_id)
         if not position:
             raise ValueError(f"Position {position_id} not found")
+
+        if clear_partial_levels:
+            position.take_profit_1 = None
+            position.take_profit_2 = None
+            position.take_profit_3 = None
 
         if stop_loss:
             position.stop_loss = stop_loss
@@ -825,6 +958,19 @@ class PositionManager:
             f"SL: {stop_loss} | TP: {take_profit} | "
             f"TP1/2/3: {tp1}/{tp2}/{tp3} | "
             f"Trailing: {trailing_stop} ({'enabled' if enable_trailing else 'disabled'})"
+            + (" | partial ladder CLEARED" if clear_partial_levels else "")
+        )
+
+        # Stage 0 (2026-08-07): persist. This method used to be memory-only,
+        # so load_positions_from_db re-read the create-time risk-manager
+        # default and every post-fill refinement vanished on restart.
+        _spawn_persist(
+            self.position_repo.update_stops(
+                position_id,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            ),
+            "position stops update",
         )
 
         return position
@@ -876,6 +1022,18 @@ class PositionManager:
                     # which positions post-date the last persisted cash balance.
                     opened_at=_as_utc(db_pos.opened_at),
                     realized_pnl=Decimal(str(db_pos.realized_pnl or 0)),
+                    # Stage 0: restore the posted margin so a restart credits
+                    # back what was actually posted. 008 made the column
+                    # NOT NULL DEFAULT 0, so the `is not None` arm below is
+                    # only a guard against reading a pre-008 database — an
+                    # un-backfilled row presents as 0, which the check further
+                    # down reports as an error.
+                    posted_margin=Decimal(str(db_pos.posted_margin))
+                    if db_pos.posted_margin is not None
+                    else Decimal("0"),
+                    leverage=Decimal(str(db_pos.leverage))
+                    if db_pos.leverage is not None
+                    else Decimal("1"),
                 )
                 # Use the DB position_id
                 position.id = db_pos.position_id
@@ -884,9 +1042,15 @@ class PositionManager:
                 # quantity. Omitting it let Position.__init__ default it to
                 # the FULL quantity, resurrecting partially-sold quantity on
                 # every restart (position 59's close P&L was overstated by
-                # exactly $1.7029 this way). A NULL here means migration 007
-                # has not been applied — say so loudly instead of silently
-                # re-inflating the position.
+                # exactly $1.7029 this way).
+                #
+                # Unlike posted_margin, this column is still NULLABLE: 007 added
+                # it without NOT NULL and backfilled existing rows, and 008 did
+                # not change that. So a NULL means either 007 never ran against
+                # this database or a writer inserted the row without the column
+                # (no current writer does — PositionRepository.create always
+                # sets it). Either way the fallback re-inflates the position to
+                # full quantity, so say so loudly rather than silently.
                 if db_pos.remaining_quantity is not None:
                     position.remaining_quantity = Decimal(
                         str(db_pos.remaining_quantity)
@@ -894,9 +1058,26 @@ class PositionManager:
                 else:
                     logger.error(
                         f"positions.remaining_quantity is NULL for "
-                        f"{db_pos.position_id} — migration 007 not applied? "
-                        f"Falling back to full quantity {db_pos.quantity}; "
-                        f"any prior partial exits on this position are LOST."
+                        f"{db_pos.position_id} — migration 007 not applied, or "
+                        f"the row was written without it. Falling back to full "
+                        f"quantity {db_pos.quantity}; any prior partial exits "
+                        f"on this position are LOST."
+                    )
+
+                # Stage 0 (2026-08-07): migration 008 made this column
+                # NOT NULL DEFAULT 0, so an un-backfilled row reads 0, not NULL —
+                # a NULL check would never fire. Zero margin on an OPEN position
+                # is unreachable by design (open posts > 0; a partial close leaves
+                # a positive remainder; a full close zeroes it only while setting
+                # status=CLOSED), so it means either 008's backfill missed this row
+                # or the margin ledger has a defect. Either way the next close
+                # credits NO margin back — say so.
+                if (position.posted_margin or Decimal("0")) <= 0:
+                    logger.error(
+                        f"positions.posted_margin is 0 on OPEN position "
+                        f"{db_pos.position_id} ({db_pos.symbol}) — 008 backfill "
+                        f"missed it, or the margin ledger is broken. Closing this "
+                        f"position will credit NO margin back to cash."
                     )
 
                 # Restore fee ledgers (AUDIT H7) so net-P&L math survives

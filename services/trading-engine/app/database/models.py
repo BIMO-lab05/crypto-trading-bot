@@ -133,6 +133,17 @@ class Position(Base):
     entry_fee = Column(DECIMAL(20, 8), nullable=False, default=0)
     exit_fee = Column(DECIMAL(20, 8), nullable=False, default=0)
 
+    # Added by migration 008 (2026-08-07, Stage 0). posted_margin is the
+    # dollar margin still posted; leverage is recorded for audit only.
+    # exit_kind is a structured close reason stored ALONGSIDE the free-text
+    # exit_reason, which is left untouched (API-visible, not backfilled).
+    # No CheckConstraint on exit_kind deliberately: trades.order_type already
+    # carries a CHECK that disagrees with its enum, and a stale CHECK rejects
+    # valid writes.
+    posted_margin = Column(DECIMAL(20, 8), nullable=False, default=0)
+    leverage = Column(DECIMAL(10, 4), nullable=False, default=1)
+    exit_kind = Column(String(30), nullable=True)
+
     # Risk management
     stop_loss = Column(DECIMAL(20, 8))
     take_profit = Column(DECIMAL(20, 8))
@@ -191,6 +202,11 @@ class Position(Base):
             else None,
             "entry_fee": float(self.entry_fee) if self.entry_fee is not None else 0.0,
             "exit_fee": float(self.exit_fee) if self.exit_fee is not None else 0.0,
+            "posted_margin": float(self.posted_margin)
+            if self.posted_margin is not None
+            else 0.0,
+            "leverage": float(self.leverage) if self.leverage is not None else 1.0,
+            "exit_kind": self.exit_kind,
             "stop_loss": float(self.stop_loss) if self.stop_loss else None,
             "take_profit": float(self.take_profit) if self.take_profit else None,
             "status": self.status,

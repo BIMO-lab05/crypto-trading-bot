@@ -75,6 +75,7 @@ __all__ = [
     "LIVE_MAX_RISK_PER_TRADE",
     "MIN_NOTIONAL_USD",
     "TAKER_FEE_PER_SIDE",
+    "MAKER_FEE_PER_SIDE",
     "DEFAULTS",
     "max_daily_loss_fraction",
     "max_position_size_fraction",
@@ -101,6 +102,7 @@ DEFAULTS: dict[str, float] = {
     "MAX_POSITION_SIZE_PCT": 10.0,  # percent
     "MIN_NOTIONAL_USD": 5.0,  # USD
     "TAKER_FEE_PER_SIDE": 0.00055,  # fraction
+    "MAKER_FEE_PER_SIDE": 0.00020,  # fraction -- Bybit linear-perp standard; a CHARGE
 }
 
 
@@ -160,6 +162,14 @@ MIN_NOTIONAL_USD: float = _env_float("MIN_NOTIONAL_USD")
 
 #: Bybit taker fee per side, FRACTION. A round trip is 2x this.
 TAKER_FEE_PER_SIDE: float = _env_float("TAKER_FEE_PER_SIDE")
+
+#: Bybit maker fee per side, FRACTION. A CHARGE, not a rebate — Bybit pays
+#: maker rebates only at market-maker / high-VIP tiers a $100 account cannot
+#: reach. `backtesting/backtest_engine.py:140` declares -0.0001 "maker rebate";
+#: combined with that file classifying stop/TP exits as maker, it made every
+#: backtested stop-out CREDIT the account. This value follows
+#: `services/trading-engine/app/config.py:176`.
+MAKER_FEE_PER_SIDE: float = _env_float("MAKER_FEE_PER_SIDE")
 
 
 # ---------------------------------------------------------------------------
