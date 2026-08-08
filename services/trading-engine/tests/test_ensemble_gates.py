@@ -322,8 +322,18 @@ def _wire(
     ens_signal.action = action
     ens_signal.confidence = confidence
     ens_signal.position_size_pct = 0.10
-    ens_signal.stop_loss = SOL_PRICE * 0.98
-    ens_signal.take_profit = SOL_PRICE * 1.04
+    # Mirror the pair for a SELL. This used to hardcode the LONG shape for
+    # every action, which wired the SHORT test with an INVERTED pair — stop
+    # below entry, target above it. That was invisible while the inversion
+    # check ran only after the fill; the pre-fill gate added on 2026-08-08
+    # rejects it, correctly, before the heat manager is ever consulted. The
+    # fixture was wrong, not the gate.
+    if action == SignalAction.SELL:
+        ens_signal.stop_loss = SOL_PRICE * 1.02
+        ens_signal.take_profit = SOL_PRICE * 0.96
+    else:
+        ens_signal.stop_loss = SOL_PRICE * 0.98
+        ens_signal.take_profit = SOL_PRICE * 1.04
     ens_signal.leg_actions = {"simple_rsi": action.value}
     ens_signal.leg_contributions = {}
 

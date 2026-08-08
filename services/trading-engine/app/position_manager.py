@@ -902,6 +902,7 @@ class PositionManager:
         tp3: Optional[Decimal] = None,
         trailing_stop: Optional[Decimal] = None,
         enable_trailing: bool = False,
+        clear_partial_levels: bool = False,
     ) -> Position:
         """
         Set stop loss and take profit levels for a position
@@ -915,6 +916,16 @@ class PositionManager:
             tp3: Take profit level 3 (3:1 R:R)
             trailing_stop: Initial trailing stop level
             enable_trailing: Whether to enable trailing stop
+            clear_partial_levels: Drop TP1/TP2/TP3 entirely, so
+                check_all_exit_conditions falls through the partial-exit step
+                and only ``take_profit`` governs the exit. Needed because
+                create_position auto-derives the ladder from whatever stop was
+                known at INSERT time; a caller that refines the stop afterwards
+                would otherwise leave a ladder anchored to the superseded R.
+                Passing tp1/tp2/tp3 is NOT a way to clear them — every
+                assignment below is truthiness-gated, so None and Decimal("0")
+                are both no-ops. Applied before the explicit tpN sets, so a
+                caller can clear and re-set in one call.
 
         Returns:
             Updated position
@@ -922,6 +933,11 @@ class PositionManager:
         position = self.positions.get(position_id)
         if not position:
             raise ValueError(f"Position {position_id} not found")
+
+        if clear_partial_levels:
+            position.take_profit_1 = None
+            position.take_profit_2 = None
+            position.take_profit_3 = None
 
         if stop_loss:
             position.stop_loss = stop_loss
@@ -942,6 +958,7 @@ class PositionManager:
             f"SL: {stop_loss} | TP: {take_profit} | "
             f"TP1/2/3: {tp1}/{tp2}/{tp3} | "
             f"Trailing: {trailing_stop} ({'enabled' if enable_trailing else 'disabled'})"
+            + (" | partial ladder CLEARED" if clear_partial_levels else "")
         )
 
         # Stage 0 (2026-08-07): persist. This method used to be memory-only,

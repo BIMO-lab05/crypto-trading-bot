@@ -69,6 +69,7 @@ import sys
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -163,8 +164,29 @@ def _wire(trader, monkeypatch, *, stop_loss, take_profit, action=SignalAction.BU
     paper_engine.execute_market_order = AsyncMock(return_value=(filled, None))
     monkeypatch.setattr("app.auto_trader.get_paper_engine", lambda: paper_engine)
 
+    # A stand-in for the row paper_engine just inserted. It starts life
+    # carrying the risk-manager DEFAULT levels — which is the whole point:
+    # the notification must quote what this object holds at send time, not
+    # what ens_signal asked for. set_position_stops mutates it, exactly as the
+    # real PositionManager does.
+    opened_position = SimpleNamespace(
+        symbol="SOLUSDT",
+        stop_loss=Decimal(str(SOL_PRICE * 0.98)),
+        take_profit=Decimal(str(SOL_PRICE * 1.04)),
+        metadata={},
+    )
+
+    def _apply_stops(*, position_id, stop_loss=None, take_profit=None, **kwargs):
+        if stop_loss is not None:
+            opened_position.stop_loss = stop_loss
+        if take_profit is not None:
+            opened_position.take_profit = take_profit
+        return opened_position
+
     position_mgr = MagicMock()
     position_mgr.get_open_positions = MagicMock(return_value=[])
+    position_mgr.get_position = MagicMock(return_value=opened_position)
+    position_mgr.set_position_stops = MagicMock(side_effect=_apply_stops)
     monkeypatch.setattr("app.auto_trader.get_position_manager", lambda: position_mgr)
 
     ens_signal = MagicMock()
@@ -188,16 +210,16 @@ def _wire(trader, monkeypatch, *, stop_loss, take_profit, action=SignalAction.BU
 
     monkeypatch.setattr(ens_mod, "get_ensemble", lambda: ensemble)
 
-    return paper_engine, position_mgr, filled
+    return paper_engine, position_mgr, filled, opened_position
 
 
 @pytest.mark.asyncio
 async def test_valid_pair_applies_stops_after_fill(trader, monkeypatch):
-    paper_engine, position_mgr, filled = _wire(
+    paper_engine, position_mgr, filled, _pos = _wire(
         trader,
         monkeypatch,
-        stop_loss=SOL_PRICE * 0.98,
-        take_profit=SOL_PRICE * 1.04,
+        stop_loss=SOL_PRICE * 0.96,
+        take_profit=SOL_PRICE * 1.09,
     )
 
     await trader._check_and_trade_ensemble("SOLUSDT")
@@ -206,20 +228,105 @@ async def test_valid_pair_applies_stops_after_fill(trader, monkeypatch):
     position_mgr.set_position_stops.assert_called_once()
     _, kwargs = position_mgr.set_position_stops.call_args
     assert kwargs["position_id"] == filled.position_id
-    assert kwargs["stop_loss"] == Decimal(str(SOL_PRICE * 0.98))
-    assert kwargs["take_profit"] == Decimal(str(SOL_PRICE * 1.04))
+    assert kwargs["stop_loss"] == Decimal(str(SOL_PRICE * 0.96))
+    assert kwargs["take_profit"] == Decimal(str(SOL_PRICE * 1.09))
+    # Final review (2026-08-08): the create-time TP1/2/3 ladder is derived from
+    # the risk-manager default stop, and a TP3 hit is a FULL close stamped
+    # TAKE_PROFIT. It must be cleared in the same call that applies the real
+    # levels — see tests/test_ensemble_no_stale_tp_ladder.py for the behaviour.
+    assert kwargs["clear_partial_levels"] is True
 
 
 @pytest.mark.asyncio
-async def test_inverted_pair_does_not_apply_stops(trader, monkeypatch, caplog):
-    paper_engine, position_mgr, _filled = _wire(
+async def test_inverted_pair_is_rejected_before_the_fill(trader, monkeypatch):
+    """Final review (2026-08-08): no entry, no round-trip fee.
+
+    The pre-fill gate used to compute ``abs(entry - stop) / entry``, which is
+    positive for an inverted pair too, so the pair was FILLED and only caught
+    afterwards. On a $100 account the wasted round-trip taker fee is the whole
+    cost of the bug.
+    """
+    paper_engine, position_mgr, _filled, _pos = _wire(
         trader,
         monkeypatch,
         stop_loss=SOL_PRICE * 1.04,
         take_profit=SOL_PRICE * 0.98,
     )
 
+    before = trader.total_trades_rejected
+
+    await trader._check_and_trade_ensemble("SOLUSDT")
+
+    paper_engine.execute_market_order.assert_not_awaited()
+    position_mgr.set_position_stops.assert_not_called()
+    trader.notification_client.notify_trade_open.assert_not_awaited()
+    assert trader.total_trades_rejected == before + 1
+
+
+@pytest.mark.asyncio
+async def test_notification_quotes_the_levels_the_position_carries(trader, monkeypatch):
+    paper_engine, _position_mgr, _filled, opened_position = _wire(
+        trader,
+        monkeypatch,
+        stop_loss=SOL_PRICE * 0.96,
+        take_profit=SOL_PRICE * 1.09,
+    )
+
+    await trader._check_and_trade_ensemble("SOLUSDT")
+
+    trader.notification_client.notify_trade_open.assert_awaited_once()
+    _, kwargs = trader.notification_client.notify_trade_open.call_args
+    assert kwargs["stop_loss"] == float(opened_position.stop_loss)
+    assert kwargs["take_profit"] == float(opened_position.take_profit)
+    assert kwargs["stop_loss"] == pytest.approx(SOL_PRICE * 0.96)
+
+
+@pytest.mark.asyncio
+async def test_notification_reports_defaults_when_stops_could_not_be_applied(
+    trader, monkeypatch
+):
+    """The IMPORTANT-2 property, isolated.
+
+    If applying the ensemble levels fails, the position keeps the risk-manager
+    default — and the operator must be told THAT, not the levels the signal
+    asked for. Echoing ens_signal here was the original defect; it survived
+    Task 8 on the branch Task 8 did not take.
+    """
+    paper_engine, position_mgr, _filled, opened_position = _wire(
+        trader,
+        monkeypatch,
+        stop_loss=SOL_PRICE * 0.96,
+        take_profit=SOL_PRICE * 1.09,
+    )
+    position_mgr.set_position_stops = MagicMock(side_effect=RuntimeError("db down"))
+
     await trader._check_and_trade_ensemble("SOLUSDT")
 
     paper_engine.execute_market_order.assert_awaited_once()
-    position_mgr.set_position_stops.assert_not_called()
+    trader.notification_client.notify_trade_open.assert_awaited_once()
+    _, kwargs = trader.notification_client.notify_trade_open.call_args
+    # The defaults the stub position still holds — NOT SOL_PRICE * 0.96/1.09.
+    assert kwargs["stop_loss"] == pytest.approx(SOL_PRICE * 0.98)
+    assert kwargs["take_profit"] == pytest.approx(SOL_PRICE * 1.04)
+    assert kwargs["stop_loss"] == float(opened_position.stop_loss)
+
+
+@pytest.mark.asyncio
+async def test_notification_omits_levels_when_the_position_cannot_be_read(
+    trader, monkeypatch
+):
+    """A missing level is honest; a wrong one is not. No fallback to the signal."""
+    paper_engine, position_mgr, _filled, _pos = _wire(
+        trader,
+        monkeypatch,
+        stop_loss=SOL_PRICE * 0.96,
+        take_profit=SOL_PRICE * 1.09,
+    )
+    position_mgr.get_position = MagicMock(return_value=None)
+
+    await trader._check_and_trade_ensemble("SOLUSDT")
+
+    paper_engine.execute_market_order.assert_awaited_once()
+    _, kwargs = trader.notification_client.notify_trade_open.call_args
+    assert kwargs["stop_loss"] is None
+    assert kwargs["take_profit"] is None

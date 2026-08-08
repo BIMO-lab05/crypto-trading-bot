@@ -4610,9 +4610,7 @@ class AutoTrader:
             opened = False
             try:
                 if not self._check_daily_trade_limit():
-                    logger.info(
-                        f"[ENSEMBLE][GATE] {symbol}: daily trade limit reached"
-                    )
+                    logger.info(f"[ENSEMBLE][GATE] {symbol}: daily trade limit reached")
                     self.total_trades_rejected += 1
                     return
 
@@ -4631,10 +4629,39 @@ class AutoTrader:
                 # default_stop_loss_pct, used by the sibling call at :1827,
                 # would misstate it.
                 # ============================================================
+                #
+                # Final review (2026-08-08): the abs() below makes an INVERTED
+                # stop indistinguishable from a valid one — |entry - sl| is
+                # positive either way — so an inverted pair used to sail
+                # through this gate, get FILLED, and only be caught by the
+                # post-fill guard at :4827, after a real entry and its
+                # round-trip fee had been spent. Reject it here instead, with
+                # the same predicate the post-fill guard uses.
+                try:
+                    stops_consistent = self._ensemble_stops_are_consistent(
+                        ens_signal.action,
+                        float(current_price),
+                        float(ens_signal.stop_loss),
+                        float(ens_signal.take_profit),
+                    )
+                except (TypeError, ValueError):
+                    stops_consistent = False
+                if not stops_consistent:
+                    logger.error(
+                        f"[ENSEMBLE][GATE] {symbol}: INCONSISTENT stop/target for "
+                        f"{getattr(ens_signal.action, 'value', ens_signal.action)} "
+                        f"— entry={current_price} "
+                        f"sl={getattr(ens_signal, 'stop_loss', None)!r} "
+                        f"tp={getattr(ens_signal, 'take_profit', None)!r}. "
+                        f"Dominant leg fired {getattr(ens_signal, 'leg_actions', None)}. "
+                        f"Rejecting BEFORE the fill — no entry, no fee."
+                    )
+                    self.total_trades_rejected += 1
+                    return
+
                 try:
                     stop_distance_pct = (
-                        abs(current_price - float(ens_signal.stop_loss))
-                        / current_price
+                        abs(current_price - float(ens_signal.stop_loss)) / current_price
                     )
                 except (TypeError, ValueError):
                     stop_distance_pct = 0.0
@@ -4660,9 +4687,7 @@ class AutoTrader:
                         ),
                         equity=float(balance),
                         side=(
-                            "LONG"
-                            if ens_signal.action == SignalAction.BUY
-                            else "SHORT"
+                            "LONG" if ens_signal.action == SignalAction.BUY else "SHORT"
                         ),
                     )
                 )
@@ -4792,7 +4817,10 @@ class AutoTrader:
                 executed_order, error = await paper_engine.execute_market_order(
                     order, Decimal(str(current_price))
                 )
-                if executed_order is None or executed_order.status != OrderStatus.FILLED:
+                if (
+                    executed_order is None
+                    or executed_order.status != OrderStatus.FILLED
+                ):
                     self.total_trades_rejected += 1
                     logger.warning(f"[ENSEMBLE] Execution failed for {symbol}: {error}")
                     return
@@ -4819,11 +4847,40 @@ class AutoTrader:
                 # adding stop_loss=/take_profit= to the OrderCreate above —
                 # OrderBase declares neither and pydantic v2 extra='ignore' drops
                 # them silently, with no error and no stops.
+                #
+                # Final review (2026-08-08): clear_partial_levels=True is the
+                # other half of that fix. create_position derives TP1/TP2/TP3
+                # from |entry - stop| at INSERT time (position_manager.py:252),
+                # and the stop known at INSERT time on this path is the
+                # risk-manager default 2% — so the position arrives carrying a
+                # ladder of ±1.6% / ±2.6% / ±4.0%. check_all_exit_conditions
+                # tests partial exits at step 3, BEFORE the legacy take-profit
+                # at step 4, and a TP3 hit is a FULL close stamped TAKE_PROFIT.
+                # Left in place, every ensemble position would scale out at a
+                # level unrelated to its real R and force-close at +4% whenever
+                # its own target sat further out — recording "ensemble target
+                # hit" for an exit that hit a stale default.
+                #
+                # Chosen deliberately over re-deriving 0.8R/1.3R/2.0R from the
+                # ensemble's own stop: that keeps the property that no level
+                # comes from default_stop_loss_pct, but TP3 at 2R still closes
+                # ahead of ens_signal.take_profit whenever the target is
+                # further out than 2R. The ensemble emits exactly one stop and
+                # one target; a scale-out ladder is invented by the executor,
+                # and inventing one changes the return distribution of every
+                # ensemble trade on the branch whose whole purpose is honest
+                # exit attribution. One R, one target, one exit reason.
                 # ================================================================
                 if executed_order.position_id:
                     # Whole block guarded: a stops failure (consistency check or
                     # set_position_stops itself) must never unwind a filled order.
                     try:
+                        # Kept as defence even though the pre-fill gate above
+                        # now rejects an inconsistent pair with the same
+                        # predicate and the same inputs, so this branch should
+                        # be unreachable in production. It is the last thing
+                        # standing between a bad pair and a live position, and
+                        # it costs one comparison.
                         if not self._ensemble_stops_are_consistent(
                             ens_signal.action,
                             float(current_price),
@@ -4843,11 +4900,13 @@ class AutoTrader:
                                 stop_loss=Decimal(str(ens_signal.stop_loss)),
                                 take_profit=Decimal(str(ens_signal.take_profit)),
                                 enable_trailing=False,
+                                clear_partial_levels=True,
                             )
                             logger.info(
                                 f"[ENSEMBLE][STOPS] {symbol}: applied SL="
                                 f"{ens_signal.stop_loss} TP={ens_signal.take_profit} "
-                                f"(entry {current_price})"
+                                f"(entry {current_price}); create-time TP1/2/3 ladder "
+                                f"cleared — only this target closes the position"
                             )
                     except Exception as stop_error:
                         logger.warning(
@@ -4858,7 +4917,9 @@ class AutoTrader:
                 # Tag latest position with leg contributions so we can attribute outcome at close.
                 try:
                     latest_positions = [
-                        p for p in position_mgr.get_open_positions() if p.symbol == symbol
+                        p
+                        for p in position_mgr.get_open_positions()
+                        if p.symbol == symbol
                     ]
                     if latest_positions:
                         latest_positions[-1].metadata = (
@@ -4870,6 +4931,43 @@ class AutoTrader:
                 except Exception as attr_err:
                     logger.debug(f"[ENSEMBLE] Could not tag attribution: {attr_err}")
 
+                # ================================================================
+                # Final review (2026-08-08): report the levels the position
+                # ACTUALLY carries, read back from the position — never the
+                # signal's. Echoing ens_signal here was unconditional, so the
+                # rejection branch ~35 lines up told the operator the exact
+                # levels it had just refused to apply. Reading back also means
+                # the message cannot drift from reality again if a future
+                # caller changes what gets applied.
+                #
+                # No fallback to the signal values when the position cannot be
+                # read: a missing level is honest, a wrong one is not, and both
+                # notify_trade_open params are Optional[float].
+                # ================================================================
+                actual_sl, actual_tp = None, None
+                try:
+                    opened_position = (
+                        position_mgr.get_position(executed_order.position_id)
+                        if executed_order.position_id
+                        else None
+                    )
+                    if opened_position is not None:
+                        actual_sl = (
+                            float(opened_position.stop_loss)
+                            if opened_position.stop_loss is not None
+                            else None
+                        )
+                        actual_tp = (
+                            float(opened_position.take_profit)
+                            if opened_position.take_profit is not None
+                            else None
+                        )
+                except Exception as read_err:
+                    logger.warning(
+                        f"[ENSEMBLE] Could not read back position stops for "
+                        f"{symbol}; notifying without levels: {read_err}"
+                    )
+
                 try:
                     await self.notification_client.notify_trade_open(
                         symbol=symbol,
@@ -4877,8 +4975,8 @@ class AutoTrader:
                         quantity=float(quantity),
                         price=current_price,
                         confidence=float(ens_signal.confidence),
-                        stop_loss=float(ens_signal.stop_loss),
-                        take_profit=float(ens_signal.take_profit),
+                        stop_loss=actual_sl,
+                        take_profit=actual_tp,
                     )
                 except Exception as notify_err:
                     logger.warning(
