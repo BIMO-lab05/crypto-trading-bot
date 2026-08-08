@@ -1,8 +1,12 @@
 VERDICT: UNRECONCILED
 
-Residual **−$0.33900231** on a break of **+$176.90335601** — 99.81% attributed. The
-reconstruction *overshoots* the observed break by 34 cents, which exceeds the $0.01 bar this task
-was given. **Task 4 is not cleared.**
+Residual **−$0.33900231** on a break of **+$176.90335601**. The reconstruction **overshoots** the
+observed break by 34 cents (+0.19%), which exceeds the $0.01 bar this task was given.
+**Task 4 is not cleared.**
+
+The residual is **not** an unexplained remainder of the leverage mechanism. It is precisely the
+break as it already stood at **2026-08-04 16:07:16 (t93)** — a small *pre-existing negative* break,
+entirely pre-flip, that the leverage bug then rode on top of. See §4.3.
 
 # Cash-ledger reconciliation — paper_trading portfolio
 
@@ -235,7 +239,33 @@ break delta of exactly zero, which contradicts the measured movement).
 All closes before the flip (t68–t93, positions 46–56 and 59) contribute **zero** — they were
 opened and closed at the same 10x.
 
-### 4.3 What did *not* explain the residual (each tested and rejected)
+### 4.3 The residual is the pre-flip break, dated exactly
+
+Subtracting the three post-flip contributions from the observed break leaves the break as it stood
+**before any of them**:
+
+```
+176.90335601 − 42.00034059 − 57.75142599 − 77.49059174 = −0.33900231
+```
+
+Computed independently from state — coherent cash just after t93 (2026-08-04 16:07:16), using
+today's rewritten `realized_pnl` values and 10x posted margin on the then-open positions 57/58/60:
+
+```
+sum realized just after t93 =  −6.46738621
+open margin @10x            =  19.69359537
+unconsumed entry fee        =   0.19693611
+coherent just after t93     =  73.64208231
+actual   just after t93     =  73.30308000   (from §4.1, corroborated by AUDIT's $73.30)
+BREAK at t93 (pre-flip)     =  −0.33900231
+```
+
+The two routes agree to **1e-9**. So the residual is **dated to on-or-before 2026-08-04 16:07:16**,
+it is **negative** (the ledger held 34 cents *less* than coherent), and the leverage flip — which
+happened after — had nothing to do with it. The flip mechanism accounts for 100% of the break it
+created; this is a separate, older, sub-dollar defect it was layered on top of.
+
+### 4.4 What did *not* explain the residual (each tested and rejected)
 
 1. **Every position's P&L identity holds exactly.** For all 19 rows,
    `Σ gross − entry_fee − Σ exit_fee == positions.realized_pnl` to 1e-8. (Position 64 differs by
@@ -243,8 +273,13 @@ opened and closed at the same 10x.
    expected behaviour, not an anomaly.) **The residual is purely cash-side; the P&L ledger is clean.**
 2. **A full forward simulation from $100** through all 41 events, with the flip between t93 and t94
    and no restarts, lands at **122.41926400** vs the derived **122.08026591** — overshoot
-   **+0.33899810**, matching the residual. The discrepancy is therefore confined to events **on or
-   before 2026-08-05 02:03:05**.
+   **+0.33899810**. *Caveat for the reader: this is **not** independent corroboration.* A no-restart
+   simulation in which every close has `L_close == L_open` is the §2 coherent identity re-evaluated
+   event by event, so it necessarily agrees with the §4.3 figure — it is the same fact restated, and
+   must not be counted twice. Its actual value is diagnostic: it confirms the residual is a single
+   out-of-band displacement rather than an accumulation across events. **The one genuinely
+   independent corroboration in this document is the AUDIT/`progress.md` `$73.30` figure** (§4.1),
+   which is what proves the residual is not an artifact of the backward chain.
 3. **Single-restart search.** A restart inserted at *every* inter-event gap from 2026-08-04 onward,
    across `L_now ∈ {1,10} × comm ∈ {0.1%, 0.055%}` — nearest results −0.15886269 and −2.04715787.
    **No fit within $0.01.**
@@ -258,12 +293,22 @@ opened and closed at the same 10x.
    **+6.27185425** or **−5.90017572**. **No fit.**
 5. **Trade-row loss.** Trade ids 63–103 are contiguous; no `_spawn_trade_log` fire-and-forget row
    is missing.
+6. **A per-close leak in the persist path** — the last mechanism standing, since `portfolios.realized_pnl`
+   is known to accumulate SQL-side and an SQL-side `cash_balance` whose delta differed from the
+   engine's would leak a little on every close (the right shape for −$0.339 spread over 15 pre-flip
+   closes). **Rejected by reading the write path.** `repositories.py:565-575` sets
+   `cash_balance=cash_balance` — a plain bound parameter — while only `realized_pnl` uses
+   `func.coalesce(...) + delta`. The value bound is `get_paper_engine().get_balance()`
+   (`position_manager.py:475-490`), i.e. the engine's in-memory ledger verbatim. There is no
+   SQL-side cash arithmetic to drift. This also confirms the model used throughout: `record_position_close`
+   is invoked only from `close_position`, so **partial exits never persist cash** — the single
+   assumption the whole backward chain rests on.
 
-### 4.4 Why the residual is not recoverable from available evidence
+### 4.5 Why the residual is not recoverable from available evidence
 
-The residual arises in the window **2026-07-29 → 2026-08-05 02:03:05**, and cannot be localised
-further because only one anchor exists in it. That window contains a documented one-time data
-repair — `database/migrations/one_time_repairs/2026-08-04-fee-backfill-and-balance-repair.sql`,
+Per §4.3 the residual is dated to **on or before 2026-08-04 16:07:16 (t93)**. It cannot be
+localised further *within* that window because only one anchor exists in it. That window contains a
+documented one-time data repair — `database/migrations/one_time_repairs/2026-08-04-fee-backfill-and-balance-repair.sql`,
 whose own header states:
 
 > "The exact UPDATE statements were executed interactively and **were not captured verbatim**."
@@ -282,9 +327,17 @@ not reconstructable.** Manufacturing a term to close it would be fabrication.
 
 ## 5. Verdict
 
-**UNRECONCILED.** Residual **−$0.33900231** (the reconstruction *overshoots* the observed break;
-the ledger holds 34 cents less than the identified over-credits predict). 99.81% of the break is
-attributed to a single proven mechanism, but the brief's bar is $0.01 and this does not clear it.
+**UNRECONCILED.** Residual **−$0.33900231** — the reconstruction *overshoots* the observed break by
+0.19%; the ledger holds 34 cents *less* than the identified over-credits predict.
+
+The leverage mechanism itself reconciles **exactly**: three closes of 10x-opened positions credited
+back at 1x, agreeing to 1e-8 by two independent routes. What remains is a **separate, older,
+negative** discrepancy of 34 cents that already existed at 2026-08-04 16:07:16, before the flip.
+Every mechanism capable of producing it was tested and rejected (§4.4), and it originates inside a
+window whose one documented repair was, by its own record, executed interactively and not captured.
+
+The brief's bar is $0.01. This does not clear it, so the verdict is UNRECONCILED and Task 4 stays
+gated — notwithstanding that the repair value in §6 is unaffected by the residual.
 
 ---
 
@@ -308,7 +361,9 @@ SET cash_balance = p.initial_balance
                               WHERE portfolio_id = 'paper_trading'), 0)
                  - COALESCE((SELECT SUM(posted_margin) FROM positions
                               WHERE portfolio_id = 'paper_trading' AND status = 'OPEN'), 0)
-                 - COALESCE((SELECT SUM(entry_fee * remaining_quantity / quantity)
+                 - COALESCE((SELECT SUM(entry_fee
+                                        * COALESCE(remaining_quantity, quantity)
+                                        / quantity)
                                FROM positions
                               WHERE portfolio_id = 'paper_trading' AND status = 'OPEN'), 0),
     updated_at = NOW()
@@ -317,6 +372,13 @@ WHERE p.portfolio_id = 'paper_trading';
 
 Value as measured 2026-08-07: **`cash_balance = 79.06969737`** (from `255.97305338`, a reduction of
 `176.90335601`).
+
+**`remaining_quantity` is nullable and the engine treats NULL as "full"**
+(`paper_trading.py:97-101`, `pos.remaining_quantity if ... is not None else pos.quantity`). A bare
+`entry_fee * remaining_quantity / quantity` yields NULL on such a row and `SUM` **silently drops
+it** — under-subtracting the unconsumed fee. Both OPEN rows happen to be populated today, so the
+bug is latent, but Task 4 re-derives at execution time. `COALESCE(remaining_quantity, quantity)` is
+mandatory here, and in the `posted_margin` backfill Task 2 writes.
 
 **Do not run the brief's verification query before migration 008 exists** — it references
 `posted_margin`.
@@ -327,6 +389,12 @@ Task 2 must backfill `posted_margin` for the two OPEN rows as: **position 61 →
 ---
 
 ## 7. What the owner must decide
+
+**The residual does not change the number Task 4 would write.** `79.06969737` is computed from
+*current state* — today's `realized_pnl`, `posted_margin` and unconsumed fees — so it is the
+coherent value whether or not the 34 cents is ever explained. What the residual bears on is
+*confidence that no other mechanism is still lurking*. That, and only that, is what the gate
+decision turns on.
 
 The gate is not mine to open. Two coherent options:
 
