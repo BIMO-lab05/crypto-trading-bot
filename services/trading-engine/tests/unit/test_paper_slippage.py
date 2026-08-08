@@ -29,6 +29,7 @@ from uuid import UUID
 import pytest
 
 from app.models import (
+    ExitKind,
     OrderCreate,
     OrderSide,
     OrderType,
@@ -126,6 +127,7 @@ class FakePositionManager:
         exit_price: Decimal,
         reason: Optional[str] = None,
         close_commission: Decimal = Decimal("0"),
+        exit_kind: Optional[ExitKind] = None,
     ) -> Position:
         pos = self.positions[position_id]
         qty = pos.remaining_quantity or pos.quantity
@@ -136,6 +138,7 @@ class FakePositionManager:
         pos.realized_pnl += pnl
         pos.exit_price = exit_price
         pos.exit_reason = reason
+        pos.exit_kind = exit_kind
         pos.remaining_quantity = Decimal("0")
         pos.posted_margin = Decimal("0")
         pos.status = PositionStatus.CLOSED

@@ -390,6 +390,7 @@ class PaperTradingEngine:
                     f"({target.side.value} close)"
                     + (f" [{order.strategy}]" if order.strategy else ""),
                     close_commission=close_commission,
+                    exit_kind=order.exit_kind,
                 )
                 executed_order.position_id = closed_position.id
                 net_leg_pnl = closed_position.realized_pnl - realized_before

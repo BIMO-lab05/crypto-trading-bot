@@ -15,6 +15,7 @@ from decimal import Decimal
 from uuid import UUID
 from datetime import datetime, timezone
 from app.models import Position, PositionStatus, PositionSide
+from app.models.enums import ExitKind
 from app.risk_manager import get_risk_manager
 from app.repositories import get_position_repository, get_portfolio_repository
 from app.atr_stops import get_atr_calculator
@@ -448,6 +449,7 @@ class PositionManager:
         close_price: Decimal,
         reason: Optional[str] = None,
         close_commission: Decimal = Decimal("0"),
+        exit_kind: Optional[ExitKind] = None,
     ) -> Position:
         """
         Close a position
@@ -455,10 +457,14 @@ class PositionManager:
         Args:
             position_id: Position ID
             close_price: Closing price
-            reason: Reason for closing
+            reason: Reason for closing (prose, API-visible via
+                TradeHistoryResponse; unchanged by this parameter)
             close_commission: Commission charged on this closing leg. The
                 paper engine always passes it; callers without a fee model
                 (live path) default to 0.
+            exit_kind: Structured close reason (Stage 0, 2026-08-07) — a
+                second, additive channel alongside `reason`. Full closes
+                only; None for legacy callers and partial exits.
 
         Returns:
             Closed position (realized_pnl NET of entry + exit commissions)
@@ -506,6 +512,7 @@ class PositionManager:
         position.closed_at = datetime.now(timezone.utc)
         position.exit_price = close_price
         position.exit_reason = reason
+        position.exit_kind = exit_kind
 
         total_exit_fee = (
             self._exit_fees.get(position_id, Decimal("0")) + close_commission
@@ -520,7 +527,8 @@ class PositionManager:
             f"{position.symbol} at {close_price} | "
             f"Net P&L: {position.realized_pnl} ({position.pnl_percentage:+.2f}%) | "
             f"Fees (entry/exit): {self._entry_fees.get(position_id, Decimal('0'))}"
-            f"/{total_exit_fee} | Reason: {reason or 'Manual'}"
+            f"/{total_exit_fee} | Reason: {reason or 'Manual'} | "
+            f"ExitKind: {exit_kind.value if exit_kind else 'None'}"
         )
 
         # Close position in database (async, non-blocking)
@@ -532,6 +540,7 @@ class PositionManager:
                 exit_reason=reason,
                 exit_fee=total_exit_fee,
                 posted_margin=Decimal("0"),
+                exit_kind=exit_kind.value if exit_kind else None,
             ),
             "position close",
         )
