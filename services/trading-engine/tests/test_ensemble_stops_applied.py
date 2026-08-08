@@ -114,6 +114,13 @@ class _StubInstrumentsCache:
 @pytest.fixture
 def trader(monkeypatch):
     from app.auto_trader import AutoTrader
+    from app.trading_enhancements.portfolio_heat import (
+        reset_portfolio_heat_manager,
+    )
+
+    # PortfolioHeatManager is a process-global singleton that earlier tests
+    # leave positions in. The ensemble path consults it since Stage 0 Task 9.
+    reset_portfolio_heat_manager()
 
     t = AutoTrader(symbols=["SOLUSDT"])
     monkeypatch.setattr(t.settings, "trading_mode", "PAPER", raising=False)

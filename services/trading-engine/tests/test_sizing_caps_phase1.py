@@ -102,6 +102,15 @@ def instruments_cache(monkeypatch):
 
 @pytest.fixture
 def trader(monkeypatch):
+    # PortfolioHeatManager is a process-global singleton that earlier tests
+    # leave positions in. The ensemble path consults it since Stage 0 Task 9,
+    # so without this reset these sizing assertions fail on unrelated state.
+    from app.trading_enhancements.portfolio_heat import (
+        reset_portfolio_heat_manager,
+    )
+
+    reset_portfolio_heat_manager()
+
     t = AutoTrader(symbols=["BTCUSDT", "SOLUSDT"])
     # Deterministic risk config for the sizing math under test (mirrors the
     # compose/production values; percent vs fraction units per .claude/rules).
