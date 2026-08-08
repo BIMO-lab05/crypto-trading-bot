@@ -4384,6 +4384,33 @@ class AutoTrader:
 
         return status
 
+    @staticmethod
+    def _ensemble_stops_are_consistent(
+        action: SignalAction,
+        entry_price: float,
+        stop_loss: float,
+        take_profit: float,
+    ) -> bool:
+        """True if the stop/target pair is on the correct side of entry.
+
+        Stage 0 (2026-08-07). EnsembleSignal inherits both levels verbatim
+        from whichever leg contributed most in absolute terms
+        (multi_strategy_ensemble.py:277-284) and validates nothing. A
+        weighted-vote BUY whose dominant leg fired SELL produces an inverted
+        pair — the Jan 2026 inverted-R/R bug (380a674) is the precedent for
+        why that must never reach a position.
+
+        A stop exactly at entry is also rejected: R would be zero, making
+        every downstream R-multiple infinite.
+        """
+        if stop_loss <= 0 or take_profit <= 0 or entry_price <= 0:
+            return False
+        if action == SignalAction.BUY:
+            return stop_loss < entry_price < take_profit
+        if action == SignalAction.SELL:
+            return take_profit < entry_price < stop_loss
+        return False
+
     async def _check_and_trade_ensemble(self, symbol: str):
         """ENSEMBLE mode: SimpleRSI + multi-indicator + mean-reversion with performance weighting.
 
@@ -4584,6 +4611,50 @@ class AutoTrader:
             logger.info(
                 f"[ENSEMBLE] Trade executed for {symbol}: ${position_value:.2f} ({quantity:.6f} units)"
             )
+
+            # ================================================================
+            # Stage 0 (2026-08-07): apply the ensemble's OWN stop/target.
+            # Previously these were read only inside the Telegram call below,
+            # so the position carried risk_manager's flat 2%/4% default while
+            # the operator was told an ATR level. Do NOT try to do this by
+            # adding stop_loss=/take_profit= to the OrderCreate above —
+            # OrderBase declares neither and pydantic v2 extra='ignore' drops
+            # them silently, with no error and no stops.
+            # ================================================================
+            if executed_order.position_id:
+                # Whole block guarded: a stops failure (consistency check or
+                # set_position_stops itself) must never unwind a filled order.
+                try:
+                    if not self._ensemble_stops_are_consistent(
+                        ens_signal.action,
+                        float(current_price),
+                        float(ens_signal.stop_loss),
+                        float(ens_signal.take_profit),
+                    ):
+                        logger.error(
+                            f"[ENSEMBLE][STOPS] {symbol}: INCONSISTENT stop/target for "
+                            f"{ens_signal.action.value} — entry={current_price} "
+                            f"sl={ens_signal.stop_loss} tp={ens_signal.take_profit}. "
+                            f"Dominant leg fired {ens_signal.leg_actions}. Keeping the "
+                            f"risk-manager default; NOT applying the ensemble levels."
+                        )
+                    else:
+                        position_mgr.set_position_stops(
+                            position_id=executed_order.position_id,
+                            stop_loss=Decimal(str(ens_signal.stop_loss)),
+                            take_profit=Decimal(str(ens_signal.take_profit)),
+                            enable_trailing=False,
+                        )
+                        logger.info(
+                            f"[ENSEMBLE][STOPS] {symbol}: applied SL="
+                            f"{ens_signal.stop_loss} TP={ens_signal.take_profit} "
+                            f"(entry {current_price})"
+                        )
+                except Exception as stop_error:
+                    logger.warning(
+                        f"[ENSEMBLE][STOPS] {symbol}: failed to apply stops "
+                        f"— position keeps the risk-manager default: {stop_error}"
+                    )
 
             # Tag latest position with leg contributions so we can attribute outcome at close.
             try:
