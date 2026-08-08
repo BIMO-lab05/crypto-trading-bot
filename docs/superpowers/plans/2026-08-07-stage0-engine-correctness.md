@@ -18,7 +18,9 @@
 - **Money is `Decimal`.** Convert float settings at the boundary with exactly `Decimal(str(self.settings.<x>))`. Never `Decimal(float)`.
 - **Persistence is fire-and-forget** via `_spawn_persist` / `_spawn_trade_log`. Any test asserting on a repository call must `await _drain_tasks()` first.
 - **Do not `xfail`/`skip` a failing test to green a suite.** If a skip is unavoidable its reason must name a tracking ID.
-- **Known-good baseline:** the full trading-engine host suite is 1604 passed / 13 failed, all 13 pre-existing at HEAD (2 connector-envelope, 11 `pairs_trading` pandas `freq='H'`). Do not treat those as regressions.
+- **Known-good baseline — MEASURED 2026-08-08, supersedes the stale figure this plan first carried.** The full host suite is **1638 passed / 36 failed / 795 skipped**. The "13 failed" figure came from `progress.md` dated 2026-08-05, before the Phase 1 merge; it is obsolete.
+  **Do not gate on the count.** Most of the 36 are cross-test pollution, not defects: `tests/unit/test_repositories.py` fails 18-21 in a whole-suite run and passes **21/21 in isolation**; `tests/unit/test_signal_cache.py` likewise passes **33/33 alone**. The mechanism is singleton leakage — `test_accounting_fixes` installs `_AsyncNoop` / `_FakeRepoClasses` objects that survive into later modules' `get_*_repository()` calls.
+  **The criterion is therefore structural, not numeric:** (a) no NEW failure *family* — no failing file that was not already failing; and (b) every file your change touches passes **in isolation**. A raw count is gameable and drifts with unrelated work.
 - **Branch:** `feature/engine-repair-edge-search` (already exists, holds the design spec at `eb7c3ee`).
 - **The auto-trader is HALTED** (`safety/EMERGENCY_STOP`, created 2026-08-07 16:55). It must stay halted until Task 4 completes. Resuming takes two steps: `rm safety/EMERGENCY_STOP` then `POST /api/trading/start`.
 
@@ -2598,7 +2600,7 @@ it, so its pyramiding/no-hedging branch never fires." -- \
 
 Stage 0 is done when all of the following hold. Per CLAUDE.md §7, an HTTP 200 is not proof.
 
-1. `cd services/trading-engine && python3 -m pytest tests/ --no-cov -q` shows the 13 known pre-existing failures and no others.
+1. `cd services/trading-engine && python3 -m pytest tests/ --no-cov -q` introduces **no new failure family** against the 2026-08-08 baseline (1638 passed / 36 failed / 795 skipped — see Global Constraints), **and** every test file this plan touched passes **in isolation**. Do not gate on the raw count; it drifts with unrelated work and the bulk of the 36 is singleton pollution that disappears in isolated runs.
 2. The invariant query returns `t` — all three terms, realized summed over **all** positions:
    ```bash
    docker exec crypto-bot-postgres psql -U cryptobot -d cryptobot -c "
