@@ -53,6 +53,11 @@ class TestPaperTradingEngine:
         # execute_market_order raised decimal.InvalidOperation -- which is what
         # actually broke four of these tests. Pin 1x so the arithmetic below
         # stays in notional terms and reads plainly.
+        #
+        # Stage 0 (2026-08-07): the engine now gates that read on
+        # leverage_enabled. Pinned explicitly rather than left to Mock's truthy
+        # auto-attribute, so the 1x arithmetic below is stated, not inferred.
+        settings.leverage_enabled = True
         settings.default_leverage = 1.0
         # PAPER-01 (2026-08-03): the paper engine now fills at an adverse,
         # per-symbol price by default. This suite pins the 2026-07-28
@@ -218,6 +223,12 @@ class TestPaperTradingEngine:
             # entry_fee joined the contract 2026-08-05 (H7 fee-netting):
             # 0.1% of the $50 notional at the fixture's commission rate.
             entry_fee=Decimal("0.05"),
+            # Stage 0 (2026-08-07): the engine now stamps the dollar margin it
+            # debited onto the position, and the close leg credits back that
+            # recorded amount instead of recomputing notional/default_leverage.
+            # At 1x the margin IS the notional.
+            posted_margin=Decimal("50.00"),
+            leverage=Decimal("1"),
         )
 
     @pytest.mark.asyncio
@@ -276,6 +287,12 @@ class TestPaperTradingEngine:
         # pre-close value must be a real Decimal, not a Mock attribute.
         mock_open_position.realized_pnl = Decimal("0")
         mock_position_manager.get_open_positions.return_value = [mock_open_position]
+        # Stage 0 (2026-08-07): the close leg asks the position manager what
+        # this position POSTED rather than recomputing it from the global
+        # leverage. At 1x on a $50 notional that is $50 — the same figure the
+        # old `entry_price * qty / leverage` produced, so the expected balance
+        # below is unchanged.
+        mock_position_manager.consume_posted_margin.return_value = Decimal("50.00")
 
         # Mock closed position with profit (rescaled from 200.00 for the $100
         # account: 0.001 BTC moving 50,000 -> 52,000 is a $2 gain)

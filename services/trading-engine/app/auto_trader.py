@@ -4401,10 +4401,12 @@ class AutoTrader:
             # Apply leverage to ensemble sizing (fix 2026-05-19).
             # ensemble.position_size_pct sets the MARGIN fraction (already capped
             # at max_risk_per_trade by ensemble's own cascade). Multiplying by
-            # leverage converts margin to notional position value. paper_engine
-            # then divides notional by default_leverage to compute margin
-            # deducted, so cash impact = balance × position_size_pct regardless
-            # of leverage; leverage only scales notional (P&L exposure).
+            # leverage converts margin to notional position value.
+            # paper_engine posts margin = notional / leverage and RECORDS the
+            # dollar amount on the position (Stage 0, 2026-08-07); the close
+            # leg returns exactly that recorded amount, so cash impact =
+            # balance x position_size_pct regardless of any later change to
+            # DEFAULT_LEVERAGE. Leverage only scales notional (P&L exposure).
             leverage = 1.0
             if self.settings.leverage_enabled:
                 leverage = max(

@@ -206,6 +206,7 @@ class PositionRepository:
         exit_fee: Decimal,
         current_price: Decimal,
         unrealized_pnl: Decimal,
+        posted_margin: Optional[Decimal] = None,
     ):
         """
         Persist a partial exit (2026-08-04, AUDIT H5).
@@ -222,20 +223,28 @@ class PositionRepository:
             exit_fee: Accumulated exit-leg commission so far
             current_price: Fill price of the reducing leg
             unrealized_pnl: Unrealized P&L on the remaining quantity
+            posted_margin: Margin STILL posted after this reduction (Stage 0,
+                2026-08-07). Optional and guarded exactly as `close` guards
+                exit_fee, so a caller that has not been updated writes nothing
+                rather than zeroing a live ledger entry.
         """
         try:
             async with self.db.get_async_session() as session:
+                values = {
+                    "remaining_quantity": remaining_quantity,
+                    "realized_pnl": realized_pnl,
+                    "exit_fee": exit_fee,
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+                if posted_margin is not None:
+                    values["posted_margin"] = posted_margin
+
                 stmt = (
                     update(DBPosition)
                     .where(DBPosition.position_id == position_id)
-                    .values(
-                        remaining_quantity=remaining_quantity,
-                        realized_pnl=realized_pnl,
-                        exit_fee=exit_fee,
-                        current_price=current_price,
-                        unrealized_pnl=unrealized_pnl,
-                        updated_at=datetime.now(timezone.utc),
-                    )
+                    .values(**values)
                 )
 
                 await session.execute(stmt)
@@ -259,6 +268,7 @@ class PositionRepository:
         entry_fee: Decimal,
         current_price: Decimal,
         unrealized_pnl: Decimal,
+        posted_margin: Optional[Decimal] = None,
     ):
         """
         Persist a scale-in (DCA averaging) — 2026-08-04.
@@ -275,22 +285,29 @@ class PositionRepository:
             entry_fee: Accumulated entry-leg commission (open + scale-ins)
             current_price: Fill price of the scale-in leg
             unrealized_pnl: Updated unrealized P&L
+            posted_margin: ACCUMULATED margin posted across the open leg and
+                every scale-in (Stage 0, 2026-08-07). Optional and guarded as
+                `close` guards exit_fee.
         """
         try:
             async with self.db.get_async_session() as session:
+                values = {
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "cost_basis": entry_price * quantity,
+                    "remaining_quantity": remaining_quantity,
+                    "entry_fee": entry_fee,
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+                if posted_margin is not None:
+                    values["posted_margin"] = posted_margin
+
                 stmt = (
                     update(DBPosition)
                     .where(DBPosition.position_id == position_id)
-                    .values(
-                        quantity=quantity,
-                        entry_price=entry_price,
-                        cost_basis=entry_price * quantity,
-                        remaining_quantity=remaining_quantity,
-                        entry_fee=entry_fee,
-                        current_price=current_price,
-                        unrealized_pnl=unrealized_pnl,
-                        updated_at=datetime.now(timezone.utc),
-                    )
+                    .values(**values)
                 )
 
                 await session.execute(stmt)

@@ -96,6 +96,10 @@ def fresh_engine(leverage=None):
     engine.position_manager = PositionManager()
     pm_mod._position_manager = engine.position_manager
     if leverage is not None:
+        # Stage 0 (2026-08-07): paper_trading now gates its leverage read on
+        # leverage_enabled, the way auto_trader always has. Without this the
+        # assignment below is inert and every leg silently posts full notional.
+        engine.settings.leverage_enabled = True
         engine.settings.default_leverage = leverage
     return engine
 

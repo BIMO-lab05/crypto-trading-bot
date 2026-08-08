@@ -75,7 +75,11 @@ class PaperTradingEngine:
         self.balance = (
             self.initial_balance
         )  # Will be adjusted in sync_balance_with_positions
-        self.commission_pct = Decimal(str(self.settings.paper_commission_pct / 100))
+        # `/ 100` after the Decimal wrap, not before: the old form did the
+        # division in float and handed Decimal an already-lossy value.
+        self.commission_pct = Decimal(
+            str(self.settings.paper_commission_pct)
+        ) / Decimal("100")
         self.slippage = build_slippage_model(self.settings)
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
@@ -91,8 +95,14 @@ class PaperTradingEngine:
         logger.info("  Database persistence: ENABLED")
 
     def _open_position_cost(self, positions) -> Decimal:
-        """Margin + commission actually debited when these positions opened."""
-        leverage = Decimal(str(self.settings.default_leverage))
+        """Margin + commission actually debited when these positions opened.
+
+        Stage 0 (2026-08-07): reads the margin each position RECORDED at open
+        rather than recomputing it from the current settings.default_leverage.
+        The previous form made this docstring false — after the 2026-08-04
+        DEFAULT_LEVERAGE 10.0 -> 1.0 flip it over-deducted for every 10x-era
+        position on every restart.
+        """
         total = Decimal("0")
         for pos in positions:
             qty = (
@@ -100,10 +110,8 @@ class PaperTradingEngine:
                 if pos.remaining_quantity is not None
                 else pos.quantity
             )
-            position_value = pos.entry_price * qty
-            total += (position_value / leverage) + (
-                position_value * self.commission_pct
-            )
+            posted = getattr(pos, "posted_margin", None) or Decimal("0")
+            total += posted + (pos.entry_price * qty * self.commission_pct)
         return total
 
     async def sync_balance_with_positions(self):
@@ -250,7 +258,13 @@ class PaperTradingEngine:
 
         order_value = fill_price * order.quantity
         commission = self.calculate_commission(order_value)
-        leverage = Decimal(str(self.settings.default_leverage))
+        # Stage 0 (2026-08-07): this is the leverage a NEW leg posts margin at.
+        # It is stamped onto the position. The CLOSE leg no longer reads it —
+        # it consumes position.posted_margin instead. Gated on leverage_enabled
+        # to match auto_trader.py:4408-4413, which paper_trading did not do.
+        leverage = Decimal("1")
+        if getattr(self.settings, "leverage_enabled", False):
+            leverage = Decimal(str(self.settings.default_leverage))
 
         executed_order = Order(
             **order.model_dump(),
@@ -321,8 +335,16 @@ class PaperTradingEngine:
             else:  # SHORT
                 realized_pnl = (target.entry_price - fill_price) * close_qty
 
-            # Margin posted at open for this quantity, now returned
-            margin_returned = (target.entry_price * close_qty) / leverage
+            # Stage 0 (2026-08-07): return what this position POSTED, not what
+            # the current global leverage would imply. The old form recomputed
+            # entry_price*close_qty/settings.default_leverage; a position
+            # opened at 10x and closed after DEFAULT_LEVERAGE dropped to 1.0
+            # credited back 10x its margin (~$177 fabricated on a $100 account).
+            # Must run BEFORE close_position/reduce_position touch
+            # remaining_quantity.
+            margin_returned = self.position_manager.consume_posted_margin(
+                target.id, close_qty
+            )
 
             # Cash ledger: gross P&L minus the exit commission. The entry fee
             # already left the cash balance at open — netting it here again
@@ -417,7 +439,11 @@ class PaperTradingEngine:
 
                 self.balance -= total_cost
                 self.position_manager.scale_in(
-                    pos.id, order.quantity, fill_price, entry_fee=commission
+                    pos.id,
+                    order.quantity,
+                    fill_price,
+                    entry_fee=commission,
+                    posted_margin=margin_required,
                 )
                 executed_order.position_id = pos.id
 
@@ -469,6 +495,8 @@ class PaperTradingEngine:
             strategy=order.strategy,
             entry_signal_confidence=order.entry_signal_confidence,
             entry_fee=commission,
+            posted_margin=margin_required,
+            leverage=leverage,
         )
 
         executed_order.position_id = position.id

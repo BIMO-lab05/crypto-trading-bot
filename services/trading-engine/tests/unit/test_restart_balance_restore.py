@@ -26,11 +26,19 @@ COMMISSION_PCT = Decimal("0.001")  # 0.1%
 
 
 def _position(entry_price, quantity, opened_at):
-    """Minimal stand-in for an in-memory Position."""
+    """Minimal stand-in for an in-memory Position.
+
+    Stage 0: carries posted_margin, because _open_position_cost now reads the
+    recorded amount instead of recomputing notional/settings.default_leverage.
+    """
+    entry = Decimal(str(entry_price))
+    qty = Decimal(str(quantity))
     return SimpleNamespace(
-        entry_price=Decimal(str(entry_price)),
-        quantity=Decimal(str(quantity)),
+        entry_price=entry,
+        quantity=qty,
         remaining_quantity=None,
+        posted_margin=(entry * qty) / LEVERAGE,
+        leverage=LEVERAGE,
         opened_at=opened_at,
         side=PositionSide.LONG,
         status=PositionStatus.OPEN,
