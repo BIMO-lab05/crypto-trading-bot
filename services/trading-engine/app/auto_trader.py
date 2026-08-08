@@ -54,7 +54,7 @@ from app.position_manager import get_position_manager
 from app.position_sizing import get_position_sizer, SizingMethod
 from app.performance_tracker import get_performance_tracker
 from app.models import OrderSide, OrderType, OrderCreate, OrderStatus, TimeInForce
-from app.models.enums import SignalAction
+from app.models.enums import SignalAction, ExitKind
 from app.aggregation.market_regime import get_market_regime_detector, MarketRegime
 
 # Import hybrid strategy router (combines trend-following + mean reversion)
@@ -2880,6 +2880,10 @@ class AutoTrader:
                         # Problem: SOLUSDT SHORT stop loss at -3% executed at -4.8% (+60% slippage)
                         # Solution: Use limit order with 0.5% buffer, fallback to market if not filled
                         # ================================================================
+                        # Stage 0: this predicate ROUTES (limit vs market close). It is no
+                        # longer the record — positions.exit_kind comes from _exit_kind_for.
+                        # Deliberately left divergent from the :3073 cooldown predicate;
+                        # unifying them changes which exits arm the cooldown.
                         if "stop" in reason.lower() or "loss" in reason.lower():
                             await self._close_position_with_limit_order(
                                 position, current_price, reason
@@ -2971,6 +2975,43 @@ class AutoTrader:
             logger.warning(f"[MONITOR] Failed to get ATR for {symbol}: {e}")
             return None
 
+    @staticmethod
+    def _exit_kind_for(reason: Optional[str]) -> Optional[ExitKind]:
+        """Map a producer's reason string to a structured ExitKind.
+
+        Stage 0 (2026-08-07). Replaces two divergent inline predicates
+        (:2883 tested "stop"/"loss"; :3073 also tested "max_hold") as the
+        SOURCE OF TRUTH. Those predicates may remain as ROUTING - they decide
+        limit-vs-market close and whether to arm the SL cooldown - but the
+        persisted record now comes from here.
+
+        Returns None for anything unrecognised, including the non-exit
+        diagnostics check_all_exit_conditions returns ('Position not found',
+        'Position not open', 'No exit conditions met'). Never guess: a wrong
+        ExitKind is worse than a null one, because the whole point is to be
+        able to measure which exit destroys edge.
+        """
+        if not reason:
+            return None
+        low = reason.lower()
+
+        # Order matters: "Trailing stop triggered" also contains "stop".
+        if "trailing" in low:
+            return ExitKind.TRAILING_STOP
+        if "max_hold" in low or "max hold" in low:
+            return ExitKind.MAX_HOLD
+        if "stop" in low or "stop_loss" in low or "loss" in low:
+            return ExitKind.HARD_STOP
+        if "take profit" in low or "take_profit" in low or low.startswith("tp"):
+            return ExitKind.TAKE_PROFIT
+        if "reversal" in low:
+            return ExitKind.SIGNAL_REVERSAL
+        if "liquidat" in low:
+            return ExitKind.LIQUIDATION
+        if "manual" in low:
+            return ExitKind.MANUAL
+        return None
+
     async def _close_position(self, position, current_price: float, reason: str):
         """
         Close a position completely
@@ -3008,7 +3049,10 @@ class AutoTrader:
             if self.settings.trading_mode == "LIVE":
                 live_engine = get_live_engine()
                 ok, close_err = await live_engine.close_position(
-                    position.id, Decimal(str(current_price)), reason
+                    position.id,
+                    Decimal(str(current_price)),
+                    reason,
+                    exit_kind=self._exit_kind_for(reason),
                 )
                 if not ok:
                     logger.error(
@@ -3025,6 +3069,7 @@ class AutoTrader:
                     reduce_only=True,
                     position_id=position.id,
                     strategy="auto_close",
+                    exit_kind=self._exit_kind_for(reason),
                 )
                 executed, close_err = await paper_engine.execute_market_order(
                     close_order, Decimal(str(current_price))
@@ -3070,6 +3115,10 @@ class AutoTrader:
             # instantly reopened 4 same-symbol positions at identical prices
             # within 25s, burning ~$0.66 in fees for zero exposure change.
             reason_lc = reason.lower()
+            # Stage 0: this predicate ROUTES (arms the SL cooldown). It is no
+            # longer the record — positions.exit_kind comes from _exit_kind_for.
+            # Deliberately left divergent from the :2883 limit-vs-market predicate;
+            # unifying them changes which exits arm the cooldown.
             if "stop" in reason_lc or "loss" in reason_lc or "max_hold" in reason_lc:
                 self._record_sl_hit(position.symbol, reason)
 
@@ -3266,7 +3315,10 @@ class AutoTrader:
             try:
                 live_engine = get_live_engine()
                 ok, close_err = await live_engine.close_position(
-                    position.id, Decimal(str(current_price)), reason
+                    position.id,
+                    Decimal(str(current_price)),
+                    reason,
+                    exit_kind=self._exit_kind_for(reason),
                 )
             except Exception as live_err:
                 ok, close_err = False, str(live_err)
@@ -3324,6 +3376,10 @@ class AutoTrader:
             )
 
             # STEP 2: Attempt limit order execution (IOC, reduce-only)
+            # exit_kind is derived from the UNDECORATED reason (this method's
+            # own `reason` param) — _finalize_closed_position below appends
+            # "(limit order @ $...)" to the prose reason it persists, but that
+            # decoration must never reach _exit_kind_for's mapping.
             limit_order = OrderCreate(
                 symbol=position.symbol,
                 side=exit_side,
@@ -3334,6 +3390,7 @@ class AutoTrader:
                 reduce_only=True,
                 position_id=position.id,
                 strategy="stop_loss_limit",
+                exit_kind=self._exit_kind_for(reason),
             )
 
             logger.info(
@@ -3393,6 +3450,7 @@ class AutoTrader:
                 reduce_only=True,
                 position_id=position.id,
                 strategy="stop_loss_market_fallback",
+                exit_kind=self._exit_kind_for(reason),
             )
 
             market_result = await paper_engine.execute_market_order(
