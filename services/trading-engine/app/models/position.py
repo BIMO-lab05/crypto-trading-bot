@@ -62,8 +62,12 @@ class PositionBase(BaseModel):
     )
     leverage: Decimal = Field(
         default=Decimal("1"),
-        description="Leverage in force when this position opened (audit only; "
-        "no arithmetic reads this — posted_margin is authoritative)",
+        description="Effective leverage of the quantity still open: "
+        "entry_price * remaining_quantity / posted_margin. Equals the leverage "
+        "in force at open for a single-leg position, and is RE-BLENDED on "
+        "scale_in so a row with legs at different leverage still reconciles "
+        "(2026-08-08). Audit only; no cash path reads this — posted_margin is "
+        "authoritative and this is derived from it, never the reverse.",
     )
     exit_kind: Optional[ExitKind] = Field(
         default=None,

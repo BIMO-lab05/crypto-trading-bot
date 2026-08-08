@@ -181,6 +181,10 @@ def _settings(slippage_enabled: bool = True) -> Mock:
     # auto-attribute, so the 1x arithmetic below is stated, not inferred.
     settings.leverage_enabled = True
     settings.default_leverage = 1.0
+    # The engine clamps to [min, max] the way auto_trader does; a bare Mock()
+    # here would reach Decimal(str(Mock)) and raise InvalidOperation.
+    settings.min_leverage = 1.0
+    settings.max_leverage = 20.0
     settings.paper_slippage_enabled = slippage_enabled
     settings.paper_slippage_bps_by_symbol = {}
     settings.paper_slippage_default_bps = 10.0

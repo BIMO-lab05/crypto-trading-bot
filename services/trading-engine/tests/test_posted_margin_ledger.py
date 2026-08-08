@@ -97,16 +97,23 @@ def stack():
     # test below that assigns default_leverage / leverage_enabled mutates it for
     # the rest of the run. Capture and restore, or a whole-suite run inherits
     # 10x leverage from whichever test happened to go last.
-    saved_leverage = engine.settings.default_leverage
-    saved_leverage_enabled = engine.settings.leverage_enabled
+    saved_settings = {
+        name: getattr(engine.settings, name)
+        for name in (
+            "default_leverage",
+            "leverage_enabled",
+            "min_leverage",
+            "max_leverage",
+        )
+    }
     yield SimpleNamespace(
         engine=engine,
         manager=manager,
         position_repo=position_repo,
         portfolio_repo=portfolio_repo,
     )
-    engine.settings.default_leverage = saved_leverage
-    engine.settings.leverage_enabled = saved_leverage_enabled
+    for name, value in saved_settings.items():
+        setattr(engine.settings, name, value)
     paper_trading_module._paper_engine = saved
 
 
@@ -252,6 +259,112 @@ async def test_margin_conservation_over_a_full_round_trip(stack):
     total_fees = engine.calculate_commission(Decimal("70")) * 2
     assert engine.balance == start - total_fees
     assert manager.positions[pos.id].posted_margin == Decimal("0")
+
+
+async def test_leverage_is_clamped_the_way_auto_trader_clamps_it(stack):
+    """Review finding 1 (2026-08-08).
+
+    config.py permits default_leverage up to 100 while max_leverage defaults
+    to 20. auto_trader.py:4410 clamps; paper_trading did not. Unclamped, a
+    DEFAULT_LEVERAGE of 50 had auto_trader size notional at 20x while the
+    engine posted notional/50 — 40% of the intended margin, so the per-trade
+    cap under-bound by 2.5x in cash terms.
+    """
+    engine, manager = stack.engine, stack.manager
+    engine.settings.leverage_enabled = True
+    engine.settings.min_leverage = 1.0
+    engine.settings.max_leverage = 20.0
+    engine.settings.default_leverage = 50.0
+
+    await engine.execute_market_order(
+        _order("SOLUSDT", OrderSide.BUY, "1"), Decimal("80")
+    )
+    await _drain_tasks()
+
+    pos = manager.get_open_positions()[0]
+    assert pos.posted_margin == Decimal("4")  # 80 / 20x, NOT 80 / 50x
+    assert pos.leverage == Decimal("20")
+
+    # And the floor binds too.
+    engine.settings.min_leverage = 5.0
+    engine.settings.default_leverage = 1.0
+    await engine.execute_market_order(
+        _order("BTCUSDT", OrderSide.BUY, "1"), Decimal("50")
+    )
+    await _drain_tasks()
+
+    btc = [p for p in manager.get_open_positions() if p.symbol == "BTCUSDT"][0]
+    assert btc.posted_margin == Decimal("10")  # 50 / 5x
+
+
+async def test_open_position_cost_reads_the_recorded_fee_not_the_current_rate(stack):
+    """Review finding 2 (2026-08-08).
+
+    The commission term of _open_position_cost was the same defect class as
+    the leverage flip, one line below it: it recomputed the fee from the
+    CURRENT rate while positions.entry_fee holds what was debited. Changing
+    PAPER_COMMISSION_PCT then mis-deducted for every pre-change position on
+    every restart.
+    """
+    engine, manager = stack.engine, stack.manager
+    engine.settings.leverage_enabled = True
+    engine.settings.default_leverage = 10.0
+
+    await engine.execute_market_order(
+        _order("SOLUSDT", OrderSide.BUY, "1"), Decimal("70")
+    )
+    await _drain_tasks()
+    pos = manager.get_open_positions()[0]
+    fee_at_open = engine.calculate_commission(Decimal("70"))
+
+    # The operator retunes the fee model after this position opened.
+    engine.commission_pct = engine.commission_pct * Decimal("4")
+
+    assert engine._open_position_cost([pos]) == Decimal("7") + fee_at_open
+
+
+async def test_scale_in_reblends_the_recorded_leverage(stack):
+    """Review finding 3 (2026-08-08).
+
+    scale_in accumulated posted_margin but left `leverage` at the first leg's
+    value, so a row said 10x when the blend was ~3.19x and stopped satisfying
+    `entry_price * remaining / leverage == posted_margin` — the reconciliation
+    migration 008's own backfill uses.
+    """
+    engine, manager = stack.engine, stack.manager
+    engine.settings.leverage_enabled = True
+    engine.settings.default_leverage = 10.0
+
+    await engine.execute_market_order(
+        _order("SOLUSDT", OrderSide.BUY, "1"), Decimal("70")
+    )
+    await _drain_tasks()
+    pos = manager.get_open_positions()[0]
+    assert pos.leverage == Decimal("10")
+
+    engine.settings.default_leverage = 2.0
+    await engine.execute_market_order(
+        _order("SOLUSDT", OrderSide.BUY, "1", position_id=pos.id), Decimal("80")
+    )
+    await _drain_tasks()
+
+    pos = manager.positions[pos.id]
+    assert pos.entry_price == Decimal("75")  # (70 + 80) / 2
+    assert pos.posted_margin == Decimal("47")  # 70/10 + 80/2
+    # The reconciliation holds again, and the stale 10x is gone.
+    assert pos.leverage != Decimal("10")
+    assert pos.entry_price * pos.remaining_quantity / pos.leverage == Decimal("47")
+
+    # And it survives a partial exit: consume_posted_margin scales margin and
+    # remaining quantity by the same factor, so the ratio must not drift.
+    await engine.execute_market_order(
+        _order("SOLUSDT", OrderSide.SELL, "0.5", position_id=pos.id, reduce_only=True),
+        Decimal("75"),
+    )
+    await _drain_tasks()
+
+    pos = manager.positions[pos.id]
+    assert pos.entry_price * pos.remaining_quantity / pos.leverage == pos.posted_margin
 
 
 def test_consume_posted_margin_hands_the_exact_residual(stack):

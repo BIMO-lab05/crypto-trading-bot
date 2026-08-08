@@ -138,6 +138,25 @@ class PositionManager:
         self._entry_fees_consumed[position.id] = consumed + portion
         return portion
 
+    def unconsumed_entry_fee(self, position_id: UUID) -> Decimal:
+        """Entry commission debited at open that no closed leg has absorbed yet.
+
+        Stage 0 fix round (2026-08-08). The cash ledger debits the WHOLE entry
+        fee at open, while realized_pnl nets only the CONSUMED portion — so the
+        unconsumed remainder is the part still owed against the persisted cash
+        figure. `_open_position_cost` reads this instead of recomputing
+        entry_price*qty*commission_pct from the CURRENT rate, which was the same
+        defect class as the leverage flip: change PAPER_COMMISSION_PCT and every
+        restart mis-deducts for positions opened at the old rate.
+
+        Returns 0 for an unknown position — a position with no ledger entry
+        posted no fee through this manager.
+        """
+        fee = self._entry_fees.get(position_id, Decimal("0"))
+        consumed = self._entry_fees_consumed.get(position_id, Decimal("0"))
+        remainder = fee - consumed
+        return remainder if remainder > 0 else Decimal("0")
+
     def consume_posted_margin(self, position_id: UUID, quantity: Decimal) -> Decimal:
         """Margin attributable to `quantity`, released from the position.
 
@@ -689,6 +708,26 @@ class PositionManager:
             position.posted_margin or Decimal("0")
         ) + posted_margin
 
+        # Stage 0 fix round (2026-08-08): re-blend the recorded leverage.
+        # Leaving it at the FIRST leg's value made the row say 10x when the
+        # blend across legs was ~3.19x, and broke the reconciliation
+        # `entry_price * remaining / leverage == posted_margin` that migration
+        # 008's own backfill uses — anyone auditing a scaled-in row got the
+        # wrong answer.
+        #
+        # Derived FROM posted_margin, never the reverse: posted_margin stays
+        # authoritative and no cash path reads this. Reconstructing margin from
+        # a stored ratio is what 008's header warns against; this is the
+        # opposite direction and leaves that guarantee intact.
+        #
+        # Invariant under partial exits: consume_posted_margin scales margin and
+        # remaining quantity by the same factor, so the ratio does not drift and
+        # only a scale-in needs to recompute it.
+        if position.posted_margin > 0:
+            position.leverage = (
+                position.entry_price * position.remaining_quantity
+            ) / position.posted_margin
+
         logger.info(
             f"✓ Position scaled in: {position_id} | {position.symbol} "
             f"+{quantity} @ {price} | New avg entry: {position.entry_price:.6f} | "
@@ -707,6 +746,7 @@ class PositionManager:
                 current_price=price,
                 unrealized_pnl=position.unrealized_pnl,
                 posted_margin=position.posted_margin,
+                leverage=position.leverage,
             ),
             "position scale-in",
         )

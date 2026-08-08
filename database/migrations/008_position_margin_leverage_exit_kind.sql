@@ -9,8 +9,13 @@
 --     posted_margin makes the posted dollar amount first-class; it is
 --     consumed proportionally on reduce and zeroed on close.
 --     A dollar amount, not a leverage ratio: scale_in rewrites entry_price to
---     a weighted average, which a single stored ratio cannot reconcile.
---   * leverage is recorded for AUDIT ONLY. No arithmetic reads it.
+--     a weighted average, which a ratio maintained only at open cannot
+--     reconcile. (Since 2026-08-08 scale_in DOES re-derive `leverage` — but
+--     only because the dollar amount exists to derive it from. The dollar
+--     amount remains the authoritative direction.)
+--   * leverage is recorded for AUDIT ONLY. No arithmetic READS it; scale_in
+--     re-derives it FROM posted_margin so a mixed-leverage row still
+--     reconciles (2026-08-08).
 --   * exit_kind is a structured close reason stored ALONGSIDE the free-text
 --     exit_reason. exit_reason is deliberately left untouched: it is
 --     API-visible through TradeHistoryResponse, and the pre-existing rows are
@@ -62,8 +67,13 @@ COMMENT ON COLUMN positions.posted_margin IS
     'Authoritative for the close-side cash credit; replaces recomputing '
     'entry_price*qty/settings.default_leverage at close time.';
 COMMENT ON COLUMN positions.leverage IS
-    'Leverage in force when the position opened. Added by 008. AUDIT ONLY — '
-    'no code path reads this arithmetically. INFERRED for rows predating 008.';
+    'Effective leverage of the quantity still open: entry_price * '
+    'remaining_quantity / posted_margin. Equals the leverage in force at open '
+    'for a single-leg position, and is RE-BLENDED on scale-in (2026-08-08) so '
+    'a row whose legs opened at different leverage still reconciles with that '
+    'formula. Added by 008. AUDIT ONLY — no code path reads this '
+    'arithmetically; it is derived FROM posted_margin, never the reverse. '
+    'INFERRED for rows predating 008.';
 COMMENT ON COLUMN positions.exit_kind IS
     'Structured close reason (app.models.enums.ExitKind). Added by 008. '
     'Stored alongside the free-text exit_reason, which is unchanged and not '
@@ -102,11 +112,18 @@ WHERE opened_at < TIMESTAMPTZ '2026-08-05 02:03:05+00' AND leverage = 1;
 -- Once Task 3 makes posted_margin authoritative, the live engine posts and
 -- consumes it directly, including through scale_in, which rewrites
 -- entry_price to a size-weighted average across postings that may have
--- opened at different leverage. entry_price*qty/leverage does NOT
--- reconstruct that history, so recomputing it here after Task 3 ships would
--- silently reintroduce the exact bug this column exists to prevent -- the
--- reason this design chose a stored dollar amount over a stored ratio in
--- the first place (see header). `posted_margin = 0` is the primary guard —
+-- opened at different leverage.
+--
+-- CORRECTED 2026-08-08: this passage used to say entry_price*qty/leverage
+-- "does NOT reconstruct that history". Task 3's fix round made scale_in
+-- re-blend the stored leverage, so for any row the ENGINE wrote, the formula
+-- below now round-trips exactly. The conclusion is unchanged and the reason
+-- is stronger: `leverage` is INFERRED for every pre-008 row (see the backfill
+-- above), so recomputing posted_margin from it would overwrite a real ledger
+-- with a guess — and for engine-written rows the recomputation is at best a
+-- no-op and at worst a rounding-loss round trip. A stored dollar amount, not
+-- a stored ratio, remains the authoritative direction (see header).
+-- `posted_margin = 0` is the primary guard —
 -- under the design this migration implements, a live OPEN position's margin
 -- is consumed proportionally and only reaches zero at the same moment the
 -- row closes, so an OPEN row with posted_margin = 0 should only ever be one

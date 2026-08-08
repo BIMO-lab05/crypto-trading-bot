@@ -59,6 +59,10 @@ class TestPaperTradingEngine:
         # auto-attribute, so the 1x arithmetic below is stated, not inferred.
         settings.leverage_enabled = True
         settings.default_leverage = 1.0
+        # The engine clamps to [min, max] the way auto_trader does; a bare
+        # Mock() here would reach Decimal(str(Mock)) and raise InvalidOperation.
+        settings.min_leverage = 1.0
+        settings.max_leverage = 20.0
         # PAPER-01 (2026-08-03): the paper engine now fills at an adverse,
         # per-symbol price by default. This suite pins the 2026-07-28
         # *accounting* arithmetic -- margin returned, commission, which side

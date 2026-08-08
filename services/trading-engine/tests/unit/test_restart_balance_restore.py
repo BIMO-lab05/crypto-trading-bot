@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 
@@ -30,19 +31,48 @@ def _position(entry_price, quantity, opened_at):
 
     Stage 0: carries posted_margin, because _open_position_cost now reads the
     recorded amount instead of recomputing notional/settings.default_leverage.
+
+    Fix round (2026-08-08): carries `id` and `entry_fee` too, because the
+    commission term now reads the fee the position RECORDED rather than
+    recomputing it from the current rate. `entry_fee` reproduces
+    notional * COMMISSION_PCT exactly, so every expected number below is
+    unchanged.
     """
     entry = Decimal(str(entry_price))
     qty = Decimal(str(quantity))
     return SimpleNamespace(
+        id=uuid4(),
         entry_price=entry,
         quantity=qty,
         remaining_quantity=None,
         posted_margin=(entry * qty) / LEVERAGE,
         leverage=LEVERAGE,
+        entry_fee=entry * qty * COMMISSION_PCT,
         opened_at=opened_at,
         side=PositionSide.LONG,
         status=PositionStatus.OPEN,
     )
+
+
+class _FakePositionManager:
+    """Stand-in exposing only what sync_balance_with_positions touches.
+
+    A bare `Mock()` no longer suffices: `_open_position_cost` calls
+    `unconsumed_entry_fee`, and a Mock would return a Mock that then fails on
+    `Decimal + Mock`. This returns real Decimals off the position stand-ins.
+    """
+
+    def __init__(self, open_positions):
+        self._open = open_positions
+
+    def get_open_positions(self):
+        return self._open
+
+    def unconsumed_entry_fee(self, position_id):
+        for pos in self._open:
+            if pos.id == position_id:
+                return pos.entry_fee
+        return Decimal("0")
 
 
 def _engine(open_positions, portfolio):
@@ -54,8 +84,7 @@ def _engine(open_positions, portfolio):
     engine.commission_pct = COMMISSION_PCT
     engine.initial_balance = Decimal("100")
     engine.balance = Decimal("100")
-    engine.position_manager = Mock()
-    engine.position_manager.get_open_positions.return_value = open_positions
+    engine.position_manager = _FakePositionManager(open_positions)
     engine.portfolio_repo = Mock()
     engine.portfolio_repo.get_or_create = AsyncMock(return_value=portfolio)
     return engine

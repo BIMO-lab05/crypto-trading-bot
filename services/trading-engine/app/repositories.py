@@ -269,6 +269,7 @@ class PositionRepository:
         current_price: Decimal,
         unrealized_pnl: Decimal,
         posted_margin: Optional[Decimal] = None,
+        leverage: Optional[Decimal] = None,
     ):
         """
         Persist a scale-in (DCA averaging) — 2026-08-04.
@@ -288,6 +289,10 @@ class PositionRepository:
             posted_margin: ACCUMULATED margin posted across the open leg and
                 every scale-in (Stage 0, 2026-08-07). Optional and guarded as
                 `close` guards exit_fee.
+            leverage: RE-BLENDED effective leverage after this scale-in
+                (2026-08-08), i.e. entry_price * remaining / posted_margin.
+                Without it the row keeps the first leg's ratio and stops
+                reconciling. Audit only; posted_margin stays authoritative.
         """
         try:
             async with self.db.get_async_session() as session:
@@ -303,6 +308,8 @@ class PositionRepository:
                 }
                 if posted_margin is not None:
                     values["posted_margin"] = posted_margin
+                if leverage is not None:
+                    values["leverage"] = leverage
 
                 stmt = (
                     update(DBPosition)
