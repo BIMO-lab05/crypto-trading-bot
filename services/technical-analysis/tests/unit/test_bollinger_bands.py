@@ -11,7 +11,10 @@ import pandas as pd
 import numpy as np
 
 import sys
-sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent.parent))
+
+sys.path.insert(
+    0, str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
+)
 
 from app.indicators.bollinger_bands import BollingerBandsCalculator
 from app.models import SignalType
@@ -20,6 +23,7 @@ from app.models import SignalType
 # ============================================================================
 # Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def bb_calculator():
@@ -31,21 +35,21 @@ def bb_calculator():
 def sample_uptrend_data():
     """Generate uptrending price data"""
     prices = [100 + i * 0.5 for i in range(100)]
-    return pd.DataFrame({'close': prices})
+    return pd.DataFrame({"close": prices})
 
 
 @pytest.fixture
 def sample_downtrend_data():
     """Generate downtrending price data"""
     prices = [100 - i * 0.5 for i in range(100)]
-    return pd.DataFrame({'close': prices})
+    return pd.DataFrame({"close": prices})
 
 
 @pytest.fixture
 def sample_sideways_data():
     """Generate sideways (ranging) price data"""
     prices = [100 + np.sin(i / 5) * 2 for i in range(100)]
-    return pd.DataFrame({'close': prices})
+    return pd.DataFrame({"close": prices})
 
 
 @pytest.fixture
@@ -57,12 +61,13 @@ def sample_volatile_data():
             prices.append(100 + i * 0.5)
         else:
             prices.append(100 + i * 0.5 + np.random.uniform(-5, 5))
-    return pd.DataFrame({'close': prices})
+    return pd.DataFrame({"close": prices})
 
 
 # ============================================================================
 # Initialization Tests
 # ============================================================================
+
 
 def test_bb_initialization(bb_calculator):
     """Test Bollinger Bands calculator initialization with default parameters"""
@@ -81,6 +86,7 @@ def test_bb_custom_parameters():
 # ============================================================================
 # Bollinger Bands Calculation Tests
 # ============================================================================
+
 
 def test_bb_calculation_structure(bb_calculator, sample_uptrend_data):
     """Test BB calculation returns correct structure"""
@@ -111,7 +117,7 @@ def test_bb_band_math(bb_calculator, sample_uptrend_data):
     assert result is not None
 
     # Get last 20 prices for manual calculation
-    prices = sample_uptrend_data['close'].iloc[-20:]
+    prices = sample_uptrend_data["close"].iloc[-20:]
     middle = prices.mean()
     std = prices.std()
 
@@ -141,7 +147,7 @@ def test_bb_uptrend_wider_bands(bb_calculator, sample_volatile_data):
 def test_bb_insufficient_data(bb_calculator):
     """Test BB returns None with insufficient data"""
     # Only 15 data points, need at least 20
-    short_data = pd.DataFrame({'close': [100] * 15})
+    short_data = pd.DataFrame({"close": [100] * 15})
     result = bb_calculator.calculate(short_data)
 
     assert result is None
@@ -150,7 +156,7 @@ def test_bb_insufficient_data(bb_calculator):
 def test_bb_exact_minimum_data(bb_calculator):
     """Test BB with exactly minimum required data"""
     # Exactly period = 20
-    min_data = pd.DataFrame({'close': [100 + i * 0.1 for i in range(20)]})
+    min_data = pd.DataFrame({"close": [100 + i * 0.1 for i in range(20)]})
     result = bb_calculator.calculate(min_data)
 
     assert result is not None
@@ -160,6 +166,7 @@ def test_bb_exact_minimum_data(bb_calculator):
 # Signal Generation Tests
 # ============================================================================
 
+
 def test_signal_price_below_lower_band_buy(bb_calculator):
     """Test BUY signal when price is below lower band (oversold)"""
     bb_data = {
@@ -167,7 +174,7 @@ def test_signal_price_below_lower_band_buy(bb_calculator):
         "middle_band": 100.0,
         "lower_band": 90.0,
         "current_price": 88.0,  # Below lower band
-        "bandwidth": 0.2
+        "bandwidth": 0.2,
     }
 
     signal, confidence = bb_calculator.generate_signal(bb_data)
@@ -183,7 +190,7 @@ def test_signal_price_above_upper_band_sell(bb_calculator):
         "middle_band": 100.0,
         "lower_band": 90.0,
         "current_price": 112.0,  # Above upper band
-        "bandwidth": 0.2
+        "bandwidth": 0.2,
     }
 
     signal, confidence = bb_calculator.generate_signal(bb_data)
@@ -199,7 +206,7 @@ def test_signal_price_at_middle_hold(bb_calculator):
         "middle_band": 100.0,
         "lower_band": 90.0,
         "current_price": 100.0,  # At middle band
-        "bandwidth": 0.2
+        "bandwidth": 0.2,
     }
 
     signal, confidence = bb_calculator.generate_signal(bb_data)
@@ -215,7 +222,7 @@ def test_signal_price_near_lower_band_moderate_buy(bb_calculator):
         "middle_band": 100.0,
         "lower_band": 90.0,
         "current_price": 92.0,  # Near lower band (position ~0.1)
-        "bandwidth": 0.2
+        "bandwidth": 0.2,
     }
 
     signal, confidence = bb_calculator.generate_signal(bb_data)
@@ -232,7 +239,7 @@ def test_signal_price_near_upper_band_moderate_sell(bb_calculator):
         "middle_band": 100.0,
         "lower_band": 90.0,
         "current_price": 108.0,  # Near upper band (position ~0.9)
-        "bandwidth": 0.2
+        "bandwidth": 0.2,
     }
 
     signal, confidence = bb_calculator.generate_signal(bb_data)
@@ -248,7 +255,7 @@ def test_signal_confidence_adjusts_for_low_volatility(bb_calculator):
         "middle_band": 100.0,
         "lower_band": 99.5,
         "current_price": 99.4,  # Below lower band
-        "bandwidth": 0.01  # Very low bandwidth
+        "bandwidth": 0.01,  # Very low bandwidth
     }
 
     signal, confidence = bb_calculator.generate_signal(bb_data)
@@ -265,7 +272,7 @@ def test_signal_confidence_adjusts_for_high_volatility(bb_calculator):
         "middle_band": 100.0,
         "lower_band": 80.0,
         "current_price": 78.0,  # Below lower band
-        "bandwidth": 0.4  # Very high bandwidth
+        "bandwidth": 0.4,  # Very high bandwidth
     }
 
     signal, confidence = bb_calculator.generate_signal(bb_data)
@@ -281,7 +288,7 @@ def test_signal_zero_band_range_returns_hold(bb_calculator):
         "middle_band": 100.0,
         "lower_band": 100.0,
         "current_price": 100.0,
-        "bandwidth": 0.0
+        "bandwidth": 0.0,
     }
 
     signal, confidence = bb_calculator.generate_signal(bb_data)
@@ -294,11 +301,12 @@ def test_signal_zero_band_range_returns_hold(bb_calculator):
 # Bollinger Band Squeeze Tests
 # ============================================================================
 
+
 def test_bb_squeeze_detection_low_volatility(bb_calculator):
     """Test squeeze detection with low volatility data"""
     # Create data with decreasing volatility
     prices = [100] * 30  # Flat prices = low volatility
-    df = pd.DataFrame({'close': prices})
+    df = pd.DataFrame({"close": prices})
 
     is_squeeze = bb_calculator.detect_squeeze(df, threshold=0.02)
 
@@ -327,7 +335,7 @@ def test_bb_no_squeeze_in_trending_market(bb_calculator, sample_uptrend_data):
 
 def test_bb_squeeze_insufficient_data(bb_calculator):
     """Test squeeze detection returns False with insufficient data"""
-    short_data = pd.DataFrame({'close': [100] * 10})
+    short_data = pd.DataFrame({"close": [100] * 10})
     is_squeeze = bb_calculator.detect_squeeze(short_data)
 
     assert is_squeeze is False
@@ -337,21 +345,29 @@ def test_bb_squeeze_insufficient_data(bb_calculator):
 # Calculate with Signal Tests
 # ============================================================================
 
+
 def test_calculate_with_signal_success(bb_calculator, sample_uptrend_data):
     """Test combined calculation and signal generation"""
-    bb_data, signal, confidence = bb_calculator.calculate_with_signal(sample_uptrend_data)
+    bb_data, signal, confidence = bb_calculator.calculate_with_signal(
+        sample_uptrend_data
+    )
 
     assert bb_data is not None
     assert "upper_band" in bb_data
     assert "middle_band" in bb_data
     assert "lower_band" in bb_data
-    assert signal in [SignalType.BUY, SignalType.SELL, SignalType.HOLD, SignalType.NEUTRAL]
+    assert signal in [
+        SignalType.BUY,
+        SignalType.SELL,
+        SignalType.HOLD,
+        SignalType.NEUTRAL,
+    ]
     assert 0 <= confidence <= 1.0
 
 
 def test_calculate_with_signal_insufficient_data(bb_calculator):
     """Test calculate_with_signal returns NEUTRAL with insufficient data"""
-    short_data = pd.DataFrame({'close': [100] * 10})
+    short_data = pd.DataFrame({"close": [100] * 10})
     bb_data, signal, confidence = bb_calculator.calculate_with_signal(short_data)
 
     assert bb_data is None
@@ -363,7 +379,7 @@ def test_calculate_with_signal_squeeze_boost(bb_calculator):
     """Test that squeeze detection boosts confidence"""
     # Create data that produces squeeze
     prices = [100] * 30  # Flat prices
-    df = pd.DataFrame({'close': prices})
+    df = pd.DataFrame({"close": prices})
 
     bb_data, signal, confidence = bb_calculator.calculate_with_signal(df)
 
@@ -375,6 +391,7 @@ def test_calculate_with_signal_squeeze_boost(bb_calculator):
 # ============================================================================
 # Bollinger Bands Series Tests
 # ============================================================================
+
 
 def test_calculate_series(bb_calculator, sample_uptrend_data):
     """Test BB series calculation for entire DataFrame"""
@@ -390,7 +407,7 @@ def test_calculate_series(bb_calculator, sample_uptrend_data):
 
 def test_calculate_series_insufficient_data(bb_calculator):
     """Test series calculation returns empty DataFrame with insufficient data"""
-    short_data = pd.DataFrame({'close': [100] * 10})
+    short_data = pd.DataFrame({"close": [100] * 10})
     result_df = bb_calculator.calculate_series(short_data)
 
     assert isinstance(result_df, pd.DataFrame)
@@ -405,18 +422,19 @@ def test_calculate_series_band_consistency(bb_calculator, sample_uptrend_data):
     clean_df = result_df.dropna()
 
     # Check band relationships for all rows
-    assert all(clean_df['upper_band'] > clean_df['middle_band'])
-    assert all(clean_df['middle_band'] > clean_df['lower_band'])
+    assert all(clean_df["upper_band"] > clean_df["middle_band"])
+    assert all(clean_df["middle_band"] > clean_df["lower_band"])
 
 
 # ============================================================================
 # Edge Cases
 # ============================================================================
 
+
 def test_bb_flat_prices():
     """Test BB with flat prices (no volatility)"""
     prices = [100] * 50
-    df = pd.DataFrame({'close': prices})
+    df = pd.DataFrame({"close": prices})
 
     bb_calc = BollingerBandsCalculator()
     result = bb_calc.calculate(df)
@@ -437,7 +455,7 @@ def test_bb_extreme_volatility():
         else:
             prices.append(200)
 
-    df = pd.DataFrame({'close': prices})
+    df = pd.DataFrame({"close": prices})
     bb_calc = BollingerBandsCalculator()
     result = bb_calc.calculate(df)
 
@@ -450,20 +468,20 @@ def test_bb_extreme_volatility():
 def test_bb_with_nan_values():
     """Test BB handles NaN values in data"""
     prices = [100, 102, np.nan, 105, 108, 110] + [110 + i for i in range(50)]
-    df = pd.DataFrame({'close': prices})
+    df = pd.DataFrame({"close": prices})
 
     bb_calc = BollingerBandsCalculator()
     result = bb_calc.calculate(df)
 
     # Should either handle gracefully or return valid result
     if result is not None:
-        assert all(not np.isnan(v) for k, v in result.items() if k != 'bandwidth')
+        assert all(not np.isnan(v) for k, v in result.items() if k != "bandwidth")
 
 
 def test_bb_division_by_zero_protection():
     """Test bandwidth calculation with zero middle band"""
     prices = [0] * 30
-    df = pd.DataFrame({'close': prices})
+    df = pd.DataFrame({"close": prices})
 
     bb_calc = BollingerBandsCalculator()
     result = bb_calc.calculate(df)
@@ -477,13 +495,14 @@ def test_bb_division_by_zero_protection():
 # Performance Tests
 # ============================================================================
 
+
 def test_bb_large_dataset_performance(bb_calculator):
     """Test BB calculation performance with large dataset"""
     import time
 
     # Generate 10,000 data points
     prices = [100 + np.sin(i / 100) * 10 for i in range(10000)]
-    large_df = pd.DataFrame({'close': prices})
+    large_df = pd.DataFrame({"close": prices})
 
     start_time = time.time()
     result = bb_calculator.calculate(large_df)
@@ -498,7 +517,7 @@ def test_bb_series_large_dataset(bb_calculator):
     import time
 
     prices = [100 + np.sin(i / 100) * 10 for i in range(10000)]
-    large_df = pd.DataFrame({'close': prices})
+    large_df = pd.DataFrame({"close": prices})
 
     start_time = time.time()
     result_df = bb_calculator.calculate_series(large_df)
@@ -512,6 +531,7 @@ def test_bb_series_large_dataset(bb_calculator):
 # Integration-like Tests
 # ============================================================================
 
+
 def test_bb_realistic_bitcoin_scenario():
     """Test BB with realistic Bitcoin-like price movements"""
     # Simulate Bitcoin-like volatility
@@ -523,7 +543,7 @@ def test_bb_realistic_bitcoin_scenario():
         current_price = current_price * (1 + change_pct)
         prices.append(current_price)
 
-    df = pd.DataFrame({'close': prices})
+    df = pd.DataFrame({"close": prices})
     bb_calc = BollingerBandsCalculator()
 
     result = bb_calc.calculate(df)
@@ -539,15 +559,16 @@ def test_bb_trend_identification():
     """Test BB identifies trend direction"""
     # Create clear uptrend
     uptrend_prices = [100 + i * 0.5 for i in range(50)]
-    uptrend_df = pd.DataFrame({'close': uptrend_prices})
+    uptrend_df = pd.DataFrame({"close": uptrend_prices})
 
     bb_calc = BollingerBandsCalculator()
     result = bb_calc.calculate(uptrend_df)
 
     assert result is not None
     # In uptrend, current price should be near upper band
-    price_position = (result["current_price"] - result["lower_band"]) / \
-                     (result["upper_band"] - result["lower_band"])
+    price_position = (result["current_price"] - result["lower_band"]) / (
+        result["upper_band"] - result["lower_band"]
+    )
 
     # Price should be in upper half of bands
     assert price_position > 0.5
@@ -566,18 +587,111 @@ def test_bb_volatility_expansion_contraction():
     for i in range(30):
         prices.append(100 + np.random.normal(0, 5))
 
-    df = pd.DataFrame({'close': prices})
+    df = pd.DataFrame({"close": prices})
     bb_calc = BollingerBandsCalculator()
 
     # Calculate BB series
     result_df = bb_calc.calculate_series(df)
 
     # Bandwidth should increase in high volatility period
-    early_bandwidth = result_df['bandwidth'].iloc[25:30].mean()
-    late_bandwidth = result_df['bandwidth'].iloc[50:55].mean()
+    early_bandwidth = result_df["bandwidth"].iloc[25:30].mean()
+    late_bandwidth = result_df["bandwidth"].iloc[50:55].mean()
 
     # Later period should have higher bandwidth (more volatility)
     assert late_bandwidth > early_bandwidth
+
+
+# ============================================================================
+# Confidence-curve monotonicity (MONOTONICITY FIX 2026-08-09)
+# ============================================================================
+#
+# The strong-SELL branch used the raw `price_position` as its confidence, so
+# pos 0.8499 scored 0.90 while pos 0.85 scored 0.85 - the strongest quarter of
+# SELL signals weighted below weaker ones. The strong-BUY side got a monotone
+# ladder in the 2026-07 audit; the SELL side was never mirrored, which also
+# left the boundary asymmetric (BUY at 0.15 = 0.70 vs SELL at 0.85 = 0.90).
+
+# Bandwidth in (0.02, 0.08) leaves the volatility multiplier inactive, so the
+# sweeps measure the position curve alone rather than two axes at once.
+NEUTRAL_BANDWIDTH = 0.04
+LOW_BANDWIDTH = 0.01  # triggers the x0.8 low-volatility penalty
+HIGH_BANDWIDTH = 0.12  # triggers the x0.9 high-volatility penalty
+
+
+def _bb_data(price_position, bandwidth=NEUTRAL_BANDWIDTH):
+    """Synthesise a bb_data dict at an exact price position within the bands."""
+    lower, upper = 100.0, 200.0
+    return {
+        "upper_band": upper,
+        "middle_band": (upper + lower) / 2,
+        "lower_band": lower,
+        "current_price": lower + price_position * (upper - lower),
+        "bandwidth": bandwidth,
+    }
+
+
+def _positions(start, stop, step=0.0005):
+    n = int(round((stop - start) / step)) + 1
+    return [round(start + i * step, 6) for i in range(n)]
+
+
+@pytest.mark.parametrize(
+    "bandwidth", [NEUTRAL_BANDWIDTH, LOW_BANDWIDTH, HIGH_BANDWIDTH]
+)
+def test_sell_confidence_is_monotone_toward_the_upper_band(bb_calculator, bandwidth):
+    """Confidence must never fall as price climbs further above the middle."""
+    previous = 0.0
+    previous_pos = 0.5
+    for pos in _positions(0.5, 1.2):
+        signal, confidence = bb_calculator.generate_signal(_bb_data(pos, bandwidth))
+        if signal is not SignalType.SELL:
+            continue
+        assert confidence >= previous, (
+            f"confidence dropped {previous:.4f} -> {confidence:.4f} between "
+            f"position {previous_pos} and {pos} (bandwidth {bandwidth}): a "
+            f"price further above the band carries a weaker SELL vote"
+        )
+        previous, previous_pos = confidence, pos
+
+
+@pytest.mark.parametrize(
+    "bandwidth", [NEUTRAL_BANDWIDTH, LOW_BANDWIDTH, HIGH_BANDWIDTH]
+)
+def test_buy_confidence_is_monotone_toward_the_lower_band(bb_calculator, bandwidth):
+    """The BUY side (repaired 2026-07) must stay monotone too."""
+    previous = 0.0
+    previous_pos = 0.5
+    for pos in reversed(_positions(-0.2, 0.5)):
+        signal, confidence = bb_calculator.generate_signal(_bb_data(pos, bandwidth))
+        if signal is not SignalType.BUY:
+            continue
+        assert confidence >= previous, (
+            f"confidence dropped {previous:.4f} -> {confidence:.4f} between "
+            f"position {previous_pos} and {pos} (bandwidth {bandwidth})"
+        )
+        previous, previous_pos = confidence, pos
+
+
+def test_no_cliff_at_the_strong_sell_boundary(bb_calculator):
+    """The specific defect: pos 0.8499 outscored pos 0.85."""
+    _, just_below = bb_calculator.generate_signal(_bb_data(0.8499))
+    _, at_boundary = bb_calculator.generate_signal(_bb_data(0.85))
+
+    assert at_boundary >= just_below, (
+        f"entering the strong-SELL zone drops confidence {just_below} -> {at_boundary}"
+    )
+    assert at_boundary == pytest.approx(0.7, abs=0.01)
+
+
+def test_buy_and_sell_boundaries_are_symmetric(bb_calculator):
+    """Equal distance from the middle band must earn equal confidence."""
+    for buy_pos, sell_pos in [(0.15, 0.85), (0.35, 0.65), (0.0, 1.0)]:
+        _, buy_conf = bb_calculator.generate_signal(_bb_data(buy_pos))
+        _, sell_conf = bb_calculator.generate_signal(_bb_data(sell_pos))
+        assert buy_conf == pytest.approx(sell_conf, abs=0.01), (
+            f"asymmetric confidence: BUY at {buy_pos} = {buy_conf} vs "
+            f"SELL at {sell_pos} = {sell_conf}"
+        )
 
 
 if __name__ == "__main__":
