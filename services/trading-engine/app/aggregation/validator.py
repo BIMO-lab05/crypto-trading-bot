@@ -69,15 +69,13 @@ class VolumeValidator:
             "WEAK": 0,
             "INSUFFICIENT": 0,
             "MINIMAL": 0,
-            "UNKNOWN": 0
+            "UNKNOWN": 0,
         }
 
         logger.info("VolumeValidator initialized with adaptive weighting")
 
     def validate_volume(
-        self,
-        confidence: float,
-        volume_conf: Optional[IndicatorSignal]
+        self, confidence: float, volume_conf: Optional[IndicatorSignal]
     ) -> Tuple[float, float, str]:
         """
         Validate volume and apply adaptive confidence penalty
@@ -103,7 +101,9 @@ class VolumeValidator:
 
         # If no volume confirmation available, pass through unchanged
         if not volume_conf:
-            logger.warning("⚠️  Volume Confirmation not available - proceeding without volume check")
+            logger.warning(
+                "⚠️  Volume Confirmation not available - proceeding without volume check"
+            )
             return confidence, volume_penalty, "No volume data"
 
         # Extract volume confirmation status and strength from metadata
@@ -133,7 +133,9 @@ class VolumeValidator:
                 # Confirmed but unknown strength - conservative approach
                 volume_penalty = 0.9
                 volume_reason = f"Volume confirmed ({strength})"
-                logger.info(f"✓ Volume confirmed: {strength} - Conservative penalty (0.9x)")
+                logger.info(
+                    f"✓ Volume confirmed: {strength} - Conservative penalty (0.9x)"
+                )
                 self.confirmed_count += 1
 
         else:
@@ -143,7 +145,7 @@ class VolumeValidator:
                 # - Combined with gatekeeper, this allows moderate-quality signals through
                 volume_penalty = 0.8  # 20% penalty
                 volume_reason = "Moderate volume (unconfirmed)"
-                logger.warning(f"⚠️  Volume MODERATE (unconfirmed) - Penalty: 0.8x")
+                logger.warning("⚠️  Volume MODERATE (unconfirmed) - Penalty: 0.8x")
                 self.rejected_count += 1
 
             elif strength == "WEAK":
@@ -154,7 +156,7 @@ class VolumeValidator:
                 # - Combined penalty now: 0.85 * 0.75 = 0.6375x (was 0.45x)
                 volume_penalty = 0.75  # 25% penalty
                 volume_reason = "Weak volume"
-                logger.warning(f"⚠️  Volume WEAK - Penalty: 0.75x")
+                logger.warning("⚠️  Volume WEAK - Penalty: 0.75x")
                 self.rejected_count += 1
 
             elif strength in self.LOW_VOLUME_STRENGTHS:
@@ -178,7 +180,9 @@ class VolumeValidator:
                 # Changed from 0.8x to 0.95x to allow more trades
                 volume_penalty = 0.95  # 5% penalty only
                 volume_reason = f"Unknown volume strength ({strength})"
-                logger.warning(f"⚠️  Volume UNKNOWN: {strength} - Minimal penalty: 0.95x")
+                logger.warning(
+                    f"⚠️  Volume UNKNOWN: {strength} - Minimal penalty: 0.95x"
+                )
                 self.rejected_count += 1
 
         # Calculate modified confidence
@@ -186,7 +190,9 @@ class VolumeValidator:
 
         # Log the confidence adjustment
         if volume_penalty < 1.0:
-            logger.info(f"  📉 Confidence adjusted: {confidence:.2f} → {modified_confidence:.2f} (×{volume_penalty:.1f})")
+            logger.info(
+                f"  📉 Confidence adjusted: {confidence:.2f} → {modified_confidence:.2f} (×{volume_penalty:.1f})"
+            )
         else:
             logger.info(f"  ✓ Confidence maintained: {confidence:.2f} (no penalty)")
 
@@ -206,21 +212,19 @@ class VolumeValidator:
             "confirmed": self.confirmed_count,
             "rejected": self.rejected_count,
             "total": total,
-            "rejection_rate": (
-                self.rejected_count / total if total > 0 else 0.0
-            ),
-            "confirmation_rate": (
-                self.confirmed_count / total if total > 0 else 0.0
-            ),
+            "rejection_rate": (self.rejected_count / total if total > 0 else 0.0),
+            "confirmation_rate": (self.confirmed_count / total if total > 0 else 0.0),
             # Adaptive weighting breakdown
             "strength_distribution": {
                 strength: {
                     "count": count,
-                    "percentage": (count / total_strength * 100) if total_strength > 0 else 0.0
+                    "percentage": (count / total_strength * 100)
+                    if total_strength > 0
+                    else 0.0,
                 }
                 for strength, count in self.strength_stats.items()
             },
-            "average_penalty_estimate": self._calculate_average_penalty()
+            "average_penalty_estimate": self._calculate_average_penalty(),
         }
 
     def _calculate_average_penalty(self) -> float:
@@ -246,7 +250,7 @@ class VolumeValidator:
             "WEAK": 0.75,
             "INSUFFICIENT": 0.5,
             "MINIMAL": 0.5,
-            "UNKNOWN": 0.95
+            "UNKNOWN": 0.95,
         }
 
         weighted_sum = sum(
