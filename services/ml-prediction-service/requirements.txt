@@ -15,7 +15,7 @@ pandas==2.1.4
 
 # Hyperparameter Optimization
 optuna==3.5.0  # Bayesian optimization framework
-optuna-dashboard==0.15.1  # Optional: visualization dashboard
+optuna-dashboard==0.20.0  # Optional: visualization dashboard
 
 # Database
 asyncpg==0.29.0  # PostgreSQL/TimescaleDB async driver
