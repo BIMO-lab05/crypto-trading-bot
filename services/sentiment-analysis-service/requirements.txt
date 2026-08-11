@@ -14,7 +14,7 @@ transformers==4.37.0
 torch==2.2.0
 
 # Data processing
-numpy==1.26.2
+numpy==2.5.1
 pandas==2.1.4
 
 # Python standard library enhancements
