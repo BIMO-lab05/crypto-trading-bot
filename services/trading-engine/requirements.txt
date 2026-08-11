@@ -9,7 +9,7 @@ pydantic-settings==2.1.0  # Settings management
 
 # Data Processing
 pandas==2.2.0             # Data manipulation
-numpy==1.26.3             # Numerical computing
+numpy==2.5.1             # Numerical computing
 scipy==1.11.4             # Scientific computing (for statistical tests)
 statsmodels==0.14.1       # Statistical analysis (ADF, cointegration tests)
 
