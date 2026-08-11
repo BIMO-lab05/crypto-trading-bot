@@ -20,7 +20,7 @@ circuitbreaker==1.4.0     # Circuit breaker pattern implementation
 
 # Rate Limiting
 slowapi==0.1.9            # Rate limiting for FastAPI
-limits==3.7.0             # Rate limiting backend
+limits==5.8.0             # Rate limiting backend
 
 # Monitoring & Logging
 prometheus-client==0.19.0 # Metrics for monitoring
