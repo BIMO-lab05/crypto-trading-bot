@@ -4,7 +4,7 @@
 # Web Framework
 fastapi==0.109.0          # Modern async web framework
 uvicorn[standard]==0.27.0 # ASGI server with auto-reload
-pydantic==2.5.3           # Data validation and settings
+pydantic==2.13.4           # Data validation and settings
 pydantic-settings==2.1.0  # Environment-based configuration
 
 # Bybit SDK
