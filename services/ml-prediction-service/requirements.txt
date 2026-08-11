@@ -18,7 +18,7 @@ optuna==3.5.0  # Bayesian optimization framework
 optuna-dashboard==0.15.1  # Optional: visualization dashboard
 
 # Database
-asyncpg==0.29.0  # PostgreSQL/TimescaleDB async driver
+asyncpg==0.31.0  # PostgreSQL/TimescaleDB async driver
 redis==5.0.1  # Redis async client for prediction caching
 
 # Python standard library enhancements
