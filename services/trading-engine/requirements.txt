@@ -43,7 +43,7 @@ aiohttp==3.9.3            # Async HTTP client (for notification service)
 # Monitoring & Logging
 prometheus-client==0.19.0 # Metrics
 python-json-logger==2.0.7 # Structured logging
-sentry-sdk==1.40.0        # Error tracking
+sentry-sdk==2.66.1        # Error tracking
 
 # Utilities
 pyjwt[crypto]>=2.10.1     # app/exchanges/coinbase.py signs ES256 JWTs at module import;
