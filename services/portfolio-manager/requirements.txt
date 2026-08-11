@@ -55,5 +55,5 @@ freezegun==1.4.0          # Time mocking
 # Development
 black==24.1.1             # Code formatter
 isort==5.13.2             # Import sorter
-mypy==1.8.0               # Type checker
+mypy==2.3.0               # Type checker
 flake8==7.0.0             # Linter
