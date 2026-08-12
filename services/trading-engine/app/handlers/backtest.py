@@ -50,7 +50,14 @@ class BacktestRequest(BaseModel):
         gt=0,
         description="Initial equity (defaults to configured paper balance)",
     )
-    commission_pct: float = Field(default=0.1, description="Commission percentage")
+    commission_pct: float = Field(
+        # Resolved at request time from the Settings field the paper engine
+        # bills against. Both are PERCENT per side (0.055 = Bybit linear-perp
+        # taker) — identity, not a x100 conversion. Was 0.1, i.e. 1.8x the venue.
+        default_factory=lambda: get_settings().paper_commission_pct,
+        ge=0.0,
+        description="Commission percent per side (defaults to configured paper fee)",
+    )
     slippage_pct: float = Field(default=0.05, description="Slippage percentage")
     position_size_pct: float = Field(
         default=10.0, description="Position size as % of equity"
@@ -375,9 +382,10 @@ async def compare_strategies(symbol: str = "BTCUSDT", days: int = 90) -> Dict[st
         symbol=symbol, days=days, start_price=50000.0, volatility=0.02
     )
 
-    # initial_equity intentionally omitted: BacktestConfig resolves it from
-    # Settings.paper_initial_balance at instantiation (AUDIT 2.5).
-    config = BacktestConfig(commission_pct=0.1, slippage_pct=0.05)
+    # initial_equity and commission_pct intentionally omitted: BacktestConfig
+    # resolves them from Settings.paper_initial_balance and
+    # Settings.paper_commission_pct at instantiation (AUDIT 2.5).
+    config = BacktestConfig(slippage_pct=0.05)
 
     results = []
 
@@ -545,7 +553,12 @@ class WalkForwardRequest(BaseModel):
         gt=0,
         description="Initial equity (defaults to configured paper balance)",
     )
-    commission_pct: float = Field(default=0.1, description="Commission percentage")
+    commission_pct: float = Field(
+        # Same Settings-derived percent-per-side default as BacktestRequest.
+        default_factory=lambda: get_settings().paper_commission_pct,
+        ge=0.0,
+        description="Commission percent per side (defaults to configured paper fee)",
+    )
     slippage_pct: float = Field(default=0.05, description="Slippage percentage")
 
     # Strategy parameters

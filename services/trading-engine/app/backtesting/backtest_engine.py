@@ -126,7 +126,7 @@ class BacktestConfig:
 
     Attributes:
         initial_equity: Starting capital
-        commission_pct: Commission per trade (percentage)
+        commission_pct: Commission per SIDE (percent, e.g. 0.055 = 0.055%)
         slippage_pct: Slippage per trade (percentage)
         position_size_pct: Default position size as % of equity
         max_positions: Maximum concurrent positions
@@ -141,7 +141,13 @@ class BacktestConfig:
     initial_equity: float = field(
         default_factory=lambda: get_settings().paper_initial_balance
     )
-    commission_pct: float = 0.1  # 0.1% = 10 bps
+    # Same Settings field the paper engine bills against, so screen verdicts and
+    # paper P&L reconcile. Both are PERCENT per side (0.055 = Bybit linear-perp
+    # taker), so the mapping is identity — do NOT scale by 100. Was a hardcoded
+    # 0.1, i.e. 1.8x the venue.
+    commission_pct: float = field(
+        default_factory=lambda: get_settings().paper_commission_pct
+    )
     slippage_pct: float = 0.05  # 0.05% slippage
     position_size_pct: float = 10.0  # 10% of equity per trade
     max_positions: int = 1
@@ -461,8 +467,11 @@ class BacktestEngine:
         )
         self._trades.append(trade)
 
-        # Update cash
-        self._cash += position_value + net_pnl
+        # Return the ENTRY escrow (what _open_position debited) plus net P&L.
+        # Crediting the exit notional here double-counted a long's P&L and
+        # cancelled a short's; the round-trip delta must be
+        # gross P&L - entry commission - exit commission for both sides.
+        self._cash += entry_value + net_pnl
 
         logger.debug(
             f"Closed {self._position.side} position: "
@@ -536,9 +545,12 @@ class BacktestEngine:
         equity = self._cash
 
         if self._position:
-            position_value = self._position.quantity * current_price
-            unrealized_pnl = self._position.unrealized_pnl(current_price)
-            equity += position_value
+            # Entry-notional escrow convention, matching the cash ledger: cash
+            # was debited the entry value, so the open leg is marked back at
+            # entry value plus side-aware unrealized P&L. Marking it at
+            # quantity * current_price inverted the sign for shorts.
+            entry_value = self._position.entry_price * self._position.quantity
+            equity += entry_value + self._position.unrealized_pnl(current_price)
 
         return equity
 
@@ -547,7 +559,7 @@ def run_backtest(
     strategy: StrategyBase,
     data: List[OHLCV],
     initial_equity: Optional[float] = None,
-    commission_pct: float = 0.1,
+    commission_pct: Optional[float] = None,
     slippage_pct: float = 0.05,
 ) -> BacktestResult:
     """
@@ -559,14 +571,18 @@ def run_backtest(
         initial_equity: Starting capital. None (default) resolves to
             Settings.paper_initial_balance — never a hardcoded account size
             (AUDIT 2.5).
-        commission_pct: Commission percentage
+        commission_pct: Commission percent per side. None (default) resolves to
+            Settings.paper_commission_pct, the rate the paper engine bills.
         slippage_pct: Slippage percentage
 
     Returns:
         BacktestResult
     """
+    settings = get_settings()
     if initial_equity is None:
-        initial_equity = get_settings().paper_initial_balance
+        initial_equity = settings.paper_initial_balance
+    if commission_pct is None:
+        commission_pct = settings.paper_commission_pct
     config = BacktestConfig(
         initial_equity=initial_equity,
         commission_pct=commission_pct,
