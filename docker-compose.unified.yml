@@ -91,6 +91,13 @@ services:
     container_name: crypto-bot-timescaledb
     logging: *default-logging
     hostname: timescaledb
+    # timescaledb-tune sizes max_connections=25 for this container's memory,
+    # but market-data alone can legally open 40 (2 uvicorn workers x pool 10
+    # + overflow 10, config.py:108-109). The auto-trader's signal burst hit
+    # that wall 2026-08-12: "sorry, too many clients already" -> klines 500s
+    # -> every indicator 500 -> no signals. Command-line -c overrides the
+    # tuned value.
+    command: postgres -c max_connections=100
     environment:
       POSTGRES_USER: ${TIMESCALE_USER:-cryptobot}
       POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-timescale_dev_password}
