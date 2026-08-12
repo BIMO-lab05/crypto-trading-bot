@@ -3,10 +3,11 @@ Technical Analysis Service - Market Data Fetcher
 Purpose: Fetch kline data from Market Data Service
 """
 
+import asyncio
 import httpx
 import logging
 import time
-from typing import List, Dict, Any, Optional
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from app.config import get_settings
@@ -19,9 +20,9 @@ logger = logging.getLogger(__name__)
 # (multi-timeframe, strategy configs) sometimes pass minutes — normalize
 # before querying or the DB lookup silently returns 0 rows.
 _INTERVAL_ALIASES = {
-    "1440": "D",    # daily
-    "10080": "W",   # weekly
-    "43200": "M",   # monthly (approximate)
+    "1440": "D",  # daily
+    "10080": "W",  # weekly
+    "43200": "M",  # monthly (approximate)
 }
 
 # Max absolute log-return per bar; anything above is treated as corrupt data
@@ -55,6 +56,16 @@ class MarketDataFetcher:
         self.settings = get_settings()
         self.base_url = self.settings.market_data_url
         self.client = httpx.AsyncClient(timeout=30.0)
+        # (symbol, interval, limit) -> (monotonic expiry, klines). One signal
+        # cycle asks ~12 indicator endpoints for the same candle window;
+        # without this each ask is its own market-data -> TimescaleDB query,
+        # and the 2026-08-12 auto-trader resume stampede drove the DB to
+        # 173% CPU and client-timeout bursts. The per-key lock makes the
+        # refresh single-flight — a burst of identical requests costs one
+        # upstream query, not twelve. TTL is far under the collector's
+        # 5-minute cadence, so a cached window is never staler than the DB.
+        self._kline_cache: Dict[Tuple[str, str, int], Tuple[float, List[Kline]]] = {}
+        self._kline_locks: Dict[Tuple[str, str, int], asyncio.Lock] = {}
         logger.info(f"MarketDataFetcher initialized with base_url: {self.base_url}")
 
     async def close(self):
@@ -77,13 +88,11 @@ class MarketDataFetcher:
             return False
 
     async def get_klines(
-        self,
-        symbol: str,
-        interval: str = "60",
-        limit: int = 200
+        self, symbol: str, interval: str = "60", limit: int = 200
     ) -> List[Kline]:
         """
-        Fetch kline data for analysis
+        Fetch kline data for analysis, TTL-cached and single-flight per
+        (symbol, interval, limit). Set kline_cache_ttl_seconds <= 0 to bypass.
 
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
@@ -96,6 +105,32 @@ class MarketDataFetcher:
         Raises:
             Exception if fetch fails
         """
+        interval = normalize_interval(interval)
+        ttl = getattr(self.settings, "kline_cache_ttl_seconds", 30)
+        if ttl <= 0:
+            return await self._fetch_klines_uncached(symbol, interval, limit)
+
+        key = (symbol, interval, limit)
+        cached = self._kline_cache.get(key)
+        if cached and cached[0] > time.monotonic():
+            return list(cached[1])
+
+        lock = self._kline_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            # Re-check: a concurrent caller may have refreshed while we waited.
+            cached = self._kline_cache.get(key)
+            if cached and cached[0] > time.monotonic():
+                return list(cached[1])
+            klines = await self._fetch_klines_uncached(symbol, interval, limit)
+            # An empty window is not cached — pinning a transient failure for
+            # a full TTL would blank every indicator on the pair.
+            if klines:
+                self._kline_cache[key] = (time.monotonic() + ttl, klines)
+            return list(klines)
+
+    async def _fetch_klines_uncached(
+        self, symbol: str, interval: str, limit: int
+    ) -> List[Kline]:
         try:
             # Normalize minute-denominated aliases (1440 -> D, 10080 -> W):
             # market-data stores daily/weekly candles under the letter codes.
@@ -108,12 +143,11 @@ class MarketDataFetcher:
                 # endpoint defaults to True, but being explicit protects
                 # against a future default change re-introducing testnet
                 # pollution into TA inputs.
-                "mainnet_only": "true"
+                "mainnet_only": "true",
             }
 
             response = await self.client.get(
-                f"{self.base_url}/api/v1/klines/{symbol}",
-                params=params
+                f"{self.base_url}/api/v1/klines/{symbol}", params=params
             )
             response.raise_for_status()
 
@@ -129,7 +163,7 @@ class MarketDataFetcher:
                         high=float(k["high"]),
                         low=float(k["low"]),
                         close=float(k["close"]),
-                        volume=float(k["volume"])
+                        volume=float(k["volume"]),
                     )
                     for k in klines_data
                 ]
@@ -148,10 +182,7 @@ class MarketDataFetcher:
             raise
 
     async def get_klines_as_dataframe(
-        self,
-        symbol: str,
-        interval: str = "60",
-        limit: int = 200
+        self, symbol: str, interval: str = "60", limit: int = 200
     ) -> pd.DataFrame:
         """
         Fetch klines and return as pandas DataFrame for analysis
@@ -189,11 +220,11 @@ class MarketDataFetcher:
 
         # (b1) Structurally invalid candles: low > high, or non-positive OHLC.
         valid_mask = (
-            (df['low'] <= df['high'])
-            & (df['open'] > 0)
-            & (df['high'] > 0)
-            & (df['low'] > 0)
-            & (df['close'] > 0)
+            (df["low"] <= df["high"])
+            & (df["open"] > 0)
+            & (df["high"] > 0)
+            & (df["low"] > 0)
+            & (df["close"] > 0)
         )
         n_invalid = int((~valid_mask).sum())
         if n_invalid:
@@ -207,7 +238,7 @@ class MarketDataFetcher:
         # not a plausible single-bar move for the traded universe — treat as
         # data corruption (e.g. testnet pollution) and drop the offending row.
         if len(df) > 1:
-            log_ret = np.log(df['close'] / df['close'].shift(1)).abs()
+            log_ret = np.log(df["close"] / df["close"].shift(1)).abs()
             jump_mask = log_ret > MAX_ABS_LOG_RETURN
             n_jumps = int(jump_mask.sum())
             if n_jumps:
@@ -221,11 +252,10 @@ class MarketDataFetcher:
         # (timestamp + interval > now): partial candles skew indicators.
         if len(df) > 0:
             now_ms = int(time.time() * 1000)
-            last_ts = int(df['timestamp'].iloc[-1])
+            last_ts = int(df["timestamp"].iloc[-1])
             if last_ts + _interval_ms(interval) > now_ms:
                 logger.debug(
-                    f"Dropped still-forming last candle for {symbol} "
-                    f"({interval})"
+                    f"Dropped still-forming last candle for {symbol} ({interval})"
                 )
                 df = df.iloc[:-1]
 
@@ -240,16 +270,14 @@ class MarketDataFetcher:
 
         # Set timestamp as index for time-series operations
         df = df.copy()
-        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df.set_index('datetime', inplace=True)
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.set_index("datetime", inplace=True)
 
         logger.info(f"Created DataFrame with {len(df)} rows for {symbol}")
         return df
 
     async def get_latest_price(
-        self,
-        symbol: str,
-        interval: str = "60"
+        self, symbol: str, interval: str = "60"
     ) -> Optional[float]:
         """
         Get the most recent closing price
