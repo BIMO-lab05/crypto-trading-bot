@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 def get_portfolio_manager() -> PortfolioManager:
     """Get portfolio manager instance (from global state)"""
     from app.main import portfolio_manager
+
     if portfolio_manager is None:
         raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
     return portfolio_manager
@@ -47,10 +48,16 @@ async def get_allocation(portfolio_id: str = "default") -> AllocationResponse:
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
-    # Update prices
-    await manager.update_prices(portfolio_id)
+    # Sync-first (same pattern as portfolio.get_portfolio): update_prices
+    # recomputes equity with a SPOT formula (cash + full notional) and must
+    # only run as fallback, or it clobbers the engine-mirrored equity.
+    synced = await manager.sync_with_trading_engine(portfolio_id)
+    if not synced:
+        await manager.update_prices(portfolio_id)
 
     allocations = portfolio.get_asset_allocation()
     allocations_str = {k: str(v) for k, v in allocations.items()}
@@ -61,11 +68,13 @@ async def get_allocation(portfolio_id: str = "default") -> AllocationResponse:
         success=True,
         portfolio_id=portfolio_id,
         allocations=allocations_str,
-        needs_rebalancing=needs_rebalancing
+        needs_rebalancing=needs_rebalancing,
     )
 
 
-async def get_rebalance_recommendations(portfolio_id: str = "default") -> RebalanceResponse:
+async def get_rebalance_recommendations(
+    portfolio_id: str = "default",
+) -> RebalanceResponse:
     """
     Get rebalancing recommendations
 
@@ -88,10 +97,16 @@ async def get_rebalance_recommendations(portfolio_id: str = "default") -> Rebala
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
-    # Update prices
-    await manager.update_prices(portfolio_id)
+    # Sync-first (same pattern as portfolio.get_portfolio): update_prices
+    # recomputes equity with a SPOT formula (cash + full notional) and must
+    # only run as fallback, or it clobbers the engine-mirrored equity.
+    synced = await manager.sync_with_trading_engine(portfolio_id)
+    if not synced:
+        await manager.update_prices(portfolio_id)
 
     needs_rebalancing, recommendations = manager.check_rebalancing_needed(portfolio_id)
 
@@ -103,5 +118,5 @@ async def get_rebalance_recommendations(portfolio_id: str = "default") -> Rebala
         needs_rebalancing=needs_rebalancing,
         recommendations=recommendations,
         total_transactions=len(recommendations),
-        estimated_total_cost=str(total_cost)
+        estimated_total_cost=str(total_cost),
     )

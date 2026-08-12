@@ -13,11 +13,13 @@ from typing import Optional, Dict
 from decimal import Decimal
 from fastapi import HTTPException, Request, Query, Body
 
-from app.models import Portfolio
 from app.services import PortfolioManager
 from app.optimization import PortfolioOptimizer
-from app.optimization.portfolio_optimizer import OptimizationObjective, OptimizationConstraints
-from app.config import settings
+from app.optimization.portfolio_optimizer import (
+    OptimizationObjective,
+    OptimizationConstraints,
+)
+from app.handlers.transactions import MANUAL_TRANSACTIONS_DISABLED_DETAIL
 from app.utils import check_rate_limit, fetch_historical_prices
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,7 @@ logger = logging.getLogger(__name__)
 def get_portfolio_manager() -> PortfolioManager:
     """Get portfolio manager instance (from global state)"""
     from app.main import portfolio_manager
+
     if portfolio_manager is None:
         raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
     return portfolio_manager
@@ -34,8 +37,11 @@ def get_portfolio_manager() -> PortfolioManager:
 def get_portfolio_optimizer() -> PortfolioOptimizer:
     """Get portfolio optimizer instance (from global state)"""
     from app.main import portfolio_optimizer
+
     if portfolio_optimizer is None:
-        raise HTTPException(status_code=503, detail="Portfolio Optimizer not initialized")
+        raise HTTPException(
+            status_code=503, detail="Portfolio Optimizer not initialized"
+        )
     return portfolio_optimizer
 
 
@@ -43,10 +49,18 @@ async def optimize_portfolio(
     request: Request,
     portfolio_id: str = "default",
     objective: OptimizationObjective = OptimizationObjective.MAX_SHARPE,
-    lookback_days: int = Query(default=60, ge=30, le=365, description="Historical data lookback period"),
-    max_position_size: float = Query(default=0.30, ge=0.05, le=1.0, description="Maximum position size (0-1)"),
-    min_position_size: float = Query(default=0.05, ge=0.0, le=0.5, description="Minimum position size (0-1)"),
-    max_portfolio_volatility: Optional[float] = Query(default=None, description="Maximum portfolio volatility"),
+    lookback_days: int = Query(
+        default=60, ge=30, le=365, description="Historical data lookback period"
+    ),
+    max_position_size: float = Query(
+        default=0.30, ge=0.05, le=1.0, description="Maximum position size (0-1)"
+    ),
+    min_position_size: float = Query(
+        default=0.05, ge=0.0, le=0.5, description="Minimum position size (0-1)"
+    ),
+    max_portfolio_volatility: Optional[float] = Query(
+        default=None, description="Maximum portfolio volatility"
+    ),
 ):
     """
     Calculate optimal portfolio allocation using Modern Portfolio Theory
@@ -92,14 +106,16 @@ async def optimize_portfolio(
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
     # Get list of symbols in portfolio
     symbols = list(portfolio.assets.keys())
     if len(symbols) < 2:
         raise HTTPException(
             status_code=400,
-            detail="Portfolio must have at least 2 assets for optimization"
+            detail="Portfolio must have at least 2 assets for optimization",
         )
 
     try:
@@ -109,7 +125,7 @@ async def optimize_portfolio(
         if price_data.empty:
             raise HTTPException(
                 status_code=503,
-                detail="Unable to fetch historical price data from Market Data Service"
+                detail="Unable to fetch historical price data from Market Data Service",
             )
 
         # Calculate returns
@@ -133,7 +149,7 @@ async def optimize_portfolio(
             returns=returns,
             objective=objective,
             constraints=constraints,
-            current_weights=current_weights
+            current_weights=current_weights,
         )
 
         # Calculate rebalancing trades
@@ -141,7 +157,7 @@ async def optimize_portfolio(
             current_weights=current_weights,
             target_weights=result.weights,
             portfolio_value=float(portfolio.total_value),
-            min_trade_size=100.0
+            min_trade_size=100.0,
         )
 
         return {
@@ -153,22 +169,26 @@ async def optimize_portfolio(
                 "expected_return": f"{result.expected_return:.4f}",
                 "expected_volatility": f"{result.expected_volatility:.4f}",
                 "sharpe_ratio": f"{result.sharpe_ratio:.4f}",
-                "value_at_risk_95": f"{result.value_at_risk_95:.4f}" if result.value_at_risk_95 else None,
-                "conditional_var_95": f"{result.conditional_var_95:.4f}" if result.conditional_var_95 else None,
-                "diversification_ratio": f"{result.diversification_ratio:.4f}" if result.diversification_ratio else None,
-                "effective_num_assets": f"{result.effective_num_assets:.2f}" if result.effective_num_assets else None,
+                "value_at_risk_95": f"{result.value_at_risk_95:.4f}"
+                if result.value_at_risk_95
+                else None,
+                "conditional_var_95": f"{result.conditional_var_95:.4f}"
+                if result.conditional_var_95
+                else None,
+                "diversification_ratio": f"{result.diversification_ratio:.4f}"
+                if result.diversification_ratio
+                else None,
+                "effective_num_assets": f"{result.effective_num_assets:.2f}"
+                if result.effective_num_assets
+                else None,
             },
             "rebalancing_trades": [
-                {
-                    "symbol": symbol,
-                    "action": action,
-                    "amount_usd": f"{amount:.2f}"
-                }
+                {"symbol": symbol, "action": action, "amount_usd": f"{amount:.2f}"}
                 for symbol, (action, amount) in trades.items()
             ],
             "constraints_met": result.constraints_met,
             "optimization_time": f"{result.optimization_time:.2f}s",
-            "message": result.message
+            "message": result.message,
         }
 
     except HTTPException:
@@ -178,16 +198,19 @@ async def optimize_portfolio(
     except Exception as e:
         logger.error(f"Portfolio optimization error: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Portfolio optimization failed: {str(e)}"
+            status_code=500, detail=f"Portfolio optimization failed: {str(e)}"
         )
 
 
 async def get_efficient_frontier(
     request: Request,
     portfolio_id: str = "default",
-    num_points: int = Query(default=50, ge=10, le=100, description="Number of frontier points"),
-    lookback_days: int = Query(default=60, ge=30, le=365, description="Historical data lookback period"),
+    num_points: int = Query(
+        default=50, ge=10, le=100, description="Number of frontier points"
+    ),
+    lookback_days: int = Query(
+        default=60, ge=30, le=365, description="Historical data lookback period"
+    ),
 ):
     """
     Generate efficient frontier for portfolio
@@ -225,13 +248,15 @@ async def get_efficient_frontier(
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
     symbols = list(portfolio.assets.keys())
     if len(symbols) < 2:
         raise HTTPException(
             status_code=400,
-            detail="Portfolio must have at least 2 assets for efficient frontier"
+            detail="Portfolio must have at least 2 assets for efficient frontier",
         )
 
     try:
@@ -240,8 +265,7 @@ async def get_efficient_frontier(
 
         if price_data.empty:
             raise HTTPException(
-                status_code=503,
-                detail="Unable to fetch historical price data"
+                status_code=503, detail="Unable to fetch historical price data"
             )
 
         # Calculate returns
@@ -249,8 +273,7 @@ async def get_efficient_frontier(
 
         # Generate efficient frontier
         frontier_points = optimizer.generate_efficient_frontier(
-            returns=returns,
-            num_points=num_points
+            returns=returns, num_points=num_points
         )
 
         return {
@@ -262,11 +285,11 @@ async def get_efficient_frontier(
                     "expected_return": f"{point.expected_return:.4f}",
                     "expected_volatility": f"{point.expected_volatility:.4f}",
                     "sharpe_ratio": f"{point.sharpe_ratio:.4f}",
-                    "weights": point.weights
+                    "weights": point.weights,
                 }
                 for point in frontier_points
             ],
-            "message": f"Generated {len(frontier_points)} efficient frontier points"
+            "message": f"Generated {len(frontier_points)} efficient frontier points",
         }
 
     except HTTPException:
@@ -276,16 +299,19 @@ async def get_efficient_frontier(
     except Exception as e:
         logger.error(f"Efficient frontier generation error: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Efficient frontier generation failed: {str(e)}"
+            status_code=500, detail=f"Efficient frontier generation failed: {str(e)}"
         )
 
 
 async def execute_rebalancing(
     request: Request,
     portfolio_id: str = "default",
-    target_weights: Dict[str, float] = Body(..., description="Target allocation weights"),
-    execute: bool = Query(default=False, description="Execute trades (default: dry run)"),
+    target_weights: Dict[str, float] = Body(
+        ..., description="Target allocation weights"
+    ),
+    execute: bool = Query(
+        default=False, description="Execute trades (default: dry run)"
+    ),
 ):
     """
     Execute portfolio rebalancing to target weights
@@ -315,8 +341,15 @@ async def execute_rebalancing(
         Dict with rebalancing plan and execution results (if execute=True)
 
     Raises:
-        HTTPException: 400 if weights invalid, 404 if portfolio not found
+        HTTPException: 409 if execute=True (manual spot transactions disabled),
+                      400 if weights invalid, 404 if portfolio not found
     """
+    # FIX 11 (2026-08-12): the portfolio mirrors the trading-engine book —
+    # executed rebalance legs are fake fills the sync erases within 60s.
+    # Only the dry-run plan (execute=False) stays available.
+    if execute:
+        raise HTTPException(status_code=409, detail=MANUAL_TRANSACTIONS_DISABLED_DETAIL)
+
     # Rate limiting
     check_rate_limit(request, 10)  # 10 requests per minute
 
@@ -325,14 +358,16 @@ async def execute_rebalancing(
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
     # Validate target weights
     total_weight = sum(target_weights.values())
     if not (0.99 <= total_weight <= 1.01):  # Allow small rounding error
         raise HTTPException(
             status_code=400,
-            detail=f"Target weights must sum to 1.0 (got {total_weight:.4f})"
+            detail=f"Target weights must sum to 1.0 (got {total_weight:.4f})",
         )
 
     # Normalize weights to exactly 1.0
@@ -349,7 +384,7 @@ async def execute_rebalancing(
         current_weights=current_weights,
         target_weights=target_weights,
         portfolio_value=float(portfolio.total_value),
-        min_trade_size=100.0
+        min_trade_size=100.0,
     )
 
     if not trades:
@@ -358,7 +393,7 @@ async def execute_rebalancing(
             "portfolio_id": portfolio_id,
             "executed": False,
             "trades": [],
-            "message": "No rebalancing needed - portfolio is already within target allocation"
+            "message": "No rebalancing needed - portfolio is already within target allocation",
         }
 
     # Execute trades if requested
@@ -384,18 +419,20 @@ async def execute_rebalancing(
                     symbol=symbol,
                     action=action,
                     quantity=quantity,
-                    price=Decimal(str(current_price))
+                    price=Decimal(str(current_price)),
                 )
 
-                executed_trades.append({
-                    "symbol": symbol,
-                    "action": action,
-                    "quantity": str(quantity),
-                    "price": str(current_price),
-                    "amount_usd": f"{amount_usd:.2f}",
-                    "success": success,
-                    "message": message
-                })
+                executed_trades.append(
+                    {
+                        "symbol": symbol,
+                        "action": action,
+                        "quantity": str(quantity),
+                        "price": str(current_price),
+                        "amount_usd": f"{amount_usd:.2f}",
+                        "success": success,
+                        "message": message,
+                    }
+                )
 
     return {
         "success": True,
@@ -404,13 +441,9 @@ async def execute_rebalancing(
         "current_weights": current_weights,
         "target_weights": target_weights,
         "trades": [
-            {
-                "symbol": symbol,
-                "action": action,
-                "amount_usd": f"{amount:.2f}"
-            }
+            {"symbol": symbol, "action": action, "amount_usd": f"{amount:.2f}"}
             for symbol, (action, amount) in trades.items()
         ],
         "executed_trades": executed_trades if execute else None,
-        "message": f"{'Executed' if execute else 'Planned'} {len(trades)} rebalancing trades"
+        "message": f"{'Executed' if execute else 'Planned'} {len(trades)} rebalancing trades",
     }

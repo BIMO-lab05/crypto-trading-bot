@@ -13,7 +13,7 @@ from app.models import (
     PortfolioResponse,
     PortfolioListResponse,
     BalanceResponse,
-    HoldingsResponse
+    HoldingsResponse,
 )
 from app.services import PortfolioManager
 
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 def get_portfolio_manager() -> PortfolioManager:
     """Get portfolio manager instance (from global state)"""
     from app.main import portfolio_manager
+
     if portfolio_manager is None:
         raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
     return portfolio_manager
@@ -51,7 +52,9 @@ async def get_portfolio(portfolio_id: str = "default") -> PortfolioResponse:
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
     # FIX 2026-07-29: mirror the authoritative trading-engine book before
     # returning, rather than the old update_prices() path. update_prices
@@ -68,9 +71,7 @@ async def get_portfolio(portfolio_id: str = "default") -> PortfolioResponse:
     snapshot = manager.get_snapshot(portfolio_id)
 
     return PortfolioResponse(
-        success=True,
-        portfolio=snapshot,
-        message="Portfolio retrieved successfully"
+        success=True, portfolio=snapshot, message="Portfolio retrieved successfully"
     )
 
 
@@ -92,9 +93,7 @@ async def list_portfolios() -> PortfolioListResponse:
             snapshots.append(snapshot)
 
     return PortfolioListResponse(
-        success=True,
-        portfolios=snapshots,
-        count=len(snapshots)
+        success=True, portfolios=snapshots, count=len(snapshots)
     )
 
 
@@ -123,10 +122,16 @@ async def get_balance(portfolio_id: str = "default") -> BalanceResponse:
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
-    # Update prices
-    await manager.update_prices(portfolio_id)
+    # Sync-first (same pattern as get_portfolio): update_prices recomputes
+    # equity with a SPOT formula (cash + full notional) and must only run as
+    # fallback, or it clobbers the engine-mirrored equity (cash + unrealized).
+    synced = await manager.sync_with_trading_engine(portfolio_id)
+    if not synced:
+        await manager.update_prices(portfolio_id)
 
     return BalanceResponse(
         success=True,
@@ -136,7 +141,7 @@ async def get_balance(portfolio_id: str = "default") -> BalanceResponse:
         unrealized_pnl=str(portfolio.unrealized_pnl),
         realized_pnl=str(portfolio.realized_pnl),
         total_pnl=str(portfolio.total_pnl),
-        total_return_pct=str(portfolio.total_return_pct)
+        total_return_pct=str(portfolio.total_return_pct),
     )
 
 
@@ -166,10 +171,16 @@ async def get_holdings(portfolio_id: str = "default") -> HoldingsResponse:
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
-    # Update prices
-    await manager.update_prices(portfolio_id)
+    # Sync-first (same pattern as get_portfolio): update_prices recomputes
+    # equity with a SPOT formula (cash + full notional) and must only run as
+    # fallback, or it clobbers the engine-mirrored equity (cash + unrealized).
+    synced = await manager.sync_with_trading_engine(portfolio_id)
+    if not synced:
+        await manager.update_prices(portfolio_id)
 
     snapshot = manager.get_snapshot(portfolio_id)
 
@@ -180,7 +191,7 @@ async def get_holdings(portfolio_id: str = "default") -> HoldingsResponse:
         portfolio_id=portfolio_id,
         holdings=snapshot.holdings,
         total_value=str(total_value),
-        count=len(snapshot.holdings)
+        count=len(snapshot.holdings),
     )
 
 
@@ -204,11 +215,15 @@ async def sync_with_trading_engine(portfolio_id: str = "default"):
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
     success = await manager.sync_with_trading_engine(portfolio_id)
 
     if success:
         return {"success": True, "message": "Portfolio synced successfully"}
     else:
-        raise HTTPException(status_code=500, detail="Failed to sync with Trading Engine")
+        raise HTTPException(
+            status_code=500, detail="Failed to sync with Trading Engine"
+        )

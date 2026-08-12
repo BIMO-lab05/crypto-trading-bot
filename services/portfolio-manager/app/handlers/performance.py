@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 def get_portfolio_manager() -> PortfolioManager:
     """Get portfolio manager instance (from global state)"""
     from app.main import portfolio_manager
+
     if portfolio_manager is None:
         raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
     return portfolio_manager
@@ -26,23 +27,29 @@ def get_portfolio_manager() -> PortfolioManager:
 def get_performance_calculator() -> PerformanceCalculator:
     """Get performance calculator instance (from global state)"""
     from app.main import performance_calculator
+
     if performance_calculator is None:
-        raise HTTPException(status_code=503, detail="Performance Calculator not initialized")
+        raise HTTPException(
+            status_code=503, detail="Performance Calculator not initialized"
+        )
     return performance_calculator
 
 
 def get_performance_history():
     """Get performance history service instance (from global state)"""
     from app.main import performance_history
+
     if performance_history is None:
-        raise HTTPException(status_code=503, detail="Performance History not initialized")
+        raise HTTPException(
+            status_code=503, detail="Performance History not initialized"
+        )
     return performance_history
 
 
 async def get_performance(
     portfolio_id: str = "default",
     include_daily: bool = False,
-    include_periods: bool = False
+    include_periods: bool = False,
 ) -> PerformanceResponse:
     """
     Get portfolio performance metrics
@@ -76,10 +83,16 @@ async def get_performance(
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
-    # Update prices
-    await manager.update_prices(portfolio_id)
+    # Sync-first (same pattern as portfolio.get_portfolio): update_prices
+    # recomputes equity with a SPOT formula (cash + full notional) and must
+    # only run as fallback, or it clobbers the engine-mirrored equity.
+    synced = await manager.sync_with_trading_engine(portfolio_id)
+    if not synced:
+        await manager.update_prices(portfolio_id)
 
     # Calculate metrics
     metrics = calculator.calculate_metrics(portfolio)
@@ -97,7 +110,7 @@ async def get_performance(
             logger.info(f"Fetching daily performance for {portfolio_id}")
             daily_performance = await history_service.get_daily_performance(
                 portfolio_id,
-                days=30  # Default to last 30 days
+                days=30,  # Default to last 30 days
             )
             logger.info(
                 f"Retrieved {len(daily_performance) if daily_performance else 0} "
@@ -110,10 +123,9 @@ async def get_performance(
             period_performance = {}
 
             # Calculate performance for each period
-            for period_name in ['week', 'month', 'year', 'all']:
+            for period_name in ["week", "month", "year", "all"]:
                 period_stats = await history_service.calculate_period_performance(
-                    portfolio_id,
-                    period_name
+                    portfolio_id, period_name
                 )
 
                 if period_stats:
@@ -129,8 +141,7 @@ async def get_performance(
                     )
 
             logger.info(
-                f"Calculated {len(period_performance)} period stats "
-                f"for {portfolio_id}"
+                f"Calculated {len(period_performance)} period stats for {portfolio_id}"
             )
 
     except HTTPException:
@@ -140,7 +151,7 @@ async def get_performance(
         # Log error but don't fail the request - historical data is optional
         logger.error(
             f"Failed to retrieve historical performance for {portfolio_id}: {e}",
-            exc_info=True
+            exc_info=True,
         )
         # Return empty historical data rather than failing
         if include_daily:
@@ -153,11 +164,13 @@ async def get_performance(
         portfolio_id=portfolio_id,
         metrics=metrics,
         daily_performance=daily_performance,
-        period_performance=period_performance
+        period_performance=period_performance,
     )
 
 
-async def get_asset_performance(portfolio_id: str = "default") -> AssetPerformanceResponse:
+async def get_asset_performance(
+    portfolio_id: str = "default",
+) -> AssetPerformanceResponse:
     """
     Get performance by asset
 
@@ -184,15 +197,19 @@ async def get_asset_performance(portfolio_id: str = "default") -> AssetPerforman
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
-    # Update prices
-    await manager.update_prices(portfolio_id)
+    # Sync-first (same pattern as portfolio.get_portfolio): update_prices
+    # recomputes equity with a SPOT formula (cash + full notional) and must
+    # only run as fallback, or it clobbers the engine-mirrored equity.
+    synced = await manager.sync_with_trading_engine(portfolio_id)
+    if not synced:
+        await manager.update_prices(portfolio_id)
 
     assets = manager.get_asset_performance(portfolio_id)
 
     return AssetPerformanceResponse(
-        success=True,
-        portfolio_id=portfolio_id,
-        assets=assets
+        success=True, portfolio_id=portfolio_id, assets=assets
     )

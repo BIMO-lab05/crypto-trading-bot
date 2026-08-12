@@ -11,7 +11,7 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.portfolio import Portfolio, PortfolioSnapshot
+from app.models.portfolio import PortfolioSnapshot
 from app.models.performance import PerformanceMetrics, AssetPerformance
 from app.models.asset import AssetHolding
 
@@ -23,7 +23,9 @@ class TestCoverageGapFiller:
     def client(self):
         return TestClient(app)
 
-    def create_portfolio_snapshot(self, portfolio_id: str = "test") -> PortfolioSnapshot:
+    def create_portfolio_snapshot(
+        self, portfolio_id: str = "test"
+    ) -> PortfolioSnapshot:
         """Helper to create valid PortfolioSnapshot for testing"""
         return PortfolioSnapshot(
             portfolio_id=portfolio_id,
@@ -39,9 +41,9 @@ class TestCoverageGapFiller:
                     current_value="22500",
                     unrealized_pnl="2500",
                     unrealized_pnl_pct="12.5",
-                    allocation_pct="45.0"
+                    allocation_pct="45.0",
                 )
-            ]
+            ],
         )
 
     # Health handler coverage gaps
@@ -72,9 +74,11 @@ class TestCoverageGapFiller:
         mock_portfolio.portfolio_id = "default"
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
 
         # Create basic metrics
         from app.models.performance import PerformanceMetrics
+
         metrics = PerformanceMetrics(
             total_return=Decimal("1000"),
             total_return_pct=Decimal("10.0"),
@@ -89,13 +93,13 @@ class TestCoverageGapFiller:
             win_rate=60.0,
             total_pnl=Decimal("1000"),
             realized_pnl=Decimal("800"),
-            unrealized_pnl=Decimal("200")
+            unrealized_pnl=Decimal("200"),
         )
         mock_calculator.calculate_metrics.return_value = metrics
 
-        with patch('app.main.portfolio_manager', mock_manager):
-            with patch('app.main.performance_calculator', mock_calculator):
-                with patch('app.main.performance_history', mock_history):
+        with patch("app.main.portfolio_manager", mock_manager):
+            with patch("app.main.performance_calculator", mock_calculator):
+                with patch("app.main.performance_history", mock_history):
                     response = client.get("/api/v1/performance")
 
         # Should work with default portfolio_id
@@ -108,38 +112,38 @@ class TestCoverageGapFiller:
         mock_portfolio.portfolio_id = "default"
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         mock_manager.get_asset_performance.return_value = []
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/performance/assets")
 
         assert response.status_code == 200
 
-    # Transaction handler coverage - parameters have defaults so won't give 422
+    # Transaction handler coverage — FIX 11 gates the mutating paths with 409
+    # before any parameter parsing (portfolio mirrors the trading-engine book)
     def test_buy_handler_missing_params(self, client):
-        """Test buy endpoint with missing parameters causes error"""
-        # Parameters default to None, handler tries to parse them causing TypeError
-        # TestClient raises the exception instead of returning 500
+        """Test buy endpoint is 409-gated even with missing parameters"""
         mock_manager = Mock()
-        with patch('app.main.portfolio_manager', mock_manager):
-            with pytest.raises(TypeError, match="conversion from NoneType"):
-                response = client.post("/api/v1/transaction/buy")
+        with patch("app.main.portfolio_manager", mock_manager):
+            response = client.post("/api/v1/transaction/buy")
+
+        assert response.status_code == 409
 
     def test_sell_handler_missing_params(self, client):
-        """Test sell endpoint with missing parameters causes error"""
-        # Parameters default to None, handler tries to parse them causing TypeError
-        # TestClient raises the exception instead of returning 500
+        """Test sell endpoint is 409-gated even with missing parameters"""
         mock_manager = Mock()
-        with patch('app.main.portfolio_manager', mock_manager):
-            with pytest.raises(TypeError, match="conversion from NoneType"):
-                response = client.post("/api/v1/transaction/sell")
+        with patch("app.main.portfolio_manager", mock_manager):
+            response = client.post("/api/v1/transaction/sell")
+
+        assert response.status_code == 409
 
     # Coverage for handler functions with None manager
     def test_performance_handler_manager_not_initialized(self, client):
         """Test performance handler when manager not initialized"""
         mock_manager = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/performance?portfolio_id=test")
 
         assert response.status_code == 503
@@ -148,7 +152,7 @@ class TestCoverageGapFiller:
         """Test asset performance handler when manager not initialized"""
         mock_manager = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/performance/assets?portfolio_id=test")
 
         assert response.status_code == 503
@@ -157,7 +161,7 @@ class TestCoverageGapFiller:
         """Test allocation handler when manager not initialized"""
         mock_manager = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/allocation?portfolio_id=test")
 
         assert response.status_code == 503
@@ -166,7 +170,7 @@ class TestCoverageGapFiller:
         """Test rebalance handler when manager not initialized"""
         mock_manager = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/rebalance?portfolio_id=test")
 
         assert response.status_code == 503
@@ -175,7 +179,7 @@ class TestCoverageGapFiller:
         """Test portfolio handler when manager not initialized"""
         mock_manager = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/portfolio?portfolio_id=test")
 
         assert response.status_code == 503
@@ -184,7 +188,7 @@ class TestCoverageGapFiller:
         """Test balance handler when manager not initialized"""
         mock_manager = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/portfolio/balance?portfolio_id=test")
 
         assert response.status_code == 503
@@ -193,7 +197,7 @@ class TestCoverageGapFiller:
         """Test holdings handler when manager not initialized"""
         mock_manager = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/portfolio/holdings?portfolio_id=test")
 
         assert response.status_code == 503
@@ -201,7 +205,7 @@ class TestCoverageGapFiller:
     # Health handler edge cases
     def test_health_check_with_manager_none(self, client):
         """Test health check when manager is None"""
-        with patch('app.main.portfolio_manager', None):
+        with patch("app.main.portfolio_manager", None):
             response = client.get("/health")
 
         assert response.status_code in [200, 503]
@@ -218,6 +222,7 @@ class TestCoverageGapFiller:
         mock_portfolio.portfolio_id = "test"
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
 
         metrics = PerformanceMetrics(
             total_return=Decimal("25000"),
@@ -241,14 +246,14 @@ class TestCoverageGapFiller:
             unrealized_pnl=Decimal("5000"),
             benchmark_return=0.15,
             alpha=0.10,
-            beta=1.05
+            beta=1.05,
         )
 
         mock_calculator.calculate_metrics.return_value = metrics
 
-        with patch('app.main.portfolio_manager', mock_manager):
-            with patch('app.main.performance_calculator', mock_calculator):
-                with patch('app.main.performance_history', mock_history):
+        with patch("app.main.portfolio_manager", mock_manager):
+            with patch("app.main.performance_calculator", mock_calculator):
+                with patch("app.main.performance_history", mock_history):
                     response = client.get("/api/v1/performance?portfolio_id=test")
 
         assert response.status_code == 200
@@ -261,6 +266,7 @@ class TestCoverageGapFiller:
         mock_portfolio.portfolio_id = "test"
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
 
         asset_perf = [
             AssetPerformance(
@@ -271,13 +277,13 @@ class TestCoverageGapFiller:
                 unrealized_pnl="10500",
                 unrealized_pnl_pct="20.0",
                 allocation_pct="100.0",
-                hold_duration_days=30  # Required field
+                hold_duration_days=30,  # Required field
             )
         ]
 
         mock_manager.get_asset_performance.return_value = asset_perf
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/performance/assets?portfolio_id=test")
 
         assert response.status_code == 200
@@ -294,64 +300,73 @@ class TestCoverageGapFiller:
         mock_portfolio.portfolio_id = "test"
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
 
         mock_calculator.calculate_metrics.return_value = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
-            with patch('app.main.performance_calculator', mock_calculator):
-                with patch('app.main.performance_history', mock_history):
+        with patch("app.main.portfolio_manager", mock_manager):
+            with patch("app.main.performance_calculator", mock_calculator):
+                with patch("app.main.performance_history", mock_history):
                     # This will raise validation error because metrics is None
                     with pytest.raises(ValueError):
                         response = client.get("/api/v1/performance?portfolio_id=test")
 
     # Transaction handler edge cases
     def test_buy_transaction_with_all_params(self, client):
-        """Test buy transaction with all parameters"""
+        """Test buy transaction is 409-gated even with valid parameters"""
+        # FIX 11: a manager that would fill the trade proves the gate, not a
+        # downstream failure, is what rejects the request.
         mock_manager = Mock()
         mock_portfolio = Mock()
         mock_portfolio.total_value = Decimal("100000")
 
         mock_manager.get_portfolio.return_value = mock_portfolio
-        # execute_transaction returns (success, message, realized_pnl)
-        mock_manager.execute_transaction.return_value = (True, "Buy executed", Decimal("0"))
-        # Handler wraps the txn in `async with manager.get_transaction_lock(pid):`
-        # — return a real asyncio.Lock so the context manager works.
+        mock_manager.execute_transaction.return_value = (
+            True,
+            "Buy executed",
+            Decimal("0"),
+        )
         mock_manager.get_transaction_lock.return_value = asyncio.Lock()
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.post(
                 "/api/v1/transaction/buy?portfolio_id=test&symbol=BTCUSDT&quantity=0.5&price=45000"
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 409
+        mock_manager.execute_transaction.assert_not_called()
 
     def test_sell_transaction_with_all_params(self, client):
-        """Test sell transaction with all parameters"""
+        """Test sell transaction is 409-gated even with valid parameters"""
         mock_manager = Mock()
         mock_portfolio = Mock()
         mock_portfolio.assets = {"BTCUSDT": Mock(quantity=Decimal("1.0"))}
 
         mock_manager.get_portfolio.return_value = mock_portfolio
-        # execute_transaction returns (success, message, realized_pnl)
-        mock_manager.execute_transaction.return_value = (True, "Sell executed", Decimal("1000"))
-        # Handler wraps the txn in `async with manager.get_transaction_lock(pid):`
-        # — return a real asyncio.Lock so the context manager works.
+        mock_manager.execute_transaction.return_value = (
+            True,
+            "Sell executed",
+            Decimal("1000"),
+        )
         mock_manager.get_transaction_lock.return_value = asyncio.Lock()
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.post(
                 "/api/v1/transaction/sell?portfolio_id=test&symbol=BTCUSDT&quantity=0.5&price=46000"
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 409
+        mock_manager.execute_transaction.assert_not_called()
 
     def test_transaction_history_with_params(self, client):
         """Test transaction history with parameters"""
         mock_manager = Mock()
         mock_manager.get_transaction_history.return_value = []
 
-        with patch('app.main.portfolio_manager', mock_manager):
-            response = client.get("/api/v1/transactions?portfolio_id=test&limit=50&symbol=BTCUSDT")
+        with patch("app.main.portfolio_manager", mock_manager):
+            response = client.get(
+                "/api/v1/transactions?portfolio_id=test&limit=50&symbol=BTCUSDT"
+            )
 
         assert response.status_code in [200, 400, 500]
 
@@ -361,7 +376,7 @@ class TestCoverageGapFiller:
         mock_manager = Mock()
         mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.post("/api/v1/sync?portfolio_id=test")
 
         assert response.status_code in [200, 400, 500]
@@ -374,11 +389,12 @@ class TestCoverageGapFiller:
         mock_portfolio.assets = {
             "BTCUSDT": Mock(quantity=Decimal("0.5"), current_price=Decimal("45000")),
             "ETHUSDT": Mock(quantity=Decimal("5.0"), current_price=Decimal("2500")),
-            "ADAUSDT": Mock(quantity=Decimal("1000.0"), current_price=Decimal("0.5"))
+            "ADAUSDT": Mock(quantity=Decimal("1000.0"), current_price=Decimal("0.5")),
         }
 
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
 
         # Create proper PortfolioSnapshot with multiple holdings
         snapshot = PortfolioSnapshot(
@@ -395,7 +411,7 @@ class TestCoverageGapFiller:
                     current_value="22500",
                     unrealized_pnl="2500",
                     unrealized_pnl_pct="12.5",
-                    allocation_pct="56.25"
+                    allocation_pct="56.25",
                 ),
                 AssetHolding(
                     symbol="ETHUSDT",
@@ -404,7 +420,7 @@ class TestCoverageGapFiller:
                     current_value="12500",
                     unrealized_pnl="500",
                     unrealized_pnl_pct="4.17",
-                    allocation_pct="31.25"
+                    allocation_pct="31.25",
                 ),
                 AssetHolding(
                     symbol="ADAUSDT",
@@ -413,14 +429,14 @@ class TestCoverageGapFiller:
                     current_value="500",
                     unrealized_pnl="20",
                     unrealized_pnl_pct="4.17",
-                    allocation_pct="1.25"
-                )
-            ]
+                    allocation_pct="1.25",
+                ),
+            ],
         )
 
         mock_manager.get_snapshot.return_value = snapshot
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/portfolio/holdings?portfolio_id=test")
 
         assert response.status_code == 200
@@ -437,18 +453,17 @@ class TestCoverageGapFiller:
         mock_portfolio.portfolio_id = "test"
         mock_portfolio.get_asset_allocation.return_value = {
             "BTCUSDT": Decimal("70.0"),
-            "ETHUSDT": Decimal("30.0")
+            "ETHUSDT": Decimal("30.0"),
         }
 
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         # check_rebalancing_needed returns (needs_rebalancing, recommendations)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
-            response = client.get(
-                "/api/v1/rebalance?portfolio_id=test"
-            )
+        with patch("app.main.portfolio_manager", mock_manager):
+            response = client.get("/api/v1/rebalance?portfolio_id=test")
 
         assert response.status_code == 200
 
@@ -470,9 +485,11 @@ class TestCoverageGapFiller:
         snapshot2 = self.create_portfolio_snapshot(portfolio_id="port2")
 
         # Mock get_snapshot to return proper PortfolioSnapshot instances
-        mock_manager.get_snapshot.side_effect = lambda pid: snapshot1 if pid == "port1" else snapshot2
+        mock_manager.get_snapshot.side_effect = lambda pid: (
+            snapshot1 if pid == "port1" else snapshot2
+        )
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = client.get("/api/v1/portfolios")
 
         assert response.status_code == 200

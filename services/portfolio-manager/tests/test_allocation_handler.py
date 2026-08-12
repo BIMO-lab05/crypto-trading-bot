@@ -15,10 +15,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models import (
     Portfolio,
-    Asset,
-    AllocationResponse,
-    RebalanceResponse,
-    RebalanceRecommendation
+    RebalanceRecommendation,
 )
 
 
@@ -36,17 +33,18 @@ class TestGetAllocation:
         mock_portfolio = Mock(spec=Portfolio)
         mock_portfolio.get_asset_allocation.return_value = {
             "BTCUSDT": Decimal("60.0"),
-            "ETHUSDT": Decimal("40.0")
+            "ETHUSDT": Decimal("40.0"),
         }
 
         # Setup mock manager
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
         # Patch the global instance in main
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/allocation?portfolio_id=test_portfolio")
 
         assert response.status_code == 200
@@ -61,16 +59,15 @@ class TestGetAllocation:
     async def test_get_allocation_default_portfolio(self):
         """Test allocation with default portfolio ID"""
         mock_portfolio = Mock(spec=Portfolio)
-        mock_portfolio.get_asset_allocation.return_value = {
-            "BTCUSDT": Decimal("100.0")
-        }
+        mock_portfolio.get_asset_allocation.return_value = {"BTCUSDT": Decimal("100.0")}
 
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/allocation")
 
         assert response.status_code == 200
@@ -84,7 +81,7 @@ class TestGetAllocation:
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/allocation?portfolio_id=nonexistent")
 
         assert response.status_code == 404
@@ -96,15 +93,16 @@ class TestGetAllocation:
         mock_portfolio = Mock(spec=Portfolio)
         mock_portfolio.get_asset_allocation.return_value = {
             "BTCUSDT": Decimal("70.0"),
-            "ETHUSDT": Decimal("30.0")
+            "ETHUSDT": Decimal("30.0"),
         }
 
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         mock_manager.check_rebalancing_needed.return_value = (True, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/allocation?portfolio_id=test")
 
         assert response.status_code == 200
@@ -112,16 +110,17 @@ class TestGetAllocation:
 
     @pytest.mark.asyncio
     async def test_get_allocation_updates_prices(self):
-        """Test that prices are updated before returning allocation"""
+        """Test that prices fall back to a local update when engine sync fails"""
         mock_portfolio = Mock(spec=Portfolio)
         mock_portfolio.get_asset_allocation.return_value = {}
 
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=False)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/allocation?portfolio_id=test")
 
         assert response.status_code == 200
@@ -136,9 +135,10 @@ class TestGetAllocation:
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/allocation?portfolio_id=empty")
 
         assert response.status_code == 200
@@ -152,15 +152,16 @@ class TestGetAllocation:
         mock_portfolio = Mock(spec=Portfolio)
         mock_portfolio.get_asset_allocation.return_value = {
             "BTCUSDT": Decimal("33.333333"),
-            "ETHUSDT": Decimal("66.666667")
+            "ETHUSDT": Decimal("66.666667"),
         }
 
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/allocation")
 
         assert response.status_code == 200
@@ -172,7 +173,7 @@ class TestGetAllocation:
     @pytest.mark.asyncio
     async def test_get_allocation_manager_not_initialized(self):
         """Test error when portfolio manager not initialized"""
-        with patch('app.main.portfolio_manager', None):
+        with patch("app.main.portfolio_manager", None):
             response = self.client.get("/api/v1/allocation")
 
         assert response.status_code == 503
@@ -198,7 +199,7 @@ class TestGetRebalanceRecommendations:
                 drift_pct="10.0",
                 action="BUY",
                 quantity="0.5",
-                estimated_cost="25000.00"
+                estimated_cost="25000.00",
             ),
             RebalanceRecommendation(
                 symbol="ETHUSDT",
@@ -207,17 +208,21 @@ class TestGetRebalanceRecommendations:
                 drift_pct="-10.0",
                 action="SELL",
                 quantity="10.0",
-                estimated_cost="15000.00"
-            )
+                estimated_cost="15000.00",
+            ),
         ]
 
         mock_portfolio = Mock(spec=Portfolio)
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
-        mock_manager.check_rebalancing_needed.return_value = (True, mock_recommendations)
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
+        mock_manager.check_rebalancing_needed.return_value = (
+            True,
+            mock_recommendations,
+        )
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/rebalance?portfolio_id=test")
 
         assert response.status_code == 200
@@ -236,9 +241,10 @@ class TestGetRebalanceRecommendations:
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/rebalance")
 
         assert response.status_code == 200
@@ -253,21 +259,22 @@ class TestGetRebalanceRecommendations:
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = None
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/rebalance?portfolio_id=nonexistent")
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_rebalance_recommendations_updates_prices(self):
-        """Test that prices are updated before calculating recommendations"""
+        """Test that prices fall back to a local update when engine sync fails"""
         mock_portfolio = Mock(spec=Portfolio)
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=False)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/rebalance?portfolio_id=test")
 
         assert response.status_code == 200
@@ -284,7 +291,7 @@ class TestGetRebalanceRecommendations:
                 drift_pct="10.0",
                 action="BUY",
                 quantity="1.0",
-                estimated_cost="50000.50"
+                estimated_cost="50000.50",
             ),
             RebalanceRecommendation(
                 symbol="ETH",
@@ -293,7 +300,7 @@ class TestGetRebalanceRecommendations:
                 drift_pct="10.0",
                 action="BUY",
                 quantity="10.0",
-                estimated_cost="25000.25"
+                estimated_cost="25000.25",
             ),
             RebalanceRecommendation(
                 symbol="SOL",
@@ -302,17 +309,21 @@ class TestGetRebalanceRecommendations:
                 drift_pct="-20.0",
                 action="SELL",
                 quantity="100.0",
-                estimated_cost="5000.15"
-            )
+                estimated_cost="5000.15",
+            ),
         ]
 
         mock_portfolio = Mock(spec=Portfolio)
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
-        mock_manager.check_rebalancing_needed.return_value = (True, mock_recommendations)
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
+        mock_manager.check_rebalancing_needed.return_value = (
+            True,
+            mock_recommendations,
+        )
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/rebalance")
 
         assert response.status_code == 200
@@ -327,9 +338,10 @@ class TestGetRebalanceRecommendations:
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
         mock_manager.check_rebalancing_needed.return_value = (False, [])
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/rebalance")
 
         assert response.status_code == 200
@@ -348,7 +360,7 @@ class TestGetRebalanceRecommendations:
                 drift_pct="10.0",
                 action="BUY",
                 quantity="0.1",
-                estimated_cost="5000.00"
+                estimated_cost="5000.00",
             )
         ]
 
@@ -356,9 +368,13 @@ class TestGetRebalanceRecommendations:
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
-        mock_manager.check_rebalancing_needed.return_value = (True, mock_recommendations)
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
+        mock_manager.check_rebalancing_needed.return_value = (
+            True,
+            mock_recommendations,
+        )
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/rebalance")
 
         assert response.status_code == 200
@@ -377,7 +393,7 @@ class TestGetRebalanceRecommendations:
                 drift_pct="-25.0",
                 action="SELL",
                 quantity="2.5",
-                estimated_cost="125000.00"
+                estimated_cost="125000.00",
             )
         ]
 
@@ -385,9 +401,13 @@ class TestGetRebalanceRecommendations:
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
         mock_manager.update_prices = AsyncMock()
-        mock_manager.check_rebalancing_needed.return_value = (True, mock_recommendations)
+        mock_manager.sync_with_trading_engine = AsyncMock(return_value=True)
+        mock_manager.check_rebalancing_needed.return_value = (
+            True,
+            mock_recommendations,
+        )
 
-        with patch('app.main.portfolio_manager', mock_manager):
+        with patch("app.main.portfolio_manager", mock_manager):
             response = self.client.get("/api/v1/rebalance")
 
         assert response.status_code == 200
@@ -401,7 +421,7 @@ class TestGetRebalanceRecommendations:
     @pytest.mark.asyncio
     async def test_get_rebalance_recommendations_manager_not_initialized(self):
         """Test error when portfolio manager not initialized"""
-        with patch('app.main.portfolio_manager', None):
+        with patch("app.main.portfolio_manager", None):
             response = self.client.get("/api/v1/rebalance")
 
         assert response.status_code == 503
