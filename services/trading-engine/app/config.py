@@ -9,8 +9,28 @@ import json
 import os
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-from typing import Annotated, Literal, List, Dict
+from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
+from typing import Literal, List, Dict
+
+# Fields where a BLANK env value means "operator did not set it" — the compose
+# passthrough is `TRADING_SYMBOLS=${TRADING_SYMBOLS:-}`, so an unset .env key
+# arrives as "". pydantic-settings JSON-decodes complex fields at the SOURCE
+# layer, before any field validator runs, so "" raised SettingsError and the
+# container never booted. NoDecode would fix this but exists only in
+# pydantic-settings >= 2.6; the image pins 2.1.0, so the blank-handling lives
+# in a source subclass instead (decode_complex_value exists in both).
+_BLANK_MEANS_DEFAULT_FIELDS = frozenset({"trading_symbols", "symbol_allocations"})
+
+
+class _BlankTolerantEnvSource(EnvSettingsSource):
+    def decode_complex_value(self, field_name, field, value):
+        if (
+            field_name in _BLANK_MEANS_DEFAULT_FIELDS
+            and isinstance(value, str)
+            and not value.strip()
+        ):
+            return field.default
+        return super().decode_complex_value(field_name, field, value)
 
 
 class Settings(BaseSettings):
@@ -207,12 +227,10 @@ class Settings(BaseSettings):
         default="consensus", description="Default trading strategy"
     )
     default_symbol: str = Field(default="BTCUSDT", description="Default trading symbol")
-    # NoDecode: this service is configured through docker-compose, which passes
-    # `TRADING_SYMBOLS=${TRADING_SYMBOLS:-}` — an unset operator var arrives as
-    # "". EnvSettingsSource JSON-decodes complex fields BEFORE any validator
-    # runs, so a blank value raised SettingsError and the container never
-    # booted. Decoding moves into _blank_symbol_env_uses_default below.
-    trading_symbols: Annotated[List[str], NoDecode] = Field(
+    # Blank env value maps to this default via _BlankTolerantEnvSource above;
+    # non-blank values are JSON-decoded normally and still face
+    # validate_allocations().
+    trading_symbols: List[str] = Field(
         default=[
             # =============================================================================
             # OPTIMIZED SYMBOL LIST (2026-01-19) - TIER 1 ONLY (5 SYMBOLS)
@@ -258,9 +276,9 @@ class Settings(BaseSettings):
     # - Proven historical performance (60-75% win rates)
     # - Removes noise from low-quality data symbols
     # =============================================================================
-    # NoDecode for the same reason as trading_symbols above — the two must be
-    # overridable together or the pair goes incoherent.
-    symbol_allocations: Annotated[Dict[str, float], NoDecode] = Field(
+    # Blank-tolerant for the same reason as trading_symbols above — the two
+    # must be overridable together or the pair goes incoherent.
+    symbol_allocations: Dict[str, float] = Field(
         default={
             # ===========================================================================
             # BACKTEST-OPTIMIZED ALLOCATION (2026-01-19) - Based on 30d + 90d Results
@@ -646,12 +664,13 @@ class Settings(BaseSettings):
     @field_validator("trading_symbols", "symbol_allocations", mode="before")
     @classmethod
     def _blank_symbol_env_uses_default(cls, v, info):
-        """Blank env value means "operator did not set it" — use the default.
+        """Blank value means "operator did not set it" — use the default.
 
-        These two fields carry NoDecode, so this validator owns the JSON
-        decoding that EnvSettingsSource would otherwise do. A malformed
-        non-blank value still raises: silently trading an unintended symbol
-        set is worse than refusing to boot.
+        The env path is handled earlier by _BlankTolerantEnvSource (the source
+        layer decodes complex fields before validators run); this validator
+        covers direct construction, e.g. Settings(trading_symbols=""). A
+        malformed non-blank value still raises: silently trading an unintended
+        symbol set is worse than refusing to boot.
         """
         if isinstance(v, str):
             if not v.strip():
@@ -717,6 +736,24 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        # Same precedence order as stock pydantic-settings; only the plain env
+        # source is swapped for the blank-tolerant subclass defined above.
+        return (
+            init_settings,
+            _BlankTolerantEnvSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
 
 # =============================================================================
