@@ -81,9 +81,11 @@ class IndicatorService:
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
-            "macd_line": round(macd_data["macd_line"], 2),
-            "signal_line": round(macd_data["signal_line"], 2),
-            "histogram": round(macd_data["histogram"], 2),
+            # Full precision, never round(x, 2): ADA-scale MACD values (~1e-4)
+            # collapse to 0.0 and downstream crossover detection dies (487d1bd)
+            "macd_line": float(macd_data["macd_line"]),
+            "signal_line": float(macd_data["signal_line"]),
+            "histogram": float(macd_data["histogram"]),
             "signal": macd_signal,
             "confidence": confidence,
         }
