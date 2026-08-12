@@ -38,6 +38,19 @@ if _REPO_ROOT not in sys.path:
 # 6b48272). If it disappears, BacktestEngine raises NameError at import.
 from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
 
+# Fee defaults come from the one cost model (services/trading-engine/app/
+# costs.py) rather than hand-copied literals: the copies drifted — this file
+# shipped `bybit_maker_fee = -0.0001` ("maker rebate"), but Bybit pays maker
+# rebates only at MM/high-VIP tiers a $100 account cannot reach. Maker is a
+# +2bp CHARGE. Top-level import first (killtests put backtesting/ on sys.path);
+# package fallback for `from backtesting.backtest_engine import ...` callers.
+try:
+    from costs_loader import load_costs  # noqa: E402
+except ImportError:  # imported as backtesting.backtest_engine from repo root
+    from backtesting.costs_loader import load_costs  # noqa: E402
+
+_BYBIT_PERP_FEES = load_costs().FeeSchedule.bybit_linear_perp()
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -136,8 +149,10 @@ class BacktestEngine:
         # commission + fixed slippage model. Pass a non-default `fee_mode` /
         # `slippage_mode` / `funding_enabled` to engage the realistic models.
         fee_mode: str = "fixed",  # 'fixed' | 'bybit_perp'
-        bybit_taker_fee: float = 0.00055,  # +0.055% taker (Bybit USDT perp, 2026 schedule)
-        bybit_maker_fee: float = -0.0001,  # -0.01% maker rebate
+        bybit_taker_fee: float = float(_BYBIT_PERP_FEES.taker),  # +0.055% taker
+        bybit_maker_fee: float = float(
+            _BYBIT_PERP_FEES.maker
+        ),  # +0.020% maker — a CHARGE, not a rebate
         slippage_mode: str = "fixed",  # 'fixed' | 'atr_aware'
         atr_slippage_factor: float = 0.05,  # 5% of ATR/price as slippage in atr_aware mode
         atr_slippage_floor: float = 0.0005,  # never below 5 bps even in calm regime
@@ -195,7 +210,8 @@ class BacktestEngine:
     def _effective_fee_rate(self, order_type_str: str = "MARKET") -> float:
         """
         Per-side fee rate. order_type_str hint lets the strategy pass
-        'MARKET' (taker) or 'LIMIT' (maker, may rebate).
+        'MARKET' (taker) or 'LIMIT' (maker — a smaller CHARGE, not a rebate;
+        this account's tier earns none).
         """
         if self.fee_mode == "bybit_perp":
             if order_type_str.upper() == "LIMIT":
@@ -409,7 +425,9 @@ class BacktestEngine:
         else:
             entry_price = price * (1 - slip)
 
-        # Asymmetric fee model (B-4): MARKET => taker, LIMIT => maker (rebate).
+        # Asymmetric fee model (B-4): MARKET => taker, LIMIT => maker (smaller
+        # charge). Only a signal that declares a genuinely-resting limit entry
+        # gets maker treatment.
         order_type_str = (
             signal.get("order_type") if isinstance(signal, dict) else None
         ) or "MARKET"
@@ -467,12 +485,13 @@ class BacktestEngine:
                 self.current_position.entry_price - exit_price
             ) * self.current_position.position_size
 
-        # Asymmetric exit fee. Stop/TP exits hit at maker (resting limit)
-        # in the realistic Bybit model — they were placed in the book; the
-        # signal-driven exit goes taker. Legacy fee_mode='fixed' preserves
-        # the prior single-rate behavior.
-        order_type_str = "LIMIT" if reason in ("stop_loss", "take_profit") else "MARKET"
-        fee_rate = self._effective_fee_rate(order_type_str)
+        # Every exit here is taker. Bybit conditional stop/TP orders are NOT
+        # resting in the book — they trigger as market orders when the mark
+        # price crosses — and signal-driven exits are market by construction.
+        # (Until 2026-08-12 stop/TP exits were classified LIMIT against a
+        # negative maker rate, so every stop-out CREDITED the account ~1bp.)
+        # Legacy fee_mode='fixed' preserves the prior single-rate behavior.
+        fee_rate = self._effective_fee_rate("MARKET")
         commission_cost = self.current_position.position_size * exit_price * fee_rate
         profit_loss -= commission_cost
 
