@@ -33,6 +33,7 @@ from typing import Optional, List, Dict, Set
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
+from uuid import UUID
 
 from app.config import get_settings
 from app.risk.vol_targeting import (
@@ -281,6 +282,20 @@ class AutoTrader:
         # Keep research strategy for backward compatibility
         self.research_strategy = self.hybrid_strategy.trend_strategy
 
+        # GRID_TRADING has no execution path (2026-08-12). The dispatch called
+        # _check_and_trade_grid, which was never written: every symbol raised
+        # AttributeError inside the per-symbol try, the circuit breaker counted
+        # it as an aggregator failure, and the engine traded nothing while
+        # looking like it had a flaky upstream. Refuse at construction — the
+        # mode_map in get_auto_trader falls back silently, so dropping the key
+        # there would trade HYBRID under a grid label instead.
+        if strategy_mode == StrategyMode.GRID_TRADING:
+            raise ValueError(
+                "STRATEGY_MODE=grid_trading is not implemented — AutoTrader has no "
+                "grid execution path. Supported modes: standard, research, hybrid, "
+                "ensemble."
+            )
+
         # Initialize Grid Trading strategy (Phase 2.3 - 2025-12-08)
         # NOTE: Grid Trading showed poor walk-forward validation results:
         #   - Avg Return: -0.00%, Avg Sharpe: -0.49, Avg Win Rate: 32.6%
@@ -288,6 +303,15 @@ class AutoTrader:
         self.grid_strategies: Dict[
             str, GridTradingStrategy
         ] = {}  # One strategy per symbol
+
+        # Ensemble leg attribution, position id -> leg contributions (2026-08-12).
+        # Written at fill, popped in _finalize_closed_position and fed to
+        # record_trade_outcome (ADR-015). Previously stashed on Position.metadata,
+        # a field the pydantic model does not declare, so every write raised and
+        # the weights never adapted. Entries are consumed by the close they
+        # belong to; a close that bypasses _finalize_closed_position leaves one
+        # key behind until restart.
+        self._ensemble_attribution: Dict[UUID, Dict[str, float]] = {}
 
         # Statistics
         self.total_signals_checked = 0
@@ -958,9 +982,6 @@ class AutoTrader:
                             elif self.strategy_mode == StrategyMode.HYBRID:
                                 # Use both strategies and trade only if both agree
                                 await self._check_and_trade_hybrid(symbol)
-                            elif self.strategy_mode == StrategyMode.GRID_TRADING:
-                                # Use Grid Trading strategy (Phase 2.3 - 2025-12-08)
-                                await self._check_and_trade_grid(symbol)
                             elif self.strategy_mode == StrategyMode.ENSEMBLE:
                                 # Combined RSI + multi-indicator + mean-reversion with performance weighting (2026-04-25)
                                 await self._check_and_trade_ensemble(symbol)
@@ -3153,6 +3174,21 @@ class AutoTrader:
             except Exception as perf_err:
                 logger.debug(f"[MONITOR] Perf tracker note: {perf_err}")
 
+            # ADR-015 weight adaptation (2026-08-12): the ensemble only learns
+            # if the trade outcome reaches it. Pop unconditionally so the store
+            # stays bounded by the open book; the same signed trade_pnl the kill
+            # switch saw decides which legs were directionally right.
+            leg_contributions = self._ensemble_attribution.pop(
+                getattr(position, "id", None), None
+            )
+            if leg_contributions:
+                try:
+                    from app.strategies.multi_strategy_ensemble import get_ensemble
+
+                    get_ensemble().record_trade_outcome(leg_contributions, trade_pnl)
+                except Exception as ens_err:
+                    logger.debug(f"[ENSEMBLE] Weight update note: {ens_err}")
+
             if triggered:
                 logger.warning(
                     f"[MONITOR] Kill switch thresholds triggered after close: {triggered}"
@@ -4914,22 +4950,13 @@ class AutoTrader:
                             f"— position keeps the risk-manager default: {stop_error}"
                         )
 
-                # Tag latest position with leg contributions so we can attribute outcome at close.
-                try:
-                    latest_positions = [
-                        p
-                        for p in position_mgr.get_open_positions()
-                        if p.symbol == symbol
-                    ]
-                    if latest_positions:
-                        latest_positions[-1].metadata = (
-                            getattr(latest_positions[-1], "metadata", {}) or {}
-                        )
-                        latest_positions[-1].metadata["ensemble_attribution"] = (
-                            ens_signal.leg_contributions
-                        )
-                except Exception as attr_err:
-                    logger.debug(f"[ENSEMBLE] Could not tag attribution: {attr_err}")
+                # Store leg contributions against the position id so the close
+                # can attribute the outcome (2026-08-12). Copied, not aliased:
+                # the ensemble rebuilds leg_contributions every signal.
+                if executed_order.position_id:
+                    self._ensemble_attribution[executed_order.position_id] = dict(
+                        ens_signal.leg_contributions
+                    )
 
                 # ================================================================
                 # Final review (2026-08-08): report the levels the position
