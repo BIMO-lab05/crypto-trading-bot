@@ -893,3 +893,10 @@ Owner approved all five decisions (plan/order, pause trader, DEFAULT_LEVERAGE=1.
 - Behavior changes operators must know: boot fails loud on unreadable book / grid mode / incoherent symbol config; frontend Buy/Sell now 409s (was fake fills); backtest costs went UP — historical in-service backtest figures were wrong and do not reproduce.
 - Verification: trading-engine 1830 passed / 13 pre-existing failures (pairs-trading pandas 'H' ×11, connector contract ×2 — same as baseline); portfolio-manager 113 passed; TA 472 passed / 3 pre-existing; killtest screen reproduction 12/12 — H3 committed figures still exact. Kill switch stayed on the whole session; trader still halted.
 - Next: pick the structurally different candidate (cross-sectional momentum, pre-registered) and run it through the hurdle-first screen. Infrastructure now cheap and honest; the open question is the strategy, not the plumbing.
+
+## 2026-08-12 — Trading resumed, clean-data epoch opened
+
+- Rebuilt trading-engine/technical-analysis/portfolio-manager on the repaired code (one deploy bug caught: NoDecode needs pydantic-settings >=2.6, image pins 2.1.0 — portable source-layer fix `65a817e`, proven in-image). 14/14 containers healthy, 9/9 probes 200.
+- EMERGENCY_STOP removed + POST /api/trading/start per runbook (operator-authorized). Loop running, signals accruing.
+- **CLEAN-DATA EPOCH: 2026-08-12T13:47:20Z.** Positions with opened_at >= this instant ran entirely on the repaired engine. The two pre-halt legacy positions (SOLUSDT LONG 2026-08-07, BNBUSDT SHORT 2026-08-06) were swept by 48h max-hold on the first monitor cycle — exit_kind=MAX_HOLD, realized +0.892/-0.111 — EXCLUDE them from any clean-paper analysis. Book flat at epoch: cash = total = 100.37103039 (ledger identity exact).
+- Data collection: paper P&L now net of fees + slippage (label accordingly); funding still unmodelled in the paper engine (deferred minor). Evidence loop `python -m scripts.forward_paper_test.run_evidence_loop` is one-shot idempotent — run daily once the >=7-day accrual window fills (LIVECLOSE-03 cadence).
