@@ -680,6 +680,14 @@ services:
       - PAPER_INITIAL_BALANCE=100.0
       # Strategy mode: ensemble = SimpleRSI + multi-indicator + mean-reversion (performance-weighted)
       - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
+      # 2026-08-12 (audit finding 8): neither var was whitelisted here and the
+      # Dockerfile copies app/ only, so no .env could reach the container —
+      # operator symbol/allocation edits were silently ignored. The empty
+      # default is deliberate: unset in .env means "use the config.py
+      # defaults" (config.py maps a blank value back to them). A non-blank
+      # value that disagrees with validate_allocations() still fails boot.
+      - TRADING_SYMBOLS=${TRADING_SYMBOLS:-}
+      - SYMBOL_ALLOCATIONS=${SYMBOL_ALLOCATIONS:-}
       # Database — POSTGRES_* is the single source of truth now that
       # connection.py reads it instead of DB_* (audit 2026-04-27).
       - POSTGRES_HOST=postgres

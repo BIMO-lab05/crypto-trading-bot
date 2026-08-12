@@ -5,11 +5,12 @@ Purpose: Centralized configuration management using Pydantic settings
 SECURITY UPDATE (2025-12-12): Added strict CORS configuration
 """
 
+import json
 import os
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Literal, List, Dict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from typing import Annotated, Literal, List, Dict
 
 
 class Settings(BaseSettings):
@@ -206,7 +207,12 @@ class Settings(BaseSettings):
         default="consensus", description="Default trading strategy"
     )
     default_symbol: str = Field(default="BTCUSDT", description="Default trading symbol")
-    trading_symbols: List[str] = Field(
+    # NoDecode: this service is configured through docker-compose, which passes
+    # `TRADING_SYMBOLS=${TRADING_SYMBOLS:-}` — an unset operator var arrives as
+    # "". EnvSettingsSource JSON-decodes complex fields BEFORE any validator
+    # runs, so a blank value raised SettingsError and the container never
+    # booted. Decoding moves into _blank_symbol_env_uses_default below.
+    trading_symbols: Annotated[List[str], NoDecode] = Field(
         default=[
             # =============================================================================
             # OPTIMIZED SYMBOL LIST (2026-01-19) - TIER 1 ONLY (5 SYMBOLS)
@@ -252,7 +258,9 @@ class Settings(BaseSettings):
     # - Proven historical performance (60-75% win rates)
     # - Removes noise from low-quality data symbols
     # =============================================================================
-    symbol_allocations: Dict[str, float] = Field(
+    # NoDecode for the same reason as trading_symbols above — the two must be
+    # overridable together or the pair goes incoherent.
+    symbol_allocations: Annotated[Dict[str, float], NoDecode] = Field(
         default={
             # ===========================================================================
             # BACKTEST-OPTIMIZED ALLOCATION (2026-01-19) - Based on 30d + 90d Results
@@ -471,11 +479,11 @@ class Settings(BaseSettings):
     )
 
     # ===========================================================================
-    # TRADE SIDE RESTRICTIONS (Updated 2026-01-19) - OPTION C: HYBRID CIRCUIT BREAKER
+    # TRADE SIDE RESTRICTIONS (Updated 2026-01-19)
     # ===========================================================================
     # Analysis: Backtest shows SHORT trading has +2-4% monthly profit potential in current bearish conditions
     # Recent analysis (Jan 19, 2026) confirms SHORT trades are profitable in current market
-    # Solution: Enable SHORT with TIGHTER risk controls + automatic circuit breaker
+    # Solution: Enable SHORT with TIGHTER risk controls
     allowed_trade_sides: List[str] = Field(
         default=["LONG", "SHORT"],  # Both sides enabled for market adaptability
         description="Allowed trade sides: ['LONG', 'SHORT'] for market adaptability",
@@ -503,52 +511,13 @@ class Settings(BaseSettings):
         le=1.0,
         description="SHORT minimum confidence: 70% (higher than LONG's 65%)",
     )
-    short_max_position_pct: float = Field(
-        default=3.0,  # SMALLER: 3% vs 5% for LONG (40% smaller)
-        ge=0.5,
-        le=10.0,
-        description="SHORT max position size: 3% (smaller than LONG's 5%)",
-    )
-
-    # ===========================================================================
-    # CIRCUIT BREAKER (Added 2026-01-19) - AUTOMATIC SHORT SAFETY SHUTDOWN
-    # ===========================================================================
-    # Purpose: Automatically disable SHORT if underperforms, protecting capital
-    # Trigger: If ANY condition breached during evaluation period → disable SHORT
-    # Recovery: Requires manual re-enable after review
-    circuit_breaker_enabled: bool = Field(
-        default=True, description="Enable automatic SHORT shutdown on poor performance"
-    )
-    circuit_breaker_max_consecutive_losses: int = Field(
-        default=3,  # Disable after 3 losses in a row
-        ge=2,
-        le=10,
-        description="Auto-disable SHORT after N consecutive losses",
-    )
-    circuit_breaker_max_drawdown_pct: float = Field(
-        default=10.0,  # Disable if portfolio drops 10%
-        ge=3.0,
-        le=25.0,
-        description="Auto-disable SHORT if drawdown exceeds %",
-    )
-    circuit_breaker_min_win_rate_pct: float = Field(
-        default=45.0,  # Disable if win rate falls below 45%
-        ge=30.0,
-        le=60.0,
-        description="Auto-disable SHORT if win rate below % (after evaluation period)",
-    )
-    circuit_breaker_evaluation_trades: int = Field(
-        default=30,  # Evaluate after 30 trades
-        ge=10,
-        le=100,
-        description="Number of SHORT trades before evaluating circuit breaker",
-    )
-    circuit_breaker_check_interval_minutes: int = Field(
-        default=60,  # Check every hour
-        ge=15,
-        le=1440,
-        description="How often to check circuit breaker conditions (minutes)",
-    )
+    # DELETED 2026-08-12 (audit finding 6): short_max_position_pct and the six
+    # circuit_breaker_* fields were declared 2026-01-19 and read by no code in
+    # the repo. short_max_position_pct is not resurrected: 3% of a $100 account
+    # is $3, under the ~$5 venue minimum, so enforcing it under
+    # reject-don't-clamp would silently end all SHORT trading. The equity /
+    # consecutive-loss halt that these breaker fields described is implemented
+    # by KillSwitchConfig (auto_trader.py), on its own thresholds.
 
     # Database Configuration
     # Port 5432 is the in-container TimescaleDB port. The host-mapped port
@@ -673,6 +642,22 @@ class Settings(BaseSettings):
         if v.upper() not in ["PAPER", "LIVE"]:
             raise ValueError("Trading mode must be PAPER or LIVE")
         return v.upper()
+
+    @field_validator("trading_symbols", "symbol_allocations", mode="before")
+    @classmethod
+    def _blank_symbol_env_uses_default(cls, v, info):
+        """Blank env value means "operator did not set it" — use the default.
+
+        These two fields carry NoDecode, so this validator owns the JSON
+        decoding that EnvSettingsSource would otherwise do. A malformed
+        non-blank value still raises: silently trading an unintended symbol
+        set is worse than refusing to boot.
+        """
+        if isinstance(v, str):
+            if not v.strip():
+                return cls.model_fields[info.field_name].default
+            return json.loads(v)
+        return v
 
     def validate_allocations(self) -> None:
         """
