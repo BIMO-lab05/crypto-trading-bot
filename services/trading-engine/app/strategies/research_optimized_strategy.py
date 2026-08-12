@@ -719,7 +719,10 @@ class ResearchOptimizedStrategy:
 
             partial_exits.append(
                 PartialExitLevel(
-                    price=round(price, 2),
+                    # Trigger compared against market price, closed at market —
+                    # no exchange tick precision at this layer. round(price, 2)
+                    # collapsed TP2 and TP3 onto one rung at ADA scale (PRICE-01).
+                    price=price,
                     exit_percent=level["exit_pct"],
                     atr_multiple=level["atr_mult"],
                     label=level["label"],
