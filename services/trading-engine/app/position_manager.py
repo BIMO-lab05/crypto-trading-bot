@@ -41,6 +41,16 @@ def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
 logger = logging.getLogger(__name__)
 
 
+class PositionHydrationError(RuntimeError):
+    """Startup rebuild of the open-position book failed.
+
+    Raised by load_positions_from_db so the data lifespan phase can abort boot
+    on this specific failure while keeping the other, non-critical DB init
+    steps lenient. An engine that boots on a partial book monitors nothing it
+    failed to read, stops nothing, and reconstructs cash against an empty book.
+    """
+
+
 def _persist_done(task) -> None:
     """asyncio.Task done-callback: surface persistence failures LOUDLY.
 
@@ -990,6 +1000,10 @@ class PositionManager:
 
         Returns:
             Number of positions loaded
+
+        Raises:
+            PositionHydrationError: the book could not be rebuilt. Callers must
+                abort boot rather than trade against an unverified book.
         """
         try:
             db_positions = await self.position_repo.get_open_positions()
@@ -1114,7 +1128,13 @@ class PositionManager:
 
         except Exception as e:
             logger.error(f"Failed to load positions from database: {e}")
-            return 0
+            # Fail loud. Returning 0 here reported an EMPTY book on a DB
+            # outage or a single unmappable row: positions left unmonitored
+            # and unstopped, cash reconstructed against nothing held. A book
+            # we cannot read is a book we do not trade.
+            raise PositionHydrationError(
+                f"Failed to load open positions from database: {e}"
+            ) from e
 
 
 # Global position manager instance

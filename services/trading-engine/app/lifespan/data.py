@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from app.config import get_settings
 from app.database.connection import db_manager
-from app.position_manager import get_position_manager
+from app.position_manager import PositionHydrationError, get_position_manager
 from app.repositories import get_portfolio_repository
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,8 @@ async def init_data():
 
     On exit: close DB connections. Errors during init are logged but do not
     abort startup — service continues without DB persistence (matches the
-    pre-refactor behavior in main.py).
+    pre-refactor behavior in main.py). The one exception is position
+    hydration: PositionHydrationError propagates and aborts boot.
     """
     logger.info("init_data: enter")
     settings = get_settings()
@@ -67,6 +68,18 @@ async def init_data():
                     "Database connection failed - trades will not be persisted"
                 )
                 database_health.set(0)
+        except PositionHydrationError:
+            # fail-loud: the open-position book could not be rebuilt. Booting
+            # on an empty book leaves live positions unmonitored and unstopped
+            # and reconstructs paper cash against nothing held, so this one
+            # failure aborts startup instead of "continuing without
+            # persistence". Other init steps below stay lenient.
+            database_health.set(0)
+            logger.critical(
+                "Position hydration failed - refusing to boot with an "
+                "unverified position book"
+            )
+            raise
         except Exception as e:
             logger.error(f"Database initialization error: {e}")
             logger.warning("Continuing without database persistence")

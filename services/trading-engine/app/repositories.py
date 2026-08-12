@@ -5,6 +5,7 @@ Purpose: Data access layer for persisting trading data
 
 import json as _json
 import logging
+from dataclasses import dataclass
 from typing import List, Optional
 from decimal import Decimal
 from uuid import UUID
@@ -17,11 +18,29 @@ from app.database.models import (
     Position as DBPosition,
     Portfolio as DBPortfolio,
 )
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 
 from app.models import Position
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ClosedPnLStats:
+    """Realized-P&L aggregate over the closed positions of one portfolio.
+
+    total_trades counts EVERY closed row, including rows whose realized_pnl
+    is NULL or exactly zero — those are neither wins nor losses but they are
+    in the win-rate denominator, matching the row-by-row sum this replaced.
+    gross_loss is the sum of the losing rows, so it is negative or zero.
+    """
+
+    total_trades: int
+    winning_trades: int
+    losing_trades: int
+    realized_pnl: Decimal
+    gross_profit: Decimal
+    gross_loss: Decimal
 
 
 class PositionRepository:
@@ -385,7 +404,12 @@ class PositionRepository:
     async def get_open_positions(
         self, portfolio_id: str = "paper_trading"
     ) -> List[DBPosition]:
-        """Get all open positions for a portfolio"""
+        """Get all open positions for a portfolio.
+
+        Raises on failure: this is the startup-hydration path, and an empty
+        list is indistinguishable from "no positions held". Display callers
+        that tolerate a degraded read use get_open_positions_or_empty.
+        """
         try:
             async with self.db.get_async_session() as session:
                 result = await session.execute(
@@ -396,6 +420,19 @@ class PositionRepository:
                 return result.scalars().all()
         except Exception as e:
             logger.error(f"Failed to get open positions from database: {e}")
+            raise
+
+    async def get_open_positions_or_empty(
+        self, portfolio_id: str = "paper_trading"
+    ) -> List[DBPosition]:
+        """Lenient read for display endpoints only.
+
+        Never call this from a path that sizes, monitors or closes a position —
+        it cannot distinguish a flat book from an unreadable one.
+        """
+        try:
+            return await self.get_open_positions(portfolio_id)
+        except Exception:
             return []
 
     async def get_closed_positions(
@@ -428,6 +465,68 @@ class PositionRepository:
         except Exception as e:
             logger.error(f"Failed to get closed positions from database: {e}")
             return []
+
+    async def get_closed_pnl_stats(
+        self, portfolio_id: str = "paper_trading"
+    ) -> ClosedPnLStats:
+        """
+        Aggregate realized P&L over ALL closed positions in one query.
+
+        Summing get_closed_positions() row by row truncated at that query's
+        limit, so realized P&L under-reported once the book passed it.
+
+        Raises on failure: /api/v1/performance is the portfolio-manager's
+        authoritative cash and realized-P&L source, and zeros there are
+        indistinguishable from a flat book.
+
+        Args:
+            portfolio_id: Portfolio ID (default: paper_trading)
+
+        Returns:
+            ClosedPnLStats, zeroed (never None) when nothing is closed yet
+        """
+        won = DBPosition.realized_pnl > 0
+        lost = DBPosition.realized_pnl < 0
+
+        try:
+            async with self.db.get_async_session() as session:
+                result = await session.execute(
+                    select(
+                        # count(pk), not count(realized_pnl): a closed row with
+                        # NULL P&L still belongs in the win-rate denominator.
+                        func.count(DBPosition.position_id),
+                        func.coalesce(func.sum(case((won, 1), else_=0)), 0),
+                        func.coalesce(func.sum(case((lost, 1), else_=0)), 0),
+                        func.coalesce(func.sum(DBPosition.realized_pnl), 0),
+                        func.coalesce(
+                            func.sum(case((won, DBPosition.realized_pnl), else_=0)), 0
+                        ),
+                        func.coalesce(
+                            func.sum(case((lost, DBPosition.realized_pnl), else_=0)), 0
+                        ),
+                    )
+                    .where(DBPosition.portfolio_id == portfolio_id)
+                    .where(DBPosition.status == "CLOSED")
+                )
+                total, wins, losses, realized, profit, loss = result.one()
+
+                stats = ClosedPnLStats(
+                    total_trades=int(total or 0),
+                    winning_trades=int(wins or 0),
+                    losing_trades=int(losses or 0),
+                    realized_pnl=Decimal(str(realized or 0)),
+                    gross_profit=Decimal(str(profit or 0)),
+                    gross_loss=Decimal(str(loss or 0)),
+                )
+                logger.info(
+                    f"Closed P&L aggregate: {stats.total_trades} trades, "
+                    f"realized ${stats.realized_pnl:.2f}"
+                )
+                return stats
+
+        except Exception as e:
+            logger.error(f"Failed to aggregate closed position P&L: {e}")
+            raise
 
 
 class TradeRepository:

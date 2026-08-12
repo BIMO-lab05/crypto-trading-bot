@@ -928,7 +928,9 @@ async def get_trade_history_endpoint(
                 portfolio_id="paper_trading"
             )
         elif status.upper() == "OPEN":
-            db_positions = await position_repo.get_open_positions(
+            # Display path: a degraded read shows an empty history rather than
+            # a 500. The strict get_open_positions is for startup hydration.
+            db_positions = await position_repo.get_open_positions_or_empty(
                 portfolio_id="paper_trading"
             )
         else:

@@ -15,7 +15,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "app"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "shared"))
 
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from app.repositories import PositionRepository, TradeRepository, PortfolioRepository
+from app.database.models import Position as DBPosition
 from app.models import Position, PositionStatus, PositionSide
 
 
@@ -160,6 +163,85 @@ class TestPositionRepository:
             assert len(result) == 2
             assert result[0].symbol == "BTCUSDT"
             assert result[1].symbol == "ETHUSDT"
+
+
+class TestClosedPnLStats:
+    """Realized-P&L aggregate over closed positions.
+
+    Backed by a real (in-memory) table rather than a mocked session: the
+    defect guarded here is a row LIMIT inside the query, which a mocked
+    session cannot see.
+    """
+
+    @pytest.fixture
+    def position_repo(self):
+        return PositionRepository()
+
+    @pytest.fixture
+    async def sqlite_sessions(self):
+        """async_sessionmaker over an in-memory positions table"""
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(DBPosition.__table__.create)
+        yield async_sessionmaker(engine, expire_on_commit=False)
+        await engine.dispose()
+
+    @staticmethod
+    def _closed(realized_pnl, portfolio_id="paper_trading", status="CLOSED"):
+        return DBPosition(
+            position_id=uuid4(),
+            portfolio_id=portfolio_id,
+            symbol="BTCUSDT",
+            side="LONG",
+            quantity=Decimal("0.001"),
+            entry_price=Decimal("50000"),
+            cost_basis=Decimal("50"),
+            realized_pnl=realized_pnl,
+            status=status,
+            closed_at=datetime.now(UTC),
+        )
+
+    @pytest.mark.asyncio
+    async def test_aggregates_every_closed_row_past_the_query_limit(
+        self, position_repo, sqlite_sessions
+    ):
+        """1200 closed rows: the row-by-row handler truncated at 1000."""
+        rows = [self._closed(Decimal("0.10")) for _ in range(1200)]
+        rows += [self._closed(Decimal("-0.40")) for _ in range(5)]
+        rows.append(self._closed(None))  # never closed with a P&L write
+        rows.append(self._closed(Decimal("0")))  # scratch
+        rows.append(self._closed(Decimal("99"), status="OPEN"))
+        rows.append(self._closed(Decimal("99"), portfolio_id="other"))
+
+        async with sqlite_sessions() as session:
+            session.add_all(rows)
+            await session.commit()
+
+        with patch.object(position_repo.db, "get_async_session", sqlite_sessions):
+            stats = await position_repo.get_closed_pnl_stats("paper_trading")
+
+        # Denominator is every CLOSED row, including the NULL and the scratch —
+        # that is what the old len(positions) counted.
+        assert stats.total_trades == 1207
+        assert stats.winning_trades == 1200
+        assert stats.losing_trades == 5
+        assert stats.realized_pnl == Decimal("118.00")
+        assert stats.gross_profit == Decimal("120.00")
+        assert stats.gross_loss == Decimal("-2.00")
+        assert isinstance(stats.realized_pnl, Decimal)
+
+    @pytest.mark.asyncio
+    async def test_flat_book_coalesces_to_zero(self, position_repo, sqlite_sessions):
+        """No closed positions: zeros, not None"""
+        with patch.object(position_repo.db, "get_async_session", sqlite_sessions):
+            stats = await position_repo.get_closed_pnl_stats("paper_trading")
+
+        assert stats.total_trades == 0
+        assert stats.winning_trades == 0
+        assert stats.losing_trades == 0
+        assert stats.realized_pnl == Decimal("0")
+        assert stats.gross_profit == Decimal("0")
+        assert stats.gross_loss == Decimal("0")
 
 
 class TestTradeRepository:
@@ -368,14 +450,38 @@ class TestRepositoryExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_position_get_open_positions_exception(self, position_repo):
-        """Test get_open_positions with database exception"""
+        """get_open_positions must raise: it feeds startup hydration, where an
+        empty list is indistinguishable from a flat book (2026-08-12)."""
         with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.execute.side_effect = Exception("Query failed")
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
-            result = await position_repo.get_open_positions()
+            with pytest.raises(Exception, match="Query failed"):
+                await position_repo.get_open_positions()
+
+    @pytest.mark.asyncio
+    async def test_position_get_open_positions_or_empty_exception(self, position_repo):
+        """The lenient display wrapper still degrades to []"""
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_async_session.execute.side_effect = Exception("Query failed")
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            result = await position_repo.get_open_positions_or_empty()
             assert result == []
+
+    @pytest.mark.asyncio
+    async def test_position_get_closed_pnl_stats_exception(self, position_repo):
+        """get_closed_pnl_stats must raise: zeroed realized P&L is
+        indistinguishable from a flat book to the portfolio-manager mirror."""
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_async_session.execute.side_effect = Exception("Query failed")
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            with pytest.raises(Exception, match="Query failed"):
+                await position_repo.get_closed_pnl_stats()
 
 
 class TestPortfolioRepositoryExceptionHandling:
