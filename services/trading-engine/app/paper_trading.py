@@ -17,7 +17,7 @@ from app.models import (
     PositionSide,
     PositionStatus,
 )
-from app.position_manager import get_position_manager, _as_utc
+from app.position_manager import get_position_manager, _as_utc, _spawn_persist
 from app.paper_slippage import build_slippage_model
 from app.risk_manager import get_risk_manager
 from app.repositories import get_trade_repository, get_portfolio_repository
@@ -140,11 +140,12 @@ class PaperTradingEngine:
         kill switch from this number, a drawdown breaker approaching its
         threshold was quietly re-armed toward par by any restart or crash-loop.
 
-        The persisted `portfolios.cash_balance` is the true running ledger, but
-        it is written only on position *close* (position_manager.close_position),
-        never on open. So it is accurate as of `portfolios.updated_at`, and any
-        position opened after that timestamp has had its margin debited in
-        memory but never persisted. Reconstruct as:
+        The persisted `portfolios.cash_balance` is the true running ledger. It
+        is written on position *close* (position_manager.close_position) and,
+        since 2026-08-12, on partial exit and scale-in (execute_market_order
+        below) — never on open. So it is accurate as of `portfolios.updated_at`,
+        and any position opened after that timestamp has had its margin debited
+        in memory but never persisted. Reconstruct as:
 
             cash_balance - cost(positions opened after portfolios.updated_at)
         """
@@ -405,6 +406,20 @@ class PaperTradingEngine:
                 executed_order.position_id = target.id
                 net_leg_pnl = reduced_position.realized_pnl - realized_before
 
+                # Only the full close writes the portfolio ledger. Without this
+                # snapshot the partial exit's credit lives in memory alone,
+                # while its position — opened before the last persisted write —
+                # counts as already reflected, so a restart drops the credit.
+                # Cash only: update_balance OVERWRITES realized_pnl, which the
+                # eventual close accumulates with this leg already in it.
+                _spawn_persist(
+                    self.portfolio_repo.update_balance(
+                        portfolio_id="paper_trading",
+                        cash_balance=self.balance,
+                    ),
+                    "portfolio cash snapshot (partial exit)",
+                )
+
             executed_order.filled_quantity = close_qty
 
             logger.info(
@@ -477,6 +492,17 @@ class PaperTradingEngine:
                     f"@ {fill_price} (ref {current_price}) | "
                     f"New avg entry: {pos.entry_price} | "
                     f"Balance: ${self.balance:.4f}"
+                )
+
+                # Same reason as the partial-exit snapshot above, opposite sign:
+                # a scale-in debits margin + commission with no close of its own
+                # to persist them, so a restart refunds the debit.
+                _spawn_persist(
+                    self.portfolio_repo.update_balance(
+                        portfolio_id="paper_trading",
+                        cash_balance=self.balance,
+                    ),
+                    "portfolio cash snapshot (scale-in)",
                 )
 
                 _spawn_trade_log(
