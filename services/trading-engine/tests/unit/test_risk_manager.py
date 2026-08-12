@@ -38,6 +38,7 @@ class TestRiskManager:
         settings.max_position_size_pct = 10.0  # 10% of capital
         settings.max_daily_loss_pct = 5.0  # 5% max daily loss
         settings.default_stop_loss_pct = 2.0  # 2% stop loss
+        settings.short_stop_loss_pct = 1.5  # SHORT stop, tighter than LONG
         settings.default_take_profit_pct = 4.0  # 4% take profit
         settings.max_total_exposure_pct = 80.0  # 80% max exposure
         settings.min_signal_confidence = 0.7  # 70% minimum confidence
@@ -195,14 +196,17 @@ class TestRiskManager:
         expected = Decimal("50000.00") * Decimal("0.98")  # 1 - 0.02
         assert stop_loss == expected
 
-    def test_calculate_stop_loss_short(self, risk_manager):
+    def test_calculate_stop_loss_short(self, risk_manager, mock_settings):
         """Test stop loss calculation for SHORT position"""
-        # SHORT at $50,000 with 2% SL = $51,000
+        # SHORT falls back to short_stop_loss_pct, not the LONG default
+        # (2026-08-12: the field was declared 2026-01-19 and read by nothing).
         stop_loss = risk_manager.calculate_stop_loss(
             entry_price=Decimal("50000.00"), side=PositionSide.SHORT
         )
 
-        expected = Decimal("50000.00") * Decimal("1.02")  # 1 + 0.02
+        expected = Decimal("50000.00") * (
+            Decimal("1") + Decimal(str(mock_settings.short_stop_loss_pct / 100))
+        )
         assert stop_loss == expected
 
     def test_calculate_stop_loss_custom_percent(self, risk_manager):

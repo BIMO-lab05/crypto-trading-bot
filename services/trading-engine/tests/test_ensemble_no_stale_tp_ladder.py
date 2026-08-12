@@ -158,7 +158,11 @@ def test_short_ensemble_position_never_exits_at_a_default_derived_level(manager)
     )
     stale_tp1 = pos.take_profit_1
     stale_tp3 = pos.take_profit_3
-    assert float(stale_tp3) == pytest.approx(float(entry) * 0.96, rel=1e-9)
+    # Derived from the SHORT default stop, not from a literal: SHORT falls back
+    # to short_stop_loss_pct (2026-08-12), so a hardcoded 2R-off-2% level here
+    # would only be re-asserting the LONG distance.
+    default_sl = _default_stop(manager, entry, PositionSide.SHORT)
+    assert stale_tp3 == entry - (default_sl - entry) * Decimal("2.0")
 
     manager.set_position_stops(
         position_id=pos.id,
