@@ -44,6 +44,11 @@ class Portfolio(Base):
     realized_pnl = Column(DECIMAL(20, 8), default=0)
     unrealized_pnl = Column(DECIMAL(20, 8), default=0)
     total_pnl = Column(DECIMAL(20, 8), default=0)
+    # RES-03 (2026-08-16): total_value has existed in the DDL since
+    # 002_create_tables.sql (NOT NULL, no default) but was never ORM-mapped,
+    # so the engine could not write it AND SQLAlchemy omitted it from every
+    # INSERT — get_or_create could not create a row against the real schema.
+    total_value = Column(DECIMAL(20, 8), nullable=False, default=0)
 
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -84,6 +89,7 @@ class Portfolio(Base):
             "realized_pnl": float(self.realized_pnl),
             "unrealized_pnl": float(self.unrealized_pnl),
             "total_pnl": float(self.total_pnl),
+            "total_value": float(self.total_value),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "is_active": self.is_active,

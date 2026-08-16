@@ -230,6 +230,11 @@ class PositionRepository:
                     # A closed position has nothing left open; without this the
                     # sold quantity resurrected on restart (AUDIT H5).
                     "remaining_quantity": Decimal("0"),
+                    # RES-03 (2026-08-16): a CLOSED row previously kept its
+                    # last stale tick value forever. That is what makes the
+                    # portfolio aggregate below (SUM over status='OPEN') race
+                    # sensitive — and it is wrong by definition regardless.
+                    "unrealized_pnl": Decimal("0"),
                     "closed_at": datetime.now(timezone.utc),
                     "updated_at": datetime.now(timezone.utc),
                 }
@@ -745,13 +750,45 @@ class PortfolioRepository:
         """
         try:
             async with self.db.get_async_session() as session:
+                # RES-03 (2026-08-16): total_value / total_pnl / unrealized_pnl
+                # were never maintained (total_value was not even ORM-mapped).
+                # They are written in the SAME UPDATE as cash_balance so the
+                # four columns can never disagree — a second statement could.
+                #
+                # total_value = cash + open_unrealized deliberately mirrors
+                # PaperTradingEngine.get_total_equity() (paper_trading.py:209-211)
+                # and is therefore MARGIN-EXCLUSIVE: posted_margin is debited
+                # from cash at open and not added back here. That understates
+                # equity while positions are open, but it is the engine-wide
+                # definition used by the kill switch, /performance and the
+                # frontend. The two definitions must move together or not at
+                # all — making the DB the only surface with a different notion
+                # of equity would be strictly worse than never maintaining it.
+                #
+                # Correctness of the SUM depends on the just-closed position
+                # already being status='CLOSED' with unrealized_pnl zeroed;
+                # position_manager.close_position chains the two persists to
+                # guarantee exactly that.
+                open_unrl = (
+                    select(func.coalesce(func.sum(DBPosition.unrealized_pnl), 0))
+                    .where(DBPosition.portfolio_id == portfolio_id)
+                    .where(DBPosition.status == "OPEN")
+                    .scalar_subquery()
+                )
+                new_realized = (
+                    func.coalesce(DBPortfolio.realized_pnl, 0) + realized_pnl_delta
+                )
                 stmt = (
                     update(DBPortfolio)
                     .where(DBPortfolio.portfolio_id == portfolio_id)
                     .values(
                         cash_balance=cash_balance,
-                        realized_pnl=func.coalesce(DBPortfolio.realized_pnl, 0)
-                        + realized_pnl_delta,
+                        realized_pnl=new_realized,
+                        unrealized_pnl=open_unrl,
+                        # Subquery on the LEFT: do not rely on Decimal.__radd__
+                        # dispatching to the SQLAlchemy expression.
+                        total_value=open_unrl + cash_balance,
+                        total_pnl=new_realized + open_unrl,
                         updated_at=datetime.now(timezone.utc),
                     )
                 )
@@ -793,8 +830,41 @@ class PortfolioRepository:
         """
         try:
             async with self.db.get_async_session() as session:
+                # RES-03 (2026-08-16): same aggregate trio as
+                # record_position_close, same single UPDATE, same
+                # margin-exclusive equity definition (see that method).
+                #
+                # No ordering fix is needed here: update_balance is called on
+                # partial exit and scale-in, where the position is genuinely
+                # still OPEN, so including its unrealized P&L is intended.
+                #
+                # KNOWN, NOT A BUG: between a partial exit and the final close,
+                # total_pnl understates by the partial's realized slice —
+                # update_balance is called with realized_pnl=None while
+                # portfolios.realized_pnl only accumulates on full close. It
+                # self-corrects at close, because record_position_close's delta
+                # is the position's TOTAL net realized P&L, partials included.
+                open_unrl = (
+                    select(func.coalesce(func.sum(DBPosition.unrealized_pnl), 0))
+                    .where(DBPosition.portfolio_id == portfolio_id)
+                    .where(DBPosition.status == "OPEN")
+                    .scalar_subquery()
+                )
+                # Preserve the documented OVERWRITE semantics: the param when
+                # supplied, the stored column otherwise. realized_pnl itself is
+                # still written ONLY when the param was supplied — writing it
+                # unconditionally would clobber the accumulated ledger.
+                realized_term = (
+                    realized_pnl
+                    if realized_pnl is not None
+                    else func.coalesce(DBPortfolio.realized_pnl, 0)
+                )
+
                 update_values = {
                     "cash_balance": cash_balance,
+                    "unrealized_pnl": open_unrl,
+                    "total_value": open_unrl + cash_balance,
+                    "total_pnl": open_unrl + realized_term,
                     "updated_at": datetime.now(timezone.utc),
                 }
 

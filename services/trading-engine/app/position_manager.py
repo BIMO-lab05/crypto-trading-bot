@@ -541,20 +541,6 @@ class PositionManager:
             f"ExitKind: {exit_kind.value if exit_kind else 'None'}"
         )
 
-        # Close position in database (async, non-blocking)
-        _spawn_persist(
-            self.position_repo.close(
-                position_id,
-                close_price,
-                position.realized_pnl,
-                exit_reason=reason,
-                exit_fee=total_exit_fee,
-                posted_margin=Decimal("0"),
-                exit_kind=exit_kind.value if exit_kind else None,
-            ),
-            "position close",
-        )
-
         # Portfolio ledger (2025-12-18 FIX, refixed 2026-05-01, refixed
         # 2026-08-04 per AUDIT 6.2/H7): cash is owned by PaperTradingEngine
         # and passed through; realized P&L is ACCUMULATED SQL-side with this
@@ -572,15 +558,50 @@ class PositionManager:
                 "Could not read cash balance from paper engine; portfolio "
                 f"ledger NOT updated for close of {position_id}: {e}"
             )
-        if _cash_now is not None:
-            _spawn_persist(
-                self.portfolio_repo.record_position_close(
-                    portfolio_id="paper_trading",
-                    cash_balance=_cash_now,
-                    realized_pnl_delta=position.realized_pnl,
-                ),
-                "portfolio close ledger",
-            )
+
+        # Persist to database (async, non-blocking) — CHAINED, not two
+        # independent create_task()s.
+        #
+        # RES-03 (2026-08-16): record_position_close now derives
+        # unrealized_pnl / total_value / total_pnl from a SUM over positions
+        # whose status is 'OPEN'. As two independent tasks in separate sessions
+        # there was no ordering guarantee, so the portfolio write could win the
+        # race and read this position while it was still OPEN carrying its last
+        # stale tick value — double-counting it into the aggregate on top of
+        # the realized delta. Chaining makes the CLOSED row (with unrealized
+        # zeroed) land first, deterministically.
+        _realized_total = position.realized_pnl
+        _exit_kind_value = exit_kind.value if exit_kind else None
+
+        async def _persist_close_then_ledger() -> None:
+            try:
+                await self.position_repo.close(
+                    position_id,
+                    close_price,
+                    _realized_total,
+                    exit_reason=reason,
+                    exit_fee=total_exit_fee,
+                    posted_margin=Decimal("0"),
+                    exit_kind=_exit_kind_value,
+                )
+            finally:
+                # The ledger write is still attempted even if close() raised —
+                # matching the previous independent-task behaviour — and the
+                # close() exception still propagates to _persist_done, which
+                # logs it. Skipped entirely when the paper-engine balance could
+                # not be read: a ledger write carrying cash_balance=None would
+                # corrupt the row.
+                if _cash_now is not None:
+                    await self.portfolio_repo.record_position_close(
+                        portfolio_id="paper_trading",
+                        cash_balance=_cash_now,
+                        realized_pnl_delta=_realized_total,
+                    )
+
+        _spawn_persist(
+            _persist_close_then_ledger(),
+            "position close + portfolio ledger",
+        )
 
         return position
 

@@ -399,6 +399,92 @@ class TestPortfolioRepository:
             mock_async_session.execute.assert_called_once()
             mock_async_session.commit.assert_called_once()
 
+    @staticmethod
+    def _updated_columns(stmt) -> set:
+        """Column names carried by an UPDATE statement's SET clause.
+
+        Asserting on key PRESENCE rather than generated SQL text: the exact
+        rendering of a scalar subquery is a SQLAlchemy implementation detail,
+        the set of maintained columns is the contract.
+        """
+        return {col.name for col in stmt._values.keys()}
+
+    @pytest.mark.asyncio
+    async def test_record_position_close_maintains_display_columns(
+        self, portfolio_repo
+    ):
+        """RES-03: the display trio moves in the SAME UPDATE as cash_balance.
+
+        Split across two statements they could disagree; that is exactly how
+        total_value / total_pnl / unrealized_pnl drifted from cash for months.
+        """
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_result = Mock()
+            mock_result.rowcount = 1
+            mock_async_session.execute.return_value = mock_result
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            await portfolio_repo.record_position_close(
+                portfolio_id="paper_trading",
+                cash_balance=Decimal("100.00"),
+                realized_pnl_delta=Decimal("1.50"),
+            )
+
+            mock_async_session.execute.assert_called_once()
+            stmt = mock_async_session.execute.call_args[0][0]
+            assert {
+                "cash_balance",
+                "realized_pnl",
+                "unrealized_pnl",
+                "total_value",
+                "total_pnl",
+            } <= self._updated_columns(stmt)
+
+    @pytest.mark.asyncio
+    async def test_update_balance_preserves_realized_pnl_overwrite_semantics(
+        self, portfolio_repo
+    ):
+        """RES-03 guard: the aggregates are maintained WITHOUT realized_pnl
+        becoming an unconditional write.
+
+        update_balance OVERWRITES realized_pnl when the param is supplied, so
+        writing the key on calls that omit it would clobber the accumulated
+        ledger with a stale value on every partial exit and scale-in.
+        """
+        aggregates = {"cash_balance", "unrealized_pnl", "total_value", "total_pnl"}
+
+        # Param omitted -> realized_pnl must NOT be in the SET clause
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            await portfolio_repo.update_balance(
+                portfolio_id="test_portfolio",
+                cash_balance=Decimal("120.00"),
+            )
+
+            stmt = mock_async_session.execute.call_args[0][0]
+            columns = self._updated_columns(stmt)
+            assert aggregates <= columns
+            assert "realized_pnl" not in columns
+
+        # Param supplied -> realized_pnl IS written (overwrite semantics)
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            await portfolio_repo.update_balance(
+                portfolio_id="test_portfolio",
+                cash_balance=Decimal("120.00"),
+                realized_pnl=Decimal("30.00"),
+            )
+
+            stmt = mock_async_session.execute.call_args[0][0]
+            columns = self._updated_columns(stmt)
+            assert aggregates <= columns
+            assert "realized_pnl" in columns
+
     # Note: get_performance_metrics() method doesn't exist in PortfolioRepository
     # Removed test_get_performance_metrics as it tested a non-existent method
 

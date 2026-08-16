@@ -259,6 +259,53 @@ async def test_portfolio_realized_pnl_accumulates_across_closes(stack):
         assert delta == pos.realized_pnl
 
 
+async def test_close_persists_position_before_portfolio_ledger(stack):
+    """RES-03 (2026-08-16): the CLOSED row must land BEFORE the aggregate runs.
+
+    record_position_close now SUMs positions.unrealized_pnl over rows whose
+    status is OPEN. The two persists used to be independent create_task()s in
+    separate sessions with no ordering guarantee — if the portfolio write won
+    the race, the just-closed position was still OPEN carrying its last stale
+    tick value, which landed in unrealized_pnl / total_value / total_pnl ON TOP
+    of the realized delta just accumulated. A nondeterministic double-count.
+    """
+    engine = stack.engine
+    write_order = []
+
+    async def _mark_close(*args, **kwargs):
+        # Yield mid-write, which is what a real DB round trip does. Under the
+        # old shape (two independent create_task()s) this hands control to the
+        # portfolio task, which then completes FIRST and reads a still-OPEN
+        # row. Under the chained shape the ledger coroutine is not even
+        # scheduled until close() has returned, so no yield can reorder them.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        write_order.append("close")
+
+    async def _mark_ledger(*args, **kwargs):
+        write_order.append("ledger")
+
+    stack.position_repo.close.side_effect = _mark_close
+    stack.portfolio_repo.record_position_close.side_effect = _mark_ledger
+
+    order, err = await engine.execute_market_order(
+        _buy("ETHUSDT", "0.01"), Decimal("2000")
+    )
+    assert err is None
+    _, err2 = await engine.execute_market_order(
+        _sell("ETHUSDT", "0.01", position_id=order.position_id, reduce_only=True),
+        Decimal("2100"),
+    )
+    assert err2 is None
+
+    await _drain_tasks()
+
+    assert write_order == ["close", "ledger"], (
+        "position close must be persisted before the portfolio aggregate is "
+        f"computed; got {write_order}"
+    )
+
+
 # =============================================================================
 # H5 — partial exits persist remaining_quantity + incremental net P&L
 # =============================================================================
