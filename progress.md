@@ -915,3 +915,10 @@ Owner approved all five decisions (plan/order, pause trader, DEFAULT_LEVERAGE=1.
 - Deploy: both images rebuilt BuildKit-off + recreated; boot clean, trader running, DB CPU settled 1.5% post-backfill.
 - **New minors filed** RES-01..07 in `.planning/evidence/resume-2026-08-16.md`. Headline: **RES-01 needs operator decision** — pre-epoch `trades.realized_pnl` rows disagree with the corrected positions ledger by +3.37 total (all opened 2026-07-29..08-04); anyone summing trades gets +3.74 instead of true +0.37. Backfill-correct or exclude from aggregations.
 - OP-13 resolved (carry_ins.json ownership), OP-15/OP-16 marked resolved in STATE.md (were fixed 08-04/08-12, table was stale). STATE.md reconciled: 260730-vwn recorded as shipped (`d5d31c6`/`1c21eac`).
+
+### RES-01 repair (same day, operator-approved backfill-correct)
+
+- `scripts/repair_res01_trades_pnl.sql` — single transaction, backup in `trades_backup_res01`, provenance markers on all touched rows, hard postcondition asserts. 18 pnl rows corrected + trade-93 phantom quantity fixed (1.08043760 → 0.48500844, the H5 remnant behind the +1.90 headline drift and ~0.595 SOL phantom volume).
+- Convention applied = the one every position ≥ 2026-08-06 already follows: exit pnl = gross − pro-rata entry fee − exit fee; entries NULL. Group A (46–56): gross→net, drift was exactly both-leg fees. Group B (57/59/60): mixed-regime rows recomputed from first principles; residual snap unnecessary (exact on first pass).
+- Verified: per-position drift 0 rows across all 19 closed (exact); `sum(trades.realized_pnl)` = positions = portfolio = **0.37103039**; fees unchanged 2.05495742; `/api/portfolio/performance` serves the corrected 0.37103039 live. Trade-93 fee kept as recorded (position exit_fee includes it) — documented ~$0.044 residue.
+- New: RES-08 filed — `/api/portfolio/trades` queries `portfolio_id='default'`, returns empty vs `paper_trading` data. Pre-existing, found during downstream verification.
