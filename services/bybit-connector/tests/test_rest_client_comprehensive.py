@@ -789,6 +789,77 @@ class TestMarketDataEndpoints:
 
         await client.close()
 
+    @pytest.mark.asyncio
+    async def test_get_instruments_info_follows_cursor_across_pages(self):
+        """RES-07: a bulk call aggregates every page, not just page 1."""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        with patch.object(client, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.side_effect = [
+                {"list": [{"symbol": "AAAUSDT"}], "nextPageCursor": "cur2"},
+                {"list": [{"symbol": "SOLUSDT"}], "nextPageCursor": ""},
+            ]
+
+            result = await client.get_instruments_info(category="linear")
+
+            assert mock_request.await_count == 2
+
+            # call_args is the LAST call — a multi-page test must index the list.
+            first_params = mock_request.call_args_list[0][1]["params"]
+            assert first_params["limit"] == 1000
+            assert "cursor" not in first_params
+
+            second_params = mock_request.call_args_list[1][1]["params"]
+            assert second_params["cursor"] == "cur2"
+
+            assert [i["symbol"] for i in result] == ["AAAUSDT", "SOLUSDT"]
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_instruments_info_page_cap_warns(self, caplog):
+        """A never-ending cursor chain stops at the cap and warns — never silent."""
+        import logging
+
+        from app.bybit_rest_client import MAX_INSTRUMENTS_PAGES
+
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        with patch.object(client, '_request', new_callable=AsyncMock) as mock_request:
+            # Constant return_value, not a finite side_effect list: this proves
+            # the cap bounds the loop rather than the fixture running dry.
+            mock_request.return_value = {
+                "list": [{"symbol": "X"}],
+                "nextPageCursor": "always-more",
+            }
+
+            with caplog.at_level(logging.WARNING, logger="app.bybit_rest_client"):
+                result = await client.get_instruments_info(category="linear")
+
+            assert mock_request.await_count == MAX_INSTRUMENTS_PAGES
+            assert len(result) == MAX_INSTRUMENTS_PAGES
+            assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_instruments_info_spot_single_call(self):
+        """spot results carry no nextPageCursor key at all — exactly one request."""
+        client = BybitRestClient("test_key", "test_secret", testnet=True)
+
+        with patch.object(client, '_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = {
+                "category": "spot",
+                "list": [{"symbol": "BTCUSDT"}],
+            }
+
+            result = await client.get_instruments_info(category="spot")
+
+            assert mock_request.await_count == 1
+            assert len(result) == 1
+
+        await client.close()
+
 
 # ============================================================================
 # UTILITY METHOD TESTS

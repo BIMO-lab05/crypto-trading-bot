@@ -187,11 +187,13 @@ class InstrumentsCache:
                 continue
             self._cache[spec.symbol] = spec
 
-        # Per-symbol fallback. bybit-connector does not paginate Bybit's
-        # instruments-info, so the bulk response above is capped at page 1
-        # (500 items) and anything past that cap (SOLUSDT, observed live)
-        # never arrives — the min-notional gate then silently failed open for
-        # that symbol. The symbol-scoped endpoint does return it.
+        # Per-symbol fallback, retained as defence-in-depth. bybit-connector
+        # now follows Bybit's instruments-info nextPageCursor (RES-07), so the
+        # bulk response above is no longer capped at page 1 (500 items).
+        # Historically anything past that cap (SOLUSDT, observed live) never
+        # arrived and the min-notional gate then silently failed open for that
+        # symbol; this loop still covers any symbol the bulk response omits.
+        # The symbol-scoped endpoint does return it.
         #
         # Iterate the caller's order de-duplicated rather than `wanted`: set
         # iteration order is nondeterministic. Bounded at len(symbols) extra
