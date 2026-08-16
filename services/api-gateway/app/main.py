@@ -1676,8 +1676,9 @@ async def get_phase1_latest():
 
 @app.get("/api/portfolio")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def get_portfolio(portfolio_id: str = "default"):
+async def get_portfolio(portfolio_id: Optional[str] = None):
     """Get portfolio details"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="portfolio-manager",
@@ -1689,8 +1690,9 @@ async def get_portfolio(portfolio_id: str = "default"):
 
 @app.get("/api/portfolio/balance")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def get_balance(portfolio_id: str = "default"):
+async def get_balance(portfolio_id: Optional[str] = None):
     """Get portfolio balance"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="portfolio-manager",
@@ -1702,8 +1704,9 @@ async def get_balance(portfolio_id: str = "default"):
 
 @app.get("/api/portfolio/holdings")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def get_holdings(portfolio_id: str = "default"):
+async def get_holdings(portfolio_id: Optional[str] = None):
     """Get portfolio holdings"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="portfolio-manager",
@@ -1715,8 +1718,9 @@ async def get_holdings(portfolio_id: str = "default"):
 
 @app.get("/api/portfolio/performance")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def get_performance(portfolio_id: str = "default"):
+async def get_performance(portfolio_id: Optional[str] = None):
     """Get performance metrics"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     proxy = get_proxy()
     return await proxy.proxy_request(
         service_name="portfolio-manager",
@@ -1729,9 +1733,10 @@ async def get_performance(portfolio_id: str = "default"):
 @app.get("/api/portfolio/trades")
 # @rate_limiter.general_limit  # Rate limited via middleware
 async def get_trades(
-    portfolio_id: str = "default", limit: int = None, symbol: str = None
+    portfolio_id: Optional[str] = None, limit: int = None, symbol: str = None
 ):
     """Get transaction history (trades)"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     query_params = {"portfolio_id": portfolio_id}
 
     if limit:
@@ -1755,7 +1760,7 @@ async def buy_asset(
     symbol: str,
     quantity: str,
     price: str,
-    portfolio_id: str = "default",
+    portfolio_id: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
 ):
     """
@@ -1777,6 +1782,7 @@ async def buy_asset(
     fields entirely and skip validation, then proxy a request with
     `None` query params. Fixed 2026-05-01.
     """
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     validated_symbol = validate_symbol(symbol)
     validated_quantity = str(validate_quantity(quantity))
     validated_price = str(validate_price(price))
@@ -1801,7 +1807,7 @@ async def sell_asset(
     symbol: str,
     quantity: str,
     price: str,
-    portfolio_id: str = "default",
+    portfolio_id: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
 ):
     """
@@ -1814,6 +1820,7 @@ async def sell_asset(
 
     See buy_asset for note on previously-bypassable validation.
     """
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     validated_symbol = validate_symbol(symbol)
     validated_quantity = str(validate_quantity(quantity))
     validated_price = str(validate_price(price))
@@ -2475,15 +2482,17 @@ async def ml_predict_price_v1(
 
 @app.get("/api/v1/portfolio/balance")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def get_balance_v1(portfolio_id: str = "default"):
+async def get_balance_v1(portfolio_id: Optional[str] = None):
     """Get portfolio balance (v1 compatibility)"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_balance(portfolio_id)
 
 
 @app.get("/api/v1/portfolio/holdings")
 # @rate_limiter.general_limit  # Rate limited via middleware
-async def get_holdings_v1(portfolio_id: str = "default"):
+async def get_holdings_v1(portfolio_id: Optional[str] = None):
     """Get portfolio holdings (v1 compatibility)"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_holdings(portfolio_id)
 
 
