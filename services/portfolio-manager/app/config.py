@@ -54,6 +54,21 @@ class Settings(BaseSettings):
             "INITIAL_CAPITAL env var; the service refuses to boot without it."
         ),
     )
+    # Canonical portfolio identifier. The only portfolio that has ever
+    # existed in this deployment is `paper_trading` (single DB row,
+    # is_active=t, PAPER). trading-engine `repositories.py` is already
+    # canonical on that id and this value MUST agree with it — endpoints
+    # resolve an omitted portfolio_id to this setting, and the in-memory
+    # seed portfolio is keyed by it. Override via DEFAULT_PORTFOLIO_ID.
+    default_portfolio_id: str = Field(
+        default="paper_trading",
+        min_length=1,
+        description=(
+            "Canonical portfolio identifier used when a caller omits "
+            "portfolio_id. Must agree with trading-engine repositories.py "
+            "(paper_trading). Override via DEFAULT_PORTFOLIO_ID."
+        ),
+    )
     rebalance_threshold_pct: float = Field(
         default=5.0,
         ge=1.0,

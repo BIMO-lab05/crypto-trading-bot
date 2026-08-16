@@ -394,8 +394,9 @@ async def status():
 
 
 @app.get("/api/v1/portfolio", response_model=PortfolioResponse)
-async def portfolio_endpoint(portfolio_id: str = "default"):
+async def portfolio_endpoint(portfolio_id: Optional[str] = None):
     """Get portfolio details"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_portfolio(portfolio_id)
 
 
@@ -406,14 +407,16 @@ async def portfolios_endpoint():
 
 
 @app.get("/api/v1/portfolio/balance", response_model=BalanceResponse)
-async def balance_endpoint(portfolio_id: str = "default"):
+async def balance_endpoint(portfolio_id: Optional[str] = None):
     """Get portfolio balance information"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_balance(portfolio_id)
 
 
 @app.get("/api/v1/portfolio/holdings", response_model=HoldingsResponse)
-async def holdings_endpoint(portfolio_id: str = "default"):
+async def holdings_endpoint(portfolio_id: Optional[str] = None):
     """Get portfolio holdings"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_holdings(portfolio_id)
 
 
@@ -424,7 +427,7 @@ async def holdings_endpoint(portfolio_id: str = "default"):
 
 @app.get("/api/v1/performance", response_model=PerformanceResponse)
 async def performance_endpoint(
-    portfolio_id: str = "default",
+    portfolio_id: Optional[str] = None,
     include_daily: bool = False,
     include_periods: bool = False,
 ):
@@ -432,19 +435,21 @@ async def performance_endpoint(
     Get portfolio performance metrics
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (defaults to settings.default_portfolio_id)
         include_daily: Include daily performance history (requires database)
         include_periods: Include period performance stats (requires database)
 
     Returns:
         Performance metrics with optional historical data
     """
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_performance(portfolio_id, include_daily, include_periods)
 
 
 @app.get("/api/v1/performance/assets", response_model=AssetPerformanceResponse)
-async def asset_performance_endpoint(portfolio_id: str = "default"):
+async def asset_performance_endpoint(portfolio_id: Optional[str] = None):
     """Get performance by asset"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_asset_performance(portfolio_id)
 
 
@@ -454,14 +459,16 @@ async def asset_performance_endpoint(portfolio_id: str = "default"):
 
 
 @app.get("/api/v1/allocation", response_model=AllocationResponse)
-async def allocation_endpoint(portfolio_id: str = "default"):
+async def allocation_endpoint(portfolio_id: Optional[str] = None):
     """Get portfolio allocation"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_allocation(portfolio_id)
 
 
 @app.get("/api/v1/rebalance", response_model=RebalanceResponse)
-async def rebalance_endpoint(portfolio_id: str = "default"):
+async def rebalance_endpoint(portfolio_id: Optional[str] = None):
     """Get rebalancing recommendations"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_rebalance_recommendations(portfolio_id)
 
 
@@ -473,12 +480,13 @@ async def rebalance_endpoint(portfolio_id: str = "default"):
 @app.post("/api/v1/transaction/buy", response_model=TransactionResponse)
 async def buy_endpoint(
     request: Request,
-    portfolio_id: str = Query("default"),
+    portfolio_id: Optional[str] = Query(None),
     symbol: str = Query(None),
     quantity: str = Query(None),
     price: str = Query(None),
 ):
     """Execute buy transaction"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     result = await buy_asset(request, portfolio_id, symbol, quantity, price)
     # Record transaction metric
     if symbol:
@@ -491,12 +499,13 @@ async def buy_endpoint(
 @app.post("/api/v1/transaction/sell", response_model=TransactionResponse)
 async def sell_endpoint(
     request: Request,
-    portfolio_id: str = Query("default"),
+    portfolio_id: Optional[str] = Query(None),
     symbol: str = Query(None),
     quantity: str = Query(None),
     price: str = Query(None),
 ):
     """Execute sell transaction"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     result = await sell_asset(request, portfolio_id, symbol, quantity, price)
     # Record transaction metric
     if symbol:
@@ -508,9 +517,10 @@ async def sell_endpoint(
 
 @app.get("/api/v1/transactions", response_model=TransactionHistoryResponse)
 async def transactions_endpoint(
-    portfolio_id: str = "default", limit: int = None, symbol: str = None
+    portfolio_id: Optional[str] = None, limit: int = None, symbol: str = None
 ):
     """Get transaction history"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_transaction_history(portfolio_id, limit, symbol)
 
 
@@ -520,8 +530,9 @@ async def transactions_endpoint(
 
 
 @app.post("/api/v1/sync")
-async def sync_endpoint(portfolio_id: str = "default"):
+async def sync_endpoint(portfolio_id: Optional[str] = None):
     """Sync portfolio with Trading Engine positions"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await sync_with_trading_engine(portfolio_id)
 
 
@@ -533,7 +544,7 @@ async def sync_endpoint(portfolio_id: str = "default"):
 @app.post("/api/v1/portfolio/optimize")
 async def optimize_endpoint(
     request: Request,
-    portfolio_id: str = Query("default"),
+    portfolio_id: Optional[str] = Query(None),
     objective=None,
     lookback_days: int = 60,
     max_position_size: float = 0.30,
@@ -541,6 +552,7 @@ async def optimize_endpoint(
     max_portfolio_volatility: float = None,
 ):
     """Calculate optimal portfolio allocation using Modern Portfolio Theory"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await optimize_portfolio(
         request,
         portfolio_id,
@@ -555,11 +567,12 @@ async def optimize_endpoint(
 @app.get("/api/v1/portfolio/efficient-frontier")
 async def efficient_frontier_endpoint(
     request: Request,
-    portfolio_id: str = Query("default"),
+    portfolio_id: Optional[str] = Query(None),
     num_points: int = 50,
     lookback_days: int = 60,
 ):
     """Generate efficient frontier for portfolio"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await get_efficient_frontier(
         request, portfolio_id, num_points, lookback_days
     )
@@ -568,11 +581,12 @@ async def efficient_frontier_endpoint(
 @app.post("/api/v1/portfolio/rebalance")
 async def execute_rebalance_endpoint(
     request: Request,
-    portfolio_id: str = Query("default"),
+    portfolio_id: Optional[str] = Query(None),
     target_weights: dict = None,
     execute: bool = False,
 ):
     """Execute portfolio rebalancing to target weights"""
+    portfolio_id = portfolio_id or settings.default_portfolio_id
     return await execute_rebalancing(request, portfolio_id, target_weights, execute)
 
 
@@ -582,7 +596,7 @@ async def execute_rebalance_endpoint(
 
 
 @app.post("/api/v1/admin/snapshot")
-async def manual_snapshot_endpoint(portfolio_id: str = "default"):
+async def manual_snapshot_endpoint(portfolio_id: Optional[str] = None):
     """
     Manually trigger performance snapshot
 

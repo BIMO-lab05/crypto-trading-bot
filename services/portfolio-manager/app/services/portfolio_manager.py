@@ -52,15 +52,24 @@ class PortfolioManager:
         return lock
 
     def _create_default_portfolio(self):
-        """Create the default portfolio"""
+        """Seed the canonical portfolio, keyed by settings.default_portfolio_id.
+
+        The seed key MUST be the same id the endpoints resolve an omitted
+        portfolio_id to. If the two drift apart, get_portfolio() (a strict
+        dict.get) misses and every portfolio route 404s instead of returning
+        an empty-but-valid portfolio.
+        """
+        portfolio_id = settings.default_portfolio_id
         default_portfolio = Portfolio(
-            portfolio_id="default",
+            portfolio_id=portfolio_id,
             initial_capital=Decimal(str(settings.initial_capital)),
             cash_balance=Decimal(str(settings.initial_capital))
         )
-        self.portfolios["default"] = default_portfolio
-        self.transaction_history["default"] = []  # Initialize transaction history
-        logger.info(f"✓ Created default portfolio with ${settings.initial_capital} capital")
+        self.portfolios[portfolio_id] = default_portfolio
+        self.transaction_history[portfolio_id] = []  # Initialize transaction history
+        logger.info(
+            f"✓ Created portfolio '{portfolio_id}' with ${settings.initial_capital} capital"
+        )
 
     async def initialize(self):
         """Initialize the portfolio manager"""
@@ -73,7 +82,7 @@ class PortfolioManager:
             await self.http_client.aclose()
         logger.info("✓ Portfolio Manager cleaned up")
 
-    def get_portfolio(self, portfolio_id: str = "default") -> Optional[Portfolio]:
+    def get_portfolio(self, portfolio_id: str) -> Optional[Portfolio]:
         """Get portfolio by ID"""
         return self.portfolios.get(portfolio_id)
 
@@ -83,7 +92,7 @@ class PortfolioManager:
 
     def get_transaction_history(
         self,
-        portfolio_id: str = "default",
+        portfolio_id: str,
         limit: Optional[int] = None,
         symbol: Optional[str] = None
     ) -> List[Transaction]:
@@ -165,7 +174,7 @@ class PortfolioManager:
 
         return transaction
 
-    async def sync_with_trading_engine(self, portfolio_id: str = "default") -> bool:
+    async def sync_with_trading_engine(self, portfolio_id: str) -> bool:
         """Sync portfolio with Trading Engine positions"""
         try:
             portfolio = self.get_portfolio(portfolio_id)
@@ -311,7 +320,7 @@ class PortfolioManager:
 
         return Decimal("0")
 
-    async def update_prices(self, portfolio_id: str = "default") -> bool:
+    async def update_prices(self, portfolio_id: str) -> bool:
         """Update all asset prices in portfolio"""
         try:
             portfolio = self.get_portfolio(portfolio_id)
@@ -335,7 +344,7 @@ class PortfolioManager:
             logger.error(f"Error updating prices: {e}")
             return False
 
-    def get_snapshot(self, portfolio_id: str = "default") -> Optional[PortfolioSnapshot]:
+    def get_snapshot(self, portfolio_id: str) -> Optional[PortfolioSnapshot]:
         """Get current portfolio snapshot"""
         portfolio = self.get_portfolio(portfolio_id)
         if not portfolio:
@@ -366,7 +375,7 @@ class PortfolioManager:
 
         return snapshot
 
-    def get_asset_performance(self, portfolio_id: str = "default") -> List[AssetPerformance]:
+    def get_asset_performance(self, portfolio_id: str) -> List[AssetPerformance]:
         """Get performance metrics for each asset"""
         portfolio = self.get_portfolio(portfolio_id)
         if not portfolio:
@@ -412,7 +421,7 @@ class PortfolioManager:
 
     def check_rebalancing_needed(
         self,
-        portfolio_id: str = "default"
+        portfolio_id: str
     ) -> tuple[bool, List[RebalanceRecommendation]]:
         """Check if portfolio needs rebalancing and generate recommendations"""
         portfolio = self.get_portfolio(portfolio_id)

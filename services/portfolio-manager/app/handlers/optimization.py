@@ -47,7 +47,7 @@ def get_portfolio_optimizer() -> PortfolioOptimizer:
 
 async def optimize_portfolio(
     request: Request,
-    portfolio_id: str = "default",
+    portfolio_id: str,
     objective: OptimizationObjective = OptimizationObjective.MAX_SHARPE,
     lookback_days: int = Query(
         default=60, ge=30, le=365, description="Historical data lookback period"
@@ -85,7 +85,7 @@ async def optimize_portfolio(
 
     Args:
         request: FastAPI request (for rate limiting)
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         objective: Optimization objective
         lookback_days: Historical data period (30-365 days)
         max_position_size: Maximum allocation per asset (0-1)
@@ -204,7 +204,7 @@ async def optimize_portfolio(
 
 async def get_efficient_frontier(
     request: Request,
-    portfolio_id: str = "default",
+    portfolio_id: str,
     num_points: int = Query(
         default=50, ge=10, le=100, description="Number of frontier points"
     ),
@@ -230,7 +230,7 @@ async def get_efficient_frontier(
 
     Args:
         request: FastAPI request (for rate limiting)
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         num_points: Number of points to generate (10-100)
         lookback_days: Historical data period (30-365 days)
 
@@ -305,7 +305,7 @@ async def get_efficient_frontier(
 
 async def execute_rebalancing(
     request: Request,
-    portfolio_id: str = "default",
+    portfolio_id: str,
     target_weights: Dict[str, float] = Body(
         ..., description="Target allocation weights"
     ),
@@ -333,7 +333,7 @@ async def execute_rebalancing(
 
     Args:
         request: FastAPI request (for rate limiting)
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         target_weights: Dictionary of {symbol: weight} (weights should sum to 1.0)
         execute: If True, execute trades; if False, return recommendations only
 

@@ -12,6 +12,7 @@ from decimal import Decimal
 from unittest.mock import Mock, AsyncMock, patch
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app
 from app.models import (
     Portfolio,
@@ -57,7 +58,7 @@ class TestGetAllocation:
 
     @pytest.mark.asyncio
     async def test_get_allocation_default_portfolio(self):
-        """Test allocation with default portfolio ID"""
+        """Test allocation with no portfolio_id (resolves to the canonical id)"""
         mock_portfolio = Mock(spec=Portfolio)
         mock_portfolio.get_asset_allocation.return_value = {"BTCUSDT": Decimal("100.0")}
 
@@ -72,8 +73,10 @@ class TestGetAllocation:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["portfolio_id"] == "default"
-        mock_manager.get_portfolio.assert_called_once_with("default")
+        assert data["portfolio_id"] == settings.default_portfolio_id
+        mock_manager.get_portfolio.assert_called_once_with(
+            settings.default_portfolio_id
+        )
 
     @pytest.mark.asyncio
     async def test_get_allocation_portfolio_not_found(self):
@@ -333,7 +336,7 @@ class TestGetRebalanceRecommendations:
 
     @pytest.mark.asyncio
     async def test_get_rebalance_recommendations_default_portfolio(self):
-        """Test recommendations for default portfolio"""
+        """Test recommendations with no portfolio_id (resolves to the canonical id)"""
         mock_portfolio = Mock(spec=Portfolio)
         mock_manager = Mock()
         mock_manager.get_portfolio.return_value = mock_portfolio
@@ -346,8 +349,10 @@ class TestGetRebalanceRecommendations:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["portfolio_id"] == "default"
-        mock_manager.get_portfolio.assert_called_once_with("default")
+        assert data["portfolio_id"] == settings.default_portfolio_id
+        mock_manager.get_portfolio.assert_called_once_with(
+            settings.default_portfolio_id
+        )
 
     @pytest.mark.asyncio
     async def test_get_rebalance_recommendations_single_recommendation(self):

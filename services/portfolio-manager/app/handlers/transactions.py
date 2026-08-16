@@ -39,7 +39,7 @@ def get_portfolio_manager() -> PortfolioManager:
 
 async def buy_asset(
     request: Request,
-    portfolio_id: str = "default",
+    portfolio_id: str,
     symbol: str = Query(..., description="Asset symbol"),
     quantity: str = Query(..., description="Quantity to buy"),
     price: Optional[str] = Query(None, description="Price (fetch if not provided)"),
@@ -60,7 +60,7 @@ async def buy_asset(
 
     Args:
         request: FastAPI request (for rate limiting)
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         symbol: Asset symbol (e.g., "BTCUSDT")
         quantity: Quantity to purchase
         price: Price per unit (optional, fetched if not provided)
@@ -130,7 +130,7 @@ async def buy_asset(
 
 async def sell_asset(
     request: Request,
-    portfolio_id: str = "default",
+    portfolio_id: str,
     symbol: str = Query(..., description="Asset symbol"),
     quantity: str = Query(..., description="Quantity to sell"),
     price: Optional[str] = Query(None, description="Price (fetch if not provided)"),
@@ -152,7 +152,7 @@ async def sell_asset(
 
     Args:
         request: FastAPI request (for rate limiting)
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         symbol: Asset symbol (e.g., "BTCUSDT")
         quantity: Quantity to sell
         price: Price per unit (optional, fetched if not provided)

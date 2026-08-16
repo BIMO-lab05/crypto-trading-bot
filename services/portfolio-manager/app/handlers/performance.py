@@ -47,7 +47,7 @@ def get_performance_history():
 
 
 async def get_performance(
-    portfolio_id: str = "default",
+    portfolio_id: str,
     include_daily: bool = False,
     include_periods: bool = False,
 ) -> PerformanceResponse:
@@ -68,7 +68,7 @@ async def get_performance(
     - Period performance (week, month, year) (if include_periods=True)
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         include_daily: Include daily performance history
         include_periods: Include period performance stats
 
@@ -169,7 +169,7 @@ async def get_performance(
 
 
 async def get_asset_performance(
-    portfolio_id: str = "default",
+    portfolio_id: str,
 ) -> AssetPerformanceResponse:
     """
     Get performance by asset
@@ -185,7 +185,7 @@ async def get_asset_performance(
     - Allocation percentage
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
 
     Returns:
         AssetPerformanceResponse with per-asset metrics

@@ -24,7 +24,7 @@ def get_portfolio_manager() -> PortfolioManager:
     return portfolio_manager
 
 
-async def get_allocation(portfolio_id: str = "default") -> AllocationResponse:
+async def get_allocation(portfolio_id: str) -> AllocationResponse:
     """
     Get portfolio allocation
 
@@ -36,7 +36,7 @@ async def get_allocation(portfolio_id: str = "default") -> AllocationResponse:
     Checks if portfolio drift exceeds threshold and needs rebalancing.
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
 
     Returns:
         AllocationResponse with allocation data
@@ -73,7 +73,7 @@ async def get_allocation(portfolio_id: str = "default") -> AllocationResponse:
 
 
 async def get_rebalance_recommendations(
-    portfolio_id: str = "default",
+    portfolio_id: str,
 ) -> RebalanceResponse:
     """
     Get rebalancing recommendations
@@ -85,7 +85,7 @@ async def get_rebalance_recommendations(
     - Provides total cost estimate
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
 
     Returns:
         RebalanceResponse with trade recommendations

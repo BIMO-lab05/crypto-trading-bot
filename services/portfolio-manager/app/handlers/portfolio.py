@@ -29,7 +29,7 @@ def get_portfolio_manager() -> PortfolioManager:
     return portfolio_manager
 
 
-async def get_portfolio(portfolio_id: str = "default") -> PortfolioResponse:
+async def get_portfolio(portfolio_id: str) -> PortfolioResponse:
     """
     Get portfolio details
 
@@ -40,7 +40,7 @@ async def get_portfolio(portfolio_id: str = "default") -> PortfolioResponse:
     - P&L calculations
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
 
     Returns:
         PortfolioResponse with snapshot data
@@ -97,7 +97,7 @@ async def list_portfolios() -> PortfolioListResponse:
     )
 
 
-async def get_balance(portfolio_id: str = "default") -> BalanceResponse:
+async def get_balance(portfolio_id: str) -> BalanceResponse:
     """
     Get portfolio balance information
 
@@ -110,7 +110,7 @@ async def get_balance(portfolio_id: str = "default") -> BalanceResponse:
     - Total return percentage
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
 
     Returns:
         BalanceResponse with balance data
@@ -145,7 +145,7 @@ async def get_balance(portfolio_id: str = "default") -> BalanceResponse:
     )
 
 
-async def get_holdings(portfolio_id: str = "default") -> HoldingsResponse:
+async def get_holdings(portfolio_id: str) -> HoldingsResponse:
     """
     Get portfolio holdings
 
@@ -159,7 +159,7 @@ async def get_holdings(portfolio_id: str = "default") -> HoldingsResponse:
     - Allocation percentage
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
 
     Returns:
         HoldingsResponse with holdings list
@@ -195,7 +195,7 @@ async def get_holdings(portfolio_id: str = "default") -> HoldingsResponse:
     )
 
 
-async def sync_with_trading_engine(portfolio_id: str = "default"):
+async def sync_with_trading_engine(portfolio_id: str):
     """
     Sync portfolio with Trading Engine positions
 
@@ -203,7 +203,7 @@ async def sync_with_trading_engine(portfolio_id: str = "default"):
     in the Trading Engine service.
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
 
     Returns:
         Dict with success status
