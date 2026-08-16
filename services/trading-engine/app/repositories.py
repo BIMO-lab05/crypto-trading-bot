@@ -707,13 +707,36 @@ class PortfolioRepository:
                     logger.info(f"Found existing portfolio: {portfolio_id}")
                     return portfolio
 
-                # Create new portfolio
+                # Create new portfolio.
+                #
+                # RES-04 (2026-08-16): seed the risk columns from Settings.
+                # They were inheriting the DDL defaults (0.02 / 0.05), which
+                # contradict ADR-010 (10% paper per-trade) and ADR-028 (12%
+                # daily loss). Nothing reads these columns at runtime — which
+                # is exactly why the drift went unnoticed — but an operator
+                # querying the row does, and today it lies.
+                #
+                # UNITS TRAP: BOTH columns are DECIMAL(5,4) FRACTIONS (max
+                # representable 9.9999). `max_risk_per_trade` is already a
+                # fraction (0.10). `max_daily_loss_pct` is a PERCENT (12.0)
+                # and MUST be divided by 100 — written unconverted it
+                # overflows the column outright. This fraction-vs-percent
+                # class has shipped one silent bug in this repo already.
+                #
+                # The DDL defaults are deliberately left at the
+                # LIVE-conservative 0.02 / 0.05: this seeding path is
+                # PAPER-only, and conservative is the safe direction for any
+                # row created outside it.
+                settings = get_settings()
                 portfolio = DBPortfolio(
                     portfolio_id=portfolio_id,
                     name=name,
                     initial_balance=initial_balance,
                     cash_balance=initial_balance,
                     trading_mode="PAPER",
+                    risk_per_trade=Decimal(str(settings.max_risk_per_trade)),
+                    max_daily_loss=Decimal(str(settings.max_daily_loss_pct))
+                    / Decimal("100"),
                 )
 
                 session.add(portfolio)

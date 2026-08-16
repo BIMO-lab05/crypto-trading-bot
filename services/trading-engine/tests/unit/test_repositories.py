@@ -6,6 +6,7 @@ Tests CRUD operations for Position, Trade, and Portfolio repositories
 import pytest
 from decimal import Decimal
 from datetime import datetime, UTC
+from types import SimpleNamespace
 from uuid import uuid4
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
@@ -351,6 +352,44 @@ class TestPortfolioRepository:
             # Verify - can't check result directly since it's from the method, but can verify calls
             mock_async_session.add.assert_called_once()
             mock_async_session.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_seeds_risk_columns_from_settings(self, portfolio_repo):
+        """RES-04: a new PAPER row carries ADR-010/ADR-028 values.
+
+        Settings are deliberately NON-DEFAULT (0.07 / 9.0). The real defaults
+        0.10 / 12.0 are close enough that a missing or wrong transform could
+        pass by luck; 9.0 PERCENT -> Decimal("0.09") FRACTION is the assertion
+        that actually pins the divide-by-100.
+        """
+        fake_settings = SimpleNamespace(
+            paper_initial_balance=100.0,
+            max_risk_per_trade=0.07,
+            max_daily_loss_pct=9.0,
+        )
+
+        with (
+            patch.object(portfolio_repo.db, "get_async_session") as mock_session,
+            patch("app.repositories.get_settings", return_value=fake_settings),
+        ):
+            mock_async_session = AsyncMock()
+            mock_result = Mock()
+            mock_result.scalar_one_or_none.return_value = None
+            mock_async_session.execute.return_value = mock_result
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            await portfolio_repo.get_or_create(portfolio_id="paper_trading")
+
+            mock_async_session.add.assert_called_once()
+            created = mock_async_session.add.call_args[0][0]
+
+            # Assert on VALUES, not on the call: with mocks there is no DB to
+            # reject an out-of-range write, so a percent leaking into the
+            # DECIMAL(5,4) fraction column would pass silently here and only
+            # surface as a numeric overflow against the real schema.
+            assert created.risk_per_trade == Decimal("0.07")
+            assert created.max_daily_loss == Decimal("0.09")
+            assert created.trading_mode == "PAPER"
 
     @pytest.mark.asyncio
     async def test_get_or_create_existing_portfolio(self, portfolio_repo):
