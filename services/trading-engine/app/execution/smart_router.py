@@ -1555,6 +1555,28 @@ def get_smart_router(config: Optional[SmartRouterConfig] = None) -> SmartOrderRo
     """
     global _smart_router
     if _smart_router is None:
+        if config is None:
+            # RES-05 (2026-08-16): source the small-order threshold from
+            # Settings instead of the hardcoded dataclass literal, so it is
+            # operator-tunable via SMART_ROUTER_SMALL_ORDER_THRESHOLD_USD.
+            #
+            # Guarding on `config is None` is mandatory: an explicit config
+            # passed by the caller must still win.
+            #
+            # Wired HERE rather than in the lifespan because
+            # POST /api/v1/execution/reset calls reset_smart_router() and the
+            # next get_smart_router() rebuilds through this factory — a
+            # lifespan-only wiring would silently revert to the literal on the
+            # first reset.
+            #
+            # Imported lazily INSIDE the function: a module-scope import risks
+            # a config <-> execution import cycle.
+            from app.config import get_settings
+
+            settings = get_settings()
+            config = SmartRouterConfig(
+                small_order_threshold=settings.smart_router_small_order_threshold_usd
+            )
         _smart_router = SmartOrderRouter(config)
     return _smart_router
 

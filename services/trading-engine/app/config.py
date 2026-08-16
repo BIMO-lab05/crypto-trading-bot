@@ -594,6 +594,27 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # EXECUTION / SMART ORDER ROUTER (RES-05, 2026-08-16)
+    # =========================================================================
+    # Grouped with the paper-slippage block above because both concern fill
+    # mechanics rather than capital allocation.
+    smart_router_small_order_threshold_usd: float = Field(
+        default=1000.0,
+        gt=0,
+        description=(
+            "Order notional in USD below which a single market order is the "
+            "cheapest execution; above it the smart router prefers "
+            "limit/TWAP/iceberg strategies. This is a MARKET-MICROSTRUCTURE "
+            "CALIBRATION against Bybit order-book depth — it is NOT an "
+            "account-size figure and must never be derived from one. Deriving "
+            "it from equity would silently reclassify large orders as small as "
+            "the account grows, which is the opposite of what the threshold is "
+            "for. Env key: SMART_ROUTER_SMALL_ORDER_THRESHOLD_USD (Settings "
+            "declares no env_prefix, so the key is the upper-cased field name)."
+        ),
+    )
+
+    # =========================================================================
     # LEVERAGE CONFIGURATION (Added 2025-12-15)
     # =========================================================================
     # Bybit-style leverage: Initial Margin = Position Value / Leverage

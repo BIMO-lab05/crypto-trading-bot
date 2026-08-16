@@ -28,6 +28,7 @@ import asyncio
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 import logging
 
 # Import the smart router module
@@ -923,6 +924,50 @@ class TestGlobalInstance:
         router = get_smart_router(custom_config)
 
         assert router.config.tight_spread_threshold == 0.001
+
+    def test_small_order_threshold_dataclass_default_unchanged(self):
+        """RES-05: direct construction is unaffected by the Settings wiring.
+
+        The dataclass default stays 1000.0, so every caller that builds its
+        own SmartRouterConfig behaves exactly as it did before.
+        """
+        assert SmartRouterConfig().small_order_threshold == 1000.0
+
+    def test_get_smart_router_uses_settings_threshold(self):
+        """RES-05: the no-argument factory honours the operator Setting.
+
+        Wired in the FACTORY rather than the lifespan on purpose: the
+        POST /api/v1/execution/reset handler calls reset_smart_router() and
+        the next get_smart_router() rebuilds here, so a lifespan-only wiring
+        would silently revert to the hardcoded literal on the first reset.
+        """
+        reset_smart_router()
+        try:
+            fake_settings = SimpleNamespace(
+                smart_router_small_order_threshold_usd=2500.0
+            )
+            with patch("app.config.get_settings", return_value=fake_settings):
+                router = get_smart_router()
+
+            assert router.config.small_order_threshold == 2500.0
+        finally:
+            # Never leak a 2500.0 router into the module-level singleton
+            reset_smart_router()
+
+    def test_explicit_config_still_wins_over_settings(self):
+        """RES-05: an explicit config is not overridden by the Setting."""
+        reset_smart_router()
+        try:
+            fake_settings = SimpleNamespace(
+                smart_router_small_order_threshold_usd=2500.0
+            )
+            explicit = SmartRouterConfig(small_order_threshold=750.0)
+            with patch("app.config.get_settings", return_value=fake_settings):
+                router = get_smart_router(explicit)
+
+            assert router.config.small_order_threshold == 750.0
+        finally:
+            reset_smart_router()
 
 
 # ============================================================================
