@@ -177,7 +177,6 @@ class InstrumentsCache:
             return
 
         wanted = set(symbols)
-        loaded = 0
         for raw in items:
             sym = raw.get("symbol")
             if sym not in wanted:
@@ -187,8 +186,49 @@ class InstrumentsCache:
                 logger.debug("Could not parse instrument spec for %s: %s", sym, raw)
                 continue
             self._cache[spec.symbol] = spec
-            loaded += 1
 
+        # Per-symbol fallback. bybit-connector does not paginate Bybit's
+        # instruments-info, so the bulk response above is capped at page 1
+        # (500 items) and anything past that cap (SOLUSDT, observed live)
+        # never arrives — the min-notional gate then silently failed open for
+        # that symbol. The symbol-scoped endpoint does return it.
+        #
+        # Iterate the caller's order de-duplicated rather than `wanted`: set
+        # iteration order is nondeterministic. Bounded at len(symbols) extra
+        # calls. Deliberately no retries, no backoff, no concurrency — do not
+        # add them.
+        missing = [s for s in dict.fromkeys(symbols) if s not in self._cache]
+        for sym in missing:
+            # The try/except is per symbol on purpose. Folding it into the
+            # outer try would let one unlisted or erroring symbol abort the
+            # remaining fallbacks, breaking the fail-open contract.
+            try:
+                per_symbol_items = await self._fetch(symbol=sym)
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning(
+                    "InstrumentsCache: per-symbol fallback for %s failed (%s) "
+                    "— gate fails open for this symbol",
+                    sym,
+                    exc,
+                )
+                continue
+
+            for raw in per_symbol_items:
+                if raw.get("symbol") != sym:
+                    continue
+                spec = _parse_instrument(raw)
+                if spec is None:
+                    logger.debug(
+                        "Could not parse instrument spec for %s: %s", sym, raw
+                    )
+                    break
+                self._cache[spec.symbol] = spec
+                break
+
+        # Count actual cache coverage after both passes. An incrementing
+        # counter from the bulk loop alone would still report 4/5 after the
+        # fallback filled SOL.
+        loaded = len(wanted & self._cache.keys())
         logger.info(
             "InstrumentsCache: refreshed %d/%d symbols (category=%s)",
             loaded,
