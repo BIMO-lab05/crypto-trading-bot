@@ -85,6 +85,36 @@ def test_zero_trades_recorded_not_screened(tmp_path):
     assert v["n_trades"] == 0 and v["gate1_verdict"] == "NO_TRADES"
 
 
+def test_import_failure_is_error_not_reject(tmp_path):
+    """A candidate whose module failed to import has no variants, so the
+    variant loop never runs. It must still be ERROR with the traceback —
+    filing it as REJECT makes a broken import indistinguishable from a
+    genuine no-edge finding."""
+    daily = make_daily(["AUSDT"], n_days=400)
+    _write_daily_csvs(tmp_path, daily)
+    pin = _pin(tmp_path, ["AUSDT"])
+
+    out = tmp_path / "out"
+    res = run_battery(
+        tmp_path,
+        pin,
+        out,
+        T0 + 400 * DAY,
+        candidates={
+            "broken": {
+                "variants": [],
+                "inputs": ("daily",),
+                "import_error": "ModuleNotFoundError: no such candidate",
+            }
+        },
+    )
+    assert res["broken"]["verdict"] == "ERROR"
+    assert "no such candidate" in res["broken"]["error"]
+    doc = next(out.glob("broken-verdict-*.md")).read_text()
+    assert "verdict: ERROR" in doc
+    assert "no such candidate" in doc
+
+
 def test_verdict_docs_written_with_caveats(tmp_path):
     daily = make_daily(["AUSDT"], n_days=400)
     _write_daily_csvs(tmp_path, daily)

@@ -56,7 +56,11 @@ from edge_lab.config import (  # noqa: E402
     SLIPPAGE_BPS,
     SLIPPAGE_FALLBACK_BPS,
 )
-from edge_lab.fetch import funding_csv_path, kline_csv_path  # noqa: E402
+from edge_lab.fetch import (  # noqa: E402
+    funding_csv_path,
+    interval_ms,
+    kline_csv_path,
+)
 from edge_lab.gate1 import run_gate1  # noqa: E402
 from edge_lab.gate2 import Gate2Result, daily_returns_from_trades, run_gate2  # noqa: E402
 from edge_lab.sanity import (  # noqa: E402
@@ -137,7 +141,7 @@ def _iso(ts_ms: int) -> str:
     )
 
 
-def read_kline_csv(path: Path) -> pd.DataFrame:
+def read_kline_csv(path: Path, interval: str, now_ms: int) -> pd.DataFrame:
     """The on-disk kline CSV back into the `ts_ms` frame candidates expect.
 
     `ensure_klines` writes a `timestamp` column, not `ts_ms`. Pandas 3 parses
@@ -145,6 +149,17 @@ def read_kline_csv(path: Path) -> pd.DataFrame:
     yields SECONDS and every downstream day-number is wrong by a factor of
     1000 — with no exception raised anywhere. Casting to `datetime64[ms]`
     first pins the unit regardless of what the parser chose.
+
+    Rows are then cut at the run's `now_ms` using the same rule
+    `fetch.fetch_klines` applies at download time — a bar counts only once
+    it has CLOSED (`ts_ms + interval <= now_ms`). This is what makes `--date`
+    an actual data cutoff: re-running an earlier date against a CSV that has
+    since been extended reproduces the earlier run, and a still-forming final
+    bar can never contribute a partial close as if it were final.
+
+    Returned in FILE ORDER, not sorted. Sorting here would permanently
+    disarm `check_klines`' monotonicity check, which exists precisely to
+    catch a CSV whose rows are out of order. The caller sorts after checking.
     """
     raw = pd.read_csv(path)
     ts = pd.to_datetime(raw["timestamp"]).astype("datetime64[ms]").astype("int64")
@@ -161,7 +176,8 @@ def read_kline_csv(path: Path) -> pd.DataFrame:
             ).astype(float),
         }
     )
-    return df.sort_values("ts_ms").reset_index(drop=True)
+    closed = df["ts_ms"] + interval_ms(interval) <= now_ms
+    return df[closed].reset_index(drop=True)
 
 
 def _missing_file_report(symbol: str, interval: str, path: Path) -> SanityReport:
@@ -177,19 +193,29 @@ def _missing_file_report(symbol: str, interval: str, path: Path) -> SanityReport
     )
 
 
-def load_bundle(data_dir: Path, pin: Mapping) -> tuple[dict[str, dict], str]:
+def load_bundle(
+    data_dir: Path, pin: Mapping, now_ms: int
+) -> tuple[dict[str, dict], str]:
     """Gate 0 over every pinned symbol, then the surviving data bundle.
 
     Returns `({"daily": ..., "h4": ..., "funding": ...}, sanity_summary)`.
-    A symbol with a kline defect on EITHER interval is dropped from all
-    three dicts — data this battery cannot trust on one timeframe is not
-    trusted on another — and named in the summary. A merely absent 4h file
-    is not a defect: it is named, and the symbol keeps its daily entry, so
-    a daily candidate is not punished for a 4h file nobody fetched.
 
-    Missing funding never drops a symbol (`sanity.check_funding`'s contract);
-    it surfaces as `funding_ok=False` and, downstream, as the verdict's
-    funding-exclusion caveat.
+    Drops are scoped to the interval that failed. A 4h defect costs the
+    symbol its 4h entry only; its daily bars are still trustworthy and the
+    daily candidates still trade it. A daily defect drops the daily entry
+    AND the funding series, because funding_carry times its entries off
+    daily bars — a funding series with no bars to trade against is not a
+    usable input. The earlier all-three rule punished daily candidates for a
+    4h problem and, worse, rewarded fetching *less* data: a symbol with no
+    4h file at all kept everything, while one with a fetched-but-flawed 4h
+    file lost its daily entry too.
+
+    A merely absent file is not a defect — it is named, and costs only the
+    interval it belongs to. Missing funding never drops anything
+    (`sanity.check_funding`'s contract); it surfaces as `funding_ok=False`
+    and, downstream, as the verdict's funding-exclusion caveat.
+
+    Every drop is named per interval in the summary. No silent shrinkage.
     """
     data_dir = Path(data_dir)
     symbols = [s["symbol"] for s in pin.get("symbols", [])]
@@ -199,21 +225,30 @@ def load_bundle(data_dir: Path, pin: Mapping) -> tuple[dict[str, dict], str]:
     funding: dict[str, pd.DataFrame] = {}
     reports: list[SanityReport] = []
     notes: list[str] = []
-    dropped: set[str] = set()
+    dropped_daily: set[str] = set()
+    dropped_h4: set[str] = set()
 
     for symbol in symbols:
         d_path = kline_csv_path(data_dir, symbol, DAILY_INTERVAL, DAILY_LOOKBACK_DAYS)
         if not d_path.is_file():
             reports.append(_missing_file_report(symbol, DAILY_INTERVAL, d_path))
-            dropped.add(symbol)
+            dropped_daily.add(symbol)
             continue
 
-        d_df = read_kline_csv(d_path)
+        d_df = read_kline_csv(d_path, DAILY_INTERVAL, now_ms)
         d_report = check_klines(d_df, symbol, DAILY_INTERVAL)
 
         f_path = funding_csv_path(data_dir, symbol)
         if f_path.is_file():
             f_df = pd.read_csv(f_path)
+            # Same cutoff as the klines. Settlements at or after now_ms are
+            # not observable at the cutoff, and funding_carry's signal reads
+            # this frame directly. Gate 1 and Gate 2 re-read the unfiltered
+            # CSV through costs_loader.load_funding, which is harmless: both
+            # only account settlements falling INSIDE a trade's window, and
+            # every trade is generated from cut klines, so it ends before
+            # now_ms. No post-cutoff settlement can reach either.
+            f_df = f_df[f_df["ts_ms"] < now_ms].reset_index(drop=True)
             funding[symbol] = f_df
             d_report.funding_ok, d_report.funding_n = check_funding(
                 f_df, DAILY_LOOKBACK_DAYS
@@ -221,10 +256,10 @@ def load_bundle(data_dir: Path, pin: Mapping) -> tuple[dict[str, dict], str]:
         else:
             notes.append(f"{symbol} funding: no CSV at {f_path} — funding EXCLUDED")
         reports.append(d_report)
-        if not d_report.ok:
-            dropped.add(symbol)
+        if d_report.ok:
+            daily[symbol] = d_df.sort_values("ts_ms").reset_index(drop=True)
         else:
-            daily[symbol] = d_df
+            dropped_daily.add(symbol)
 
         h_path = kline_csv_path(data_dir, symbol, H4_INTERVAL, H4_LOOKBACK_DAYS)
         if not h_path.is_file():
@@ -233,7 +268,7 @@ def load_bundle(data_dir: Path, pin: Mapping) -> tuple[dict[str, dict], str]:
                 "4h candidates skip this symbol (not a Gate 0 defect)"
             )
             continue
-        h_df = read_kline_csv(h_path)
+        h_df = read_kline_csv(h_path, H4_INTERVAL, now_ms)
         h_report = check_klines(h_df, symbol, H4_INTERVAL)
         # Funding is per symbol, not per interval. Leaving the 4h row at the
         # dataclass default would print funding_ok=False directly beneath the
@@ -244,22 +279,24 @@ def load_bundle(data_dir: Path, pin: Mapping) -> tuple[dict[str, dict], str]:
             d_report.funding_n,
         )
         reports.append(h_report)
-        if not h_report.ok:
-            dropped.add(symbol)
+        if h_report.ok:
+            h4[symbol] = h_df.sort_values("ts_ms").reset_index(drop=True)
         else:
-            h4[symbol] = h_df
+            dropped_h4.add(symbol)
 
-    for symbol in dropped:
+    for symbol in dropped_daily:
         daily.pop(symbol, None)
-        h4.pop(symbol, None)
         funding.pop(symbol, None)
+    for symbol in dropped_h4:
+        h4.pop(symbol, None)
 
     summary_lines = [render_sanity_table(reports)] if reports else []
     summary_lines.extend(notes)
     summary_lines.append(
         f"pinned={len(symbols)} kept_daily={len(daily)} kept_h4={len(h4)} "
-        f"funding_series={len(funding)} dropped="
-        + (", ".join(sorted(dropped)) if dropped else "none")
+        f"funding_series={len(funding)} "
+        f"dropped_daily=[{', '.join(sorted(dropped_daily))}] "
+        f"dropped_h4=[{', '.join(sorted(dropped_h4))}]"
     )
     bundle = {"daily": daily, "h4": h4, "funding": funding}
     return bundle, "\n".join(line for line in summary_lines if line)
@@ -283,9 +320,11 @@ def _generate(entry: Mapping, bundle: Mapping, variant) -> list[Trade]:
     A registry entry with a `generate` key is a test stub and gets the whole
     bundle; a real entry names the bundle keys its module's
     `generate_trades` takes positionally.
+
+    An `import_error` entry never reaches here — `run_battery` raises on it
+    before the variant loop, because such an entry has no variants to loop
+    over. A guard in this function would be dead code.
     """
-    if entry.get("import_error"):
-        raise ImportError(entry["import_error"])
     if "generate" in entry:
         return entry["generate"](bundle, variant)
     args = [bundle[key] for key in entry["inputs"]]
@@ -420,13 +459,32 @@ def run_battery(
     funding_dir = Path(data_dir) / "funding"
 
     pin = load_pin(pin_path)
-    bundle, sanity_summary = load_bundle(data_dir, pin)
+    bundle, sanity_summary = load_bundle(data_dir, pin, now_ms)
     registry = default_registry() if candidates is None else candidates
+
+    # Nothing survived Gate 0. Every candidate would otherwise generate zero
+    # trades and be filed as a clean REJECT — a data outage rendered as four
+    # honest-looking "no edge" findings, which is the worst failure this
+    # battery could produce.
+    no_data = not bundle["daily"] and not bundle["h4"]
 
     results: dict[str, dict] = {}
     for candidate, entry in registry.items():
         result: dict[str, Any] = {"variants": [], "verdict": "REJECT"}
         try:
+            if no_data:
+                raise RuntimeError(
+                    "no usable data after Gate 0 — every pinned symbol was "
+                    "dropped or absent, so this is a data failure, not a "
+                    f"finding about {candidate}.\n\n{sanity_summary}"
+                )
+            # An entry whose module failed to import carries the traceback
+            # and no variants. Checked HERE, not inside the variant loop: an
+            # empty variants list never enters that loop, so the failure used
+            # to fall through to a REJECT verdict indistinguishable from a
+            # real loss, with the traceback sitting unused in the registry.
+            if entry.get("import_error"):
+                raise ImportError(entry["import_error"])
             for variant in entry["variants"]:
                 result["variants"].append(
                     _score_variant(
@@ -481,7 +539,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--date",
         default=None,
-        help="YYYY-MM-DD run date; sets the data cutoff and names the docs",
+        help=(
+            "YYYY-MM-DD; cuts the data at that day's 00:00 UTC — kline bars "
+            "that have not closed by then and funding settlements at or "
+            "after it are dropped, so re-running an earlier date against a "
+            "since-extended CSV reproduces the earlier run. Also names the "
+            "output docs. Defaults to now."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -498,6 +562,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     results = run_battery(Path(args.data_dir), Path(args.pin), Path(args.out), now_ms)
     for candidate, result in results.items():
         logger.info("%s: %s", candidate, result["verdict"])
+
+    # Non-zero on any ERROR. The battery deliberately completes through a
+    # candidate failure, so without this an operator or CI job reads a clean
+    # exit over a run that never scored part of its search space.
+    errored = [name for name, res in results.items() if res["verdict"] == "ERROR"]
+    if errored:
+        logger.error("ERROR verdicts: %s — see the verdict docs", ", ".join(errored))
+        return 1
     return 0
 
 
