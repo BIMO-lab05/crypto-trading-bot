@@ -78,10 +78,28 @@ def _index_closes(
 
 
 def _close(indexed: dict[int, float], day: int, symbol: str) -> float:
-    try:
+    """Daily close for `day`, carrying the previous day's close over a hole.
+
+    Gate 0 tolerates a single missing bar by design (`sanity.check_klines`
+    flags a defect only above 2x the interval), so a one-bar hole reaches
+    here on data the battery has already blessed. Raising on it would ERROR
+    whole candidate files over data Gate 0 called clean.
+
+    The carry is deliberately ONE day deep. Two or more consecutive missing
+    bars is a gap Gate 0 would itself have flagged, so it stays loud rather
+    than silently compounding a stale close across a widening hole.
+    """
+    if day in indexed:
         return indexed[day]
-    except KeyError as exc:
-        raise KeyError(f"no daily close for {symbol} on day {day}") from exc
+    carried = indexed.get(day - 1)
+    if carried is not None:
+        return carried
+    raise KeyError(
+        f"no daily close for {symbol} on day {day} OR day {day - 1} — two or "
+        "more consecutive missing bars, which Gate 0 flags as a defect "
+        "(sanity.check_klines: gap > 2x interval). Single-bar holes are "
+        "carried; this is not one."
+    )
 
 
 def daily_returns_from_trades(
@@ -114,11 +132,26 @@ def daily_returns_from_trades(
     (price returns + costs + funding, across every trade touching that
     day) is divided by `max(1, n_open_that_day)`.
 
+    Missing bars: a day with no close carries the PREVIOUS day's close
+    forward, matching the single-bar hole Gate 0 tolerates
+    (`sanity.check_klines` flags a defect only above 2x the interval). The
+    gap day then contributes exactly 0.0 and the day after it is measured
+    against the carried close, so the two-day move is booked whole rather
+    than lost. Two or more consecutive missing bars still raise `KeyError`
+    loudly — that is a Gate 0 defect, not a tolerance. One artifact of
+    applying the carry uniformly: a trade whose ENTRY day is the hole books
+    `close[day - 1] / entry_px - 1`, a backward price move read as a forward
+    return. Unreachable for the daily candidates (no bar, no trade) and
+    reachable only for a 4h candidate whose entry price has no daily bar
+    behind it; it is left uniform rather than special-cased, because two
+    behaviors for one hole is how the tolerance drifts.
+
     Caller contract: `daily_closes` must extend at least 1 day before
     `start_ms` whenever a trade is already open at `start_ms` (its first
     in-window day is then an intermediate holding day, which reads
-    `close[day - 1]`). A missing prior-day close raises `KeyError` loudly
-    rather than silently defaulting to a wrong return.
+    `close[day - 1]`). The carry does NOT weaken this — history that simply
+    begins at `start_day` has neither `start_day - 1` nor `start_day - 2`,
+    so the denominator lookup still raises.
     """
     start_day = start_ms // DAY
     end_day = end_ms // DAY
@@ -152,7 +185,12 @@ def daily_returns_from_trades(
                 )
             ret_sum[idx] += sign * price_ret
 
-        cost_leg = float(cost_bps_rt.get(t.symbol, Decimal("0"))) / 2.0 / 10000.0
+        # Hard lookup, never `.get(..., 0)`: a symbol absent from the cost
+        # table would otherwise be scored as free to trade, and a
+        # zero-cost variant is exactly the one that clears Gate 2. The
+        # caller builds this map from the trade list, so a miss is a caller
+        # bug and must say so.
+        cost_leg = float(cost_bps_rt[t.symbol]) / 2.0 / 10000.0
         if start_day <= entry_day <= end_day:
             ret_sum[entry_day - start_day] -= cost_leg
         if start_day <= exit_day <= end_day:
