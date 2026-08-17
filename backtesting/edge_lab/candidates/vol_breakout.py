@@ -64,36 +64,58 @@ def _generate_symbol_trades(df: pd.DataFrame, symbol: str, p: dict) -> list[Trad
 
     for t in range(1, n):
         if in_position:
-            # Check adverse-stop breach on this bar's close.
-            breached = (pos_side == "LONG" and close[t] <= pos_stop) or (
-                pos_side == "SHORT" and close[t] >= pos_stop
-            )
-            timed_out = t >= pos_deadline_idx
-            if not (breached or timed_out):
-                continue
-
-            exit_idx = t + 1
-            if exit_idx < n:
+            if t == pos_deadline_idx:
+                # Time exit: the deadline is known at entry, so the
+                # position is already flat as of this bar's own open —
+                # no stop check runs against this bar's close.
                 trades.append(
                     Trade(
                         symbol=symbol,
                         side=pos_side,
                         entry_ts_ms=ts[pos_entry_idx],
-                        exit_ts_ms=ts[exit_idx],
+                        exit_ts_ms=ts[t],
                         entry_px=pos_entry_px,
-                        exit_px=open_[exit_idx],
+                        exit_px=open_[t],
                     )
                 )
-            # Open position at data end (no exit bar available) is
-            # discarded either way — flatten and look for a fresh signal
-            # below (release + entry needs bar t+1 anyway, so re-checking
-            # the same bar t is safe).
-            in_position = False
-            pos_side = None
-            pos_entry_idx = None
-            pos_entry_px = None
-            pos_stop = None
-            pos_deadline_idx = None
+                in_position = False
+                pos_side = None
+                pos_entry_idx = None
+                pos_entry_px = None
+                pos_stop = None
+                pos_deadline_idx = None
+            else:
+                # Adverse-stop breach on this bar's close (only checked
+                # while strictly before the deadline bar).
+                breached = (pos_side == "LONG" and close[t] <= pos_stop) or (
+                    pos_side == "SHORT" and close[t] >= pos_stop
+                )
+                if not breached:
+                    continue
+
+                exit_idx = t + 1
+                if exit_idx < n:
+                    trades.append(
+                        Trade(
+                            symbol=symbol,
+                            side=pos_side,
+                            entry_ts_ms=ts[pos_entry_idx],
+                            exit_ts_ms=ts[exit_idx],
+                            entry_px=pos_entry_px,
+                            exit_px=open_[exit_idx],
+                        )
+                    )
+                # Open position at data end (no exit bar available) is
+                # discarded either way.
+                in_position = False
+                pos_side = None
+                pos_entry_idx = None
+                pos_entry_px = None
+                pos_stop = None
+                pos_deadline_idx = None
+            # Flat as of this bar either way — fall through to look for
+            # a fresh signal below (release + entry needs bar t+1 anyway,
+            # so re-checking the same bar t is safe).
 
         # Squeeze-release signal: sqz_on True for >= min_squeeze_bars bars
         # ending at t-1, and False at t.
@@ -103,6 +125,9 @@ def _generate_symbol_trades(df: pd.DataFrame, symbol: str, p: dict) -> list[Trad
         if run_start < 0:
             continue
         if not all(sqz_on[j] for j in range(run_start, t)):
+            continue
+
+        if pd.isna(kc_upper[t]) or pd.isna(kc_lower[t]):
             continue
 
         if close[t] > kc_upper[t]:

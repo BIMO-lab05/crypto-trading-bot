@@ -55,7 +55,7 @@ def test_time_exit_bounds_holding():
     data = _squeeze_then_pop()
     trades = generate_trades(data, V)
     for t in trades:
-        assert (t.exit_ts_ms - t.entry_ts_ms) <= 31 * H4
+        assert (t.exit_ts_ms - t.entry_ts_ms) <= 30 * H4
 
 
 def test_no_squeeze_no_trades():
