@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
@@ -193,6 +195,52 @@ def test_import_failure_is_error_not_reject(tmp_path):
     assert "no such candidate" in doc
 
 
+def test_gate2_drops_trades_on_symbols_with_no_daily_frame(tmp_path, caplog):
+    """A 4h-only symbol reaches Gate 2 as a named drop, not a KeyError.
+
+    `load_bundle` keeps a symbol whose 4h bars are clean even when its daily
+    bars are absent, so vol_breakout can legitimately trade a symbol Gate 2
+    has no closes for. Those trades come out of the scoring — never scored
+    against closes resampled from 4h bars — and the drop is logged and
+    returned rather than absorbed.
+    """
+    from edge_lab.run_battery import score_gate2
+
+    daily = make_daily(["AUSDT"], n_days=400)  # BUSDT deliberately has none
+    trades = [
+        # The dropped symbol trades FIRST: if the window were derived before
+        # the filter, start_ms would land on this entry instead of AUSDT's.
+        Trade("BUSDT", "LONG", T0 + 10 * DAY, T0 + 17 * DAY, 100.0, 105.0),
+        Trade("BUSDT", "SHORT", T0 + 50 * DAY, T0 + 57 * DAY, 100.0, 95.0),
+        Trade("AUSDT", "LONG", T0 + 30 * DAY, T0 + 37 * DAY, 100.0, 105.0),
+    ]
+
+    with caplog.at_level("WARNING"):
+        _result, start_ms, _end_ms, _horizon, dropped = score_gate2(
+            trades, daily, "vol_breakout", tmp_path / "funding"
+        )
+
+    assert dropped == {"BUSDT": 2}
+    assert start_ms == T0 + 30 * DAY  # the surviving trade's entry
+    assert "BUSDT (2 trades)" in caplog.text
+
+
+def test_gate2_all_trades_dropped_raises_rather_than_scoring_nothing(tmp_path):
+    """Every trade on a daily-less symbol is a data failure, not a REJECT.
+
+    Returning a failed Gate2Result here would render a data outage as an
+    honest-looking "no edge" finding — the worst output this battery can
+    produce.
+    """
+    from edge_lab.run_battery import score_gate2
+
+    daily = make_daily(["AUSDT"], n_days=400)
+    trades = [Trade("BUSDT", "LONG", T0 + 10 * DAY, T0 + 17 * DAY, 100.0, 105.0)]
+
+    with pytest.raises(RuntimeError, match="data failure"):
+        score_gate2(trades, daily, "vol_breakout", tmp_path / "funding")
+
+
 def test_verdict_docs_written_with_caveats(tmp_path):
     daily = make_daily(["AUSDT"], n_days=400)
     _write_daily_csvs(tmp_path, daily)
@@ -202,13 +250,20 @@ def test_verdict_docs_written_with_caveats(tmp_path):
         return [Trade("AUSDT", "LONG", T0 + 30 * DAY, T0 + 37 * DAY, 100.0, 105.0)]
 
     out = tmp_path / "out"
-    run_battery(
+    res = run_battery(
         tmp_path,
         pin,
         out,
         T0 + 400 * DAY,
         candidates=_stub_registry({"solo": one_trade}),
     )
+    # The no-drop path of the Gate 2 record. Written even when nothing was
+    # dropped, so a reader can tell "none dropped" from "this run predates
+    # the field" — the claim score_gate2's caller makes in its comment.
+    record = res["solo"]["variants"][0]
+    assert record["gate2_trades_dropped_no_daily"] == {}
+    assert record["gate2_n_trades_scored"] == 1
+
     docs = list(out.glob("solo-verdict-*.md"))
     assert len(docs) == 1
     text = docs[0].read_text()

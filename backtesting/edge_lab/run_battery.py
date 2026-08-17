@@ -341,8 +341,8 @@ def score_gate2(
     daily: Mapping[str, pd.DataFrame],
     candidate: str,
     funding_dir: Path,
-) -> tuple[Gate2Result, int, int, int]:
-    """Daily net-return series → CPCV/DSR. Returns (result, start, end, h).
+) -> tuple[Gate2Result, int, int, int, dict[str, int]]:
+    """Daily net-return series → CPCV/DSR. Returns (result, start, end, h, dropped).
 
     Window runs from the first trade's entry to the end of the daily data
     (or the last exit, whichever is later, so no exit-day P&L is truncated).
@@ -355,7 +355,48 @@ def score_gate2(
     `daily_closes` is the full loaded daily history, which therefore extends
     before the window start — `daily_returns_from_trades`' caller contract,
     since an intermediate holding day reads `close[day - 1]`.
+
+    Gate 2 is a DAILY-return measure, but `load_bundle` keeps a symbol whose
+    4h bars are clean even when its daily bars are absent, so a 4h candidate
+    can legitimately trade a symbol Gate 2 has no closes for. Those trades
+    are DROPPED from the scoring rather than scored against fabricated
+    closes — resampling 4h bars into a synthetic daily series would invent
+    the very prices the gate is meant to test against. The dropped symbols
+    and their trade counts are logged and returned so the verdict records
+    what was not measured. Dropping ALL of them raises instead: a variant
+    scored on nothing is a data failure, and filing it as a REJECT would
+    render a data outage as a finding about the candidate.
     """
+    scored: list[Trade] = []
+    dropped: dict[str, int] = {}
+    for t in trades:
+        if t.symbol in daily:
+            scored.append(t)
+        else:
+            dropped[t.symbol] = dropped.get(t.symbol, 0) + 1
+    if dropped:
+        logger.warning(
+            "%s: dropping %d of %d trades from Gate 2 — no daily frame for %s "
+            "(4h-only symbols; Gate 2 scores daily returns and will not "
+            "fabricate closes from 4h bars)",
+            candidate,
+            sum(dropped.values()),
+            len(trades),
+            ", ".join(f"{sym} ({n} trades)" for sym, n in sorted(dropped.items())),
+        )
+    if not scored:
+        raise RuntimeError(
+            f"every one of the {len(trades)} {candidate} trades is on a symbol "
+            "with no daily frame "
+            f"({', '.join(f'{s} ({n} trades)' for s, n in sorted(dropped.items()))})"
+            " — Gate 2 has nothing to score, so this is a data failure, not a "
+            f"finding about {candidate}."
+        )
+    trades = scored
+
+    # Derived from the SURVIVING trades, not the originals: a dropped
+    # symbol must not set the window start, and building the cost map here
+    # is what keeps gate2's hard `cost_bps_rt[symbol]` lookup total.
     symbols = {t.symbol for t in trades}
     cost_bps_rt = {symbol: round_trip_bps(symbol) for symbol in symbols}
     funding = {symbol: load_funding(symbol, str(funding_dir)) for symbol in symbols}
@@ -378,7 +419,7 @@ def score_gate2(
             candidate,
             horizon,
         )
-    return run_gate2(returns, horizon), start_ms, end_ms, horizon
+    return run_gate2(returns, horizon), start_ms, end_ms, horizon, dropped
 
 
 def _score_variant(
@@ -424,10 +465,16 @@ def _score_variant(
         record["gate2_passed"] = False
         return record
 
-    gate2, start_ms, end_ms, horizon = score_gate2(
+    gate2, start_ms, end_ms, horizon, dropped = score_gate2(
         trades, bundle["daily"], candidate, funding_dir
     )
     record.update(
+        # Trades Gate 2 could not score for want of a daily frame. Recorded
+        # even when empty, so a reader can tell "none dropped" from "this
+        # run predates the field". Reaches the JSON verdict via
+        # write_verdict_json's wholesale variant dump.
+        gate2_trades_dropped_no_daily=dict(sorted(dropped.items())),
+        gate2_n_trades_scored=len(trades) - sum(dropped.values()),
         dsr=gate2.dsr,
         pooled_pf=gate2.pooled_pf,
         positive_path_frac=gate2.positive_path_frac,
