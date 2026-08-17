@@ -44,6 +44,9 @@ def check_klines(df: pd.DataFrame, symbol: str, interval: str) -> SanityReport:
     first_ts_ms = int(ts_vals[0]) if n_bars else 0
     last_ts_ms = int(ts_vals[-1]) if n_bars else 0
 
+    if n_bars == 0:
+        defects.append("no bars")
+
     ts = df["ts_ms"]
     if not ts.is_monotonic_increasing:
         defects.append("ts_ms not monotonic")

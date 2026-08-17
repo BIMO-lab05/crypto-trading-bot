@@ -70,3 +70,11 @@ def test_render_names_every_defect():
     bad = check_klines(_clean().assign(low=-5.0), "XUSDT", "D")
     out = render_sanity_table([bad])
     assert "XUSDT" in out and "FAIL" in out
+
+
+def test_empty_dataframe_is_a_defect():
+    r = check_klines(_clean(n=0), "BTCUSDT", "D")
+    assert not r.ok and "no bars" in r.defects
+    assert r.first_ts_ms == 0 and r.last_ts_ms == 0
+    out = render_sanity_table([r])
+    assert "FAIL" in out
