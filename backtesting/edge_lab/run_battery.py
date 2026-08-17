@@ -211,9 +211,11 @@ def load_bundle(
     file lost its daily entry too.
 
     A merely absent file is not a defect — it is named, and costs only the
-    interval it belongs to. Missing funding never drops anything
-    (`sanity.check_funding`'s contract); it surfaces as `funding_ok=False`
-    and, downstream, as the verdict's funding-exclusion caveat.
+    interval it belongs to. A symbol with no daily CSV but a clean 4h one
+    still reaches the 4h candidates, and still gets a 4h sanity row. Missing
+    funding never drops anything (`sanity.check_funding`'s contract); it
+    surfaces as `funding_ok=False` and, downstream, as the verdict's
+    funding-exclusion caveat.
 
     Every drop is named per interval in the summary. No silent shrinkage.
     """
@@ -229,15 +231,12 @@ def load_bundle(
     dropped_h4: set[str] = set()
 
     for symbol in symbols:
-        d_path = kline_csv_path(data_dir, symbol, DAILY_INTERVAL, DAILY_LOOKBACK_DAYS)
-        if not d_path.is_file():
-            reports.append(_missing_file_report(symbol, DAILY_INTERVAL, d_path))
-            dropped_daily.add(symbol)
-            continue
-
-        d_df = read_kline_csv(d_path, DAILY_INTERVAL, now_ms)
-        d_report = check_klines(d_df, symbol, DAILY_INTERVAL)
-
+        # Funding is per symbol, not per interval, so it is resolved once
+        # up front and stamped onto BOTH interval rows. Reading it inside
+        # the daily branch would leave the 4h row at the dataclass default,
+        # printing funding_ok=False directly beneath the same symbol's daily
+        # row saying True — a contradiction that reads as missing data.
+        funding_ok, funding_n = False, 0
         f_path = funding_csv_path(data_dir, symbol)
         if f_path.is_file():
             f_df = pd.read_csv(f_path)
@@ -250,16 +249,29 @@ def load_bundle(
             # now_ms. No post-cutoff settlement can reach either.
             f_df = f_df[f_df["ts_ms"] < now_ms].reset_index(drop=True)
             funding[symbol] = f_df
-            d_report.funding_ok, d_report.funding_n = check_funding(
-                f_df, DAILY_LOOKBACK_DAYS
-            )
+            funding_ok, funding_n = check_funding(f_df, DAILY_LOOKBACK_DAYS)
         else:
             notes.append(f"{symbol} funding: no CSV at {f_path} — funding EXCLUDED")
-        reports.append(d_report)
-        if d_report.ok:
-            daily[symbol] = d_df.sort_values("ts_ms").reset_index(drop=True)
-        else:
+
+        # The two intervals are resolved independently. Neither branch may
+        # `continue`: an absent daily file used to skip the 4h block
+        # entirely, costing the symbol its 4h entry AND its 4h sanity row
+        # even when the 4h file was present and clean — the same
+        # cross-interval punishment the per-interval rule removed, running
+        # the other way.
+        d_path = kline_csv_path(data_dir, symbol, DAILY_INTERVAL, DAILY_LOOKBACK_DAYS)
+        if not d_path.is_file():
+            d_report = _missing_file_report(symbol, DAILY_INTERVAL, d_path)
             dropped_daily.add(symbol)
+        else:
+            d_df = read_kline_csv(d_path, DAILY_INTERVAL, now_ms)
+            d_report = check_klines(d_df, symbol, DAILY_INTERVAL)
+            if d_report.ok:
+                daily[symbol] = d_df.sort_values("ts_ms").reset_index(drop=True)
+            else:
+                dropped_daily.add(symbol)
+        d_report.funding_ok, d_report.funding_n = funding_ok, funding_n
+        reports.append(d_report)
 
         h_path = kline_csv_path(data_dir, symbol, H4_INTERVAL, H4_LOOKBACK_DAYS)
         if not h_path.is_file():
@@ -267,22 +279,15 @@ def load_bundle(
                 f"{symbol} [{H4_INTERVAL}] no kline CSV at {h_path} — "
                 "4h candidates skip this symbol (not a Gate 0 defect)"
             )
-            continue
-        h_df = read_kline_csv(h_path, H4_INTERVAL, now_ms)
-        h_report = check_klines(h_df, symbol, H4_INTERVAL)
-        # Funding is per symbol, not per interval. Leaving the 4h row at the
-        # dataclass default would print funding_ok=False directly beneath the
-        # same symbol's daily row saying True — a contradiction that reads as
-        # missing data.
-        h_report.funding_ok, h_report.funding_n = (
-            d_report.funding_ok,
-            d_report.funding_n,
-        )
-        reports.append(h_report)
-        if h_report.ok:
-            h4[symbol] = h_df.sort_values("ts_ms").reset_index(drop=True)
         else:
-            dropped_h4.add(symbol)
+            h_df = read_kline_csv(h_path, H4_INTERVAL, now_ms)
+            h_report = check_klines(h_df, symbol, H4_INTERVAL)
+            h_report.funding_ok, h_report.funding_n = funding_ok, funding_n
+            reports.append(h_report)
+            if h_report.ok:
+                h4[symbol] = h_df.sort_values("ts_ms").reset_index(drop=True)
+            else:
+                dropped_h4.add(symbol)
 
     for symbol in dropped_daily:
         daily.pop(symbol, None)
@@ -462,17 +467,28 @@ def run_battery(
     bundle, sanity_summary = load_bundle(data_dir, pin, now_ms)
     registry = default_registry() if candidates is None else candidates
 
-    # Nothing survived Gate 0. Every candidate would otherwise generate zero
-    # trades and be filed as a clean REJECT — a data outage rendered as four
-    # honest-looking "no edge" findings, which is the worst failure this
-    # battery could produce.
-    no_data = not bundle["daily"] and not bundle["h4"]
-
     results: dict[str, dict] = {}
     for candidate, entry in registry.items():
         result: dict[str, Any] = {"variants": [], "verdict": "REJECT"}
         try:
-            if no_data:
+            # A candidate whose required bundle dicts are empty would
+            # generate zero trades and be filed as a clean REJECT — a data
+            # outage rendered as an honest-looking "no edge" finding, the
+            # worst output this battery could produce. Keyed per candidate
+            # off its declared inputs, not off the whole bundle: a
+            # daily-only outage must not be survivable just because the 4h
+            # dict is still populated for vol_breakout.
+            starved = [key for key in entry.get("inputs", ()) if not bundle.get(key)]
+            if starved:
+                raise RuntimeError(
+                    "no usable data for required interval(s): "
+                    f"{', '.join(starved)} — Gate 0 left them empty, so this "
+                    f"is a data failure, not a finding about {candidate}."
+                    f"\n\n{sanity_summary}"
+                )
+            # Catch-all for entries that declare no inputs (test stubs get
+            # the whole bundle, so their requirement is unknowable here).
+            if not any(bundle.values()):
                 raise RuntimeError(
                     "no usable data after Gate 0 — every pinned symbol was "
                     "dropped or absent, so this is a data failure, not a "
