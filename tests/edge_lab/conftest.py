@@ -45,7 +45,14 @@ def universe12():
     return make_daily(syms, drifts=drifts)
 
 
-def assert_shift_invariant(gen_fn, data, variant, cut_ts_ms):
+def assert_shift_invariant(gen_fn, data, variant, cut_ts_ms, allow_empty=False):
+    """Truncating history after `cut_ts_ms` must not change trades already closed.
+
+    Guarded against passing vacuously: a generator that emits no trade closing
+    at or before the cut compares an empty set to an empty set, which no
+    look-ahead bug could ever fail. Callers that legitimately expect that must
+    say so with `allow_empty=True` rather than get a silent green.
+    """
     full = gen_fn(data, variant)
     trunc_data = {
         s: df[df["ts_ms"] <= cut_ts_ms].reset_index(drop=True) for s, df in data.items()
@@ -61,6 +68,12 @@ def assert_shift_invariant(gen_fn, data, variant, cut_ts_ms):
     )
     full_closed = {key(t) for t in full if t.exit_ts_ms <= cut_ts_ms}
     trunc_closed = {key(t) for t in trunc if t.exit_ts_ms <= cut_ts_ms}
+    assert full_closed or allow_empty, (
+        "vacuous shift-invariance check: the full-history run closed no trade "
+        f"at or before cut_ts_ms={cut_ts_ms}, so this compares empty to empty "
+        "and cannot fail. Move the cut, or pass allow_empty=True if that is "
+        "genuinely the case under test."
+    )
     assert full_closed == trunc_closed, (
         f"future data changed past trades: only-full={full_closed - trunc_closed} "
         f"only-trunc={trunc_closed - full_closed}"
