@@ -129,6 +129,16 @@ Pinned definitions (declared before any run, per the anti-overfitting rule):
 - **Candidate 2:** "persistent" = same funding sign across the last 3
   settlements (24h) **and** trailing 3-settlement mean, annualized, above the
   entry threshold. Exit when either condition fails.
+- **Candidate 2 amendment (Task 9 implementation, pinned in fix round 1):**
+  "the last 3 settlements (24h)" is enforced, not assumed — persistence
+  additionally requires (a) the newest of the 3 to be under 24h old relative
+  to the evaluation bar, since a series that has gone quiet can otherwise
+  read as permanently persistent and (b) the oldest-to-newest span of the 3
+  to be ≤ 24h, since a collector gap can otherwise let 2 stale settlements
+  plus 1 fresh one pass check (a) while spanning several days. Both are
+  fixed thresholds declared here, not selected from a grid — they add no
+  swept parameter, so `NUM_TRIALS_FLOOR = 16` and the 8-variant DSR
+  deflation are unchanged.
 - **Candidate 4:** BB(20, 2.0) inside Keltner(20, 1.5) defines the squeeze;
   entry on close beyond the Keltner band in the expansion direction; stop at
   2× ATR(14); time-exit at 5 days.
