@@ -113,6 +113,12 @@ def daily_returns_from_trades(
     Concurrent trades are equal-weighted: each day's summed contribution
     (price returns + costs + funding, across every trade touching that
     day) is divided by `max(1, n_open_that_day)`.
+
+    Caller contract: `daily_closes` must extend at least 1 day before
+    `start_ms` whenever a trade is already open at `start_ms` (its first
+    in-window day is then an intermediate holding day, which reads
+    `close[day - 1]`). A missing prior-day close raises `KeyError` loudly
+    rather than silently defaulting to a wrong return.
     """
     start_day = start_ms // DAY
     end_day = end_ms // DAY
@@ -199,24 +205,39 @@ def run_gate2(
             sharpe_mean=float("nan"),
             sharpe_std=float("nan"),
             passed=False,
-            reasons=[f"insufficient samples: {exc}"],
+            reasons=[f"insufficient samples / invalid split params: {exc}"],
         )
 
     returns_per_path = [np.concatenate(chunks) for chunks in paths.values()]
     dist = k["cpcv_sharpe_distribution"](returns_per_path)
-    dsr = float(
-        k["deflated_sharpe_ratio"](
-            rets,
-            num_trials=max(num_trials_floor, int(dist["n_paths"])),
-            trial_sharpes_variance=float(dist["std"]) ** 2,
+    # h4-precedent parity (h4_information.py:145-153): DSR needs >= 2 valid
+    # path-Sharpes to have a variance to deflate against. At the pinned
+    # CPCV_K_TEST_GROUPS=2 this is unreachable in practice (45 paths), but
+    # the guard documents the dependence and matches h4's fallback instead
+    # of silently handing deflated_sharpe_ratio a variance of 0 (== plain
+    # undeflated PSR, not a deflated ratio at all).
+    if int(dist["n_paths"]) < 2:
+        dsr = float("nan")
+    else:
+        dsr = float(
+            k["deflated_sharpe_ratio"](
+                rets,
+                num_trials=max(num_trials_floor, int(dist["n_paths"])),
+                trial_sharpes_variance=float(dist["std"]) ** 2,
+            )
         )
-    )
 
     all_path_rets = np.concatenate(returns_per_path)
     wins = float(all_path_rets[all_path_rets > 0].sum())
     losses = abs(float(all_path_rets[all_path_rets < 0].sum()))
     pooled_pf = wins / losses if losses else float("inf")
 
+    # Denominator: ALL C(CPCV_N_GROUPS, CPCV_K_TEST_GROUPS) combination-paths
+    # (45 at the pinned 10/2), not just the variance-valid subset dist keeps
+    # for Sharpe. These paths overlap — each sample lands in every
+    # combination that doesn't hold its group out, so at k=2 of 10 a sample
+    # appears in 9 of the 45 paths — they are correlated ~20%-of-timeline
+    # windows, not 45 independent trials.
     per_path_means = np.array(
         [float(p.mean()) if p.size else 0.0 for p in returns_per_path]
     )
@@ -238,6 +259,11 @@ def run_gate2(
         dsr=dsr,
         pooled_pf=pooled_pf,
         positive_path_frac=positive_path_frac,
+        # Denominator: only the variance-valid paths cpcv_sharpe_distribution
+        # kept (non-degenerate std) — a strict subset of the 45 total
+        # combination-paths used above for positive_path_frac. Two adjacent
+        # fields, two different denominators — don't average or compare them
+        # directly.
         n_paths_valid=int(dist["n_paths"]),
         n_samples=n_samples,
         sharpe_mean=float(dist["mean"]),
