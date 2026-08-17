@@ -8,11 +8,14 @@ synchronous, and disposable per edge-lab run.
 api.bybit.com IS mainnet by construction (no testnet toggle here), so
 ensure_klines stamps is_mainnet=True on every row it writes — see
 CLAUDE.md gotcha on the 2026-04-25 testnet/mainnet TimescaleDB split, which
-does not apply to data fetched through this path.
+does not apply to data fetched through this path. ensure_klines still
+verifies the client's actual host before stamping, in case a caller points
+BybitPublic at api-testnet.bybit.com.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 
@@ -21,6 +24,8 @@ import pandas as pd
 
 DAY = 86_400_000
 MAX_INSTRUMENTS_PAGES = 10
+
+logger = logging.getLogger(__name__)
 
 
 class FetchError(RuntimeError):
@@ -41,6 +46,10 @@ class BybitPublic:
         self._client = client or httpx.Client(base_url=base_url, timeout=30.0)
         self._sleep_s = sleep_s
 
+    @property
+    def host(self) -> str:
+        return self._client.base_url.host
+
     def get(self, path: str, params: dict) -> dict:
         last = None
         for attempt in range(3):
@@ -54,7 +63,12 @@ class BybitPublic:
                         f"retMsg={data.get('retMsg')}"
                     )
                 return data.get("result", {})
-            except (httpx.TimeoutException, httpx.TransportError, FetchError) as e:
+            except (
+                httpx.TimeoutException,
+                httpx.TransportError,
+                httpx.HTTPStatusError,
+                FetchError,
+            ) as e:
                 if isinstance(e, FetchError) and "retCode" in str(e):
                     raise  # API rejected the request: don't retry
                 last = e
@@ -67,7 +81,7 @@ class BybitPublic:
 
     def instruments(self) -> list[dict]:
         """10-page cap, cursor loop — pattern verbatim from
-        bybit_rest_client.py:712-750."""
+        bybit_rest_client.py:712-750, including the cap-hit WARNING."""
         params = {"category": "linear", "limit": 1000}
         out: list[dict] = []
         cursor = None
@@ -83,6 +97,13 @@ class BybitPublic:
             cursor = result.get("nextPageCursor") or None
             if not cursor:
                 break
+        else:
+            logger.warning(
+                "instruments-info pagination hit the %d-page cap after %d "
+                "instruments — result may be truncated",
+                MAX_INSTRUMENTS_PAGES,
+                len(out),
+            )
         return out
 
     def fetch_klines(
@@ -96,9 +117,7 @@ class BybitPublic:
         current_end = now_ms
         max_batches = days * DAY // (1000 * iv_ms) + 10
         rows: list[list] = []
-        batch = 0
-        while batch < max_batches:
-            batch += 1
+        for _batch in range(max_batches):
             params = {
                 "category": "linear",
                 "symbol": symbol,
@@ -117,10 +136,28 @@ class BybitPublic:
                 break
             current_end = oldest - 1
             time.sleep(self._sleep_s)
+        else:
+            logger.warning(
+                "%s %s kline pagination hit the %d-batch cap — result may be "
+                "truncated before target_start=%d",
+                symbol,
+                interval,
+                max_batches,
+                target_start,
+            )
 
-        cols = ["ts_ms", "open", "high", "low", "close", "volume", "turnover"]
         if not rows:
-            return pd.DataFrame(columns=cols)
+            return pd.DataFrame(
+                {
+                    "ts_ms": pd.Series(dtype="int64"),
+                    "open": pd.Series(dtype="float64"),
+                    "high": pd.Series(dtype="float64"),
+                    "low": pd.Series(dtype="float64"),
+                    "close": pd.Series(dtype="float64"),
+                    "volume": pd.Series(dtype="float64"),
+                    "turnover": pd.Series(dtype="float64"),
+                }
+            )
 
         dedup: dict[int, list] = {int(r[0]): r for r in rows}
         ts_sorted = sorted(dedup)
@@ -137,7 +174,7 @@ class BybitPublic:
                 }
                 for ts in ts_sorted
             ],
-            columns=cols,
+            columns=["ts_ms", "open", "high", "low", "close", "volume", "turnover"],
         )
         df["ts_ms"] = df["ts_ms"].astype("int64")
         # Drop the still-forming bar: its close time hasn't happened yet.
@@ -155,9 +192,7 @@ class BybitPublic:
         # the real work.
         max_batches = days * DAY // (200 * 3_600_000) + 10
         rows: list[dict] = []
-        batch = 0
-        while batch < max_batches:
-            batch += 1
+        for _batch in range(max_batches):
             params = {
                 "category": "linear",
                 "symbol": symbol,
@@ -175,9 +210,22 @@ class BybitPublic:
                 break
             current_end = oldest - 1
             time.sleep(self._sleep_s)
+        else:
+            logger.warning(
+                "%s funding pagination hit the %d-batch cap — result may be "
+                "truncated before target_start=%d",
+                symbol,
+                max_batches,
+                target_start,
+            )
 
         if not rows:
-            return pd.DataFrame(columns=["ts_ms", "funding_rate"])
+            return pd.DataFrame(
+                {
+                    "ts_ms": pd.Series(dtype="int64"),
+                    "funding_rate": pd.Series(dtype="object"),
+                }
+            )
 
         dedup: dict[int, str] = {
             int(r["fundingRateTimestamp"]): r["fundingRate"] for r in rows
@@ -209,11 +257,30 @@ def ensure_klines(
     days: int,
     now_ms: int,
 ) -> Path:
-    """Fetch + write once; resume-from-cache is file granularity."""
+    """Fetch + write once; resume-from-cache is file granularity.
+
+    Never caches an empty fetch: a transient empty page would otherwise
+    become a permanent false "no data" that Gate 0 accepts vacuously and a
+    candidate reads as a real zero-trade REJECT. Raises instead, so the
+    battery's crash isolation records the symbol and a later run retries.
+    """
     path = kline_csv_path(data_dir, symbol, interval, days)
     if path.is_file():
         return path
+    # Stamped as is_mainnet=True below — verify the client is actually
+    # talking to mainnet before paying for the fetch, rather than stamping
+    # a lie (2026-04-25 testnet/mainnet TimescaleDB pollution precedent).
+    if client.host != "api.bybit.com":
+        raise FetchError(
+            f"{symbol} {interval}: refusing to stamp is_mainnet=True — "
+            f"client host is {client.host!r}, not api.bybit.com"
+        )
     df = client.fetch_klines(symbol, interval, days, now_ms)
+    if df.empty:
+        raise FetchError(
+            f"{symbol} {interval}: fetch_klines returned zero rows — "
+            "refusing to cache an empty frame as permanent no-data"
+        )
     out = pd.DataFrame(
         {
             "timestamp": pd.to_datetime(df["ts_ms"], unit="ms"),
@@ -225,7 +292,7 @@ def ensure_klines(
             "close": df["close"],
             "volume": df["volume"],
             "turnover": df["turnover"],
-            "is_mainnet": True,  # api.bybit.com IS mainnet by construction
+            "is_mainnet": True,  # verified against client.host above
             "created_at": now_ms,
         }
     )
@@ -237,11 +304,19 @@ def ensure_klines(
 def ensure_funding(
     client: BybitPublic, data_dir: Path, symbol: str, days: int, now_ms: int
 ) -> Path:
-    """Fetch + write once; resume-from-cache is file granularity."""
+    """Fetch + write once; resume-from-cache is file granularity.
+
+    Never caches an empty fetch — see ensure_klines docstring.
+    """
     path = funding_csv_path(data_dir, symbol)
     if path.is_file():
         return path
     df = client.fetch_funding(symbol, days, now_ms)
+    if df.empty:
+        raise FetchError(
+            f"{symbol}: fetch_funding returned zero rows — refusing to cache "
+            "an empty frame as permanent no-data"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
     return path

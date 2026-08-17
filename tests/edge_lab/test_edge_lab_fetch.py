@@ -8,8 +8,8 @@ import pandas as pd  # noqa: F401
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
-from edge_lab.fetch import (  # noqa: E402, F401
-    BybitPublic, ensure_funding, ensure_klines, funding_csv_path,
+from edge_lab.fetch import (  # noqa: E402
+    BybitPublic, FetchError, ensure_funding, ensure_klines, funding_csv_path,
     interval_ms, kline_csv_path,
 )
 
@@ -139,3 +139,45 @@ def test_funding_csv_matches_costs_loader_contract(tmp_path):
 
 def test_interval_ms():
     assert interval_ms("D") == DAY and interval_ms("240") == 4 * 3_600_000
+
+
+def test_ensure_klines_raises_and_does_not_cache_when_fetch_empty(tmp_path):
+    """A transient empty page must not become a permanent false 'no data'
+    cache — that would sail through Gate 0 (vacuous zero-row acceptance)
+    and read downstream as a real zero-trade REJECT."""
+    def empty_handler(request):
+        return httpx.Response(200, json={"retCode": 0, "result": {"list": []}})
+
+    try:
+        ensure_klines(_mock(empty_handler), tmp_path, "BTCUSDT", "D", 5, NOW)
+        assert False, "should have raised"
+    except FetchError:
+        pass
+    path = kline_csv_path(tmp_path, "BTCUSDT", "D", 5)
+    assert not path.exists()                        # no permanent false cache
+
+    def working_handler(request):
+        return httpx.Response(200, json={"retCode": 0, "result": {"list": [
+            [str(NOW - 2 * DAY), "1", "1", "1", "1", "1", "1"]]}})
+
+    p = ensure_klines(_mock(working_handler), tmp_path, "BTCUSDT", "D", 5, NOW)
+    assert p.is_file()                               # a later, working fetch succeeds
+
+
+def test_ensure_klines_rejects_non_mainnet_host(tmp_path):
+    """is_mainnet=True must never be stamped for a non-mainnet client host."""
+    def handler(request):
+        return httpx.Response(200, json={"retCode": 0, "result": {"list": [
+            [str(NOW - 2 * DAY), "1", "1", "1", "1", "1", "1"]]}})
+
+    testnet_client = BybitPublic(client=httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api-testnet.bybit.com"), sleep_s=0.0)
+
+    try:
+        ensure_klines(testnet_client, tmp_path, "BTCUSDT", "D", 5, NOW)
+        assert False, "should have raised"
+    except FetchError as e:
+        assert "api-testnet.bybit.com" in str(e)
+    path = kline_csv_path(tmp_path, "BTCUSDT", "D", 5)
+    assert not path.exists()
