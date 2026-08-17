@@ -458,9 +458,16 @@ def run_battery(
             logger.exception("failed to write the %s verdict doc", candidate)
             result["doc_error"] = traceback.format_exc()
 
-    write_summary(
-        render_summary(results, pin, sanity_summary, date_str), date_str, out_dir
-    )
+    # Last hole in "the battery always completes": by here every verdict doc
+    # is already on disk, so a summary that fails to render must not take the
+    # results down with it.
+    try:
+        write_summary(
+            render_summary(results, pin, sanity_summary, date_str), date_str, out_dir
+        )
+    except Exception:
+        logger.exception("failed to write the battery summary")
+
     return results
 
 

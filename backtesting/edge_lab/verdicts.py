@@ -67,11 +67,16 @@ STANDING_CAVEATS = (
     "that stops trading mid-week is never entered that week. This is "
     "survivorship-lite and is pinned by design — it is not strictly causal on "
     "eligibility.",
-    "(all candidates) Variant warm-up asymmetry: a long-lookback variant "
-    "trades on fewer effective days than a short-lookback one over the same "
-    "window, and the flat days padding the difference enter the return series "
-    "as 0.0. Measured on comparable series this hands short lookbacks roughly "
-    "a 6% Sharpe advantage that is an artifact of warm-up, not of edge.",
+    "(all candidates) Variant warm-up asymmetry: variants of one candidate "
+    "are NOT scored over a common window. Each variant's Gate 2 return "
+    "series starts at its own first trade and runs to the end of the data, "
+    "so a long-lookback variant — which cannot trade until its lookback "
+    "fills — is measured on a shorter, later series covering a different "
+    "slice of market regime than a short-lookback one. Fewer samples also "
+    "widen the DSR standard-error term, so long lookbacks face a marginally "
+    "higher bar. Compare variants' verdicts, not their Sharpes. Within a "
+    "window, flat days after the first trade are kept at 0.0, so idle "
+    "capital is charged rather than skipped.",
     "(funding_carry) Per-symbol funding coverage ends at its own date, which "
     "need not match the candle end-date. The freshness rule then makes the "
     "trade set depend on each feed's end offset. Separately, the entry "
@@ -88,7 +93,8 @@ STANDING_CAVEATS = (
 
 _TABLE_HEADER = (
     "| variant | n_trades | gross_edge_bps | cost_bps_taker | ratio_taker | "
-    "gate1 | dsr | pooled_pf | positive_path_frac | n_paths_valid | gate2 |"
+    f"gate1 | dsr | pooled_pf | positive_path_frac (of {TOTAL_CPCV_PATHS}) | "
+    "n_paths_valid | gate2 |"
 )
 _TABLE_RULE = "|" + "---|" * 11
 
@@ -230,7 +236,9 @@ def render_verdict(
     lines = [
         f"# {candidate} verdict: {verdict}",
         "",
-        "**Criterion (edge-research-battery design §5, verbatim):** Gate 1 "
+        "**Criterion (edge-research-battery design §5, paraphrased; every "
+        "threshold below is read live from `edge_lab.config`, not "
+        "transcribed):** Gate 1 "
         f"gross edge ≥ {HURDLE_MULTIPLE}× the taker round-trip cost; "
         f"Gate 2 DSR ≥ {DSR_THRESHOLD} deflated at a num_trials floor of "
         f"{NUM_TRIALS_FLOOR}, pooled profit factor > 1.0, and positive net "
