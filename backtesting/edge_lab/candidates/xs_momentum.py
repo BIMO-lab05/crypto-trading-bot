@@ -11,6 +11,7 @@ costs. Positions exit at the next rebalance's open.
 from __future__ import annotations
 
 import logging
+import math
 
 import pandas as pd
 
@@ -76,7 +77,7 @@ def generate_trades(daily: dict[str, pd.DataFrame], variant: Variant) -> list[Tr
             lookback_ts = prior[-(lookback_days + 1)]
             c_recent = closes[sym][last_close_ts]
             c_past = closes[sym][lookback_ts]
-            if c_past == 0:
+            if not (math.isfinite(c_recent) and math.isfinite(c_past)) or c_past <= 0:
                 skipped.append(sym)
                 continue
             momentum[sym] = c_recent / c_past - 1
@@ -94,15 +95,16 @@ def generate_trades(daily: dict[str, pd.DataFrame], variant: Variant) -> list[Tr
             continue
 
         quintile = 6 if n_eligible >= 12 else max(1, n_eligible // 5)
+        if 2 * quintile > n_eligible:
+            # no cross-section wide enough to hold non-overlapping long/short
+            # books; a 1-name book would be a directional bet, not xs momentum
+            continue
+
         ranked = sorted(momentum.items(), key=lambda kv: kv[1], reverse=True)
+        long_syms = [sym for sym, _ in ranked[:quintile]]
+        short_syms = [sym for sym, _ in ranked[-quintile:]]
 
-        longs = ranked[:quintile]
-        shorts = ranked[-quintile:] if quintile <= len(ranked) else []
-        # avoid overlap when n_eligible is very small (e.g. 1-2 symbols)
-        long_syms = {sym for sym, _ in longs}
-        short_syms = {sym for sym, _ in shorts if sym not in long_syms}
-
-        for sym in long_syms:
+        for sym in sorted(long_syms):
             trades.append(
                 Trade(
                     symbol=sym,
@@ -113,7 +115,7 @@ def generate_trades(daily: dict[str, pd.DataFrame], variant: Variant) -> list[Tr
                     exit_px=opens[sym][m_next],
                 )
             )
-        for sym in short_syms:
+        for sym in sorted(short_syms):
             trades.append(
                 Trade(
                     symbol=sym,

@@ -6,7 +6,7 @@ import pandas as pd
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
-from conftest import DAY, T0, assert_shift_invariant  # noqa: E402
+from conftest import DAY, T0, assert_shift_invariant, make_daily  # noqa: E402
 from edge_lab.candidates.xs_momentum import VARIANTS, generate_trades  # noqa: E402
 
 V30 = next(v for v in VARIANTS if v.name == "lookback_30d")
@@ -51,3 +51,28 @@ def test_holding_is_one_week(universe12):
 def test_shift_invariance(universe12):
     cut = T0 + 200 * DAY
     assert_shift_invariant(generate_trades, universe12, V30, cut)
+
+
+def test_small_universe_one_long_one_short_no_overlap():
+    syms = [f"S{i:02d}USDT" for i in range(7)]
+    drifts = {syms[0]: 0.004, syms[-1]: -0.004}
+    daily = make_daily(syms, drifts=drifts)
+    trades = generate_trades(daily, V30)
+    assert trades, "no trades generated"
+
+    by_week: dict[int, list] = {}
+    for t in trades:
+        by_week.setdefault(t.entry_ts_ms, []).append(t)
+
+    for week_ts, week_trades in by_week.items():
+        longs = {t.symbol for t in week_trades if t.side == "LONG"}
+        shorts = {t.symbol for t in week_trades if t.side == "SHORT"}
+        assert len(longs) == 1, f"week {week_ts}: expected 1 long, got {longs}"
+        assert len(shorts) == 1, f"week {week_ts}: expected 1 short, got {shorts}"
+        assert not (longs & shorts), f"week {week_ts}: overlap {longs & shorts}"
+
+
+def test_single_symbol_universe_emits_no_trades():
+    daily = make_daily(["S00USDT"])
+    trades = generate_trades(daily, V30)
+    assert trades == []
