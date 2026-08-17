@@ -1,0 +1,247 @@
+"""Gate 2 — daily returns builder + CPCV/DSR, with a trials floor.
+
+Two pieces:
+
+`daily_returns_from_trades` turns a trade list into a calendar-daily net
+return series (float), honest about capital utilization — flat days (no
+open position) are included as 0.0 rather than dropped, so the resulting
+Sharpe/DSR is not inflated by silently compressing the timeline down to
+only the days a trade happened to be open.
+
+`run_gate2` composes CPCV path returns into a Deflated Sharpe Ratio with a
+`num_trials` floor, per the h4 kill-test precedent
+(`killtests/h4_information.py:134-155`). It deliberately does NOT use
+`cpcv.cpcv_to_dsr` — that helper hard-codes `num_trials=len(paths)` and
+cannot honor a floor set by the battery's known search-space size
+(CLAUDE.md §2: 8 candidate variants + 8 historical families = 16).
+"""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
+from typing import Mapping, Sequence
+
+import numpy as np
+import pandas as pd
+
+from edge_lab.config import (
+    CPCV_EMBARGO_PCT,
+    CPCV_K_TEST_GROUPS,
+    CPCV_N_GROUPS,
+    DSR_THRESHOLD,
+    MIN_POSITIVE_PATH_FRAC,
+    NUM_TRIALS_FLOOR,
+)
+from edge_lab.trades import Trade
+
+# killtests/*.py do absolute `from killtests.xxx import ...` imports, which
+# assume `backtesting/` (this file's parent) is on sys.path. Every existing
+# entry point arranges that already; this bootstrap makes gate2.py
+# self-sufficient too, so importing edge_lab.gate2 directly never depends
+# on caller ordering.
+_BACKTESTING = str(Path(__file__).resolve().parents[1])
+if _BACKTESTING not in sys.path:
+    sys.path.insert(0, _BACKTESTING)
+
+from killtests.offline_ensemble import _load_kernels  # noqa: E402
+
+DAY = 86_400_000
+
+
+@dataclass
+class Gate2Result:
+    dsr: float
+    pooled_pf: float
+    positive_path_frac: float
+    n_paths_valid: int
+    n_samples: int
+    sharpe_mean: float
+    sharpe_std: float
+    passed: bool
+    reasons: list[str]
+
+
+def _index_closes(
+    daily_closes: Mapping[str, pd.DataFrame],
+) -> dict[str, dict[int, float]]:
+    """Per-symbol {day_number: close}, day_number = ts_ms // DAY."""
+    return {
+        symbol: {
+            int(ts_ms) // DAY: float(close)
+            for ts_ms, close in zip(df["ts_ms"], df["close"])
+        }
+        for symbol, df in daily_closes.items()
+    }
+
+
+def _close(indexed: dict[int, float], day: int, symbol: str) -> float:
+    try:
+        return indexed[day]
+    except KeyError as exc:
+        raise KeyError(f"no daily close for {symbol} on day {day}") from exc
+
+
+def daily_returns_from_trades(
+    trades: Sequence[Trade],
+    daily_closes: Mapping[str, pd.DataFrame],
+    start_ms: int,
+    end_ms: int,
+    cost_bps_rt: Mapping[str, Decimal],
+    funding: Mapping[str, list],
+) -> pd.Series:
+    """Calendar-daily net return series (float) over [start_ms, end_ms].
+
+    Flat days (no trade open) are included at 0.0 — an honest capital
+    utilization measure rather than a timeline that silently skips to only
+    the days something happened.
+
+    Per trade per day: fractional close-to-close return of its symbol,
+    signed by side. Entry day uses entry_px -> that day's close; exit day
+    uses the previous day's close -> exit_px; a trade opened and closed
+    within the same calendar day uses entry_px -> exit_px directly. Half
+    the round-trip cost (`cost_bps_rt / 2 / 10000`) is deducted on the
+    entry day and half on the exit day (both halves land on the same day
+    for a same-day trade, reconstituting the full round-trip cost).
+    Funding settlements inside the trade's window are applied on their own
+    day using `te_costs.funding_cost`'s sign convention: LONG pays a
+    positive rate (a cost, i.e. a NEGATIVE return contribution); SHORT is
+    paid a positive rate (a positive return contribution).
+
+    Concurrent trades are equal-weighted: each day's summed contribution
+    (price returns + costs + funding, across every trade touching that
+    day) is divided by `max(1, n_open_that_day)`.
+    """
+    start_day = start_ms // DAY
+    end_day = end_ms // DAY
+    n_days = end_day - start_day + 1
+    ret_sum = np.zeros(n_days, dtype=float)
+    n_open = np.zeros(n_days, dtype=np.int64)
+
+    closes_by_symbol = _index_closes(daily_closes)
+
+    for t in trades:
+        closes = closes_by_symbol[t.symbol]
+        entry_day = t.entry_ts_ms // DAY
+        exit_day = t.exit_ts_ms // DAY
+        sign = 1.0 if t.side == "LONG" else -1.0
+
+        lo = max(entry_day, start_day)
+        hi = min(exit_day, end_day)
+        for day in range(lo, hi + 1):
+            idx = day - start_day
+            n_open[idx] += 1
+            if day == entry_day and day == exit_day:
+                price_ret = t.exit_px / t.entry_px - 1.0
+            elif day == entry_day:
+                price_ret = _close(closes, day, t.symbol) / t.entry_px - 1.0
+            elif day == exit_day:
+                price_ret = t.exit_px / _close(closes, day - 1, t.symbol) - 1.0
+            else:
+                price_ret = (
+                    _close(closes, day, t.symbol) / _close(closes, day - 1, t.symbol)
+                    - 1.0
+                )
+            ret_sum[idx] += sign * price_ret
+
+        cost_leg = float(cost_bps_rt.get(t.symbol, Decimal("0"))) / 2.0 / 10000.0
+        if start_day <= entry_day <= end_day:
+            ret_sum[entry_day - start_day] -= cost_leg
+        if start_day <= exit_day <= end_day:
+            ret_sum[exit_day - start_day] -= cost_leg
+
+        for settlement in funding.get(t.symbol, []):
+            if t.entry_ts_ms <= settlement.ts_ms <= t.exit_ts_ms:
+                day = settlement.ts_ms // DAY
+                if start_day <= day <= end_day:
+                    rate = float(settlement.rate)
+                    contrib = -rate if t.side == "LONG" else rate
+                    ret_sum[day - start_day] += contrib
+
+    net = ret_sum / np.maximum(1, n_open)
+    index = [start_ms + i * DAY for i in range(n_days)]
+    return pd.Series(net, index=index, dtype=float)
+
+
+def run_gate2(
+    returns: pd.Series,
+    label_horizon_days: int,
+    num_trials_floor: int = NUM_TRIALS_FLOOR,
+) -> Gate2Result:
+    """CPCV path construction -> pooled PF + DSR (with a trials floor).
+
+    `cv.split` raises ValueError when there are too few samples for the
+    configured groups/embargo/horizon; that is reported as a failed gate,
+    never allowed to crash the battery.
+    """
+    n_samples = len(returns)
+    k = _load_kernels()
+    rets = returns.to_numpy(dtype=float)
+    cv = k["CombinatorialPurgedCV"](
+        n_groups=CPCV_N_GROUPS,
+        k_test_groups=CPCV_K_TEST_GROUPS,
+        embargo_pct=CPCV_EMBARGO_PCT,
+    )
+
+    try:
+        paths: dict[int, list[np.ndarray]] = {}
+        for split in cv.split(n_samples=len(rets), label_horizon=label_horizon_days):
+            paths.setdefault(split.path_id, []).append(rets[split.test_idx])
+    except ValueError as exc:
+        return Gate2Result(
+            dsr=float("nan"),
+            pooled_pf=float("nan"),
+            positive_path_frac=float("nan"),
+            n_paths_valid=0,
+            n_samples=n_samples,
+            sharpe_mean=float("nan"),
+            sharpe_std=float("nan"),
+            passed=False,
+            reasons=[f"insufficient samples: {exc}"],
+        )
+
+    returns_per_path = [np.concatenate(chunks) for chunks in paths.values()]
+    dist = k["cpcv_sharpe_distribution"](returns_per_path)
+    dsr = float(
+        k["deflated_sharpe_ratio"](
+            rets,
+            num_trials=max(num_trials_floor, int(dist["n_paths"])),
+            trial_sharpes_variance=float(dist["std"]) ** 2,
+        )
+    )
+
+    all_path_rets = np.concatenate(returns_per_path)
+    wins = float(all_path_rets[all_path_rets > 0].sum())
+    losses = abs(float(all_path_rets[all_path_rets < 0].sum()))
+    pooled_pf = wins / losses if losses else float("inf")
+
+    per_path_means = np.array(
+        [float(p.mean()) if p.size else 0.0 for p in returns_per_path]
+    )
+    positive_path_frac = float(np.mean(per_path_means > 0))
+
+    reasons: list[str] = []
+    if not (dsr >= DSR_THRESHOLD):
+        reasons.append(f"dsr {dsr:.4f} below threshold {DSR_THRESHOLD}")
+    if not (pooled_pf > 1.0):
+        reasons.append(f"pooled_pf {pooled_pf:.4f} not > 1.0")
+    if not (positive_path_frac >= MIN_POSITIVE_PATH_FRAC):
+        reasons.append(
+            f"positive_path_frac {positive_path_frac:.4f} below "
+            f"{MIN_POSITIVE_PATH_FRAC}"
+        )
+    passed = not reasons
+
+    return Gate2Result(
+        dsr=dsr,
+        pooled_pf=pooled_pf,
+        positive_path_frac=positive_path_frac,
+        n_paths_valid=int(dist["n_paths"]),
+        n_samples=n_samples,
+        sharpe_mean=float(dist["mean"]),
+        sharpe_std=float(dist["std"]),
+        passed=passed,
+        reasons=reasons,
+    )
