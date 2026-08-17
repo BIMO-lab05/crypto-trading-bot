@@ -74,7 +74,17 @@ def test_shift_invariance_manual():
     from conftest import assert_shift_invariant
 
     daily = make_daily(["AUSDT"], n_days=120, seed=2)
-    f = _funding("AUSDT", "0.003", n=360)
+    n = 360
+    # flips at settlement 90 = day 30, well before cut (day 60) — the constant-rate
+    # fixture used elsewhere in this file never fails persistence in either run, so
+    # it compares two empty trade sets; this flip forces a real, non-empty closed
+    # trade (SHORT day1->day32) on both sides of the comparison.
+    rates = ["0.003"] * 90 + ["-0.003"] * 270
+    f = {
+        "AUSDT": pd.DataFrame(
+            {"ts_ms": [T0 + i * EIGHT_H for i in range(n)], "funding_rate": rates}
+        )
+    }
     cut = T0 + 60 * DAY
     gen = lambda d, v: generate_trades(
         d,
@@ -86,3 +96,13 @@ def test_shift_invariance_manual():
         v,
     )
     assert_shift_invariant(gen, daily, V15, cut)
+
+    # Forward regression guard: even with the COMPLETE funding series visible to
+    # both runs (only price history truncated), past trades must not change. This
+    # specifically catches a bug where the signal used "the last 3 settlements in
+    # the whole series" instead of "the last 3 strictly before t_open" — such a
+    # bug would be invisible to the truncated-funding comparison above.
+    def gen_full_funding(d, v):
+        return generate_trades(d, f, v)
+
+    assert_shift_invariant(gen_full_funding, daily, V15, cut)
