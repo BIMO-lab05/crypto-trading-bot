@@ -936,3 +936,13 @@ Owner approved all five decisions (plan/order, pause trader, DEFAULT_LEVERAGE=1.
 - Live run 2026-08-17: pinned top-30 universe (475 excluded), fetched 90 files — 30×730d daily, 30×365d 240m, 30 funding histories (repo's first). Gate 0: 30/30 PASS both intervals, zero gaps.
 - **Verdicts: 4× REJECT, no edge.** xs_momentum best ratio_taker 1.246 (< 2× hurdle, all 3 variants KILL); vol_breakout 0.917 (KILL); funding_carry thresh_2x cleared Gate 1 (2.603) but Gate 2 DSR 5.8e-10, positive_path_frac 0.444; lf_trend cleared Gate 1 big (4.85, 15.51) but Gate 2 DSR ≤ 3.8e-05, pooled PF ≈ 1.0 — trend profits are a few outlier trades, not a repeatable distribution. Evidence: `.planning/evidence/killtests/*-verdict-20260817.{md,json}`, `battery-summary-20260817.md`.
 - Honest close-out per spec §1: clean 4× REJECT is the infrastructure working — four ideas disproved for ~$0 in live risk. No PASS, so no forward-paper-test recommendation exists. Note for the record: plan's claim that `backtesting/data/*_bybit.csv` are committed was wrong — `.gitignore:139 data/` covers the tree, zero data CSVs tracked; funding CSVs force-added per plan default (1.9 MB, 30 files).
+
+## 2026-08-18 — Report-error repair (daily-report 500 + TA interval 500)
+
+- Operator asked to fix errors in today/yesterday's reports + current workflow. Findings + design: `docs/superpowers/specs/2026-08-18-report-error-repair-design.md` (approved).
+- **Root cause of every daily summary's "trade history unavailable, best/worst=0"**: `GET /api/v1/trading/trades/history` 500'd — handler read `pos.id` (PK is `position_id`) and the `status=ALL` branch called a repository method that never existed. Fixed `35d0dca` + regression tests (all three status paths). Live-verified: 200 with real UUIDs; ALL combines open+closed. Next 21:00 report should carry best/worst.
+- **TA 500 on `interval=invalid`**: fetcher now validates normalized interval against market-data's VALID_INTERVALS, 422 before upstream call. Fixed `843b03e` + tests (incl. cross-service set-agreement pin). Live: 422 invalid / 200 valid.
+- WS1-B dormant-strategy precision work landed concurrently via the parallel WS1-B session (`4bf4b76`) — not duplicated here; its in-flight working-tree edits left untouched.
+- Not fixed (by design): portfolio-manager→engine sync ReadTimeouts (transient, self-heal); edge battery 4× REJECT (verdicts, not defects).
+- Deploy: both images rebuilt BuildKit-off; persistent WSL vsock credential-helper failure bypassed with a clean `DOCKER_CONFIG` (`{"auths":{}}`) — new workaround, works when retry does not. Containers recreated, both healthy, no boot errors.
+- Pre-existing (unchanged): TA `test_comprehensive_80.py` 2 failures reproduce at clean HEAD.
