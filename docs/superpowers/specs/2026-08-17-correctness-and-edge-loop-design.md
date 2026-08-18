@@ -76,7 +76,7 @@ The units trap applies (`max_risk_per_trade` fraction vs `*_pct` percents) — e
 | `services/trading-engine/app/paper_trading.py:266` | Paper engine never accrues funding (~$49 unmodelled in H3 economics). Add funding accrual on held positions |
 | `services/trading-engine/app/backtesting/backtest_engine.py:422` | In-service backtester fills stop/TP exits at bar.close, not the stop price. Fill at stop with slippage |
 | `backtesting/run_phase1_backtest.py:494` | Research runners default to $10,000 — violate the $100 invariant; source from `shared.account` |
-| `backtesting/screen.py:318` | Third hand-copied slippage table — add a drift-guard test asserting agreement with the paper engine's model |
+| `backtesting/screen.py:318` + `backtesting/edge_lab/config.py:16-25` | **Three** hand-copied slippage tables, not two (corrected 2026-08-17): the canonical `paper_slippage.DEFAULT_SLIPPAGE_BPS`, `screen.py`'s `main()` copy (standalone CLI only), and `edge_lab.config.SLIPPAGE_BPS` — which is the one `gate1.py` screens against, so it decided every battery verdict. Add a drift-guard test pinning **all** of them to the paper engine's model |
 | `services/trading-engine/app/config.py:36` | `portfolio_manager_url` default points at 8006 (notification-service), not 8003 |
 | `services/trading-engine/app/live_trading.py:229` | LIVE shared path records fills at reference price with zero fees and overwrites the paper cash ledger. **Fence it** (hard error / isolation), do not build it out — LIVE is a non-goal |
 
@@ -135,7 +135,7 @@ Work is cut into three plans on the **test-suite boundary**, so each plan has ex
 | Plan | Suite / cwd | Baseline | Contents |
 |---|---|---|---|
 | A — technical-analysis | `cd services/technical-analysis` | 3 known failures → 2 after the empty-vote fix | empty-vote neutral fallback (LIVE), squeeze_momentum precision (LIVE), `sqzmom_enhanced.to_dict` precision, Query defaults from Settings (LIVE), ADX + SQZMOM legs and the Volume multiplier (LIVE), AST guard created over A's files |
-| B — trading-engine | `cd services/trading-engine` | 13 known failures | exposure remaining-quantity, sizing clamp units, daily-limit + `_record_trade`, heat-gate move, slippage stats, performance-tracker net P&L, funding accrual, SQZMOM re-enable, ADX category, MTF pair-fix (DORMANT), VP delete (DORMANT), `portfolio_manager_url`, LIVE fence, dormant-strategy rounding, AST guard extended to B's files |
+| B — trading-engine | `cd services/trading-engine` | 13 known failures | exposure remaining-quantity, sizing clamp units, daily-limit + `_record_trade`, heat-gate move, slippage stats, performance-tracker net P&L, funding accrual, **in-service backtester stop/TP fill price**, SQZMOM re-enable, ADX category, MTF pair-fix (DORMANT), VP delete (DORMANT), `portfolio_manager_url`, LIVE fence, dormant-strategy rounding, AST guard extended to B's files |
 | C — research layer + WS2 | repo root | repo-root suite | `screen.py` table hoist + drift guard, `run_phase1` capital + bespoke AST test, trial ledger + verdicts threading, battery #1 manifest and candidates |
 
 Ordering: A → B → C. The two research-layer fixes live in C rather than B because they are prerequisites for *trusting* battery verdicts, not for engine correctness. WS2 battery #1 runs only after A and B are merged and deployed — verdicts must come from the honest engine. Checkpoint after every battery; operator directs battery N+1 or stops.
