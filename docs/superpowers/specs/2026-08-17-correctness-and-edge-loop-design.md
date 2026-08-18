@@ -29,27 +29,32 @@ Sources: Phase-22 rounding catalogue, `.planning/evidence/profit-path-audit-2026
 
 The class already caused 30+ flip-flop ADA losses (fixed instance: `487d1bd`). Remaining sites destroy sub-$1 price/stop precision.
 
-- Add one tick-size-aware formatting helper per service:
-  - trading-engine: sources tick size from `InstrumentsCache` (healthy 5/5 since 2026-08-16).
-  - technical-analysis: static tick map with conservative fallback — indicator code makes no network/DB calls per the indicator contract.
+**Amended 2026-08-17 after recon — no tick-size helper is built.** The shipped PRICE-01 precedent (`research_optimized_strategy.py:722-724`) is to *remove* the rounding, not to quantize: strategy-layer levels are in-engine triggers compared against market price, never submitted to a venue. Neither `MomentumBreakoutStrategy` nor `TrendFollowingStrategy` has a `symbol` in scope to key a tick lookup, and quantization already has two owners at order time — `costs.quantize_price` and `limit_order_executor._round_to_tick`. The fix is `float(_)` / bare value.
+
 - Remove every price-domain 2dp rounding in:
-  - `services/trading-engine/app/strategies/momentum_breakout_strategy.py`
-  - `services/trading-engine/app/strategies/trend_following_strategy.py`
-  - `services/trading-engine/app/strategies/support_resistance_strategy.py` (SL/TP + indicator returns)
-  - `services/trading-engine/app/utils/support_resistance_detector.py`
-  - `services/technical-analysis/app/strategies/squeeze_momentum_strategy.py` (entry/stop/TP)
-  - Exact site enumeration happens at planning time via the audit grep; the AST guard below defines "done", not a fixed count.
-- Fix `support_resistance_strategy.py:380` — ATR rounded to 2dp; ADA ATR becomes 0.0 → ZeroDivisionError and degenerate stops. ATR is price-domain.
-- **Guard:** an AST-based invariant test banning price-domain `round(x, 2)` in strategy/indicator/detector code, modeled on the `$100` account-invariant AST test (`260803-4mt`).
+  - `services/trading-engine/app/strategies/momentum_breakout_strategy.py` (DORMANT — no runtime caller in `app/`)
+  - `services/trading-engine/app/strategies/trend_following_strategy.py` (DORMANT)
+  - `services/trading-engine/app/strategies/support_resistance_strategy.py` (DORMANT) — SL/TP + EMA + ATR
+  - `services/trading-engine/app/utils/support_resistance_detector.py` (DORMANT) — level price + zone bounds
+  - `services/technical-analysis/app/strategies/squeeze_momentum_strategy.py` (**LIVE** — served at `/api/v1/strategies/sqzmom/signal/{symbol}`) — entry/stop/TP
+  - `services/technical-analysis/app/indicators/sqzmom_enhanced.py` `to_dict` — bands/price at 4dp (library-contract rot; not on the live route)
+  - Non-price rounds (RSI, volume ratio, position fraction, strength score) are explicitly **excluded** — a blanket strip would be wrong.
+- Fix `support_resistance_strategy.py:380` — ATR rounded to 2dp. **Correction:** this does not raise `ZeroDivisionError`. `round(np.float64, 2)` preserves the numpy type and division by `np.float64(0.0)` yields `inf` with a RuntimeWarning, so the failure is *silent*: `atr_multiple=inf` and TP1/TP2 pinned exactly at entry. Also harden the vacuous guard at `:653` (`abs(total_distance) < atr * 1.5` is never true when `atr == 0.0`).
+- **Guard:** an AST-based invariant test banning `round(x, 2)` in a bounded `SCANNED_FILES` tuple, modeled on the `$100` account-invariant AST test (`260803-4mt`). `SCANNED_FILES` may list only files already fixed — ~17 out-of-scope sites exist in `app/indicators/*.py`, so the tuple grows per plan, keeping every commit green.
 
 ### 3B. Aggregator truth — legs that vote zero or never vote
 
-- **TA-AGG-01:** wire ADX, SQZMOM, and Volume indicators into the aggregator vote. They are computed today and never consulted.
-- `services/trading-engine/app/aggregation/enhanced_aggregator.py:317` — Phase-3 MTF leg is structurally always zero (0–1 score compared against a 50.0 threshold, plus a non-existent key). Fix scale and key.
-- `services/trading-engine/app/signal_aggregator.py:1288` — VP pipeline doubly dead (calls a non-existent TA route; uses `Decimal` without import). Repair or remove; no half-dead code path stays.
-- **TA-AGG-02/03:** MACD 5/35/5 and BB std-dev 2.5 move from hardcoded `Query(default=…)` literals in TA `main.py` to `settings.macd_*` / `settings.bollinger_std_dev` (values already correct; single-sourcing owed).
+**Amended 2026-08-17 after recon — the leg inventory in the original draft was wrong.** ADX has voted in the trading-engine since 2026-05-06 (`signal_aggregator.py:750`, active). Volume is deliberately **non-voting** by design: it is a post-vote confidence multiplier in `aggregation/validator.py`, and promoting it to a voter would double-count volume *and* inject systematic long bias through the `confirmed → BUY` mapping at `signal_aggregator.py:301-309`. There are two distinct aggregators — the trading-engine `SignalAggregator` class and the TA-side module function `get_aggregated_signal` (`handlers/analysis.py:19`); every task must name which.
 
-Ships **last** within WS1 (see §6 sequencing) because it changes live signal behavior; lands with a before/after replay comparison so the behavior change is measured, not assumed.
+Corrected item list:
+
+- **NEW (live defect, not in the original draft):** TA `get_aggregated_signal` returns `{signal: "BUY", confidence: 0.0}` when every indicator fails — a phantom directional label on zero information. `max()` over the all-zero weight dict returns `"BUY"`, which takes the directional branch and its `else 0.0` arm; the `0.5` neutral fallback is only reachable for `HOLD`. This is one of the 3 known-failing TA tests (`test_empty_signal_list_returns_neutral_fallback`). Highest value-per-line item in WS1.
+- **TA-side legs:** add ADX and Enhanced SQZMOM as voting legs to `get_aggregated_signal` (both computed in-service today, neither consulted). Volume enters as a **confidence multiplier** mirroring the engine's validator tiers — never as a vote, since its labels are `CONFIRM`/`REJECT` and would `KeyError` the weight dict into an HTTP 500.
+- **Engine dead leg:** `signal_aggregator.py:746` — `SQZMOM_ENHANCED` is commented out of `fetch_all_indicators`. Its disable rationale ("stuck at 0.50 HOLD") was root-caused and fixed 2026-05-05; the fetcher, its 1.4 metadata weight, and its VOLATILITY category all still exist. Re-enable deliberately.
+- **Engine ADX hygiene:** ADX is absent from `voter.py` `INDICATOR_CATEGORIES`, so it counts as its own `"OTHER"` category and weakens the diversity gate. One-line fix.
+- **Engine MTF (DORMANT — needs both `enable_ml_predictions` and `enable_multi_timeframe`):** `enhanced_aggregator.py:312/317` compares a 0–1 payload against a 50.0 threshold, and `:314` reads `signal_strength`, a key the TA payload never contains (correct key: `confidence`). **Both must land in one task** — either fix alone still yields a permanently-zero leg, so the test stays red.
+- **Engine VP: DELETE, not repair.** Unreachable by any flag or env (`enable_volume_profile` defaults False and `get_auto_trader()` never passes it), broken independently at two layers (wrong host + wrong envelope + wrong element shape; `Decimal` without import), zero tests, and every consumer already reads `.get(..., {})` so removal is a behavioral no-op. Repairing it would also activate a latent `TypeError` at `auto_trader.py:4139` (producer writes `take_profit` as a dict).
+- **TA-AGG-02/03:** TA `main.py` Query defaults move to the existing Settings fields — the correct names are `default_macd_fast` / `default_macd_slow` / `default_macd_signal`, `default_bb_period` / `default_bb_std`, and `default_rsi_period` (not `macd_*` / `bollinger_std_dev`). The engine deliberately relies on these endpoint defaults as the single source of truth, so an operator env override currently reaches `/analyze` but not `/indicators/macd` — a silent split-brain.
 
 ### 3C. Risk-rail integrity
 
@@ -90,8 +95,11 @@ The units trap applies (`max_risk_per_trade` fraction vs `*_pct` percents) — e
 Operator chose open-ended iteration ("iterate more batteries until something passes"). Unbounded candidate mining makes a lucky false positive inevitable unless the selection bar accounts for every trial ever made. Therefore:
 
 - `backtesting/edge_lab/trial_ledger.json` — append-only record of every variant ever gate-tested, seeded retroactively with the 2026-08-17 battery (8 variants) and the H-series killtests.
-- Gate 2 computes DSR with the trial count read from the ledger, not from the current battery. The pass bar rises monotonically across batteries.
-- A ledger entry is written even for candidates that die at Gate 1 — they were still trials.
+- Gate 2 computes DSR with the trial count read from the ledger, not from the current battery.
+- A ledger entry is written even for variants that die at Gate 1 or produce zero trades — they were still trials.
+- **Honest statement of when the rail actually binds (amended 2026-08-17).** `gate2.py:263` uses `num_trials=max(num_trials_floor, n_paths)`, and `n_paths` reaches 45 at the pinned CPCV 10/2 configuration (the H4 verdict records `num_trials_used: 45`). A ledger-derived count therefore changes nothing until it exceeds 45, or when a short series yields few variance-valid paths. The rail is still correct and still the right design — it binds where mining would otherwise be cheapest — but "the bar rises every battery" is false as a literal claim and must not be repeated in verdict docs.
+- **Threading requirement.** `Gate2Result` has no field recording the trials count actually used, and `verdicts.py` imports `NUM_TRIALS_FLOOR` directly at three render sites (`TRIALS_CAVEAT`, the criterion line, the JSON `thresholds` block). The effective floor must be threaded into `Gate2Result`, the variant record, and all three render sites — otherwise every future verdict doc states 16 while Gate 2 deflated against something else, and the docs' own "read live from `edge_lab.config`, not transcribed" claim becomes a lie.
+- `NUM_TRIALS_FLOOR = 16` stays pinned as the static lower bound (`config.py`'s docstring: changing a pinned value after verdicts exist invalidates them). The ledger count layers on top via `run_gate2`'s existing `num_trials_floor` parameter, which no production caller passes today.
 
 ### 4.3 Battery #1 seeds (finalized at pre-registration)
 
@@ -112,17 +120,25 @@ Operator chose open-ended iteration ("iterate more batteries until something pas
 ## 5. Testing and verification
 
 - **Test-first per defect:** failing test reproducing the defect → minimal fix → green. One defect per commit, `fix(service): …` messages, commits use pathspecs (shared-index discipline).
-- **Suites:** trading-engine and TA host runs from their service directories with `--no-cov` (cwd-sensitive). Known pre-existing failures (trading-engine 13: pairs_trading pandas 'H' + connector contract; TA 3) are not chased but must not grow — failure count asserted before/after.
+- **Suites:** trading-engine and TA host runs from their service directories with `--no-cov` (cwd-sensitive). Baselines verified 2026-08-17: trading-engine collects 2642 tests with **zero** collection errors (the old "13 collection errors" story is stale — `conftest.py` pinning `env_file=None` fixed it) and runs **13 known failures** (11 × `test_pairs_trading` pandas `'H'` alias, 2 × `TestLiveTradingResponseEnvelope` connector-contract stale mocks); technical-analysis collects 481 and runs **3 known failures** (2 × `test_comprehensive_80`, 1 × `test_signal_aggregator_confidence_zero` — which this work fixes, taking the baseline to 2). Known failures are not chased but must not grow; the count is asserted before and after every task. One known timing flake to ignore: `tests/unit/test_signal_cache.py::TestSignalCache::test_cache_entries_isolated`.
+- **The two `TestLiveTradingResponseEnvelope` failures were verified red before any of this work began** — they stub the retired `risk_manager.can_open_position` API. State this next to the LIVE-fence task or the fence will be blamed for them.
 - **New invariant guards:** price-domain-round AST test (§3A), screen slippage drift test (§3D).
 - **Deployment proof per repo standard:** rebuild + restart every touched service (stale in-memory state is the canonical false pass), `/verify-stack`, DB `SELECT` evidence — never an HTTP 200 alone.
 - **WS2 evidence:** every battery commits verdict docs + JSON + ledger append. No verbal verdicts.
 
 ## 6. Sequencing
 
-1. WS1-A precision → WS1-C risk rails → WS1-D measurement (independent, mechanical, no behavior redesign).
-2. WS1-B aggregator last within WS1 — behavior-changing; ships with before/after replay comparison.
-3. WS2 battery #1 only after WS1 complete and deployed (verdicts must come from the honest engine).
-4. Checkpoint after every battery; operator directs battery N+1 or stops.
+**Amended 2026-08-17.** The original "aggregator last" rule assumed the aggregator work was uniformly behavior-changing. Recon shows it splits across live and dormant code (the empty-vote defect and the TA legs are live; MTF and VP are dormant behind two default-False flags), so bucket order no longer tracks risk. **Sequence by liveness, and label every task LIVE or DORMANT.**
+
+Work is cut into three plans on the **test-suite boundary**, so each plan has exactly one suite, one known-failure baseline, and one reviewer gate:
+
+| Plan | Suite / cwd | Baseline | Contents |
+|---|---|---|---|
+| A — technical-analysis | `cd services/technical-analysis` | 3 known failures → 2 after the empty-vote fix | empty-vote neutral fallback (LIVE), squeeze_momentum precision (LIVE), `sqzmom_enhanced.to_dict` precision, Query defaults from Settings (LIVE), ADX + SQZMOM legs and the Volume multiplier (LIVE), AST guard created over A's files |
+| B — trading-engine | `cd services/trading-engine` | 13 known failures | exposure remaining-quantity, sizing clamp units, daily-limit + `_record_trade`, heat-gate move, slippage stats, performance-tracker net P&L, funding accrual, SQZMOM re-enable, ADX category, MTF pair-fix (DORMANT), VP delete (DORMANT), `portfolio_manager_url`, LIVE fence, dormant-strategy rounding, AST guard extended to B's files |
+| C — research layer + WS2 | repo root | repo-root suite | `screen.py` table hoist + drift guard, `run_phase1` capital + bespoke AST test, trial ledger + verdicts threading, battery #1 manifest and candidates |
+
+Ordering: A → B → C. The two research-layer fixes live in C rather than B because they are prerequisites for *trusting* battery verdicts, not for engine correctness. WS2 battery #1 runs only after A and B are merged and deployed — verdicts must come from the honest engine. Checkpoint after every battery; operator directs battery N+1 or stops.
 
 ## 7. Error handling
 
@@ -134,8 +150,11 @@ Operator chose open-ended iteration ("iterate more batteries until something pas
 
 | Risk | Mitigation |
 |---|---|
+| **Funding accrual is the highest-risk task.** A charge applied only to `self.balance` passes a naive test and never reaches reported P&L or the daily-loss breaker | It must flow through **both** ledgers: the balance line at `paper_trading.py:377` **and** `close_commission` into `close_position` **and** `reduce_position` — exactly how `close_commission` itself is dual-booked today. This is the documented "wired but never bites" trap at `paper_trading.py:256-266` |
+| **The obvious position-sizing fix is 100× wrong.** Multiplying auto_trader's fraction stop by 100 while leaving the `:216` formula alone cuts a 10% position to 5% — $5, exactly the venue floor — and rejects anything with a wider stop | Adopt the fraction contract in `position_sizing.py`; `kelly_position_sizing.py:366` is the checked reference (`max_risk_pct / stop_pct * 100`). Quote the DO-NOT verbatim in the task |
 | `auto_trader.py` is very large; three C-bucket fixes live in it | Surgical per-defect edits, no piggybacked refactors, test per fix |
-| Aggregator re-weighting changes live paper signals | Before/after replay comparison committed with the change; lands last |
-| Batteries may all REJECT indefinitely | Ledger-driven DSR keeps it honest; per-battery checkpoint gives the operator a stop lever; REJECT documented as deliverable |
-| Tick-size source unavailable at runtime (cache miss) | Conservative fallback (max known precision for the symbol class), fail-loud on unknown symbols |
+| Aggregator changes alter live TA signals | The live changes are narrow and each is pinned by a test asserting the specific defect two-sidedly; the dormant ones (MTF, VP) cannot change runtime behavior at all |
+| The exposure fix **breaks two currently-passing tests** (`tests/unit/test_risk_manager.py:254,269` use bare `Mock()`, so `getattr` returns a child Mock and `Decimal * Mock` raises `TypeError`) | Updating those two tests is a step inside that task, never a follow-up |
+| Batteries may all REJECT indefinitely | Ledger-driven DSR keeps it honest (within the limits stated in §4.2); per-battery checkpoint gives the operator a stop lever; REJECT documented as deliverable |
 | Fee/funding model drift across the three cost layers | Drift-guard test (§3D) pins them together |
+| The ruff format hook runs at 88 cols vs the repo's 100 and has stripped imports before | Surgical single-line edits; grep the diff for import churn after every edit that touches an import block |
