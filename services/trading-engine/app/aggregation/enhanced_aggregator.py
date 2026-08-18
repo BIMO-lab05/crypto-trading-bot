@@ -309,9 +309,15 @@ class EnhancedAggregator(CoreAggregator):
         if not mtf_analysis:
             return 0.0
 
-        alignment_score = mtf_analysis.get("alignment_score", 0.0)
+        # The TA payload reports alignment as a 0-1 fraction while the
+        # threshold below is a percentage. Same normalization the metadata
+        # builder already applies at _build_enhanced_signal:476-477.
+        raw_alignment = mtf_analysis.get("alignment_score", 0.0)
+        alignment_score = raw_alignment * 100 if raw_alignment <= 1 else raw_alignment
         overall_signal = mtf_analysis.get("overall_signal", "HOLD")
-        signal_strength = mtf_analysis.get("signal_strength", 0.0)
+        # The TA payload has no "signal_strength" key; confidence is the
+        # equivalent 0-1 figure. See the mapping at _build_enhanced_signal:486.
+        signal_strength = mtf_analysis.get("confidence", 0.0)
 
         # Check if alignment is good enough
         if alignment_score < self.min_alignment_score:
