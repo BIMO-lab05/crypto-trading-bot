@@ -632,7 +632,7 @@ class TrendFollowingStrategy:
             return 1.0
 
         current_volume = df["volume"].iloc[-1]
-        return round(current_volume / avg_volume, 2)
+        return round(current_volume / avg_volume, 2)  # non-price-round
 
     # =========================================================================
     # TREND ANALYSIS
@@ -1211,7 +1211,7 @@ class TrendFollowingStrategy:
                 PyramidLevel(
                     level=level + 1,  # Level 2, 3, etc.
                     entry_price=add_price,
-                    position_pct=round(level_size, 4),
+                    position_pct=round(level_size, 4),  # non-price-round
                     condition=f"Price reaches {add_price:.2f} with {PYRAMID_MIN_PROFIT_PCT * 100:.1f}%+ profit",
                 )
             )
@@ -1263,7 +1263,7 @@ class TrendFollowingStrategy:
             MIN_POSITION_SIZE, min(adjusted_position, MAX_POSITION_SIZE)
         )
 
-        return round(final_position, 4)
+        return round(final_position, 4)  # non-price-round
 
     def _classify_signal_strength(
         self, confidence: float, indicators_aligned: int

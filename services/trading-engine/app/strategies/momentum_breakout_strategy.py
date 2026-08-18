@@ -578,7 +578,7 @@ class MomentumBreakoutStrategy:
             return 1.0
 
         current_volume = df["volume"].iloc[-1]
-        return round(current_volume / avg_volume, 2)
+        return round(current_volume / avg_volume, 2)  # non-price-round
 
     # =========================================================================
     # SQUEEZE AND CONSOLIDATION DETECTION
@@ -1190,7 +1190,7 @@ class MomentumBreakoutStrategy:
             f"conf_mult={confidence_multiplier:.2f}, final={final_position:.4f}"
         )
 
-        return round(final_position, 4)
+        return round(final_position, 4)  # non-price-round
 
     def _classify_signal_strength(
         self, confidence: float, indicators_aligned: int

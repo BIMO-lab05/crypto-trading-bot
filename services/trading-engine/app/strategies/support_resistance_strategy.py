@@ -332,7 +332,7 @@ class SupportResistanceStrategy:
         rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
 
-        return round(rsi, 2)
+        return round(rsi, 2)  # non-price-round
 
     def _calculate_ema(self, df: pd.DataFrame, period: int) -> float:
         """
@@ -403,7 +403,7 @@ class SupportResistanceStrategy:
             return 1.0
 
         current_volume = df["volume"].iloc[-1]
-        return round(current_volume / avg_volume, 2)
+        return round(current_volume / avg_volume, 2)  # non-price-round
 
     def _classify_market_condition(
         self, df: pd.DataFrame, atr: float, current_price: float
@@ -763,7 +763,7 @@ class SupportResistanceStrategy:
             f"conf_mult={confidence_multiplier:.2f}, final={final_position:.4f}"
         )
 
-        return round(final_position, 4)
+        return round(final_position, 4)  # non-price-round
 
     def generate_signal(
         self,

@@ -632,14 +632,14 @@ class SupportResistanceDetector:
                 # collapsed zone_low and zone_high onto one tick at ADA scale
                 # (PRICE-01).
                 price=float(cluster['level_price']),
-                strength=round(strength, 4),
+                strength=round(strength, 4),  # non-price-round
                 strength_category=strength_category,
                 touch_count=cluster['touch_count'],
                 last_touch_time=last_touch_time,
                 touches=cluster['touches'],
                 zone_low=float(cluster['min_price']),
                 zone_high=float(cluster['max_price']),
-                avg_volume_at_touches=round(avg_touch_volume, 2),
+                avg_volume_at_touches=round(avg_touch_volume, 2),  # non-price-round
                 metadata={
                     'lookback': lookback,
                     'swing_window': self.swing_window,
@@ -733,14 +733,14 @@ class SupportResistanceDetector:
             # Create ResistanceLevel object
             level = ResistanceLevel(
                 price=float(cluster['level_price']),
-                strength=round(strength, 4),
+                strength=round(strength, 4),  # non-price-round
                 strength_category=strength_category,
                 touch_count=cluster['touch_count'],
                 last_touch_time=last_touch_time,
                 touches=cluster['touches'],
                 zone_low=float(cluster['min_price']),
                 zone_high=float(cluster['max_price']),
-                avg_volume_at_touches=round(avg_touch_volume, 2),
+                avg_volume_at_touches=round(avg_touch_volume, 2),  # non-price-round
                 metadata={
                     'lookback': lookback,
                     'swing_window': self.swing_window,

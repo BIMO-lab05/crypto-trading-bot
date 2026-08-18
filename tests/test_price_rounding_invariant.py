@@ -18,9 +18,11 @@ Dimensionless quantities (RSI 0-100, confidence 0-1, volume ratios, position
 fractions, strength scores) are legitimately rounded and must not trip this.
 Scope is per-file, so those sites are exempted per LINE: a round() call whose
 source line ends in the ALLOW_MARKER comment below is skipped. Four such
-sites survive in the two files scanned today - the strategy's `confidence`,
-and the indicator's `momentum_strength`, `band_width_ratio` and
-_calculate_confidence return. Marking a line is a claim that the value is
+sites survive in the two technical-analysis files scanned first - the
+strategy's `confidence`, and the indicator's `momentum_strength`,
+`band_width_ratio` and _calculate_confidence return. WS1-B's four
+trading-engine files carry twelve more (volume ratios, RSI, position
+fractions, strength scores). Marking a line is a claim that the value is
 dimensionless; do not use it to silence a price.
 """
 
@@ -37,13 +39,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCANNED_FILES: tuple[str, ...] = (
     "services/technical-analysis/app/strategies/squeeze_momentum_strategy.py",
     "services/technical-analysis/app/indicators/sqzmom_enhanced.py",
+    # WS1-B: dormant strategy layer, cleaned 2026-08-17
+    "services/trading-engine/app/strategies/momentum_breakout_strategy.py",
+    "services/trading-engine/app/strategies/trend_following_strategy.py",
+    "services/trading-engine/app/strategies/support_resistance_strategy.py",
+    "services/trading-engine/app/utils/support_resistance_detector.py",
 )
 
 # Not yet covered, tracked deliberately:
 #   the OTHER services/technical-analysis/app/indicators/*.py modules
 #                                                     (~17 sites, PRICE-02)
 #   services/technical-analysis/app/handlers/sqzmom.py (4dp momentum)
-#   trading-engine strategy + detector files           (added by WS1-B)
+#   services/trading-engine/app/strategies/simple_rsi_strategy.py (2 price sites at 4dp, :121-122)
 
 BANNED_NDIGITS = frozenset({2, 4})
 
