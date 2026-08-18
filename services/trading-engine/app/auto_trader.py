@@ -3185,8 +3185,12 @@ class AutoTrader:
                 perf_tracker = get_performance_tracker()
                 perf_tracker.add_trade(
                     closed,
-                    Decimal(str(current_price)),
-                    datetime.now(timezone.utc),
+                    # The slipped fill the engine recorded, not the pre-trade
+                    # reference tick. getattr-with-fallback because the
+                    # get_position miss above can hand back the pre-close
+                    # object, whose exit_price is still None.
+                    getattr(closed, "exit_price", None) or Decimal(str(current_price)),
+                    getattr(closed, "closed_at", None) or datetime.now(timezone.utc),
                 )
             except Exception as perf_err:
                 logger.debug(f"[MONITOR] Perf tracker note: {perf_err}")
