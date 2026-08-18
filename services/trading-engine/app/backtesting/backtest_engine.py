@@ -419,17 +419,45 @@ class BacktestEngine:
             f"SL: {signal.stop_loss}, TP: {signal.take_profit}"
         )
 
-    def _close_position(self, bar: OHLCV, exit_reason: str) -> None:
-        """Close existing position"""
+    def _close_position(
+        self,
+        bar: OHLCV,
+        exit_reason: str,
+        fill_price: Optional[float] = None,
+        apply_slippage: bool = True,
+    ) -> None:
+        """Close existing position.
+
+        fill_price is the reference the exit actually fills against, supplied
+        by the caller that knows why the exit fired:
+
+          - stop exits pass the stop level already clamped to bar.open (a
+            gap-through cannot fill at a price the market never traded) and
+            leave apply_slippage True: a stop is a market order once
+            triggered, so adverse slippage is applied here on top;
+          - take-profit exits pass the limit level with apply_slippage=False:
+            a resting limit fills at its own price or better, so booking
+            exactly its price is the convention that cannot flatter a gap;
+          - signal and backtest_end exits pass neither and keep bar.close.
+
+        Deliberately keyed on these arguments and NOT on exit_reason:
+        _process_signal forwards an arbitrary reason string out of
+        signal.metadata, so a strategy emitting the literal "stop_loss" with
+        no stop set must not be able to reach a stop-priced branch.
+        """
         if not self._position:
             return
 
-        # Apply slippage to exit price
-        slippage_amount = bar.close * (self.config.slippage_pct / 100)
+        # Apply slippage to exit price. Stops and TPs hand us their own
+        # reference; everything else still fills at the bar close.
+        reference = bar.close if fill_price is None else fill_price
+        slippage_amount = (
+            reference * (self.config.slippage_pct / 100) if apply_slippage else 0.0
+        )
         if self._position.side == "long":
-            exit_price = bar.close - slippage_amount
+            exit_price = reference - slippage_amount
         else:
-            exit_price = bar.close + slippage_amount
+            exit_price = reference + slippage_amount
 
         # Calculate P&L
         if self._position.side == "long":
@@ -462,7 +490,13 @@ class BacktestEngine:
             pnl=net_pnl,
             pnl_pct=pnl_pct,
             commission=commission * 2,  # Entry + exit commission
-            slippage=slippage_amount * 2,
+            # Exit-leg slippage is the real figure computed above (zero for a
+            # take-profit limit). The entry leg is approximated at the same
+            # rate off the entry price, because the entry bar is not retained
+            # on the Position - it was previously approximated as this same
+            # doubling off the EXIT bar's close, which was worse.
+            slippage=slippage_amount
+            + self._position.entry_price * (self.config.slippage_pct / 100),
             exit_reason=exit_reason,
         )
         self._trades.append(trade)
@@ -492,30 +526,53 @@ class BacktestEngine:
         if not self._position:
             return
 
+        # The fill reference is computed HERE, where the level has just been
+        # proven non-None by the trigger comparison. Stops clamp to bar.open so
+        # a gap-through fills at the open rather than at a price the market
+        # never traded after it. Take-profits are resting limits and fill at
+        # their own level.
         if self._position.side == "long":
             # Check stop loss
             if self.config.use_stop_loss and self._position.stop_loss:
                 if bar.low <= self._position.stop_loss:
-                    self._close_position(bar, "stop_loss")
+                    self._close_position(
+                        bar,
+                        "stop_loss",
+                        fill_price=min(self._position.stop_loss, bar.open),
+                    )
                     return
 
             # Check take profit
             if self.config.use_take_profit and self._position.take_profit:
                 if bar.high >= self._position.take_profit:
-                    self._close_position(bar, "take_profit")
+                    self._close_position(
+                        bar,
+                        "take_profit",
+                        fill_price=self._position.take_profit,
+                        apply_slippage=False,
+                    )
                     return
 
         else:  # short position
             # Check stop loss
             if self.config.use_stop_loss and self._position.stop_loss:
                 if bar.high >= self._position.stop_loss:
-                    self._close_position(bar, "stop_loss")
+                    self._close_position(
+                        bar,
+                        "stop_loss",
+                        fill_price=max(self._position.stop_loss, bar.open),
+                    )
                     return
 
             # Check take profit
             if self.config.use_take_profit and self._position.take_profit:
                 if bar.low <= self._position.take_profit:
-                    self._close_position(bar, "take_profit")
+                    self._close_position(
+                        bar,
+                        "take_profit",
+                        fill_price=self._position.take_profit,
+                        apply_slippage=False,
+                    )
                     return
 
     def _update_trailing_stop(self, bar: OHLCV) -> None:
