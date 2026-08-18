@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Repair fourteen correctness defects in the trading-engine so that risk gates measure what they claim, cost accounting is complete, sizing statistics are honest, and dead code stops pretending to be alive — making every subsequent measurement of the system trustworthy.
+**Goal:** Repair fifteen correctness defects in the trading-engine so that risk gates measure what they claim, cost accounting is complete, sizing statistics are honest, reported backtest fills are the fills the strategy asked for, and dead code stops pretending to be alive — making every subsequent measurement of the system trustworthy.
 
-**Architecture:** Fourteen independent, surgical changes to an existing service. One new capability (perp funding accrual on paper closes), one deletion (an unreachable volume-profile pipeline), one safety fence (the LIVE engine), and eleven repairs. Each task is test-first: write a test that fails against current code, make it pass with the minimal edit, commit. No refactors, no new abstractions.
+**Architecture:** Fifteen independent, surgical changes to an existing service. One new capability (perp funding accrual on paper closes), one deletion (an unreachable volume-profile pipeline), one safety fence (the LIVE engine), and twelve repairs. Each task is test-first: write a test that fails against current code, make it pass with the minimal edit, commit. No refactors, no new abstractions.
 
 **Tech Stack:** Python 3.12, FastAPI, pydantic v2 / pydantic-settings v2, `Decimal` for money, pytest (`asyncio_mode = auto`), `unittest.mock`.
 
@@ -20,7 +20,7 @@ These apply to **every** task and are not repeated per step.
   sys.path.insert(0, str(_REPO_ROOT))
   from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
   ```
-  Do **not** copy the `Decimal("10000.00")` fixtures that still live in `tests/conftest.py` (lines 299, 304, 333–334) — those are a known residual, not a pattern.
+  `parents[3]` is correct **only for a file at `tests/` depth**. From `tests/unit/` it resolves to `services/`, not the repo root — use `parents[4]` there, or omit the block entirely when the file never imports `shared.account` (Task 6's test is the one such file in this plan). Do **not** copy the `Decimal("10000.00")` fixtures that still live in `tests/conftest.py` (lines 299, 304, 333–334) — those are a known residual, not a pattern.
 - **Run every test from the service directory:** `cd services/trading-engine`. `config.py` declares `env_file=".env"`, which pydantic-settings resolves relative to CWD.
 - **Always pass `--no-cov`.** The service `pytest.ini` injects `--cov=app`; the repo-root one injects coverage reporting and `--strict-config`.
 - **These tests cannot run in-container.** The image copies `app/` only — no `tests/`, no `shared/`.
@@ -60,7 +60,8 @@ These apply to **every** task and are not repeated per step.
 | `app/config.py` | Settings. | 7, 9 |
 | `app/live_trading.py` | LIVE engine — fenced, not repaired. | 10 |
 | `app/strategies/{momentum_breakout,trend_following,support_resistance}_strategy.py`, `app/utils/support_resistance_detector.py` | Dormant strategy layer carrying price-domain rounding. | 13 |
-| `tests/test_price_rounding_invariant.py` (repo root) | AST guard created by Plan A. | 14 |
+| `tests/test_price_rounding_invariant.py` (repo root) | AST guard created by Plan A, including its `ALLOW_MARKER` opt-out. | 14 |
+| `app/backtesting/backtest_engine.py` | In-service backtester. HTTP-reachable via `/api/v1/backtest/*`; prices every exit off `bar.close`. | 15 |
 
 ---
 
@@ -125,7 +126,17 @@ def risk_manager():
 
     settings = Mock()
     settings.max_total_exposure_pct = 80.0
-    settings.max_open_positions = 20
+    # The ALLOW path of check_position_limits does not return at the exposure
+    # branch - it falls through to should_halt_trading() (risk_manager.py:269),
+    # which evaluates
+    #   Decimal(str(settings.paper_initial_balance))
+    #     * Decimal(str(settings.max_daily_loss_pct / 100))
+    # at risk_manager.py:87-89. A bare Mock raises InvalidOperation there, so
+    # these two lines are what make the post-fix green state reachable at all.
+    # 12.0 is the ADR-028 daily-loss breaker; daily_pnl is Decimal("0") so the
+    # branch clears. max_open_positions is NOT read by check_position_limits.
+    settings.paper_initial_balance = float(ACCOUNT_EQUITY_USD)
+    settings.max_daily_loss_pct = 12.0
     with patch("app.risk_manager.get_settings", return_value=settings):
         yield RiskManager()
 
@@ -176,6 +187,8 @@ cd services/trading-engine && python3 -m pytest tests/test_exposure_remaining_qu
 ```
 
 Expected: `test_scaled_out_position_frees_its_exposure` FAILS (the gate rejects); the other two pass.
+
+Pre-fix the position is $90 of notional against a $100 account — 90% > the 80% cap — so `check_position_limits` returns at the exposure branch and never reaches `should_halt_trading`. After Step 3 it *does* reach it, which is the only reason the fixture must set `paper_initial_balance` and `max_daily_loss_pct`.
 
 - [ ] **Step 3: Fix the gate**
 
@@ -300,12 +313,12 @@ Result: `max_position_by_risk = 10.0 / 0.02 = 500.0`, while `position_pct` never
 **What this fix does and does not change:** at realistic 1–3% stops a 10% position risks 0.1–0.3% of equity, far under any sane budget, so post-fix the clamp still does not bind on ordinary trades. Its real role is a **wide-stop guard**. The ADR-010 per-trade $10 notional cap is enforced independently at lines 223–225 by `max_position_pct` and is unaffected. Do not "strengthen" the clamp to make it fire on normal trades.
 
 **Files:**
-- Modify: `app/position_sizing.py:150` (docstring), `:213-220` (clamp), `:453` (factory injection), `:440-441` (factory docstring)
+- Modify: `app/position_sizing.py:150` (docstring), `:213-220` (clamp), `:453` (factory injection), `:438-443` (the **whole** `get_position_sizer` docstring — it opens at `:438` and closes at `:443`; replacing a narrower span leaves a nested docstring and a stray `"""`, i.e. a SyntaxError)
 - Test: `tests/test_position_sizer_risk_clamp.py` (**NEW**)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `PositionSizer.calculate_position_size(...) -> PositionSizeResult` — signature unchanged. `stop_loss_pct` is now contractually a **fraction**, with values `>= 0.5` auto-normalized as percent (the ranges are disjoint: real stop fractions are 0.005–0.10, and every `*_pct` Settings field carries `ge=0.5`).
+- Produces: `PositionSizer.calculate_position_size(...) -> PositionSizeResult` — signature unchanged. `stop_loss_pct` is now contractually a **fraction**, with values `>= 0.5` auto-normalized as percent (the ranges are disjoint: percent-valued stops in Settings are bounded `ge=0.5` — `default_stop_loss_pct` at `config.py:414` and `short_stop_loss_pct` at `config.py:522` — while real stop fractions are 0.005–0.10). Do **not** write "every `*_pct` Settings field carries `ge=0.5`": `max_position_size_pct` is `ge=0.1` (`config.py:341`) and `ensemble_min_position_pct` is `ge=0.0` (`config.py:372`).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -392,7 +405,12 @@ def test_percent_input_normalizes_to_the_same_answer():
 
 
 def test_reasoning_states_the_real_budget_not_a_hardcoded_two_percent():
-    result = _size(_sizer(budget=3.0), 0.5)
+    # 0.10 stays a FRACTION under the >= 0.5 normalization rule, so the cap is
+    # 3.0 / 0.10 = 30 < the 50% FIXED position and the clamp binds. Do NOT use
+    # 0.5 here: it lands exactly on the percent-normalization threshold, giving
+    # a 600% cap that never binds, and the "fix" that makes it bind is the
+    # factor-of-100 error the DO NOT DO THIS box above exists to prevent.
+    result = _size(_sizer(budget=3.0), 0.10)
 
     assert "(2% max)" not in result.reasoning, (
         "the log hardcoded 2% while the injected budget was something else"
@@ -421,7 +439,18 @@ def test_factory_injects_the_loss_at_stop_budget_not_the_notional_cap():
 cd services/trading-engine && python3 -m pytest tests/test_position_sizer_risk_clamp.py --no-cov -q
 ```
 
-Expected: `test_clamp_fires_when_loss_at_stop_exceeds_budget` fails (returns 50.0, unclamped), `test_reasoning_...` fails, `test_factory_...` fails (10.0 injected).
+Expected red — **exactly these three**:
+
+- `test_percent_input_normalizes_to_the_same_answer`: pre-fix `stop=5.0` gives `1.0 / 5.0 = 0.2`, min-clamped to **1.0**, while `stop=0.05` gives **20.0**.
+- `test_reasoning_states_the_real_budget_not_a_hardcoded_two_percent`: the string is the hardcoded `"(2% max)"`.
+- `test_factory_injects_the_loss_at_stop_budget_not_the_notional_cap`: **10.0** is injected (`.env` `MAX_RISK_PER_TRADE=0.10`, `config.py:349` `default=0.10`, `× 100.0`).
+
+Expected **green before the change, and it must stay green**:
+
+- `test_clamp_fires_when_loss_at_stop_exceeds_budget` → **20.0**, reasoning `Fixed sizing at 50.00% | Risk-limited (2% max): 50.00% -> 20.00%`. The old formula `max_risk_per_trade_pct / stop_loss_pct` = `1.0 / 0.05` = 20 already binds on a **directly-constructed** sizer.
+- `test_clamp_inert_at_the_exact_boundary` → **50.0**, no clamp (`1.0 / 0.02 = 50.0`).
+
+That is the point worth internalizing before touching code: the vacuousness comes from the **factory injection**, not from a directly-constructed sizer. Seeing the headline clamp test pass here is expected and is **not** evidence that the defect does not exist.
 
 - [ ] **Step 3: Fix the clamp**
 
@@ -444,9 +473,10 @@ with:
         # Cap the loss taken if the stop is hit.
         #
         # stop_loss_pct is a FRACTION of entry price (0.02 = 2%) - that is what
-        # auto_trader._execute_trade passes (abs(price - stop) / price). Config
-        # *_pct fields are PERCENT with ge=0.5 bounds, so the two ranges are
-        # disjoint and a value >= 0.5 unambiguously means percent.
+        # auto_trader._execute_trade passes (abs(price - stop) / price). The
+        # percent-valued stop settings are bounded ge=0.5 (default_stop_loss_pct
+        # config.py:414, short_stop_loss_pct config.py:522), so the two ranges
+        # are disjoint and a value >= 0.5 unambiguously means percent.
         #
         # loss_at_stop(% of equity) = position_pct * stop_fraction, capped at
         # max_risk_per_trade_pct. Equivalent to kelly_position_sizing.py:366's
@@ -500,7 +530,7 @@ with:
             )
 ```
 
-Update the factory docstring at lines 440–441 — `MAX_RISK_PER_TRADE` no longer reaches this sizer (it still feeds the ensemble cascade and other risk gates):
+Replace the factory docstring **in full — lines 438–443**, from `"""Get or create global position sizer instance.` down to and including its closing `"""`. (Replacing only the `Reads from settings …` sentence leaves the old opening line above your new block and the old closing `"""` below it: a nested docstring plus a stray terminator, i.e. a SyntaxError that makes every Step 5 test fail for an unrelated reason.) `MAX_RISK_PER_TRADE` no longer reaches this sizer (it still feeds the ensemble cascade and other risk gates):
 
 ```python
     """Get or create global position sizer instance.
@@ -590,16 +620,24 @@ sys.path.insert(0, str(_REPO_ROOT))
 import app.main  # noqa: F401,E402  - prometheus duplicate-registration guard
 import app.core.metrics  # noqa: F401,E402
 
-from unittest.mock import patch  # noqa: E402
+from unittest.mock import Mock, patch  # noqa: E402
 
 import pytest  # noqa: E402
 
 # Reuse the fully-stubbed harness that already drives this exact path.
-from tests.test_exposure_gate_all_paths import (  # noqa: E402
+# `trader` is a FIXTURE and must be imported by name: pytest resolves fixtures
+# from the test module's namespace, its conftest chain, or plugins — and it is
+# defined per-module at test_exposure_gate_all_paths.py:84-94, not in
+# tests/conftest.py. Without this import both tests ERROR at setup with
+# "fixture 'trader' not found". The `# noqa: F401` is load-bearing: the ruff
+# format hook strips bare imports and would reintroduce that failure. This is
+# the established house pattern — see tests/test_cash_conservation_invariant.py
+# :26-30, tests/test_stops_persistence.py:18.
+from tests.test_exposure_gate_all_paths import (  # noqa: E402,F401  - fixture reuse
     _drive_default_path,
-    _open_position,
     _signal,
     _PermissiveInstrumentsCache,
+    trader,
 )
 
 
@@ -611,6 +649,7 @@ async def test_filled_standard_entry_feeds_the_daily_counter(trader):
     with (
         patch("app.auto_trader.get_paper_engine", return_value=engine),
         patch("app.auto_trader.get_position_manager", return_value=mgr),
+        patch("app.auto_trader.get_risk_manager", return_value=Mock()),
         patch("app.auto_trader.get_position_sizer", return_value=sizer),
         patch("app.main.get_instruments_cache", lambda: _PermissiveInstrumentsCache()),
     ):
@@ -627,11 +666,15 @@ async def test_filled_standard_entry_feeds_the_daily_counter(trader):
 @pytest.mark.asyncio
 async def test_daily_limit_blocks_a_standard_entry(trader):
     engine, sizer, mgr = _drive_default_path(trader, [])
+    # daily_trades_date is stamped with today at __init__, so the new-day reset
+    # inside _check_daily_trade_limit (auto_trader.py:1448-1454) will not undo
+    # this assignment.
     trader.daily_trades_count = trader.max_daily_trades
 
     with (
         patch("app.auto_trader.get_paper_engine", return_value=engine),
         patch("app.auto_trader.get_position_manager", return_value=mgr),
+        patch("app.auto_trader.get_risk_manager", return_value=Mock()),
         patch("app.auto_trader.get_position_sizer", return_value=sizer),
         patch("app.main.get_instruments_cache", lambda: _PermissiveInstrumentsCache()),
     ):
@@ -640,7 +683,7 @@ async def test_daily_limit_blocks_a_standard_entry(trader):
     engine.execute_market_order.assert_not_awaited()
 ```
 
-If `_drive_default_path`, `_open_position`, `_signal`, `_PermissiveInstrumentsCache`, or the `trader` fixture are not importable at those names, read `tests/test_exposure_gate_all_paths.py` and copy the definitions inline rather than guessing — do not invent a harness.
+The four imported names exist verbatim in `tests/test_exposure_gate_all_paths.py`: `_PermissiveInstrumentsCache` `:54`, `trader` `:84`, `_signal` `:174`, `_drive_default_path` `:187` (returns `(engine, sizer, position_mgr)` at `:212`). That file also defines `_open_position` `:69`, which this task deliberately does **not** import — no open positions are needed here. The `get_risk_manager` patch mirrors that file's own `_execute_trade` drivers at `:230` / `:256`; `risk_mgr` is bound at `auto_trader.py:3916` and unused on this path, so the patch is defensive parity, not a behavioral requirement.
 
 - [ ] **Step 2: Run it and watch both tests fail**
 
@@ -648,7 +691,7 @@ If `_drive_default_path`, `_open_position`, `_signal`, `_PermissiveInstrumentsCa
 cd services/trading-engine && python3 -m pytest tests/test_standard_path_daily_limit.py --no-cov -q
 ```
 
-Expected: both FAIL — the counter never moves and the limit never blocks.
+Expected: both **FAIL on their assertions** — `daily_trades_count` is unchanged and `last_trade_time_per_symbol` is empty in the first; `execute_market_order` was awaited despite the limit in the second. A setup **ERROR** rather than a failure means the `trader` fixture import above was dropped (the ruff hook strips it without the `F401`) — fix the import, do not start editing `auto_trader.py` blind.
 
 - [ ] **Step 3: Add the daily-limit check**
 
@@ -764,27 +807,60 @@ sys.path.insert(0, str(_REPO_ROOT))
 import app.main  # noqa: F401,E402
 import app.core.metrics  # noqa: F401,E402
 
-from unittest.mock import MagicMock  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
 
 import pytest  # noqa: E402
 
 # Reuse the harness that already drives _execute_trade_with_setup end to end.
-from tests.test_te_cap_05_log_survival import (  # noqa: E402
+# `trader` is a module-local FIXTURE (test_te_cap_05_log_survival.py:82-85), not
+# a conftest one, so it must be imported by name or pytest errors with
+# "fixture 'trader' not found". The `# noqa: F401` is load-bearing: the ruff
+# format hook strips bare imports. Same pattern as
+# tests/test_cash_conservation_invariant.py:26-30.
+from tests.test_te_cap_05_log_survival import (  # noqa: E402,F401  - fixture reuse
+    _make_trade_setup,
     _patch_breach_path_deps,
-    _trade_setup,
+    trader,
 )
 
 
 @pytest.mark.asyncio
 async def test_heat_gate_receives_stop_distance_risk_and_side(trader, monkeypatch):
-    heat = MagicMock()
+    # _patch_breach_path_deps is a PLAIN FUNCTION taking (monkeypatch, trader)
+    # in that order and returning the 2-tuple (paper_engine, position_mgr)
+    # (test_te_cap_05_log_survival.py:119, :201). It is NOT a context manager
+    # and NOT a fixture - `with` on it raises TypeError, and swapping the args
+    # calls monkeypatch.setattr on the AutoTrader.
+    #
+    # Call it FIRST: it stubs get_combined_size_multiplier (:165-174, returns a
+    # (float, dict) 2-tuple the sizing path unpacks) and get_summary_dict
+    # (:175-182) on trader.portfolio_heat_manager. Replacing that manager with a
+    # bare MagicMock would strip those stubs - override only the one method
+    # under test.
+    _patch_breach_path_deps(monkeypatch, trader)
+    heat = trader.portfolio_heat_manager
     heat.can_open_trade = MagicMock(return_value=(True, None, 1.0))
-    trader.portfolio_heat_manager = heat
 
-    setup = _trade_setup()  # entry_price with stop_loss = entry * 0.98 (2%)
+    # Side-effect-free post-FILLED stubs, mirroring
+    # test_te_cap_05_log_survival.py:223-227.
+    trader.notification_client = MagicMock()
+    trader.notification_client.notify_trade_open = AsyncMock(
+        return_value={"success": True}
+    )
+    trader.kill_switch.update_metrics = MagicMock(return_value=[])
 
-    with _patch_breach_path_deps(trader, monkeypatch):
+    setup = _make_trade_setup()  # entry_price 60000, stop_loss = entry * 0.98
+
+    # The helper stubs only the PRE-cap-check path; get_aggregator,
+    # set_position_stops and partial_profit_taker stay live downstream, so a
+    # bare await raises before the assertions run. Both existing tests in that
+    # file swallow the same way (:242-247, :336-341). Safe here: the heat gate
+    # fires before order placement, so call_args is already captured when the
+    # downstream raises.
+    try:
         await trader._execute_trade_with_setup(symbol="BTCUSDT", trade_setup=setup)
+    except Exception:
+        pass
 
     heat.can_open_trade.assert_called_once()
     kwargs = heat.can_open_trade.call_args.kwargs
@@ -795,9 +871,17 @@ async def test_heat_gate_receives_stop_distance_risk_and_side(trader, monkeypatc
 
     stop_fraction = abs(setup.entry_price - setup.stop_loss) / setup.entry_price
     equity = kwargs["equity"]
-    # risk% = (notional / equity) * stop_fraction * 100, and notional is capped
-    # at 10% of equity, so the fed risk must not exceed that bound.
-    assert kwargs["proposed_risk_pct"] <= 10.0 * stop_fraction * 100 + 1e-6, (
+    # risk% = (notional / equity) * stop_fraction * 100, and the notional is
+    # clamped to the per-trade cap, so the fed risk cannot exceed
+    # cap_fraction * stop_fraction * 100. Derive cap_fraction from the trader's
+    # own settings (auto_trader.py:2111-2118) rather than hardcoding it, exactly
+    # as test_te_cap_05_log_survival.py:277-280 does. The pre-fix call feeds
+    # 1.0 (= position_size_pct 0.5 * 100 * default_stop_loss_pct/100) against a
+    # post-fix bound of 0.2, so this assertion genuinely discriminates.
+    cap_fraction = float(trader.settings.max_risk_per_trade)
+    if str(trader.settings.trading_mode).upper() == "LIVE":
+        cap_fraction = min(cap_fraction, 0.02)
+    assert kwargs["proposed_risk_pct"] <= cap_fraction * stop_fraction * 100.0 + 1e-9, (
         f"fed risk {kwargs['proposed_risk_pct']} exceeds what a cap-clamped "
         f"order with a {stop_fraction:.1%} stop can possibly risk"
     )
@@ -805,7 +889,7 @@ async def test_heat_gate_receives_stop_distance_risk_and_side(trader, monkeypatc
     assert equity > 0
 ```
 
-If the helper names differ, read `tests/test_te_cap_05_log_survival.py` and copy its `_patch_breach_path_deps` fixture and `TradeSetup` construction inline. Do not invent them.
+Every name above was checked against the real file — do not "correct" them back: the setup factory is `_make_trade_setup` at `test_te_cap_05_log_survival.py:88` (no symbol `_trade_setup` exists anywhere in the repo), and `_patch_breach_path_deps` at `:119` has exactly one keyword-only parameter, `balance`. Its two in-repo call sites are `:216` and `:303`, both plain unpacking calls. Do **not** modify that shared helper.
 
 - [ ] **Step 3: Run it and watch it fail**
 
@@ -813,11 +897,21 @@ If the helper names differ, read `tests/test_te_cap_05_log_survival.py` and copy
 cd services/trading-engine && python3 -m pytest tests/test_heat_gate_fed_real_order.py --no-cov -q
 ```
 
-Expected: FAIL on the `side` assertion — the current call omits it (`KeyError`).
+Expected: FAIL on `kwargs["side"]` with a `KeyError` — the current call at `:1851` passes only `symbol`, `proposed_risk_pct` and `equity`. (A setup ERROR instead means the `trader` fixture import was stripped; an `ImportError` means someone "corrected" `_make_trade_setup` back to `_trade_setup`.)
 
 - [ ] **Step 4: Delete the old gate feed**
 
-In `app/auto_trader.py`, delete lines 1844–1862 in full: the `proposed_risk_pct` computation, the `can_open_trade` call, and its `if not can_trade:` block. Nothing else in that region changes — `heat_multiplier` continues to be defined at `:1888` from `combined_multiplier`, which is what sizing at `:2043` consumes.
+In `app/auto_trader.py`, delete lines 1844–1862 in full: the `proposed_risk_pct` computation, the `can_open_trade` call, and its `if not can_trade:` block. `heat_multiplier` continues to be defined at `:1888` from `combined_multiplier`, which is what sizing at `:2043` consumes.
+
+One thing above the deletion **does** have to change: the four-line banner at `:1837-1840` (`# ====` / `# PORTFOLIO HEAT CHECK (2025-12-02)` / `# Block trades if portfolio heat is too high` / `# ====`) would otherwise sit over nothing but `:1841-1842`'s `paper_engine = get_paper_engine()` and `current_equity = float(paper_engine.get_balance())`, which are kept because the moved gate consumes `current_equity`. Retitle it to say what remains, e.g.:
+
+```python
+            # Equity read for sizing and for the portfolio-heat gate, which now
+            # runs after final sizing (see the [HEAT] block below the per-trade
+            # cap clamp) so it sees the order actually placed.
+```
+
+Nothing else in that region changes.
 
 - [ ] **Step 5: Insert the corrected gate after the cap clamp**
 
@@ -934,27 +1028,62 @@ sys.path.insert(0, str(_REPO_ROOT))
 import app.main  # noqa: F401,E402
 import app.core.metrics  # noqa: F401,E402
 
-from unittest.mock import MagicMock  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
 
 import pytest  # noqa: E402
 
-from tests.test_te_cap_05_log_survival import (  # noqa: E402
+# `trader` is a module-local FIXTURE (test_te_cap_05_log_survival.py:82-85), not
+# a conftest one, so it must be imported by name. `# noqa: F401` is load-bearing
+# against the ruff import-stripping hook. Same pattern as
+# tests/test_stops_persistence.py:18.
+from tests.test_te_cap_05_log_survival import (  # noqa: E402,F401  - fixture reuse
+    _make_trade_setup,
     _patch_breach_path_deps,
-    _trade_setup,
+    trader,
 )
 
 
 @pytest.mark.asyncio
 async def test_record_execution_gets_the_real_fill(trader, monkeypatch):
+    setup = _make_trade_setup(entry_price=60000.0)
+
+    # _patch_breach_path_deps is a PLAIN FUNCTION taking (monkeypatch, trader)
+    # and returning (paper_engine, position_mgr) — not a context manager, and it
+    # has no `filled_price` parameter (its only keyword-only argument is
+    # `balance`). See test_te_cap_05_log_survival.py:119, :201.
+    paper_engine, _ = _patch_breach_path_deps(monkeypatch, trader)
+
+    # The helper hardcodes filled_price = Decimal("60000") at :135, which is
+    # numerically EQUAL to _make_trade_setup's default entry_price of 60000.0 —
+    # it supplies NO divergence. Override the returned mock's fill here (do not
+    # modify the shared helper); `filled_order` itself is a helper-local the
+    # test cannot reach, but paper_engine.execute_market_order is
+    # AsyncMock(return_value=(filled_order, None)) at :137, so index into it.
+    # 5 bps worse than the reference the order was submitted at.
+    fill = Decimal(str(setup.entry_price)) * Decimal("1.0005")
+    paper_engine.execute_market_order.return_value[0].filled_price = fill
+
     recorder = MagicMock()
     trader.slippage_manager.record_execution = recorder
 
-    setup = _trade_setup()
-    # Fill 5 bps worse than the reference the order was submitted at.
-    fill = Decimal(str(setup.entry_price)) * Decimal("1.0005")
+    # record_execution sits downstream of kill_switch.update_metrics
+    # (auto_trader.py:2257-2265), so stub that and the notification client the
+    # way test_te_cap_05_log_survival.py:223-227 does.
+    trader.notification_client = MagicMock()
+    trader.notification_client.notify_trade_open = AsyncMock(
+        return_value={"success": True}
+    )
+    trader.kill_switch.update_metrics = MagicMock(return_value=[])
 
-    with _patch_breach_path_deps(trader, monkeypatch, filled_price=fill):
+    # The helper stubs only the PRE-cap-check path; set_position_stops and
+    # partial_profit_taker run live AFTER record_execution and raise. Both
+    # existing tests in that file swallow identically (:242-247, :336-341), and
+    # the swallow cannot mask the assertions below because record_execution is
+    # already captured by the time the downstream raises.
+    try:
         await trader._execute_trade_with_setup(symbol="BTCUSDT", trade_setup=setup)
+    except Exception:
+        pass
 
     recorder.assert_called_once()
     kwargs = recorder.call_args.kwargs
@@ -966,7 +1095,7 @@ async def test_record_execution_gets_the_real_fill(trader, monkeypatch):
     assert kwargs["actual_price"] != kwargs["expected_price"]
 ```
 
-`_patch_breach_path_deps` already builds a filled order with a divergent `filled_price` (`Decimal("60000")`). If it does not accept a `filled_price` argument, read the fixture and either extend it locally in this file or set `filled_order.filled_price` directly — do not modify the shared fixture.
+The override two lines above the `try` is **not optional**. `_patch_breach_path_deps` sets `filled_order.filled_price = Decimal("60000")` (`test_te_cap_05_log_survival.py:135`) and `_make_trade_setup` defaults `entry_price=60000.0` (`:88`); `Decimal("60000") == Decimal("60000.0")` is `True`, so without the override the final assertion fails **even against a correct Step 3 fix** — a false negative on a correct implementation. Do not modify the shared helper to fix this; override the returned mock, as above.
 
 - [ ] **Step 2: Run it and watch it fail**
 
@@ -974,7 +1103,7 @@ async def test_record_execution_gets_the_real_fill(trader, monkeypatch):
 cd services/trading-engine && python3 -m pytest tests/test_slippage_stats_real_fill.py --no-cov -q
 ```
 
-Expected: FAIL — `actual_price` equals `expected_price`.
+Expected: FAIL on `assert kwargs["actual_price"] == fill` — the pre-fix code feeds `trade_setup.entry_price` (60000.0) as both `expected_price` and `actual_price`, while `fill` is 60030. A setup ERROR instead means the `trader` fixture import was stripped.
 
 - [ ] **Step 3: Feed the real fill**
 
@@ -1084,18 +1213,13 @@ The headline case: a trade whose gross P&L is positive but whose realized P&L
 is negative once fees are paid must count as a LOSS.
 """
 
-import sys
 from datetime import datetime, timezone
 from decimal import Decimal
-from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(_REPO_ROOT))
+import pytest
 
-import pytest  # noqa: E402
-
-from app.models import PositionSide, PositionStatus  # noqa: E402
-from app.performance_tracker import PerformanceTracker  # noqa: E402
+from app.models import PositionSide, PositionStatus
+from app.performance_tracker import PerformanceTracker
 
 
 def _closed_position(gross_positive: bool, realized: str):
@@ -1174,6 +1298,8 @@ def test_open_position_falls_back_to_remaining_quantity_gross():
         f"expected gross on the remaining 8 units (0.01 * 8), got {trade.pnl}"
     )
 ```
+
+**No `_REPO_ROOT` / `sys.path` block in this one file** — deliberately, and it is the only Task in this plan where that is true. This test lives at `tests/unit/`, one level deeper than the `tests/`-depth files the Global Constraints header was written for, so `parents[3]` there resolves to `services/`, not the repo root. It also imports nothing from `shared.account` (it declares no account size), so it needs no repo-root path at all. Deleting all four lines — `import sys`, `from pathlib import Path`, the `_REPO_ROOT` assignment and the `sys.path.insert` — is the fix; leaving `import sys` and `from pathlib import Path` behind would make both unused and hand the ruff hook (F401 is in its default set) a reason to churn the import block.
 
 - [ ] **Step 2: Run it and watch the first two fail**
 
@@ -1342,7 +1468,8 @@ also reach position_manager via the close_commission channel, exactly as
 close_commission itself is dual-booked (cash at :377, reported P&L at
 position_manager.py:510).
 
-Rates here are the measured means recorded in costs.py, not invented figures.
+Rates here are the measured means recorded in tests/test_costs_funding.py
+(module docstring), not invented figures.
 """
 
 import sys
@@ -1359,7 +1486,8 @@ import pytest  # noqa: E402
 from app.costs import FundingSettlement, funding_cost  # noqa: E402
 
 H8 = 8 * 60 * 60 * 1000
-BTC_RATE = Decimal("0.0000278")  # measured mean per 8h, costs.py module docstring
+BTC_RATE = Decimal("0.0000278")  # BTC mean per 8h, measured 2026-08-07 over 200
+#                                  settlements/symbol - tests/test_costs_funding.py:10-14
 
 
 def _settlements(n: int, rate: Decimal = BTC_RATE, t0: int = 1_000):
@@ -1671,7 +1799,7 @@ Separately, ADX (which *does* vote, since 2026-05-06) is missing from `INDICATOR
 **Do not bundle `RSI_DIVERGENCE`** (disabled the same way at `:744`). Its cause — "stuck at 0.20 confidence" — has no documented fix.
 
 **Files:**
-- Modify: `app/signal_aggregator.py:746`, its stale log/docstring at `:725-727`; `app/aggregation/voter.py:39`
+- Modify: `app/signal_aggregator.py:746`, plus its three stale "SQZMOM disabled" wordings at `:719` (docstring), `:726` (log string) and `:789-793` (the shadow-mode comment); `app/aggregation/voter.py:39`
 - Test: `tests/test_sqzmom_leg_enabled.py` (**NEW**)
 
 **Interfaces:**
@@ -1703,22 +1831,39 @@ from app.aggregation.voter import INDICATOR_CATEGORIES
 from app.signal_aggregator import SignalAggregator
 
 
+def _fetch_entries(source: str, key: str, fetcher: str) -> list[str]:
+    """The fetch_all_indicators task-dict entries for one indicator.
+
+    Matched on the fetcher call AND the dict key, never on the bare indicator
+    name: other lines inside this same method mention these names in prose -
+    the docstring at :719, the log string at :726, and the shadow-mode comment
+    at :789-793, which lists RSI_DIVERGENCE and SQZMOM_ENHANCED together. A
+    name-only scan trips on that prose and can never go green.
+    """
+    needle_key = f'"{key}":'
+    return [
+        line for line in source.splitlines() if needle_key in line and fetcher in line
+    ]
+
+
 def test_sqzmom_enhanced_is_in_the_fetch_set():
     source = inspect.getsource(SignalAggregator.fetch_all_indicators)
-    assert '"SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom' in source
-    for line in source.splitlines():
-        if "SQZMOM_ENHANCED" in line:
-            assert not line.strip().startswith("#"), (
-                "SQZMOM_ENHANCED is still commented out of fetch_all_indicators"
-            )
+    entries = _fetch_entries(source, "SQZMOM_ENHANCED", "fetch_enhanced_sqzmom")
+
+    # Exactly one, or the assertion below is measuring nothing.
+    assert len(entries) == 1, f"expected one fetch entry, found {entries!r}"
+    assert not entries[0].strip().startswith("#"), (
+        "SQZMOM_ENHANCED is still commented out of fetch_all_indicators"
+    )
 
 
 def test_rsi_divergence_stays_disabled():
     """Its disable cause has no documented fix - do not bundle it."""
     source = inspect.getsource(SignalAggregator.fetch_all_indicators)
-    for line in source.splitlines():
-        if "RSI_DIVERGENCE" in line and "fetch_rsi_divergence" in line:
-            assert line.strip().startswith("#")
+    entries = _fetch_entries(source, "RSI_DIVERGENCE", "fetch_rsi_divergence")
+
+    assert len(entries) == 1, f"expected one fetch entry, found {entries!r}"
+    assert entries[0].strip().startswith("#")
 
 
 def test_adx_is_categorized_as_trend():
@@ -1753,7 +1898,13 @@ with:
             "SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom(symbol, interval),
 ```
 
-Then read lines 720–730 and update any log line or docstring still claiming SQZMOM is disabled, or the logs will lie.
+Then run `grep -n SQZMOM app/signal_aggregator.py` — do **not** work from a line range, because this replacement turns one line into four and every pointer below `:746` shifts by +3 the instant it lands. Three wordings now lie and must be fixed in this same commit:
+
+1. `:719`, inside the `fetch_all_indicators` docstring — `- Advanced: Ichimoku (RSI_DIVERGENCE and SQZMOM_ENHANCED disabled for low confidence)` must stop listing SQZMOM_ENHANCED as disabled.
+2. `:726`, the log string — `"  Including advanced indicators: ICHIMOKU (RSI_DIVERGENCE and SQZMOM_ENHANCED disabled for better confidence)"` must name SQZMOM_ENHANCED as *included*.
+3. `:789-793`, the shadow-mode comment — "*the False branch is the shadow-mode hook reserved for a follow-up that observes disabled indicators (RSI_DIVERGENCE, SQZMOM_ENHANCED) without counting their vote*". Edit the parenthetical down to `RSI_DIVERGENCE`; do **not** delete the comment, the hook is still real.
+
+**Leave `Total voting indicators: 9` at `:722` exactly as it is.** It counts 9 but only 8 indicators actually vote today (ATR is pulled out separately at `:764-774`; TREND_FILTER and VOLUME_CONFIRMATION are excluded at `:814` and `voter.py:384`), so re-enabling SQZMOM_ENHANCED makes the existing 9 correct. Do not bump it to 10.
 
 - [ ] **Step 4: Categorize ADX**
 
@@ -1911,7 +2062,7 @@ cd services/trading-engine && python3 -m pytest tests/unit/test_live_engine_fenc
 
 Expected: the fence tests pass; `TestLiveTradingResponseEnvelope` remains **2 failed — exactly as it was before this plan started.** Confirm that count is unchanged rather than assuming it.
 
-Then confirm the paper loop cannot be crashed by the fence: `get_live_engine` is only reached when `trading_mode == "LIVE"`, and both call sites are inside `except` handlers (the entry path is swallowed by the broad handler that logs and counts a rejected trade; the stop-loss close path catches explicitly).
+Then confirm the paper loop cannot be crashed by the fence: `get_live_engine` is only reached when `trading_mode == "LIVE"`, and all three call sites are contained: `auto_trader.py:1976` (entry, `_execute_trade_with_setup`) sits under the broad `except Exception` at `:2526`, which logs and increments `total_trades_rejected`; `:3071` (`_close_position`) sits under the broad `except Exception` at `:3117`, which logs and falls out of the function; `:3352` (`_close_position_with_limit_order`) sits in a narrow `try` whose `except Exception as live_err` at `:3359` sets `ok, close_err = False, str(live_err)`, after which the `else:` branch logs the failure and returns at `:3387`.
 
 - [ ] **Step 4: Commit**
 
@@ -1936,9 +2087,9 @@ red before this work; they bypass __init__ via __new__ and are unaffected."
 
 ---
 
-# Part 4 — Dormant code (Tasks 11–13)
+# Part 4 — Dormant code and its guard (Tasks 11–14)
 
-These three tasks touch code with **no runtime caller**. They are hygiene and parity, and they earn the AST guard in Task 14. Label them DORMANT in any status report; do not describe them as money-path repairs.
+Tasks 11–13 touch code with **no runtime caller**. They are hygiene and parity, and they earn the AST guard extension in Task 14. Label 11–13 DORMANT in any status report; do not describe them as money-path repairs. Task 14 is neither dormant nor a repair — it is the test-only guard extension that locks Task 13's cleanup in place, and it is the one task in this plan whose commit touches a file outside `services/trading-engine/`.
 
 ## Task 11: MTF leg — scale and key, in one task (DORMANT)
 
@@ -2060,9 +2211,9 @@ wholesale-skipped."
 
 ## Task 12: Delete the volume-profile pipeline (DORMANT)
 
-Delete rather than repair. Evidence: `enable_volume_profile` defaults False, `get_auto_trader()` never passes it, and no Settings field or env var can flip it — the only way to run VP is editing source. Forced on, it is broken independently at two layers (wrong host, wrong envelope key, wrong element shape; plus `Decimal` used without an import), each collapsing to a silent pass-through. Zero tests reference it. Every consumer already reads `.get("volume_profile", {})`, so removal is a behavioral no-op. Repairing it would activate a latent `TypeError` at `auto_trader.py:4139`, because the producer writes `take_profit` as a dict of levels.
+Delete rather than repair. Evidence: `enable_volume_profile` defaults False, `get_auto_trader()` never passes it, and no Settings field or env var can flip it — the only way to run VP is editing source. Forced on, it is broken independently at two layers (wrong host, wrong envelope key, wrong element shape; plus `Decimal` used without an import), each collapsing to a silent pass-through. **No pytest test asserts on it** (`pytest.ini` sets `testpaths = tests`), but three files still reference it and are handled below: one collected unit test sets the flag, and two service-root smoke scripts call the producer being deleted. Every consumer already reads `.get("volume_profile", {})`, so removal is a behavioral no-op. Repairing it would activate a latent `TypeError` at `auto_trader.py:4139`, because the producer writes `take_profit` as a dict of levels.
 
-**Files:** delete `app/signal_aggregator.py:1145-1315`; delete `app/auto_trader.py:1168-1177` and the `enable_volume_profile` parameter, its docstring line, `self.enable_vp`, and the two log mentions; test `tests/test_vp_pipeline_removed.py` (**NEW**)
+**Files:** delete `app/signal_aggregator.py:1145-1315`; delete `app/auto_trader.py:1168-1177` and the `enable_volume_profile` parameter, its docstring line, `self.enable_vp`, and the two log mentions; delete the now-dead `trader.enable_vp = False` at `tests/unit/test_auto_trader.py:347`; delete the two service-root smoke scripts `test_volume_profile.py` and `test_complete_system.py` and their `verify_system.py:113-114` entries; test `tests/test_vp_pipeline_removed.py` (**NEW**)
 
 - [ ] **Step 1: Write the reachability test first**
 
@@ -2072,8 +2223,9 @@ The VP pipeline is gone.
 
 Unreachable by any flag or env (enable_volume_profile defaults False and
 get_auto_trader never passes it), broken at two independent layers when
-forced on, zero tests, and every consumer already reads .get(..., {}) - so
-removal is a behavioral no-op. Production behavior was ALREADY 'VP absent'.
+forced on, no pytest test asserts on it, and every consumer already reads
+.get(..., {}) - so removal is a behavioral no-op. Production behavior was
+ALREADY 'VP absent'.
 """
 
 from app.signal_aggregator import SignalAggregator
@@ -2099,6 +2251,10 @@ def test_auto_trader_has_no_vp_flag():
 - `app/auto_trader.py`: remove the `elif self.enable_vp:` branch at 1168–1177 (a flag-True case that already fell through to the Phase-2 MTF path in practice), the `enable_volume_profile` parameter at `:188`, its docstring line at `:204`, `self.enable_vp = enable_volume_profile` at `:227`, the two log mentions at `:653` and `:831`, and the `if self.enable_vp and vp_data:` head of the log chain at `:1205-1218` — keeping the `elif`/`else` logging branches.
 - **Leave** the defensive metadata readers at `:1201`, `:3959-3965`, `:4126-4140`. They no-op; ripping them out touches money-path code for zero behavior change.
 - `app/volume_profile.py` and `app/vp_strategy.py` become import-orphans. Delete them in the same commit and drop their two lines from `verify_system.py:88-89`, or leave them and say so — do not leave `verify_system.py` referencing deleted files.
+- `tests/unit/test_auto_trader.py:347` sets `trader.enable_vp = False` inside `test_check_and_trade_signal_doesnt_meet_requirements`. `AutoTrader` has no `__slots__`, so the assignment will not raise after the flag is removed — the test stays green while the line becomes a reference to a flag that no longer exists. Delete that one line in this commit.
+- Two **service-root smoke scripts** call the producer being deleted and are broken by this change: `test_volume_profile.py:59` and `test_complete_system.py:122` both `await aggregator.get_trading_signal_with_vp(...)`. Delete both files, and drop their two entries from `verify_system.py:113-114` (`"Volume Profile Test"`, `"Complete System Test"`) — otherwise `verify_system.py` keeps reporting `Test Scripts: 5/5` for two scripts that now raise `AttributeError`. Both are unmaintained manual smoke scripts needing the full live stack; `test_complete_system.py:40` additionally hardcodes `balance = Decimal("10000")`, a CLAUDE.md §1 defect on its own. They are **not** collected by pytest (`pytest.ini` sets `testpaths = tests`), so the suite count does not move.
+  - If `test_complete_system.py` must be preserved instead of deleted, the minimal correct edit is a **rebind**, not a range deletion: replace `:122-128` with `signal_vp = signal_mtf`. `vp_data` then resolves to `{}`, `conf_change` to `0.0`, `stop_loss_pct` stays `None`, and the downstream uses at `:175`, `:200`, `:212`, `:222`, `:232`, `:288`, `:330` all survive. Do **not** delete `:122-155`: `signal_vp` is a position-sizing argument, not just a logging value, and the VP reporting chain ends at `:166`, not `:155`.
+  - Archived references under `docs/archive/**` (`VP_INTEGRATION_GUIDE.md`, `PROJECT_STATUS_VERIFIED.md`, `TEST_INFRASTRUCTURE_ANALYSIS_REPORT.md`) are out of scope — do not add them to the pathspec.
 
 - [ ] **Step 3: Verify and commit**
 
@@ -2107,7 +2263,7 @@ cd services/trading-engine && python3 -m pytest tests/test_vp_pipeline_removed.p
 ```
 
 ```bash
-git commit -- app/signal_aggregator.py app/auto_trader.py app/volume_profile.py app/vp_strategy.py verify_system.py tests/test_vp_pipeline_removed.py -m "refactor(trading-engine): delete the unreachable volume-profile pipeline
+git commit -- app/signal_aggregator.py app/auto_trader.py app/volume_profile.py app/vp_strategy.py verify_system.py test_volume_profile.py test_complete_system.py tests/unit/test_auto_trader.py tests/test_vp_pipeline_removed.py -m "refactor(trading-engine): delete the unreachable volume-profile pipeline
 
 enable_volume_profile defaults False, get_auto_trader never passes it, and no
 Settings field or env var can flip it - the only way to run VP was editing
@@ -2117,11 +2273,17 @@ and indexed dicts as positional lists; and Decimal was used with no import.
 Each failure collapsed to a silent pass-through, so VP never emitted one
 production data point.
 
-Zero tests referenced it, and every consumer already reads
+No pytest test asserted on it, and every consumer already reads
 .get('volume_profile', {}) - production behavior was already 'VP absent', so
 this changes nothing at runtime. Repair would also have activated a latent
 TypeError at auto_trader.py:4139: the producer writes take_profit as a dict
 of levels while the notify path calls float() on it.
+
+Also removes the three now-dead references the deletion would otherwise
+strand: trader.enable_vp = False in tests/unit/test_auto_trader.py, and the
+two service-root smoke scripts test_volume_profile.py and
+test_complete_system.py, which called the deleted producer and which
+verify_system.py advertised as passing test scripts.
 
 Defensive metadata readers are deliberately left in place."
 ```
@@ -2130,7 +2292,7 @@ Defensive metadata readers are deliberately left in place."
 
 ## Task 13: Remove price-domain rounding from the dormant strategy layer (DORMANT)
 
-Four files, ~19 price-domain rounding calls. None has a runtime caller in `app/` — they are exported and exercised by tests only. The fix is parity with the shipped PRICE-01 precedent and a precondition for extending the AST guard.
+Four files, **27** price-domain rounding calls (the per-file enumeration below is authoritative and sums to 27: 5 + 9 + 7 + 6). None has a runtime caller in `app/` — they are exported and exercised by tests only. The fix is parity with the shipped PRICE-01 precedent and a precondition for extending the AST guard.
 
 **Do not blanket-strip every `round()`.** These are non-price and must stay: RSI (0–100), volume ratios, position-size fractions, strength scores, average volumes.
 
@@ -2179,7 +2341,7 @@ cd services/trading-engine && python3 -m pytest tests/strategies/ tests/unit/tes
 ```bash
 git commit -- app/strategies/momentum_breakout_strategy.py app/strategies/trend_following_strategy.py app/strategies/support_resistance_strategy.py app/utils/support_resistance_detector.py tests/strategies/test_dormant_strategy_precision.py -m "fix(trading-engine): drop price-domain rounding from the strategy layer
 
-~19 sites rounded prices, stops, take-profit ladders, EMAs, ATRs and S/R zone
+27 sites rounded prices, stops, take-profit ladders, EMAs, ATRs and S/R zone
 bounds to 2dp. At ADA scale that collapses adjacent ladder rungs onto one
 trigger (the exact PRICE-01 failure already fixed in
 research_optimized_strategy.py) and, because the rounded stop feeds
@@ -2202,11 +2364,11 @@ parity with the shipped fix and the precondition for the AST guard."
 
 ## Task 14: Extend the AST price-rounding guard to the engine files
 
-Plan A created `tests/test_price_rounding_invariant.py` with a bounded `SCANNED_FILES` tuple. Now that Task 13 has cleaned the engine's strategy layer, add those files.
+Plan A created `tests/test_price_rounding_invariant.py` with a bounded `SCANNED_FILES` tuple **and** the line-level `ALLOW_MARKER` opt-out. Now that Task 13 has cleaned the engine's strategy layer, add those four files and mark their legitimate non-price sites. This task **extends** the guard — it does not build any part of it.
 
-**Files:** `tests/test_price_rounding_invariant.py` (repo root)
+**Files:** `tests/test_price_rounding_invariant.py` (repo root); the four Task 13 engine files (annotations only)
 
-- [ ] **Step 1: Append the cleaned files**
+- [ ] **Step 1: Append the cleaned files, and re-point the tracking comment**
 
 ```python
 SCANNED_FILES: tuple[str, ...] = (
@@ -2220,45 +2382,45 @@ SCANNED_FILES: tuple[str, ...] = (
 )
 ```
 
+Directly below that tuple sits the `# Not yet covered, tracked deliberately:` block WS1-A wrote. Its last line becomes false the moment this tuple lands. Replace
+
+```python
+#   trading-engine strategy + detector files           (added by WS1-B)
+```
+
+with the one engine file that is genuinely still uncovered:
+
+```python
+#   services/trading-engine/app/strategies/simple_rsi_strategy.py (2 price sites at 4dp, :121-122)
+```
+
+Do **not** delete the line outright, and do **not** add `simple_rsi_strategy.py` to `SCANNED_FILES`. Task 13 does not clean it (its file list is momentum_breakout / trend_following / support_resistance / support_resistance_detector only), and `:121-122` really do round price-domain values — `stop_loss=round(stop_loss, 4)`, `take_profit=round(take_profit, 4)`, both derived from `current_price ± stop_distance` at `:105-111`. Adding it would land the guard red, which is exactly what the guard's own module docstring forbids.
+
 - [ ] **Step 2: Run it — and expect it to be RED**
 
 ```bash
 python3 -m pytest tests/test_price_rounding_invariant.py --no-cov -q
 ```
 
-The guard bans `round(x, 2)` and `round(x, 4)` **anywhere** in a scanned file, but these four files legitimately keep non-price 2dp rounds (RSI, volume ratios) and 4dp position fractions. So it will fail. Resolve it deliberately — do **not** delete files from the tuple:
+The guard bans `round(x, 2)` and `round(x, 4)` **anywhere** in a scanned file, but these four files legitimately keep non-price 2dp rounds (RSI 0–100, volume ratios, strength scores) and 4dp position fractions. So `test_no_price_rounding_in_scanned_files` fails. Resolve it deliberately — do **not** delete files from the tuple, and do **not** re-implement the opt-out.
 
-Add a line-level opt-out to `find_violations`, so a legitimate site can be marked at the point of use rather than by weakening the guard's scope:
+First confirm the mechanism is already there:
 
-```python
-ALLOW_MARKER = "# non-price-round"
+```bash
+grep -n 'ALLOW_MARKER' tests/test_price_rounding_invariant.py
 ```
 
-and in `find_violations`, skip a node whose source line carries the marker:
+You must see `ALLOW_MARKER = "# non-price-round"` and its use inside `find_violations`. **If it is absent, WS1-A Task 6 has not landed — stop and coordinate; do not re-add the marker here.** Two independent definitions of the same opt-out is how a guard ends up with two behaviours.
 
-```python
-    source_lines = source.splitlines()
-
-    ...
-        if ndigits in BANNED_NDIGITS:
-            line = source_lines[node.lineno - 1] if node.lineno <= len(source_lines) else ""
-            if ALLOW_MARKER in line:
-                continue
-```
-
-Then annotate each legitimate site in the four engine files, e.g.:
+Then annotate each legitimate site in the **four engine files** (the two technical-analysis files are WS1-A's to annotate, and Task 6 does it there), e.g.:
 
 ```python
         return round(current_volume / avg_volume, 2)  # non-price-round
 ```
 
-Add a fixture case proving the marker works, and one proving it does not leak:
+The sites to mark are exactly Task 13's twelve-line "**Keep**" list: `momentum_breakout_strategy.py` `:581`, `:1190`; `trend_following_strategy.py` `:635`, `:1210`, `:1262`; `support_resistance_strategy.py` `:335`, `:402`, `:757`; `support_resistance_detector.py` `:631`, `:638`, `:732`, `:739`. Task 13's edits shift lines, so locate them by expression, not by number.
 
-```python
-NEGATIVE_FIXTURE = NEGATIVE_FIXTURE + '''
-ratio = round(current_volume / avg_volume, 2)  # non-price-round
-'''
-```
+**Do not touch `POSITIVE_FIXTURE` and do not change `test_positive_cases_do_trip`'s `assert len(violations) == 4`.** The marker's own fixture coverage — `MARKER_LEAK_FIXTURE` and `test_marker_does_not_leak_to_other_lines`, which proves the opt-out is line-scoped and does not shield the next line — ships with the marker in WS1-A Task 6. Appending a fifth positive case here would turn that pre-existing count assertion red and prove nothing the existing `entry = round(entry_price, 2)` case does not already prove.
 
 - [ ] **Step 3: Verify the guard is green and has teeth**
 
@@ -2266,7 +2428,7 @@ ratio = round(current_volume / avg_volume, 2)  # non-price-round
 python3 -m pytest tests/test_price_rounding_invariant.py --no-cov -q
 ```
 
-Expected: all pass. Then reintroduce one price rounding (e.g. `price=round(tp1_price, 2)` in `momentum_breakout_strategy.py`) **without** the marker and confirm the guard names that exact file and line. Restore.
+Expected: all pass, **including** `test_marker_does_not_leak_to_other_lines` — if that test is missing from the file, say so in the task report rather than adding it here. Then reintroduce one price rounding (e.g. `price=round(tp1_price, 2)` in `momentum_breakout_strategy.py`) **without** the marker and confirm the guard names that exact file and line. Restore.
 
 - [ ] **Step 4: Commit**
 
@@ -2276,10 +2438,517 @@ git commit -- tests/test_price_rounding_invariant.py services/trading-engine/app
 Adds the four files cleaned in the previous commit to SCANNED_FILES.
 
 Those files legitimately keep non-price rounding (RSI 0-100, volume ratios,
-position-size fractions), so the guard gains a line-level '# non-price-round'
-opt-out. Marking a site at the point of use is deliberate: it keeps the
-decision reviewable in the diff instead of silently shrinking the guard's
-scope, which is how these guards get hollowed out."
+position-size fractions), so each such site carries the guard's line-level
+'# non-price-round' opt-out, introduced with the guard itself in WS1-A.
+Marking a site at the point of use is deliberate: it keeps the decision
+reviewable in the diff instead of silently shrinking the guard's scope, which
+is how these guards get hollowed out."
+```
+
+---
+
+# Part 5 — In-service backtester (Task 15)
+
+Task 15 is last because it is independent of Tasks 1–14, **not** because it is dormant. It does not belong under Part 4: the code it repairs is reachable over HTTP.
+
+## Task 15: In-service backtester fills stops at the stop price (LIVE — non-money-path route)
+
+`backtest_engine._close_position` prices **every** exit off `bar.close`, including stop-loss and take-profit exits that were triggered *intrabar*. `_check_exit_conditions` fires a stop when `bar.low <= stop_loss` (long) or `bar.high >= stop_loss` (short), then hands the bar to `_close_position`, which books the fill at that bar's close. On a bar that pierces the stop and then runs on, the backtester reports an exit far past the stop — flattering a losing trade or penalising a winning one, and in either direction reporting a fill the strategy never asked for.
+
+**LIVE, non-money-path route:** this engine places no orders, but it is HTTP-reachable — `POST /api/v1/backtest/run` (`app/main.py:1239`), `GET /api/v1/backtest/quick/{strategy}` (`:1256`), `GET /api/v1/backtest/compare` (`:1275`), all routing through `app/handlers/backtest.py`, which constructs `BacktestEngine` at `:276`, `:403`, `:483`, `:698`. Operators call these and read the numbers. Do not label this task DORMANT.
+
+**Three conventions this task pins — write them exactly, or two engineers write two different backtesters:**
+
+1. **Stops are market orders on trigger.** The fill reference is the stop level, **clamped to the bar open** so a gap-through can never fabricate a price the market did not trade: long `min(stop_loss, bar.open)`, short `max(stop_loss, bar.open)`. Adverse slippage then applies on top of the clamped reference. Without the clamp, a long stop at 100 on a bar that opens at 92 and closes at 91 would book 100 — *more* optimistic than the `bar.close` this task exists to remove, i.e. the fix would introduce a fresh optimism bug of its own.
+2. **Take-profits are resting limits.** They fill at exactly `take_profit`, with **no** slippage and **no** gap-favourable bonus. A limit fills at its price or better; booking exactly its price means the backtester can never flatter a gap.
+3. **The reference is computed at the trigger site, not inside `_close_position`.** `_check_exit_conditions` has already proven the level is non-`None` by comparing against it, so passing the price down eliminates by construction the hazard that `_process_signal` (`:364`, `:368`) forwards an arbitrary `exit_reason` from `signal.metadata` — a strategy emitting the literal string `"stop_loss"` with `stop_loss=None` cannot reach the new pricing, because the new pricing is keyed on the explicit `fill_price` / `apply_slippage` arguments and never on the reason string. Do **not** add an `if exit_reason == "stop_loss"` branch inside `_close_position`; a reviewer flagging the absent `None`-guard should be pointed at this paragraph.
+
+`self._position.stop_loss` **is** the correct field for trailing exits: `_update_trailing_stop` writes the trailing level straight into `stop_loss` at `:533` and `:541`, so trailing exits are already covered by the `"stop_loss"` branch and need no separate handling.
+
+Signal exits (`:364`, `:368`) and the `backtest_end` exit (`:314`) keep `bar.close` — they pass no `fill_price`, so the default carries them unchanged. That is the scope guard for this task.
+
+**Files:**
+- Modify: `app/backtesting/backtest_engine.py:422-433` (`_close_position` signature + exit-price block), `:465` (`Trade.slippage`), `:495-519` (the four `_check_exit_conditions` trigger sites — the block opens at `:495` with `if self._position.side == "long":`)
+- Test: `tests/test_backtest_engine_stop_fills.py` (**NEW**)
+
+**Interfaces:**
+- Consumes: nothing new. `OHLCV.open` is already on the bar (`app/backtesting/strategy_base.py:66-72`).
+- Produces: `_close_position(bar, exit_reason, fill_price: Optional[float] = None, apply_slippage: bool = True) -> None` — both new parameters are optional and default to today's behaviour, so `:314`, `:364` and `:368` are untouched. `apply_slippage=False` exists so the take-profit convention is expressed as an argument rather than as a branch on `exit_reason` (see convention 3).
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/test_backtest_engine_stop_fills.py`:
+
+```python
+"""
+Stop and take-profit exits must fill at the trigger level, not at bar.close.
+
+_close_position priced EVERY exit off bar.close, including stops and TPs that
+_check_exit_conditions had already triggered intrabar (bar.low <= stop_loss for
+a long, bar.high >= stop_loss for a short). A bar that pierces the stop and
+then runs on reported an exit far past the stop.
+
+Conventions pinned here, and asserted:
+  - stop  -> reference = stop level, clamped to bar.open (a gap-through fills
+             at the open; the market never traded the stop price after it),
+             then adverse slippage on top.
+  - TP    -> fills at exactly take_profit. A resting limit fills at its price
+             or better; booking exactly its price means a gap can never
+             flatter the result. No slippage, no gap bonus.
+  - signal / backtest_end exits -> unchanged, still bar.close +/- slippage.
+
+Entry prices are read back off the recorded trade rather than recomputed: the
+entry leg still fills off its own bar's close plus slippage, and this task does
+not touch that.
+
+Run: cd services/trading-engine && python3 -m pytest \\
+     tests/test_backtest_engine_stop_fills.py --no-cov
+"""
+
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+
+import pytest
+
+from app.backtesting.backtest_engine import BacktestConfig, BacktestEngine
+from app.backtesting.strategy_base import OHLCV, Signal, SignalType, StrategyBase
+
+# 0.1% per side, large enough that "stop minus slippage" and "close minus
+# slippage" cannot be confused with each other at these price scales.
+SLIPPAGE_PCT = 0.1
+
+
+class _StopScriptedStrategy(StrategyBase):
+    """Emits one entry signal carrying explicit stop/TP levels, then nothing.
+
+    tests/test_backtest_engine_cash_ledger.py's ScriptedStrategy attaches no
+    stops, so it cannot exercise this path - hence a local strategy here.
+    """
+
+    def __init__(
+        self,
+        symbol: str,
+        entry_bar: int,
+        signal_type: SignalType,
+        stop_loss: Optional[float],
+        take_profit: Optional[float],
+        exits: Optional[Dict[int, SignalType]] = None,
+    ):
+        super().__init__(symbol)
+        self._entry_bar = entry_bar
+        self._signal_type = signal_type
+        self._stop_loss = stop_loss
+        self._take_profit = take_profit
+        self._exits = exits or {}
+        self._bar_index = -1
+
+    def get_name(self) -> str:
+        return "StopScriptedStrategy"
+
+    def on_bar(self, bar: OHLCV, equity: float) -> Optional[Signal]:
+        self._bar_index += 1
+        if self._bar_index == self._entry_bar:
+            return Signal(
+                signal_type=self._signal_type,
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                stop_loss=self._stop_loss,
+                take_profit=self._take_profit,
+                position_size_pct=100.0,
+            )
+        exit_type = self._exits.get(self._bar_index)
+        if exit_type is not None:
+            return Signal(
+                signal_type=exit_type,
+                symbol=self.symbol,
+                price=bar.close,
+                timestamp=bar.timestamp,
+                position_size_pct=100.0,
+            )
+        return None
+
+
+def _ohlc(bars: List[tuple]) -> List[OHLCV]:
+    """Explicit (open, high, low, close) bars - intrabar range is the point."""
+    start = datetime(2026, 1, 1)
+    return [
+        OHLCV(
+            timestamp=start + timedelta(hours=i),
+            open=o,
+            high=h,
+            low=lo,
+            close=c,
+            volume=1000.0,
+        )
+        for i, (o, h, lo, c) in enumerate(bars)
+    ]
+
+
+@pytest.fixture
+def config() -> BacktestConfig:
+    """initial_equity omitted: BacktestConfig resolves it from Settings."""
+    return BacktestConfig(slippage_pct=SLIPPAGE_PCT, position_size_pct=10.0)
+
+
+def _slippage(reference: float, config: BacktestConfig) -> float:
+    return reference * (config.slippage_pct / 100)
+
+
+def test_long_stop_fills_at_the_stop_not_the_close(config):
+    """Bar 1 pierces the stop at 95 and closes at 80: the exit is not 80."""
+    engine = BacktestEngine(config)
+    strategy = _StopScriptedStrategy(
+        "BTCUSDT", 0, SignalType.BUY, stop_loss=95.0, take_profit=200.0
+    )
+
+    # Bar 1 opens above the stop, so no gap: the reference is the stop itself.
+    engine.run(strategy, _ohlc([(100, 100, 100, 100), (99, 99, 78, 80)]))
+
+    assert len(engine._trades) == 1
+    trade = engine._trades[0]
+    assert trade.exit_reason == "stop_loss"
+    assert trade.exit_price == pytest.approx(95.0 - _slippage(95.0, config)), (
+        f"exit booked at {trade.exit_price}; the stop was 95 and the bar closed "
+        "at 80 - pricing an intrabar stop off bar.close reports a fill the "
+        "strategy never asked for"
+    )
+
+
+def test_long_stop_gaps_through_and_fills_at_the_open(config):
+    """Opening below the stop must fill at the OPEN, never at the stop.
+
+    Filling at 95 here would fabricate a price the market did not trade after
+    the open - an optimism bug in the opposite direction.
+    """
+    engine = BacktestEngine(config)
+    strategy = _StopScriptedStrategy(
+        "BTCUSDT", 0, SignalType.BUY, stop_loss=95.0, take_profit=200.0
+    )
+
+    engine.run(strategy, _ohlc([(100, 100, 100, 100), (90, 91, 85, 88)]))
+
+    trade = engine._trades[0]
+    assert trade.exit_reason == "stop_loss"
+    assert trade.exit_price == pytest.approx(90.0 - _slippage(90.0, config))
+    assert trade.exit_price < 95.0
+
+
+def test_short_stop_clamps_to_the_open_on_a_gap_up(config):
+    """Mirror case: a short's stop is above, so the clamp takes the MAX."""
+    engine = BacktestEngine(config)
+    strategy = _StopScriptedStrategy(
+        "BTCUSDT", 0, SignalType.SELL, stop_loss=105.0, take_profit=50.0
+    )
+
+    engine.run(strategy, _ohlc([(100, 100, 100, 100), (110, 115, 109, 112)]))
+
+    trade = engine._trades[0]
+    assert trade.side == "short"
+    assert trade.exit_reason == "stop_loss"
+    assert trade.exit_price == pytest.approx(110.0 + _slippage(110.0, config))
+    assert trade.exit_price > 105.0
+
+
+def test_take_profit_fills_exactly_at_the_limit(config):
+    """A resting limit fills at its price - no slippage, no gap bonus."""
+    engine = BacktestEngine(config)
+    strategy = _StopScriptedStrategy(
+        "BTCUSDT", 0, SignalType.BUY, stop_loss=50.0, take_profit=110.0
+    )
+
+    # Bar 1 gaps open to 115 and runs to 130: the fill is the limit, not 115
+    # and not the close.
+    engine.run(strategy, _ohlc([(100, 100, 100, 100), (115, 130, 114, 128)]))
+
+    trade = engine._trades[0]
+    assert trade.exit_reason == "take_profit"
+    assert trade.exit_price == pytest.approx(110.0), (
+        f"take-profit booked at {trade.exit_price}; a resting limit fills at "
+        "its own price, and honouring the gap would flatter the backtest"
+    )
+
+
+def test_signal_exit_still_prices_off_bar_close(config):
+    """Scope guard: only stop/TP exits change."""
+    engine = BacktestEngine(config)
+    strategy = _StopScriptedStrategy(
+        "BTCUSDT",
+        0,
+        SignalType.BUY,
+        stop_loss=None,
+        take_profit=None,
+        exits={2: SignalType.CLOSE_LONG},
+    )
+
+    engine.run(
+        strategy, _ohlc([(100, 100, 100, 100), (105, 106, 104, 105), (110, 112, 108, 111)])
+    )
+
+    trade = engine._trades[0]
+    assert trade.exit_reason == "signal"
+    assert trade.exit_price == pytest.approx(111.0 - _slippage(111.0, config))
+
+
+def test_backtest_end_exit_still_prices_off_bar_close(config):
+    """Scope guard: the final forced close is unchanged."""
+    engine = BacktestEngine(config)
+    strategy = _StopScriptedStrategy(
+        "BTCUSDT", 0, SignalType.BUY, stop_loss=None, take_profit=None
+    )
+
+    engine.run(strategy, _ohlc([(100, 100, 100, 100), (105, 106, 104, 105)]))
+
+    trade = engine._trades[0]
+    assert trade.exit_reason == "backtest_end"
+    assert trade.exit_price == pytest.approx(105.0 - _slippage(105.0, config))
+
+
+def test_recorded_slippage_matches_the_exit_reference(config):
+    """Trade.slippage must not keep quoting a bar.close-derived figure."""
+    engine = BacktestEngine(config)
+    strategy = _StopScriptedStrategy(
+        "BTCUSDT", 0, SignalType.BUY, stop_loss=95.0, take_profit=200.0
+    )
+
+    engine.run(strategy, _ohlc([(100, 100, 100, 100), (99, 99, 78, 80)]))
+
+    trade = engine._trades[0]
+    # Entry leg off the RECORDED entry price (bar-0 close plus its own
+    # slippage), not off the raw 100 - recomputing it here would be off by the
+    # entry slippage itself.
+    entry_slippage = _slippage(trade.entry_price, config)
+    exit_slippage = _slippage(95.0, config)  # stop reference, not the 80 close
+    assert trade.slippage == pytest.approx(entry_slippage + exit_slippage), (
+        f"recorded slippage {trade.slippage} still assumes both legs were "
+        "priced off the same bar close"
+    )
+```
+
+- [ ] **Step 2: Run it and watch the stop/TP tests fail**
+
+```bash
+cd services/trading-engine && python3 -m pytest tests/test_backtest_engine_stop_fills.py --no-cov -q
+```
+
+Expected red: `test_long_stop_fills_at_the_stop_not_the_close` (books `80 - slippage`), `test_long_stop_gaps_through_and_fills_at_the_open` (books `88 - slippage`), `test_short_stop_clamps_to_the_open_on_a_gap_up` (books `112 + slippage`), `test_take_profit_fills_exactly_at_the_limit` (books `128 - slippage`), `test_recorded_slippage_matches_the_exit_reference`. Expected green already: the two scope-guard tests — they pin behaviour that must **not** move.
+
+- [ ] **Step 3: Take an optional fill reference on `_close_position`**
+
+In `app/backtesting/backtest_engine.py`, replace lines 422–433:
+
+```python
+    def _close_position(self, bar: OHLCV, exit_reason: str) -> None:
+        """Close existing position"""
+        if not self._position:
+            return
+
+        # Apply slippage to exit price
+        slippage_amount = bar.close * (self.config.slippage_pct / 100)
+        if self._position.side == "long":
+            exit_price = bar.close - slippage_amount
+        else:
+            exit_price = bar.close + slippage_amount
+```
+
+with:
+
+```python
+    def _close_position(
+        self,
+        bar: OHLCV,
+        exit_reason: str,
+        fill_price: Optional[float] = None,
+        apply_slippage: bool = True,
+    ) -> None:
+        """Close existing position.
+
+        fill_price is the reference the exit actually fills against, supplied
+        by the caller that knows why the exit fired:
+
+          - stop exits pass the stop level already clamped to bar.open (a
+            gap-through cannot fill at a price the market never traded) and
+            leave apply_slippage True: a stop is a market order once
+            triggered, so adverse slippage is applied here on top;
+          - take-profit exits pass the limit level with apply_slippage=False:
+            a resting limit fills at its own price or better, so booking
+            exactly its price is the convention that cannot flatter a gap;
+          - signal and backtest_end exits pass neither and keep bar.close.
+
+        Deliberately keyed on these arguments and NOT on exit_reason:
+        _process_signal forwards an arbitrary reason string out of
+        signal.metadata, so a strategy emitting the literal "stop_loss" with
+        no stop set must not be able to reach a stop-priced branch.
+        """
+        if not self._position:
+            return
+
+        # Apply slippage to exit price. Stops and TPs hand us their own
+        # reference; everything else still fills at the bar close.
+        reference = bar.close if fill_price is None else fill_price
+        slippage_amount = (
+            reference * (self.config.slippage_pct / 100) if apply_slippage else 0.0
+        )
+        if self._position.side == "long":
+            exit_price = reference - slippage_amount
+        else:
+            exit_price = reference + slippage_amount
+```
+
+`Optional` is already imported at `backtest_engine.py:8`.
+
+- [ ] **Step 4: Fix the recorded slippage figure**
+
+At line 465, `slippage=slippage_amount * 2` assumed both legs were priced off the same bar close. That is no longer true — and it was never exact anyway, since the entry leg was priced off *its* bar at `:386`. Replace:
+
+```python
+            slippage=slippage_amount * 2,
+```
+
+with:
+
+```python
+            # Exit-leg slippage is the real figure computed above (zero for a
+            # take-profit limit). The entry leg is approximated at the same
+            # rate off the entry price, because the entry bar is not retained
+            # on the Position - it was previously approximated as this same
+            # doubling off the EXIT bar's close, which was worse.
+            slippage=slippage_amount
+            + self._position.entry_price * (self.config.slippage_pct / 100),
+```
+
+Nothing aggregates this field into a reported metric — `performance_metrics.py` and `handlers/backtest.py` never read `Trade.slippage`; the only consumers are `Trade.to_dict` (`:115`) and `tests/test_backtesting.py:684-685`, which asserts only `sum(t.slippage) > 0`. That assertion holds under the new formula for any `slippage_pct > 0`, since the entry term alone is positive. Note that `test_backtest_engine_cash_ledger.py` runs with `slippage_pct = 0.0`, so it cannot distinguish the old `* 2` form from this one — the coverage for this line is `test_recorded_slippage_matches_the_exit_reference` in the new file, not the ledger suite.
+
+- [ ] **Step 5: Pass the trigger reference from the four exit sites**
+
+In `_check_exit_conditions`, replace lines 495–519 in full (verified: this exact block occurs once in the file):
+
+```python
+        if self._position.side == "long":
+            # Check stop loss
+            if self.config.use_stop_loss and self._position.stop_loss:
+                if bar.low <= self._position.stop_loss:
+                    self._close_position(bar, "stop_loss")
+                    return
+
+            # Check take profit
+            if self.config.use_take_profit and self._position.take_profit:
+                if bar.high >= self._position.take_profit:
+                    self._close_position(bar, "take_profit")
+                    return
+
+        else:  # short position
+            # Check stop loss
+            if self.config.use_stop_loss and self._position.stop_loss:
+                if bar.high >= self._position.stop_loss:
+                    self._close_position(bar, "stop_loss")
+                    return
+
+            # Check take profit
+            if self.config.use_take_profit and self._position.take_profit:
+                if bar.low <= self._position.take_profit:
+                    self._close_position(bar, "take_profit")
+                    return
+```
+
+with:
+
+```python
+        # The fill reference is computed HERE, where the level has just been
+        # proven non-None by the trigger comparison. Stops clamp to bar.open so
+        # a gap-through fills at the open rather than at a price the market
+        # never traded after it. Take-profits are resting limits and fill at
+        # their own level.
+        if self._position.side == "long":
+            # Check stop loss
+            if self.config.use_stop_loss and self._position.stop_loss:
+                if bar.low <= self._position.stop_loss:
+                    self._close_position(
+                        bar,
+                        "stop_loss",
+                        fill_price=min(self._position.stop_loss, bar.open),
+                    )
+                    return
+
+            # Check take profit
+            if self.config.use_take_profit and self._position.take_profit:
+                if bar.high >= self._position.take_profit:
+                    self._close_position(
+                        bar,
+                        "take_profit",
+                        fill_price=self._position.take_profit,
+                        apply_slippage=False,
+                    )
+                    return
+
+        else:  # short position
+            # Check stop loss
+            if self.config.use_stop_loss and self._position.stop_loss:
+                if bar.high >= self._position.stop_loss:
+                    self._close_position(
+                        bar,
+                        "stop_loss",
+                        fill_price=max(self._position.stop_loss, bar.open),
+                    )
+                    return
+
+            # Check take profit
+            if self.config.use_take_profit and self._position.take_profit:
+                if bar.low <= self._position.take_profit:
+                    self._close_position(
+                        bar,
+                        "take_profit",
+                        fill_price=self._position.take_profit,
+                        apply_slippage=False,
+                    )
+                    return
+```
+
+Do **not** touch the `_close_position` calls at `:314` (`backtest_end`) or `:364` / `:368` (signal exits). They pass no `fill_price` and must keep filling at `bar.close`.
+
+- [ ] **Step 6: Verify**
+
+```bash
+cd services/trading-engine && python3 -m pytest tests/test_backtest_engine_stop_fills.py tests/test_backtest_engine_cash_ledger.py tests/test_backtesting.py --no-cov -q
+```
+
+Expected: all pass. `test_backtest_engine_cash_ledger.py` is the real gate — its fixtures use flat bars (`high == low == close`) and no stops, so every one of its figures must be bit-for-bit unchanged. If any of it moves, a non-stop exit path was disturbed. The other one to watch is `test_backtesting.py::test_engine_slippage_applied`, which asserts `sum(t.slippage) > 0` at `slippage_pct=1.0` — satisfied by the new formula, since the entry term alone is positive.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git commit -- app/backtesting/backtest_engine.py tests/test_backtest_engine_stop_fills.py -m "fix(trading-engine): backtester fills stops at the stop, not the bar close
+
+_close_position priced every exit off bar.close, including stop-loss and
+take-profit exits that _check_exit_conditions had already triggered intrabar.
+A bar that pierced the stop and then ran on reported an exit far past the
+stop - flattering a losing trade or penalising a winning one, and either way
+reporting a fill the strategy never asked for.
+
+Exits now carry an explicit fill reference computed at the trigger site,
+where the level has just been proven non-None:
+
+  stop        stop level CLAMPED to bar.open (long min, short max), then
+              adverse slippage - a stop is a market order once triggered, and
+              the clamp stops a gap-through fabricating a price the market
+              never traded after the open;
+  take_profit exactly the limit level, no slippage and no gap bonus - a
+              resting limit fills at its price or better, so booking its
+              price is the convention that cannot flatter a gap;
+  signal /
+  backtest_end unchanged, still bar.close +/- slippage.
+
+Keyed on the new optional fill_price / apply_slippage arguments and never on
+exit_reason: _process_signal forwards an arbitrary reason string out of
+signal.metadata, so a strategy emitting the literal \"stop_loss\" with no stop
+set cannot reach a stop-priced branch. Trailing exits need no special case -
+_update_trailing_stop writes the trailing level into stop_loss.
+
+Trade.slippage no longer doubles a bar.close-derived figure; the exit leg is
+the real number and the entry leg is approximated off the entry price.
+
+Reachable over HTTP via /api/v1/backtest/run, /quick and /compare - this is a
+reported-number correctness fix, not dormant hygiene."
 ```
 
 ---
@@ -2291,7 +2960,7 @@ scope, which is how these guards get hollowed out."
   cd services/trading-engine && python3 -m pytest tests/ --no-cov -q
   ```
 - [ ] `python3 -m pytest tests/test_price_rounding_invariant.py --no-cov -q` passes from the repo root and has been *seen* to fail on a reintroduced rounding.
-- [ ] Fourteen commits, one per task, each with an explicit pathspec; every diff checked for import churn.
+- [ ] Fifteen commits, one per task, each with an explicit pathspec; every diff checked for import churn.
 - [ ] **Deployment proof — an HTTP 200 is not proof:**
   ```bash
   DOCKER_BUILDKIT=0 docker compose -f docker-compose.unified.yml up -d --build trading-engine
@@ -2303,6 +2972,14 @@ scope, which is how these guards get hollowed out."
   SELECT id, symbol, side, entry_price, exit_price, realized_pnl, closed_at
   FROM positions WHERE closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 5;
   ```
+- [ ] **Task 15 is LIVE, so a green unit test is not its proof.** Hit the backtest route on the rebuilt container and read a stop exit back out of the response:
+  ```bash
+  curl -s -X POST http://localhost:8005/api/v1/backtest/run \
+    -H 'Content-Type: application/json' \
+    -d '{"strategy":"rsi_momentum","symbol":"BTCUSDT","days":30}' \
+    | python3 -c "import json,sys; r=json.load(sys.stdin); print([(t['exit_reason'], t['exit_price']) for t in r.get('trades', [])][:10])"
+  ```
+  Confirm at least one trade with `exit_reason == "stop_loss"` and that its `exit_price` sits at the stop level (or the bar open on a gap), not at that bar's close. If the run produces no stop exits, say so rather than claiming the proof.
 - [ ] Confirm the service was actually restarted. Stale in-memory state is this repo's most common false pass.
 
 ## Out of scope, recorded so nobody re-derives it

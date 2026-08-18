@@ -25,7 +25,8 @@ These apply to **every** task. They are not optional and they are not repeated i
   Files directly in `tests/` need one fewer `.parent`. Copy the shim; do not create a `conftest.py`.
 - **`asyncio_mode = auto`** and `--strict-markers` are set. Do not register new markers. Do not write an `event_loop` fixture.
 - **Known-failure baseline for this service: 3 failures out of 481 collected** — 2 × `test_comprehensive_80` (DataFrame issues) and 1 × `test_signal_aggregator_confidence_zero::test_empty_signal_list_returns_neutral_fallback`. Task 1 fixes the third, taking the baseline to **2**. Any failure outside that list is a regression you caused.
-- **Never round a price-domain value.** `round(x, 2)` on ADA (~$0.60, tick 0.0001) destroys precision and caused 30+ flip-flop losses (commit `487d1bd`). The established fix in this repo is `float(x)` — full precision — NOT tick quantization. Tick quantization belongs at order time in the trading-engine (`app/costs.py`, `limit_order_executor`), never in indicator or strategy math. Dimensionless values (RSI 0–100, confidence 0–1, volume ratios) may stay rounded.
+- **Never round a price-domain value.** `round(x, 2)` on ADA (~$0.60, tick 0.0001) destroys precision and caused 30+ flip-flop losses (commit `487d1bd`). The established fix in this repo is `float(x)` — full precision — NOT tick quantization. Tick quantization belongs at order time in the trading-engine (`app/costs.py`, `limit_order_executor`), never in indicator or strategy math. Dimensionless values (RSI 0–100, confidence 0–1, volume ratios, normalized strength scores) may stay rounded.
+- **The dimensionless opt-out marker is `# non-price-round`.** Task 6 builds an AST guard that bans `round(x, 2)` and `round(x, 4)` anywhere inside a bounded file list, and honours a trailing `# non-price-round` comment as a line-level exemption. Every dimensionless rounding that survives in a guarded file must carry that exact marker. Tasks 2 and 3 write the markers as part of their own edits; Task 6 writes the guard that reads them. Do not invent a second spelling — WS1-B extends the same marker.
 - **The format hook runs ruff at 88 columns while the repo uses 100, and has stripped imports before.** Make surgical single-line edits. After any edit touching an import block, run `git diff` and check for import churn before committing.
 - **`git status` exceeds 60 seconds on this NTFS/WSL mount.** Never run bare `git status` or `git add -A`. Commit with explicit pathspecs: `git commit -- <path> <path>`.
 - **Commit one task per commit**, conventional message, `fix(technical-analysis): …` or `test(technical-analysis): …`.
@@ -37,14 +38,14 @@ These apply to **every** task. They are not optional and they are not repeated i
 | File | Responsibility | Tasks |
 |---|---|---|
 | `app/handlers/analysis.py` | The TA-side aggregator: an async **function** `get_aggregated_signal`, not a class. Builds `(label, confidence)` tuples, weighted-sums them, returns the response dict. | 1, 5 |
-| `app/strategies/squeeze_momentum_strategy.py` | LIVE strategy served at `/api/v1/strategies/sqzmom/signal/{symbol}`. Returns entry/stop/TP. | 2 |
-| `app/indicators/sqzmom_enhanced.py` | `SqueezeMetadata.to_dict()` serializes bands and price. Library-contract rot — not on the live route. | 3 |
+| `app/strategies/squeeze_momentum_strategy.py` | LIVE strategy served at `/api/v1/strategies/sqzmom/signal/{symbol}`. Returns entry/stop/TP. Task 2 also marks its one surviving dimensionless round. | 2 |
+| `app/indicators/sqzmom_enhanced.py` | `SqueezeMetadata.to_dict()` serializes bands and price. Library-contract rot — not on the live route. Task 3 also marks its three surviving dimensionless rounds. | 3 |
 | `app/main.py` | Route definitions. `Query(default=…)` literals duplicate Settings values. | 4 |
 | `tests/test_signal_aggregator_confidence_zero.py` | Existing; holds the currently-red test that Task 1 turns green. | 1 |
 | `tests/unit/test_sqzmom_strategy_precision.py` | **NEW** — ADA-scale precision assertions. | 2, 3 |
 | `tests/test_endpoint_defaults_from_settings.py` | **NEW** — route defaults track Settings. | 4 |
 | `tests/test_aggregator_new_legs.py` | **NEW** — ADX/SQZMOM vote, Volume multiplier. | 5 |
-| `tests/test_price_rounding_invariant.py` (repo root `tests/`) | **NEW** — AST guard banning `round(x, 2)` over a bounded file list. | 6 |
+| `tests/test_price_rounding_invariant.py` (repo root `tests/`) | **NEW** — AST guard banning `round(x, 2\|4)` over a bounded file list, with a line-level `# non-price-round` opt-out. | 6 |
 
 ---
 
@@ -179,7 +180,8 @@ known-failure baseline drops from 3 to 2."
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `SqueezeMomentumStrategy.analyze(df) -> Dict` — same keys, unchanged types (`float`), full precision. Task 6 adds this file to the AST guard's `SCANNED_FILES`.
+- Produces: `SqueezeMomentumStrategy.analyze(df) -> Dict` — same keys, unchanged types (`float`), full precision. Task 6 adds this file to the AST guard's `SCANNED_FILES`, so the one dimensionless rounding that survives here (`confidence`) must carry the `# non-price-round` marker — Step 3 writes it.
+- Produces: `tests/unit/test_sqzmom_strategy_precision.py` with the helper `_ada_ohlc(n: int = 80, seed: int = 7) -> pd.DataFrame`. **`seed` is the second parameter on purpose** — Task 3 calls `_ada_ohlc(120)` positionally and must keep working.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -211,9 +213,13 @@ import pytest
 from app.strategies.squeeze_momentum_strategy import SqueezeMomentumStrategy
 
 
-def _ada_ohlc(n: int = 80) -> pd.DataFrame:
-    """ADA-scale OHLCV frame: prices near $0.60, ranges near $0.003."""
-    rng = np.random.default_rng(7)
+def _ada_ohlc(n: int = 80, seed: int = 7) -> pd.DataFrame:
+    """ADA-scale OHLCV frame: prices near $0.60, ranges near $0.003.
+
+    `seed` is the SECOND parameter deliberately: Task 3 calls _ada_ohlc(120)
+    positionally, so inserting seed first would silently change its frame.
+    """
+    rng = np.random.default_rng(seed)
     close = 0.60 + np.cumsum(rng.normal(0, 0.0015, n))
     return pd.DataFrame(
         {
@@ -245,20 +251,40 @@ def test_entry_price_keeps_full_precision():
 
 def test_stop_and_target_keep_their_percentage_distance():
     """A 2% stop must stay 2% away, not snap to the nearest cent."""
-    df = _ada_ohlc()
-    strategy = SqueezeMomentumStrategy()
+    # seed=0 leaves the last bar in a released squeeze with rising positive
+    # momentum, so a BUY actually fires. min_momentum_threshold must also be
+    # scaled down: the 0.5 default is in PRICE units, and ADA-scale
+    # sqz_momentum is ~1e-3, which can never clear it. The default seed=7
+    # fixture returns HOLD ("Momentum too weak (-0.0026 < 0.5)") and HOLD
+    # hard-sets stop_loss/take_profit to 0.0, so it cannot cover this.
+    df = _ada_ohlc(seed=0)
+    strategy = SqueezeMomentumStrategy(min_momentum_threshold=1e-9)
 
     result = strategy.analyze(df)
-    if result["action"] == "HOLD":
-        pytest.skip("no directional entry on this fixture; covered by the BUY case")
+    assert result["action"] in ("BUY", "SELL"), (
+        f"fixture produced no directional entry (action={result['action']}, "
+        f"momentum={result['momentum']}); analyze() hard-sets stop_loss and "
+        "take_profit to 0.0 on HOLD, so every assertion below would be vacuous"
+    )
 
     entry = result["entry_price"]
     stop = result["stop_loss"]
-    realized_stop_pct = abs(entry - stop) / entry * 100
+    target = result["take_profit"]
+    sign = 1 if result["action"] == "BUY" else -1
 
+    realized_stop_pct = abs(entry - stop) / entry * 100
     assert realized_stop_pct == pytest.approx(strategy.stop_loss_pct, rel=1e-9), (
         f"stop is {realized_stop_pct:.4f}% from entry, configured "
         f"{strategy.stop_loss_pct}% - rounding moved the stop"
+    )
+
+    realized_tp_pct = abs(target - entry) / entry * 100
+    assert realized_tp_pct == pytest.approx(strategy.take_profit_pct, rel=1e-9), (
+        f"target is {realized_tp_pct:.4f}% from entry, configured "
+        f"{strategy.take_profit_pct}% - rounding moved the target"
+    )
+    assert sign * (target - entry) > 0 and sign * (entry - stop) > 0, (
+        "rounding put stop or target on the wrong side of entry"
     )
 
 
@@ -280,7 +306,11 @@ def test_momentum_keeps_precision_at_ada_scale():
 cd services/technical-analysis && python3 -m pytest tests/unit/test_sqzmom_strategy_precision.py --no-cov -q
 ```
 
-Expected: FAIL on `test_entry_price_keeps_full_precision` with the served value equal to the 2dp rounding.
+Expected: **3 failed** — all three tests, not just one. Every failure is real; do not debug any of them as a broken test:
+
+- `test_entry_price_keeps_full_precision` — the served value equals its own 2dp rounding.
+- `test_stop_and_target_keep_their_percentage_distance` — on `_ada_ohlc(seed=0)` the raw last close is `0.6144410483109704` and `analyze()` returns `action='BUY'`, but today it serves `entry_price=0.61, stop_loss=0.6, take_profit=0.64`: the realized stop distance is **1.6393%** against a configured 2.0%, and the take-profit distance is **4.918%** against a configured 4.0%. After Step 3 they become **2.0000000000000013%** and **4.000000000000003%**, both inside `rel=1e-9`.
+- `test_momentum_keeps_precision_at_ada_scale` — raw momentum on the seed-7 fixture is `-0.0025750385684731427`, but the served value is `round(_, 4) == -0.0026`, which equals its own 4dp rounding.
 
 - [ ] **Step 3: Remove the price-domain rounding**
 
@@ -311,7 +341,9 @@ with:
                 # and moves a 2% stop by up to 40% of its own distance
                 # (487d1bd / PRICE-01). Tick quantization is the trading
                 # engine's job at order time, not this layer's.
-                'confidence': round(float(confidence), 2),
+                # confidence is dimensionless 0-1, so it legitimately stays
+                # rounded; the marker is the AST guard's line-level opt-out.
+                'confidence': round(float(confidence), 2),  # non-price-round
                 'entry_price': float(entry_price),
                 'stop_loss': float(stop_loss),
                 'take_profit': float(take_profit),
@@ -323,7 +355,7 @@ with:
             }
 ```
 
-`confidence` stays rounded — it is dimensionless 0–1, not price-domain.
+`confidence` stays rounded — it is dimensionless 0–1, not price-domain. It **must** carry the trailing `# non-price-round` marker exactly as written above: Task 6 adds this file to an AST guard that bans every `round(x, 2)` and `round(x, 4)` in it, and that marker is the guard's line-level opt-out. Without it Task 6 lands red. This is the only surviving banned-ndigits call in this file after the edits below.
 
 Then fix the volume-gate early return at line 171. Replace:
 
@@ -356,7 +388,9 @@ served at /api/v1/strategies/sqzmom/signal/{symbol}. On ADA (~\$0.60, tick
 40% of its own distance and can land on the wrong side of entry. The
 handler re-wraps with float(), which cannot restore destroyed precision.
 
-Same defect class as 487d1bd. Dimensionless confidence stays rounded."
+Same defect class as 487d1bd. Dimensionless confidence stays rounded and
+carries the # non-price-round marker that the WS1-A Task 6 AST guard reads
+as a line-level opt-out."
 ```
 
 ---
@@ -368,16 +402,33 @@ Same defect class as 487d1bd. Dimensionless confidence stays rounded."
 **Reachability note — state this in the commit, do not overstate the severity.** `to_dict()` is consumed only by `get_signal()` → `analyze()` → the module-level `calculate_squeeze_momentum()` convenience function. The LIVE HTTP route `/api/v1/indicators/enhanced-sqzmom` calls `calculator.calculate(df)` and never touches `to_dict`. This is library-contract rot in the same family, not a live-signal bug.
 
 **Files:**
-- Modify: `services/technical-analysis/app/indicators/sqzmom_enhanced.py:118-124`
+- Modify: `services/technical-analysis/app/indicators/sqzmom_enhanced.py:115`, `:118-125`, `:738`
 - Test: `services/technical-analysis/tests/unit/test_sqzmom_strategy_precision.py` (extend the file created in Task 2)
 
+This file has **three** dimensionless `round(x, 4|2)` calls that legitimately survive — `momentum_strength` (`:115`), `band_width_ratio` (`:125`) and `EnhancedSqueezeMomentum._calculate_confidence`'s `return round(confidence, 2)` (`:738`, def at `:653`). Task 6 adds this file to an AST guard that bans both ndigits values file-wide, so all three must be annotated with the trailing `# non-price-round` marker in this task. That is why the edit range is wider than the price-domain block. `momentum_value` / `momentum_acceleration` / `histogram` round to 6dp and are not affected.
+
 **Interfaces:**
-- Consumes: the `_ada_ohlc` helper from Task 2's test file.
-- Produces: `SqueezeMetadata.to_dict() -> Dict[str, Any]` — same keys, price-domain values now full-precision floats.
+- Consumes: the `_ada_ohlc` helper from Task 2's test file, called positionally as `_ada_ohlc(120)`.
+- Produces: `SqueezeMetadata.to_dict() -> Dict[str, Any]` — same keys, price-domain values now full-precision floats; the three dimensionless values keep their rounding and gain the `# non-price-round` marker Task 6's guard honours.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `services/technical-analysis/tests/unit/test_sqzmom_strategy_precision.py`:
+First add the `math` import the new test needs. At the top of `services/technical-analysis/tests/unit/test_sqzmom_strategy_precision.py`, replace:
+
+```python
+import sys
+```
+
+with:
+
+```python
+import math
+import sys
+```
+
+Add it in **this** commit, not Task 2's — `math` is unused until the test below exists, and the repo's format hook has stripped unused imports before.
+
+Then append to the same file:
 
 ```python
 def test_metadata_bands_keep_full_precision():
@@ -391,7 +442,12 @@ def test_metadata_bands_keep_full_precision():
     for field in ("bb_upper", "bb_basis", "bb_lower", "kc_upper", "kc_basis",
                   "kc_lower", "current_price"):
         value = metadata[field]
-        assert value == pytest.approx(value, rel=1e-12)
+        # NOT `value == pytest.approx(value)` - that compares a binding to
+        # itself and discriminates nothing. isfinite is the real guard: if the
+        # fixture ever yields fewer bars than the 20-period BB/KC warmup the
+        # bands come back NaN, and `nan != round(nan, 4)` is True, so the 4dp
+        # check alone would pass vacuously.
+        assert math.isfinite(value), f"{field}={value} is not a finite number"
         assert value != round(value, 4) or value == 0.0, (
             f"{field}={value} is still quantized to 4dp"
         )
@@ -405,11 +461,14 @@ cd services/technical-analysis && python3 -m pytest tests/unit/test_sqzmom_strat
 
 Expected: FAIL — every band equals its own 4dp rounding.
 
-- [ ] **Step 3: Drop the rounding on price-domain fields only**
+- [ ] **Step 3: Drop the rounding on price-domain fields, mark the dimensionless ones**
 
-In `app/indicators/sqzmom_enhanced.py`, replace lines 118–124:
+In `app/indicators/sqzmom_enhanced.py`, inside `SqueezeMetadata.to_dict()`, replace lines 115–125:
 
 ```python
+            "momentum_strength": round(self.momentum_strength, 4),
+            "histogram": [round(h, 6) for h in self.histogram[-10:]],  # Last 10 values
+            "histogram_color": self.histogram_color,
             "bb_upper": round(self.bb_upper, 4),
             "bb_basis": round(self.bb_basis, 4),
             "bb_lower": round(self.bb_lower, 4),
@@ -417,11 +476,15 @@ In `app/indicators/sqzmom_enhanced.py`, replace lines 118–124:
             "kc_basis": round(self.kc_basis, 4),
             "kc_lower": round(self.kc_lower, 4),
             "current_price": round(self.current_price, 4),
+            "band_width_ratio": round(self.band_width_ratio, 4)
 ```
 
 with:
 
 ```python
+            "momentum_strength": round(self.momentum_strength, 4),  # non-price-round
+            "histogram": [round(h, 6) for h in self.histogram[-10:]],  # Last 10 values
+            "histogram_color": self.histogram_color,
             # Price-domain: 4dp is exactly ADA's tick and lossy below it.
             # Full precision here; quantization belongs at order time.
             "bb_upper": float(self.bb_upper),
@@ -431,11 +494,28 @@ with:
             "kc_basis": float(self.kc_basis),
             "kc_lower": float(self.kc_lower),
             "current_price": float(self.current_price),
+            "band_width_ratio": round(self.band_width_ratio, 4)  # non-price-round
 ```
 
-Leave `momentum_strength` (line 115, normalized 0–1) and `band_width_ratio` (line 125, a ratio) rounded — both are dimensionless.
+`momentum_strength` (normalized 0–1) and `band_width_ratio` (a ratio) keep their rounding — both are dimensionless. Their **values do not change**; only the trailing `# non-price-round` marker is added, which is the opt-out Task 6's AST guard reads. `histogram` and the 6dp fields are untouched and need no marker: only ndigits 2 and 4 are banned.
 
-- [ ] **Step 4: Verify**
+- [ ] **Step 4: Mark the third dimensionless rounding, outside `to_dict`**
+
+`EnhancedSqueezeMomentum._calculate_confidence` (def at `app/indicators/sqzmom_enhanced.py:653`) ends by returning a clamped 0.1–1.0 score. It is dimensionless, its value must not change, and it is the last banned-ndigits call left in this file. Replace line 738:
+
+```python
+        return round(confidence, 2)
+```
+
+with:
+
+```python
+        return round(confidence, 2)  # non-price-round
+```
+
+Do not convert this one to `float()` — the 2dp rounding is part of the confidence contract every SQZMOM consumer already reads. Skipping this line leaves Task 6's guard red with exactly one violation.
+
+- [ ] **Step 5: Verify**
 
 ```bash
 cd services/technical-analysis && python3 -m pytest tests/unit/test_sqzmom_strategy_precision.py tests/test_enhanced_sqzmom_service.py --no-cov -q
@@ -443,14 +523,27 @@ cd services/technical-analysis && python3 -m pytest tests/unit/test_sqzmom_strat
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+Then confirm the file has no unmarked banned rounding left — this is what Task 6's guard will check:
+
+```bash
+cd services/technical-analysis && grep -n "round(.*, *[24])" app/indicators/sqzmom_enhanced.py
+```
+
+Expected: exactly three lines, and **every one of them ends in `# non-price-round`** (`momentum_strength`, `band_width_ratio`, and the `_calculate_confidence` return). Any unmarked hit is a miss — go back to Step 3 or Step 4.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git commit -- services/technical-analysis/app/indicators/sqzmom_enhanced.py services/technical-analysis/tests/unit/test_sqzmom_strategy_precision.py -m "fix(technical-analysis): SqueezeMetadata.to_dict keeps band precision
 
 Bands and current_price were serialized at 4dp, which is exactly ADA's tick
 size and lossy for anything below it. Same PRICE-01 family as the strategy
-fix. Dimensionless momentum_strength and band_width_ratio stay rounded.
+fix.
+
+Dimensionless momentum_strength, band_width_ratio and the
+_calculate_confidence return keep their rounding, unchanged in value, and
+now carry the # non-price-round marker that the WS1-A Task 6 AST guard
+reads as a line-level opt-out.
 
 Scope note: to_dict is not on the live /api/v1/indicators/enhanced-sqzmom
 route (that path calls calculate()); this is library-contract rot, not a
@@ -569,26 +662,51 @@ def test_openapi_schema_defaults_track_settings():
     }
     assert macd_params["fast"]["schema"]["default"] == settings.default_macd_fast
     assert macd_params["slow"]["schema"]["default"] == settings.default_macd_slow
+
+
+def test_rsi_bounds_and_description_survive_the_settings_rewire():
+    """Only default= may move. ge/le and description are a live contract.
+
+    Narrowing RSI's le from 200 to 100 turns ?period=150 from HTTP 200 into
+    HTTP 422, and dropping description= rewrites the published OpenAPI schema.
+    Neither is caught by the two route-default tests above, so pin them here.
+    """
+    schema = client.get("/openapi.json").json()
+    rsi_params = {
+        p["name"]: p
+        for p in schema["paths"]["/api/v1/indicators/rsi/{symbol}"]["get"]["parameters"]
+    }
+    period = rsi_params["period"]["schema"]
+
+    assert period["default"] == settings.default_rsi_period
+    assert period["minimum"] == 2, f"RSI ge moved: {period}"
+    assert period["maximum"] == 200, (
+        f"RSI le narrowed to {period.get('maximum')} - it is 200; 100 is the "
+        "Bollinger endpoint's bound"
+    )
+    assert period["description"] == "RSI period (optimized for crypto)", (
+        f"RSI description changed: {period.get('description')!r}"
+    )
 ```
 
-Note: `test_openapi_schema_defaults_track_settings` passes both before and after the change, because the literals currently equal the Settings values. It is a **drift guard** — it goes red the day someone changes a Settings default without touching `main.py`. Keep it.
+Note: `test_openapi_schema_defaults_track_settings` passes both before and after the change, because the literals currently equal the Settings values. It is a **drift guard** — it goes red the day someone changes a Settings default without touching `main.py`. Keep it. `test_rsi_bounds_and_description_survive_the_settings_rewire` also passes before and after for the same reason; its job is to fail if the Step 3 edit narrows a bound or drops a description.
 
-- [ ] **Step 2: Run it and watch the first two fail**
+- [ ] **Step 2: Run it and prove the tests have teeth**
 
 ```bash
 cd services/technical-analysis && python3 -m pytest tests/test_endpoint_defaults_from_settings.py --no-cov -q
 ```
 
-Expected: the two `*_route_defaults_come_from_settings` tests may PASS on current code, because the hardcoded literals coincidentally equal the Settings values. **This is expected and is why the change is a drift fix, not a value fix.** To prove the tests have teeth, temporarily change `default_macd_fast` in `app/config.py` to `6`, re-run, and confirm `test_macd_route_defaults_come_from_settings` now FAILS. Then revert `config.py` to `5` before proceeding.
+Expected: **4 passed** on current, unmodified code — because the hardcoded literals coincidentally equal the Settings values. **This is expected and is why the change is a drift fix, not a value fix.** To prove the tests have teeth, temporarily change `default_macd_fast` in `app/config.py` to `6`, re-run, and confirm `test_macd_route_defaults_come_from_settings` now FAILS. Then revert `config.py` to `5` before proceeding.
 
 - [ ] **Step 3: Wire the Query defaults to Settings**
 
 `settings` is already a module-level instance at `app/main.py:75`, so these references are import-safe.
 
-Line 271 (RSI endpoint):
+Line 271 (RSI endpoint). The current line is `period: int = Query(default=9, ge=2, le=200, description="RSI period (optimized for crypto)"),` — note `le=200`, **not** `le=100`; the Bollinger endpoint is the one with `le=100`. Replace it with:
 
 ```python
-    period: int = Query(default=settings.default_rsi_period, ge=2, le=100),
+    period: int = Query(default=settings.default_rsi_period, ge=2, le=200, description="RSI period (optimized for crypto)"),
 ```
 
 Lines 291–293 (MACD endpoint):
@@ -607,7 +725,7 @@ Lines 312 and 314 (Bollinger endpoint):
     std_dev: float = Query(default=settings.default_bb_std, ge=1.0, le=4.0, description="Std dev (research: 2.5)"),
 ```
 
-Keep the existing `ge`/`le` bounds and descriptions exactly as they are — only the `default=` expression changes. Preserve the RSI endpoint's existing bounds; read them from the file rather than assuming, and change only the `default=`.
+Keep the existing `ge`/`le` bounds and descriptions exactly as they are — only the `default=` expression changes. Before editing, diff each replacement line against the file it replaces and confirm the only textual difference is `default=`. A narrowed bound is a live contract change with no test in this plan to catch it: dropping RSI's `le` from 200 to 100 would flip `GET /api/v1/indicators/rsi/BTCUSDT?period=150` from HTTP 200 to HTTP 422, and dropping a `description=` silently rewrites the published OpenAPI schema.
 
 - [ ] **Step 4: Verify, including the teeth check**
 
@@ -641,20 +759,22 @@ restart, and the OpenAPI schema defaults now track Settings."
 **Volume must NOT become a voting leg.** Its labels are `CONFIRM`/`REJECT`, and appending either raw would `KeyError` at `signal_weights[sig] += weight` and surface as an HTTP 500 through the generic `except` at line 145. It is also directionally agnostic — high volume confirms a breakdown exactly as much as a breakout. The trading-engine already models this correctly: volume is excluded from its vote and applied as a post-vote confidence multiplier in `aggregation/validator.py`. Mirror that design here.
 
 **Files:**
-- Modify: `services/technical-analysis/app/handlers/analysis.py:12` (imports), after `:44` (computation), after `:88` (vote legs), after `:130` (volume multiplier), `:132-141` (response)
+- Modify: `services/technical-analysis/app/handlers/analysis.py` — `:12-13` (imports), after `:45` (computation), after `:88` (vote legs), after `:130` (volume multiplier), `:132-141` (response). All line numbers are **pre-edit**; each step shifts the ones below it, so every step anchors on text as well.
 - Test: `services/technical-analysis/tests/test_aggregator_new_legs.py` (**NEW**)
 
 **Interfaces:**
-- Consumes: Task 1's `final_signal` short-circuit (this task inserts legs *before* the weighted sum, so the empty-vote path still reaches HOLD).
-- Produces: the response dict gains three additive keys — `adx`, `sqzmom`, `volume`. Existing keys are unchanged; nothing may be renamed.
-- Calculator APIs (verified):
-  - `ADXCalculator().calculate_with_signal(highs: List[float], lows: List[float], closes: List[float]) -> Tuple[Dict, str, float]` — the `str` is already `"BUY"`/`"SELL"`/`"HOLD"`.
-  - `EnhancedSqueezeMomentum().calculate(df: pd.DataFrame) -> Optional[pd.DataFrame]` — last row carries `sqz_signal` (BUY/SELL/HOLD) and `sqz_confidence` (0–1).
-  - `VolumeConfirmation().calculate(volumes: List[float], signal_type: str = "breakout") -> Dict` — keys include `confirmed` (bool), `strength` (`STRONG`/`MODERATE`/`WEAK`/`INSUFFICIENT`), `volume_ratio`, `confidence`.
+- Consumes: Task 1's `final_signal` short-circuit. This task inserts legs *before* the weighted sum, so **it can destroy that fix** — Task 1's `if total_weight > 0 else "HOLD"` only fires when `signals` is genuinely empty. Steps 5 and 6 exist to keep it reachable; do not relax their guards.
+- Produces: the response dict gains three additive keys — `adx`, `sqzmom`, `volume`. Existing keys are unchanged; nothing may be renamed. The route that serves this (`app/main.py:782`, `@app.get("/api/v1/indicators/signal/{symbol}", tags=["Analysis"])`) declares **no `response_model`** — verified — so the three new keys reach the wire unfiltered and the completion checklist's `curl` proof is achievable. Do not add a `response_model` here; the sibling RSI/MACD/Bollinger routes have one, and adding one would silently strip these keys while every unit test stayed green.
+- Calculator APIs and their **failure defaults** (verified against the source — none of them is a 0.0 confidence, which is why Steps 5 and 6 need explicit guards):
+  - `ADXCalculator().calculate_with_signal(highs: List[float], lows: List[float], closes: List[float]) -> Tuple[Dict, str, float]` — the `str` is already `"BUY"`/`"SELL"`/`"HOLD"`. **Failure default: `("HOLD", 0.3)`.** Insufficient data returns `_default_response()` with `regime = RANGING` (`adx.py:383`), and every RANGING read falls to `signal = "HOLD"; confidence = 0.3` (`adx.py:436-439`). The `"confidence": 0.0` field inside `_default_response()` is never read by `calculate_with_signal`.
+  - `EnhancedSqueezeMomentum().calculate(df: pd.DataFrame) -> Optional[pd.DataFrame]` — last row carries `sqz_signal` (BUY/SELL/HOLD) and `sqz_confidence` (0–1). **Failure default: `None`** on fewer than 25 bars (`sqzmom_enhanced.py:857-861`); on sufficient data a HOLD carries a flat `0.25` (`sqzmom_enhanced.py:687-688`).
+  - `VolumeConfirmation().calculate(volumes: List[float], signal_type: str = "breakout") -> Dict` — keys include `confirmed` (bool), `strength` (`STRONG`/`MODERATE`/`WEAK`/`INSUFFICIENT`), `volume_ratio`, `confidence`. **Failure default: `_reject_response()`** (`volume_confirmation.py:111-121`) — `confirmed False`, `strength "INSUFFICIENT"`, `volume_ratio 0.0` — returned on fewer than 20 bars or on any exception.
 
 - [ ] **Step 1: Write the failing test**
 
-The mock trap here is real: existing tests build a 10-row DataFrame, which is below ADX's 29-bar and SQZMOM's 32-bar minimums. Unpatched real calculators would return their 0.0-confidence failure defaults, get dropped by the `weight > 0.0` filter, and the test would pass **vacuously**. Patch the calculators at the handler's module namespace.
+The mock trap here is real: existing tests build a 10-row DataFrame, which is below ADX's 29-bar minimum (`adx.py:147`, `period * 2 + 1` with `period=14`), SQZMOM's 25-bar minimum (`sqzmom_enhanced.py:857`, `max(bb_length, kc_length, momentum_length) + 5` = `max(20, 20, 12) + 5`) and VolumeConfirmation's 20-bar period (`volume_confirmation.py:27`). Unpatched real calculators return their **failure defaults, which are not neutral** — ADX gives `("HOLD", 0.3)`, SQZMOM gives `None`, Volume gives `_reject_response()` — so the test would silently exercise those instead of the values it thinks it set. Patch the calculators at the handler's module namespace.
+
+*(Do not "correct" the 25 back to 32. 32 is `indicator_service.py:381`'s different gate, `max(bb_period, kc_period) + mom_period`, which guards the `/api/v1/indicators/enhanced-sqzmom` REST route. Step 4 calls `EnhancedSqueezeMomentum().calculate(df)` directly and bypasses `IndicatorService`, so the applicable minimum is the calculator's own 25.)*
 
 Create `services/technical-analysis/tests/test_aggregator_new_legs.py`:
 
@@ -673,9 +793,11 @@ trading-engine models it as a post-vote confidence multiplier
 
 Patching note: these tests MUST patch the calculators in the
 app.handlers.analysis namespace. The fixture frame is 10 rows, below ADX's
-29-bar and SQZMOM's 32-bar minimums, so unpatched calculators return their
-0.0-confidence defaults, get dropped by the weight > 0.0 filter, and the
-test would pass vacuously.
+29-bar minimum, SQZMOM's 25-bar minimum and Volume's 20-bar period, and
+those failure defaults are NOT neutral: ADX returns ("HOLD", 0.3) and
+VolumeConfirmation returns _reject_response() with volume_ratio 0.0. An
+unpatched leg would therefore cast a real vote / apply a real penalty and
+the test would be measuring the wrong thing.
 """
 
 import sys
@@ -847,7 +969,7 @@ from app.indicators.volume_confirmation import VolumeConfirmation
 
 - [ ] **Step 4: Compute the new legs**
 
-After line 44 (`trend_result = trend_filter.calculate(df["close"].tolist())`), add:
+Anchor by text: insert directly after the line `trend = trend_result.get("trend") if trend_result else None` (originally line 45, now ~51 because Step 3 grew the import block by six lines). Insert **after** the `trend_result` / `trend` pair, not between them:
 
 ```python
         # ADX (trend strength + direction) and Enhanced SQZMOM (breakout) are
@@ -868,34 +990,44 @@ After line 44 (`trend_result = trend_filter.calculate(df["close"].tolist())`), a
 
 - [ ] **Step 5: Add the voting legs**
 
-After line 88 (the closing `)` of the trend `signals.append(...)` block) and **before** the zero-confidence filter, add:
+Anchor by text, not by line number — Step 4 already inserted ~11 lines and shifted everything below it. Insert **after** the closing `)` of the trend `signals.append(...)` block (originally line 88) and **before** the comment `# Drop confidence=0 entries before aggregation (INFRA-06 Bug 2).` (originally line 90):
 
 ```python
-        # ADX: HOLD below the weak-trend threshold, so noise self-filters via
-        # the confidence gate below.
-        if adx_signal:
+        # ADX's failure default is HOLD at confidence 0.3 (adx.py:436-439), not
+        # 0.0, so the weight > 0.0 filter below cannot tell a dead ADX from a
+        # genuine ranging read. Only its directional labels may vote.
+        if adx_signal in ("BUY", "SELL") and float(adx_conf) > 0.0:
             signals.append((str(adx_signal), float(adx_conf)))
 
-        # Enhanced SQZMOM: last row carries the signal and its confidence.
+        # Same for SQZMOM: HOLD is a flat 0.25 (sqzmom_enhanced.py:687-688).
         if sqz_df is not None and not sqz_df.empty:
             last_row = sqz_df.iloc[-1]
-            signals.append(
-                (str(last_row["sqz_signal"]), float(last_row["sqz_confidence"]))
-            )
+            if str(last_row["sqz_signal"]) in ("BUY", "SELL"):
+                signals.append(
+                    (str(last_row["sqz_signal"]), float(last_row["sqz_confidence"]))
+                )
 ```
 
-The existing `weight > 0.0` filter at line 95 automatically discards each calculator's 0.0-confidence failure default, so no extra guards are needed.
+**The `weight > 0.0` filter at line 95 does not save you here — gate both legs to `BUY`/`SELL` exactly as written.** ADX's insufficient-data path returns `_default_response()` with `regime == RANGING`, and `calculate_with_signal` maps every RANGING/weak read to `signal = "HOLD"`, `confidence = 0.3` (`adx.py:436-441`). SQZMOM's `_calculate_confidence` returns a flat `0.25` for HOLD (`sqzmom_enhanced.py:687-688`). Neither is 0.0, so neither is filtered: an ungated ADX leg makes `total_weight` effectively never zero, Task 1's `if total_weight > 0 else "HOLD"` short-circuit becomes dead code, and `test_empty_signal_list_returns_neutral_fallback` goes red again at `confidence = 0.3 / 0.3 = 1.0`.
+
+This is not a blanket ban on HOLD votes — RSI deliberately votes HOLD at a flat 0.3 in this same aggregator (`rsi.py:185-187`) and that stays. The narrow problem is that ADX's *failure* default is textually identical to a genuine ranging read, so a dead calculator would cast a weighted vote.
 
 - [ ] **Step 6: Apply the volume multiplier and extend the response**
 
-After the confidence computation (after line 130's closing `)`) and before the `return`, add:
+Again anchor by text: insert after the closing `)` of the `else:` branch's `confidence = (...)` assignment (the `else 0.5` arm, originally line 130) and immediately before the `return {` (originally line 132):
 
 ```python
         # Volume validation: scale a directional signal's confidence by how
         # well volume confirms it. Tiers mirror the trading-engine's
         # aggregation/validator.py so the two services agree.
         volume_penalty = 1.0
-        if final_signal in ("BUY", "SELL"):
+        # volume_ratio == 0.0 is VolumeConfirmation._reject_response()
+        # (volume_confirmation.py:115) - fewer than `period` bars, or an
+        # exception. That is ABSENCE of information, not disconfirmation, and
+        # validator.py's ladder documents it as "No volume data: 1.0x (pass
+        # through)". A genuine sub-1.0x reading still takes the 0.5 penalty.
+        volume_has_data = float(volume_result.get("volume_ratio") or 0.0) > 0.0
+        if final_signal in ("BUY", "SELL") and volume_has_data:
             strength = str(volume_result.get("strength", "UNKNOWN"))
             if volume_result.get("confirmed"):
                 volume_penalty = 1.0 if strength == "STRONG" else 0.9
@@ -908,7 +1040,14 @@ After the confidence computation (after line 130's closing `)`) and before the `
             confidence *= volume_penalty
 ```
 
-Then extend the response dict (lines 132–141) with three additive keys — do not rename or remove any existing key:
+**Gate on `volume_ratio`, never on `len(df)` and never on any attribute of the calculator instance.** Two reasons, both load-bearing:
+
+- Under this task's own `patch.multiple`, `VolumeConfirmation()` is a `MagicMock`, so `vol_calc.period` is a `MagicMock` and `len(df) < vol_calc.period` raises `TypeError` inside the handler's `try`, which the generic `except` at `analysis.py:145-147` converts to an HTTP 500 — every new test fails at once. Keep the call inline as Step 4 writes it; do **not** hoist a `vol_calc = VolumeConfirmation()` binding.
+- Gating on `strength != "INSUFFICIENT"` would also make the tests pass, so the tests do not discriminate — but the source does. `volume_confirmation.py:89` emits `INSUFFICIENT` for a *real* below-average reading (`volume_ratio < 1.0`, confidence 0.1), while `:117` emits the same string from `_reject_response` for the data-failure path (`volume_ratio 0.0`). Gating on the string silently deletes a legitimate low-volume penalty; gating on the ratio does not.
+
+Without this guard, `tests/test_signal_aggregator_confidence_zero.py::test_all_positive_confidence_unchanged` goes red: it patches only RSI/MACD/Trend, so the real `VolumeConfirmation` sees a 10-row frame, returns `_reject_response()`, falls through the ladder to `else: volume_penalty = 0.5`, and halves a confidence the test asserts is exactly `1.0`.
+
+Then replace the whole `return { ... }` block (originally lines 132–141) with the version below — three additive keys; do not rename or remove any existing key:
 
 ```python
         return {
@@ -948,7 +1087,12 @@ Then extend the response dict (lines 132–141) with three additive keys — do 
 cd services/technical-analysis && python3 -m pytest tests/test_aggregator_new_legs.py tests/test_signal_aggregator_confidence_zero.py tests/test_analysis_handlers.py tests/test_analysis_edge_cases.py --no-cov -q
 ```
 
-Expected: all pass, including Task 1's three tests.
+Expected: all pass — **26 passed**, including all three of `test_signal_aggregator_confidence_zero.py`. Those three are the load-bearing ones and neither of them patches ADX or Volume, so they are what actually proves Steps 5 and 6's guards:
+
+- `test_empty_signal_list_returns_neutral_fallback` — red at `confidence == 1.0` if the ADX leg is not gated to BUY/SELL (an unpatched ADX votes `("HOLD", 0.3)`, so `total_weight = 0.3` and Task 1's short-circuit never fires).
+- `test_all_positive_confidence_unchanged` — red at `confidence == 0.5` if the volume multiplier is not gated on `volume_has_data` (an unpatched VolumeConfirmation on a 10-row frame returns `_reject_response()` and the ladder halves a confidence the test pins at `1.0`).
+
+If either is red, do not adjust the test — the guard is missing or wrong.
 
 Non-vacuity check — comment out the two `signals.append` blocks you just added and re-run. `test_adx_alone_can_carry_the_signal` and `test_sqzmom_alone_can_carry_the_signal` must both FAIL. Restore.
 
@@ -958,7 +1102,7 @@ Then the full suite:
 cd services/technical-analysis && python3 -m pytest tests/ --no-cov -q
 ```
 
-Expected: **2 failed** (the two `test_comprehensive_80`), matching the post-Task-1 baseline.
+Expected: **2 failed**, and both of them `tests/test_comprehensive_80.py::TestMarketDataFetcherDataFrame` — `test_get_klines_as_dataframe_success` and `test_get_klines_as_dataframe_empty`. That matches the post-Task-1 baseline. Judge on the failure names, not the pass count: the pass count climbs task by task as Tasks 2–5 each add a test file, so a fixed number here would be wrong by the time you read it.
 
 - [ ] **Step 8: Commit**
 
@@ -970,13 +1114,19 @@ and served as endpoints, but get_aggregated_signal consulted only RSI, MACD
 and TrendFilter.
 
 ADX and SQZMOM already emit BUY/SELL/HOLD with their own confidence, so they
-drop into the existing (label, confidence) shape and the zero-confidence
-filter discards their failure defaults automatically.
+drop into the existing (label, confidence) shape. Only their DIRECTIONAL
+labels vote: ADX's failure default is HOLD at confidence 0.3 (adx.py:436-439)
+and SQZMOM's is HOLD at 0.25, so the weight > 0 filter cannot tell a dead
+calculator from a genuine ranging read, and an ungated leg would make the
+neutral-HOLD fallback added in the previous commit unreachable.
 
 Volume deliberately does NOT vote: its labels are CONFIRM/REJECT, which
 would KeyError the weight dict into an HTTP 500, and it is directionally
 agnostic. It scales post-vote confidence with the same tiers the
-trading-engine's validator uses, so the two services agree.
+trading-engine's validator uses, so the two services agree - including that
+validator's \"No volume data -> 1.0x pass through\" rule, keyed here on
+volume_ratio == 0.0 so a _reject_response is read as absence of information
+rather than as disconfirmation.
 
 Response gains adx/sqzmom/volume keys; no existing key changed."
 ```
@@ -989,12 +1139,15 @@ Lock the class shut. Model the guard on `tests/test_account_size_invariant.py`, 
 
 **Critical scoping rule:** `SCANNED_FILES` may list only files already fixed. There are roughly 17 further `round(..., 2)` sites in `app/indicators/*.py` that this plan does not touch — including them would make the guard permanently red. Plan B has an explicit step to append the trading-engine files it fixes.
 
+**Second scoping rule — the guard is file-scoped, so it needs a line-level escape hatch.** The two files in `SCANNED_FILES` legitimately keep four dimensionless `round(x, 2|4)` calls after Tasks 2 and 3: `confidence` in the strategy, and `momentum_strength`, `band_width_ratio` and `_calculate_confidence`'s return in the indicator. Tasks 2 and 3 annotate each of them with a trailing `# non-price-round` comment. This task builds the mechanism that honours it: `ALLOW_MARKER = "# non-price-round"`, skipped per source line inside `find_violations`. Without both halves — marker *and* skip — the guard lands red on the very commit that creates it.
+
 **Files:**
 - Create: `tests/test_price_rounding_invariant.py` (repo root `tests/`, **not** the service's tests directory)
+- Read-only: `services/technical-analysis/app/strategies/squeeze_momentum_strategy.py` and `services/technical-analysis/app/indicators/sqzmom_enhanced.py` — this task scans them; Tasks 2 and 3 already edited them. Step 2 says what to do if a marker is missing.
 
 **Interfaces:**
-- Consumes: the files fixed in Tasks 2 and 3.
-- Produces: `find_violations(source: str, filename: str) -> list[str]` and the module constant `SCANNED_FILES: tuple[str, ...]`. **Plan B appends to `SCANNED_FILES`** — keep it a module-level tuple of repo-relative path strings.
+- Consumes: the files fixed in Tasks 2 and 3, including the `# non-price-round` markers they wrote.
+- Produces: `find_violations(source: str, filename: str) -> list[str]` and the module constants `SCANNED_FILES: tuple[str, ...]`, `BANNED_NDIGITS: frozenset[int]` and `ALLOW_MARKER: str`. **Plan B appends to `SCANNED_FILES` and reuses `ALLOW_MARKER`** — keep `SCANNED_FILES` a module-level tuple of repo-relative path strings, and keep the marker spelled exactly `"# non-price-round"`. Plan B does not redefine it.
 
 - [ ] **Step 1: Write the guard with its own fixtures**
 
@@ -1019,8 +1172,12 @@ lands red and gets disabled instead of obeyed.
 
 Dimensionless quantities (RSI 0-100, confidence 0-1, volume ratios, position
 fractions, strength scores) are legitimately rounded and must not trip this.
-That is why scope is per-file rather than per-name: the fixed files contain
-no dimensionless round(_, 2) calls.
+Scope is per-file, so those sites are exempted per LINE: a round() call whose
+source line ends in the ALLOW_MARKER comment below is skipped. Four such
+sites survive in the two files scanned today - the strategy's `confidence`,
+and the indicator's `momentum_strength`, `band_width_ratio` and
+_calculate_confidence return. Marking a line is a claim that the value is
+dimensionless; do not use it to silence a price.
 """
 
 from __future__ import annotations
@@ -1039,11 +1196,17 @@ SCANNED_FILES: tuple[str, ...] = (
 )
 
 # Not yet covered, tracked deliberately:
-#   services/technical-analysis/app/indicators/*.py  (~17 sites, PRICE-02)
+#   the OTHER services/technical-analysis/app/indicators/*.py modules
+#                                                     (~17 sites, PRICE-02)
 #   services/technical-analysis/app/handlers/sqzmom.py (4dp momentum)
-#   trading-engine strategy + detector files          (added by WS1-B)
+#   trading-engine strategy + detector files           (added by WS1-B)
 
 BANNED_NDIGITS = frozenset({2, 4})
+
+# Line-level opt-out. A banned round() whose own source line carries this
+# comment is a declared dimensionless value. WS1-B reuses this exact string -
+# do not respell it, and do not add a second escape mechanism.
+ALLOW_MARKER = "# non-price-round"
 
 
 def _ndigits_of(node: ast.Call) -> int | None:
@@ -1088,8 +1251,13 @@ def _is_round_call(node: ast.AST) -> bool:
 
 
 def find_violations(source: str, filename: str = "<fixture>") -> list[str]:
-    """One human-readable violation string per banned rounding call."""
+    """One human-readable violation string per banned rounding call.
+
+    A call is exempt when its own source line carries ALLOW_MARKER. The check
+    is per-line, not per-file: marking one site never silences another.
+    """
     tree = ast.parse(source, filename=filename)
+    source_lines = source.splitlines()
     violations: list[str] = []
 
     for node in ast.walk(tree):
@@ -1097,10 +1265,19 @@ def find_violations(source: str, filename: str = "<fixture>") -> list[str]:
             continue
         ndigits = _ndigits_of(node)
         if ndigits in BANNED_NDIGITS:
+            line = (
+                source_lines[node.lineno - 1]
+                if node.lineno <= len(source_lines)
+                else ""
+            )
+            if ALLOW_MARKER in line:
+                continue
             violations.append(
                 f"{filename}:{node.lineno}: round(..., {ndigits}) in a file "
                 "declared free of price-domain rounding. Crypto prices need "
-                "full precision here (float(x)); quantize at order time."
+                "full precision here (float(x)); quantize at order time. If "
+                f"the value really is dimensionless, append '{ALLOW_MARKER}' "
+                "to that line."
             )
 
     return sorted(set(violations))
@@ -1112,6 +1289,7 @@ ratio = round(current_volume / avg_volume, 1)
 scaled = round(fraction, 6)
 dynamic = round(price, tick_decimals)
 bare = round(x)
+marked = round(current_volume / avg_volume, 2)  # non-price-round
 '''
 
 POSITIVE_FIXTURE = '''
@@ -1121,16 +1299,25 @@ band = np.round(bb_upper, 4)
 col = series.round(2)
 '''
 
+# One marked line and one unmarked violation in the same source. The marker
+# must exempt its own line only - a file-wide or first-match-wins skip would
+# report 0 here.
+MARKER_LEAK_FIXTURE = '''
+allowed = round(rsi_value, 2)  # non-price-round
+leaked = round(entry_price, 2)
+'''
+
 
 def test_negative_cases_do_not_trip():
-    """Zero false positives on legitimate rounding. Parsed in-memory so the
-    guarantee cannot drift when live repo files change."""
+    """Zero false positives on legitimate rounding, including a marked site.
+    Parsed in-memory so the guarantee cannot drift when live repo files
+    change."""
     violations = find_violations(NEGATIVE_FIXTURE, "negative_fixture.py")
     assert violations == [], "false positives:\n" + "\n".join(violations)
 
 
 def test_positive_cases_do_trip():
-    """All four call shapes are detected."""
+    """All four call shapes are detected. No line here carries the marker."""
     violations = find_violations(POSITIVE_FIXTURE, "positive_fixture.py")
     rendered = "\n".join(violations)
     assert len(violations) == 4, (
@@ -1138,6 +1325,18 @@ def test_positive_cases_do_trip():
     )
     for expected in ("round(..., 2)", "round(..., 4)"):
         assert expected in rendered, f"missing {expected} in:\n{rendered}"
+
+
+def test_marker_does_not_leak_to_other_lines():
+    """The opt-out is per-line. Marking one site must not silence the next."""
+    violations = find_violations(MARKER_LEAK_FIXTURE, "leak_fixture.py")
+    rendered = "\n".join(violations)
+    assert len(violations) == 1, (
+        f"expected exactly 1 violation, got {len(violations)}:\n{rendered}"
+    )
+    assert "leak_fixture.py:3" in rendered, (
+        f"the unmarked round on line 3 must be the one reported:\n{rendered}"
+    )
 
 
 @pytest.mark.parametrize("relative_path", SCANNED_FILES)
@@ -1163,7 +1362,9 @@ def test_no_price_rounding_in_scanned_files():
     assert not violations, (
         f"{len(violations)} banned rounding call(s) in files declared clean. "
         "round(price, 2) destroyed ADA precision (487d1bd). Use float(x) here "
-        "and quantize at order time:\n" + "\n".join(violations)
+        f"and quantize at order time - or, if the value is dimensionless, "
+        f"append '{ALLOW_MARKER}' to that line. Never remove a file from "
+        "SCANNED_FILES to make this pass:\n" + "\n".join(violations)
     )
 ```
 
@@ -1173,9 +1374,20 @@ def test_no_price_rounding_in_scanned_files():
 python3 -m pytest tests/test_price_rounding_invariant.py --no-cov -q
 ```
 
-Expected: all pass (Tasks 2 and 3 already cleaned both files).
+Expected: **6 passed** — three fixture tests, `test_scanned_file_exists` parametrized over the two paths, and the invariant itself. It is green because Task 2 removed the price-domain rounding from the strategy and marked its one dimensionless site, and Task 3 did the same for the indicator's three.
 
-A green guard proves nothing unless you have seen it go red. Temporarily reintroduce one rounding — change `'entry_price': float(entry_price),` back to `'entry_price': round(entry_price, 2),` in `squeeze_momentum_strategy.py` — and re-run. `test_no_price_rounding_in_scanned_files` must FAIL naming that exact file and line. Restore the fix and confirm green again.
+**If `test_no_price_rounding_in_scanned_files` is red, a marker is missing — do not touch `SCANNED_FILES` and do not delete a rounding.** These four lines, and only these four, must exist verbatim. Match by call text, not by line number: Tasks 2 and 3 inserted comment lines that shifted the originals.
+
+| File | Required line |
+|---|---|
+| `services/technical-analysis/app/strategies/squeeze_momentum_strategy.py` | `                'confidence': round(float(confidence), 2),  # non-price-round` |
+| `services/technical-analysis/app/indicators/sqzmom_enhanced.py` | `            "momentum_strength": round(self.momentum_strength, 4),  # non-price-round` |
+| `services/technical-analysis/app/indicators/sqzmom_enhanced.py` | `            "band_width_ratio": round(self.band_width_ratio, 4)  # non-price-round` |
+| `services/technical-analysis/app/indicators/sqzmom_enhanced.py` | `        return round(confidence, 2)  # non-price-round` |
+
+Append the missing marker (value unchanged), re-run, and use the extended pathspec in Step 3 so the repair ships with this commit.
+
+A green guard proves nothing unless you have seen it go red. Temporarily reintroduce one rounding — change `'entry_price': float(entry_price),` back to `'entry_price': round(entry_price, 2),` in `squeeze_momentum_strategy.py` — and re-run. `test_no_price_rounding_in_scanned_files` must FAIL naming that exact file and line. Then, separately, delete `  # non-price-round` from that file's `confidence` line and confirm the guard also goes red there — that proves the marker is what is holding the line, not an accident of the AST walk. Restore both and confirm green again.
 
 - [ ] **Step 3: Commit**
 
@@ -1194,15 +1406,40 @@ not yet fixed, and a permanently-red guard gets disabled rather than obeyed.
 WS1-B appends the trading-engine files it cleans.
 
 Detects all four call shapes: round(x, 2), round(x, ndigits=2),
-np.round(x, 4), series.round(2)."
+np.round(x, 4), series.round(2).
+
+Because scope is per-file, dimensionless survivors get a per-LINE opt-out:
+a call whose source line carries '# non-price-round' is skipped. The two
+scanned files' four such sites were annotated by the preceding two commits.
+Fixtures cover both that the marker works and that it does not leak to the
+next line. WS1-B reuses the same constant."
+```
+
+Only if Step 2 sent you back to add a missing marker, use this pathspec instead so the repair is part of the same commit:
+
+```bash
+git commit -- tests/test_price_rounding_invariant.py services/technical-analysis/app/strategies/squeeze_momentum_strategy.py services/technical-analysis/app/indicators/sqzmom_enhanced.py -m "test(price): AST guard banning round(x, 2|4) in cleaned files
+
+round(price, 2) destroyed ADA precision and caused 30+ flip-flop losses
+(487d1bd, PRICE-01/02). This guard makes reintroduction fail loudly.
+
+Because scope is per-file, dimensionless survivors get a per-LINE opt-out:
+a call whose source line carries '# non-price-round' is skipped. This commit
+also backfills a marker Tasks 2/3 left off, so no served value changes."
 ```
 
 ---
 
 ## Plan A completion checklist
 
-- [ ] TA suite baseline is **2 failed** (both `test_comprehensive_80`), down from 3.
-- [ ] `python3 -m pytest tests/test_price_rounding_invariant.py --no-cov -q` passes from the repo root, and has been *seen* to fail when a rounding is reintroduced.
+- [ ] TA suite baseline is **2 failed**, down from 3 — and both are `tests/test_comprehensive_80.py::TestMarketDataFetcherDataFrame::test_get_klines_as_dataframe_success` and `::test_get_klines_as_dataframe_empty`. Judge on names, not on the pass count, which grows as each task adds a test file.
+- [ ] `tests/test_signal_aggregator_confidence_zero.py` is **3 passed** after Task 5, not just after Task 1 — that file patches neither ADX nor VolumeConfirmation, so it is the real proof that Task 5's two guards hold.
+- [ ] `python3 -m pytest tests/test_price_rounding_invariant.py --no-cov -q` passes from the repo root (**6 passed**), and has been *seen* to fail both when a rounding is reintroduced and when a `# non-price-round` marker is removed.
+- [ ] All four dimensionless survivors carry the marker. From the repo root:
+  ```bash
+  grep -rn "round(.*, *[24])" services/technical-analysis/app/strategies/squeeze_momentum_strategy.py services/technical-analysis/app/indicators/sqzmom_enhanced.py
+  ```
+  Expected: exactly four lines, every one ending in `# non-price-round`.
 - [ ] Six commits, one per task, each with an explicit pathspec.
 - [ ] `git diff` on every commit checked for ruff/autoflake import churn.
 - [ ] **Deployment proof before claiming anything works:** rebuild and restart the service, then verify against the live route — an HTTP 200 alone is not proof.
