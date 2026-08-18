@@ -2275,14 +2275,21 @@ class AutoTrader:
                         f"[RESEARCH] Kill switch thresholds triggered: {triggered}"
                     )
 
-                # Record expected vs actual for slippage tracking
-                # (Actual price is same as expected for market orders in simulation)
+                # Record expected vs actual for slippage tracking. expected is
+                # the reference price the order was submitted at; actual is the
+                # engine's slippage-adjusted fill. These stopped being equal
+                # when PAPER-01 landed (fb45efe): paper_trading applies
+                # paper_slippage and returns the fill on filled_price. Feeding
+                # the reference as both made every record read 0.0 slippage.
+                actual_fill = (
+                    executed_order.filled_price
+                    if executed_order.filled_price is not None
+                    else Decimal(str(trade_setup.entry_price))
+                )
                 self.slippage_manager.record_execution(
                     symbol=symbol,
                     expected_price=Decimal(str(trade_setup.entry_price)),
-                    actual_price=Decimal(
-                        str(trade_setup.entry_price)
-                    ),  # Same for simulated market orders
+                    actual_price=actual_fill,
                     side=action,
                     quantity=Decimal(str(quantity)),
                 )
