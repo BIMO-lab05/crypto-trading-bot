@@ -1834,32 +1834,11 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
-            # ================================================================
-            # PORTFOLIO HEAT CHECK (2025-12-02)
-            # Block trades if portfolio heat is too high
-            # ================================================================
+            # Equity read for sizing and for the portfolio-heat gate, which now
+            # runs after final sizing (see the [HEAT] block below the per-trade
+            # cap clamp) so it sees the order actually placed.
             paper_engine = get_paper_engine()
             current_equity = float(paper_engine.get_balance())
-
-            # Calculate proposed risk for this trade
-            proposed_risk_pct = (
-                trade_setup.position_size_pct
-                * 100
-                * (settings.default_stop_loss_pct / 100)
-            )  # Risk = position size * stop distance
-
-            can_trade, heat_reason, heat_multiplier = (
-                self.portfolio_heat_manager.can_open_trade(
-                    symbol=symbol,
-                    proposed_risk_pct=proposed_risk_pct,
-                    equity=current_equity,
-                )
-            )
-
-            if not can_trade:
-                logger.warning(f"[HEAT] Trade BLOCKED for {symbol}: {heat_reason}")
-                self.total_trades_rejected += 1
-                return
 
             # ================================================================
             # CORRELATION-BASED POSITION SIZING (2025-12-02)
@@ -2141,6 +2120,37 @@ class AutoTrader:
                     if trade_setup.entry_price
                     else quantity
                 )
+
+            # Portfolio heat gate, fed the ACTUAL order: the cap-clamped
+            # notional and the ATR stop the position will carry. Stop-distance
+            # based to match PositionRisk.risk_pct (percent of equity) - a raw
+            # notional percent would be 10.0 and would trip max_per_trade_pct
+            # (2.0) on every single entry. The regime adjustment happens
+            # post-fill, so this uses the pre-adjustment stop, exactly as the
+            # ensemble path does with its own.
+            stop_distance_frac = (
+                abs(trade_setup.entry_price - trade_setup.stop_loss)
+                / trade_setup.entry_price
+                if trade_setup.entry_price
+                else 0.0
+            )
+            proposed_risk_pct = (
+                (position_value / current_equity) * stop_distance_frac * 100.0
+                if current_equity
+                else 0.0
+            )
+            can_trade, heat_reason, _heat_mult = (
+                self.portfolio_heat_manager.can_open_trade(
+                    symbol=symbol,
+                    proposed_risk_pct=proposed_risk_pct,
+                    equity=current_equity,
+                    side=side,
+                )
+            )
+            if not can_trade:
+                logger.warning(f"[HEAT] Trade BLOCKED for {symbol}: {heat_reason}")
+                self.total_trades_rejected += 1
+                return
 
             # Account-level exposure gate (review I20): shared with the default
             # and ensemble paths. Runs on the post-clamp notional, as it does
