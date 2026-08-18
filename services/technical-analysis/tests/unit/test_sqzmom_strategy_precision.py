@@ -10,6 +10,7 @@ These assertions are two-sided: the served value must equal the computed
 value exactly, and must NOT equal its 2dp rounding.
 """
 
+import math
 import sys
 
 sys.path.insert(
@@ -108,3 +109,32 @@ def test_momentum_keeps_precision_at_ada_scale():
     assert (
         result["momentum"] != round(result["momentum"], 4) or result["momentum"] == 0.0
     ), "momentum is still quantized to 4dp"
+
+
+def test_metadata_bands_keep_full_precision():
+    """to_dict serialized bands at 4dp - exactly ADA's tick, lossy below it."""
+    from app.indicators import calculate_squeeze_momentum
+
+    df = _ada_ohlc(120)
+    result = calculate_squeeze_momentum(df)
+
+    metadata = result["metadata"]
+    for field in (
+        "bb_upper",
+        "bb_basis",
+        "bb_lower",
+        "kc_upper",
+        "kc_basis",
+        "kc_lower",
+        "current_price",
+    ):
+        value = metadata[field]
+        # NOT `value == pytest.approx(value)` - that compares a binding to
+        # itself and discriminates nothing. isfinite is the real guard: if the
+        # fixture ever yields fewer bars than the 20-period BB/KC warmup the
+        # bands come back NaN, and `nan != round(nan, 4)` is True, so the 4dp
+        # check alone would pass vacuously.
+        assert math.isfinite(value), f"{field}={value} is not a finite number"
+        assert value != round(value, 4) or value == 0.0, (
+            f"{field}={value} is still quantized to 4dp"
+        )
