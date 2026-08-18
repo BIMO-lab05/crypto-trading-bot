@@ -275,7 +275,7 @@ Expected: all pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git commit -- app/risk_manager.py app/paper_trading.py tests/unit/test_risk_manager.py tests/test_exposure_remaining_quantity.py -m "fix(trading-engine): exposure gate measures remaining quantity
+git commit -m "fix(trading-engine): exposure gate measures remaining quantity
 
 check_position_limits multiplied entry_price by the ORIGINAL fill size, so a
 position that scaled out via TP1/TP2 still occupied its full entry notional
@@ -287,7 +287,7 @@ Also fixes the same overstatement in paper_trading.get_performance_summary,
 a live dashboard surface.
 
 Two existing tests built bare Mock() positions, so getattr returned a child
-Mock and Decimal * Mock raised TypeError - updated in the same commit."
+Mock and Decimal * Mock raised TypeError - updated in the same commit." -- app/risk_manager.py app/paper_trading.py tests/unit/test_risk_manager.py tests/test_exposure_remaining_quantity.py
 ```
 
 ---
@@ -554,7 +554,7 @@ Expected: all pass. `test_sizing_caps_phase1.py` and `test_auto_trader_min_notio
 - [ ] **Step 6: Commit**
 
 ```bash
-git commit -- app/position_sizing.py tests/test_position_sizer_risk_clamp.py -m "fix(trading-engine): loss-at-stop clamp can actually fire
+git commit -m "fix(trading-engine): loss-at-stop clamp can actually fire
 
 Two defects made it vacuous. auto_trader passes stop_loss_pct as a FRACTION
 (abs(price-stop)/price) while the docstring declared percent, and
@@ -571,7 +571,7 @@ a 2% budget with a 5% stop caps the position at 40%.
 
 Behavior at realistic 1-3% stops is unchanged - a 10% position risks
 0.1-0.3% of equity. The clamp's role is a wide-stop guard; the ADR-010 \$10
-per-trade notional cap is enforced separately by max_position_pct."
+per-trade notional cap is enforced separately by max_position_pct." -- app/position_sizing.py tests/test_position_sizer_risk_clamp.py
 ```
 
 ---
@@ -734,7 +734,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git commit -- app/auto_trader.py tests/test_standard_path_daily_limit.py -m "fix(trading-engine): standard-mode entries honor the daily trade limit
+git commit -m "fix(trading-engine): standard-mode entries honor the daily trade limit
 
 _execute_trade - the default strategy_mode=standard path - never called
 _check_daily_trade_limit and never called _record_trade. Standard mode could
@@ -744,7 +744,7 @@ that was present reads last_trade_time_per_symbol, which only _record_trade
 writes, so in a standard-only session that branch always passed.
 
 Mirrors the research path: limit checked before the open-slot claim so a
-guaranteed rejection never burns a slot; trade recorded on FILLED."
+guaranteed rejection never burns a slot; trade recorded on FILLED." -- app/auto_trader.py tests/test_standard_path_daily_limit.py
 ```
 
 ---
@@ -963,7 +963,7 @@ Expected: all pass. `_patch_breach_path_deps` stubs `can_open_trade` permissivel
 - [ ] **Step 7: Commit**
 
 ```bash
-git commit -- app/auto_trader.py tests/test_heat_gate_fed_real_order.py -m "fix(trading-engine): heat gate is fed the order actually placed
+git commit -m "fix(trading-engine): heat gate is fed the order actually placed
 
 The research/hybrid gate computed proposed_risk_pct from
 trade_setup.position_size_pct - decorative, the sizing block never reads it -
@@ -981,7 +981,7 @@ unconditionally overwritten by combined_multiplier. Matches the ensemble
 path, whose comment named this site as the broken sibling.
 
 At CRITICAL heat the trade is still rejected, but by the size multiplier
-collapsing the notional rather than by this gate - the reason string changes."
+collapsing the notional rather than by this gate - the reason string changes." -- app/auto_trader.py tests/test_heat_gate_fed_real_order.py
 ```
 
 ---
@@ -1157,7 +1157,7 @@ Expected: all pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -- app/auto_trader.py tests/test_slippage_stats_real_fill.py -m "fix(trading-engine): slippage stats compare reference price to real fill
+git commit -m "fix(trading-engine): slippage stats compare reference price to real fill
 
 record_execution was fed trade_setup.entry_price as both expected and actual,
 so every SlippageRecord carried slippage_pct 0.0 and was_rejected False. The
@@ -1170,7 +1170,7 @@ The adaptive machinery - per-symbol history, should_use_limit_order, the
 the engine genuinely charged slippage on every fill.
 
 Stats only: record_execution may now log SLIPPAGE REJECTED on a large
-simulated slippage, but it never cancels an already-filled order."
+simulated slippage, but it never cancels an already-filled order." -- app/auto_trader.py tests/test_slippage_stats_real_fill.py
 ```
 
 ---
@@ -1400,7 +1400,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git commit -- app/performance_tracker.py app/auto_trader.py tests/unit/test_performance_tracker_net_pnl.py -m "fix(trading-engine): performance tracker records net P&L for Kelly
+git commit -m "fix(trading-engine): performance tracker records net P&L for Kelly
 
 add_trade recomputed (exit - entry) * original quantity: gross of fees and
 slippage, and for a scaled-out position it priced the whole size at the final
@@ -1418,7 +1418,7 @@ serves only as the fallback basis for a still-open position.
 
 The caller now passes the recorded exit_price and closed_at rather than the
 pre-slippage reference tick, normalizing provenance across all four close
-paths. get_performance_stats_from_tracker needs no change; it inherits."
+paths. get_performance_stats_from_tracker needs no change; it inherits." -- app/performance_tracker.py app/auto_trader.py tests/unit/test_performance_tracker_net_pnl.py
 ```
 
 ---
@@ -1762,7 +1762,7 @@ Expected: all pass. The cash-conservation and accounting invariants are the real
 - [ ] **Step 8: Commit**
 
 ```bash
-git commit -- app/config.py app/risk/funding_gate.py app/paper_trading.py tests/test_paper_funding.py -m "feat(trading-engine): paper closes accrue perp funding
+git commit -m "feat(trading-engine): paper closes accrue perp funding
 
 The engine charged commission on both legs and slippage on every fill but
 never funding - grep -c funding app/paper_trading.py returned 0 - while
@@ -1783,7 +1783,7 @@ FundingRateClient.get_settlements, parsed with Decimal, never float.
 
 Fetch failure fails open to zero and logs loudly that the leg is gross of
 funding - silence must not become an assumed rate. Tape-replay mode stubs
-the feed to empty and is tolerated."
+the feed to empty and is tolerated." -- app/config.py app/risk/funding_gate.py app/paper_trading.py tests/test_paper_funding.py
 ```
 
 ---
@@ -1925,7 +1925,7 @@ Expected: all pass. No existing test pins the `fetch_all_indicators` key set.
 - [ ] **Step 6: Commit**
 
 ```bash
-git commit -- app/signal_aggregator.py app/aggregation/voter.py tests/test_sqzmom_leg_enabled.py -m "fix(trading-engine): re-enable the SQZMOM leg, categorize ADX
+git commit -m "fix(trading-engine): re-enable the SQZMOM leg, categorize ADX
 
 SQZMOM_ENHANCED was commented out of fetch_all_indicators as \"stuck at 0.50
 HOLD\". That cause was root-caused and fixed 2026-05-05 - the endpoint read
@@ -1939,7 +1939,7 @@ diversity gate.
 
 RSI_DIVERGENCE deliberately stays disabled - its \"stuck at 0.20\" cause has
 no documented fix. Total voting weight grows by 1.4; the aggregation
-threshold and min-consensus are share- and count-based and stay reachable."
+threshold and min-consensus are share- and count-based and stay reachable." -- app/signal_aggregator.py app/aggregation/voter.py tests/test_sqzmom_leg_enabled.py
 ```
 
 ---
@@ -1989,7 +1989,7 @@ cd services/trading-engine && python3 -m pytest tests/test_config_service_urls.p
 ```
 
 ```bash
-git commit -- app/config.py .env.example tests/test_config_service_urls.py -m "fix(trading-engine): portfolio_manager_url default is port 8003
+git commit -m "fix(trading-engine): portfolio_manager_url default is port 8003
 
 The default was http://localhost:8006 - the notification-service port.
 Compose injects the correct value so the container never saw it, but host
@@ -1997,7 +1997,7 @@ runs and anyone copying .env.example got it wrong (.env.example had
 regressed to 8006 while older env backups correctly say 8003).
 
 The one consumer is the detailed-health dependency probe, which reported on
-whatever answered 8006 while labelling it portfolio_manager."
+whatever answered 8006 while labelling it portfolio_manager." -- app/config.py .env.example tests/test_config_service_urls.py
 ```
 
 ---
@@ -2067,7 +2067,7 @@ Then confirm the paper loop cannot be crashed by the fence: `get_live_engine` is
 - [ ] **Step 4: Commit**
 
 ```bash
-git commit -- app/live_trading.py tests/unit/test_live_engine_fence.py -m "fix(trading-engine): fence the LIVE engine until its accounting is repaired
+git commit -m "fix(trading-engine): fence the LIVE engine until its accounting is repaired
 
 LiveTradingEngine corrupts the books three ways: it stamps filled_price with
 the caller's reference tick rather than the exchange fill; it calls
@@ -2082,7 +2082,7 @@ venue minimum - and unreachable via compose, which never passes TRADING_MODE
 to this service. Fenced at construction, not built out.
 
 Baseline note: the two TestLiveTradingResponseEnvelope failures were verified
-red before this work; they bypass __init__ via __new__ and are unaffected."
+red before this work; they bypass __init__ via __new__ and are unaffected." -- app/live_trading.py tests/unit/test_live_engine_fence.py
 ```
 
 ---
@@ -2190,7 +2190,7 @@ cd services/trading-engine && python3 -m pytest tests/test_mtf_leg_scoring.py --
 ```
 
 ```bash
-git commit -- app/aggregation/enhanced_aggregator.py tests/test_mtf_leg_scoring.py -m "fix(trading-engine): MTF leg scores instead of returning a hard zero
+git commit -m "fix(trading-engine): MTF leg scores instead of returning a hard zero
 
 Two defects, fixed together because either alone leaves the leg at zero. The
 alignment gate compared the TA payload's 0-1 alignment_score against a 50.0
@@ -2204,7 +2204,7 @@ metadata builder and never reached the scoring path.
 DORMANT: the enhanced path needs both enable_ml_predictions and
 enable_multi_timeframe, which default False. Proven by unit test, not by the
 live stack. New test file because tests/test_multi_timeframe.py is
-wholesale-skipped."
+wholesale-skipped." -- app/aggregation/enhanced_aggregator.py tests/test_mtf_leg_scoring.py
 ```
 
 ---
@@ -2263,7 +2263,7 @@ cd services/trading-engine && python3 -m pytest tests/test_vp_pipeline_removed.p
 ```
 
 ```bash
-git commit -- app/signal_aggregator.py app/auto_trader.py app/volume_profile.py app/vp_strategy.py verify_system.py test_volume_profile.py test_complete_system.py tests/unit/test_auto_trader.py tests/test_vp_pipeline_removed.py -m "refactor(trading-engine): delete the unreachable volume-profile pipeline
+git commit -m "refactor(trading-engine): delete the unreachable volume-profile pipeline
 
 enable_volume_profile defaults False, get_auto_trader never passes it, and no
 Settings field or env var can flip it - the only way to run VP was editing
@@ -2285,7 +2285,7 @@ two service-root smoke scripts test_volume_profile.py and
 test_complete_system.py, which called the deleted producer and which
 verify_system.py advertised as passing test scripts.
 
-Defensive metadata readers are deliberately left in place."
+Defensive metadata readers are deliberately left in place." -- app/signal_aggregator.py app/auto_trader.py app/volume_profile.py app/vp_strategy.py verify_system.py test_volume_profile.py test_complete_system.py tests/unit/test_auto_trader.py tests/test_vp_pipeline_removed.py
 ```
 
 ---
@@ -2339,7 +2339,7 @@ cd services/trading-engine && python3 -m pytest tests/strategies/ tests/unit/tes
 `test_capital_defaults_phase1.py:232-234` asserts these strategies keep `capital` as a required no-default parameter — it must stay green, so change no signatures.
 
 ```bash
-git commit -- app/strategies/momentum_breakout_strategy.py app/strategies/trend_following_strategy.py app/strategies/support_resistance_strategy.py app/utils/support_resistance_detector.py tests/strategies/test_dormant_strategy_precision.py -m "fix(trading-engine): drop price-domain rounding from the strategy layer
+git commit -m "fix(trading-engine): drop price-domain rounding from the strategy layer
 
 27 sites rounded prices, stops, take-profit ladders, EMAs, ATRs and S/R zone
 bounds to 2dp. At ADA scale that collapses adjacent ladder rungs onto one
@@ -2357,7 +2357,7 @@ Non-price rounds (RSI, volume ratios, position fractions, strength scores)
 are deliberately untouched.
 
 DORMANT: none of these four files has a runtime caller in app/. This is
-parity with the shipped fix and the precondition for the AST guard."
+parity with the shipped fix and the precondition for the AST guard." -- app/strategies/momentum_breakout_strategy.py app/strategies/trend_following_strategy.py app/strategies/support_resistance_strategy.py app/utils/support_resistance_detector.py tests/strategies/test_dormant_strategy_precision.py
 ```
 
 ---
@@ -2433,7 +2433,7 @@ Expected: all pass, **including** `test_marker_does_not_leak_to_other_lines` —
 - [ ] **Step 4: Commit**
 
 ```bash
-git commit -- tests/test_price_rounding_invariant.py services/trading-engine/app/strategies/momentum_breakout_strategy.py services/trading-engine/app/strategies/trend_following_strategy.py services/trading-engine/app/strategies/support_resistance_strategy.py services/trading-engine/app/utils/support_resistance_detector.py -m "test(price): extend the rounding guard to the trading-engine strategy layer
+git commit -m "test(price): extend the rounding guard to the trading-engine strategy layer
 
 Adds the four files cleaned in the previous commit to SCANNED_FILES.
 
@@ -2442,7 +2442,7 @@ position-size fractions), so each such site carries the guard's line-level
 '# non-price-round' opt-out, introduced with the guard itself in WS1-A.
 Marking a site at the point of use is deliberate: it keeps the decision
 reviewable in the diff instead of silently shrinking the guard's scope, which
-is how these guards get hollowed out."
+is how these guards get hollowed out." -- tests/test_price_rounding_invariant.py services/trading-engine/app/strategies/momentum_breakout_strategy.py services/trading-engine/app/strategies/trend_following_strategy.py services/trading-engine/app/strategies/support_resistance_strategy.py services/trading-engine/app/utils/support_resistance_detector.py
 ```
 
 ---
@@ -2917,7 +2917,7 @@ Expected: all pass. `test_backtest_engine_cash_ledger.py` is the real gate — i
 - [ ] **Step 7: Commit**
 
 ```bash
-git commit -- app/backtesting/backtest_engine.py tests/test_backtest_engine_stop_fills.py -m "fix(trading-engine): backtester fills stops at the stop, not the bar close
+git commit -m "fix(trading-engine): backtester fills stops at the stop, not the bar close
 
 _close_position priced every exit off bar.close, including stop-loss and
 take-profit exits that _check_exit_conditions had already triggered intrabar.
@@ -2948,7 +2948,7 @@ Trade.slippage no longer doubles a bar.close-derived figure; the exit leg is
 the real number and the entry leg is approximated off the entry price.
 
 Reachable over HTTP via /api/v1/backtest/run, /quick and /compare - this is a
-reported-number correctness fix, not dormant hygiene."
+reported-number correctness fix, not dormant hygiene." -- app/backtesting/backtest_engine.py tests/test_backtest_engine_stop_fills.py
 ```
 
 ---

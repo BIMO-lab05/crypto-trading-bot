@@ -155,7 +155,7 @@ Expected: **2 failed** (both `test_comprehensive_80`), down from 3. Record the n
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -- services/technical-analysis/app/handlers/analysis.py services/technical-analysis/tests/test_signal_aggregator_confidence_zero.py -m "fix(technical-analysis): no usable votes aggregates to HOLD, not phantom BUY
+git commit -m "fix(technical-analysis): no usable votes aggregates to HOLD, not phantom BUY
 
 With an empty signals list every weight is 0.0 and argmax returns \"BUY\"
 (first-inserted key wins ties in CPython), which took the directional
@@ -165,7 +165,7 @@ therefore answered {signal: BUY, confidence: 0.0} whenever every indicator
 failed - a directional label asserted on zero information.
 
 Turns test_empty_signal_list_returns_neutral_fallback green; the TA
-known-failure baseline drops from 3 to 2."
+known-failure baseline drops from 3 to 2." -- services/technical-analysis/app/handlers/analysis.py services/technical-analysis/tests/test_signal_aggregator_confidence_zero.py
 ```
 
 ---
@@ -380,7 +380,7 @@ Expected: all pass. `tests/test_squeeze_momentum.py::test_analyze_method_structu
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -- services/technical-analysis/app/strategies/squeeze_momentum_strategy.py services/technical-analysis/tests/unit/test_sqzmom_strategy_precision.py -m "fix(technical-analysis): SQZMOM strategy serves full-precision price levels
+git commit -m "fix(technical-analysis): SQZMOM strategy serves full-precision price levels
 
 entry_price, stop_loss and take_profit were rounded to 2dp before being
 served at /api/v1/strategies/sqzmom/signal/{symbol}. On ADA (~\$0.60, tick
@@ -390,7 +390,7 @@ handler re-wraps with float(), which cannot restore destroyed precision.
 
 Same defect class as 487d1bd. Dimensionless confidence stays rounded and
 carries the # non-price-round marker that the WS1-A Task 6 AST guard reads
-as a line-level opt-out."
+as a line-level opt-out." -- services/technical-analysis/app/strategies/squeeze_momentum_strategy.py services/technical-analysis/tests/unit/test_sqzmom_strategy_precision.py
 ```
 
 ---
@@ -534,7 +534,7 @@ Expected: exactly three lines, and **every one of them ends in `# non-price-roun
 - [ ] **Step 6: Commit**
 
 ```bash
-git commit -- services/technical-analysis/app/indicators/sqzmom_enhanced.py services/technical-analysis/tests/unit/test_sqzmom_strategy_precision.py -m "fix(technical-analysis): SqueezeMetadata.to_dict keeps band precision
+git commit -m "fix(technical-analysis): SqueezeMetadata.to_dict keeps band precision
 
 Bands and current_price were serialized at 4dp, which is exactly ADA's tick
 size and lossy for anything below it. Same PRICE-01 family as the strategy
@@ -547,7 +547,7 @@ reads as a line-level opt-out.
 
 Scope note: to_dict is not on the live /api/v1/indicators/enhanced-sqzmom
 route (that path calls calculate()); this is library-contract rot, not a
-live-signal defect."
+live-signal defect." -- services/technical-analysis/app/indicators/sqzmom_enhanced.py services/technical-analysis/tests/unit/test_sqzmom_strategy_precision.py
 ```
 
 ---
@@ -738,7 +738,7 @@ Expected: all pass. Repeat the temporary-edit teeth check from Step 2 once more 
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -- services/technical-analysis/app/main.py services/technical-analysis/tests/test_endpoint_defaults_from_settings.py -m "fix(technical-analysis): route defaults read Settings instead of duplicating them
+git commit -m "fix(technical-analysis): route defaults read Settings instead of duplicating them
 
 MACD 5/35/5, BB 20/2.5 and RSI 9 were hardcoded as Query(default=...)
 literals while identical Settings fields sat unread. The trading-engine
@@ -747,7 +747,7 @@ single source of truth, so an operator's DEFAULT_MACD_FAST reached the
 /analyze path but not /indicators/macd - a silent split-brain.
 
 Query defaults evaluate at import time: env overrides need a service
-restart, and the OpenAPI schema defaults now track Settings."
+restart, and the OpenAPI schema defaults now track Settings." -- services/technical-analysis/app/main.py services/technical-analysis/tests/test_endpoint_defaults_from_settings.py
 ```
 
 ---
@@ -1107,7 +1107,7 @@ Expected: **2 failed**, and both of them `tests/test_comprehensive_80.py::TestMa
 - [ ] **Step 8: Commit**
 
 ```bash
-git commit -- services/technical-analysis/app/handlers/analysis.py services/technical-analysis/tests/test_aggregator_new_legs.py -m "feat(technical-analysis): ADX and SQZMOM vote; volume scales confidence
+git commit -m "feat(technical-analysis): ADX and SQZMOM vote; volume scales confidence
 
 ADX, Enhanced SQZMOM and Volume Confirmation are computed in this service
 and served as endpoints, but get_aggregated_signal consulted only RSI, MACD
@@ -1128,7 +1128,7 @@ validator's \"No volume data -> 1.0x pass through\" rule, keyed here on
 volume_ratio == 0.0 so a _reject_response is read as absence of information
 rather than as disconfirmation.
 
-Response gains adx/sqzmom/volume keys; no existing key changed."
+Response gains adx/sqzmom/volume keys; no existing key changed." -- services/technical-analysis/app/handlers/analysis.py services/technical-analysis/tests/test_aggregator_new_legs.py
 ```
 
 ---
@@ -1392,7 +1392,7 @@ A green guard proves nothing unless you have seen it go red. Temporarily reintro
 - [ ] **Step 3: Commit**
 
 ```bash
-git commit -- tests/test_price_rounding_invariant.py -m "test(price): AST guard banning round(x, 2|4) in cleaned files
+git commit -m "test(price): AST guard banning round(x, 2|4) in cleaned files
 
 round(price, 2) destroyed ADA precision and caused 30+ flip-flop losses
 (487d1bd, PRICE-01/02). This guard makes reintroduction fail loudly.
@@ -1412,20 +1412,20 @@ Because scope is per-file, dimensionless survivors get a per-LINE opt-out:
 a call whose source line carries '# non-price-round' is skipped. The two
 scanned files' four such sites were annotated by the preceding two commits.
 Fixtures cover both that the marker works and that it does not leak to the
-next line. WS1-B reuses the same constant."
+next line. WS1-B reuses the same constant." -- tests/test_price_rounding_invariant.py
 ```
 
 Only if Step 2 sent you back to add a missing marker, use this pathspec instead so the repair is part of the same commit:
 
 ```bash
-git commit -- tests/test_price_rounding_invariant.py services/technical-analysis/app/strategies/squeeze_momentum_strategy.py services/technical-analysis/app/indicators/sqzmom_enhanced.py -m "test(price): AST guard banning round(x, 2|4) in cleaned files
+git commit -m "test(price): AST guard banning round(x, 2|4) in cleaned files
 
 round(price, 2) destroyed ADA precision and caused 30+ flip-flop losses
 (487d1bd, PRICE-01/02). This guard makes reintroduction fail loudly.
 
 Because scope is per-file, dimensionless survivors get a per-LINE opt-out:
 a call whose source line carries '# non-price-round' is skipped. This commit
-also backfills a marker Tasks 2/3 left off, so no served value changes."
+also backfills a marker Tasks 2/3 left off, so no served value changes." -- tests/test_price_rounding_invariant.py services/technical-analysis/app/strategies/squeeze_momentum_strategy.py services/technical-analysis/app/indicators/sqzmom_enhanced.py
 ```
 
 ---
