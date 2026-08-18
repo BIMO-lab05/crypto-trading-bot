@@ -58,10 +58,17 @@ def _ndigits_of(node: ast.Call) -> int | None:
 
     Handles builtin `round(x, 2)` (ndigits is args[1]), the method form
     `series.round(2)` / `np.round(x, 2)` (ndigits is args[1] for np.round but
-    args[0] for the bound-method form), and `round(x, ndigits=2)`.
+    args[0] for the bound-method form), `round(x, ndigits=2)`, and the numpy
+    and pandas keyword spelling `np.round(x, decimals=2)` /
+    `frame.round(decimals=2)`.
+
+    Both keyword spellings are checked because a detector that silently
+    misses one fails GREEN: the guard would pass while a price rounding sat
+    in a file it claims to protect. No scanned file uses `decimals=` today,
+    so this closes the gap before it can be walked into.
     """
     for keyword in node.keywords:
-        if keyword.arg == "ndigits":
+        if keyword.arg in ("ndigits", "decimals"):
             return _int_constant(keyword.value)
 
     func = node.func
@@ -141,6 +148,8 @@ entry = round(entry_price, 2)
 stop = round(sl, ndigits=2)
 band = np.round(bb_upper, 4)
 col = series.round(2)
+kw_np = np.round(kc_upper, decimals=2)
+kw_pd = frame.round(decimals=4)
 """
 
 # One marked line and one unmarked violation in the same source. The marker
@@ -161,11 +170,16 @@ def test_negative_cases_do_not_trip():
 
 
 def test_positive_cases_do_trip():
-    """All four call shapes are detected. No line here carries the marker."""
+    """All six call shapes are detected. No line here carries the marker.
+
+    The two `decimals=` spellings matter disproportionately: a detector that
+    misses a shape fails GREEN, so the guard would pass while a price
+    rounding sat in a file it claims to protect.
+    """
     violations = find_violations(POSITIVE_FIXTURE, "positive_fixture.py")
     rendered = "\n".join(violations)
-    assert len(violations) == 4, (
-        f"expected 4 violations, got {len(violations)}:\n{rendered}"
+    assert len(violations) == 6, (
+        f"expected 6 violations, got {len(violations)}:\n{rendered}"
     )
     for expected in ("round(..., 2)", "round(..., 4)"):
         assert expected in rendered, f"missing {expected} in:\n{rendered}"
