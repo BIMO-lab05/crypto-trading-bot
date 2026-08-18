@@ -635,7 +635,15 @@ class PaperTradingEngine:
         # Get open positions for exposure calculation
         open_positions = self.position_manager.get_open_positions()
         total_exposure = sum(
-            float(pos.entry_price * pos.quantity) for pos in open_positions
+            float(
+                pos.entry_price
+                * (
+                    pos.remaining_quantity
+                    if getattr(pos, "remaining_quantity", None) is not None
+                    else pos.quantity
+                )
+            )
+            for pos in open_positions
         )
 
         return {

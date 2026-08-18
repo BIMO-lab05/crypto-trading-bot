@@ -257,6 +257,7 @@ class TestRiskManager:
         open_position = Mock()
         open_position.entry_price = Decimal("50000.00")
         open_position.quantity = Decimal("0.1")
+        open_position.remaining_quantity = open_position.quantity
         open_position.status = Mock(value="OPEN")
 
         allowed, reason = risk_manager.check_position_limits(
@@ -272,6 +273,7 @@ class TestRiskManager:
         open_position = Mock()
         open_position.entry_price = Decimal("50000.00")
         open_position.quantity = Decimal("0.18")
+        open_position.remaining_quantity = open_position.quantity
         open_position.status = Mock(value="OPEN")
 
         allowed, reason = risk_manager.check_position_limits(
