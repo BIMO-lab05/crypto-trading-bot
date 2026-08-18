@@ -168,7 +168,7 @@ class SqueezeMomentumStrategy:
                         'stop_loss': 0.0,
                         'take_profit': 0.0,
                         'reason': 'Insufficient volume for entry',
-                        'momentum': round(float(momentum), 4),
+                        'momentum': float(momentum),
                         'squeeze_state': squeeze_state,
                         'color': color
                     }
@@ -199,12 +199,19 @@ class SqueezeMomentumStrategy:
 
             return {
                 'action': action,
-                'confidence': round(float(confidence), 2),
-                'entry_price': round(entry_price, 2),
-                'stop_loss': round(stop_loss, 2),
-                'take_profit': round(take_profit, 2),
+                # Price-domain fields carry full precision. round(x, 2) on ADA
+                # (~$0.60, tick 0.0001) snaps entry/stop/TP onto a 1-cent grid
+                # and moves a 2% stop by up to 40% of its own distance
+                # (487d1bd / PRICE-01). Tick quantization is the trading
+                # engine's job at order time, not this layer's.
+                # confidence is dimensionless 0-1, so it legitimately stays
+                # rounded; the marker is the AST guard's line-level opt-out.
+                'confidence': round(float(confidence), 2),  # non-price-round
+                'entry_price': float(entry_price),
+                'stop_loss': float(stop_loss),
+                'take_profit': float(take_profit),
                 'reason': reason,
-                'momentum': round(float(momentum), 4),
+                'momentum': float(momentum),
                 'squeeze_state': squeeze_state,
                 'color': color,
                 'timestamp': datetime.now().isoformat()
