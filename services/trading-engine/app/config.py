@@ -593,6 +593,19 @@ class Settings(BaseSettings):
         description="Slippage in bps for symbols absent from the per-symbol table",
     )
 
+    # Paper funding (PAPER-02). ON by default: a position held across an 8h
+    # Bybit settlement pays or receives funding on the real venue, and omitting
+    # it overstates P&L for longs in positive-funding regimes. Fetch failure
+    # fails open to zero and LOGS that the leg is gross of funding - silence
+    # must never become an assumed rate (costs.py:257-260).
+    paper_funding_enabled: bool = Field(
+        default=True,
+        description=(
+            "Charge/credit perp funding on paper closes for each settlement "
+            "crossed during the hold"
+        ),
+    )
+
     # =========================================================================
     # EXECUTION / SMART ORDER ROUTER (RES-05, 2026-08-16)
     # =========================================================================

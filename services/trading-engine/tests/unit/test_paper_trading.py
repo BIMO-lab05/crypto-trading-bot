@@ -74,6 +74,13 @@ class TestPaperTradingEngine:
         settings.paper_slippage_enabled = False
         settings.paper_slippage_bps_by_symbol = {}
         settings.paper_slippage_default_bps = 10.0
+        # PAPER-02 (2026-08-17): pinned explicitly for the same reason as the
+        # leverage fields above — a bare Mock()'s auto-attribute is truthy, so
+        # an unpinned paper_funding_enabled would make the close path fetch
+        # funding and crash on mock_open_position.opened_at (not a real
+        # datetime here). This suite pins accounting arithmetic that predates
+        # funding; funding itself is covered in tests/test_paper_funding.py.
+        settings.paper_funding_enabled = False
         return settings
 
     @pytest.fixture

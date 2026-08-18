@@ -81,6 +81,7 @@ class PaperTradingEngine:
             str(self.settings.paper_commission_pct)
         ) / Decimal("100")
         self.slippage = build_slippage_model(self.settings)
+        self._funding_client = None  # built lazily; PAPER-02
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
 
@@ -216,6 +217,48 @@ class PaperTradingEngine:
     def calculate_commission(self, order_value: Decimal) -> Decimal:
         """Calculate commission for an order"""
         return order_value * self.commission_pct
+
+    async def _funding_for_leg(
+        self, symbol: str, side: PositionSide, notional: Decimal, opened_at
+    ) -> Decimal:
+        """Signed funding paid over [opened_at, now]. POSITIVE means PAID.
+
+        Fails open to zero with a loud log - a silent zero would read as
+        'no funding was due' rather than 'we could not find out'.
+        """
+        if not getattr(self.settings, "paper_funding_enabled", False):
+            return Decimal("0")
+
+        from datetime import datetime, timezone
+
+        from app.costs import funding_cost
+        from app.risk.funding_gate import FundingGateConfig, FundingRateClient
+
+        if self._funding_client is None:
+            self._funding_client = FundingRateClient(
+                connector_base_url=self.settings.bybit_connector_url,
+                config=FundingGateConfig(),
+            )
+
+        entry_ts_ms = int(_as_utc(opened_at).timestamp() * 1000)
+        exit_ts_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        settlements = await self._funding_client.get_settlements(
+            symbol, entry_ts_ms, exit_ts_ms
+        )
+        if not settlements and exit_ts_ms - entry_ts_ms >= 8 * 3600 * 1000:
+            logger.error(
+                f"[FUNDING] no settlements fetched for {symbol} over "
+                f"{(exit_ts_ms - entry_ts_ms) // 3600000}h hold - this leg's "
+                "P&L is GROSS of funding"
+            )
+
+        return funding_cost(
+            notional,
+            side.value,
+            settlements,
+            entry_ts_ms=entry_ts_ms,
+            exit_ts_ms=exit_ts_ms,
+        )
 
     async def execute_market_order(
         self, order: OrderCreate, current_price: Decimal
@@ -371,10 +414,24 @@ class PaperTradingEngine:
                 target.id, close_qty
             )
 
-            # Cash ledger: gross P&L minus the exit commission. The entry fee
-            # already left the cash balance at open — netting it here again
-            # would double-charge cash; it is netted only in REPORTED P&L.
-            self.balance += margin_returned + realized_pnl - close_commission
+            # Perp funding accrued over the hold (PAPER-02). Signed; POSITIVE
+            # means this leg PAID. Must reach both ledgers exactly as
+            # close_commission does, or it is invisible to reported P&L and
+            # the daily-loss breaker (paper_trading.py module docstring).
+            funding_paid = await self._funding_for_leg(
+                order.symbol,
+                target.side,
+                target.entry_price * close_qty,
+                target.opened_at,
+            )
+
+            # Cash ledger: gross P&L minus the exit commission and funding.
+            # The entry fee already left the cash balance at open — netting
+            # it here again would double-charge cash; it is netted only in
+            # REPORTED P&L.
+            self.balance += (
+                margin_returned + realized_pnl - close_commission - funding_paid
+            )
 
             # Net P&L delta this leg contributes to the position's realized
             # P&L (computed by the position manager, which owns the entry-fee
@@ -390,7 +447,7 @@ class PaperTradingEngine:
                     reason=f"Market {order.side.value.lower()} order "
                     f"({target.side.value} close)"
                     + (f" [{order.strategy}]" if order.strategy else ""),
-                    close_commission=close_commission,
+                    close_commission=close_commission + funding_paid,
                     exit_kind=order.exit_kind,
                 )
                 executed_order.position_id = closed_position.id
@@ -401,7 +458,7 @@ class PaperTradingEngine:
                     close_qty,
                     fill_price,
                     realized_pnl,
-                    close_commission=close_commission,
+                    close_commission=close_commission + funding_paid,
                 )
                 executed_order.position_id = target.id
                 net_leg_pnl = reduced_position.realized_pnl - realized_before
@@ -428,7 +485,8 @@ class PaperTradingEngine:
                 f"(ref {current_price}) | "
                 f"Margin returned: ${margin_returned:.4f} | "
                 f"Gross P&L: ${realized_pnl:.4f} | Net P&L: ${net_leg_pnl:.4f} | "
-                f"Commission: ${close_commission:.4f} | Balance: ${self.balance:.4f}"
+                f"Commission: ${close_commission:.4f} | Funding: ${funding_paid:.4f} | "
+                f"Balance: ${self.balance:.4f}"
             )
 
             _spawn_trade_log(
