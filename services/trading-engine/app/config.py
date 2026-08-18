@@ -55,7 +55,7 @@ class Settings(BaseSettings):
         default="http://bybit-connector:8001", description="Bybit Connector Service URL"
     )
     portfolio_manager_url: str = Field(
-        default="http://localhost:8006", description="Portfolio Manager Service URL"
+        default="http://localhost:8003", description="Portfolio Manager Service URL"
     )
 
     # Phase 3 ML/AI Service URLs
