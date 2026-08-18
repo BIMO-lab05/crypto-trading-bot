@@ -9,8 +9,14 @@ from fastapi import HTTPException, Query
 
 from app.config import get_settings
 from app.fetcher import get_fetcher
-from app.indicators import RSICalculator, MACDCalculator
+from app.indicators import (
+    RSICalculator,
+    MACDCalculator,
+    ADXCalculator,
+    EnhancedSqueezeMomentum,
+)
 from app.indicators.trend_filter import TrendFilter
+from app.indicators.volume_confirmation import VolumeConfirmation
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -43,6 +49,21 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
         macd = macd_calc.calculate(df)
         trend_result = trend_filter.calculate(df["close"].tolist())
         trend = trend_result.get("trend") if trend_result else None
+
+        # ADX (trend strength + direction) and Enhanced SQZMOM (breakout) are
+        # computed in this service and served as endpoints, but were never
+        # consulted here. Both already emit BUY/SELL/HOLD with their own
+        # confidence, so they drop straight into the (label, confidence) shape.
+        adx_data, adx_signal, adx_conf = ADXCalculator().calculate_with_signal(
+            df["high"].tolist(), df["low"].tolist(), df["close"].tolist()
+        )
+        sqz_df = EnhancedSqueezeMomentum().calculate(df)
+        # Volume is NOT a voter: its labels are CONFIRM/REJECT (which would
+        # KeyError the weight dict) and it is directionally agnostic. It scales
+        # confidence after the vote, mirroring the trading-engine's validator.
+        volume_result = VolumeConfirmation().calculate(
+            df["volume"].tolist(), "breakout"
+        )
 
         # Pre-compute MACD signal label/confidence so we can both
         # (a) feed it into the weighted aggregation and
@@ -86,6 +107,20 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
                     float(trend_result.get("confidence", 0.0)),
                 )
             )
+
+        # ADX's failure default is HOLD at confidence 0.3 (adx.py:436-439), not
+        # 0.0, so the weight > 0.0 filter below cannot tell a dead ADX from a
+        # genuine ranging read. Only its directional labels may vote.
+        if adx_signal in ("BUY", "SELL") and float(adx_conf) > 0.0:
+            signals.append((str(adx_signal), float(adx_conf)))
+
+        # Same for SQZMOM: HOLD is a flat 0.25 (sqzmom_enhanced.py:687-688).
+        if sqz_df is not None and not sqz_df.empty:
+            last_row = sqz_df.iloc[-1]
+            if str(last_row["sqz_signal"]) in ("BUY", "SELL"):
+                signals.append(
+                    (str(last_row["sqz_signal"]), float(last_row["sqz_confidence"]))
+                )
 
         # Drop confidence=0 entries before aggregation (INFRA-06 Bug 2).
         # A disabled or uninitialised indicator may emit a (label, 0.0) tuple;
@@ -135,6 +170,28 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
                 signal_weights[final_signal] / total_weight if total_weight > 0 else 0.5
             )
 
+        # Volume validation: scale a directional signal's confidence by how
+        # well volume confirms it. Tiers mirror the trading-engine's
+        # aggregation/validator.py so the two services agree.
+        volume_penalty = 1.0
+        # volume_ratio == 0.0 is VolumeConfirmation._reject_response()
+        # (volume_confirmation.py:115) - fewer than `period` bars, or an
+        # exception. That is ABSENCE of information, not disconfirmation, and
+        # validator.py's ladder documents it as "No volume data: 1.0x (pass
+        # through)". A genuine sub-1.0x reading still takes the 0.5 penalty.
+        volume_has_data = float(volume_result.get("volume_ratio") or 0.0) > 0.0
+        if final_signal in ("BUY", "SELL") and volume_has_data:
+            strength = str(volume_result.get("strength", "UNKNOWN"))
+            if volume_result.get("confirmed"):
+                volume_penalty = 1.0 if strength == "STRONG" else 0.9
+            elif strength == "MODERATE":
+                volume_penalty = 0.8
+            elif strength == "WEAK":
+                volume_penalty = 0.75
+            else:
+                volume_penalty = 0.5
+            confidence *= volume_penalty
+
         return {
             "symbol": symbol,
             "interval": interval,
@@ -143,6 +200,25 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
             "rsi": round(rsi_value, 2) if rsi_value else None,
             "macd_signal": macd_signal_label,
             "trend": trend,
+            "adx": {
+                "signal": str(adx_signal),
+                "confidence": round(float(adx_conf), 3),
+                "adx": adx_data.get("adx") if adx_data else None,
+            },
+            "sqzmom": (
+                {
+                    "signal": str(sqz_df.iloc[-1]["sqz_signal"]),
+                    "confidence": round(float(sqz_df.iloc[-1]["sqz_confidence"]), 3),
+                }
+                if sqz_df is not None and not sqz_df.empty
+                else None
+            ),
+            "volume": {
+                "confirmed": bool(volume_result.get("confirmed", False)),
+                "strength": volume_result.get("strength"),
+                "ratio": volume_result.get("volume_ratio"),
+                "penalty": round(volume_penalty, 3),
+            },
             "timestamp": int(df.index[-1].timestamp() * 1000),
         }
 
