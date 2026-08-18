@@ -3892,6 +3892,15 @@ class AutoTrader:
             confidence: Signal confidence score
             signal: TradingSignal object
         """
+        # Daily trade limit. The research/hybrid (:1891) and ensemble (:4648)
+        # paths already gate here; standard mode did not, so it could open
+        # unlimited trades per day and its fills never consumed the budget the
+        # other paths measure against.
+        if not self._check_daily_trade_limit():
+            logger.info(f"Daily trade limit reached, skipping {symbol}")
+            self.total_trades_rejected += 1
+            return
+
         # SL cooldown check (2026-05-15). Block re-entry on same symbol within
         # sl_cooldown_seconds after a stop-loss exit. Mirrors the check in
         # _execute_trade_with_setup; placed before the open-slot claim so we
@@ -4113,6 +4122,7 @@ class AutoTrader:
             if executed_order.status == OrderStatus.FILLED:
                 self.total_trades_executed += 1
                 opened = True  # arm dedup cooldown for this symbol
+                self._record_trade(symbol)  # Track for daily limit and cooldown
                 logger.info(f"Trade executed successfully for {symbol}")
                 logger.info(
                     f"Stats: Checked={self.total_signals_checked}, "
