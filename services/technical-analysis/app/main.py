@@ -268,7 +268,7 @@ async def rsi_endpoint(
     symbol: str,
     interval: str = Query(default="60", description="Candlestick interval"),
     # RESEARCH-OPTIMIZED 2025-11-28: Period 9 optimal for crypto volatility (prev: 14)
-    period: int = Query(default=9, ge=2, le=200, description="RSI period (optimized for crypto)"),
+    period: int = Query(default=settings.default_rsi_period, ge=2, le=200, description="RSI period (optimized for crypto)"),
     limit: int = Query(default=200, ge=50, le=1000, description="Number of candles to fetch")
 ):
     """
@@ -288,9 +288,9 @@ async def macd_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
     # RESEARCH-OPTIMIZED (Kang 2021): 5/35/5 achieves +11% annual vs -3.6% for standard.
-    fast: int = Query(default=5, ge=2, le=50, description="Fast EMA period (research: 5)"),
-    slow: int = Query(default=35, ge=10, le=200, description="Slow EMA period (research: 35)"),
-    signal: int = Query(default=5, ge=2, le=50, description="Signal line period (research: 5)"),
+    fast: int = Query(default=settings.default_macd_fast, ge=2, le=50, description="Fast EMA period (research: 5)"),
+    slow: int = Query(default=settings.default_macd_slow, ge=10, le=200, description="Slow EMA period (research: 35)"),
+    signal: int = Query(default=settings.default_macd_signal, ge=2, le=50, description="Signal line period (research: 5)"),
     limit: int = Query(default=200, ge=100, le=1000)
 ):
     """
@@ -309,9 +309,9 @@ async def macd_endpoint(
 async def bollinger_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=20, ge=5, le=100),
+    period: int = Query(default=settings.default_bb_period, ge=5, le=100),
     # RESEARCH-OPTIMIZED: 2.5 SD better for crypto volatility (reduces false breakouts)
-    std_dev: float = Query(default=2.5, ge=1.0, le=4.0, description="Std dev (research: 2.5)"),
+    std_dev: float = Query(default=settings.default_bb_std, ge=1.0, le=4.0, description="Std dev (research: 2.5)"),
     limit: int = Query(default=200, ge=50, le=1000)
 ):
     """
