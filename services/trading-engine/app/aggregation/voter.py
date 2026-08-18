@@ -36,7 +36,7 @@ INDICATOR_CATEGORIES = {
     # Momentum oscillators - all measure momentum/overbought/oversold
     "MOMENTUM": {"RSI", "MACD", "STOCHASTIC", "RSI_DIVERGENCE"},
     # Trend indicators - measure trend direction
-    "TREND": {"SMA", "EMA", "ICHIMOKU"},
+    "TREND": {"SMA", "EMA", "ICHIMOKU", "ADX"},
     # Volatility/Breakout indicators
     "VOLATILITY": {"BOLLINGER_BANDS", "SQZMOM_ENHANCED"},
 }

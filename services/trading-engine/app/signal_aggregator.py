@@ -716,14 +716,14 @@ class SignalAggregator:
         Indicator Categories (2025-12-17 Update - Optimization):
         - Original 5: RSI, MACD, Bollinger Bands, SMA, EMA
         - Phase 1: Trend Filter (GATEKEEPER), Volume Confirmation (VALIDATOR), Stochastic
-        - Advanced: Ichimoku (RSI_DIVERGENCE and SQZMOM_ENHANCED disabled for low confidence)
+        - Advanced: Ichimoku, SQZMOM_ENHANCED (RSI_DIVERGENCE disabled for low confidence)
         - Risk Management: ATR (not a voting indicator)
 
         Total voting indicators: 9 (excludes ATR, TREND_FILTER, VOLUME_CONFIRMATION, disabled indicators)
         """
         logger.info(f"Fetching all indicators for {symbol} ({interval}m)")
         logger.info(
-            "  Including advanced indicators: ICHIMOKU (RSI_DIVERGENCE and SQZMOM_ENHANCED disabled for better confidence)"
+            "  Including advanced indicators: ICHIMOKU, SQZMOM_ENHANCED (RSI_DIVERGENCE disabled for better confidence)"
         )
 
         # Fetch all indicators concurrently
@@ -743,7 +743,10 @@ class SignalAggregator:
             # Advanced indicators (2025-11-26)
             # "RSI_DIVERGENCE": self.fetch_rsi_divergence(symbol, interval),  # DISABLED: stuck at 0.20 confidence
             "ICHIMOKU": self.fetch_ichimoku(symbol, interval),
-            # "SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom(symbol, interval),  # DISABLED: stuck at 0.50 HOLD
+            # Re-enabled 2026-08-17: the "stuck at 0.50 HOLD" cause was fixed
+            # 2026-05-05 (indicator_service.py:403-422 — the endpoint read
+            # non-prefixed keys; it now reads the sqz_-prefixed columns).
+            "SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom(symbol, interval),
             # ADX as TREND_GATE (added 2026-05-06). Required by
             # HybridStrategyRouter.detect_regime — without this leg the router
             # always falls through to RANGING regardless of actual market.
@@ -789,8 +792,8 @@ class SignalAggregator:
                 # Record into rolling-confidence registry (2026-05-06).
                 # was_voted=True for every active indicator; the False branch
                 # is the shadow-mode hook reserved for a follow-up that
-                # observes disabled indicators (RSI_DIVERGENCE,
-                # SQZMOM_ENHANCED) without counting their vote.
+                # observes disabled indicators (RSI_DIVERGENCE) without
+                # counting their vote.
                 try:
                     await get_indicator_registry().record(
                         name=name,
