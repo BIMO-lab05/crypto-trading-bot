@@ -108,8 +108,14 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
             signal_weights[sig] += weight
             total_weight += weight
 
-        # Determine final signal
-        final_signal = max(signal_weights, key=signal_weights.get)
+        # Determine final signal. With no usable votes every weight is 0.0 and
+        # argmax returns "BUY" (first-inserted key wins ties), which then took
+        # the directional branch below and its `else 0.0` arm — a phantom
+        # directional label at zero confidence. No votes means HOLD, which
+        # reaches the `else 0.5` neutral fallback.
+        final_signal = (
+            max(signal_weights, key=signal_weights.get) if total_weight > 0 else "HOLD"
+        )
 
         # Agreement-based confidence (audit 2026-07): for directional
         # signals, measure agreement among DIRECTIONAL voters only

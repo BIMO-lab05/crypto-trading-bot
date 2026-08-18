@@ -230,3 +230,12 @@ async def test_empty_signal_list_returns_neutral_fallback():
     assert result["signal"] in ("BUY", "SELL", "HOLD"), (
         f"Unexpected signal value: {result['signal']}"
     )
+
+    # The defect was a phantom directional label on zero information:
+    # argmax over an all-zero weight dict returns "BUY" (first-inserted key
+    # wins ties in CPython), which then took the directional branch and its
+    # `else 0.0` arm. No votes must mean HOLD.
+    assert result["signal"] == "HOLD", (
+        f"No usable votes must aggregate to HOLD, got {result['signal']!r} "
+        "on zero information"
+    )
