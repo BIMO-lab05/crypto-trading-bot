@@ -50,6 +50,16 @@ class LiveTradingEngine:
 
     def __init__(self):
         """Initialize live trading engine"""
+        raise RuntimeError(
+            "LIVE trading path is fenced off (2026-08-17): LiveTradingEngine "
+            "records fills at the reference price with zero fees and zero "
+            "posted margin, and its closes write the PAPER cash ledger "
+            "(position_manager.close_position -> get_paper_engine()"
+            ".get_balance() -> portfolio row 'paper_trading'). LIVE is also "
+            "not mechanically viable at the $100 account: the 2% LIVE cap is "
+            "$2, below the ~$5 venue min-notional. Repair the accounting and "
+            "remove this fence deliberately before any LIVE build-out."
+        )
         self.settings = get_settings()
         self.bybit_url = self.settings.bybit_connector_url
         self.position_manager = get_position_manager()
