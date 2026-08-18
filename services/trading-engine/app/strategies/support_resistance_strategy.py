@@ -349,7 +349,9 @@ class SupportResistanceStrategy:
             return df["close"].iloc[-1]
 
         ema = df["close"].ewm(span=period, adjust=False).mean()
-        return round(ema.iloc[-1], 2)
+        # No exchange tick precision at this layer — round(x, 2) can crush a
+        # small-but-real ADA-scale value toward the next 2dp tick (PRICE-01).
+        return float(ema.iloc[-1])
 
     def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> float:
         """
@@ -377,7 +379,9 @@ class SupportResistanceStrategy:
         # ATR is the smoothed average of TR
         atr = tr.rolling(window=period, min_periods=period).mean()
 
-        return round(atr.iloc[-1], 2)
+        # round(x, 2) crushes a small-but-real ADA-scale ATR to exactly 0.0,
+        # which downstream divides by zero (PRICE-01).
+        return float(atr.iloc[-1])
 
     def _calculate_volume_ratio(self, df: pd.DataFrame, lookback: int = 20) -> float:
         """
@@ -622,7 +626,7 @@ class SupportResistanceStrategy:
             entry_price, atr, is_long, take_profit
         )
 
-        return round(stop_loss, 2), round(take_profit, 2), partial_exits
+        return stop_loss, take_profit, partial_exits
 
     def _calculate_partial_exits(
         self, entry_price: float, atr: float, is_long: bool, final_target: float
@@ -649,8 +653,10 @@ class SupportResistanceStrategy:
         else:
             total_distance = entry_price - final_target
 
-        # Skip partial exits if target is too close
-        if abs(total_distance) < atr * 1.5:
+        # Skip partial exits if target is too close, or ATR is non-positive
+        # (a genuinely flat window) — dividing by a zero/negative ATR below
+        # would otherwise pin every rung at entry with atr_multiple=inf.
+        if atr <= 0 or abs(total_distance) < atr * 1.5:
             return partial_exits
 
         # TP1: 25% at 1x ATR (1:1 R/R approximately)
@@ -660,7 +666,10 @@ class SupportResistanceStrategy:
         )
         partial_exits.append(
             PartialExitLevel(
-                price=round(tp1_price, 2),
+                # Trigger compared against market price, closed at market —
+                # no exchange tick precision at this layer. round(price, 2)
+                # collapsed TP2 and TP3 onto one rung at ADA scale (PRICE-01).
+                price=tp1_price,
                 exit_percent=0.25,
                 atr_multiple=1.0,
                 label="TP1",
@@ -674,7 +683,7 @@ class SupportResistanceStrategy:
         )
         partial_exits.append(
             PartialExitLevel(
-                price=round(tp2_price, 2),
+                price=tp2_price,
                 exit_percent=0.35,
                 atr_multiple=1.5,
                 label="TP2",
@@ -684,7 +693,7 @@ class SupportResistanceStrategy:
         # TP3: 40% at final target
         partial_exits.append(
             PartialExitLevel(
-                price=round(final_target, 2),
+                price=final_target,
                 exit_percent=0.40,
                 atr_multiple=abs(total_distance) / atr,
                 label="TP3",
