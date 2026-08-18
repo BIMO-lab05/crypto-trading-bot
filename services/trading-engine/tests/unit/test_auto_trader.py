@@ -344,7 +344,6 @@ class TestAutoTraderCheckAndTrade:
         """Test handling when signal doesn't meet minimum requirements"""
         trader = AutoTrader(symbols=["BTCUSDT"])
         trader.enable_ml = False  # Disable ML to use simpler code path
-        trader.enable_vp = False  # Disable VP
         trader.enable_market_regime = False  # Disable regime detection
 
         # Create mock signal that doesn't meet requirements

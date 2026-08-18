@@ -85,8 +85,6 @@ def main():
         "Auto Trader": "app/auto_trader.py",
         "Position Sizing": "app/position_sizing.py",
         "Performance Tracker": "app/performance_tracker.py",
-        "Volume Profile": "app/volume_profile.py",
-        "VP Strategy": "app/vp_strategy.py",
         "Multi-Timeframe": "app/aggregation/multi_timeframe.py",
         "Validator": "app/aggregation/validator.py",
         "Gatekeeper": "app/aggregation/gatekeeper.py",
@@ -110,8 +108,6 @@ def main():
         "Multi-Timeframe Test": "test_multi_timeframe.py",
         "Performance Tracker Test": "test_performance_tracker.py",
         "Position Sizing Test": "test_position_sizing.py",
-        "Volume Profile Test": "test_volume_profile.py",
-        "Complete System Test": "test_complete_system.py",
     }
 
     existing_tests = 0

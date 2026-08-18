@@ -185,7 +185,6 @@ class AutoTrader:
         symbols: Optional[List[str]] = None,
         interval: str = "60",
         check_frequency_seconds: Optional[int] = None,  # Use config default
-        enable_volume_profile: bool = False,  # Enable VP analysis (Phase 3)
         position_sizing_method: SizingMethod = SizingMethod.FIXED,  # 2026-05-06: predictable 10%-per-trade sizing on $100 paper balance
         use_performance_data: bool = True,  # Use performance tracker for Kelly
         enable_market_regime: bool = True,  # Enable ADX-based market regime detection
@@ -201,7 +200,6 @@ class AutoTrader:
             symbols: List of trading symbols (default: from config)
             interval: Timeframe for analysis (default: 60 minutes)
             check_frequency_seconds: How often to check signals (default: from config)
-            enable_volume_profile: Enable Volume Profile analysis (default: False)
             position_sizing_method: Position sizing method (default: CONFIDENCE_ADJUSTED)
             use_performance_data: Use performance tracker for Kelly calculation
             enable_market_regime: Enable ADX-based market regime detection (default: True)
@@ -224,7 +222,6 @@ class AutoTrader:
         self.check_frequency = check_frequency_seconds or getattr(
             settings, "check_frequency_seconds", 30
         )
-        self.enable_vp = enable_volume_profile
         self.position_sizing_method = position_sizing_method
         self.use_performance_data = use_performance_data
         self.enable_market_regime = enable_market_regime
@@ -650,7 +647,6 @@ class AutoTrader:
         logger.info(
             f"AutoTrader initialized: symbols={len(self.symbols)} pairs, "
             f"interval={self.interval}, frequency={self.check_frequency}s, "
-            f"VP={'ENABLED' if self.enable_vp else 'DISABLED'}, "
             f"Sizing={self.position_sizing_method.value}, "
             f"MarketRegime={'ENABLED' if self.enable_market_regime else 'DISABLED'}, "
             f"StrategyMode={self.strategy_mode.value}"
@@ -828,7 +824,6 @@ class AutoTrader:
         logger.info(
             f"  ML Predictions: {'ENABLED (Phase 3)' if self.enable_ml else 'DISABLED'}"
         )
-        logger.info(f"  Volume Profile: {'ENABLED' if self.enable_vp else 'DISABLED'}")
         logger.info(
             f"  Market Regime: {'ENABLED' if self.enable_market_regime else 'DISABLED'}"
         )
@@ -1165,16 +1160,6 @@ class AutoTrader:
                 signal = await aggregator.get_trading_signal_enhanced(
                     symbol=symbol, interval=self.interval, use_phase3=True
                 )
-            elif self.enable_vp:
-                # Use VP-enhanced signals (Phase 3 - VP only)
-                signal = await aggregator.get_trading_signal_with_vp(
-                    symbol=symbol,
-                    primary_interval=self.interval,
-                    timeframes=["15", self.interval, "240"],
-                    enable_vp=True,
-                    vp_lookback=100,
-                    regime_analysis=regime_analysis,
-                )
             else:
                 # Use multi-timeframe only (Phase 2)
                 signal = await aggregator.get_trading_signal_multi_timeframe(
@@ -1202,21 +1187,7 @@ class AutoTrader:
             regime_data = signal.metadata.get("market_regime", {})
 
             # Build comprehensive log message
-            if self.enable_vp and vp_data:
-                # Show VP-enhanced signal (Phase 3)
-                logger.info(
-                    f"Signal for {symbol}: {action} "
-                    f"(confidence: {confidence:.2%}, score: {aggregated_score:.2f})"
-                )
-                logger.info(
-                    f"   MTF: {mtf_data.get('alignment_strength', 'N/A')} "
-                    f"(modifier: {mtf_data.get('confidence_modifier', 1.0):.2f}x)"
-                )
-                logger.info(
-                    f"   VP: {vp_data.get('strategy', 'N/A')} | {vp_data.get('position', 'N/A')} "
-                    f"| POC=${vp_data.get('poc', 0):.2f} | SL=${vp_data.get('stop_loss', 0):.2f}"
-                )
-            elif mtf_data and mtf_data.get("enabled"):
+            if mtf_data and mtf_data.get("enabled"):
                 # Show MTF-only signal (Phase 2)
                 logger.info(
                     f"Signal for {symbol}: {action} "
