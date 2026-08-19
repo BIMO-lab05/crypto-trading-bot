@@ -44,6 +44,28 @@ _HOURLY_JOB_GRACE_SECONDS = 1800  # hourly backup job
 
 _SCHEDULER_LOCK_PATH = "/tmp/market-data-scheduler.lock"
 
+# Module-level lazy singleton for the orderbook job only (final review H-2).
+# Every other job still constructs a fresh BybitDataFetcher per tick and
+# closes it in `finally` -- unchanged. The orderbook job runs every 5s (vs.
+# 5min/1h elsewhere), so building a fresh 100-connection httpx pool and
+# tearing it down every tick meant 17k fetcher lifecycles/day and zero
+# keepalive reuse across ticks; that churn was the main cadence lever.
+# Closed in stop_scheduler().
+_orderbook_fetcher: BybitDataFetcher = None
+
+# Bounds concurrent in-flight orderbook requests per tick (final review H-2).
+# 14 symbols fully concurrent would burst the connector's rate limiter
+# (final review H-4); 8 keeps a tick's burst well under it while still
+# collapsing 14 sequential round trips into ~2 waves.
+_ORDERBOOK_CONCURRENCY = 8
+
+
+def _get_orderbook_fetcher() -> BybitDataFetcher:
+    global _orderbook_fetcher
+    if _orderbook_fetcher is None:
+        _orderbook_fetcher = BybitDataFetcher()
+    return _orderbook_fetcher
+
 
 def _claim_scheduler_ownership() -> bool:
     """
@@ -253,25 +275,34 @@ async def collect_orderbook_data():
 
     max_instances=1 + coalesce=True at registration make a slow tick SKIP
     the next rather than queue (spec A1 rate-limit rule).
+
+    Reworked per final review H-2/M-6: symbols fetch concurrently (bounded by
+    a semaphore) against a fetcher reused across ticks, and successful
+    snapshots are written in one batched session instead of one session per
+    symbol. This is what moved achieved cadence back toward the 5s target
+    instead of the ~6.1s/18%-loss measured against the old sequential,
+    per-tick-fetcher, per-snapshot-session implementation.
     """
-    fetcher = BybitDataFetcher()
+    fetcher = _get_orderbook_fetcher()
     repo = OrderbookRepository()
-    success_count = 0
-    error_count = 0
-    try:
-        for symbol in _trading_pairs():
+    semaphore = asyncio.Semaphore(_ORDERBOOK_CONCURRENCY)
+
+    async def _fetch_one(symbol: str):
+        async with semaphore:
             try:
-                snapshot = await fetcher.get_orderbook(symbol, limit=25)
-                if snapshot and await repo.save_snapshot(snapshot):
-                    success_count += 1
-                else:
-                    error_count += 1
+                return await fetcher.get_orderbook(symbol, limit=25)
             except Exception as e:
                 logger.error(f"❌ Error collecting orderbook for {symbol}: {e}")
-                error_count += 1
-    finally:
-        # Always release the httpx connection pool (see collect_ticker_data).
-        await fetcher.close()
+                return None
+
+    symbols = _trading_pairs()
+    results = await asyncio.gather(*(_fetch_one(s) for s in symbols))
+    snapshots = [r for r in results if r]
+    error_count = len(symbols) - len(snapshots)
+
+    success_count = await repo.save_snapshots_bulk(snapshots) if snapshots else 0
+    if success_count < len(snapshots):
+        error_count += len(snapshots) - success_count
 
     if error_count:
         logger.warning(
@@ -426,6 +457,22 @@ def stop_scheduler():
     logger.info("🛑 Stopping scheduler...")
     _scheduler.shutdown(wait=True)
     _scheduler = None
+
+    # Release the orderbook job's reused connection pool (final review H-2).
+    # stop_scheduler() is sync but only ever called from an async context in
+    # production (FastAPI shutdown / the stop handler); tests may call it
+    # with no running loop, so this degrades to a warning rather than raising.
+    global _orderbook_fetcher
+    if _orderbook_fetcher is not None:
+        fetcher_to_close = _orderbook_fetcher
+        _orderbook_fetcher = None
+        try:
+            asyncio.get_running_loop().create_task(fetcher_to_close.close())
+        except RuntimeError:
+            logger.warning(
+                "No running event loop to close the orderbook fetcher's "
+                "connection pool on scheduler stop"
+            )
 
     # Release ownership so a restarting worker can claim it immediately rather
     # than waiting for this process to exit.
