@@ -93,6 +93,7 @@ LABEL_HORIZONS = {
     "funding_carry": 10,
     "lf_trend": 30,
     "vol_breakout": 5,
+    "pairs_statarb": 1,
 }
 # Only reachable for a candidate outside the registry (a test stub). Named
 # and warned about rather than silently assumed.
@@ -104,6 +105,7 @@ _CANDIDATE_SPECS = (
     ("funding_carry", "edge_lab.candidates.funding_carry", ("daily", "funding")),
     ("lf_trend", "edge_lab.candidates.lf_trend", ("daily",)),
     ("vol_breakout", "edge_lab.candidates.vol_breakout", ("h4",)),
+    ("pairs_statarb", "edge_lab.candidates.pairs_statarb", ("daily",)),
 )
 
 _costs = load_costs()
