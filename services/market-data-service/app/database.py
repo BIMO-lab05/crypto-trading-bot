@@ -27,7 +27,9 @@ def get_engine():
         # Use TimescaleDB for market data storage
         _engine = create_async_engine(
             settings.timescale_url,  # Changed from postgres_url to timescale_url
-            echo=settings.debug,  # Log SQL queries in debug mode
+            # SQL echo at 5s snapshot cadence = ~4.4GB/day of container log
+            # (final review B-1; CLAUDE.md unrotated-log gotcha). Never tie to DEBUG.
+            echo=False,
             pool_size=settings.db_pool_min_size,
             max_overflow=settings.db_pool_max_size - settings.db_pool_min_size,
             pool_pre_ping=True,  # Verify connections before using
