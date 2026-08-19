@@ -72,8 +72,12 @@ def test_ledger_path_default_resolves_at_call_time():
 
 def test_seed_ledger_has_at_least_the_8_battery_variants():
     entries = trial_ledger.load_entries()
+    # append_entries (the path run_battery.py uses in production) only ever
+    # writes {"candidate", "variant"} — no "date" — so rows appended by a
+    # real battery run must not KeyError here. Only the hand-seeded rows
+    # carry "date".
     battery_pairs = {
-        (e["candidate"], e["variant"]) for e in entries if e["date"] == "2026-08-17"
+        (e["candidate"], e["variant"]) for e in entries if e.get("date") == "2026-08-17"
     }
     expected = {
         ("xs_momentum", "lookback_7d"),
