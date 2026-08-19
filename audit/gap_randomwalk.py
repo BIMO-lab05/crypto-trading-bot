@@ -15,7 +15,9 @@ n = len(real)
 pnls = []
 for seed in range(20):
     rng = np.random.default_rng(seed)
-    steps = rng.normal(0.0, sigma, n)  # drift-free by construction
+    steps = rng.normal(
+        -0.5 * sigma**2, sigma, n
+    )  # Ito correction: drift-free in price space
     close = float(real["close"].iloc[0]) * np.exp(np.cumsum(steps))
     intrabar = np.abs(rng.normal(0.0, sigma, n))
     open_ = np.roll(close, 1)

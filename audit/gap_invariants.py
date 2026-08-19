@@ -18,8 +18,6 @@ eng = make_engine()
 res = eng.run_backtest(data, one_shot, "invariant-probe")
 bar = data.iloc[TARGET_IDX]
 trade = res.trades[0]
-# Engine applies slippage on top of the fill base price; recover the base.
-base = trade.entry_price / (1 + eng.slippage) if eng.slippage_mode == "fixed" else None
 same_bar_close_fill = (
     abs(trade.entry_price - float(bar["close"])) / float(bar["close"]) < 0.01
 )
