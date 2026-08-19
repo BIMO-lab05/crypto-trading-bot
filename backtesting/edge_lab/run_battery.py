@@ -70,6 +70,7 @@ from edge_lab.sanity import (  # noqa: E402
     render_sanity_table,
 )
 from edge_lab.trades import Trade, write_trades_csv  # noqa: E402
+from edge_lab import trial_ledger  # noqa: E402
 from edge_lab.universe import load_pin  # noqa: E402
 from edge_lab.verdicts import (  # noqa: E402
     overall_verdict,
@@ -341,6 +342,7 @@ def score_gate2(
     daily: Mapping[str, pd.DataFrame],
     candidate: str,
     funding_dir: Path,
+    num_trials_floor: int,
 ) -> tuple[Gate2Result, int, int, int, dict[str, int]]:
     """Daily net-return series → CPCV/DSR. Returns (result, start, end, h, dropped).
 
@@ -419,7 +421,13 @@ def score_gate2(
             candidate,
             horizon,
         )
-    return run_gate2(returns, horizon), start_ms, end_ms, horizon, dropped
+    return (
+        run_gate2(returns, horizon, num_trials_floor=num_trials_floor),
+        start_ms,
+        end_ms,
+        horizon,
+        dropped,
+    )
 
 
 def _score_variant(
@@ -429,6 +437,7 @@ def _score_variant(
     candidate: str,
     out_dir: Path,
     funding_dir: Path,
+    num_trials_floor: int,
 ) -> dict[str, Any]:
     trades = _generate(entry, bundle, variant)
     csv_path = Path(out_dir) / "trades" / f"{candidate}_{variant.name}.csv"
@@ -466,7 +475,7 @@ def _score_variant(
         return record
 
     gate2, start_ms, end_ms, horizon, dropped = score_gate2(
-        trades, bundle["daily"], candidate, funding_dir
+        trades, bundle["daily"], candidate, funding_dir, num_trials_floor
     )
     record.update(
         # Trades Gate 2 could not score for want of a daily frame. Recorded
@@ -484,6 +493,7 @@ def _score_variant(
         sharpe_std=gate2.sharpe_std,
         gate2_passed=gate2.passed,
         gate2_reasons=list(gate2.reasons),
+        num_trials_used=gate2.num_trials_used,
         label_horizon_days=horizon,
         window_start_ms=start_ms,
         window_end_ms=end_ms,
@@ -513,6 +523,11 @@ def run_battery(
     pin = load_pin(pin_path)
     bundle, sanity_summary = load_bundle(data_dir, pin, now_ms)
     registry = default_registry() if candidates is None else candidates
+
+    known = {(e["candidate"], e["variant"]) for e in trial_ledger.load_entries()}
+    scored = {(c, v.name) for c, e in registry.items() for v in e["variants"]}
+    total_new_variants = len(scored - known)
+    effective_floor = trial_ledger.effective_trials_floor(total_new_variants)
 
     results: dict[str, dict] = {}
     for candidate, entry in registry.items():
@@ -551,7 +566,13 @@ def run_battery(
             for variant in entry["variants"]:
                 result["variants"].append(
                     _score_variant(
-                        entry, bundle, variant, candidate, out_dir, funding_dir
+                        entry,
+                        bundle,
+                        variant,
+                        candidate,
+                        out_dir,
+                        funding_dir,
+                        effective_floor,
                     )
                 )
             result["verdict"] = overall_verdict(result["variants"])
@@ -568,23 +589,60 @@ def run_battery(
         try:
             write_verdict(
                 render_verdict(
-                    candidate, result["variants"], pin, sanity_summary, date_str
+                    candidate,
+                    result["variants"],
+                    pin,
+                    sanity_summary,
+                    date_str,
+                    num_trials_floor=effective_floor,
                 ),
                 candidate,
                 date_str,
                 out_dir,
             )
-            write_verdict_json(candidate, result["variants"], pin, date_str, out_dir)
+            write_verdict_json(
+                candidate,
+                result["variants"],
+                pin,
+                date_str,
+                out_dir,
+                num_trials_floor=effective_floor,
+            )
         except Exception:
             logger.exception("failed to write the %s verdict doc", candidate)
             result["doc_error"] = traceback.format_exc()
+
+        # Ledgered per candidate, not per battery: a battery that dies on a
+        # later candidate must not cost the ledger entries for the ones that
+        # already scored. Covers NO_TRADES and Gate-1 KILL variants too, not
+        # just PASS — every variant this battery actually scored is a spent
+        # trial.
+        try:
+            trial_ledger.append_entries(
+                [
+                    {"candidate": candidate, "variant": v.get("variant")}
+                    for v in result["variants"]
+                    if v.get("variant") is not None
+                ]
+            )
+        except Exception:
+            logger.exception("failed to append %s to the trial ledger", candidate)
+            result["ledger_error"] = traceback.format_exc()
 
     # Last hole in "the battery always completes": by here every verdict doc
     # is already on disk, so a summary that fails to render must not take the
     # results down with it.
     try:
         write_summary(
-            render_summary(results, pin, sanity_summary, date_str), date_str, out_dir
+            render_summary(
+                results,
+                pin,
+                sanity_summary,
+                date_str,
+                num_trials_floor=effective_floor,
+            ),
+            date_str,
+            out_dir,
         )
     except Exception:
         logger.exception("failed to write the battery summary")
