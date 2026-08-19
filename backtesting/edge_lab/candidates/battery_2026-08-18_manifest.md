@@ -219,3 +219,28 @@ The three families represent the limits of exploration for this battery:
 3. **Regime-gated trend** — a low-prior, adversarial bet that we can recover an apparent overfitting artifact.
 
 If all three families REJECT, the battery is complete and the operator directs whether to continue with battery #3 or pause research.
+
+---
+
+## Amendment 2026-08-19 (pre-battery)
+
+**Status: battery #2 has NOT been run when this amendment was committed.** No pairs_trading result has been observed. This amendment changes the *screen*, not the outcome — it is filed before any data is fetched for this family, consistent with the Anti-P-Hacking Commitment above.
+
+### What changes
+
+Section "Candidate Family #2: Pairs / Statistical Arbitrage" (above) specifies pair cointegration confirmed via an **ADF p-value < 0.05** on each variant's rolling window. The implementation (`backtesting/edge_lab/candidates/pairs_statarb.py`) does not use ADF. That line stands unedited above — this amendment documents the substitution actually shipped, not a rewrite of the original text.
+
+**Why ADF was dropped:** the implementation is numpy-only (no statsmodels/scipy — see the family's cost/dependency notes above and the module's docstring). A numpy-only stand-in for ADF was tried first: a t-statistic on the AR(1) coefficient of the calibration-window spread, tested against a fixed critical value. Verified empirically against synthetic fixtures (a textbook cointegrated pair — common random-walk factor plus stationary AR(1) noise — versus two independent random walks) that this does **not discriminate**: both populations produced similarly "significant" within-window mean-reversion statistics, because OLS-on-I(1) spurious regression already builds locally-autocorrelated, near-zero-mean residuals by construction. That is exactly the failure mode ADF's MacKinnon critical values exist to correct for, and this module does not have them without the dependency it was built to avoid.
+
+**What replaced it — the pre-registered eligibility gate for all three variants:**
+
+1. **Half-life bound.** The AR(1) coefficient φ of the calibration-window spread must satisfy `0 < φ < 1`, with implied half-life `-ln(2)/ln(φ)` between 1 bar and `max_holding_days × 4` bars.
+2. **Cross-window hedge-ratio persistence.** The OLS hedge ratio β calibrated in the current window must agree in sign with the immediately preceding calibration window's β, and their ratio `|β_current| / |β_previous|` must fall within **[0.4x, 2.5x]**. The very first calibration window for any pair is therefore never itself tradeable — it only seeds the persistence baseline for the next window. This check, not the half-life bound, is what empirically separates the two populations in the fixtures above: a genuine cointegrating relationship's hedge ratio is stable window-to-window, while a spurious single-window OLS fit on unrelated series swings in magnitude and sign.
+
+A pair/window must pass **both** checks to be eligible to trade. Both are recalibrated on the same cadence as the hedge ratio itself (`recalc_days`: 30 for pairs_sector_30d and pairs_orthogonal_30d, 60 for pairs_volume_top10_60d), never on data at or after the bar being evaluated.
+
+**Held over from the original design, unchanged by this amendment:** `entry_z`/`exit_z` thresholds, `lookback_days` per variant, and the three pair-selection philosophies (sector/all, volume-top-10, low-correlation/orthogonal) as specified in the table above.
+
+**One further deviation, for completeness:** `_CANDIDATE_SPECS` restricts this candidate's bundle inputs to `("daily",)`, so the manifest's 4h/8h holding windows are approximated in whole daily bars (`max_holding_days=2` for every variant, not the sub-day figures in the table above). Documented in the module docstring; not a change to the eligibility screen this amendment covers.
+
+This amendment is filed as a screen substitution under the existing pre-registration, not a new variant, new parameter set, or relaxed pass criterion — the three variant names, their z-thresholds, and their pair-selection philosophies are exactly as pre-registered above.

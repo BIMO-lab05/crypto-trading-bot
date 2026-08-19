@@ -93,7 +93,7 @@ LABEL_HORIZONS = {
     "funding_carry": 10,
     "lf_trend": 30,
     "vol_breakout": 5,
-    "pairs_statarb": 1,
+    "pairs_statarb": 2,
 }
 # Only reachable for a candidate outside the registry (a test stub). Named
 # and warned about rather than silently assumed.

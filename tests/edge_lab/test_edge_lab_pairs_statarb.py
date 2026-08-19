@@ -9,7 +9,8 @@ sys.path.insert(0, str(REPO / "backtesting"))
 
 from conftest import DAY, T0, assert_shift_invariant  # noqa: E402
 from edge_lab.candidates.pairs_statarb import VARIANTS, generate_trades  # noqa: E402
-from edge_lab.trades import gross_pnl  # noqa: E402
+from edge_lab.gate1 import run_gate1  # noqa: E402
+from edge_lab.trades import gross_pnl, write_trades_csv  # noqa: E402
 
 V_SECTOR = next(v for v in VARIANTS if v.name == "pairs_sector_30d")
 V_VOLUME = next(v for v in VARIANTS if v.name == "pairs_volume_top10_60d")
@@ -177,6 +178,27 @@ def test_negative_control_independent_walks_have_no_pnl_edge():
         )
 
 
+def test_negative_control_independent_walks_die_at_gate1(tmp_path):
+    # The brief's literal criterion: "two independent random walks must
+    # produce few or no trades, or produce trades that Gate 1 kills."
+    # Pooled across seeds (same pool as the P&L assertion above) and run
+    # through the real cost-hurdle screen, not a re-derived proxy.
+    for variant in (V_SECTOR, V_ORTHO):
+        pooled_trades = []
+        for seed in range(1, 16):
+            data = make_independent_walks(seed=seed * 17 + 3)
+            pooled_trades.extend(generate_trades(data, variant))
+
+        if not pooled_trades:
+            continue  # no trades at all satisfies the brief's "or few/no trades" branch
+        csv_path = write_trades_csv(pooled_trades, tmp_path / f"{variant.name}.csv")
+        result = run_gate1(csv_path, tmp_path / "funding")
+        assert result.verdict == "KILL", (
+            f"{variant.name}: independent-walk trades cleared Gate 1 "
+            f"(ratio_taker={result.ratio_taker}) — noise should not pass the cost hurdle"
+        )
+
+
 def test_volume_top10_filter_needs_enough_symbols():
     # fewer than 3 eligible symbols after excluding the top-2 by volume
     # leaves no pairs to trade
@@ -185,13 +207,15 @@ def test_volume_top10_filter_needs_enough_symbols():
     assert trades == []
 
 
-def test_volume_top10_filter_trades_among_eligible_symbols():
+def _make_volume_universe():
+    """Cointegrated PAIRA/PAIRB embedded in a wider volume-ranked universe:
+    two very high-volume symbols to be excluded (BTC/ETH-analog), plus
+    filler so the cointegrated pair lands inside the "next 10 by volume"
+    eligible set for pairs_volume_top10_60d."""
     base = make_cointegrated_pair()
     rng = np.random.default_rng(99)
     ts = base["PAIRAUSDT"]["ts_ms"].tolist()
     extra = {}
-    # two very high-volume symbols to be excluded, plus filler so the
-    # cointegrated pair lands inside the "next 10 by volume" universe
     for name, vol in [("BIGAUSDT", 5_000.0), ("BIGBUSDT", 5_000.0)]:
         rets = rng.normal(0.0, 0.02, len(ts))
         close = 100.0 * np.cumprod(1 + rets)
@@ -208,12 +232,22 @@ def test_volume_top10_filter_trades_among_eligible_symbols():
     # (post BIGA/BIGB exclusion) alongside the fillers
     data["PAIRAUSDT"] = _df(ts, base["PAIRAUSDT"]["close"].tolist(), volume=900.0)
     data["PAIRBUSDT"] = _df(ts, base["PAIRBUSDT"]["close"].tolist(), volume=900.0)
+    return data
 
+
+def test_volume_top10_filter_trades_among_eligible_symbols():
+    data = _make_volume_universe()
     trades = generate_trades(data, V_VOLUME)
     assert trades, "no trades among the eligible top-10-by-volume universe"
     symbols_traded = {t.symbol for t in trades}
     assert "BIGAUSDT" not in symbols_traded
     assert "BIGBUSDT" not in symbols_traded
+
+
+def test_shift_invariance_volume():
+    data = _make_volume_universe()
+    cut = T0 + 200 * DAY
+    assert_shift_invariant(generate_trades, data, V_VOLUME, cut)
 
 
 def test_no_trade_closes_before_lookback_warmup():
