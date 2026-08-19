@@ -887,7 +887,9 @@ async def get_recent_trades(
 
 
 @app.get("/api/v1/market/orderbook", tags=["Market Data"])
-@limiter.limit("200/minute")
+# market-data polls 14 symbols at 5s = 168 req/min; 200 left ~2 ticks
+# headroom (final review H-4). Raised to 600/minute.
+@limiter.limit("600/minute")
 async def get_orderbook(
     request: Request,
     category: str = "linear",
@@ -898,7 +900,7 @@ async def get_orderbook(
     """
     Get orderbook depth
     Returns current market orderbook (bids/asks)
-    Rate limited to 200 requests/minute (increased for multi-symbol trading)
+    Rate limited to 600 requests/minute (increased for multi-symbol trading)
     """
     try:
         logger.debug(
