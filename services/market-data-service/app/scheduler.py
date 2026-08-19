@@ -67,6 +67,16 @@ def _get_orderbook_fetcher() -> BybitDataFetcher:
     return _orderbook_fetcher
 
 
+def _reset_orderbook_fetcher_for_tests() -> None:
+    """Test-only escape hatch for the module-level singleton above. Without
+    this, a test that patches BybitDataFetcher or app.scheduler.BybitDataFetcher
+    after an earlier test already populated `_orderbook_fetcher` gets a stale
+    instance instead of its own mock -- the singleton is process-global and
+    outlives any one test's patch context. Call from an autouse fixture."""
+    global _orderbook_fetcher
+    _orderbook_fetcher = None
+
+
 def _claim_scheduler_ownership() -> bool:
     """
     Return True if this process should own the collection scheduler.

@@ -8,6 +8,20 @@ import pytest
 from app.fetcher import BybitDataFetcher
 from app.repository import OrderbookRepository
 
+
+@pytest.fixture(autouse=True)
+def _reset_orderbook_fetcher_singleton():
+    """app.scheduler._orderbook_fetcher is a process-global lazy singleton
+    (final review H-2). Without resetting it, a test that patches
+    BybitDataFetcher after an earlier test already populated the singleton
+    gets a stale instance instead of its own mock."""
+    from app import scheduler as sched
+
+    sched._reset_orderbook_fetcher_for_tests()
+    yield
+    sched._reset_orderbook_fetcher_for_tests()
+
+
 CONNECTOR_PAYLOAD = {
     "success": True,
     "data": {
