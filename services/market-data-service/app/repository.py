@@ -6,11 +6,12 @@ Purpose: Database operations for market data
 from sqlalchemy import select, and_, desc, func
 from sqlalchemy.dialects.postgresql import insert
 from typing import List, Optional
+import json
 import logging
 import time
 
 from app.config import get_settings
-from app.models import Kline, Ticker
+from app.models import Kline, OrderBook, Ticker
 from app.database import get_db_session
 
 logger = logging.getLogger(__name__)
@@ -257,3 +258,38 @@ class TickerRepository:
             ticker = result.scalar_one_or_none()
 
             return ticker
+
+
+class OrderbookRepository:
+    """Insert-only persistence for orderbook_snapshots (OrderBook model)"""
+
+    @staticmethod
+    async def save_snapshot(snapshot: dict) -> bool:
+        """
+        Save an orderbook snapshot
+
+        Args:
+            snapshot: Dict with symbol, timestamp_ms, bids, asks
+
+        Returns:
+            True if successful, False on error
+        """
+        try:
+            async with get_db_session() as session:
+                row = OrderBook(
+                    timestamp=int(snapshot["timestamp_ms"]),
+                    symbol=snapshot["symbol"],
+                    snapshot_data=json.dumps(
+                        {"bids": snapshot["bids"], "asks": snapshot["asks"]},
+                        separators=(",", ":"),
+                    ),
+                    created_at=int(time.time() * 1000),
+                )
+                session.add(row)
+                # Commit is handled by get_db_session() context manager
+
+                logger.info(f"Saved orderbook snapshot for {snapshot['symbol']}")
+                return True
+        except Exception as e:
+            logger.error(f"Error saving orderbook snapshot: {e}")
+            return False
