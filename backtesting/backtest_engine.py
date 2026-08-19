@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 import logging
 
@@ -201,6 +201,7 @@ class BacktestEngine:
         self.current_position: Optional[Position] = None
         self._bar_count = 0
         self._pending_signal: Optional[Dict] = None  # invariant A: fill at next open
+        self._last_funding_time: Optional[datetime] = None
 
         logger.info(
             f"BacktestEngine initialized with ${initial_capital:,.2f} "
@@ -229,20 +230,34 @@ class BacktestEngine:
         return self.slippage
 
     def _apply_funding(self, current_price: float, current_time: datetime) -> None:
-        """Deduct funding cost on open long every 8h (8 hourly bars)."""
+        """Settle funding every 8 elapsed HOURS on any open position.
+
+        Gap-audit fixes (audit/FINDINGS-GAP.md #2/#3): the old version
+        charged longs only — shorts were simulated funding-free — and its
+        cadence counted 8 *bars*, which is 8h only on hourly data. With a
+        positive rate (funding_long_pays=True) longs pay and shorts RECEIVE;
+        funding_long_pays=False inverts both. Cadence is wall-clock time
+        since the last settlement, so 4h/daily data settles correctly.
+        """
         if not self.funding_enabled or not self.current_position:
             return
-        if self._bar_count == 0 or self._bar_count % 8 != 0:
+        if self._last_funding_time is None:
+            self._last_funding_time = current_time
             return
-        if self.current_position.order_type == OrderType.BUY and self.funding_long_pays:
-            position_value = self.current_position.position_size * current_price
-            funding_cost = position_value * self.funding_rate_per_8h
-            self.capital -= funding_cost
-            logger.debug(
-                f"funding deducted: ${funding_cost:.4f} on long "
-                f"(rate={self.funding_rate_per_8h * 100:.4f}%/8h, "
-                f"value=${position_value:.2f}) at {current_time}"
-            )
+        if current_time - self._last_funding_time < timedelta(hours=8):
+            return
+        self._last_funding_time = current_time
+        position_value = self.current_position.position_size * current_price
+        funding_amount = position_value * self.funding_rate_per_8h
+        is_long = self.current_position.order_type == OrderType.BUY
+        pays = is_long == self.funding_long_pays
+        self.capital += -funding_amount if pays else funding_amount
+        logger.debug(
+            f"funding {'paid' if pays else 'received'}: ${funding_amount:.4f} on "
+            f"{'long' if is_long else 'short'} "
+            f"(rate={self.funding_rate_per_8h * 100:.4f}%/8h, "
+            f"value=${position_value:.2f}) at {current_time}"
+        )
 
     def reset(self):
         """Reset backtest state"""
@@ -252,6 +267,7 @@ class BacktestEngine:
         self.current_position = None
         self._bar_count = 0
         self._pending_signal = None
+        self._last_funding_time = None
 
     def run_backtest(
         self, data: pd.DataFrame, strategy_func, strategy_name: str = "Unknown Strategy"

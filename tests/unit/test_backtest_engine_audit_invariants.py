@@ -125,3 +125,64 @@ def test_no_profit_on_random_walk():
     assert not (positive == 5 and float(np.mean(pnls)) > 0), (
         f"engine profits on random data: pnls={pnls}"
     )
+
+
+def _synthetic_df(hours, freq_hours=1, price=100.0):
+    ts = pd.date_range("2026-01-01", periods=hours, freq=f"{freq_hours}h")
+    return pd.DataFrame(
+        {
+            "timestamp": ts,
+            "open": price,
+            "high": price * 1.001,
+            "low": price * 0.999,
+            "close": price,
+            "volume": 1000.0,
+        }
+    )
+
+
+def _hold_strategy(side):
+    def strat(row, position, idx, data):
+        if idx == 0 and position is None:
+            # Stops far away so nothing exits during the test window.
+            return {"action": side, "stop_loss": 1.0 if side == "BUY" else 1e9,
+                    "take_profit": 1e9 if side == "BUY" else 1.0}
+        return None
+
+    return strat
+
+
+def test_funding_long_pays_short_receives():
+    df = _synthetic_df(30)
+    long_res = make_engine(
+        commission=0.0, slippage=0.0, fee_mode="fixed", slippage_mode="fixed"
+    ).run_backtest(df, _hold_strategy("BUY"), "funding-long")
+    short_res = make_engine(
+        commission=0.0, slippage=0.0, fee_mode="fixed", slippage_mode="fixed"
+    ).run_backtest(df, _hold_strategy("SELL"), "funding-short")
+    # Positive rate: long pays (ends below initial), short receives (above).
+    assert long_res.final_capital < long_res.initial_capital
+    assert short_res.final_capital > short_res.initial_capital
+
+
+def test_funding_cadence_is_time_based_not_bar_based():
+    # 30 four-hour bars = 120h. Time-based: ~14 settlements after the anchor.
+    # The old bar-based bug would have settled every 8 bars = every 32h (~3x).
+    df = _synthetic_df(30, freq_hours=4)
+    eng = make_engine(commission=0.0, slippage=0.0, fee_mode="fixed",
+                      slippage_mode="fixed")
+    events = []
+    orig = eng._apply_funding
+
+    def logged(price, time):
+        before = eng.capital
+        orig(price, time)
+        if eng.capital != before:
+            events.append(time)
+
+    eng._apply_funding = logged
+    eng.run_backtest(df, _hold_strategy("BUY"), "funding-cadence")
+    assert len(events) >= 12, f"expected ~14 8h settlements over 120h, got {len(events)}"
+    # Consecutive settlements are >= 8h apart.
+    gaps = [(b - a).total_seconds() / 3600 for a, b in zip(events, events[1:])]
+    assert all(g >= 8 for g in gaps)
