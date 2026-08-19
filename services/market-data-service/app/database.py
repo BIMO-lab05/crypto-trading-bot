@@ -4,7 +4,6 @@ Purpose: Manage database connections and sessions
 """
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool
 from contextlib import asynccontextmanager
 import logging
 
@@ -21,7 +20,7 @@ _async_session_maker = None
 def get_engine():
     """Get or create database engine"""
     global _engine
-    
+
     if _engine is None:
         settings = get_settings()
 
@@ -35,15 +34,17 @@ def get_engine():
             pool_recycle=3600,  # Recycle connections after 1 hour
         )
 
-        logger.info(f"Created database engine for TimescaleDB: {settings.timescale_host}:{settings.timescale_port}")
-    
+        logger.info(
+            f"Created database engine for TimescaleDB: {settings.timescale_host}:{settings.timescale_port}"
+        )
+
     return _engine
 
 
 def get_session_maker():
     """Get or create session maker"""
     global _async_session_maker
-    
+
     if _async_session_maker is None:
         engine = get_engine()
         _async_session_maker = async_sessionmaker(
@@ -51,10 +52,10 @@ def get_session_maker():
             class_=AsyncSession,
             expire_on_commit=False,
             autocommit=False,
-            autoflush=False
+            autoflush=False,
         )
         logger.info("Created async session maker")
-    
+
     return _async_session_maker
 
 
@@ -62,7 +63,7 @@ def get_session_maker():
 async def get_db_session():
     """
     Get database session context manager
-    
+
     Usage:
         async with get_db_session() as session:
             # Use session
@@ -70,7 +71,7 @@ async def get_db_session():
     """
     session_maker = get_session_maker()
     session = session_maker()
-    
+
     try:
         yield session
         await session.commit()
@@ -108,7 +109,7 @@ async def init_database(max_retries: int = 10, retry_delay: float = 2.0):
 
         except Exception as e:
             last_error = e
-            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+            wait_time = retry_delay * (2**attempt)  # Exponential backoff
             logger.warning(
                 f"Database connection attempt {attempt + 1}/{max_retries} failed: {e}. "
                 f"Retrying in {wait_time:.1f}s..."
@@ -275,10 +276,19 @@ END $$""",
         "drop_after => 180::bigint * 86400000, if_not_exists => TRUE)",
         "error",
     ),
+    # widened 7d -> 90d for edge-search v2 (spec 2026-08-19 §2 A1; Phase C
+    # gate needs >=21 consecutive days of snapshots). add_retention_policy
+    # alone won't change an already-created policy's window, so this drops
+    # the existing policy (if any) and re-adds it at the new window in one
+    # atomic DO block, same convention as entry 4's PK reshape.
     (
-        "Retention policy (public.orderbook_snapshots, 7d)",
-        "SELECT add_retention_policy('public.orderbook_snapshots', "
-        "drop_after => 7::bigint * 86400000, if_not_exists => TRUE)",
+        "Retention policy (public.orderbook_snapshots, 90d)",
+        """DO $$
+BEGIN
+    PERFORM remove_retention_policy('public.orderbook_snapshots', if_exists => TRUE);
+    PERFORM add_retention_policy('public.orderbook_snapshots',
+        drop_after => 90::bigint * 86400000, if_not_exists => TRUE);
+END $$""",
         "error",
     ),
     # 10. Idempotent column-add migrations. SQLAlchemy's create_all() only
@@ -295,8 +305,7 @@ END $$""",
     ),
     (
         "Column migration (idx_klines_mainnet)",
-        "CREATE INDEX IF NOT EXISTS idx_klines_mainnet "
-        "ON public.klines (is_mainnet)",
+        "CREATE INDEX IF NOT EXISTS idx_klines_mainnet ON public.klines (is_mainnet)",
         "warning",
     ),
 ]
@@ -344,10 +353,10 @@ async def create_hypertables():
 async def close_database():
     """Close database connections"""
     global _engine, _async_session_maker
-    
+
     if _engine:
         await _engine.dispose()
         logger.info("Database engine disposed")
-    
+
     _engine = None
     _async_session_maker = None

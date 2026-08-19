@@ -123,11 +123,14 @@ def test_retention_uses_bigint_drop_after() -> None:
 
 
 def test_retention_windows() -> None:
-    """tickers = 180 days, orderbook_snapshots = 7 days, expressed in epoch ms.
+    """tickers = 180 days, orderbook_snapshots = 90 days, expressed in epoch ms.
 
     T-RES02-02: tickers is 180d rather than the original 30d because a 30-day
     window would wipe 72% of tickers, including the clean post-2026-08-12
     mainnet record.
+
+    orderbook_snapshots widened 7d -> 90d for edge-search v2 (spec
+    2026-08-19 §2 A1; Phase C gate needs >=21 consecutive days of snapshots).
     """
     stmts = _statements()
 
@@ -143,8 +146,8 @@ def test_retention_windows() -> None:
     assert len(orderbook) == 1, (
         f"expected exactly one orderbook policy, got {orderbook!r}"
     )
-    assert "7::bigint * 86400000" in orderbook[0], (
-        f"orderbook retention window is not 7 days: {orderbook[0]!r}"
+    assert "90::bigint * 86400000" in orderbook[0], (
+        f"orderbook retention window is not 90 days: {orderbook[0]!r}"
     )
 
 
