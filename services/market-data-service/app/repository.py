@@ -11,7 +11,7 @@ import logging
 import time
 
 from app.config import get_settings
-from app.models import Kline, OrderBook, Ticker
+from app.models import Kline, OpenInterest, OrderBook, Ticker
 from app.database import get_db_session
 
 logger = logging.getLogger(__name__)
@@ -293,3 +293,55 @@ class OrderbookRepository:
         except Exception as e:
             logger.error(f"Error saving orderbook snapshot: {e}")
             return False
+
+
+class OpenInterestRepository:
+    """Repository for open_interest data operations (edge-search v2 A2)"""
+
+    @staticmethod
+    async def bulk_upsert(rows: List[dict]) -> int:
+        """
+        Bulk insert or update open-interest rows.
+        Uses PostgreSQL's ON CONFLICT DO UPDATE against the unique
+        (symbol, timestamp) index, same style as KlineRepository.bulk_upsert.
+
+        Args:
+            rows: List of {"symbol", "timestamp_ms", "open_interest"} dicts
+
+        Returns:
+            Number of records inserted/updated
+        """
+        if not rows:
+            return 0
+
+        async with get_db_session() as session:
+            created_at = int(time.time() * 1000)
+            records = [
+                {
+                    "timestamp": int(r["timestamp_ms"]),
+                    "symbol": r["symbol"],
+                    "open_interest": r["open_interest"],
+                    "created_at": created_at,
+                }
+                for r in rows
+            ]
+
+            batch_size = 500
+            total_upserted = 0
+
+            for i in range(0, len(records), batch_size):
+                batch = records[i : i + batch_size]
+
+                stmt = insert(OpenInterest).values(batch)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["symbol", "timestamp"],
+                    set_={"open_interest": stmt.excluded.open_interest},
+                )
+
+                await session.execute(stmt)
+                total_upserted += len(batch)
+
+            # Commit is handled by get_db_session() context manager
+
+            logger.info(f"Upserted total {total_upserted} open interest rows")
+            return total_upserted

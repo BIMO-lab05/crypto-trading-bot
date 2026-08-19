@@ -15,7 +15,12 @@ from typing import List
 import asyncio
 
 from app.fetcher import BybitDataFetcher, get_interval_minutes
-from app.repository import KlineRepository, OrderbookRepository, TickerRepository
+from app.repository import (
+    KlineRepository,
+    OpenInterestRepository,  # noqa: F401 - patched via app.scheduler.OpenInterestRepository in tests
+    OrderbookRepository,
+    TickerRepository,
+)
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -274,6 +279,25 @@ async def collect_orderbook_data():
         )
 
 
+async def collect_open_interest_data():
+    """Scheduled job: OI history page per pair. Runs every 5 minutes.
+    First run per symbol naturally backfills the endpoint's max window (spec A2).
+    """
+    fetcher = BybitDataFetcher()
+    repo = OpenInterestRepository()
+    try:
+        for symbol in _trading_pairs():
+            try:
+                rows = await fetcher.get_open_interest(symbol)
+                if rows:
+                    n = await repo.bulk_upsert(rows)
+                    logger.info(f"📈 OI {symbol}: upserted {n} rows")
+            except Exception as e:
+                logger.error(f"❌ Error collecting OI for {symbol}: {e}")
+    finally:
+        await fetcher.close()
+
+
 async def collect_all_data():
     """
     Scheduled job: Collect both ticker and kline data
@@ -353,6 +377,19 @@ def start_scheduler():
         coalesce=True,
     )
     logger.info("✅ Scheduled: Orderbook snapshots every 5 seconds")
+
+    # Job: open-interest history every 5 minutes, offset +3min (edge-search v2 A2)
+    _scheduler.add_job(
+        collect_open_interest_data,
+        trigger=IntervalTrigger(minutes=5, start_date="2024-01-01 00:03:00"),
+        id="open_interest_collection",
+        name="Open Interest Collection",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=_INTERVAL_JOB_GRACE_SECONDS,
+        coalesce=True,
+    )
+    logger.info("✅ Scheduled: Open interest collection every 5 minutes (offset +3min)")
 
     # Job 3: Hourly comprehensive collection (backup)
     _scheduler.add_job(

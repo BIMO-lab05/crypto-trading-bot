@@ -308,6 +308,49 @@ END $$""",
         "CREATE INDEX IF NOT EXISTS idx_klines_mainnet ON public.klines (is_mainnet)",
         "warning",
     ),
+    # 11. open_interest -> hypertable, via an ATOMIC PK reshape. Same
+    #     convention as entry 4 (orderbook_snapshots): the runtime PK name
+    #     resolution and the `hypertable_schema = 'public'` guard both apply
+    #     for the same reasons documented there (edge-search v2 A2).
+    (
+        "Hypertable (public.open_interest, atomic PK reshape)",
+        """DO $$
+DECLARE pk_name text;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.hypertables
+        WHERE hypertable_schema = 'public'
+          AND hypertable_name = 'open_interest'
+    ) THEN
+        SELECT conname INTO pk_name FROM pg_constraint
+        WHERE conrelid = 'public.open_interest'::regclass
+          AND contype = 'p';
+        IF pk_name IS NOT NULL THEN
+            EXECUTE format(
+                'ALTER TABLE public.open_interest DROP CONSTRAINT %I',
+                pk_name
+            );
+        END IF;
+        ALTER TABLE public.open_interest ADD PRIMARY KEY (id, "timestamp");
+        PERFORM create_hypertable('public.open_interest', 'timestamp',
+            chunk_time_interval => 86400000::bigint,
+            if_not_exists => TRUE, migrate_data => TRUE);
+    END IF;
+END $$""",
+        "error",
+    ),
+    (
+        "Integer-now registration (public.open_interest)",
+        "SELECT set_integer_now_func('public.open_interest', "
+        "'public.unix_now_ms', replace_if_exists => TRUE)",
+        "error",
+    ),
+    (
+        "Retention policy (open_interest, 730 days)",
+        "SELECT add_retention_policy('public.open_interest', "
+        "drop_after => (730::bigint * 24 * 3600 * 1000), if_not_exists => TRUE)",
+        "warning",
+    ),
 ]
 
 

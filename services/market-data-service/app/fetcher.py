@@ -306,6 +306,56 @@ class BybitDataFetcher:
             logger.error(f"Error fetching orderbook for {symbol}: {e}")
             return None
 
+    async def get_open_interest(
+        self, symbol: str, interval_time: str = "5min", limit: int = 200
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetch open-interest history via bybit-connector
+        /api/v1/market/open-interest, normalized for OpenInterestRepository.
+
+        Args:
+            symbol: Trading pair
+            interval_time: Bucket granularity ("5min", "15min", "30min", "1h", ...)
+            limit: Max rows per page (Bybit caps at 200)
+
+        Returns:
+            List of {"symbol", "timestamp_ms", "open_interest"} dicts, or None
+        """
+        params = {
+            "category": "linear",
+            "symbol": symbol,
+            "interval_time": interval_time,
+            "limit": limit,
+        }
+
+        try:
+            response = await self.client.get(
+                "/api/v1/market/open-interest", params=params
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            if data.get("success"):
+                result = data.get("data", {})
+                entries = result.get("list") or []
+                rows = [
+                    {
+                        "symbol": result.get("symbol", symbol),
+                        "timestamp_ms": int(entry["timestamp"]),
+                        "open_interest": float(entry["openInterest"]),
+                    }
+                    for entry in entries
+                ]
+                if rows:
+                    return rows
+
+            logger.warning(f"No open interest data for {symbol}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching open interest for {symbol}: {e}")
+            return None
+
     async def get_historical_klines(
         self,
         symbol: str,

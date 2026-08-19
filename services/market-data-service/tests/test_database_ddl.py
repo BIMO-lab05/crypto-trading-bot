@@ -277,9 +277,15 @@ def test_orderbook_conversion_is_a_single_atomic_statement() -> None:
     """
     stmts = _statements()
 
-    reshapers = [s for s in stmts if "ADD PRIMARY KEY" in s]
+    # Scoped to orderbook_snapshots: open_interest (edge-search v2 A2) got its
+    # own PK-reshaping DO block following the same atomic convention, so a
+    # blanket "ADD PRIMARY KEY" count would no longer be 1.
+    reshapers = [
+        s for s in stmts if "ADD PRIMARY KEY" in s and "orderbook_snapshots" in s
+    ]
     assert len(reshapers) == 1, (
-        f"expected exactly one PK-reshaping statement, got {len(reshapers)}"
+        f"expected exactly one orderbook_snapshots PK-reshaping statement, "
+        f"got {len(reshapers)}"
     )
     block = reshapers[0]
 

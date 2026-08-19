@@ -6,7 +6,12 @@ Purpose: Handle REST API calls to Bybit exchange
 import httpx
 import json
 from typing import Dict, Any, Callable, Optional, List
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 import logging
 
 from app.auth import BybitAuthenticator
@@ -15,7 +20,7 @@ from app.exceptions import (
     BybitAPIException,
     RateLimitException,
     get_exception_for_bybit_error,
-    ValidationException
+    ValidationException,
 )
 from app.circuit_breaker import CircuitBreaker, CircuitState
 
@@ -32,13 +37,13 @@ MAX_INSTRUMENTS_PAGES = 10
 class BybitRestClient:
     """
     Bybit REST API client with authentication, retry logic, and circuit breaker
-    
+
     Supports all major API endpoints:
     - Account: balance, positions
     - Trading: place order, cancel order, modify order
     - Market Data: tickers, klines, orderbook
     """
-    
+
     def __init__(
         self,
         api_key: str,
@@ -50,28 +55,26 @@ class BybitRestClient:
     ):
         """
         Initialize Bybit REST client
-        
+
         Args:
             api_key: Bybit API key
-            api_secret: Bybit API secret  
+            api_secret: Bybit API secret
             testnet: Use testnet (True) or mainnet (False)
             base_url: Custom base URL (overrides testnet setting)
             timeout: Request timeout in seconds
         """
         # Authentication
         self.authenticator = BybitAuthenticator(api_key, api_secret)
-        
+
         # API configuration
         self.testnet = testnet
         if base_url:
             self.base_url = base_url
         else:
             self.base_url = (
-                "https://api-testnet.bybit.com"
-                if testnet
-                else "https://api.bybit.com"
+                "https://api-testnet.bybit.com" if testnet else "https://api.bybit.com"
             )
-        
+
         # Fixed: HTTP client with separate connect and read timeouts (Critical Issue #5)
         # This prevents hung requests during network issues
         # Connect timeout: Time to establish connection
@@ -82,11 +85,11 @@ class BybitRestClient:
                 connect=5.0,  # 5 seconds to establish connection
                 read=timeout,  # 30 seconds to read response (for slow API responses)
                 write=10.0,  # 10 seconds to send request data
-                pool=10.0  # 10 seconds to get connection from pool
+                pool=10.0,  # 10 seconds to get connection from pool
             ),
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
         )
-        
+
         # Circuit breaker for resilience
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=5,
@@ -94,25 +97,31 @@ class BybitRestClient:
             expected_exception=Exception,
             on_state_change=on_breaker_state_change,
         )
-        
+
         logger.info(
             f"Initialized Bybit REST client (testnet={testnet}, base_url={self.base_url})"
         )
-    
+
     async def close(self):
         """Close HTTP client connection"""
         await self.client.aclose()
         logger.info("Closed Bybit REST client")
-    
+
     # ========================================================================
     # CORE REQUEST METHODS
     # ========================================================================
-    
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
         retry=retry_if_exception_type(
-            (RateLimitException, httpx.TimeoutException, httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError)
+            (
+                RateLimitException,
+                httpx.TimeoutException,
+                httpx.ConnectError,
+                httpx.ReadError,
+                httpx.RemoteProtocolError,
+            )
         ),
         reraise=True,
     )
@@ -122,7 +131,7 @@ class BybitRestClient:
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
         data: Optional[Dict[str, Any]] = None,
-        auth_required: bool = True
+        auth_required: bool = True,
     ) -> Dict[str, Any]:
         """
         Make authenticated HTTP request to Bybit API
@@ -150,7 +159,8 @@ class BybitRestClient:
         # ("error sign"), breaking order placement/cancel on live trading.
         body_str = (
             json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-            if data else None
+            if data
+            else None
         )
 
         # Build headers with authentication
@@ -165,30 +175,33 @@ class BybitRestClient:
                 endpoint=endpoint,
                 params=params,
                 body_str=body_str,
-                headers=headers
+                headers=headers,
             )
 
             return self._handle_response(response)
 
-        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
+        except (
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            httpx.ReadError,
+            httpx.RemoteProtocolError,
+        ):
             # Re-raise network errors so tenacity can retry. After tenacity's retries
             # are exhausted, reraise=True surfaces the original exception.
             raise
         except httpx.HTTPError as e:
             logger.error(f"HTTP error during request to {endpoint}: {e}")
             raise BybitAPIException(
-                message="HTTP request failed",
-                ret_code=-1,
-                ret_msg=str(e)
+                message="HTTP request failed", ret_code=-1, ret_msg=str(e)
             )
-    
+
     async def _make_request(
         self,
         method: str,
         endpoint: str,
         params: Optional[Dict[str, Any]],
         body_str: Optional[str],
-        headers: Dict[str, str]
+        headers: Dict[str, str],
     ) -> httpx.Response:
         """
         Actually make the HTTP request
@@ -216,11 +229,11 @@ class BybitRestClient:
             url=endpoint,
             params=ordered_params,
             content=body_str,
-            headers=headers
+            headers=headers,
         )
 
         return response
-    
+
     def _handle_response(self, response: httpx.Response) -> Dict[str, Any]:
         """
         Handle API response and errors
@@ -245,7 +258,7 @@ class BybitRestClient:
             raise BybitAPIException(
                 message=f"Invalid JSON response (HTTP {response.status_code})",
                 ret_code=-1,
-                ret_msg=str(e)
+                ret_msg=str(e),
             )
 
         # 429 → rate limit, regardless of body shape
@@ -256,11 +269,17 @@ class BybitRestClient:
         # Without this, an upstream 4xx/5xx without retCode would default ret_code=0
         # and silently look like success.
         if response.status_code >= 400:
-            ret_code = data.get("retCode", response.status_code) if isinstance(data, dict) else response.status_code
+            ret_code = (
+                data.get("retCode", response.status_code)
+                if isinstance(data, dict)
+                else response.status_code
+            )
             ret_msg = data.get("retMsg") if isinstance(data, dict) else None
             ret_msg = ret_msg or data.get("message") if isinstance(data, dict) else None
             ret_msg = ret_msg or f"HTTP {response.status_code}"
-            logger.error(f"HTTP error: status={response.status_code} code={ret_code} msg={ret_msg}")
+            logger.error(
+                f"HTTP error: status={response.status_code} code={ret_code} msg={ret_msg}"
+            )
             raise get_exception_for_bybit_error(ret_code, ret_msg)
 
         # 2xx but body wasn't a dict — treat as malformed
@@ -268,7 +287,7 @@ class BybitRestClient:
             raise BybitAPIException(
                 message="Unexpected response body shape",
                 ret_code=-1,
-                ret_msg=str(type(data).__name__)
+                ret_msg=str(type(data).__name__),
             )
 
         # Check return code
@@ -288,22 +307,24 @@ class BybitRestClient:
 
         # Raise mapped exception
         raise get_exception_for_bybit_error(ret_code, ret_msg)
-    
+
     # ========================================================================
     # ACCOUNT ENDPOINTS
     # ========================================================================
-    
-    async def get_wallet_balance(self, account_type: str = "UNIFIED", coin: Optional[str] = None) -> Dict[str, Any]:
+
+    async def get_wallet_balance(
+        self, account_type: str = "UNIFIED", coin: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Get wallet balance
-        
+
         Args:
             account_type: Account type (UNIFIED, CONTRACT, SPOT)
             coin: Specific coin to query (optional)
-        
+
         Returns:
             Balance information
-        
+
         Example response:
             {
                 "accountType": "UNIFIED",
@@ -316,34 +337,38 @@ class BybitRestClient:
         params = {"accountType": account_type}
         if coin:
             params["coin"] = coin
-        
-        logger.info(f"Getting wallet balance (account_type={account_type}, coin={coin})")
+
+        logger.info(
+            f"Getting wallet balance (account_type={account_type}, coin={coin})"
+        )
         result = await self._request("GET", "/v5/account/wallet-balance", params=params)
         return result
-    
-    async def get_positions(self, category: str = "linear", symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+
+    async def get_positions(
+        self, category: str = "linear", symbol: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         Get position information
-        
+
         Args:
             category: Product category (linear, inverse, option)
             symbol: Trading pair symbol (optional)
-        
+
         Returns:
             List of positions
         """
         params = {"category": category}
         if symbol:
             params["symbol"] = symbol
-        
+
         logger.info(f"Getting positions (category={category}, symbol={symbol})")
         result = await self._request("GET", "/v5/position/list", params=params)
         return result.get("list", [])
-    
+
     # ========================================================================
     # TRADING ENDPOINTS
     # ========================================================================
-    
+
     async def place_order(
         self,
         category: str,
@@ -364,7 +389,7 @@ class BybitRestClient:
     ) -> Dict[str, Any]:
         """
         Place a new order
-        
+
         Args:
             category: Product category (linear, inverse, spot, option)
             symbol: Trading pair (e.g., "BTCUSDT")
@@ -376,21 +401,21 @@ class BybitRestClient:
             reduce_only: Reduce position only
             close_on_trigger: Close on trigger
             order_link_id: Custom order ID
-        
+
         Returns:
             Order information with orderId
-        
+
         Raises:
             ValidationException: If parameters are invalid
         """
         # Validate required fields
         if not symbol or not side or not order_type or not qty:
             raise ValidationException("Missing required order parameters")
-        
+
         # Validate limit order has price
         if order_type.lower() == "limit" and not price:
             raise ValidationException("Price required for limit orders", field="price")
-        
+
         # Build order payload
         payload = {
             "category": category,
@@ -398,9 +423,9 @@ class BybitRestClient:
             "side": side,
             "orderType": order_type,
             "qty": qty,
-            "timeInForce": time_in_force
+            "timeInForce": time_in_force,
         }
-        
+
         # Add optional parameters
         if price:
             payload["price"] = price
@@ -424,130 +449,125 @@ class BybitRestClient:
         logger.info(f"Placing order: {symbol} {side} {qty} @ {price} ({order_type})")
         result = await self._request("POST", "/v5/order/create", data=payload)
         return result
-    
+
     async def cancel_order(
         self,
         category: str,
         symbol: str,
         order_id: Optional[str] = None,
-        order_link_id: Optional[str] = None
+        order_link_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Cancel an order
-        
+
         Args:
             category: Product category
             symbol: Trading pair
             order_id: Bybit order ID
             order_link_id: Custom order ID
-        
+
         Returns:
             Cancellation result
-        
+
         Raises:
             ValidationException: If neither order_id nor order_link_id provided
         """
         if not order_id and not order_link_id:
             raise ValidationException("Either order_id or order_link_id required")
-        
-        payload = {
-            "category": category,
-            "symbol": symbol
-        }
-        
+
+        payload = {"category": category, "symbol": symbol}
+
         if order_id:
             payload["orderId"] = order_id
         if order_link_id:
             payload["orderLinkId"] = order_link_id
-        
+
         logger.info(f"Cancelling order: {order_id or order_link_id}")
         result = await self._request("POST", "/v5/order/cancel", data=payload)
         return result
-    
+
     async def get_open_orders(
-        self,
-        category: str = "linear",
-        symbol: Optional[str] = None,
-        limit: int = 50
+        self, category: str = "linear", symbol: Optional[str] = None, limit: int = 50
     ) -> List[Dict[str, Any]]:
         """
         Get open orders
-        
+
         Args:
             category: Product category
             symbol: Trading pair (optional)
             limit: Number of orders to return (max 50)
-        
+
         Returns:
             List of open orders
         """
         params = {
             "category": category,
-            "limit": min(limit, 50)  # API max is 50
+            "limit": min(limit, 50),  # API max is 50
         }
-        
+
         if symbol:
             params["symbol"] = symbol
-        
+
         logger.info(f"Getting open orders (symbol={symbol}, limit={limit})")
         result = await self._request("GET", "/v5/order/realtime", params=params)
         return result.get("list", [])
-    
+
     async def get_order_history(
         self,
         category: str = "linear",
         symbol: Optional[str] = None,
         limit: int = 50,
-        cursor: Optional[str] = None
+        cursor: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get order history
-        
+
         Args:
             category: Product category
             symbol: Trading pair (optional)
             limit: Number of orders (max 50)
             cursor: Pagination cursor
-        
+
         Returns:
             Dict with "list" of orders and "nextPageCursor"
         """
-        params = {
-            "category": category,
-            "limit": min(limit, 50)
-        }
-        
+        params = {"category": category, "limit": min(limit, 50)}
+
         if symbol:
             params["symbol"] = symbol
         if cursor:
             params["cursor"] = cursor
-        
+
         logger.info(f"Getting order history (symbol={symbol}, limit={limit})")
         result = await self._request("GET", "/v5/order/history", params=params)
         return result
-    
+
     # ========================================================================
     # MARKET DATA ENDPOINTS (PUBLIC)
     # ========================================================================
-    
-    async def get_ticker(self, category: str = "linear", symbol: Optional[str] = None) -> Dict[str, Any]:
+
+    async def get_ticker(
+        self, category: str = "linear", symbol: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Get latest ticker data
-        
+
         Args:
             category: Product category
             symbol: Trading pair (optional, returns all if not provided)
-        
+
         Returns:
             Ticker data
         """
         params = {"category": category}
         if symbol:
             params["symbol"] = symbol
-        
-        result = await self._request("GET", "/v5/market/tickers", params=params, auth_required=False)
+
+        result = await self._request(
+            "GET", "/v5/market/tickers", params=params, auth_required=False
+        )
         return result
-    
+
     async def get_kline(
         self,
         category: str,
@@ -555,11 +575,11 @@ class BybitRestClient:
         interval: str,
         limit: int = 200,
         start_time: Optional[int] = None,
-        end_time: Optional[int] = None
+        end_time: Optional[int] = None,
     ) -> List[List[str]]:
         """
         Get kline/candlestick data
-        
+
         Args:
             category: Product category
             symbol: Trading pair
@@ -567,7 +587,7 @@ class BybitRestClient:
             limit: Number of klines (max 1000)
             start_time: Start timestamp (ms)
             end_time: End timestamp (ms)
-        
+
         Returns:
             List of kline data [timestamp, open, high, low, close, volume, turnover]
         """
@@ -575,17 +595,19 @@ class BybitRestClient:
             "category": category,
             "symbol": symbol,
             "interval": interval,
-            "limit": min(limit, 1000)
+            "limit": min(limit, 1000),
         }
-        
+
         if start_time:
             params["start"] = start_time
         if end_time:
             params["end"] = end_time
-        
-        result = await self._request("GET", "/v5/market/kline", params=params, auth_required=False)
+
+        result = await self._request(
+            "GET", "/v5/market/kline", params=params, auth_required=False
+        )
         return result.get("list", [])
-    
+
     async def get_recent_trades(
         self,
         category: str,
@@ -617,7 +639,9 @@ class BybitRestClient:
         )
         return result
 
-    async def get_orderbook(self, category: str, symbol: str, limit: int = 25) -> Dict[str, Any]:
+    async def get_orderbook(
+        self, category: str, symbol: str, limit: int = 25
+    ) -> Dict[str, Any]:
         """
         Get orderbook depth
 
@@ -629,14 +653,26 @@ class BybitRestClient:
         Returns:
             Orderbook with bids and asks
         """
+        params = {"category": category, "symbol": symbol, "limit": limit}
+
+        result = await self._request(
+            "GET", "/v5/market/orderbook", params=params, auth_required=False
+        )
+        return result
+
+    async def get_open_interest(
+        self, category: str, symbol: str, interval_time: str = "5min", limit: int = 200
+    ) -> Dict[str, Any]:
+        """Open interest history. Public endpoint /v5/market/open-interest."""
         params = {
             "category": category,
             "symbol": symbol,
-            "limit": limit
+            "intervalTime": interval_time,
+            "limit": limit,
         }
-
-        result = await self._request("GET", "/v5/market/orderbook", params=params, auth_required=False)
-        return result
+        return await self._request(
+            "GET", "/v5/market/open-interest", params=params, auth_required=False
+        )
 
     async def get_funding_rate_history(
         self,
@@ -752,11 +788,11 @@ class BybitRestClient:
     # ========================================================================
     # UTILITY METHODS
     # ========================================================================
-    
+
     def get_circuit_breaker_status(self) -> Dict[str, Any]:
         """Get circuit breaker current state"""
         return self.circuit_breaker.get_state()
-    
+
     def reset_circuit_breaker(self):
         """Manually reset circuit breaker"""
         self.circuit_breaker.reset()

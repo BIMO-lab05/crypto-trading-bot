@@ -914,6 +914,39 @@ async def get_orderbook(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@app.get("/api/v1/market/open-interest", tags=["Market Data"])
+@limiter.limit("200/minute")
+async def get_open_interest(
+    request: Request,
+    category: str = "linear",
+    symbol: str = "BTCUSDT",
+    interval_time: str = "5min",
+    limit: int = 200,
+    client: BybitRestClient = Depends(get_rest_client),
+):
+    """
+    Get open interest history
+    Rate limited to 200 requests/minute (increased for multi-symbol trading)
+    """
+    try:
+        logger.debug(
+            "Fetching open interest",
+            extra={
+                "category": category,
+                "symbol": symbol,
+                "interval_time": interval_time,
+                "limit": limit,
+            },
+        )
+        result = await client.get_open_interest(
+            category=category, symbol=symbol, interval_time=interval_time, limit=limit
+        )
+        return {"success": True, "data": result}
+    except BybitConnectorException as e:
+        logger.error(f"Failed to get open interest: {str(e)}", extra={"error": str(e)})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
 @app.get("/api/v1/market/funding-rate/history", tags=["Market Data"])
 @limiter.limit("200/minute")
 async def get_funding_rate_history(
