@@ -2,7 +2,12 @@
   {
     "candidate": "xs_momentum",
     "variant": "lookback_7d",
-    "params": [["lookback_days", "7"]],
+    "params": [
+      [
+        "lookback_days",
+        "7"
+      ]
+    ],
     "date": "2026-08-17",
     "gate1_verdict": "KILL",
     "gate2_passed": false
@@ -10,7 +15,12 @@
   {
     "candidate": "xs_momentum",
     "variant": "lookback_30d",
-    "params": [["lookback_days", "30"]],
+    "params": [
+      [
+        "lookback_days",
+        "30"
+      ]
+    ],
     "date": "2026-08-17",
     "gate1_verdict": "KILL",
     "gate2_passed": false
@@ -18,7 +28,12 @@
   {
     "candidate": "xs_momentum",
     "variant": "lookback_90d",
-    "params": [["lookback_days", "90"]],
+    "params": [
+      [
+        "lookback_days",
+        "90"
+      ]
+    ],
     "date": "2026-08-17",
     "gate1_verdict": "KILL",
     "gate2_passed": false
@@ -26,7 +41,12 @@
   {
     "candidate": "funding_carry",
     "variant": "thresh_1.5x",
-    "params": [["threshold_mult", "1.5"]],
+    "params": [
+      [
+        "threshold_mult",
+        "1.5"
+      ]
+    ],
     "date": "2026-08-17",
     "gate1_verdict": "KILL",
     "gate2_passed": false
@@ -34,7 +54,12 @@
   {
     "candidate": "funding_carry",
     "variant": "thresh_2x",
-    "params": [["threshold_mult", "2"]],
+    "params": [
+      [
+        "threshold_mult",
+        "2"
+      ]
+    ],
     "date": "2026-08-17",
     "gate1_verdict": "PASS",
     "gate2_passed": false
@@ -42,7 +67,16 @@
   {
     "candidate": "lf_trend",
     "variant": "dc_20_10",
-    "params": [["entry_n", "20"], ["exit_n", "10"]],
+    "params": [
+      [
+        "entry_n",
+        "20"
+      ],
+      [
+        "exit_n",
+        "10"
+      ]
+    ],
     "date": "2026-08-17",
     "gate1_verdict": "PASS",
     "gate2_passed": false
@@ -50,7 +84,16 @@
   {
     "candidate": "lf_trend",
     "variant": "dc_55_20",
-    "params": [["entry_n", "55"], ["exit_n", "20"]],
+    "params": [
+      [
+        "entry_n",
+        "55"
+      ],
+      [
+        "exit_n",
+        "20"
+      ]
+    ],
     "date": "2026-08-17",
     "gate1_verdict": "PASS",
     "gate2_passed": false
@@ -59,14 +102,38 @@
     "candidate": "vol_breakout",
     "variant": "sqz_default",
     "params": [
-      ["bb_n", "20"],
-      ["bb_mult", "2.0"],
-      ["kc_n", "20"],
-      ["kc_mult", "1.5"],
-      ["atr_n", "14"],
-      ["stop_atr_mult", "2.0"],
-      ["max_hold_bars", "30"],
-      ["min_squeeze_bars", "6"]
+      [
+        "bb_n",
+        "20"
+      ],
+      [
+        "bb_mult",
+        "2.0"
+      ],
+      [
+        "kc_n",
+        "20"
+      ],
+      [
+        "kc_mult",
+        "1.5"
+      ],
+      [
+        "atr_n",
+        "14"
+      ],
+      [
+        "stop_atr_mult",
+        "2.0"
+      ],
+      [
+        "max_hold_bars",
+        "30"
+      ],
+      [
+        "min_squeeze_bars",
+        "6"
+      ]
     ],
     "date": "2026-08-17",
     "gate1_verdict": "KILL",
@@ -76,10 +143,22 @@
     "candidate": "H3",
     "variant": "atr_bracket_48h",
     "params": [
-      ["atr_period", "14"],
-      ["max_hold_hours", "48"],
-      ["stop_mults", "[1.5, 2.5]"],
-      ["tp_r_multiple", "2.0"]
+      [
+        "atr_period",
+        "14"
+      ],
+      [
+        "max_hold_hours",
+        "48"
+      ],
+      [
+        "stop_mults",
+        "[1.5, 2.5]"
+      ],
+      [
+        "tp_r_multiple",
+        "2.0"
+      ]
     ],
     "date": "2026-08-05",
     "gate1_verdict": "ACCEPT",
@@ -89,10 +168,22 @@
     "candidate": "H3-secondary",
     "variant": "per_trade_1.5x",
     "params": [
-      ["atr_period", "14"],
-      ["max_hold_hours", "48"],
-      ["stop_mult", "1.5"],
-      ["tp_r_multiple", "2.0"]
+      [
+        "atr_period",
+        "14"
+      ],
+      [
+        "max_hold_hours",
+        "48"
+      ],
+      [
+        "stop_mult",
+        "1.5"
+      ],
+      [
+        "tp_r_multiple",
+        "2.0"
+      ]
     ],
     "date": "2026-08-06",
     "gate1_verdict": "ACCEPT",
@@ -102,10 +193,22 @@
     "candidate": "H3-secondary",
     "variant": "per_trade_2.5x",
     "params": [
-      ["atr_period", "14"],
-      ["max_hold_hours", "48"],
-      ["stop_mult", "2.5"],
-      ["tp_r_multiple", "2.0"]
+      [
+        "atr_period",
+        "14"
+      ],
+      [
+        "max_hold_hours",
+        "48"
+      ],
+      [
+        "stop_mult",
+        "2.5"
+      ],
+      [
+        "tp_r_multiple",
+        "2.0"
+      ]
     ],
     "date": "2026-08-06",
     "gate1_verdict": "ACCEPT",
@@ -115,8 +218,14 @@
     "candidate": "H4",
     "variant": "gru_directional_dsr",
     "params": [
-      ["horizon_bars", "24"],
-      ["num_trials_floor", "8"]
+      [
+        "horizon_bars",
+        "24"
+      ],
+      [
+        "num_trials_floor",
+        "8"
+      ]
     ],
     "date": "2026-08-06",
     "gate1_verdict": "REJECT",
@@ -126,11 +235,85 @@
     "candidate": "H4",
     "variant": "gru_directional_dsr",
     "params": [
-      ["horizon_bars", "24"],
-      ["num_trials_floor", "8"]
+      [
+        "horizon_bars",
+        "24"
+      ],
+      [
+        "num_trials_floor",
+        "8"
+      ]
     ],
     "date": "2026-08-09",
     "gate1_verdict": "REJECT",
     "gate2_passed": false
+  },
+  {
+    "candidate": "xs_momentum",
+    "variant": "lookback_7d"
+  },
+  {
+    "candidate": "xs_momentum",
+    "variant": "lookback_30d"
+  },
+  {
+    "candidate": "xs_momentum",
+    "variant": "lookback_90d"
+  },
+  {
+    "candidate": "funding_carry",
+    "variant": "thresh_1.5x"
+  },
+  {
+    "candidate": "funding_carry",
+    "variant": "thresh_2x"
+  },
+  {
+    "candidate": "funding_carry",
+    "variant": "fp_75pct_8h_major"
+  },
+  {
+    "candidate": "funding_carry",
+    "variant": "fp_90pct_24h_major"
+  },
+  {
+    "candidate": "funding_carry",
+    "variant": "fp_75pct_8h_all"
+  },
+  {
+    "candidate": "lf_trend",
+    "variant": "dc_20_10"
+  },
+  {
+    "candidate": "lf_trend",
+    "variant": "dc_55_20"
+  },
+  {
+    "candidate": "lf_trend",
+    "variant": "trend_atr_high_20d"
+  },
+  {
+    "candidate": "lf_trend",
+    "variant": "trend_vol_spike_20d"
+  },
+  {
+    "candidate": "lf_trend",
+    "variant": "trend_vix_analog_10d"
+  },
+  {
+    "candidate": "vol_breakout",
+    "variant": "sqz_default"
+  },
+  {
+    "candidate": "pairs_statarb",
+    "variant": "pairs_sector_30d"
+  },
+  {
+    "candidate": "pairs_statarb",
+    "variant": "pairs_volume_top10_60d"
+  },
+  {
+    "candidate": "pairs_statarb",
+    "variant": "pairs_orthogonal_30d"
   }
 ]

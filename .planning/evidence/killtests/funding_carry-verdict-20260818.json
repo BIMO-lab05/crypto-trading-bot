@@ -1,0 +1,144 @@
+{
+  "candidate": "funding_carry",
+  "date": "20260818",
+  "verdict": "REJECT",
+  "universe_pin_date": "2026-08-17",
+  "universe_n_symbols": 30,
+  "thresholds": {
+    "hurdle_multiple": "2",
+    "dsr": 0.95,
+    "min_positive_path_frac": 0.7,
+    "num_trials_floor": 21,
+    "total_cpcv_paths": 45
+  },
+  "variants": [
+    {
+      "variant": "thresh_1.5x",
+      "params": {
+        "threshold_mult": "1.5"
+      },
+      "n_trades": 201,
+      "trades_csv": ".planning/evidence/killtests/trades/20260818/funding_carry_thresh_1.5x.csv",
+      "gate2_passed": false,
+      "gate1_verdict": "KILL",
+      "gross_edge_bps": "59.39732450728638937440977629",
+      "cost_bps_taker": "30.05097095523047281925865783",
+      "cost_bps_maker": "4.00000",
+      "ratio_taker": "1.976552591121788188701170457",
+      "ratio_maker": "14.84933112682159734360244407",
+      "net_taker": "203.88519407257544335",
+      "funding_total": "-145.01515587019244335",
+      "funding_missing": [],
+      "notional_provenance": "notional_in / notional_out, as supplied"
+    },
+    {
+      "variant": "thresh_2x",
+      "params": {
+        "threshold_mult": "2"
+      },
+      "n_trades": 120,
+      "trades_csv": ".planning/evidence/killtests/trades/20260818/funding_carry_thresh_2x.csv",
+      "gate2_passed": false,
+      "gate1_verdict": "PASS",
+      "gross_edge_bps": "79.39880972203210235878255345",
+      "cost_bps_taker": "30.49998698567028909131140131",
+      "cost_bps_maker": "4.00000",
+      "ratio_taker": "2.603240773818552449655575705",
+      "ratio_maker": "19.84970243050802558969563836",
+      "net_taker": "171.62854068609610465",
+      "funding_total": "-113.17085352840910465",
+      "funding_missing": [],
+      "notional_provenance": "notional_in / notional_out, as supplied",
+      "gate2_trades_dropped_no_daily": {},
+      "gate2_n_trades_scored": 120,
+      "dsr": 5.791522261766602e-10,
+      "pooled_pf": 1.153565273934893,
+      "positive_path_frac": 0.4444444444444444,
+      "n_paths_valid": 45,
+      "n_samples": 693,
+      "sharpe_mean": -0.017669192970470878,
+      "sharpe_std": 0.09834265262774303,
+      "gate2_reasons": [
+        "dsr 0.0000 below threshold 0.95",
+        "positive_path_frac 0.4444 below 0.7"
+      ],
+      "num_trials_used": 45,
+      "label_horizon_days": 10,
+      "window_start_ms": 1727049600000,
+      "window_end_ms": 1786838400000,
+      "window_start_iso": "2024-09-23 00:00 UTC",
+      "window_end_iso": "2026-08-16 00:00 UTC"
+    },
+    {
+      "variant": "fp_75pct_8h_major",
+      "params": {
+        "entry_percentile": "75",
+        "holding_period_hours": "8",
+        "symbol_filter": "BTCUSDT,ETHUSDT,SOLUSDT"
+      },
+      "n_trades": 187,
+      "trades_csv": ".planning/evidence/killtests/trades/20260818/funding_carry_fp_75pct_8h_major.csv",
+      "gate2_passed": false,
+      "gate1_verdict": "KILL",
+      "gross_edge_bps": "-20.21628692418956631513772014",
+      "cost_bps_taker": "21.00000",
+      "cost_bps_maker": "4.00000",
+      "ratio_taker": "-0.9626803297233126816732247686",
+      "ratio_maker": "-5.054071731047391578784430035",
+      "net_taker": "-65.64115798603623810",
+      "funding_total": "-11.38053739076976190",
+      "funding_missing": [],
+      "notional_provenance": "notional_in / notional_out, as supplied"
+    },
+    {
+      "variant": "fp_90pct_24h_major",
+      "params": {
+        "entry_percentile": "90",
+        "holding_period_hours": "24",
+        "symbol_filter": "BTCUSDT,ETHUSDT,SOLUSDT"
+      },
+      "n_trades": 110,
+      "trades_csv": ".planning/evidence/killtests/trades/20260818/funding_carry_fp_90pct_24h_major.csv",
+      "gate2_passed": false,
+      "gate1_verdict": "KILL",
+      "gross_edge_bps": "-46.97607472847240713188456752",
+      "cost_bps_taker": "21.00000",
+      "cost_bps_maker": "4.00000",
+      "ratio_taker": "-2.236955939451067006280217501",
+      "ratio_maker": "-11.74401868211810178297114188",
+      "net_taker": "-66.00462618131692535",
+      "funding_total": "-8.74735338553157465",
+      "funding_missing": [],
+      "notional_provenance": "notional_in / notional_out, as supplied"
+    },
+    {
+      "variant": "fp_75pct_8h_all",
+      "params": {
+        "entry_percentile": "75",
+        "holding_period_hours": "8",
+        "symbol_filter": "ALL"
+      },
+      "n_trades": 2564,
+      "trades_csv": ".planning/evidence/killtests/trades/20260818/funding_carry_fp_75pct_8h_all.csv",
+      "gate2_passed": false,
+      "gate1_verdict": "KILL",
+      "gross_edge_bps": "-21.35912297472881751281521358",
+      "cost_bps_taker": "30.27175588143355134781515947",
+      "cost_bps_maker": "4.00000",
+      "ratio_taker": "-0.7055792554084686751984334073",
+      "ratio_maker": "-5.339780743682204378203803395",
+      "net_taker": "-1015.75365046658341665",
+      "funding_total": "-309.12695013770508335",
+      "funding_missing": [],
+      "notional_provenance": "notional_in / notional_out, as supplied"
+    }
+  ],
+  "caveats": [
+    "Survivorship: the universe is today's top-30 by turnover with a \u22652y listing filter; assets that died before the pin date are absent. This biases results optimistic by an unmeasured amount.",
+    "num_trials floor = 21: 8 battery variants + 8 historical strategy families. DSR is deflated against that floor, not against the CPCV path count, which would understate the search space actually spent on this repo.",
+    "(xs_momentum) Eligibility requires a bar at the exit Monday, so a symbol that stops trading mid-week is never entered that week. This is survivorship-lite and is pinned by design \u2014 it is not strictly causal on eligibility.",
+    "(all candidates) Variant warm-up asymmetry: variants of one candidate are NOT scored over a common window. Each variant's Gate 2 return series starts at its own first trade and runs to the end of the data, so a long-lookback variant \u2014 which cannot trade until its lookback fills \u2014 is measured on a shorter, later series covering a different slice of market regime than a short-lookback one. This cuts BOTH ways and the optimistic direction is the one to watch: every day before a variant's first trade is excluded outright, so a rarely-firing variant is scored only on its post-first-trade stretch and is FLATTERED relative to a common-window measure \u2014 on Sharpe, by roughly sqrt(n_common / n_measured). Against that, fewer samples widen the DSR standard-error term, so long lookbacks face a marginally higher bar. Compare variants' verdicts, not their Sharpes. Within a window, flat days after the first trade are kept at 0.0, so idle capital is charged rather than skipped.",
+    "(funding_carry) Per-symbol funding coverage ends at its own date, which need not match the candle end-date. The freshness rule then makes the trade set depend on each feed's end offset. Separately, the entry threshold assumes 9 settlements (a 3-day minimum hold at 8h cadence) while realized holds vary \u2014 where a hold is shorter than 3 days the threshold was conservative, i.e. it demanded more edge than the trade collected.",
+    "(Gate 2) DSR is computed on the full return series using a variance derived from the out-of-sample CPCV path Sharpes. It is therefore not a pure out-of-sample statistic. CPCV paths also share training data, so the path Sharpes are correlated trials \u2014 mildly anticonservative, the same direction as the H4 verdict's documented caveat."
+  ]
+}
