@@ -153,10 +153,53 @@ RESULT: gap_breaches=0
 EXIT=0
 ```
 
-## Pending: 48-hour acceptance check
+## Clock reset — final-review fix-wave redeploy (2026-08-19)
 
-The smoke run above only covers a ~7-minute window. The real acceptance gate is
-the 48-hour continuous run. Re-run on or after **2026-08-21 16:22 UTC**:
+The original 48h clock (target 2026-08-21 16:22 UTC) is voided: it was set
+against a deployment carrying the B-1 log-flood blocker and the H-2/H-3/H-4
+defects listed in `final-review.md`. All of B-1, H-2, H-3, H-4, M-5, M-7, M-8,
+L-9 were fixed and the service redeployed
+(`docker compose -f docker-compose.unified.yml up -d --build bybit-connector
+market-data`, both containers Recreated, started 2026-08-19 17:25:26 UTC).
+
+Post-redeploy smoke proofs (2026-08-19 17:29 UTC, ~4min post-deploy,
+cadence assertion windowed to the last 3 minutes so it only reflects
+post-fix rows):
+
+```
+$ python3 scripts/check_collection_gaps.py --window-minutes 3
+== orderbook_snapshots (size 17 MB, max gap allowed 60000ms)
+  (all 14 symbols OK)
+== open_interest (size 968 kB, max gap allowed 900000ms)
+  (all 14 symbols OK, max_gap_ms=300000, natural 5min cadence)
+== orderbook_snapshots achieved cadence (last 3min, max avg gap allowed 7500ms)
+  ADAUSDT: avg_gap_ms=5000 OK
+  APTUSDT: avg_gap_ms=4994 OK
+  (... all 14 symbols OK, range 4994-5006ms — dead on the 5s target, vs. the
+  pre-fix 6140ms/18%-loss measured in final-review.md H-2)
+RESULT: gap_breaches=0
+```
+
+Log volume (B-1 proof): `docker compose -f docker-compose.unified.yml logs
+--since 60s market-data | wc -c` → **47941 bytes/60s** (vs. the pre-fix
+3,073,362 bytes/60s measured in final-review.md B-1 — a ~64x reduction, and
+well under the review's <100KB/min bar).
+
+Schema (H-3 proof): `snapshot_data` is `jsonb` (verified via `\d
+public.orderbook_snapshots`); `best_bid`/`best_ask` populated on new rows
+(e.g. DOTUSDT best_bid=0.77310000 best_ask=0.77320000, sub-cent precision
+intact — no `round(_, 2)` damage); `snapshot_data->'bids'->0` returns a real
+JSON array, confirming no double-encoding.
+`open_interest_value` column exists but reads NULL on all rows — confirmed
+correct, not a defect: `curl`'d the connector's raw open-interest response
+directly and Bybit's `/v5/market/open-interest` payload for this account/
+category genuinely has no `openInterestValue` field (only `openInterest`,
+`singleOpenInterest`, `timestamp`), matching the fetcher's documented
+"None when the venue omits it" contract.
+
+## Pending: 48-hour acceptance check (reset)
+
+**New target: re-run on or after 2026-08-21 17:30 UTC** (redeploy time +48h).
 
 ```
 python3 scripts/check_collection_gaps.py
@@ -167,6 +210,8 @@ line means the collectors dropped data (container restart, Bybit rate limit,
 DB outage) sometime in the 48h window — investigate `docker compose -f
 docker-compose.unified.yml logs market-data` around the breaching symbol's max
 gap timestamp before accepting Phase A as durable.
+
+<!-- 48h re-run output (post-fix-wave) goes here -->
 
 <!-- 48h re-run output goes here -->
 
