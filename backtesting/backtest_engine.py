@@ -199,7 +199,8 @@ class BacktestEngine:
         self.equity_curve = [initial_capital]
         self.trades: List[Trade] = []
         self.current_position: Optional[Position] = None
-        self._bar_count = 0  # for 8h funding cadence
+        self._bar_count = 0
+        self._pending_signal: Optional[Dict] = None  # invariant A: fill at next open
 
         logger.info(
             f"BacktestEngine initialized with ${initial_capital:,.2f} "
@@ -249,6 +250,8 @@ class BacktestEngine:
         self.equity_curve = [self.initial_capital]
         self.trades = []
         self.current_position = None
+        self._bar_count = 0
+        self._pending_signal = None
 
     def run_backtest(
         self, data: pd.DataFrame, strategy_func, strategy_name: str = "Unknown Strategy"
@@ -288,6 +291,17 @@ class BacktestEngine:
             else:
                 current_time = datetime.now()  # Fallback
 
+            # Invariant A (gap audit 2026-08-19): a signal derived from bar
+            # t's close fills no earlier than bar t+1's open. Execute the
+            # previous bar's signal here, at this bar's open, before anything
+            # else happens on this bar.
+            if self._pending_signal is not None:
+                fill_price = float(row["open"]) if "open" in row else current_price
+                self._execute_signal(
+                    self._pending_signal, fill_price, current_time, row
+                )
+                self._pending_signal = None
+
             # Apply funding before exit checks so a long that flipped past
             # an 8h boundary pays funding before stop-loss / take-profit
             # decides whether to close on this bar.
@@ -303,9 +317,10 @@ class BacktestEngine:
             signal = strategy_func(row, self.current_position, row_position, data)
             row_position += 1  # Increment position counter
 
-            # Execute signal
+            # Defer execution to the next bar's open (invariant A). A signal
+            # on the final bar is dropped — it could never have been filled.
             if signal:
-                self._execute_signal(signal, current_price, current_time, row)
+                self._pending_signal = signal
 
             # Update equity curve
             current_equity = self._calculate_equity(current_price)
