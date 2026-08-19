@@ -18,11 +18,11 @@ Net: no hidden defect rescues any strategy. Fixing same-bar fill lag and gap-thr
 
 <!-- results:start -->
 - `gap_leakage_grep.py` → leakage_hits=11 resample_calls=1
-- `gap_invariants.py` → invariant_a=FAIL invariant_b=worst_case ambiguous_trades=0 total_trades=9
+- `gap_invariants.py` → invariant_a=PASS invariant_b=worst_case ambiguous_trades=0 total_trades=9
 - `gap_determinism.py` → determinism=PASS
-- `gap_reconcile.py` → reconcile=PASS residual=-0.000000 funding_short=not_charged
-- `gap_randomwalk.py` → randomwalk=PASS mean_pnl=0.3089 positive_seeds=12/20
-- `gap_signcheck.py` → signcheck=no_edge_either_way base_pnl=-0.9952 inverted_pnl=-0.1016 est_costs=0.0977
+- `gap_reconcile.py` → reconcile=PASS residual=0.000000 funding_short=charged
+- `gap_randomwalk.py` → randomwalk=PASS mean_pnl=0.3090 positive_seeds=12/20
+- `gap_signcheck.py` → signcheck=no_edge_either_way base_pnl=-0.9959 inverted_pnl=-0.1016 est_costs=0.0977
 - `gap_risk_realized.py` → risk=PASS loss_p95_pct=0.311 configured_cap_pct=10.0 stops_inside_1atr_pct=0.0
 <!-- results:end -->
 
@@ -93,3 +93,21 @@ All 8 read as benign on inspection (bounded-window or non-time-series indexing),
 ## Promotion list (pending approval)
 
 Candidates for tests/: gap_randomwalk, gap_determinism, gap_reconcile.
+
+## Addendum 2026-08-19 — approved repairs applied
+
+User approved fixes and test promotion. Applied on branch `fix/ws1a-technical-analysis-correctness`:
+
+| Defect | Fix commit | Verification |
+|---|---|---|
+| #1 Invariant A (same-bar close fill) | `b00e368` — signal at bar *t* queues, fills at bar *t+1* open; final-bar signals dropped | `gap_invariants.py` → `invariant_a=PASS` |
+| #2 Shorts funding-free | `6c488bd` — funding settles both sides; positive rate: longs pay, shorts receive | `gap_reconcile.py` → `funding_short=charged`; `test_funding_long_pays_short_receives` |
+| #3 Cadence 8 bars vs 8 hours | `6c488bd` — wall-clock 8h since last settlement | `test_funding_cadence_is_time_based_not_bar_based` (4h bars) |
+| #4 Gap-through stop fills | `714a409` — stop exit fills at bar open when bar opened beyond the level; TP keeps limit semantics | `test_gap_through_stop_fills_at_open` |
+| #5 Notional-vs-risk sizing | NOT changed — rename-vs-rebase decision deliberately left open (Open Question #4) | — |
+
+Promoted regression tests (`2a01583`): `tests/unit/test_backtest_engine_audit_invariants.py` — determinism (full trade-list + equity-curve compare, per limitation R5), reconciliation identity, random-walk tripwire (Itô-corrected GBM, 5 seeds/800 bars).
+
+Post-fix full re-run (`audit/run_all.py`, results block above regenerated): all 7 checks clean — `invariant_a=PASS`, `reconcile=PASS residual=0.000000 funding_short=charged`, `determinism=PASS`, `randomwalk=PASS mean_pnl=0.3090 positive_seeds=12/20`, `signcheck=no_edge_either_way` (base −0.9959 with next-open fills), `risk=PASS`.
+
+Historical note: the static citations printed by `gap_invariants.py` (":282 price=row close" etc.) describe the pre-fix engine and are retained as provenance; the dynamic probe is the live verdict. Flat funding rate still ignores the historical CSVs in `backtesting/data/funding/` — wiring those in remains future work (Open Question #3 sign convention now encoded: positive ⇒ longs pay, shorts receive).
