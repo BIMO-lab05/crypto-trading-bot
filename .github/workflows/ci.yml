@@ -28,18 +28,18 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0  # Full history for better analysis
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/pip
@@ -88,7 +88,7 @@ jobs:
           pylint services/ shared/ --output-format=colorized --score=yes || true
 
       - name: Upload linting reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: linting-reports
@@ -147,16 +147,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: Cache service dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ matrix.service }}-${{ hashFiles(format('services/{0}/requirements*.txt', matrix.service)) }}
@@ -209,7 +209,7 @@ jobs:
             || echo "::warning title=Coverage below 80%::Service ${{ matrix.service }} is below the 80% coverage target."
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: services/${{ matrix.service }}/coverage.xml
           flags: ${{ matrix.service }}
@@ -218,7 +218,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results-${{ matrix.service }}
@@ -259,13 +259,13 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Cache Docker layers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{ matrix.service }}-${{ github.sha }}
@@ -274,7 +274,7 @@ jobs:
             ${{ runner.os }}-buildx-
 
       - name: Build Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: services/${{ matrix.service }}
           file: services/${{ matrix.service }}/Dockerfile
@@ -301,7 +301,7 @@ jobs:
           exit-code: '0'  # Don't fail on vulnerabilities (just warn)
 
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
@@ -320,7 +320,7 @@ jobs:
           docker save crypto-bot/${{ matrix.service }}:${{ github.sha }} | gzip > ${{ matrix.service }}-image.tar.gz
 
       - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-image-${{ matrix.service }}
           path: ${{ matrix.service }}-image.tar.gz
@@ -341,14 +341,14 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Compose
         run: |
           docker compose version
 
       - name: Download all Docker images
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: ./docker-images
 
@@ -377,7 +377,7 @@ jobs:
           docker compose -f infrastructure/docker-compose.test.yml logs > integration-test-logs.txt
 
       - name: Upload integration test logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: integration-test-logs
