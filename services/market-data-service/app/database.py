@@ -353,6 +353,69 @@ END $$""",
         "drop_after => (730::bigint * 24 * 3600 * 1000), if_not_exists => TRUE)",
         "warning",
     ),
+    # 12-14. Schema drift fixes (final review H-3). Fixed now, deliberately,
+    # while the table is small (~4.5k rows at review time) — the review noted
+    # the migration cost of deferring this grows linearly with every hour of
+    # collection, reaching ~4M rows by the 21-day Phase C gate.
+    #
+    # 12. snapshot_data varchar -> JSONB, atomic and idempotent. Guarded by an
+    #     information_schema check so re-running after the cast is a no-op;
+    #     the whole cast is one DO block so a bad row never leaves the column
+    #     half-converted.
+    (
+        "Column type migration (public.orderbook_snapshots.snapshot_data -> JSONB)",
+        """DO $$
+BEGIN
+    IF (
+        SELECT atttypid::regtype::text FROM pg_attribute
+        WHERE attrelid = 'public.orderbook_snapshots'::regclass
+          AND attname = 'snapshot_data'
+    ) IS DISTINCT FROM 'jsonb' THEN
+        ALTER TABLE public.orderbook_snapshots
+            ALTER COLUMN snapshot_data TYPE JSONB USING snapshot_data::jsonb;
+    END IF;
+END $$""",
+        "error",
+    ),
+    # 13. best_bid / best_ask top-of-book columns. Population happens in
+    #     OrderbookRepository, not here; this only converges the column set.
+    (
+        "Column migration (public.orderbook_snapshots.best_bid/best_ask)",
+        "ALTER TABLE public.orderbook_snapshots "
+        "ADD COLUMN IF NOT EXISTS best_bid NUMERIC(38, 8), "
+        "ADD COLUMN IF NOT EXISTS best_ask NUMERIC(38, 8)",
+        "warning",
+    ),
+    # 14. open_interest_value column. NULL for rows where Bybit's payload
+    #     omits it (see fetcher normalization).
+    (
+        "Column migration (public.open_interest.open_interest_value)",
+        "ALTER TABLE public.open_interest "
+        "ADD COLUMN IF NOT EXISTS open_interest_value NUMERIC(38, 8)",
+        "warning",
+    ),
+    # 15. Compression (final review M-5, non-blocking recommendation acted
+    #     on). At 14 symbols x ~5s cadence the table projects to ~23-29GB at
+    #     90-day retention of highly repetitive JSON; compression is the
+    #     other lever spec §9.3 names besides retention. segmentby symbol
+    #     keeps per-symbol scans efficient after compression; orderby
+    #     timestamp DESC matches the access pattern (most-recent-first).
+    #     "warning" level: an already-compressed table re-running this is a
+    #     legitimate no-op, not a convergence failure.
+    (
+        "Compression (public.orderbook_snapshots)",
+        "ALTER TABLE public.orderbook_snapshots SET ("
+        "timescaledb.compress, "
+        "timescaledb.compress_segmentby = 'symbol', "
+        "timescaledb.compress_orderby = 'timestamp DESC')",
+        "warning",
+    ),
+    (
+        "Compression policy (public.orderbook_snapshots, compress after 7d)",
+        "SELECT add_compression_policy('public.orderbook_snapshots', "
+        "compress_after => 604800000, if_not_exists => TRUE)",
+        "warning",
+    ),
 ]
 
 

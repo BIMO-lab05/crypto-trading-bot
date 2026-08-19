@@ -319,7 +319,8 @@ class BybitDataFetcher:
             limit: Max rows per page (Bybit caps at 200)
 
         Returns:
-            List of {"symbol", "timestamp_ms", "open_interest"} dicts, or None
+            List of {"symbol", "timestamp_ms", "open_interest",
+            "open_interest_value"} dicts, or None
         """
         params = {
             "category": "linear",
@@ -343,6 +344,13 @@ class BybitDataFetcher:
                         "symbol": result.get("symbol", symbol),
                         "timestamp_ms": int(entry["timestamp"]),
                         "open_interest": float(entry["openInterest"]),
+                        # Notional value (spec §2 A2; final review H-3).
+                        # Bybit's open-interest endpoint doesn't always
+                        # return this field — None when absent, never a
+                        # fabricated 0.
+                        "open_interest_value": float(entry["openInterestValue"])
+                        if entry.get("openInterestValue") is not None
+                        else None,
                     }
                     for entry in entries
                 ]

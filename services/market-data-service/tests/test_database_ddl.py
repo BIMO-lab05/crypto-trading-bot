@@ -302,6 +302,36 @@ def test_orderbook_conversion_is_a_single_atomic_statement() -> None:
         "create_hypertable is not in the same statement as the PK reshape; a "
         "conversion failure would commit a half-migrated table"
     )
+
+
+def test_open_interest_conversion_is_a_single_atomic_statement() -> None:
+    """final review M-8: the orderbook PK-reshape atomicity test above was
+    narrowed to scope out open_interest's identical DO block, which left the
+    convention enforced for one table and unchecked for the other. Same
+    assertions, same convention, applied to open_interest.
+    """
+    stmts = _statements()
+
+    reshapers = [s for s in stmts if "ADD PRIMARY KEY" in s and "open_interest" in s]
+    assert len(reshapers) == 1, (
+        f"expected exactly one open_interest PK-reshaping statement, "
+        f"got {len(reshapers)}"
+    )
+    block = reshapers[0]
+
+    assert '(id, "timestamp")' in block, (
+        "the new primary key must include the partition column `timestamp` — "
+        "TimescaleDB rejects create_hypertable otherwise. Statement: "
+        f"{block!r}"
+    )
+    assert "DROP CONSTRAINT" in block, (
+        "the old single-column PK drop is not in the same statement as the "
+        "ADD PRIMARY KEY — split entries mean separate transactions"
+    )
+    assert "create_hypertable" in block, (
+        "create_hypertable is not in the same statement as the PK reshape; a "
+        "conversion failure would commit a half-migrated table"
+    )
     assert "pg_constraint" in block, (
         "the existing PK constraint name must be resolved at runtime from "
         "pg_constraint. The live diagnosis verified the PK's COLUMNS, not its "

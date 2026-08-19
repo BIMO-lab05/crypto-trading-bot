@@ -3,7 +3,8 @@ Market Data Service - Database Models
 Purpose: SQLAlchemy models for TimescaleDB
 """
 
-from sqlalchemy import Boolean, Column, String, Numeric, BigInteger, Index, text
+from sqlalchemy import JSON, Boolean, Column, String, Numeric, BigInteger, Index, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -174,9 +175,23 @@ class OrderBook(Base):
     timestamp = Column(BigInteger, nullable=False)
     symbol = Column(String(20), nullable=False)
 
-    # Order book data (stored as JSON in production, simplified here)
-    # In production, you might want separate tables for bids/asks
-    snapshot_data = Column(String, nullable=False, comment="JSON snapshot of orderbook")
+    # Full 25x2 ladder as JSONB (spec §2 A1; final review H-3). The column was
+    # varchar in production until the boot DDL casts it in place — see
+    # app/database.py::DDL_STATEMENTS. SQLAlchemy's postgresql.JSONB binds
+    # Python dicts directly; do NOT json.dumps() before assigning here.
+    # JSON generic type with a postgresql variant so tests running against
+    # SQLite (no native JSONB support) still compile the DDL; production
+    # (postgresql dialect) gets real JSONB with jsonb operators/GIN indexing.
+    snapshot_data = Column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        comment="JSONB snapshot of orderbook",
+    )
+
+    # Top-of-book, persisted explicitly so Phase C consumers don't have to
+    # parse the whole ladder for the field they read most (final review H-3).
+    best_bid = Column(Numeric(38, 8), nullable=True)
+    best_ask = Column(Numeric(38, 8), nullable=True)
 
     # Metadata
     created_at = Column(BigInteger, nullable=False)
@@ -197,6 +212,9 @@ class OpenInterest(Base):
     timestamp = Column(BigInteger, nullable=False)
     symbol = Column(String(20), nullable=False)
     open_interest = Column(Numeric(38, 8), nullable=False)
+    # Notional value when Bybit's payload provides it (spec §2 A2; final
+    # review H-3). NULL when the venue omits `openInterestValue`.
+    open_interest_value = Column(Numeric(38, 8), nullable=True)
     created_at = Column(BigInteger, nullable=False)
 
     __table_args__ = (
