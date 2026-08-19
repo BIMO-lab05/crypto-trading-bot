@@ -139,3 +139,35 @@ def test_rerun_of_ledgered_variants_adds_nothing():
     # Re-scoring the same (candidate, variant) contributes zero new trials.
     after = trial_ledger.effective_trials_floor(0)
     assert before == after
+
+
+def test_run_battery_appends_enriched_rows(tmp_path):
+    """New rows written by run_battery must carry date/params/gate1_verdict/
+    gate2_passed, not the thin {candidate, variant} shape the pre-fix writer
+    produced — those thin historical rows stay untouched (append-only), but
+    every row appended going forward must be enriched."""
+    daily = make_daily(["AUSDT"], n_days=400)
+    _write_daily_csvs(tmp_path, daily)
+    pin = _pin(tmp_path, ["AUSDT"])
+
+    def one_trade(bundle, variant):
+        return [Trade("AUSDT", "LONG", T0 + 30 * DAY, T0 + 37 * DAY, 100.0, 105.0)]
+
+    out = tmp_path / "out"
+    run_battery(
+        tmp_path,
+        pin,
+        out,
+        T0 + 400 * DAY,
+        candidates=_stub_registry({"solo": one_trade}),
+    )
+
+    entries = trial_ledger.load_entries()
+    assert entries, "run_battery must have appended at least one row"
+    for e in entries:
+        assert e["candidate"] == "solo"
+        assert e["variant"] == "v0"
+        assert e["date"] is not None
+        assert "params" in e
+        assert "gate1_verdict" in e
+        assert "gate2_passed" in e

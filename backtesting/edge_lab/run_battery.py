@@ -624,7 +624,14 @@ def run_battery(
         try:
             trial_ledger.append_entries(
                 [
-                    {"candidate": candidate, "variant": v.get("variant")}
+                    {
+                        "candidate": candidate,
+                        "variant": v.get("variant"),
+                        "params": v.get("params"),
+                        "date": date_str,
+                        "gate1_verdict": v.get("gate1_verdict"),
+                        "gate2_passed": v.get("gate2_passed"),
+                    }
                     for v in result["variants"]
                     if v.get("variant") is not None
                 ]

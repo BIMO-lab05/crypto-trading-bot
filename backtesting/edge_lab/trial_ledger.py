@@ -19,6 +19,8 @@ is the same hypothesis re-measured, not a new one drawn.
 """
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from edge_lab.config import NUM_TRIALS_FLOOR
@@ -45,9 +47,21 @@ def append_entries(entries: list[dict], path: Path | None = None) -> None:
     existing = load_entries(path)
     combined = existing + entries
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as f:
-        json.dump(combined, f, indent=2)
-        f.write("\n")
+    # Atomic: write to a temp file in the same directory (so os.replace stays
+    # on one filesystem) then rename over the target. A crash mid-write
+    # leaves the temp file orphaned and the ledger untouched, instead of
+    # truncating it.
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(combined, f, indent=2)
+            f.write("\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 def effective_trials_floor(

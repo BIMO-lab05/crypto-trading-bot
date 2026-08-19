@@ -52,12 +52,16 @@ SURVIVORSHIP_CAVEAT = (
 )
 
 
-def trials_caveat(n: int) -> str:
+def trials_caveat(effective_floor: int, num_trials_used: int) -> str:
     return (
-        f"num_trials floor = {n}: 8 battery variants + 8 historical "
-        "strategy families. DSR is deflated against that floor, not against the "
-        "CPCV path count, which would understate the search space actually spent "
-        "on this repo."
+        f"num_trials floor = {effective_floor}: this is the ledger-derived "
+        f"effective floor — max(NUM_TRIALS_FLOOR={NUM_TRIALS_FLOOR}, "
+        "distinct trials already spent), where NUM_TRIALS_FLOOR is the "
+        "static 8 battery variants + 8 historical strategy families "
+        "composition, not the number shown here. DSR is deflated at "
+        f"num_trials = max(effective_floor, n_paths) = {num_trials_used} for "
+        "this run — the floor binds only when it exceeds the CPCV path "
+        "count, not unconditionally."
     )
 
 
@@ -179,8 +183,20 @@ def _funding_missing(variants: Sequence[Mapping]) -> list[str]:
     return sorted(missing)
 
 
+def _num_trials_used(variants: Sequence[Mapping], num_trials_floor: int) -> int:
+    used = [
+        v.get("num_trials_used")
+        for v in variants
+        if v.get("num_trials_used") is not None
+    ]
+    return max(used) if used else num_trials_floor
+
+
 def _caveats(variants: Sequence[Mapping], num_trials_floor: int) -> list[str]:
-    lines = [SURVIVORSHIP_CAVEAT, trials_caveat(num_trials_floor)]
+    lines = [
+        SURVIVORSHIP_CAVEAT,
+        trials_caveat(num_trials_floor, _num_trials_used(variants, num_trials_floor)),
+    ]
     missing = _funding_missing(variants)
     if missing:
         lines.append(
@@ -236,7 +252,7 @@ def render_verdict(
     universe_pin: Mapping,
     sanity_summary: str,
     date_str: str,
-    num_trials_floor: int = NUM_TRIALS_FLOOR,
+    num_trials_floor: int,
 ) -> str:
     """Killtest-style markdown for one candidate."""
     verdict = overall_verdict(variants)
@@ -309,7 +325,7 @@ def render_summary(
     universe_pin: Mapping,
     sanity_summary: str,
     date_str: str,
-    num_trials_floor: int = NUM_TRIALS_FLOOR,
+    num_trials_floor: int,
 ) -> str:
     """One line per candidate + the Gate 0 table, written after all four."""
     lines = [
@@ -394,7 +410,7 @@ def write_verdict_json(
     universe_pin: Mapping,
     date_str: str,
     out_dir: Path,
-    num_trials_floor: int = NUM_TRIALS_FLOOR,
+    num_trials_floor: int,
 ) -> Path:
     """Machine-readable companion to the markdown verdict."""
     out_dir = Path(out_dir)

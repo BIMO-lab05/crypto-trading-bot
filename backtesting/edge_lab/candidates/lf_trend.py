@@ -86,7 +86,7 @@ _REGIME_VARIANTS = {
         entry_q=0.75,
         exit_kind="reversal_or_metric",
         exit_metric="atr20",  # manifest: exit condition is stated in ATR, not vol
-        exit_window=100,
+        exit_window=100,  # assumption: manifest gives no window for this ATR exit
         exit_q=0.20,
     ),
     "trend_vix_analog_10d": dict(

@@ -72,10 +72,12 @@ def test_ledger_path_default_resolves_at_call_time():
 
 def test_seed_ledger_has_at_least_the_8_battery_variants():
     entries = trial_ledger.load_entries()
-    # append_entries (the path run_battery.py uses in production) only ever
-    # writes {"candidate", "variant"} — no "date" — so rows appended by a
-    # real battery run must not KeyError here. Only the hand-seeded rows
-    # carry "date".
+    # Historical rows (seeded 2026-08-17/18, and 17 thin {candidate, variant}
+    # rows appended before the writer was enriched) may lack "date" — those
+    # stay as-is, append-only, and must not KeyError here. The writer in
+    # run_battery.py now enriches every NEW row with date/params/
+    # gate1_verdict/gate2_passed (finding 4, WS1-C final fix wave); this
+    # test only asserts about the historical seed, not new rows.
     battery_pairs = {
         (e["candidate"], e["variant"]) for e in entries if e.get("date") == "2026-08-17"
     }
