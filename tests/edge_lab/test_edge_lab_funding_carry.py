@@ -25,7 +25,13 @@ def _funding(symbol, rate, n=90, start=T0):
 
 
 def test_two_variants_declared():
-    assert [v.name for v in VARIANTS] == ["thresh_1.5x", "thresh_2x"]
+    assert [v.name for v in VARIANTS] == [
+        "thresh_1.5x",
+        "thresh_2x",
+        "fp_75pct_8h_major",
+        "fp_90pct_24h_major",
+        "fp_75pct_8h_all",
+    ]
 
 
 def test_high_positive_funding_opens_short():
