@@ -327,7 +327,12 @@ class BacktestEngine:
             if self.current_position:
                 exit_reason = self._check_exit_conditions(row, current_time)
                 if exit_reason:
-                    self._close_position(current_price, current_time, exit_reason)
+                    self._close_position(
+                        current_price,
+                        current_time,
+                        exit_reason,
+                        bar_open=float(row["open"]) if "open" in row else None,
+                    )
 
             # Get strategy signal - pass row_position (int) instead of idx (which may be Timestamp)
             signal = strategy_func(row, self.current_position, row_position, data)
@@ -484,14 +489,38 @@ class BacktestEngine:
             f"Opened {order_type.value} position at ${entry_price:.2f}, size: {position_size:.4f}"
         )
 
-    def _close_position(self, price: float, time: datetime, reason: str):
-        """Close current position"""
+    def _close_position(
+        self,
+        price: float,
+        time: datetime,
+        reason: str,
+        bar_open: Optional[float] = None,
+    ):
+        """Close current position.
+
+        bar_open, when provided, lets a stop-loss exit model a gap: if the
+        bar OPENED beyond the stop level, a real conditional stop triggers
+        at (or past) the open, not at the level the price never traded at.
+        Take-profit keeps level semantics (a resting limit fills at its
+        price or better). Gap-audit MEDIUM defect, audit/FINDINGS-GAP.md #4.
+        """
         if not self.current_position:
             return
 
         # Determine exit price based on reason
         if reason == "stop_loss":
             exit_price = self.current_position.stop_loss
+            if bar_open is not None:
+                if (
+                    self.current_position.order_type == OrderType.BUY
+                    and bar_open < exit_price
+                ):
+                    exit_price = bar_open
+                elif (
+                    self.current_position.order_type == OrderType.SELL
+                    and bar_open > exit_price
+                ):
+                    exit_price = bar_open
         elif reason == "take_profit":
             exit_price = self.current_position.take_profit
         else:

@@ -186,3 +186,26 @@ def test_funding_cadence_is_time_based_not_bar_based():
     # Consecutive settlements are >= 8h apart.
     gaps = [(b - a).total_seconds() / 3600 for a, b in zip(events, events[1:])]
     assert all(g >= 8 for g in gaps)
+
+
+def test_gap_through_stop_fills_at_open():
+    # Long entered at 100 with stop 97. Next bar gaps down to open at 90:
+    # a conditional stop triggers as market at the open, not at 97.
+    from backtesting.backtest_engine import BacktestEngine, OrderType
+    from datetime import datetime, timedelta
+
+    eng = BacktestEngine(commission=0.0, slippage=0.0)
+    t0 = datetime(2026, 1, 1)
+    eng._open_position(
+        OrderType.BUY, 100.0, t0, {"stop_loss": 97.0, "take_profit": 200.0}
+    )
+    eng._close_position(90.0, t0 + timedelta(hours=1), "stop_loss", bar_open=90.0)
+    assert eng.trades[0].exit_price == 90.0
+
+    # No gap: bar opens above the stop, fill stays at the level.
+    eng2 = BacktestEngine(commission=0.0, slippage=0.0)
+    eng2._open_position(
+        OrderType.BUY, 100.0, t0, {"stop_loss": 97.0, "take_profit": 200.0}
+    )
+    eng2._close_position(96.0, t0 + timedelta(hours=1), "stop_loss", bar_open=98.0)
+    assert eng2.trades[0].exit_price == 97.0
