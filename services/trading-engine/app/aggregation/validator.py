@@ -25,35 +25,57 @@ class VolumeValidator:
     - Does NOT block signals, only reduces confidence
     - Graduated penalties based on volume strength
 
-    Adaptive Penalty Logic:
-    - CONFIRMED + STRONG:      1.0x (no penalty)
-    - CONFIRMED + MODERATE:    0.9x (10% penalty)
-    - NOT CONFIRMED + MODERATE: 0.7x (30% penalty)
-    - NOT CONFIRMED + WEAK:     0.5x (50% penalty)
-    - NOT CONFIRMED + MINIMAL:  0.3x (70% penalty)
-    - UNKNOWN:                  0.8x (20% penalty - safety fallback)
+    Adaptive Penalty Logic (kept in sync with the code below - the table
+    drifted from the implementation between 2025-11-27 and 2026-08-09):
+    - CONFIRMED + STRONG:       1.0x (no penalty)
+    - CONFIRMED + MODERATE:     0.9x (10% penalty)
+    - CONFIRMED + other:        0.9x (10% penalty - conservative)
+    - NOT CONFIRMED + MODERATE: 0.8x (20% penalty)
+    - NOT CONFIRMED + WEAK:     0.75x (25% penalty)
+    - NOT CONFIRMED + MINIMAL / INSUFFICIENT: 0.5x (50% penalty)
+    - UNKNOWN:                  0.95x (5% penalty - safety fallback)
+
+    Volume strength vocabulary
+    --------------------------
+    The producer is the technical-analysis service
+    (`app/indicators/volume_confirmation.py`), which emits exactly
+    STRONG / MODERATE / WEAK / INSUFFICIENT. "MINIMAL" is a legacy alias
+    that no producer has ever emitted; it is still accepted so older
+    fixtures and the sibling consumers in `phase1_metrics.py` and
+    `strategies/multi_indicator_strategy.py` keep working.
     """
+
+    # Every strength string the VOLUME_CONFIRMATION producer can emit.
+    # Membership in `strength_stats` is what gates telemetry, so any string
+    # missing here is silently invisible in `get_stats()`.
+    PRODUCER_STRENGTHS = ("STRONG", "MODERATE", "WEAK", "INSUFFICIENT")
+
+    # Strengths that mean "there was effectively no volume behind this bar".
+    # INSUFFICIENT is the string actually emitted (volume_ratio < 1.0x
+    # average); MINIMAL is the legacy alias kept for backwards compatibility.
+    LOW_VOLUME_STRENGTHS = ("MINIMAL", "INSUFFICIENT")
 
     def __init__(self):
         """Initialize volume validator with adaptive weighting"""
         self.confirmed_count = 0
         self.rejected_count = 0
 
-        # Track statistics per volume strength level
+        # Track statistics per volume strength level.
+        # INSUFFICIENT is the string the producer actually emits on ~65% of
+        # bars; without a key here those bars never appear in get_stats().
         self.strength_stats = {
             "STRONG": 0,
             "MODERATE": 0,
             "WEAK": 0,
+            "INSUFFICIENT": 0,
             "MINIMAL": 0,
-            "UNKNOWN": 0
+            "UNKNOWN": 0,
         }
 
         logger.info("VolumeValidator initialized with adaptive weighting")
 
     def validate_volume(
-        self,
-        confidence: float,
-        volume_conf: Optional[IndicatorSignal]
+        self, confidence: float, volume_conf: Optional[IndicatorSignal]
     ) -> Tuple[float, float, str]:
         """
         Validate volume and apply adaptive confidence penalty
@@ -66,12 +88,12 @@ class VolumeValidator:
             Tuple of (modified_confidence, penalty_multiplier, reason)
 
         Adaptive Logic (Phase 2):
-        - CONFIRMED + STRONG:      1.0x (no penalty)
-        - CONFIRMED + MODERATE:    0.9x (10% penalty)
-        - NOT CONFIRMED + MODERATE: 0.7x (30% penalty)
-        - NOT CONFIRMED + WEAK:     0.5x (50% penalty)
-        - NOT CONFIRMED + MINIMAL:  0.3x (70% penalty)
-        - UNKNOWN:                  0.8x (20% penalty)
+        - CONFIRMED + STRONG:       1.0x (no penalty)
+        - CONFIRMED + MODERATE:     0.9x (10% penalty)
+        - NOT CONFIRMED + MODERATE: 0.8x (20% penalty)
+        - NOT CONFIRMED + WEAK:     0.75x (25% penalty)
+        - NOT CONFIRMED + MINIMAL / INSUFFICIENT: 0.5x (50% penalty)
+        - UNKNOWN:                  0.95x (5% penalty)
         - No volume data:           1.0x (pass through)
         """
         volume_penalty = 1.0  # Default: no penalty
@@ -79,7 +101,9 @@ class VolumeValidator:
 
         # If no volume confirmation available, pass through unchanged
         if not volume_conf:
-            logger.warning("⚠️  Volume Confirmation not available - proceeding without volume check")
+            logger.warning(
+                "⚠️  Volume Confirmation not available - proceeding without volume check"
+            )
             return confidence, volume_penalty, "No volume data"
 
         # Extract volume confirmation status and strength from metadata
@@ -109,7 +133,9 @@ class VolumeValidator:
                 # Confirmed but unknown strength - conservative approach
                 volume_penalty = 0.9
                 volume_reason = f"Volume confirmed ({strength})"
-                logger.info(f"✓ Volume confirmed: {strength} - Conservative penalty (0.9x)")
+                logger.info(
+                    f"✓ Volume confirmed: {strength} - Conservative penalty (0.9x)"
+                )
                 self.confirmed_count += 1
 
         else:
@@ -119,7 +145,7 @@ class VolumeValidator:
                 # - Combined with gatekeeper, this allows moderate-quality signals through
                 volume_penalty = 0.8  # 20% penalty
                 volume_reason = "Moderate volume (unconfirmed)"
-                logger.warning(f"⚠️  Volume MODERATE (unconfirmed) - Penalty: 0.8x")
+                logger.warning("⚠️  Volume MODERATE (unconfirmed) - Penalty: 0.8x")
                 self.rejected_count += 1
 
             elif strength == "WEAK":
@@ -130,16 +156,23 @@ class VolumeValidator:
                 # - Combined penalty now: 0.85 * 0.75 = 0.6375x (was 0.45x)
                 volume_penalty = 0.75  # 25% penalty
                 volume_reason = "Weak volume"
-                logger.warning(f"⚠️  Volume WEAK - Penalty: 0.75x")
+                logger.warning("⚠️  Volume WEAK - Penalty: 0.75x")
                 self.rejected_count += 1
 
-            elif strength == "MINIMAL":
+            elif strength in self.LOW_VOLUME_STRENGTHS:
                 # PROFITABILITY FIX 2025-11-27: Reduced from 0.3x to 0.5x (50% penalty)
                 # - 70% penalty was too harsh, combined with gatekeeper = nearly 100% filter
                 # - 50% penalty still penalizes low-volume signals but allows some trades
+                #
+                # CONTRACT FIX 2026-08-09: this branch used to test only the
+                # literal "MINIMAL", which no producer has ever emitted. The
+                # technical-analysis service emits "INSUFFICIENT" (on 64.7% of
+                # 17,478 measured bars), so every low-volume bar fell through
+                # to the UNKNOWN branch below and was penalised 0.95x instead
+                # of 0.5x - the volume filter was inert on two-thirds of bars.
                 volume_penalty = 0.5  # 50% penalty
-                volume_reason = "Minimal volume"
-                logger.warning(f"⚠️  Volume MINIMAL - Penalty: 0.5x")
+                volume_reason = f"{strength.capitalize()} volume"
+                logger.warning(f"⚠️  Volume {strength} - Penalty: 0.5x")
                 self.rejected_count += 1
 
             else:
@@ -147,7 +180,9 @@ class VolumeValidator:
                 # Changed from 0.8x to 0.95x to allow more trades
                 volume_penalty = 0.95  # 5% penalty only
                 volume_reason = f"Unknown volume strength ({strength})"
-                logger.warning(f"⚠️  Volume UNKNOWN: {strength} - Minimal penalty: 0.95x")
+                logger.warning(
+                    f"⚠️  Volume UNKNOWN: {strength} - Minimal penalty: 0.95x"
+                )
                 self.rejected_count += 1
 
         # Calculate modified confidence
@@ -155,7 +190,9 @@ class VolumeValidator:
 
         # Log the confidence adjustment
         if volume_penalty < 1.0:
-            logger.info(f"  📉 Confidence adjusted: {confidence:.2f} → {modified_confidence:.2f} (×{volume_penalty:.1f})")
+            logger.info(
+                f"  📉 Confidence adjusted: {confidence:.2f} → {modified_confidence:.2f} (×{volume_penalty:.1f})"
+            )
         else:
             logger.info(f"  ✓ Confidence maintained: {confidence:.2f} (no penalty)")
 
@@ -175,21 +212,19 @@ class VolumeValidator:
             "confirmed": self.confirmed_count,
             "rejected": self.rejected_count,
             "total": total,
-            "rejection_rate": (
-                self.rejected_count / total if total > 0 else 0.0
-            ),
-            "confirmation_rate": (
-                self.confirmed_count / total if total > 0 else 0.0
-            ),
+            "rejection_rate": (self.rejected_count / total if total > 0 else 0.0),
+            "confirmation_rate": (self.confirmed_count / total if total > 0 else 0.0),
             # Adaptive weighting breakdown
             "strength_distribution": {
                 strength: {
                     "count": count,
-                    "percentage": (count / total_strength * 100) if total_strength > 0 else 0.0
+                    "percentage": (count / total_strength * 100)
+                    if total_strength > 0
+                    else 0.0,
                 }
                 for strength, count in self.strength_stats.items()
             },
-            "average_penalty_estimate": self._calculate_average_penalty()
+            "average_penalty_estimate": self._calculate_average_penalty(),
         }
 
     def _calculate_average_penalty(self) -> float:
@@ -203,13 +238,19 @@ class VolumeValidator:
         if total == 0:
             return 1.0
 
-        # Weight penalties by frequency
+        # Weight penalties by frequency.
+        # These mirror the multipliers validate_volume() actually applies -
+        # they had drifted (WEAK 0.5 vs applied 0.75, MINIMAL 0.3 vs applied
+        # 0.5, UNKNOWN 0.8 vs applied 0.95), which made this estimate report
+        # a harsher filter than the one in force. Diagnostics only; no
+        # trading decision reads this value.
         penalty_weights = {
             "STRONG": 1.0,
-            "MODERATE": 0.9,  # Assumed average between confirmed (0.9) and unconfirmed (0.7)
-            "WEAK": 0.5,
-            "MINIMAL": 0.3,
-            "UNKNOWN": 0.8
+            "MODERATE": 0.9,  # Assumed average between confirmed (0.9) and unconfirmed (0.8)
+            "WEAK": 0.75,
+            "INSUFFICIENT": 0.5,
+            "MINIMAL": 0.5,
+            "UNKNOWN": 0.95,
         }
 
         weighted_sum = sum(

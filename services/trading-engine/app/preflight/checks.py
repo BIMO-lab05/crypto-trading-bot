@@ -43,7 +43,13 @@ logger = logging.getLogger(__name__)
 # the "Phase 9 has landed" signal for the DSR evidence check. Tests override
 # this constant rather than mass-patching ``pathlib.Path.is_file`` which
 # would also affect ``check_emergency_stop`` and bleed cross-check.
-_MLGATE_MARKER_PATH = "/run/mlgate_auto_flip.json"
+#
+# /tmp, not /run: /run is a root-owned tmpfs in the container and the service
+# runs as uid 1000, so every boot-time marker write raised PermissionError.
+# /tmp is mode-1777 and always writable. The marker is container-local
+# cross-process state regenerated on each boot, so losing it on recreate is
+# fine.
+_MLGATE_MARKER_PATH = "/tmp/mlgate_auto_flip.json"
 
 # Default location of the tournament-harness sqlite DB. Overridable via
 # ``check_dsr_evidence(db_path=...)`` for tests + non-default deploys.

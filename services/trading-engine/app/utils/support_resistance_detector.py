@@ -627,15 +627,19 @@ class SupportResistanceDetector:
 
             # Create SupportLevel object
             level = SupportLevel(
-                price=round(cluster['level_price'], 2),
-                strength=round(strength, 4),
+                # Trigger compared against market price, closed at market —
+                # no exchange tick precision at this layer. round(price, 2)
+                # collapsed zone_low and zone_high onto one tick at ADA scale
+                # (PRICE-01).
+                price=float(cluster['level_price']),
+                strength=round(strength, 4),  # non-price-round
                 strength_category=strength_category,
                 touch_count=cluster['touch_count'],
                 last_touch_time=last_touch_time,
                 touches=cluster['touches'],
-                zone_low=round(cluster['min_price'], 2),
-                zone_high=round(cluster['max_price'], 2),
-                avg_volume_at_touches=round(avg_touch_volume, 2),
+                zone_low=float(cluster['min_price']),
+                zone_high=float(cluster['max_price']),
+                avg_volume_at_touches=round(avg_touch_volume, 2),  # non-price-round
                 metadata={
                     'lookback': lookback,
                     'swing_window': self.swing_window,
@@ -728,15 +732,15 @@ class SupportResistanceDetector:
 
             # Create ResistanceLevel object
             level = ResistanceLevel(
-                price=round(cluster['level_price'], 2),
-                strength=round(strength, 4),
+                price=float(cluster['level_price']),
+                strength=round(strength, 4),  # non-price-round
                 strength_category=strength_category,
                 touch_count=cluster['touch_count'],
                 last_touch_time=last_touch_time,
                 touches=cluster['touches'],
-                zone_low=round(cluster['min_price'], 2),
-                zone_high=round(cluster['max_price'], 2),
-                avg_volume_at_touches=round(avg_touch_volume, 2),
+                zone_low=float(cluster['min_price']),
+                zone_high=float(cluster['max_price']),
+                avg_volume_at_touches=round(avg_touch_volume, 2),  # non-price-round
                 metadata={
                     'lookback': lookback,
                     'swing_window': self.swing_window,

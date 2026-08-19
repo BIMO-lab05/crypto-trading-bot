@@ -6,7 +6,6 @@ With performance optimizations: Redis caching, connection pooling, request batch
 
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import Response
-from pathlib import Path
 
 # Add shared utilities to path
 
@@ -55,14 +54,16 @@ from app.performance import (
     get_connection_pool,
 )
 
-# Ensure logs directory exists
-Path("logs").mkdir(exist_ok=True)
-
-# Configure logging
+# Configure logging — stdout/stderr ONLY (AUDIT.md §4.1, fixed 2026-08-04).
+# The previous module-level logging.FileHandler("logs/service.log") killed both
+# uvicorn workers at import whenever the WSL bind-mount race left /app/logs as
+# an unwritable root-owned tmpfs, leaving the container "Up" but serving
+# nothing (zombie). Container stdout is already rotated by the compose
+# json-file driver (50m x 3). Never reintroduce a file handler at import time.
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("logs/service.log"), logging.StreamHandler()],
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 

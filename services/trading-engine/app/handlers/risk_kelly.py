@@ -20,6 +20,10 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
+# Used inside default_factory lambdas below; the noqa keeps autoflake from
+# stripping it (it cannot see lambda-body usage).
+from app.config import get_settings  # noqa: F401
+
 from app.risk.kelly_position_sizing import (
     get_kelly_sizer,
     KellyMode,
@@ -107,7 +111,9 @@ class KellyCalculateRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "capital": 10000,
+                # Doc example only, evaluated at import; capital always comes
+                # from the request or Settings, never a hardcoded account size.
+                "capital": get_settings().paper_initial_balance,
                 "current_price": 50000,
                 "mode": "DYNAMIC",
                 "signal_confidence": 0.75,
@@ -159,7 +165,13 @@ class KellySimulateRequest(BaseModel):
     win_rate: float = Field(..., gt=0, lt=1, description="Hypothetical win rate (0-1)")
     avg_win_pct: float = Field(..., gt=0, description="Average win percentage")
     avg_loss_pct: float = Field(..., gt=0, description="Average loss percentage")
-    capital: float = Field(default=10000, gt=0, description="Capital for calculation")
+    capital: float = Field(
+        # Resolved at request time from Settings — never a hardcoded account
+        # size (AUDIT 2.5; the account is $100, shared/account.py).
+        default_factory=lambda: get_settings().paper_initial_balance,
+        gt=0,
+        description="Capital for calculation (defaults to configured paper balance)",
+    )
     current_price: float = Field(
         default=50000, gt=0, description="Price for calculation"
     )
@@ -179,7 +191,8 @@ class KellySimulateRequest(BaseModel):
                 "win_rate": 0.60,
                 "avg_win_pct": 2.0,
                 "avg_loss_pct": 1.5,
-                "capital": 10000,
+                # "capital" intentionally absent: the schema default
+                # (Settings.paper_initial_balance) applies.
                 "current_price": 50000,
                 "mode": "FRACTIONAL",
             }

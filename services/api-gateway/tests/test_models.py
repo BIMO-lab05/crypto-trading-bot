@@ -6,6 +6,8 @@ Comprehensive tests for all Pydantic models and validators
 import pytest
 from pydantic import ValidationError
 
+from app.config import settings
+
 from app.models import (
     SymbolValidator,
     IntervalValidator,
@@ -242,26 +244,28 @@ class TestTradeRequest:
     def test_valid_trade_request(self):
         """Test valid trade request"""
         request = TradeRequest(
-            portfolio_id="default",
+            portfolio_id="explicit_portfolio",
             symbol="BTCUSDT",
             quantity="1.5",
             price="45000.00"
         )
 
-        assert request.portfolio_id == "default"
+        # An explicitly supplied id always wins over the resolved default.
+        assert request.portfolio_id == "explicit_portfolio"
         assert request.symbol == "BTCUSDT"
         assert request.quantity == "1.5"
         assert request.price == "45000.00"
 
     def test_trade_request_default_portfolio(self):
-        """Test trade request with default portfolio"""
+        """Omitting portfolio_id resolves to the canonical id, not "default"."""
         request = TradeRequest(
             symbol="ETHUSDT",
             quantity="10",
             price="3000"
         )
 
-        assert request.portfolio_id == "default"
+        assert request.portfolio_id == settings.default_portfolio_id
+        assert request.portfolio_id != "default"
 
     def test_trade_request_uppercase_symbol(self):
         """Test symbol is converted to uppercase"""

@@ -1,0 +1,50 @@
+-- ============================================================================
+-- ONE-TIME DATA REPAIR — ALREADY APPLIED to the live `cryptobot` DB 2026-08-04
+-- ============================================================================
+-- This file is the committed RECORD of a repair previously described only in
+-- progress.md (flagged in the 2026-08-06 whole-branch review). It is NOT
+-- mounted into docker-entrypoint-initdb.d and must never run automatically:
+-- it rewrites historical rows and is only meaningful against the specific
+-- pre-007 data state of 2026-08-04. Fresh databases need no repair — they
+-- are created post-007 with correct fees from the engine.
+--
+-- What was applied (per progress.md session log, 2026-08-04):
+--   1. portfolios.initial_balance corrected 10000 -> 100 for the paper
+--      portfolio (shared/account.py is the declaration of record).
+--   2. entry_fee / exit_fee backfilled for all 15 then-existing positions,
+--      derived from the trades legs; positions.realized_pnl rewritten NET of
+--      both fee legs (H7).
+--   3. Position 59 corrected by exactly the $1.7029 phantom that H5's
+--      resurrected-quantity bug had added.
+--   4. portfolios.realized_pnl set to the sum of closed positions' net
+--      P&L: -7.42133969 at repair time.
+--
+-- The exact UPDATE statements were executed interactively and were not
+-- captured verbatim; what IS load-bearing — and re-checkable at any time —
+-- are the invariants they established:
+--
+-- Invariant A: paper portfolio initial_balance is the $100 account.
+--   SELECT initial_balance = 100.00 FROM portfolios
+--    WHERE portfolio_id = 'paper_trading';
+--
+-- Invariant B: no closed position carries NULL accounting columns (007
+-- backfill + this repair together).
+--   SELECT count(*) = 0 FROM positions
+--    WHERE status = 'CLOSED'
+--      AND (remaining_quantity IS NULL OR entry_fee IS NULL
+--           OR exit_fee IS NULL);
+--
+-- Invariant C: portfolio realized P&L equals the sum of closed positions'
+-- net realized P&L (the H7 ledger identity).
+--   SELECT abs(coalesce(p.realized_pnl, 0) - s.total) < 0.0001
+--     FROM portfolios p,
+--          (SELECT sum(realized_pnl) AS total FROM positions
+--            WHERE status = 'CLOSED') s
+--    WHERE p.portfolio_id = 'paper_trading';
+--
+-- All three returned true on 2026-08-04 after the repair (progress.md) and
+-- are the acceptance test for any future re-application on a restored
+-- backup of the pre-repair state.
+-- ============================================================================
+
+SELECT 'This file is a historical record; do not execute. See header.' AS notice;

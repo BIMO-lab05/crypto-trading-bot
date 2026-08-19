@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
-status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). Blocking first: quick task 260730-vwn is implemented in the working tree but uncommitted and has no SUMMARY.
-stopped_at: Quick task 260730-vwn (ensemble-leg wiring F-1 + LIVE sizing-floor escape F-2) implemented, verified green, NOT committed and no SUMMARY written. Resume 2026-08-04 re-verified 48/48 targeted tests and proved no regression against HEAD app code.
-last_updated: "2026-08-04"
-last_activity: 2026-08-04 -- resume session; 260730-vwn verified, state reconciled against commits a690164..e8fa391
+status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). Stack healthy, trading resumed on clean-data epoch 2026-08-12T13:47:20Z; 2026-08-12..16 Docker outage repaired (evidence/resume-2026-08-16.md).
+stopped_at: 2026-08-16 resume session complete — outage repaired, kline holes backfilled, quick task 260816-l18 shipped (pagination break, InstrumentsCache SOL miss, MLGATE marker path). Trader running.
+last_updated: "2026-08-16"
+last_activity: 2026-08-16 -- resume after 4-day Docker Desktop outage; verification sweep + 3 fixes deployed; STATE reconciled (260730-vwn shipped as d5d31c6/1c21eac)
 progress:
   total_phases: 9
   completed_phases: 3
@@ -27,12 +27,14 @@ See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 Phase: 18 (Bybit-Adapter Contract Fix) — COMPLETE (3/3 plans, 18-REVIEW.md + 18-REVIEW-FIX.md, 9/9 in-scope findings fixed, e2e verify commit `2aac085`)
 Plan: —
-Status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). **Uncommitted quick task 260730-vwn sits in the tree first** — see "Uncommitted Work" below.
-Last activity: 2026-08-04 -- resume session: verified 260730-vwn, reconciled STATE.md against commits `a690164`..`e8fa391`
+Status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). Working tree clean; trader running on repaired engine (clean-data epoch 2026-08-12T13:47:20Z).
+Last activity: 2026-08-16 -- resume after Docker outage 08-12..08-16; sweep + repair session (`.planning/evidence/resume-2026-08-16.md`). Interim sessions on record in progress.md: 2026-08-05 Phase-1 money-path repair, 2026-08-12 profit-path audit (16 fixes, `63595b0`..`2a48846`)
 
-## Uncommitted Work (detected 2026-08-04)
+## Uncommitted Work (detected 2026-08-04 — RESOLVED)
 
-Quick task **260730-vwn — fix-ensemble-legs-live-cap** (`.planning/quick/260730-vwn-fix-ensemble-legs-live-cap/260730-vwn-PLAN.md`, `status: planned`, source `.planning/audits/2026-07-30-strategy-audit.md`) is **fully implemented in the working tree, uncommitted, with no SUMMARY**.
+**Resolved:** 260730-vwn shipped as `d5d31c6` (F-1 ensemble-leg wiring) + `1c21eac` (F-2 per-trade cap binds over sizing floor). Working tree clean as of 2026-08-16. Historical detail below retained for the record.
+
+Quick task **260730-vwn — fix-ensemble-legs-live-cap** (`.planning/quick/260730-vwn-fix-ensemble-legs-live-cap/260730-vwn-PLAN.md`, `status: planned`, source `.planning/audits/2026-07-30-strategy-audit.md`) was at the time fully implemented in the working tree, uncommitted, with no SUMMARY.
 
 Working-tree changes (9 modified + 1 untracked, +334/-76, all under `services/trading-engine/`):
 
@@ -119,9 +121,9 @@ Cross-cutting lesson for future audits: three premises pointed at **comments rat
 | OP-11 | No frontend login flow — blocks any LIVE flip (auth gated open in local paper mode) | AUDIT §5 |
 | OP-12 | 9 pre-existing trading-engine test failures (2 adapter source-contract, 5 backtest source-marker, 2 stale `mock.patch` targets) | AUDIT §5 |
 | OP-14 | trading-engine image is missing **PyJWT** and `/app/shared` is empty — `docker exec crypto-bot-trading pytest tests/` collects zero tests. Add `PyJWT` to the image and fix the `shared/` copy, or the in-container suite (the CLAUDE.md-mandated env) stays unusable. | resume 2026-07-29 |
-| OP-15 | New untracked `services/trading-engine/.dockerignore` excludes `tests/standalone/` — next rebuild removes the 28-check accounting harness from the container. Decide: drop that line, or accept host-only harness runs. | resume 2026-07-29 |
-| OP-16 | `.env` has `trading_symbols` entries with no matching `symbol_allocations` — `app/config.py:688` raises at lifespan startup, so `test_main.py::TestLifespan::test_lifespan_startup` fails on the host and the engine would refuse to boot with this `.env`. Add the missing allocation for `BTCUSDT` (and re-check the other 4 validated symbols) or trim `trading_symbols`. | resume 2026-08-04 |
-| OP-13 | **STILL OPEN 2026-08-04** — `.planning/state/carry_ins.json` is mode `600`, owned by uid `999` (`systemd-journal`) — unreadable by the repo user. It aborted `git diff` this session and will likely break `gsd-sdk query init.resume` / next GSD command. Fix ownership (`sudo chown $USER:$USER .planning/state/carry_ins.json`) before running `/gsd:plan-phase 19`. | resume 2026-07-29 |
+| OP-15 | **RESOLVED 2026-08-04** — `.dockerignore` `tests/standalone/` exclusion dropped; accounting harness stays in the image (see progress.md 2026-08-04 PM). | resume 2026-07-29 |
+| OP-16 | **RESOLVED by 2026-08-12** — symbol config passed through to the container blank-safe (`bb646b7`, `65a817e`); engine boots clean, InstrumentsCache 5/5 as of 2026-08-16. | resume 2026-08-04 |
+| OP-13 | **RESOLVED by 2026-08-16** — `carry_ins.json` now owned `moha:moha`; whole-tree git ops and `gsd-sdk query init.*` work. | resume 2026-07-29 |
 
 ## Deferred Items
 
@@ -174,8 +176,13 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 | 260731-ooe | Fix restart balance rebase — restore paper balance from the persisted ledger | 2026-07-31 | `22285ae` | [260731-ooe-fix-restart-balance-rebase](./quick/260731-ooe-fix-restart-balance-rebase/) |
 | 260731-ps1 | Market-data staleness guard — reject stale rows, report freshness on `/ready` | 2026-07-31 | `a2e3d46` | [260731-ps1-market-data-staleness-guard](./quick/260731-ps1-market-data-staleness-guard/) |
 | 260801-nui | Kill-switch daily roll — give the kill switch a real daily window; stop the roll deleting cumulative breakers | 2026-08-01 | `d923a9b`, `f5362e3` | [260801-nui-kill-switch-daily-roll](./quick/260801-nui-kill-switch-daily-roll/) |
-| 260730-vwn | Fix dead ensemble legs (F-1) + LIVE sizing-floor cap escape (F-2) | **UNCOMMITTED** | — | [260730-vwn-fix-ensemble-legs-live-cap](./quick/260730-vwn-fix-ensemble-legs-live-cap/) |
+| 260730-vwn | Fix dead ensemble legs (F-1) + LIVE sizing-floor cap escape (F-2) | 2026-08-05 | `d5d31c6`, `1c21eac` | [260730-vwn-fix-ensemble-legs-live-cap](./quick/260730-vwn-fix-ensemble-legs-live-cap/) |
 | 260803-4mt | Make the $100 account invariant real and enforced — add `shared/account.py` as declaration of record; AST invariant + Settings-drift tests; take the inert kill-switch `max_position_value` arm live; fix live dashboard $10k drawdown baseline and stat-arb 1000× sizing; drop two dead env keys | 2026-08-03 | `e44fdce` | [260803-4mt-enforce-100-account-invariant](./quick/260803-4mt-enforce-100-account-invariant/) |
+| 260816-l18 | Post-outage defect trio — kline `days=N` collection silently capped at ~1000 bars (partial-batch break vs closed-candle filter); InstrumentsCache missed SOLUSDT (Bybit 500-item page-1 cap, per-symbol fallback added); MLGATE marker moved off root-owned `/run` | 2026-08-16 | `9926954`, `1c85781`, `e57a811` | [260816-l18-fix-kline-backfill-pagination-break-inst](./quick/260816-l18-fix-kline-backfill-pagination-break-inst/) |
+| 260816-px8 | RES-08 — resolve portfolio_id to settings default across PM + gateway (~65 literals + in-memory seed key) | 2026-08-16 | `a287d1a`, `0d81c84` | [260816-px8-fix-res-08-portfolio-id-default-literal-](./quick/260816-px8-fix-res-08-portfolio-id-default-literal-/) |
+| 260816-qjn | RES-02 — market-data boot DDL: integer-now funcs, orderbook composite-PK hypertable, retention rewrite (klines deliberately none) | 2026-08-16 | `6c0273d` | [260816-qjn-fix-res-02-market-data-boot-ddl-integer-](./quick/260816-qjn-fix-res-02-market-data-boot-ddl-integer-/) |
+| 260816-qjo | RES-03/04/05 — portfolio display columns maintained + close-persist race chained; risk cols seeded from Settings (ADR-010/028); smart-router threshold settings-wired | 2026-08-16 | `277b4b9`, `217a115`, `aefca0a` | [260816-qjo-fix-res-03-04-05-portfolios-display-colu](./quick/260816-qjo-fix-res-03-04-05-portfolios-display-colu/) |
+| 260816-qjz | RES-07 — bybit-connector instruments-info cursor pagination (821 instruments, was 500) | 2026-08-16 | `c774638` | [260816-qjz-fix-res-07-bybit-connector-instruments-i](./quick/260816-qjz-fix-res-07-bybit-connector-instruments-i/) |
 
 ## Open Operator Actions (carry into v1.3)
 
@@ -192,13 +199,13 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 
 ## Session Continuity
 
-Last session: 2026-08-04
-Stopped at: Session resumed. Detected quick task **260730-vwn** (fix ensemble legs F-1 + LIVE cap escape F-2) fully implemented in the working tree but **uncommitted and without a SUMMARY**. Re-verified this session: 48/48 tests green (`test_ensemble_leg_wiring` 8, `test_multi_strategy_ensemble_sizing` 8, `test_preflight_checks` 25, `test_preflight_lifespan` 7). Awaiting operator decision: commit 260730-vwn + write SUMMARY, or reassess.
+Last session: 2026-08-17
+Stopped at: Edge research battery built and executed (branch `feature/edge-research-battery`). `backtesting/edge_lab/` kill-funnel implemented across 13 tasks with per-task review (every task passed adversarial review; notable catches: empty-fetch permanent cache, vol_breakout time-exit off-by-one, import-failure-filed-as-REJECT). Live run 2026-08-17 over pinned top-30 universe (730d daily, 365d 4h, first-ever funding history — 90 files): **4× REJECT, no edge found**. xs_momentum and vol_breakout died at the Gate 1 cost hurdle (best ratio_taker 1.246 / 0.917 vs required 2×); funding_carry thresh_2x and both lf_trend variants cleared Gate 1 (ratios 2.6 / 4.9 / 15.5) but failed Gate 2 CPCV/DSR decisively (DSR ≤ 3.8e-05 vs 0.95, pooled PF ≈ 1.0). Clean kill-funnel outcome per spec §1 — cheap disproof is the deliverable. Evidence: `.planning/evidence/killtests/*-verdict-20260817.{md,json}` + `battery-summary-20260817.md`.
+
+Prior stop (2026-08-16): Resume-and-repair session complete, extended same day: RES-01 repaired (trades P&L backfill-corrected, `f7d986b`), then the whole RES minors batch fixed + deployed (RES-02/03/04/05/07/08 across 4 quick tasks, 7 commits, 5 images rebuilt, live-verified 16/16 healthy). Trader running on clean-data epoch; ledger identity exact at every level (trades = positions = portfolio = display columns). Open residues: RES-09 (PM trade-history hydration design), RES-10 (testing.md in-container rule impossible), RES-11 (ruff hook 88-col), RES-12 (duplicate tickers retention job — operator one-liner). Full record: `.planning/evidence/resume-2026-08-16.md`.
 Resume file: None
 
-Blocking-adjacent: OP-13 still open — `.planning/state/carry_ins.json` is mode `600` owned by uid `999`, which aborts any whole-tree `git diff` / `git add -A`.
-
-Prior session (2026-07-30): Phase 18 closed out (commits `5faa32e`..`2aac085`); 367 uncommitted cowork paths verified and dispositioned.
+Prior sessions: 2026-08-12 profit-path audit + repair (16 fixes `63595b0`..`2a48846`, clean-data epoch opened); 2026-08-05 Phase-1 money-path repair; 2026-08-04 full-state assessment + doc archive; 2026-07-30 Phase 18 close-out (`5faa32e`..`2aac085`).
 
 ## Operator Next Steps
 

@@ -410,7 +410,7 @@ def leaderboard_dsr_seeded():
     (all via docker compose exec, not direct DB access from host):
       1. Seeds the leaderboard SQLite table at /data/tournament.db with a row:
            dsr=0.97, status='success', psr_ci_published=1, run_date=today.
-      2. Writes the MLGATE marker at /run/mlgate_auto_flip.json
+      2. Writes the MLGATE marker at /tmp/mlgate_auto_flip.json
          (required by check_dsr_evidence when ENABLE_ML_PREDICTIONS=true).
       3. Restarts trading-engine with ENABLE_ML_PREDICTIONS=true via a
          force-recreate so Settings picks up the changed env var.
@@ -486,7 +486,7 @@ def leaderboard_dsr_seeded():
         + [
             "sh",
             "-c",
-            f"mkdir -p /run && echo '{MLGATE_MARKER_JSON}' > /run/mlgate_auto_flip.json",
+            f"echo '{MLGATE_MARKER_JSON}' > /tmp/mlgate_auto_flip.json",
         ],
         cwd=REPO_ROOT,
         capture_output=True,

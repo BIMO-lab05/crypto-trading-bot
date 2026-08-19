@@ -48,6 +48,23 @@ class Settings(BaseSettings):
         default="http://localhost:8008", description="Sentiment Analysis service URL"
     )
 
+    # Canonical portfolio identifier. The only portfolio that has ever existed
+    # in this deployment is `paper_trading` (single DB row, is_active=t, PAPER);
+    # trading-engine `repositories.py` is already canonical on it and this value
+    # MUST agree with it, and with portfolio-manager's setting of the same name.
+    # The gateway forwards its resolved value to portfolio-manager in
+    # query_params, so a mismatch here silently queries a portfolio nobody
+    # writes to. Override via DEFAULT_PORTFOLIO_ID.
+    default_portfolio_id: str = Field(
+        default="paper_trading",
+        min_length=1,
+        description=(
+            "Canonical portfolio identifier used when a caller omits "
+            "portfolio_id. Must agree with trading-engine repositories.py "
+            "(paper_trading). Override via DEFAULT_PORTFOLIO_ID."
+        ),
+    )
+
     # Security
     # NOTE: a JWT secret field intentionally lives in auth_models, not here.
     # The only authoritative JWT-secret code path is

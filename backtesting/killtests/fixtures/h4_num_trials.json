@@ -1,0 +1,14 @@
+{
+  "floor": 8,
+  "note": "AUDIT.md H4 clause: count all >=8 strategy configurations tried",
+  "configurations": [
+    "min_signal_confidence=0.65 (original gate)",
+    "min_signal_confidence=0.40 (walk step 2, config.py:402 history)",
+    "min_signal_confidence=0.30 (walk step 3)",
+    "AGGREGATION_THRESHOLD=0.10 relaxation (multi_strategy_ensemble.py:150)",
+    "MIN_AGREEING_LEGS=1 relaxation (multi_strategy_ensemble.py:153)",
+    "phase1_strategy_prod walk-forward config (run_walk_forward.py)",
+    "CoreAggregator-only harness config (run_walk_forward_ensemble.py)",
+    "deployed 3-leg ensemble (this test)"
+  ]
+}

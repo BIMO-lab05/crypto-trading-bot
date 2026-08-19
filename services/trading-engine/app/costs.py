@@ -1,0 +1,271 @@
+"""
+One cost model, called by the live paper engine AND the research backtester.
+
+WHY THIS EXISTS. Before it, seven different commission values were live in
+this repo, the research backtester's default path charged 0.1%/side (1.8x the
+real Bybit taker rate), stop and take-profit exits in that backtester were
+classified as MAKER with a NEGATIVE fee so every stop-out CREDITED the
+account, funding was charged to longs only at a hardcoded worst-case rate and
+was off by default, and nothing anywhere modelled tick or lot quantization.
+Every published P&L figure in the repo was produced under some subset of that.
+
+TWO HARD RULES, both load-bearing:
+
+1. STDLIB ONLY. `from app.config import get_settings` raises SettingsError when
+   executed from the repo root (env_file=".env" is cwd-relative), and
+   `instruments_cache.get()` performs an HTTP GET and FAILS OPEN — it returns
+   None on a connector outage and never raises. A costs.py that reached for
+   either would work in-container and silently lose all quantization host-side,
+   with every assertion still passing. Enforced by a test.
+
+2. NOTHING IS FETCHED. Every rate, tick size, lot step and min-notional arrives
+   as an explicit parameter. Callers resolve them: in-container from Settings
+   plus instruments_cache; host-side from a fixture or a manifest. This is also
+   why the duplicated tick table in paper_slippage.py is NOT collapsed here —
+   that duplication is deliberate (paper_slippage.py:38-40), because a network
+   call in the fill path was explicitly rejected.
+
+IMPORT PATHS.
+  in-container:  from app.costs import FeeSchedule, Liquidity, ...
+  host-side:     load by file path under a NON-`app` module name. `app` is a
+                 regular package claimed by technical-analysis in the
+                 backtesting process, so `from app.costs import ...` resolves
+                 to the wrong package or raises ModuleNotFoundError. See
+                 backtesting/costs_loader.py.
+
+UNITS. Fee rates are FRACTIONS (0.00055 = 5.5 bps). Slippage is BASIS POINTS.
+Conflating fraction and percent is the single most common defect in this
+codebase — `max_risk_per_trade` is a fraction while its `*_pct` neighbours are
+percents, and that shipped once. Every public name here says which it is.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+from enum import Enum
+from typing import Mapping, Optional
+
+_BPS = Decimal("10000")
+
+
+class Liquidity(str, Enum):
+    """Which side of the book an order took."""
+
+    MAKER = "MAKER"
+    TAKER = "TAKER"
+
+
+@dataclass(frozen=True)
+class FeeSchedule:
+    """Per-side fee rates as FRACTIONS of notional. Both are charges."""
+
+    taker: Decimal
+    maker: Decimal
+
+    @classmethod
+    def bybit_linear_perp(cls) -> "FeeSchedule":
+        """Bybit USDT-perpetual standard (non-VIP) schedule.
+
+        taker 0.055%, maker 0.020% — BOTH CHARGES. Recorded at
+        services/trading-engine/app/config.py:176.
+
+        backtesting/backtest_engine.py:140 declares `bybit_maker_fee = -0.0001`
+        with the comment "maker rebate". That is wrong for this account: Bybit
+        pays maker rebates only at market-maker / high-VIP tiers, which $100
+        cannot reach. Combined with that file classifying every stop and
+        take-profit exit as LIMIT => maker, it made every backtested stop-out
+        credit the account. Resolved here in favour of config.py:176.
+        """
+        return cls(taker=Decimal("0.00055"), maker=Decimal("0.00020"))
+
+    def rate(self, liquidity: Liquidity) -> Decimal:
+        return self.taker if liquidity is Liquidity.TAKER else self.maker
+
+
+@dataclass(frozen=True)
+class VenueSpec:
+    """Venue constraints for one symbol. Supplied by the caller, never fetched.
+
+    min_notional is Optional BY DESIGN: Bybit omits
+    lotSizeFilter.minNotionalValue on many perps, and the live enforced gate
+    (auto_trader.py:1636) therefore skips the notional check entirely when it
+    is absent — there is no $5 fallback in that path, despite
+    shared/account.MIN_NOTIONAL_USD existing. Making the absent case explicit
+    here forces the caller to decide rather than inherit a silent skip.
+    """
+
+    symbol: str
+    tick_size: Decimal
+    qty_step: Decimal
+    min_order_qty: Decimal
+    min_notional: Optional[Decimal] = None
+
+
+def fee(notional: Decimal, liquidity: Liquidity, schedule: FeeSchedule) -> Decimal:
+    """Commission on one leg. `notional` is price x quantity, quote currency."""
+    if notional < 0:
+        raise ValueError(f"notional must be non-negative, got {notional}")
+    return notional * schedule.rate(liquidity)
+
+
+def slippage_bps(
+    symbol: str,
+    table: Mapping[str, Decimal],
+    fallback: Decimal,
+) -> Decimal:
+    """One-way slippage in BASIS POINTS.
+
+    An unlisted symbol gets `fallback`, which callers should set to the wider
+    alt bucket rather than the majors bucket: being wrong conservatively
+    understates P&L, which is the safe direction (paper_slippage.py:105-107).
+
+    These figures are ESTIMATES. paper_slippage.py's own docstring flags the
+    taker-impact component as never measured on this account and names
+    SOLUSDT@5bps as the least-supported value.
+    """
+    return table.get(symbol, fallback)
+
+
+def round_trip_cost_bps(
+    symbol: str,
+    *,
+    entry_liquidity: Liquidity,
+    exit_liquidity: Liquidity,
+    schedule: FeeSchedule,
+    slippage_table: Mapping[str, Decimal],
+    slippage_fallback: Decimal,
+) -> Decimal:
+    """Fees + slippage for one full round trip, in BASIS POINTS of notional.
+
+    Funding is deliberately NOT included: it is signed, per-symbol and
+    dependent on side and holding period, so it cannot be a constant adder.
+    See `funding_cost`.
+
+    A MAKER leg pays no adverse slippage — a PostOnly order fills at the price
+    it posted. It does NOT follow that maker execution is free: adverse
+    selection and non-fill are real costs this function cannot express, which
+    is why a maker-only hurdle carries a fill-realism caveat rather than a
+    straight 5x cost reduction.
+    """
+    slip = slippage_bps(symbol, slippage_table, slippage_fallback)
+    fee_bps = (schedule.rate(entry_liquidity) + schedule.rate(exit_liquidity)) * _BPS
+    slip_bps = Decimal("0")
+    if entry_liquidity is Liquidity.TAKER:
+        slip_bps += slip
+    if exit_liquidity is Liquidity.TAKER:
+        slip_bps += slip
+    return fee_bps + slip_bps
+
+
+class RejectReason(str, Enum):
+    """Why an order may not be placed. Rejection, never a clamp."""
+
+    ZERO_QTY = "ZERO_QTY"
+    MIN_QTY = "MIN_QTY"
+    MIN_NOTIONAL = "MIN_NOTIONAL"
+    SPEC_UNAVAILABLE = "SPEC_UNAVAILABLE"
+
+
+def snap_quantity(quantity: Decimal, spec: VenueSpec) -> Decimal:
+    """Floor `quantity` to the venue lot step. NEVER rounds up.
+
+    Rounding up is how a 10% per-trade cap silently becomes a 40% cap
+    (CLAUDE.md section 1). A quantity below one step floors to zero and must be
+    caught by `check_tradeable`, not turned into an order.
+    """
+    if spec.qty_step <= 0:
+        raise ValueError(f"qty_step must be positive for {spec.symbol}")
+    steps = (quantity / spec.qty_step).to_integral_value(rounding="ROUND_FLOOR")
+    return steps * spec.qty_step
+
+
+def quantize_price(
+    price: Decimal, spec: VenueSpec, *, adverse_for_buy: bool
+) -> Decimal:
+    """Quantize to the venue tick, AWAY from mid.
+
+    A buy lands at or above the reference, a sell at or below, so the tick
+    floor is always a cost and never an accidental gain. Never `round(p, 2)`:
+    that erased ADA precision and caused 30+ flip-flop losses (487d1bd).
+    """
+    if spec.tick_size <= 0:
+        raise ValueError(f"tick_size must be positive for {spec.symbol}")
+    ticks = price / spec.tick_size
+    rounding = "ROUND_CEILING" if adverse_for_buy else "ROUND_FLOOR"
+    return ticks.to_integral_value(rounding=rounding) * spec.tick_size
+
+
+def check_tradeable(
+    quantity: Decimal,
+    price: Decimal,
+    spec: Optional[VenueSpec],
+) -> Optional[RejectReason]:
+    """None if the order may be placed, else why not.
+
+    Gate order mirrors the live path (auto_trader.py:1611-1657): zero quantity,
+    then the minimum lot, then notional. The notional check is SKIPPED when
+    spec.min_notional is None, because Bybit omits lotSizeFilter.
+    minNotionalValue on many perps and the live enforced path has no fallback.
+    That is a faithful mirror, not an endorsement — a caller that needs a floor
+    must pass one.
+    """
+    if spec is None:
+        return RejectReason.SPEC_UNAVAILABLE
+    if quantity <= 0:
+        return RejectReason.ZERO_QTY
+    if quantity < spec.min_order_qty:
+        return RejectReason.MIN_QTY
+    if spec.min_notional is not None and quantity * price < spec.min_notional:
+        return RejectReason.MIN_NOTIONAL
+    return None
+
+
+@dataclass(frozen=True)
+class FundingSettlement:
+    """One funding settlement. `rate` is a SIGNED FRACTION of notional.
+
+    Bybit returns fundingRate as a stringified decimal — feed it to Decimal,
+    never float. Settlement cadence is per-symbol (`fundingInterval` in
+    instruments-info, 480 minutes on all five validated symbols but 1h or 4h
+    on others), which is why this carries a timestamp instead of assuming a
+    fixed bar count. backtest_engine.py:218 assumes `_bar_count % 8`.
+    """
+
+    ts_ms: int
+    rate: Decimal
+
+
+def funding_cost(
+    notional: Decimal,
+    side: str,
+    settlements: "list[FundingSettlement]",
+    *,
+    entry_ts_ms: int,
+    exit_ts_ms: int,
+) -> Decimal:
+    """Net funding over a holding period. POSITIVE means the position PAID.
+
+    Signed on BOTH axes, which is the whole point:
+      * a LONG pays a positive rate and is paid a negative one;
+      * a SHORT is paid a positive rate and pays a negative one.
+
+    backtest_engine.py:220 charges only `BUY and funding_long_pays`, so a short
+    never receives funding — the short side of every backtest in this repo is
+    missing a real cash flow.
+
+    An empty series returns 0. Silence must never become an assumed rate: the
+    hardcoded 0.0001 elsewhere is the base-rate CLIP (the max observed on all
+    five symbols), roughly 3-7x the measured means, and it has the wrong sign
+    for a SOL long.
+    """
+    if side not in ("LONG", "SHORT"):
+        raise ValueError(f"side must be LONG or SHORT, got {side!r}")
+    if notional < 0:
+        raise ValueError(f"notional must be non-negative, got {notional}")
+
+    total = Decimal("0")
+    for s in settlements:
+        if entry_ts_ms <= s.ts_ms <= exit_ts_ms:
+            total += notional * s.rate
+    return total if side == "LONG" else -total

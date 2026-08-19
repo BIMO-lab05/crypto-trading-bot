@@ -147,7 +147,9 @@ class PositionSizer:
             current_price: Current asset price
             signal_confidence: Signal confidence (0.0 to 1.0)
             performance_stats: Dict with 'win_rate', 'avg_win', 'avg_loss'
-            stop_loss_pct: Stop loss distance as % (for risk calculation)
+            stop_loss_pct: Stop loss distance as a FRACTION of entry price
+                (0.02 = 2%). Values >= 0.5 are treated as percent and
+                normalized - the ranges are disjoint.
             daily_pnl: Optional daily P&L for performance-based adjustment
             total_capital: Optional total capital for calculating daily P&L percentage
 
@@ -210,14 +212,29 @@ class PositionSizer:
             position_pct *= daily_pnl_adjustment
             reasoning += f" | Daily P&L adjustment: {daily_pnl_adjustment:.2f}x"
 
-        # Apply risk-per-trade limit if stop loss provided
-        # RESEARCH-BASED: This ensures we never risk more than 2% per trade
+        # Cap the loss taken if the stop is hit.
+        #
+        # stop_loss_pct is a FRACTION of entry price (0.02 = 2%) - that is what
+        # auto_trader._execute_trade passes (abs(price - stop) / price). The
+        # percent-valued stop settings are bounded ge=0.5 (default_stop_loss_pct
+        # config.py:414, short_stop_loss_pct config.py:522), so the two ranges
+        # are disjoint and a value >= 0.5 unambiguously means percent.
+        #
+        # loss_at_stop(% of equity) = position_pct * stop_fraction, capped at
+        # max_risk_per_trade_pct. Equivalent to kelly_position_sizing.py:366's
+        # max_risk_pct / stop_loss_pct * 100 for percent input.
         if stop_loss_pct is not None and stop_loss_pct > 0:
-            max_position_by_risk = self.max_risk_per_trade_pct / stop_loss_pct
+            stop_fraction = (
+                stop_loss_pct / 100.0 if stop_loss_pct >= 0.5 else stop_loss_pct
+            )
+            max_position_by_risk = self.max_risk_per_trade_pct / stop_fraction
             if position_pct > max_position_by_risk:
                 original_pct = position_pct
                 position_pct = max_position_by_risk
-                reasoning += f" | Risk-limited (2% max): {original_pct:.2f}% -> {position_pct:.2f}%"
+                reasoning += (
+                    f" | Risk-limited ({self.max_risk_per_trade_pct:.1f}% max): "
+                    f"{original_pct:.2f}% -> {position_pct:.2f}%"
+                )
 
         # Apply min/max limits
         position_pct = max(
@@ -437,9 +454,11 @@ _position_sizer: Optional[PositionSizer] = None
 def get_position_sizer() -> PositionSizer:
     """Get or create global position sizer instance.
 
-    Reads from settings so MAX_RISK_PER_TRADE / MAX_POSITION_SIZE_PCT env
-    overrides take effect at boot. Falls back to PositionSizer defaults
-    if settings unavailable (test contexts without app.config).
+    Reads MAX_POSITION_SIZE_PCT from settings so the per-trade notional cap
+    takes effect at boot. MAX_RISK_PER_TRADE deliberately does NOT feed
+    max_risk_per_trade_pct: it is a notional cap, not a loss-at-stop budget
+    (it still reaches the ensemble sizing cascade and the risk gates).
+    Falls back to PositionSizer defaults if settings are unavailable.
     """
     global _position_sizer
     if _position_sizer is None:
@@ -450,7 +469,12 @@ def get_position_sizer() -> PositionSizer:
             _position_sizer = PositionSizer(
                 max_position_pct=s.max_position_size_pct,
                 default_position_pct=s.max_position_size_pct,
-                max_risk_per_trade_pct=s.max_risk_per_trade * 100.0,
+                # max_risk_per_trade is the per-trade NOTIONAL cap
+                # (config.py:349-359, a fraction), NOT a loss-at-stop budget.
+                # Injecting it here made the clamp structurally dead: it could
+                # only bind at a stop 100% away from entry. The notional cap is
+                # already enforced below via max_position_pct. The constructor
+                # default (2.0) is the documented loss-at-stop budget.
             )
         except Exception:
             _position_sizer = PositionSizer()

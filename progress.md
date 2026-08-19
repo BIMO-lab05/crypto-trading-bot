@@ -831,3 +831,125 @@ Not "profitable trades today." Not even one fill yet. The structural blocker is 
 - Truncate bind-mounted logs (denied to agent): `: > services/portfolio-manager/logs/service.log; : > services/api-gateway/logs/service.log` (~2 GiB).
 - Post-rebuild incident: dashboard 502s — frontend nginx cached stale api-gateway container IP after recreate. Fixed with `docker restart crypto-bot-frontend`; all routes 200. Permanent fix queued: nginx `resolver 127.0.0.11` + variable proxy_pass.
 - Trading resumed 16:00Z (operator approved): kill switch cleared, auto-trader running, rejections logging reasons (regime hard-block observed), boot log shows $100.00 capital, slippage manager active.
+
+---
+
+## 2026-08-04 (evening) — Phase 0 reconnaissance audit (read-only)
+
+Owner requested a methodical four-problem repair (capital sizing, containers, repo hygiene, losing paper trades) starting with a read-only audit. Five parallel agents (architecture trace, capital audit, docker diagnosis, docs triage, trade forensics) + live venue-spec queries. **Full findings: `AUDIT.md` at repo root.** No code/config/container state changed; only AUDIT.md and this entry written.
+
+Headlines (details + file:line all in AUDIT.md):
+
+- **H1 CONFIRMED:** ensemble path sizes notional = balance × 0.10 × DEFAULT_LEVERAGE(10) = ~100% of balance per trade (`auto_trader.py:4233-4235`, reconstructed exactly against 4 recorded orders); ensemble entry path has no exposure/size/min-notional gates (`:4211-4258`). Peak open exposure 328% of equity.
+- **H2 CONFIRMED:** every stop-loss exit fills 0.5% beyond the stop by construction (`auto_trader.py:3057,3163-3174,:3202-3205`) — $1.49 of the $7.43 stop losses is pure artifact.
+- **H5/H7 CONFIRMED:** partial exits not persisted (no `remaining_quantity` column; one position's P&L overstated $1.70, defect live on open positions 57/60); `realized_pnl` persisted gross of fees; `portfolios.realized_pnl` overwritten not accumulated (+3.09 shown vs −5.68 actual gross).
+- **Cost model:** commission 0.1%/side ≈ 1.8× Bybit taker 0.055%; funding not modelled at all; slippage inactive for 17/31 legs (predate fb45efe).
+- **Data/look-ahead REFUTED:** klines gap-free, dup-free, testnet quarantined; closed-candle convention enforced at fetch layer (`technical-analysis/app/fetcher.py:220-230`).
+- **Strategy verdict: UNVERIFIABLE at n=12.** Expectancy −$0.47/trade gross (before fees). 2% stops = 0.37–0.97 daily ATR (inside noise); `atr_stops.py` unwired; ensemble thresholds were walked down until trades fired.
+- **Capital constant:** running engine config correct at $100 (verified via container printenv). "Changes ignored" = frontend $10k fallbacks on API failure + portfolio-manager getting zero capital env vars from compose + hardcoded `* 10000` in `auto_trader.py:1851`. Migration split-brain: `infrastructure/migrations/001_initial_schema.sql` still seeds $10k (matches live stale row); `database/migrations/` seeds $100.
+- **$100 feasibility (live venue specs):** min-qty walls — BTC min position $62.55 (62.6% of account), ETH $18.36; only SOL ($7.10)/BNB ($5.76)/ADA ($5.00) fit under the $10 cap. 1% risk/trade impossible within the 10% cap at sane stops (max ≈ 0.2%). LIVE at $100 mechanically impossible (2% cap = $2 < $5 min notional).
+- **Docker:** risk-metrics zombie (tmpfs-instead-of-bind WSL race + module-level FileHandler kills workers; PID 1 survives so restart policy never fires; victim random per boot). Running containers predate current compose edit (`docker start` ≠ recreate). Stray `docker-compose.yml` carries pre-ADR risk caps — live hazard with armed auto-trader.
+- **Docs:** 2026-08-03 archive executed+verified; residue = ~9 in-place text fixes; recommendation: do NOT create real ARCHITECTURE.md/STRATEGY.md (stubs at most).
+
+Next: awaiting owner approval on prioritized repair plan (in AUDIT.md §7 + chat). Kill-test order: H2 (one constant) → H1 (leverage+gates) → H7/H5 (SQL asserts) → H6 → H3 (ATR replay) → H4 (signal information, DSR>0.95 bar).
+
+---
+
+## 2026-08-05 — Phase 1 executed: money path + containers + fallback long-tail + docs (branch fix/audit-phase1, uncommitted)
+
+Owner approved all five decisions (plan/order, pause trader, DEFAULT_LEVERAGE=1.0, database/migrations/ authoritative, ARCHITECTURE/STRATEGY as stubs). Executed via 6 parallel file-disjoint workstreams + lead fixes. **All work verified running; commits pending owner-approved grouping.**
+
+### What changed (evidence in workstream reports; key file:line)
+
+- **H2** stop exits no longer carry the deterministic 0.5% penalty — `limit_buffer_pct` 0.005→0.0; paper fill reference = stop price through the slippage model (`auto_trader.py:3106,:3232-3239`).
+- **H1** ensemble path gated: notional capped at balance×`max_position_size_pct`/100 regardless of leverage; exposure gate rejects with logged arithmetic; `_passes_min_notional` + qty snap-DOWN (`_snap_quantity_to_step`) wired into all three entry paths (`auto_trader.py:4293-4400,:1651-1686`). Min-notional gate now ACTIVE in paper (early-out removed) so paper mirrors the real $100 venue constraints.
+- **H6** max-hold exits arm the SL cooldown; ensemble entries check it (`auto_trader.py:2986-2993,:4287-4296`).
+- **H7** `positions.realized_pnl` persisted NET of both-leg fees (new `entry_fee`/`exit_fee` columns); `portfolios.realized_pnl` accumulates SQL-side (`repositories.py:543`). **H5** `remaining_quantity` column persisted through reduce/close/scale-in; reload restores it. Migration `database/migrations/007_position_fee_partial_exit_accounting.sql` (applied to live DB). One-time DB repair: `initial_balance` 10000→100, backfilled fees + net P&L for all 15 positions (pos 59 corrected by exactly the $1.7029 phantom), `portfolios.realized_pnl` = −7.42133969 = sum of closed net (invariant query returns t).
+- Commission default 0.1→0.055%/side (`config.py:576`). Boot-time capital-env validation in containers (`config.py:755-809`, raises listing missing keys).
+- **Docker:** `docker-compose.yml` → `docker-compose.legacy.yml.DISABLED` (git mv). Unified: `DEFAULT_LEVERAGE=1.0`, portfolio-manager gets `INITIAL_CAPITAL=100.0` (first time), prometheus/grafana healthchecks, redis start_period, risk-metrics deps relaxed to service_started. Module-level FileHandlers removed from risk-metrics/api-gateway/portfolio-manager mains (zombie class dead). api-gateway `/health` returns 503 on degraded and excludes profile-disabled services. `portfolio-manager` `initial_capital` now a REQUIRED field.
+- **Long tail:** analytics `or 10000` fallbacks → Settings-or-raise; handler/schema defaults settings-derived; broken funding-arb endpoint fixed (`main.py:1439-1477`, was TypeError on every call); fabricated DOGE "+630%" claims removed from code; 14 strategy ctor defaults resolved per call-site verdicts; grid-v2 clamp-UP → reject; `infrastructure/migrations/001` seed → 100.00; scripts constants → `shared.account`; Prometheus daily-loss alert 5→12 (ADR-028); `stat_arb_models` capital defaults → settings.
+- **Frontend:** all $10k fallbacks gone — `PAPER_DEFAULT_BALANCE` or explicit error states; fixtures rescaled to $100; production build passes (via alt outDir; `frontend/dist` root-owned, needs operator chown). 28 previously-failing frontend tests fixed; 23 remaining failures proven pre-existing at HEAD.
+- **Docs:** $100 examples, compose canon, 12% daily-loss sweep, docs index fixed, SQZMOM table matches config, root `ARCHITECTURE.md`/`STRATEGY.md` one-sentence stubs.
+
+### Verification (all outputs in session log)
+
+- trading-engine host suite: 1604 passed / 13 failed — all 13 proven pre-existing at HEAD (2 connector-envelope, 11 pairs_trading pandas freq='H'). New suites: sizing caps 15/15, accounting invariants 9/9, capital defaults 22/22.
+- Rebuild+recreate (5 images, BuildKit off): 14/14 healthy incl. **risk-metrics genuinely serving** (was zombie). `/proc/mounts` = 9p (not tmpfs) on all checked services. Gateway `/health` HTTP 200 `healthy` — first time possible.
+- In-container: api-gateway 434 passed / 3 failed → 9/9 pass with `RATE_LIMIT_ENABLED=false` (rate-limiter/test interaction, not a regression); portfolio-manager 99 passed / 0 failed (one collection error = host-only path-depth test).
+- Restart survival: positions reload with persisted `remaining_quantity` (0.00102585 / 0.04690498 / 0.08097700) — H5 resurrection dead. DB repairs survived recreation.
+- Trading resumed (kill-switch lifted + `/api/trading/start`): first cycles show correct behavior — `[ENSEMBLE][RISK_GATE] EXPOSURE REJECT | open=$150.27 + new=$12.21 > cap=$97.66 (80.0% of $122.08)`. New size $12.21 (10%) vs $95 pre-fix; entries blocked until legacy over-exposed positions unwind (max-hold ≈ 2026-08-06 14:10 or stops).
+
+### Open items (not Phase 1 scope)
+
+- Operator: `sudo chown -R $USER:$USER frontend/dist` (host npm build EACCES); confirm `services/portfolio-manager/.env` INITIAL_CAPITAL agrees with shared/account.py; `.env.example` needs INITIAL_CAPITAL documented.
+- `portfolios.cash_balance=73.30` may embed ~$4.23 phantom margin from the pre-fix H5 bug — needs owner decision on cash reconstruction (unverified estimate).
+- Pre-existing test debt: 13 trading-engine, 23 frontend, api-gateway rate-limiter-vs-suite. `scripts/validate_risk_limits.py` deeply stale (tautological checks, $10K/$50K tables). RUNBOOK/K8s docs still contain bare `docker-compose` commands (fail loudly now). `.gitlab-ci.yml` likely vestigial. `ml-retraining-service` defined in no compose file.
+- Phase 4 (measurement): funding accrual, signal-time snapshots, slippage attribution, H3 ATR-stop replay, H4 signal-information test (DSR>0.95 bar, ≥200 trades). LIVE at $100 remains mechanically impossible (2% cap = $2 < $5 venue min) — unchanged and unchangeable by code.
+
+## 2026-08-12 — Profit-path audit + repair (16 defects, 3 waves)
+
+- Operator asked for "the problem preventing profitability" in the services. Answer on record: no such bug — the strategy is chance-level (H4 REJECT stands). What the audit DID find: 16 confirmed defects that lose money mechanically, block trading, or corrupt measurement for ANY strategy. All 16 fixed same day, commits `63595b0`..`2a48846`; design spec `docs/superpowers/specs/2026-08-12-profit-path-defect-repair-design.md`; full record + 29 deferred minors in `.planning/evidence/profit-path-audit-2026-08-12.md`.
+- Headliners: engine could boot on an unreadable position book believing it was flat (now refuses); partial-exit/scale-in cash vanished on restart (now persisted); MACD served at 2dp killed ADA crossovers; realistic-sim backtests PAID a rebate on every stop-loss (now taker); in-service backtester double-counted long P&L and erased short P&L; ADR-015 ensemble learning loop had been inert since it shipped (now live — weights adapt); TRADING_SYMBOLS/SYMBOL_ALLOCATIONS never reached the container (now passed through, blank-safe).
+- Behavior changes operators must know: boot fails loud on unreadable book / grid mode / incoherent symbol config; frontend Buy/Sell now 409s (was fake fills); backtest costs went UP — historical in-service backtest figures were wrong and do not reproduce.
+- Verification: trading-engine 1830 passed / 13 pre-existing failures (pairs-trading pandas 'H' ×11, connector contract ×2 — same as baseline); portfolio-manager 113 passed; TA 472 passed / 3 pre-existing; killtest screen reproduction 12/12 — H3 committed figures still exact. Kill switch stayed on the whole session; trader still halted.
+- Next: pick the structurally different candidate (cross-sectional momentum, pre-registered) and run it through the hurdle-first screen. Infrastructure now cheap and honest; the open question is the strategy, not the plumbing.
+
+## 2026-08-12 — Trading resumed, clean-data epoch opened
+
+- Rebuilt trading-engine/technical-analysis/portfolio-manager on the repaired code (one deploy bug caught: NoDecode needs pydantic-settings >=2.6, image pins 2.1.0 — portable source-layer fix `65a817e`, proven in-image). 14/14 containers healthy, 9/9 probes 200.
+- EMERGENCY_STOP removed + POST /api/trading/start per runbook (operator-authorized). Loop running, signals accruing.
+- **CLEAN-DATA EPOCH: 2026-08-12T13:47:20Z.** Positions with opened_at >= this instant ran entirely on the repaired engine. The two pre-halt legacy positions (SOLUSDT LONG 2026-08-07, BNBUSDT SHORT 2026-08-06) were swept by 48h max-hold on the first monitor cycle — exit_kind=MAX_HOLD, realized +0.892/-0.111 — EXCLUDE them from any clean-paper analysis. Book flat at epoch: cash = total = 100.37103039 (ledger identity exact).
+- Data collection: paper P&L now net of fees + slippage (label accordingly); funding still unmodelled in the paper engine (deferred minor). Evidence loop `python -m scripts.forward_paper_test.run_evidence_loop` is one-shot idempotent — run daily once the >=7-day accrual window fills (LIVECLOSE-03 cadence).
+- Post-resume incident (13:56-14:02Z, caught by log monitor): TimescaleDB max_connections=25 (timescaledb-tune auto-size) vs market-data's legal 40 (2 workers x pool 20) — signal burst exhausted connections, every indicator 500'd, engine computed no signals. Fixed `5fc5b5b`: compose command `-c max_connections=100`, verified zero 500s + full HOLD signal cycle after. Outage produced no trades (absence, not contamination) — clean-data epoch stands.
+- Second post-resume incident: even at max_connections=100, uncached TA kline fetches (~12 identical queries per window per cycle) ground TimescaleDB to 173% CPU -> timeout bursts. Fixed with TTL(30s)+single-flight kline cache in TA fetcher (the audit's "dead cache config" minor turned out load-bearing). Live: 0 errors/3min, DB CPU 3%, signals flowing.
+
+## 2026-08-16 — Resume after 4-day Docker outage; repair trio shipped
+
+- **Outage**: Docker Desktop down; stack offline 2026-08-12 ~14:27:32Z → 2026-08-16 13:42:13Z (write-side, all 5 symbols identical). Containers auto-restarted on daemon boot — restarted not recreated, so running code = the 2026-08-12 repaired deployment (proven by in-image greps; image timestamps are misleading here, images build minutes before their commits land). No trades/DB writes during outage; **clean-data epoch stands** (zero positions opened since epoch — repaired engine still untested on a live entry). Ledger identity exact on resume: cash 100.37103040 = 100 + realized 0.37103039.
+- **Verification sweep** (5 parallel read-only probes: images/health/klines/engine/ledger): all images current, probes green, sizing within cap (only actionable signal $5.69 notional, rejected 5× on confidence gate with reason), max_connections=100 held. Prometheus+grafana containers had vanished entirely — restored via compose, both healthy.
+- **Quick task 260816-l18** (3 commits, host tests green, RED-before-fix observed):
+  - `9926954` fix(market-data): `get_historical_klines` broke pagination after batch 1 — closed-candle filter returns 999 on page 1, partial-batch break read it as history-exhausted. Every `days=N` collect was capped ~1000 bars (this is why the 2026-08-06 hole repair needed CSV staging). Empirical: BTC 1m days=5 stored 999 pre-fix, 7,199 post-fix.
+  - `1c85781` fix(trading-engine): InstrumentsCache missed SOLUSDT — connector bulk instruments-info returns exactly 500 (Bybit page-1 cap, no pagination). Per-symbol fallback added; boot now `refreshed 5/5` (SOL was trading on fallback venue gates since the cache shipped).
+  - `e57a811` fix(trading-engine): MLGATE marker `/run` → `/tmp` — root-owned tmpfs vs uid 1000; PermissionError every boot, survived force-recreate (was misdiagnosed as WSL bind-mount race). Marker now persists, e2e conftest literals moved in same commit.
+- **Kline holes CLOSED**: post-fix backfill (5 symbols × 1m/5m/15m, days=5) filled the outage hole AND the 08-12 morning hole (01:16–07:04). lag() gap query since 2026-08-11: **0 rows**. 60m/240m never had gaps. Ticker history not backfillable — outage gaps in tickers are permanent. Future holes ≤30d: collect API now handles them, no CSVs.
+- Deploy: both images rebuilt BuildKit-off + recreated; boot clean, trader running, DB CPU settled 1.5% post-backfill.
+- **New minors filed** RES-01..07 in `.planning/evidence/resume-2026-08-16.md`. Headline: **RES-01 needs operator decision** — pre-epoch `trades.realized_pnl` rows disagree with the corrected positions ledger by +3.37 total (all opened 2026-07-29..08-04); anyone summing trades gets +3.74 instead of true +0.37. Backfill-correct or exclude from aggregations.
+- OP-13 resolved (carry_ins.json ownership), OP-15/OP-16 marked resolved in STATE.md (were fixed 08-04/08-12, table was stale). STATE.md reconciled: 260730-vwn recorded as shipped (`d5d31c6`/`1c21eac`).
+
+### RES-01 repair (same day, operator-approved backfill-correct)
+
+- `scripts/repair_res01_trades_pnl.sql` — single transaction, backup in `trades_backup_res01`, provenance markers on all touched rows, hard postcondition asserts. 18 pnl rows corrected + trade-93 phantom quantity fixed (1.08043760 → 0.48500844, the H5 remnant behind the +1.90 headline drift and ~0.595 SOL phantom volume).
+- Convention applied = the one every position ≥ 2026-08-06 already follows: exit pnl = gross − pro-rata entry fee − exit fee; entries NULL. Group A (46–56): gross→net, drift was exactly both-leg fees. Group B (57/59/60): mixed-regime rows recomputed from first principles; residual snap unnecessary (exact on first pass).
+- Verified: per-position drift 0 rows across all 19 closed (exact); `sum(trades.realized_pnl)` = positions = portfolio = **0.37103039**; fees unchanged 2.05495742; `/api/portfolio/performance` serves the corrected 0.37103039 live. Trade-93 fee kept as recorded (position exit_fee includes it) — documented ~$0.044 residue.
+- New: RES-08 filed — `/api/portfolio/trades` queries `portfolio_id='default'`, returns empty vs `paper_trading` data. Pre-existing, found during downstream verification.
+
+### RES minors batch (same day, evening) — RES-02/03/04/05/07/08 all fixed + deployed
+
+- Parallel diagnosis sweep (4 read-only agents) → 4 GSD quick tasks → 7 commits: `a287d1a`/`0d81c84` (RES-08, ~65 portfolio_id literals, both HTTP services + PM seed key), `6c0273d` (RES-02 boot DDL — klines deliberately gets NO retention: the intended 90d policy would have deleted 52% of klines incl. the 2026-08-06 research backfill; tickers 180d, orderbook 7d, integer-now funcs, composite-PK hypertable), `277b4b9`/`217a115`/`aefca0a` (RES-03/04/05 — display columns maintained + close-persist race chained after being PROVEN with a mid-write yield; risk cols seeded from Settings percent→fraction; smart-router threshold settings-wired at the factory), `c774638` (RES-07 connector cursor pagination → 821 instruments, SOLUSDT present).
+- One-time repair applied (flat book, engine stopped): portfolios row now cash=total_value=100.37103040, total_pnl=realized=0.37103039, risk 0.1000/0.1200 — survived engine rebuild.
+- All 5 service images rebuilt + recreated; live verification: 16/16 healthy, 9/9 probes, engine boot `refreshed 5/5` + settings-driven router line + MLGATE marker, signal cycle with reasoned rejections, kline gaps still 0, zero errors. Deploy hiccup worth remembering: Docker credential helper died mid-build (WSL vsock) and `| tail` masked the failure — the "successful" rebuild had never recreated the container; retry with pipefail fixed it. Never tail-mask compose builds.
+- New follow-ups filed: RES-09 (PM trade history in-memory only — hydration design needed), RES-10 (testing.md in-container gateway rule impossible — image has no tests/), RES-11 (ruff 88-col hook vs 100-col repo), RES-12 (duplicate tickers retention job from 2-worker DDL race — operator one-liner). Full record: `.planning/evidence/resume-2026-08-16.md`.
+
+### Session: 2026-08-17 — Edge research battery: built, reviewed, executed — 4× REJECT
+
+- Built `backtesting/edge_lab/` on `feature/edge-research-battery` via subagent-driven execution of the 13-task plan (`5c1274e`): 12 implementation commits + 8 fix-round commits, every task adversarially reviewed before acceptance. Reviews caught 4 Criticals pre-run: empty-fetch cached as permanent header-only CSV (false-REJECT path), zero-row frames passing Gate 0 vacuously, vol_breakout time exit one bar late (31-bar hold vs pinned 30), candidate import-failure filed as a clean REJECT. All fixed + re-reviewed. Suite: 74 tests green.
+- Live run 2026-08-17: pinned top-30 universe (475 excluded), fetched 90 files — 30×730d daily, 30×365d 240m, 30 funding histories (repo's first). Gate 0: 30/30 PASS both intervals, zero gaps.
+- **Verdicts: 4× REJECT, no edge.** xs_momentum best ratio_taker 1.246 (< 2× hurdle, all 3 variants KILL); vol_breakout 0.917 (KILL); funding_carry thresh_2x cleared Gate 1 (2.603) but Gate 2 DSR 5.8e-10, positive_path_frac 0.444; lf_trend cleared Gate 1 big (4.85, 15.51) but Gate 2 DSR ≤ 3.8e-05, pooled PF ≈ 1.0 — trend profits are a few outlier trades, not a repeatable distribution. Evidence: `.planning/evidence/killtests/*-verdict-20260817.{md,json}`, `battery-summary-20260817.md`.
+- Honest close-out per spec §1: clean 4× REJECT is the infrastructure working — four ideas disproved for ~$0 in live risk. No PASS, so no forward-paper-test recommendation exists. Note for the record: plan's claim that `backtesting/data/*_bybit.csv` are committed was wrong — `.gitignore:139 data/` covers the tree, zero data CSVs tracked; funding CSVs force-added per plan default (1.9 MB, 30 files).
+
+## 2026-08-18 — Report-error repair (daily-report 500 + TA interval 500)
+
+- Operator asked to fix errors in today/yesterday's reports + current workflow. Findings + design: `docs/superpowers/specs/2026-08-18-report-error-repair-design.md` (approved).
+- **Root cause of every daily summary's "trade history unavailable, best/worst=0"**: `GET /api/v1/trading/trades/history` 500'd — handler read `pos.id` (PK is `position_id`) and the `status=ALL` branch called a repository method that never existed. Fixed `35d0dca` + regression tests (all three status paths). Live-verified: 200 with real UUIDs; ALL combines open+closed. Next 21:00 report should carry best/worst.
+- **TA 500 on `interval=invalid`**: fetcher now validates normalized interval against market-data's VALID_INTERVALS, 422 before upstream call. Fixed `843b03e` + tests (incl. cross-service set-agreement pin). Live: 422 invalid / 200 valid.
+- WS1-B dormant-strategy precision work landed concurrently via the parallel WS1-B session (`4bf4b76`) — not duplicated here; its in-flight working-tree edits left untouched.
+- Not fixed (by design): portfolio-manager→engine sync ReadTimeouts (transient, self-heal); edge battery 4× REJECT (verdicts, not defects).
+- Deploy: both images rebuilt BuildKit-off; persistent WSL vsock credential-helper failure bypassed with a clean `DOCKER_CONFIG` (`{"auths":{}}`) — new workaround, works when retry does not. Containers recreated, both healthy, no boot errors.
+- Pre-existing (unchanged): TA `test_comprehensive_80.py` 2 failures reproduce at clean HEAD.
+
+## 2026-08-19 — WS1-C executed: research layer + edge loop, battery #2 = 5× REJECT
+
+- All 9 WS1-C tasks executed subagent-driven on `fix/ws1a-technical-analysis-correctness` (`8922229`..`6ecf73b`), each task-reviewed; Task 7 took one fix round (operator-approved manifest amendment pre-registering the hedge-ratio-persistence pairs screen after the ADF t-stat substitute failed to discriminate cointegration on synthetic fixtures — amendment committed before the battery ran). Final whole-branch review found 1 Critical (trials_caveat prose said "8+8" while rendering effective floor 21; also mis-stated DSR deflation) — fixed in code and corrected-in-place across all ten 2026-08-18 evidence artifacts (`a03928e`/`6ecf73b`); ledger writes now atomic; production ledger rows enriched (params/date/gate verdicts).
+- **Anti-p-hacking rail live**: append-only `backtesting/edge_lab/trial_ledger.json`; effective DSR trials floor now ledger-derived — rose 16 → 21 this battery and only ratchets up. Research slippage tables test-pinned to paper engine's canonical table; Phase-1 runner defaults to ACCOUNT_EQUITY_USD.
+- **Battery #2 (pre-registered 2026-08-18, amended 2026-08-19 pre-run): all five candidates REJECT.** funding_carry percentile best ratio_taker 2.603 (gate1 1/5 pass, gate2 DSR fail); lf_trend regime best 15.51 (gate1 4/5, gate2 0/5 — outlier-trade profile again); pairs_statarb 0.088; xs_momentum 1.246; vol_breakout 0.966. Evidence: `.planning/evidence/killtests/*-20260818.*`, `battery-summary-20260818.md`. Honest close-out: two batteries, nine families, zero edge — infrastructure keeps killing candidates for ~$0.
+- tests/edge_lab 120 pass; killtests 3 pre-existing golden-parity failures (docker TA parity, unrelated). Known debt: tests/edge_lab+killtests cannot run in one pytest invocation (conftest name collision, pre-existing, filed).

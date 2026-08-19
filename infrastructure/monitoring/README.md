@@ -458,7 +458,7 @@ AlertManager routing (extended stack): critical → PagerDuty + Slack; trading �
 | Alert | Triggers When | What It Means / Action |
 |-------|--------------|------------------------|
 | **TradingEngineDown** (a.k.a. TradingEngineStopped) | Service down 30s (15s in staging rules) | Trading has stopped — check service logs, restart if needed |
-| **DailyLossExceeded** | Daily loss > 5% | Daily loss circuit-breaker territory — review trades, consider emergency stop |
+| **DailyLossExceeded** | Daily loss > 12% (ADR-028) | Daily loss circuit-breaker territory — review trades, consider emergency stop |
 | **ServiceDown** | Any service down for 1m | Service outage |
 | **HighErrorRate** | Error rate > 5% for 5m | System degradation |
 | **DatabaseDown** | Database unreachable for 1m | Complete system failure — check database health, restore |
@@ -513,7 +513,7 @@ Also configured: high error rates (>0.1 errors/sec) per Phase 3 service.
 | PositionSizeExceedsLimit | warning | Position > 5% of portfolio | Single position too large |
 | PositionSizeCritical | critical | Position > 10% of portfolio | Critical risk violation |
 | CircuitBreakerTriggered | critical | Circuit breaker = 1 | Trading halted |
-| DailyLossLimitExceeded | critical | Daily loss > 5% | Daily loss limit breached |
+| DailyLossLimitExceeded | critical | Daily loss > 12% (ADR-028) | Daily loss limit breached |
 | TradingEngineDown | critical | up == 0 for 15s | Trading engine unavailable |
 | WinRateBelow40Percent | warning | Win rate < 40% for 6h | Strategy underperforming |
 

@@ -24,7 +24,7 @@ class TestInitializeManagerRequest:
             total_capital=100000.0,
             pairs_allocation=0.4,
             funding_allocation=0.4,
-            triangular_allocation=0.2
+            triangular_allocation=0.2,
         )
 
         assert request.total_capital == 100000.0
@@ -36,7 +36,11 @@ class TestInitializeManagerRequest:
         """Test default values are applied correctly"""
         request = InitializeManagerRequest()
 
-        assert request.total_capital == 100000.0
+        # Settings-derived default since 2026-08-05 (AUDIT 2.5): the
+        # configured paper balance, never a hardcoded account size.
+        from app.config import get_settings
+
+        assert request.total_capital == get_settings().paper_initial_balance
         assert request.pairs_allocation == 0.4
         assert request.funding_allocation == 0.4
         assert request.triangular_allocation == 0.2
@@ -47,7 +51,7 @@ class TestInitializeManagerRequest:
             InitializeManagerRequest(total_capital=-10000.0)
 
         errors = exc.value.errors()
-        assert any('greater than 0' in str(e['msg']).lower() for e in errors)
+        assert any("greater than 0" in str(e["msg"]).lower() for e in errors)
 
     def test_invalid_allocation_sum_too_low(self):
         """Test validation fails when allocations sum to less than 1.0"""
@@ -55,11 +59,11 @@ class TestInitializeManagerRequest:
             InitializeManagerRequest(
                 pairs_allocation=0.3,
                 funding_allocation=0.3,
-                triangular_allocation=0.3  # Sum = 0.9
+                triangular_allocation=0.3,  # Sum = 0.9
             )
 
         errors = exc.value.errors()
-        assert any('must sum to 1.0' in str(e['msg']).lower() for e in errors)
+        assert any("must sum to 1.0" in str(e["msg"]).lower() for e in errors)
 
     def test_invalid_allocation_sum_too_high(self):
         """Test validation fails when allocations sum to more than 1.0"""
@@ -67,11 +71,11 @@ class TestInitializeManagerRequest:
             InitializeManagerRequest(
                 pairs_allocation=0.5,
                 funding_allocation=0.5,
-                triangular_allocation=0.2  # Sum = 1.2
+                triangular_allocation=0.2,  # Sum = 1.2
             )
 
         errors = exc.value.errors()
-        assert any('must sum to 1.0' in str(e['msg']).lower() for e in errors)
+        assert any("must sum to 1.0" in str(e["msg"]).lower() for e in errors)
 
     def test_invalid_allocation_out_of_range(self):
         """Test validation fails for allocation > 1.0"""
@@ -79,7 +83,7 @@ class TestInitializeManagerRequest:
             InitializeManagerRequest(
                 pairs_allocation=1.5,  # > 1.0
                 funding_allocation=0.0,
-                triangular_allocation=-0.5
+                triangular_allocation=-0.5,
             )
 
         errors = exc.value.errors()
@@ -91,7 +95,7 @@ class TestInitializeManagerRequest:
         request = InitializeManagerRequest(
             pairs_allocation=0.3333,
             funding_allocation=0.3333,
-            triangular_allocation=0.3333
+            triangular_allocation=0.3333,
         )
         assert request is not None
 
@@ -105,7 +109,7 @@ class TestAddPairsStrategyRequest:
             symbol_x="BTCUSDT",
             symbol_y="ETHUSDT",
             entry_threshold=2.0,
-            exit_threshold=0.5
+            exit_threshold=0.5,
         )
 
         assert request.symbol_x == "BTCUSDT"
@@ -115,10 +119,7 @@ class TestAddPairsStrategyRequest:
 
     def test_symbol_case_normalization(self):
         """Test symbols are converted to uppercase"""
-        request = AddPairsStrategyRequest(
-            symbol_x="btcusdt",
-            symbol_y="ethusdt"
-        )
+        request = AddPairsStrategyRequest(symbol_x="btcusdt", symbol_y="ethusdt")
 
         assert request.symbol_x == "BTCUSDT"
         assert request.symbol_y == "ETHUSDT"
@@ -128,11 +129,11 @@ class TestAddPairsStrategyRequest:
         with pytest.raises(ValidationError) as exc:
             AddPairsStrategyRequest(
                 symbol_x="BT",  # Too short
-                symbol_y="ETHUSDT"
+                symbol_y="ETHUSDT",
             )
 
         errors = exc.value.errors()
-        assert any('invalid symbol' in str(e['msg']).lower() for e in errors)
+        assert any("invalid symbol" in str(e["msg"]).lower() for e in errors)
 
     def test_invalid_exit_greater_than_entry(self):
         """Test validation fails when exit > entry threshold"""
@@ -141,18 +142,15 @@ class TestAddPairsStrategyRequest:
                 symbol_x="BTCUSDT",
                 symbol_y="ETHUSDT",
                 entry_threshold=1.0,
-                exit_threshold=2.0  # Greater than entry
+                exit_threshold=2.0,  # Greater than entry
             )
 
         errors = exc.value.errors()
-        assert any('must be less than entry' in str(e['msg']).lower() for e in errors)
+        assert any("must be less than entry" in str(e["msg"]).lower() for e in errors)
 
     def test_default_values(self):
         """Test default parameter values"""
-        request = AddPairsStrategyRequest(
-            symbol_x="BTCUSDT",
-            symbol_y="ETHUSDT"
-        )
+        request = AddPairsStrategyRequest(symbol_x="BTCUSDT", symbol_y="ETHUSDT")
 
         assert request.entry_threshold == 2.0
         assert request.exit_threshold == 0.5
@@ -163,9 +161,7 @@ class TestAddPairsStrategyRequest:
         """Test validation fails for negative thresholds"""
         with pytest.raises(ValidationError) as exc:
             AddPairsStrategyRequest(
-                symbol_x="BTCUSDT",
-                symbol_y="ETHUSDT",
-                entry_threshold=-2.0
+                symbol_x="BTCUSDT", symbol_y="ETHUSDT", entry_threshold=-2.0
             )
 
         errors = exc.value.errors()
@@ -177,7 +173,7 @@ class TestAddPairsStrategyRequest:
             symbol_x="BTCUSDT",
             symbol_y="ETHUSDT",
             entry_threshold=0.2,
-            exit_threshold=0.1
+            exit_threshold=0.1,
         )
 
         assert request.entry_threshold == 0.2
@@ -191,10 +187,7 @@ class TestCalibratePairsStrategyRequest:
         """Test valid calibration request"""
         request = CalibratePairsStrategyRequest(
             strategy_id="BTCUSDT_ETHUSDT",
-            historical_data={
-                "BTCUSDT": [45000, 45100],
-                "ETHUSDT": [3000, 3010]
-            }
+            historical_data={"BTCUSDT": [45000, 45100], "ETHUSDT": [3000, 3010]},
         )
 
         assert request.strategy_id == "BTCUSDT_ETHUSDT"
@@ -202,9 +195,7 @@ class TestCalibratePairsStrategyRequest:
 
     def test_optional_historical_data(self):
         """Test historical_data is optional"""
-        request = CalibratePairsStrategyRequest(
-            strategy_id="BTCUSDT_ETHUSDT"
-        )
+        request = CalibratePairsStrategyRequest(strategy_id="BTCUSDT_ETHUSDT")
 
         assert request.strategy_id == "BTCUSDT_ETHUSDT"
         assert request.historical_data is None
@@ -216,9 +207,7 @@ class TestAddFundingStrategyRequest:
     def test_valid_funding_strategy(self):
         """Test valid funding strategy request"""
         request = AddFundingStrategyRequest(
-            symbol="BTCUSDT",
-            min_funding_rate=0.0001,
-            max_position_size=10000.0
+            symbol="BTCUSDT", min_funding_rate=0.0001, max_position_size=10000.0
         )
 
         assert request.symbol == "BTCUSDT"
@@ -227,28 +216,28 @@ class TestAddFundingStrategyRequest:
 
     def test_symbol_normalization(self):
         """Test symbol is converted to uppercase"""
-        request = AddFundingStrategyRequest(
-            symbol="btcusdt"
-        )
+        request = AddFundingStrategyRequest(symbol="btcusdt")
 
         assert request.symbol == "BTCUSDT"
 
     def test_default_values(self):
         """Test default parameter values"""
-        request = AddFundingStrategyRequest(
-            symbol="BTCUSDT"
-        )
+        request = AddFundingStrategyRequest(symbol="BTCUSDT")
 
         assert request.min_funding_rate == 0.0001
-        assert request.max_position_size == 10000.0
+        # Settings-derived venue cap since 2026-08-05 (AUDIT 2.5):
+        # paper balance x max_position_size_pct = $10 on the $100 account.
+        from app.config import get_settings
+
+        s = get_settings()
+        assert request.max_position_size == pytest.approx(
+            s.paper_initial_balance * s.max_position_size_pct / 100.0
+        )
 
     def test_invalid_negative_funding_rate(self):
         """Test validation fails for negative funding rate"""
         with pytest.raises(ValidationError) as exc:
-            AddFundingStrategyRequest(
-                symbol="BTCUSDT",
-                min_funding_rate=-0.0001
-            )
+            AddFundingStrategyRequest(symbol="BTCUSDT", min_funding_rate=-0.0001)
 
         errors = exc.value.errors()
         assert len(errors) > 0
@@ -256,13 +245,10 @@ class TestAddFundingStrategyRequest:
     def test_invalid_zero_position_size(self):
         """Test validation fails for zero position size"""
         with pytest.raises(ValidationError) as exc:
-            AddFundingStrategyRequest(
-                symbol="BTCUSDT",
-                max_position_size=0.0
-            )
+            AddFundingStrategyRequest(symbol="BTCUSDT", max_position_size=0.0)
 
         errors = exc.value.errors()
-        assert any('greater than 0' in str(e['msg']).lower() for e in errors)
+        assert any("greater than 0" in str(e["msg"]).lower() for e in errors)
 
 
 class TestSetupTriangularArbitrageRequest:
@@ -273,7 +259,7 @@ class TestSetupTriangularArbitrageRequest:
         request = SetupTriangularArbitrageRequest(
             assets=["BTC", "ETH", "BNB", "USDT"],
             min_profit_threshold=0.005,
-            max_latency_ms=100.0
+            max_latency_ms=100.0,
         )
 
         assert len(request.assets) == 4
@@ -282,9 +268,7 @@ class TestSetupTriangularArbitrageRequest:
 
     def test_assets_case_normalization(self):
         """Test assets are converted to uppercase"""
-        request = SetupTriangularArbitrageRequest(
-            assets=["btc", "eth", "bnb"]
-        )
+        request = SetupTriangularArbitrageRequest(assets=["btc", "eth", "bnb"])
 
         assert all(asset.isupper() for asset in request.assets)
         assert "BTC" in request.assets
@@ -297,7 +281,7 @@ class TestSetupTriangularArbitrageRequest:
             )
 
         errors = exc.value.errors()
-        assert any('duplicate' in str(e['msg']).lower() for e in errors)
+        assert any("duplicate" in str(e["msg"]).lower() for e in errors)
 
     def test_insufficient_assets(self):
         """Test validation fails with < 3 assets"""
@@ -307,13 +291,11 @@ class TestSetupTriangularArbitrageRequest:
             )
 
         errors = exc.value.errors()
-        assert any('at least 3' in str(e['msg']).lower() for e in errors)
+        assert any("at least 3" in str(e["msg"]).lower() for e in errors)
 
     def test_default_values(self):
         """Test default parameter values"""
-        request = SetupTriangularArbitrageRequest(
-            assets=["BTC", "ETH", "BNB"]
-        )
+        request = SetupTriangularArbitrageRequest(assets=["BTC", "ETH", "BNB"])
 
         assert request.min_profit_threshold == 0.005
         assert request.max_latency_ms == 100.0
@@ -323,7 +305,7 @@ class TestSetupTriangularArbitrageRequest:
         with pytest.raises(ValidationError) as exc:
             SetupTriangularArbitrageRequest(
                 assets=["BTC", "ETH", "BNB"],
-                min_profit_threshold=1.5  # > 1.0
+                min_profit_threshold=1.5,  # > 1.0
             )
 
         errors = exc.value.errors()
@@ -338,7 +320,7 @@ class TestGenerateSignalsRequest:
         request = GenerateSignalsRequest(
             market_data={
                 "BTCUSDT": {"price": 45000.0, "volume": 1000000},
-                "ETHUSDT": {"price": 3000.0, "volume": 500000}
+                "ETHUSDT": {"price": 3000.0, "volume": 500000},
             }
         )
 
@@ -351,7 +333,7 @@ class TestGenerateSignalsRequest:
             GenerateSignalsRequest(market_data={})
 
         errors = exc.value.errors()
-        assert any('cannot be empty' in str(e['msg']).lower() for e in errors)
+        assert any("cannot be empty" in str(e["msg"]).lower() for e in errors)
 
     def test_invalid_missing_price(self):
         """Test validation fails when price is missing"""
@@ -363,31 +345,23 @@ class TestGenerateSignalsRequest:
             )
 
         errors = exc.value.errors()
-        assert any('price missing' in str(e['msg']).lower() for e in errors)
+        assert any("price missing" in str(e["msg"]).lower() for e in errors)
 
     def test_invalid_negative_price(self):
         """Test validation fails for negative price"""
         with pytest.raises(ValidationError) as exc:
-            GenerateSignalsRequest(
-                market_data={
-                    "BTCUSDT": {"price": -45000.0}
-                }
-            )
+            GenerateSignalsRequest(market_data={"BTCUSDT": {"price": -45000.0}})
 
         errors = exc.value.errors()
-        assert any('invalid price' in str(e['msg']).lower() for e in errors)
+        assert any("invalid price" in str(e["msg"]).lower() for e in errors)
 
     def test_invalid_zero_price(self):
         """Test validation fails for zero price"""
         with pytest.raises(ValidationError) as exc:
-            GenerateSignalsRequest(
-                market_data={
-                    "BTCUSDT": {"price": 0.0}
-                }
-            )
+            GenerateSignalsRequest(market_data={"BTCUSDT": {"price": 0.0}})
 
         errors = exc.value.errors()
-        assert any('invalid price' in str(e['msg']).lower() for e in errors)
+        assert any("invalid price" in str(e["msg"]).lower() for e in errors)
 
     def test_market_data_with_additional_fields(self):
         """Test market data accepts additional fields"""
@@ -398,7 +372,7 @@ class TestGenerateSignalsRequest:
                     "volume": 1000000,
                     "funding_rate": 0.0001,
                     "bid": 44999.0,
-                    "ask": 45001.0
+                    "ask": 45001.0,
                 }
             }
         )
@@ -410,6 +384,7 @@ class TestGenerateSignalsRequest:
 # ============================================================================
 # EDGE CASE TESTS
 # ============================================================================
+
 
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions"""
@@ -431,9 +406,7 @@ class TestEdgeCases:
     def test_extreme_allocation_split(self):
         """Test extreme but valid allocation split"""
         request = InitializeManagerRequest(
-            pairs_allocation=0.99,
-            funding_allocation=0.005,
-            triangular_allocation=0.005
+            pairs_allocation=0.99, funding_allocation=0.005, triangular_allocation=0.005
         )
         assert request.pairs_allocation == 0.99
 
@@ -443,32 +416,28 @@ class TestEdgeCases:
             symbol_x="BTCUSDT",
             symbol_y="ETHUSDT",
             entry_threshold=0.01,
-            exit_threshold=0.001
+            exit_threshold=0.001,
         )
         assert request.entry_threshold == 0.01
 
     def test_very_large_lookback_period(self):
         """Test very large lookback period"""
         request = AddPairsStrategyRequest(
-            symbol_x="BTCUSDT",
-            symbol_y="ETHUSDT",
-            lookback_period=1000
+            symbol_x="BTCUSDT", symbol_y="ETHUSDT", lookback_period=1000
         )
         assert request.lookback_period == 1000
 
     def test_many_assets_triangular(self):
         """Test triangular arbitrage with many assets"""
         assets = [f"ASSET{i}" for i in range(10)]
-        request = SetupTriangularArbitrageRequest(
-            assets=assets
-        )
+        request = SetupTriangularArbitrageRequest(assets=assets)
         assert len(request.assets) == 10
 
     def test_very_strict_latency_requirement(self):
         """Test very strict latency requirement"""
         request = SetupTriangularArbitrageRequest(
             assets=["BTC", "ETH", "USDT"],
-            max_latency_ms=1.0  # 1ms
+            max_latency_ms=1.0,  # 1ms
         )
         assert request.max_latency_ms == 1.0
 
@@ -476,6 +445,6 @@ class TestEdgeCases:
         """Test very high profit threshold"""
         request = SetupTriangularArbitrageRequest(
             assets=["BTC", "ETH", "USDT"],
-            min_profit_threshold=0.5  # 50%
+            min_profit_threshold=0.5,  # 50%
         )
         assert request.min_profit_threshold == 0.5

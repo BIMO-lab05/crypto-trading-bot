@@ -21,8 +21,8 @@ Date: 2025-11-28
 """
 
 import logging
-from typing import Dict, Optional, Tuple, List, Any
-from dataclasses import dataclass, field
+from typing import Dict, Optional, Tuple, List
+from dataclasses import dataclass
 from enum import Enum
 from app.models import SignalAction, IndicatorSignal
 
@@ -31,33 +31,37 @@ logger = logging.getLogger(__name__)
 
 class MarketCondition(Enum):
     """Market condition classification based on ADX and volatility"""
-    STRONG_TREND = "STRONG_TREND"      # ADX >= 30, clear direction
-    TRENDING = "TRENDING"               # ADX 25-30, moderate trend
-    WEAK_TREND = "WEAK_TREND"          # ADX 20-25, weak trend
-    RANGING = "RANGING"                 # ADX < 20, sideways market
-    VOLATILE = "VOLATILE"               # High ATR, unpredictable
+
+    STRONG_TREND = "STRONG_TREND"  # ADX >= 30, clear direction
+    TRENDING = "TRENDING"  # ADX 25-30, moderate trend
+    WEAK_TREND = "WEAK_TREND"  # ADX 20-25, weak trend
+    RANGING = "RANGING"  # ADX < 20, sideways market
+    VOLATILE = "VOLATILE"  # High ATR, unpredictable
 
 
 class SignalStrength(Enum):
     """Signal strength classification"""
-    STRONG = "STRONG"       # High confidence, multiple confirmations
-    MODERATE = "MODERATE"   # Medium confidence, some confirmations
-    WEAK = "WEAK"          # Low confidence, minimal confirmations
-    NONE = "NONE"          # No actionable signal
+
+    STRONG = "STRONG"  # High confidence, multiple confirmations
+    MODERATE = "MODERATE"  # Medium confidence, some confirmations
+    WEAK = "WEAK"  # Low confidence, minimal confirmations
+    NONE = "NONE"  # No actionable signal
 
 
 @dataclass
 class PartialExitLevel:
     """Partial profit taking level configuration"""
-    price: float           # Price level for this exit
-    exit_percent: float    # Percentage of position to exit (0.0-1.0)
-    atr_multiple: float    # ATR multiple from entry
-    label: str             # Label for this level (TP1, TP2, TP3)
+
+    price: float  # Price level for this exit
+    exit_percent: float  # Percentage of position to exit (0.0-1.0)
+    atr_multiple: float  # ATR multiple from entry
+    label: str  # Label for this level (TP1, TP2, TP3)
 
 
 @dataclass
 class TradeSetup:
     """Complete trade setup with entry, stops, and targets"""
+
     action: SignalAction
     confidence: float
     signal_strength: SignalStrength
@@ -106,36 +110,36 @@ class ResearchOptimizedStrategy:
     # RESEARCH: 2-day RSI below 15 achieved 91% win rate in backtests
     # Standard RSI 30/70 achieves 60%+ win rate, 25/75 for aggressive entries
     # Using 30/70 as base with short RSI period for faster response
-    RSI_PERIOD_SHORT = 6          # Short RSI for entry timing (2-6 optimal)
-    RSI_OVERSOLD = 30             # RESEARCH: Standard 30 catches oversold bounces
-    RSI_OVERBOUGHT = 70           # RESEARCH: Standard 70 for overbought signals
-    RSI_EXTREME_OVERSOLD = 25     # NEW: Extreme oversold for high-confidence entries
-    RSI_EXTREME_OVERBOUGHT = 75   # NEW: Extreme overbought for high-confidence exits
+    RSI_PERIOD_SHORT = 6  # Short RSI for entry timing (2-6 optimal)
+    RSI_OVERSOLD = 30  # RESEARCH: Standard 30 catches oversold bounces
+    RSI_OVERBOUGHT = 70  # RESEARCH: Standard 70 for overbought signals
+    RSI_EXTREME_OVERSOLD = 25  # NEW: Extreme oversold for high-confidence entries
+    RSI_EXTREME_OVERBOUGHT = 75  # NEW: Extreme overbought for high-confidence exits
     RSI_TREND_FILTER_PERIOD = 14  # Standard period for trend filtering
-    RSI_TREND_THRESHOLD = 50      # TREND FILTER: >50 = bullish regime, <50 = bearish
+    RSI_TREND_THRESHOLD = 50  # TREND FILTER: >50 = bullish regime, <50 = bearish
     RSI_TREND_FILTER_ENABLED = True  # Use RSI as trend filter
-    RSI_MOMENTUM_MODE = False     # DISABLED: Was causing too many weak signals
+    RSI_MOMENTUM_MODE = False  # DISABLED: Was causing too many weak signals
 
     # MACD Parameters (RESEARCH-OPTIMIZED: Kang 2021 Study)
     # Standard 12-26-9: -3.6% annual return
     # Optimized 5-35-5: +11.0% annual return (+14.6% improvement)
-    MACD_FAST = 5                 # Fast EMA (prev: 12, captures short momentum)
-    MACD_SLOW = 35                # Slow EMA (prev: 26, stable trend baseline)
-    MACD_SIGNAL = 5               # Signal line (prev: 9, faster response)
+    MACD_FAST = 5  # Fast EMA (prev: 12, captures short momentum)
+    MACD_SLOW = 35  # Slow EMA (prev: 26, stable trend baseline)
+    MACD_SIGNAL = 5  # Signal line (prev: 9, faster response)
 
     # ADX Thresholds (trend strength classification)
-    ADX_STRONG_TREND = 30         # Clear trending market
-    ADX_TRENDING = 25             # Moderate trend
-    ADX_WEAK_TREND = 20           # Weak trend/transition
+    ADX_STRONG_TREND = 30  # Clear trending market
+    ADX_TRENDING = 25  # Moderate trend
+    ADX_WEAK_TREND = 20  # Weak trend/transition
     # Below 20 = Ranging market
 
     # Bollinger Band Parameters (RESEARCH-OPTIMIZED 2025-11-29)
     # Research: Wider bands (2.5-3.0 SD) better for crypto volatility
     # Reduces false breakout signals in volatile markets
     BB_PERIOD = 20
-    BB_STD_DEV = 2.5              # Widened from 2.0 for crypto volatility
-    BB_ENTRY_MULT = 1.02          # Enter at 2% above lower band
-    BB_EXIT_MULT = 0.98           # Exit at 2% below upper band
+    BB_STD_DEV = 2.5  # Widened from 2.0 for crypto volatility
+    BB_ENTRY_MULT = 1.02  # Enter at 2% above lower band
+    BB_EXIT_MULT = 0.98  # Exit at 2% below upper band
 
     # ATR-Based Risk Management - RESEARCH-OPTIMIZED (2025-12-21)
     # Based on: 3Commas, Bitsgap, Cryptohopper research
@@ -147,18 +151,24 @@ class ResearchOptimizedStrategy:
     #
     # Research shows 1:3 R/R optimal for crypto with proper confidence filtering
     ATR_PERIOD = 14
-    ATR_STOP_MULTIPLIER = 2.5     # Moderate stop (was 3.0) - balance between protection and noise
-    ATR_TRAILING_MULTIPLIER = 1.8 # Moderate trailing - protect profits while allowing growth
-    ATR_TP_MULTIPLIER = 7.5       # 1:3 R/R (2.5 SL * 3 = 7.5 TP)
+    ATR_STOP_MULTIPLIER = (
+        2.5  # Moderate stop (was 3.0) - balance between protection and noise
+    )
+    ATR_TRAILING_MULTIPLIER = (
+        1.8  # Moderate trailing - protect profits while allowing growth
+    )
+    ATR_TP_MULTIPLIER = 7.5  # 1:3 R/R (2.5 SL * 3 = 7.5 TP)
     ATR_TP_HIGH_CONFIDENCE = 9.0  # 1:3.5 R/R for high confidence trades (>75%)
     ATR_TP_MEDIUM_CONFIDENCE = 7.5  # 1:3 R/R for medium confidence (65-75%)
 
     # Position Sizing (Kelly Criterion based) - RESEARCH-OPTIMIZED (2025-12-21)
-    MAX_RISK_PER_TRADE = 0.030    # 3% max risk per trade (increased for better R/R)
-    MIN_POSITION_SIZE = 0.020     # 2% minimum (increased for meaningful positions)
-    MAX_POSITION_SIZE = 0.10      # 10% maximum (increased to allow larger positions on high confidence)
+    MAX_RISK_PER_TRADE = 0.030  # 3% max risk per trade (increased for better R/R)
+    MIN_POSITION_SIZE = 0.020  # 2% minimum (increased for meaningful positions)
+    MAX_POSITION_SIZE = (
+        0.10  # 10% maximum (increased to allow larger positions on high confidence)
+    )
     MAX_POSITION_SIZE_HIGH_VOL = 0.06  # 6% max in high volatility environments
-    KELLY_FRACTION = 0.20         # 20% Kelly for more conservative approach
+    KELLY_FRACTION = 0.20  # 20% Kelly for more conservative approach
 
     # ==========================================================================
     # DYNAMIC POSITION SIZING PARAMETERS (2025-12-01)
@@ -166,21 +176,21 @@ class ResearchOptimizedStrategy:
     # Research: Reduce size in high volatility, increase on high confidence
     # ==========================================================================
     # Volatility Thresholds (ATR as % of price)
-    ATR_LOW_VOLATILITY = 0.015    # Below 1.5% ATR = low volatility
-    ATR_NORMAL_VOLATILITY = 0.030 # 1.5-3% ATR = normal volatility
-    ATR_HIGH_VOLATILITY = 0.050   # Above 5% ATR = high volatility
+    ATR_LOW_VOLATILITY = 0.015  # Below 1.5% ATR = low volatility
+    ATR_NORMAL_VOLATILITY = 0.030  # 1.5-3% ATR = normal volatility
+    ATR_HIGH_VOLATILITY = 0.050  # Above 5% ATR = high volatility
 
     # Volatility Multipliers (reduce size in high volatility)
-    VOLATILITY_MULT_LOW = 1.2     # Low volatility: increase size 20%
+    VOLATILITY_MULT_LOW = 1.2  # Low volatility: increase size 20%
     VOLATILITY_MULT_NORMAL = 1.0  # Normal volatility: standard size
-    VOLATILITY_MULT_HIGH = 0.6    # High volatility: reduce size 40%
-    VOLATILITY_MULT_EXTREME = 0.4 # Extreme volatility (>7% ATR): reduce 60%
+    VOLATILITY_MULT_HIGH = 0.6  # High volatility: reduce size 40%
+    VOLATILITY_MULT_EXTREME = 0.4  # Extreme volatility (>7% ATR): reduce 60%
 
     # Enhanced Confidence Multipliers
-    CONFIDENCE_HIGH_THRESHOLD = 0.80    # High confidence threshold
+    CONFIDENCE_HIGH_THRESHOLD = 0.80  # High confidence threshold
     CONFIDENCE_VERY_HIGH_THRESHOLD = 0.90  # Very high confidence
-    CONFIDENCE_MULT_HIGH = 1.3          # 30% boost for high confidence
-    CONFIDENCE_MULT_VERY_HIGH = 1.5     # 50% boost for very high confidence
+    CONFIDENCE_MULT_HIGH = 1.3  # 30% boost for high confidence
+    CONFIDENCE_MULT_VERY_HIGH = 1.5  # 50% boost for very high confidence
 
     # Signal Quality Thresholds - RESEARCH-OPTIMIZED (2025-12-21)
     # Based on: 3Commas, Bitsgap, Cryptohopper research + Pattern Analysis
@@ -192,20 +202,24 @@ class ResearchOptimizedStrategy:
     #
     # RESEARCH-BACKED: Professional trading standards (2025-12-23)
     # ADJUSTED 2026-02-24: Lowered for ranging market to enable trading
-    MIN_INDICATORS_ALIGNED = 2    # ADJUSTED 2026-01-02: Lowered from 3 to 2 for ranging market trading
-    MIN_CONFIDENCE = 0.30         # LOWERED from 0.65 to 0.30 to enable trading in current market
-    MIN_CONFIDENCE_SHORT = 0.35   # LOWERED from 0.70 to 0.35 for ranging market
+    MIN_INDICATORS_ALIGNED = (
+        2  # ADJUSTED 2026-01-02: Lowered from 3 to 2 for ranging market trading
+    )
+    MIN_CONFIDENCE = (
+        0.30  # LOWERED from 0.65 to 0.30 to enable trading in current market
+    )
+    MIN_CONFIDENCE_SHORT = 0.35  # LOWERED from 0.70 to 0.35 for ranging market
     STRONG_SIGNAL_THRESHOLD = 0.50  # LOWERED from 0.75 to 0.50 for position sizing
     ENABLE_MOMENTUM_TRADING = False  # DISABLED - was causing false signals
 
     # 🆕 Confidence-Tiered Position Sizing (2025-12-04)
     # Scale position size based on signal quality
-    CONFIDENCE_TIER_SMALL = 0.55   # Small position threshold (50% of normal)
+    CONFIDENCE_TIER_SMALL = 0.55  # Small position threshold (50% of normal)
     CONFIDENCE_TIER_NORMAL = 0.65  # Normal position threshold (100%)
-    CONFIDENCE_TIER_LARGE = 0.80   # Large position threshold (130%)
-    POSITION_SIZE_SMALL_MULT = 0.50   # 50% size for low confidence
+    CONFIDENCE_TIER_LARGE = 0.80  # Large position threshold (130%)
+    POSITION_SIZE_SMALL_MULT = 0.50  # 50% size for low confidence
     POSITION_SIZE_NORMAL_MULT = 1.00  # 100% size for medium confidence
-    POSITION_SIZE_LARGE_MULT = 1.30   # 130% size for high confidence
+    POSITION_SIZE_LARGE_MULT = 1.30  # 130% size for high confidence
 
     # 🆕 Performance-Based Scaling (OPTIONAL - 2025-12-04)
     # Dynamically adjust position size based on recent performance
@@ -213,35 +227,37 @@ class ResearchOptimizedStrategy:
     ENABLE_PERFORMANCE_SCALING = False  # Set to True to enable adaptive sizing
 
     # Win/Loss Streak Parameters
-    WIN_STREAK_THRESHOLD = 2      # Number of wins to trigger bonus
-    WIN_STREAK_BONUS = 1.20       # +20% size after 2+ consecutive wins
-    LOSS_STREAK_THRESHOLD = 2     # Number of losses to trigger penalty
-    LOSS_STREAK_PENALTY = 0.70    # -30% size after 2+ consecutive losses
+    WIN_STREAK_THRESHOLD = 2  # Number of wins to trigger bonus
+    WIN_STREAK_BONUS = 1.20  # +20% size after 2+ consecutive wins
+    LOSS_STREAK_THRESHOLD = 2  # Number of losses to trigger penalty
+    LOSS_STREAK_PENALTY = 0.70  # -30% size after 2+ consecutive losses
 
     # Daily P&L Based Sizing
-    DAILY_PNL_BOOST_THRESHOLD = 2.0    # +2% daily P&L triggers size boost
-    DAILY_PNL_BOOST_MULT = 1.30        # +30% size on winning days
+    DAILY_PNL_BOOST_THRESHOLD = 2.0  # +2% daily P&L triggers size boost
+    DAILY_PNL_BOOST_MULT = 1.30  # +30% size on winning days
     DAILY_PNL_REDUCE_THRESHOLD = -2.0  # -2% daily P&L triggers size reduction
-    DAILY_PNL_REDUCE_MULT = 0.50       # -50% size on losing days
+    DAILY_PNL_REDUCE_MULT = 0.50  # -50% size on losing days
 
     # Max Performance Multipliers (safety limits)
-    MAX_PERFORMANCE_BOOST = 1.50   # Cap total performance bonus at +50%
-    MIN_PERFORMANCE_MULT = 0.30    # Floor total performance penalty at 30% (70% reduction)
+    MAX_PERFORMANCE_BOOST = 1.50  # Cap total performance bonus at +50%
+    MIN_PERFORMANCE_MULT = (
+        0.30  # Floor total performance penalty at 30% (70% reduction)
+    )
 
     # Category Diversity Requirements (RESEARCH-BACKED 2025-12-02)
     # Research: Single indicator type confirmation is weak
     # Require: 1 trend + 1 momentum + 1 volume/volatility = strong confirmation
     REQUIRE_CATEGORY_DIVERSITY = True
-    MIN_CATEGORIES_REQUIRED = 3   # Must have signals from 3 different categories
+    MIN_CATEGORIES_REQUIRED = 3  # Must have signals from 3 different categories
 
     # Trade Quality Filter (NEW 2025-12-02)
     # Research: Quality > Quantity - fewer but better trades
-    MIN_VOLUME_RATIO = 1.0        # Require at least average volume
+    MIN_VOLUME_RATIO = 1.0  # Require at least average volume
     REQUIRE_TREND_ALIGNMENT = True  # Require trend direction confirmation
 
     # Multi-Timeframe Settings
-    MTF_RATIO = 4                 # 4:1 ratio between timeframes
-    MTF_WEIGHT_HIGHER = 1.5       # Higher TF signals weighted more
+    MTF_RATIO = 4  # 4:1 ratio between timeframes
+    MTF_WEIGHT_HIGHER = 1.5  # Higher TF signals weighted more
 
     # ==========================================================================
     # PARTIAL PROFIT TAKING - RESEARCH-OPTIMIZED FOR 70% WIN RATE (2025-12-01)
@@ -251,7 +267,11 @@ class ResearchOptimizedStrategy:
     # ==========================================================================
     PARTIAL_EXIT_ENABLED = True
     PARTIAL_EXIT_LEVELS = [
-        {"atr_mult": 2.5, "exit_pct": 0.25, "label": "TP1"},  # 25% at 1:1 R/R (2.5x ATR)
+        {
+            "atr_mult": 2.5,
+            "exit_pct": 0.25,
+            "label": "TP1",
+        },  # 25% at 1:1 R/R (2.5x ATR)
         {"atr_mult": 4.0, "exit_pct": 0.35, "label": "TP2"},  # 35% at ~1.6:1 R/R
         {"atr_mult": 6.0, "exit_pct": 0.40, "label": "TP3"},  # 40% runners at 2.4:1 R/R
     ]
@@ -261,24 +281,36 @@ class ResearchOptimizedStrategy:
         self.trade_count = 0
         self.win_count = 0
         self.loss_count = 0
-        logger.info("ResearchOptimizedStrategy initialized with research-backed parameters")
-        logger.info(f"  RSI: period={self.RSI_PERIOD_SHORT}, thresholds={self.RSI_OVERSOLD}/{self.RSI_OVERBOUGHT}")
-        logger.info(f"  ADX: strong={self.ADX_STRONG_TREND}, trending={self.ADX_TRENDING}")
-        logger.info(f"  ATR Stops: {self.ATR_STOP_MULTIPLIER}x, TP: {self.ATR_TP_MULTIPLIER}x")
+        logger.info(
+            "ResearchOptimizedStrategy initialized with research-backed parameters"
+        )
+        logger.info(
+            f"  RSI: period={self.RSI_PERIOD_SHORT}, thresholds={self.RSI_OVERSOLD}/{self.RSI_OVERBOUGHT}"
+        )
+        logger.info(
+            f"  ADX: strong={self.ADX_STRONG_TREND}, trending={self.ADX_TRENDING}"
+        )
+        logger.info(
+            f"  ATR Stops: {self.ATR_STOP_MULTIPLIER}x, TP: {self.ATR_TP_MULTIPLIER}x"
+        )
         # DYNAMIC SIZING PARAMETERS (2025-12-01)
         logger.info("  [DYNAMIC SIZING ENABLED]")
-        logger.info(f"    Volatility: Low<{self.ATR_LOW_VOLATILITY*100:.1f}%(+{int((self.VOLATILITY_MULT_LOW-1)*100)}%) | "
-                   f"Normal<{self.ATR_NORMAL_VOLATILITY*100:.1f}% | "
-                   f"High>{self.ATR_HIGH_VOLATILITY*100:.1f}%(-{int((1-self.VOLATILITY_MULT_HIGH)*100)}%)")
-        logger.info(f"    Confidence: >{self.CONFIDENCE_HIGH_THRESHOLD*100:.0f}%(+{int((self.CONFIDENCE_MULT_HIGH-1)*100)}%) | "
-                   f">{self.CONFIDENCE_VERY_HIGH_THRESHOLD*100:.0f}%(+{int((self.CONFIDENCE_MULT_VERY_HIGH-1)*100)}%)")
+        logger.info(
+            f"    Volatility: Low<{self.ATR_LOW_VOLATILITY * 100:.1f}%(+{int((self.VOLATILITY_MULT_LOW - 1) * 100)}%) | "
+            f"Normal<{self.ATR_NORMAL_VOLATILITY * 100:.1f}% | "
+            f"High>{self.ATR_HIGH_VOLATILITY * 100:.1f}%(-{int((1 - self.VOLATILITY_MULT_HIGH) * 100)}%)"
+        )
+        logger.info(
+            f"    Confidence: >{self.CONFIDENCE_HIGH_THRESHOLD * 100:.0f}%(+{int((self.CONFIDENCE_MULT_HIGH - 1) * 100)}%) | "
+            f">{self.CONFIDENCE_VERY_HIGH_THRESHOLD * 100:.0f}%(+{int((self.CONFIDENCE_MULT_VERY_HIGH - 1) * 100)}%)"
+        )
 
     def classify_market_condition(
         self,
         adx: float,
         atr_percent: float,
         plus_di: Optional[float] = None,
-        minus_di: Optional[float] = None
+        minus_di: Optional[float] = None,
     ) -> MarketCondition:
         """
         Classify current market condition based on ADX and volatility
@@ -312,10 +344,7 @@ class ResearchOptimizedStrategy:
             return MarketCondition.RANGING
 
     def calculate_rsi_signal(
-        self,
-        rsi_short: float,
-        rsi_trend: float,
-        rsi_prev: Optional[float] = None
+        self, rsi_short: float, rsi_trend: float, rsi_prev: Optional[float] = None
     ) -> Tuple[SignalAction, float, str]:
         """
         Calculate RSI signal using research-optimized TREND FILTER MODE
@@ -367,7 +396,9 @@ class ResearchOptimizedStrategy:
                     return SignalAction.BUY, confidence, reasoning
                 else:
                     # Not oversold enough - HOLD
-                    reasoning = f"RSI not oversold (RSI={rsi_short:.1f}) - waiting for pullback"
+                    reasoning = (
+                        f"RSI not oversold (RSI={rsi_short:.1f}) - waiting for pullback"
+                    )
                     return SignalAction.HOLD, 0.40, reasoning
 
             # BEARISH REGIME: Entry only in overbought conditions
@@ -385,7 +416,9 @@ class ResearchOptimizedStrategy:
                     return SignalAction.SELL, confidence, reasoning
                 else:
                     # Not overbought enough - HOLD
-                    reasoning = f"RSI not overbought (RSI={rsi_short:.1f}) - waiting for bounce"
+                    reasoning = (
+                        f"RSI not overbought (RSI={rsi_short:.1f}) - waiting for bounce"
+                    )
                     return SignalAction.HOLD, 0.40, reasoning
 
         # FALLBACK: Original reversal mode (if trend filter disabled)
@@ -424,7 +457,7 @@ class ResearchOptimizedStrategy:
         bb_lower: float,
         bb_middle: float,
         bb_upper: float,
-        volume_ratio: float = 1.0
+        volume_ratio: float = 1.0,
     ) -> Tuple[SignalAction, float, str]:
         """
         Calculate Bollinger Band signal for mean reversion
@@ -484,7 +517,7 @@ class ResearchOptimizedStrategy:
 
         # Middle band - trend following zone
         else:
-            reasoning = f"BB neutral: price between bands"
+            reasoning = "BB neutral: price between bands"
             return SignalAction.HOLD, 0.5, reasoning
 
     def calculate_macd_confirmation(
@@ -492,7 +525,7 @@ class ResearchOptimizedStrategy:
         macd_line: float,
         signal_line: float,
         histogram: float,
-        histogram_prev: Optional[float] = None
+        histogram_prev: Optional[float] = None,
     ) -> Tuple[bool, bool, str]:
         """
         Calculate MACD as confirmation signal (not primary trigger)
@@ -520,9 +553,13 @@ class ResearchOptimizedStrategy:
         confirms_short = bearish_crossover or bearish_momentum
 
         if confirms_long and not confirms_short:
-            reasoning = f"MACD bullish: hist={histogram:.2f}, crossover={bullish_crossover}"
+            reasoning = (
+                f"MACD bullish: hist={histogram:.2f}, crossover={bullish_crossover}"
+            )
         elif confirms_short and not confirms_long:
-            reasoning = f"MACD bearish: hist={histogram:.2f}, crossover={bearish_crossover}"
+            reasoning = (
+                f"MACD bearish: hist={histogram:.2f}, crossover={bearish_crossover}"
+            )
         else:
             reasoning = f"MACD mixed: hist={histogram:.2f}"
 
@@ -533,7 +570,7 @@ class ResearchOptimizedStrategy:
         price: float,
         ema_fast: float,
         ema_slow: float,
-        ema_200: Optional[float] = None
+        ema_200: Optional[float] = None,
     ) -> Tuple[str, float, str]:
         """
         Calculate EMA-based trend direction
@@ -562,33 +599,29 @@ class ResearchOptimizedStrategy:
             if fast_above_slow and price_above_200:
                 # Full bullish alignment
                 confidence = 0.8 if price_above_fast else 0.6
-                reasoning = f"Bullish alignment: EMA9 > EMA50, price > EMA200"
+                reasoning = "Bullish alignment: EMA9 > EMA50, price > EMA200"
                 return "BULLISH", confidence, reasoning
 
             elif not fast_above_slow and not price_above_200:
                 # Full bearish alignment
                 confidence = 0.8 if not price_above_fast else 0.6
-                reasoning = f"Bearish alignment: EMA9 < EMA50, price < EMA200"
+                reasoning = "Bearish alignment: EMA9 < EMA50, price < EMA200"
                 return "BEARISH", confidence, reasoning
 
             else:
                 # Mixed signals
-                reasoning = f"Mixed trend: partial EMA alignment"
+                reasoning = "Mixed trend: partial EMA alignment"
                 return "NEUTRAL", 0.5, reasoning
 
         else:
             # Without 200 EMA, use simple crossover
             if fast_above_slow:
-                return "BULLISH", 0.6, f"EMA bullish: fast > slow"
+                return "BULLISH", 0.6, "EMA bullish: fast > slow"
             else:
-                return "BEARISH", 0.6, f"EMA bearish: fast < slow"
+                return "BEARISH", 0.6, "EMA bearish: fast < slow"
 
     def calculate_atr_stops(
-        self,
-        entry_price: float,
-        atr: float,
-        is_long: bool,
-        confidence: float = 0.5
+        self, entry_price: float, atr: float, is_long: bool, confidence: float = 0.5
     ) -> Tuple[float, float, float]:
         """
         Calculate ATR-based stop loss, take profit, and trailing stop
@@ -617,22 +650,30 @@ class ResearchOptimizedStrategy:
         if confidence >= 0.80:
             # High confidence: 1:3 R/R - let winners run
             tp_multiplier = self.ATR_TP_HIGH_CONFIDENCE
-            logger.info(f"High confidence ({confidence:.0%}): Using 1:3 R/R (TP={tp_multiplier}x ATR)")
+            logger.info(
+                f"High confidence ({confidence:.0%}): Using 1:3 R/R (TP={tp_multiplier}x ATR)"
+            )
         elif confidence >= 0.60:
             # Medium confidence: 1:2.5 R/R
             tp_multiplier = self.ATR_TP_MEDIUM_CONFIDENCE
-            logger.info(f"Medium confidence ({confidence:.0%}): Using 1:2.5 R/R (TP={tp_multiplier}x ATR)")
+            logger.info(
+                f"Medium confidence ({confidence:.0%}): Using 1:2.5 R/R (TP={tp_multiplier}x ATR)"
+            )
         else:
             # Standard confidence: 1:2 R/R
             tp_multiplier = self.ATR_TP_MULTIPLIER
-            logger.debug(f"Standard confidence ({confidence:.0%}): Using 1:2 R/R (TP={tp_multiplier}x ATR)")
+            logger.debug(
+                f"Standard confidence ({confidence:.0%}): Using 1:2 R/R (TP={tp_multiplier}x ATR)"
+            )
 
         tp_distance = atr * tp_multiplier
 
         if is_long:
             stop_loss = entry_price - stop_distance
             take_profit = entry_price + tp_distance
-            trailing_activation = entry_price + (atr * 1.5)  # Activate after 1.5x ATR profit
+            trailing_activation = entry_price + (
+                atr * 1.5
+            )  # Activate after 1.5x ATR profit
         else:
             stop_loss = entry_price + stop_distance
             take_profit = entry_price - tp_distance
@@ -641,10 +682,7 @@ class ResearchOptimizedStrategy:
         return stop_loss, take_profit, trailing_activation
 
     def calculate_partial_exits(
-        self,
-        entry_price: float,
-        atr: float,
-        is_long: bool
+        self, entry_price: float, atr: float, is_long: bool
     ) -> List[PartialExitLevel]:
         """
         Calculate partial exit levels for scaled profit taking
@@ -679,12 +717,17 @@ class ResearchOptimizedStrategy:
             else:
                 price = entry_price - distance
 
-            partial_exits.append(PartialExitLevel(
-                price=round(price, 2),
-                exit_percent=level["exit_pct"],
-                atr_multiple=level["atr_mult"],
-                label=level["label"]
-            ))
+            partial_exits.append(
+                PartialExitLevel(
+                    # Trigger compared against market price, closed at market —
+                    # no exchange tick precision at this layer. round(price, 2)
+                    # collapsed TP2 and TP3 onto one rung at ADA scale (PRICE-01).
+                    price=price,
+                    exit_percent=level["exit_pct"],
+                    atr_multiple=level["atr_mult"],
+                    label=level["label"],
+                )
+            )
 
         logger.debug(
             f"Calculated partial exits: "
@@ -701,7 +744,7 @@ class ResearchOptimizedStrategy:
         signal_confidence: float,
         atr_percent: float = 0.0,
         win_rate: float = 0.55,
-        avg_win_loss_ratio: float = 2.0
+        avg_win_loss_ratio: float = 2.0,
     ) -> float:
         """
         Calculate position size using Kelly Criterion with DYNAMIC adjustments
@@ -757,13 +800,19 @@ class ResearchOptimizedStrategy:
         if atr_percent > 0:
             if atr_percent >= 0.07:  # Extreme volatility > 7%
                 volatility_mult = self.VOLATILITY_MULT_EXTREME
-                logger.debug(f"EXTREME volatility ({atr_percent:.2%}): size *= {volatility_mult}")
+                logger.debug(
+                    f"EXTREME volatility ({atr_percent:.2%}): size *= {volatility_mult}"
+                )
             elif atr_percent >= self.ATR_HIGH_VOLATILITY:
                 volatility_mult = self.VOLATILITY_MULT_HIGH
-                logger.debug(f"HIGH volatility ({atr_percent:.2%}): size *= {volatility_mult}")
+                logger.debug(
+                    f"HIGH volatility ({atr_percent:.2%}): size *= {volatility_mult}"
+                )
             elif atr_percent <= self.ATR_LOW_VOLATILITY:
                 volatility_mult = self.VOLATILITY_MULT_LOW
-                logger.debug(f"LOW volatility ({atr_percent:.2%}): size *= {volatility_mult}")
+                logger.debug(
+                    f"LOW volatility ({atr_percent:.2%}): size *= {volatility_mult}"
+                )
             else:
                 volatility_mult = self.VOLATILITY_MULT_NORMAL
         else:
@@ -776,15 +825,21 @@ class ResearchOptimizedStrategy:
         if signal_confidence >= self.CONFIDENCE_TIER_LARGE:
             # 0.80+ confidence: Large position (130%)
             confidence_mult = self.POSITION_SIZE_LARGE_MULT
-            logger.debug(f"LARGE position tier ({signal_confidence:.2%}): size *= {confidence_mult}")
+            logger.debug(
+                f"LARGE position tier ({signal_confidence:.2%}): size *= {confidence_mult}"
+            )
         elif signal_confidence >= self.CONFIDENCE_TIER_NORMAL:
             # 0.65-0.80 confidence: Normal position (100%)
             confidence_mult = self.POSITION_SIZE_NORMAL_MULT
-            logger.debug(f"NORMAL position tier ({signal_confidence:.2%}): size *= {confidence_mult}")
+            logger.debug(
+                f"NORMAL position tier ({signal_confidence:.2%}): size *= {confidence_mult}"
+            )
         else:
             # 0.55-0.65 confidence: Small position (50%)
             confidence_mult = self.POSITION_SIZE_SMALL_MULT
-            logger.debug(f"SMALL position tier ({signal_confidence:.2%}): size *= {confidence_mult}")
+            logger.debug(
+                f"SMALL position tier ({signal_confidence:.2%}): size *= {confidence_mult}"
+            )
 
         # =================================================================
         # 🆕 PERFORMANCE-BASED SCALING (OPTIONAL - 2025-12-04)
@@ -796,6 +851,7 @@ class ResearchOptimizedStrategy:
         if self.ENABLE_PERFORMANCE_SCALING:
             # Get recent trade history for performance tracking
             from app.paper_trading import get_paper_engine
+
             engine = get_paper_engine()
 
             # Calculate win/loss streak
@@ -804,7 +860,9 @@ class ResearchOptimizedStrategy:
                 streak = 0
                 last_result = None
                 for trade in reversed(recent_trades):
-                    current_result = 'win' if float(trade.get('realized_pnl', 0)) > 0 else 'loss'
+                    current_result = (
+                        "win" if float(trade.get("realized_pnl", 0)) > 0 else "loss"
+                    )
                     if last_result is None:
                         last_result = current_result
                         streak = 1
@@ -814,41 +872,50 @@ class ResearchOptimizedStrategy:
                         break
 
                 # Apply win/loss streak multiplier
-                if last_result == 'win' and streak >= self.WIN_STREAK_THRESHOLD:
+                if last_result == "win" and streak >= self.WIN_STREAK_THRESHOLD:
                     performance_mult *= self.WIN_STREAK_BONUS
-                    logger.info(f"🔥 WIN STREAK ({streak}): size *= {self.WIN_STREAK_BONUS} (total: {performance_mult:.2f}x)")
-                elif last_result == 'loss' and streak >= self.LOSS_STREAK_THRESHOLD:
+                    logger.info(
+                        f"🔥 WIN STREAK ({streak}): size *= {self.WIN_STREAK_BONUS} (total: {performance_mult:.2f}x)"
+                    )
+                elif last_result == "loss" and streak >= self.LOSS_STREAK_THRESHOLD:
                     performance_mult *= self.LOSS_STREAK_PENALTY
-                    logger.warning(f"⚠️  LOSS STREAK ({streak}): size *= {self.LOSS_STREAK_PENALTY} (total: {performance_mult:.2f}x)")
+                    logger.warning(
+                        f"⚠️  LOSS STREAK ({streak}): size *= {self.LOSS_STREAK_PENALTY} (total: {performance_mult:.2f}x)"
+                    )
 
-            # Calculate daily P&L percentage
-            try:
-                portfolio = engine.get_portfolio_summary()
-                daily_pnl = float(portfolio.get('daily_pnl', 0))
-                balance = float(portfolio.get('balance', 10000))
-                daily_pnl_pct = (daily_pnl / balance * 100) if balance > 0 else 0
-
-                # Apply daily P&L based sizing
-                if daily_pnl_pct >= self.DAILY_PNL_BOOST_THRESHOLD:
-                    performance_mult *= self.DAILY_PNL_BOOST_MULT
-                    logger.info(f"📈 WINNING DAY ({daily_pnl_pct:+.2f}%): size *= {self.DAILY_PNL_BOOST_MULT} (total: {performance_mult:.2f}x)")
-                elif daily_pnl_pct <= self.DAILY_PNL_REDUCE_THRESHOLD:
-                    performance_mult *= self.DAILY_PNL_REDUCE_MULT
-                    logger.warning(f"📉 LOSING DAY ({daily_pnl_pct:+.2f}%): size *= {self.DAILY_PNL_REDUCE_MULT} (total: {performance_mult:.2f}x)")
-            except Exception as e:
-                logger.debug(f"Could not calculate daily P&L for performance scaling: {e}")
+            # REMOVED 2026-08-05 (AUDIT 2.5, task E6): the daily-P&L sizing
+            # block that lived here was triply broken and is deleted rather
+            # than repaired piecemeal:
+            #   1. it called engine.get_portfolio_summary(), a method that does
+            #      not exist on PaperTradingEngine (instant AttributeError),
+            #   2. the AttributeError was swallowed by a blanket
+            #      `except Exception` that logged at DEBUG,
+            #   3. its fallback `portfolio.get('balance', 10000)` assumed a
+            #      $10,000 account — 100x the real $100.
+            # If daily-P&L-based sizing is ever wanted, rebuild it against the
+            # real engine API (get_balance()/get_initial_balance()) with no
+            # silent fallback and no swallowed exceptions. The DAILY_PNL_*
+            # class constants above are retained only as documentation of the
+            # intended thresholds; nothing reads them now.
 
             # Apply safety caps to performance multiplier
-            performance_mult = max(self.MIN_PERFORMANCE_MULT, min(performance_mult, self.MAX_PERFORMANCE_BOOST))
+            performance_mult = max(
+                self.MIN_PERFORMANCE_MULT,
+                min(performance_mult, self.MAX_PERFORMANCE_BOOST),
+            )
 
             if performance_mult != 1.0:
-                logger.info(f"Performance-based sizing: {performance_mult:.2f}x multiplier applied")
+                logger.info(
+                    f"Performance-based sizing: {performance_mult:.2f}x multiplier applied"
+                )
 
         # =================================================================
         # COMBINED DYNAMIC SIZING
         # Kelly * Volatility * Confidence tier * Performance (if enabled)
         # =================================================================
-        dynamic_size = kelly_adjusted * volatility_mult * confidence_mult * performance_mult
+        dynamic_size = (
+            kelly_adjusted * volatility_mult * confidence_mult * performance_mult
+        )
 
         # Calculate position size based on max risk per trade
         max_position_from_risk = self.MAX_RISK_PER_TRADE / risk_per_unit
@@ -858,20 +925,18 @@ class ResearchOptimizedStrategy:
         max_size_limit = self.MAX_POSITION_SIZE
         if atr_percent >= self.ATR_HIGH_VOLATILITY:
             max_size_limit = self.MAX_POSITION_SIZE_HIGH_VOL
-            logger.debug(f"HIGH volatility: max size capped at {max_size_limit*100:.1f}%")
+            logger.debug(
+                f"HIGH volatility: max size capped at {max_size_limit * 100:.1f}%"
+            )
 
         # Final position size
-        position_size = min(
-            dynamic_size,
-            max_position_from_risk,
-            max_size_limit
-        )
+        position_size = min(dynamic_size, max_position_from_risk, max_size_limit)
 
         # Log the sizing breakdown
         logger.info(
             f"[DYNAMIC SIZING] Kelly={kelly_adjusted:.3f}, "
             f"Vol={volatility_mult:.2f}x, Conf={confidence_mult:.2f}x, "
-            f"Final={position_size:.3f} ({position_size*100:.1f}%)"
+            f"Final={position_size:.3f} ({position_size * 100:.1f}%)"
         )
 
         return max(position_size, self.MIN_POSITION_SIZE)
@@ -880,7 +945,10 @@ class ResearchOptimizedStrategy:
         self,
         indicators: Dict[str, IndicatorSignal],
         current_price: float,
-        capital: float = 10000.0
+        # REQUIRED — the old 10000.0 default was 100x the real account; the
+        # only caller (HybridStrategyRouter) passes the live balance
+        # explicitly (AUDIT 2.5).
+        capital: float,
     ) -> Optional[TradeSetup]:
         """
         Generate a complete trade setup based on all indicators
@@ -961,7 +1029,7 @@ class ResearchOptimizedStrategy:
         rsi_action, rsi_conf, rsi_reason = self.calculate_rsi_signal(
             rsi_short=rsi_value,
             rsi_trend=rsi_trend,  # FIXED: Now uses actual RSI for trend
-            rsi_prev=None  # Would need previous value
+            rsi_prev=None,  # Would need previous value
         )
 
         if rsi_action == SignalAction.BUY:
@@ -973,14 +1041,31 @@ class ResearchOptimizedStrategy:
         reasoning.append(rsi_reason)
 
         # Bollinger Band Signal
-        bb_lower = bb.metadata.get("lower_band", current_price * 0.98) if bb.metadata else current_price * 0.98
-        bb_upper = bb.metadata.get("upper_band", current_price * 1.02) if bb.metadata else current_price * 1.02
-        bb_middle = bb.metadata.get("middle_band", current_price) if bb.metadata else current_price
+        bb_lower = (
+            bb.metadata.get("lower_band", current_price * 0.98)
+            if bb.metadata
+            else current_price * 0.98
+        )
+        bb_upper = (
+            bb.metadata.get("upper_band", current_price * 1.02)
+            if bb.metadata
+            else current_price * 1.02
+        )
+        bb_middle = (
+            bb.metadata.get("middle_band", current_price)
+            if bb.metadata
+            else current_price
+        )
 
         volume_ratio = 1.0
         if volume_conf and volume_conf.metadata:
             strength = volume_conf.metadata.get("strength", "MODERATE")
-            volume_ratio = {"STRONG": 1.5, "MODERATE": 1.0, "WEAK": 0.7, "MINIMAL": 0.5}.get(strength, 1.0)
+            volume_ratio = {
+                "STRONG": 1.5,
+                "MODERATE": 1.0,
+                "WEAK": 0.7,
+                "MINIMAL": 0.5,
+            }.get(strength, 1.0)
 
         bb_action, bb_conf, bb_reason = self.calculate_bollinger_signal(
             current_price, bb_lower, bb_middle, bb_upper, volume_ratio
@@ -1025,7 +1110,11 @@ class ResearchOptimizedStrategy:
 
         # Trend Filter (Gatekeeper)
         if trend_filter:
-            trend = trend_filter.metadata.get("trend", "NEUTRAL") if trend_filter.metadata else "NEUTRAL"
+            trend = (
+                trend_filter.metadata.get("trend", "NEUTRAL")
+                if trend_filter.metadata
+                else "NEUTRAL"
+            )
             if trend == "BULLISH":
                 buy_signals += 0.5
             elif trend == "BEARISH":
@@ -1043,12 +1132,16 @@ class ResearchOptimizedStrategy:
         net_signal = buy_signals - sell_signals
 
         # Require minimum indicator alignment and clear directional signal
-        if buy_signals >= self.MIN_INDICATORS_ALIGNED and net_signal >= 0.15:  # Lowered from 0.30
+        if (
+            buy_signals >= self.MIN_INDICATORS_ALIGNED and net_signal >= 0.15
+        ):  # Lowered from 0.30
             action = SignalAction.BUY
             indicators_aligned = max(1, round(buy_signals))
             # Confidence based on signal strength relative to total
             base_confidence = 0.40 + (buy_signals / (total_signals + 1)) * 0.4
-        elif sell_signals >= self.MIN_INDICATORS_ALIGNED and net_signal <= -0.15:  # Lowered from -0.30
+        elif (
+            sell_signals >= self.MIN_INDICATORS_ALIGNED and net_signal <= -0.15
+        ):  # Lowered from -0.30
             action = SignalAction.SELL
             indicators_aligned = max(1, round(sell_signals))
             base_confidence = 0.40 + (sell_signals / (total_signals + 1)) * 0.4
@@ -1063,10 +1156,10 @@ class ResearchOptimizedStrategy:
         # AGGRESSIVE: All market conditions acceptable, just weight differently
         regime_mult = {
             MarketCondition.STRONG_TREND: 1.3,  # Boost strong trends
-            MarketCondition.TRENDING: 1.2,       # Good for trading
-            MarketCondition.WEAK_TREND: 1.1,     # Still tradeable
-            MarketCondition.RANGING: 1.0,        # Mean reversion okay
-            MarketCondition.VOLATILE: 0.9        # Still trade but smaller
+            MarketCondition.TRENDING: 1.2,  # Good for trading
+            MarketCondition.WEAK_TREND: 1.1,  # Still tradeable
+            MarketCondition.RANGING: 1.0,  # Mean reversion okay
+            MarketCondition.VOLATILE: 0.9,  # Still trade but smaller
         }.get(market_condition, 1.0)
 
         final_confidence = min(base_confidence * regime_mult, 0.95)
@@ -1074,11 +1167,15 @@ class ResearchOptimizedStrategy:
         # 🆕 HYBRID: Direction-Based Confidence Filtering (2025-12-04)
         # SHORT requires higher confidence due to 0% WR vs LONG 41% WR
         is_short_signal = action == SignalAction.SELL
-        min_required_confidence = self.MIN_CONFIDENCE_SHORT if is_short_signal else self.MIN_CONFIDENCE
+        min_required_confidence = (
+            self.MIN_CONFIDENCE_SHORT if is_short_signal else self.MIN_CONFIDENCE
+        )
 
         if final_confidence < min_required_confidence:
             direction = "SHORT" if is_short_signal else "LONG"
-            reasoning.append(f"{direction} confidence too low: {final_confidence:.2f} < {min_required_confidence:.2f}")
+            reasoning.append(
+                f"{direction} confidence too low: {final_confidence:.2f} < {min_required_confidence:.2f}"
+            )
             return None
 
         # =================================================================
@@ -1095,7 +1192,9 @@ class ResearchOptimizedStrategy:
 
         reasoning.append(f"ATR stops: SL={stop_loss:.2f}, TP={take_profit:.2f}")
         if partial_exits:
-            tp_labels = ", ".join([f"{pe.label}@{pe.price:.2f}" for pe in partial_exits])
+            tp_labels = ", ".join(
+                [f"{pe.label}@{pe.price:.2f}" for pe in partial_exits]
+            )
             reasoning.append(f"Partial exits: {tp_labels}")
 
         # =================================================================
@@ -1110,10 +1209,12 @@ class ResearchOptimizedStrategy:
             entry_price=current_price,
             stop_loss=stop_loss,
             signal_confidence=final_confidence,
-            atr_percent=atr_percent  # NEW: Pass volatility for dynamic sizing
+            atr_percent=atr_percent,  # NEW: Pass volatility for dynamic sizing
         )
 
-        reasoning.append(f"Position: {position_size*100:.1f}% (Vol={atr_percent*100:.1f}%)")
+        reasoning.append(
+            f"Position: {position_size * 100:.1f}% (Vol={atr_percent * 100:.1f}%)"
+        )
 
         # =================================================================
         # STEP 7: Classify Signal Strength
@@ -1140,11 +1241,13 @@ class ResearchOptimizedStrategy:
             reasoning=reasoning,
             indicators_aligned=indicators_aligned,
             market_condition=market_condition,
-            partial_exits=partial_exits if partial_exits else None
+            partial_exits=partial_exits if partial_exits else None,
         )
 
-        logger.info(f"Signal Generated: {action.value} | Confidence: {final_confidence:.2f} | "
-                   f"Strength: {signal_strength.value} | Aligned: {indicators_aligned}")
+        logger.info(
+            f"Signal Generated: {action.value} | Confidence: {final_confidence:.2f} | "
+            f"Strength: {signal_strength.value} | Aligned: {indicators_aligned}"
+        )
 
         return trade_setup
 
@@ -1155,27 +1258,27 @@ class ResearchOptimizedStrategy:
                 "period_short": self.RSI_PERIOD_SHORT,
                 "oversold": self.RSI_OVERSOLD,
                 "overbought": self.RSI_OVERBOUGHT,
-                "trend_filter_period": self.RSI_TREND_FILTER_PERIOD
+                "trend_filter_period": self.RSI_TREND_FILTER_PERIOD,
             },
             "adx": {
                 "strong_trend": self.ADX_STRONG_TREND,
                 "trending": self.ADX_TRENDING,
-                "weak_trend": self.ADX_WEAK_TREND
+                "weak_trend": self.ADX_WEAK_TREND,
             },
             "atr_stops": {
                 "stop_multiplier": self.ATR_STOP_MULTIPLIER,
                 "tp_multiplier": self.ATR_TP_MULTIPLIER,
-                "trailing_multiplier": self.ATR_TRAILING_MULTIPLIER
+                "trailing_multiplier": self.ATR_TRAILING_MULTIPLIER,
             },
             "position_sizing": {
                 "max_risk": self.MAX_RISK_PER_TRADE,
                 "min_size": self.MIN_POSITION_SIZE,
                 "max_size": self.MAX_POSITION_SIZE,
-                "kelly_fraction": self.KELLY_FRACTION
+                "kelly_fraction": self.KELLY_FRACTION,
             },
             "signal_quality": {
                 "min_indicators": self.MIN_INDICATORS_ALIGNED,
                 "min_confidence": self.MIN_CONFIDENCE,
-                "strong_threshold": self.STRONG_SIGNAL_THRESHOLD
-            }
+                "strong_threshold": self.STRONG_SIGNAL_THRESHOLD,
+            },
         }

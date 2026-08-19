@@ -15,6 +15,7 @@ import pandas as pd
 import logging
 from backtest_engine import BacktestEngine
 from data_downloader import HistoricalDataDownloader
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402,F401
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -491,7 +492,7 @@ async def main():
     )
     parser.add_argument("--days", type=int, default=90, help="Days of historical data")
     parser.add_argument(
-        "--capital", type=float, default=10000.0, help="Initial capital"
+        "--capital", type=float, default=ACCOUNT_EQUITY_USD, help="Initial capital"
     )
     parser.add_argument(
         "--data-file", type=str, help="Use existing CSV file instead of downloading"

@@ -50,6 +50,17 @@ class RSICalculator:
     optimization with 6-month historical windows.
     """
 
+    # Bounds of the expanded neutral (HOLD) zone. The moderate BUY/SELL zones
+    # run from these out to the oversold/overbought thresholds.
+    NEUTRAL_LOWER = 35
+    NEUTRAL_UPPER = 65
+
+    # Confidence at the moderate/strong join. The moderate zones ramp
+    # 0 -> MODERATE_MAX_CONFIDENCE and the strong zones continue
+    # MODERATE_MAX_CONFIDENCE -> 1.0, which is what makes the curve continuous
+    # and monotone in distance from neutral. See generate_signal().
+    MODERATE_MAX_CONFIDENCE = 0.6
+
     def __init__(self, period: int = 9):
         """
         Initialize RSI calculator
@@ -67,7 +78,7 @@ class RSICalculator:
         # - Crypto markets: overbought=80, oversold=20 (allows stronger trends)
         # - Research shows 82.68% accuracy with these crypto-specific thresholds
         self.overbought_threshold = 80  # RSI > 80 = overbought (sell signal)
-        self.oversold_threshold = 20    # RSI < 20 = oversold (buy signal)
+        self.oversold_threshold = 20  # RSI < 20 = oversold (buy signal)
 
         logger.info(
             f"RSI Calculator initialized (RESEARCH-OPTIMIZED): "
@@ -90,26 +101,34 @@ class RSICalculator:
             Current RSI value or None if insufficient data
         """
         if len(df) < self.period + 1:
-            logger.warning(f"Insufficient data for RSI: need {self.period + 1}, got {len(df)}")
+            logger.warning(
+                f"Insufficient data for RSI: need {self.period + 1}, got {len(df)}"
+            )
             return None
 
         try:
             # Calculate price changes
-            delta = df['close'].diff()
+            delta = df["close"].diff()
 
             # Separate gains and losses
             gains = delta.where(delta > 0, 0.0)
             losses = -delta.where(delta < 0, 0.0)
 
             # Calculate average gain and loss using Wilder's smoothing method
-            avg_gain = gains.ewm(alpha=1/self.period, min_periods=self.period, adjust=False).mean()
-            avg_loss = losses.ewm(alpha=1/self.period, min_periods=self.period, adjust=False).mean()
+            avg_gain = gains.ewm(
+                alpha=1 / self.period, min_periods=self.period, adjust=False
+            ).mean()
+            avg_loss = losses.ewm(
+                alpha=1 / self.period, min_periods=self.period, adjust=False
+            ).mean()
 
             # Fixed: Calculate RS and RSI with division by zero protection (Critical Issue #1)
             # When avg_loss is 0 (strong uptrend), RSI = 100
             # When avg_gain is 0 (strong downtrend), RSI = 0
             # Standard RSI behavior for edge cases
-            rs = avg_gain / avg_loss.replace(0, np.inf)  # Replace 0 with inf to avoid division by zero
+            rs = avg_gain / avg_loss.replace(
+                0, np.inf
+            )  # Replace 0 with inf to avoid division by zero
             rsi = 100 - (100 / (1 + rs))
 
             # Get the most recent RSI value
@@ -117,14 +136,16 @@ class RSICalculator:
 
             # Fixed: Check for NaN/Inf values before returning (Critical Issue #5 - NaN propagation)
             if np.isnan(current_rsi) or np.isinf(current_rsi):
-                logger.warning(f"RSI calculation resulted in NaN or Inf. avg_gain: {avg_gain.iloc[-1]}, avg_loss: {avg_loss.iloc[-1]}")
+                logger.warning(
+                    f"RSI calculation resulted in NaN or Inf. avg_gain: {avg_gain.iloc[-1]}, avg_loss: {avg_loss.iloc[-1]}"
+                )
                 # Return safe default based on market direction
                 if avg_gain.iloc[-1] > 0 and avg_loss.iloc[-1] == 0:
                     return 100.0  # Only gains = extremely overbought
                 elif avg_gain.iloc[-1] == 0 and avg_loss.iloc[-1] > 0:
-                    return 0.0    # Only losses = extremely oversold
+                    return 0.0  # Only losses = extremely oversold
                 else:
-                    return 50.0   # Neutral fallback
+                    return 50.0  # Neutral fallback
 
             logger.debug(f"Calculated RSI: {current_rsi:.2f}")
             return float(current_rsi)
@@ -150,35 +171,73 @@ class RSICalculator:
             - RSI 35-65: HOLD/NEUTRAL (expanded neutral zone for crypto)
             - RSI > 65: Moderate SELL (overbought zone)
             - RSI > 80: Strong SELL (extremely overbought in crypto)
+
+        Confidence is monotonically non-decreasing in distance from the
+        neutral midpoint across each directional side (MONOTONICITY FIX
+        2026-08-09). The strong zones previously restarted their ramp at 0
+        instead of continuing from where the moderate zones ended, so crossing
+        RSI=20 downward collapsed confidence from 0.60 to 0.0005 and it did not
+        recover to 0.60 until RSI <= 8. Since voter.py computes
+        `score x confidence x weight`, the RSI leg contributed ~0 on exactly
+        the bars it logged as "Strong BUY/SELL": 350/360 BTC and 360/378 ADA
+        extreme bars carried a weaker vote than a bar sitting on the threshold.
+
+        The HOLD zone's flat 0.3 is deliberately outside this invariant --
+        it is confidence in *no* signal, and HOLD scores 0.0 in the voter, so
+        it never multiplies into a directional contribution.
         """
+        # Ceiling of the moderate zones and floor of the strong zones. Tying
+        # them to one constant is what keeps the curve continuous at the join.
+        moderate_max = self.MODERATE_MAX_CONFIDENCE
+
         # Calculate confidence based on distance from thresholds
         if rsi < self.oversold_threshold:
             # Extremely oversold - Strong BUY signal (crypto-specific)
-            # Confidence increases as RSI gets lower (approaching 0)
-            confidence = min(1.0, (self.oversold_threshold - rsi) / self.oversold_threshold)
+            # Ramps moderate_max -> 1.0 as RSI falls from the threshold to 0,
+            # picking up exactly where the moderate branch below leaves off.
+            extremity = min(
+                1.0, (self.oversold_threshold - rsi) / self.oversold_threshold
+            )
+            confidence = moderate_max + extremity * (1.0 - moderate_max)
             signal = SignalType.BUY
-            logger.info(f"RSI {rsi:.2f} < {self.oversold_threshold} -> Strong BUY (confidence: {confidence:.2f})")
+            logger.info(
+                f"RSI {rsi:.2f} < {self.oversold_threshold} -> Strong BUY (confidence: {confidence:.2f})"
+            )
 
         elif rsi > self.overbought_threshold:
             # Extremely overbought - Strong SELL signal (crypto-specific)
-            # Confidence increases as RSI gets higher (approaching 100)
-            confidence = min(1.0, (rsi - self.overbought_threshold) / (100 - self.overbought_threshold))
+            # Ramps moderate_max -> 1.0 as RSI rises from the threshold to 100.
+            extremity = min(
+                1.0,
+                (rsi - self.overbought_threshold) / (100 - self.overbought_threshold),
+            )
+            confidence = moderate_max + extremity * (1.0 - moderate_max)
             signal = SignalType.SELL
-            logger.info(f"RSI {rsi:.2f} > {self.overbought_threshold} -> Strong SELL (confidence: {confidence:.2f})")
+            logger.info(
+                f"RSI {rsi:.2f} > {self.overbought_threshold} -> Strong SELL (confidence: {confidence:.2f})"
+            )
 
-        elif rsi < 35:
+        elif rsi < self.NEUTRAL_LOWER:
             # Oversold zone - Moderate BUY
-            # Research shows 35 is a good secondary threshold for crypto
-            confidence = (35 - rsi) / 15 * 0.6  # Max 0.6 confidence
+            # Research shows 35 is a good secondary threshold for crypto.
+            # Span is derived from the threshold, not a literal 15, so the
+            # join with the strong branch stays exact if the threshold moves.
+            span = self.NEUTRAL_LOWER - self.oversold_threshold
+            confidence = (self.NEUTRAL_LOWER - rsi) / span * moderate_max
             signal = SignalType.BUY
-            logger.info(f"RSI {rsi:.2f} in oversold zone (20-35) -> Moderate BUY (confidence: {confidence:.2f})")
+            logger.info(
+                f"RSI {rsi:.2f} in oversold zone ({self.oversold_threshold}-{self.NEUTRAL_LOWER}) -> Moderate BUY (confidence: {confidence:.2f})"
+            )
 
-        elif rsi > 65:
+        elif rsi > self.NEUTRAL_UPPER:
             # Overbought zone - Moderate SELL
             # Research shows 65 is a good secondary threshold for crypto
-            confidence = (rsi - 65) / 15 * 0.6  # Max 0.6 confidence
+            span = self.overbought_threshold - self.NEUTRAL_UPPER
+            confidence = (rsi - self.NEUTRAL_UPPER) / span * moderate_max
             signal = SignalType.SELL
-            logger.info(f"RSI {rsi:.2f} in overbought zone (65-80) -> Moderate SELL (confidence: {confidence:.2f})")
+            logger.info(
+                f"RSI {rsi:.2f} in overbought zone ({self.NEUTRAL_UPPER}-{self.overbought_threshold}) -> Moderate SELL (confidence: {confidence:.2f})"
+            )
 
         else:
             # Expanded neutral range (35-65) for crypto - HOLD
@@ -190,8 +249,7 @@ class RSICalculator:
         return signal, round(confidence, 2)
 
     def calculate_with_signal(
-        self,
-        df: pd.DataFrame
+        self, df: pd.DataFrame
     ) -> Tuple[Optional[float], SignalType, float]:
         """
         Calculate RSI and generate signal in one call
@@ -224,17 +282,23 @@ class RSICalculator:
             return pd.Series(dtype=float)
 
         try:
-            delta = df['close'].diff()
+            delta = df["close"].diff()
             gains = delta.where(delta > 0, 0.0)
             losses = -delta.where(delta < 0, 0.0)
 
-            avg_gain = gains.ewm(alpha=1/self.period, min_periods=self.period, adjust=False).mean()
-            avg_loss = losses.ewm(alpha=1/self.period, min_periods=self.period, adjust=False).mean()
+            avg_gain = gains.ewm(
+                alpha=1 / self.period, min_periods=self.period, adjust=False
+            ).mean()
+            avg_loss = losses.ewm(
+                alpha=1 / self.period, min_periods=self.period, adjust=False
+            ).mean()
 
             # Fixed: Calculate RS and RSI with division by zero protection (Critical Issue #1)
             # When avg_loss is 0 (strong uptrend), RSI = 100
             # Standard RSI behavior for edge cases across entire series
-            rs = avg_gain / avg_loss.replace(0, np.inf)  # Replace 0 with inf to avoid division by zero
+            rs = avg_gain / avg_loss.replace(
+                0, np.inf
+            )  # Replace 0 with inf to avoid division by zero
             rsi_series = 100 - (100 / (1 + rs))
 
             return rsi_series

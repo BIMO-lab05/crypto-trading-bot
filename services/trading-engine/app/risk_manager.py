@@ -34,6 +34,7 @@ class RiskManager:
         # for the lifetime of the process ("daily" loss cap was actually a
         # lifetime cap that also silently reset on every restart).
         from datetime import datetime, timezone
+
         self._daily_pnl_date = datetime.now(timezone.utc).date()
         logger.info("RiskManager initialized")
         logger.info(f"  Max position size: {self.settings.max_position_size_pct}%")
@@ -44,6 +45,7 @@ class RiskManager:
     def _roll_daily_window_if_needed(self):
         """Auto-reset daily P&L when the UTC day changes (FIX 2026-07-28)."""
         from datetime import datetime, timezone
+
         today = datetime.now(timezone.utc).date()
         if today != self._daily_pnl_date:
             logger.info(
@@ -59,6 +61,7 @@ class RiskManager:
     def reset_daily_pnl(self):
         """Reset daily P&L (call at start of each trading day)"""
         from datetime import datetime, timezone
+
         logger.info(f"Resetting daily P&L (was: {self.daily_pnl})")
         self.daily_pnl = Decimal("0")
         self.trading_halted = False
@@ -81,7 +84,9 @@ class RiskManager:
             return True
 
         # Check daily loss limit
-        max_loss = Decimal(str(self.settings.paper_initial_balance)) * Decimal(str(self.settings.max_daily_loss_pct / 100))
+        max_loss = Decimal(str(self.settings.paper_initial_balance)) * Decimal(
+            str(self.settings.max_daily_loss_pct / 100)
+        )
         if self.daily_pnl <= -max_loss:
             return True
 
@@ -90,7 +95,9 @@ class RiskManager:
     def halt_trading(self):
         """Halt all trading"""
         if not self.trading_halted:
-            logger.critical(f"🛑 TRADING HALTED! Daily loss limit exceeded: {self.daily_pnl}")
+            logger.critical(
+                f"🛑 TRADING HALTED! Daily loss limit exceeded: {self.daily_pnl}"
+            )
             self.trading_halted = True
 
     def resume_trading(self):
@@ -102,7 +109,7 @@ class RiskManager:
         self,
         account_balance: Decimal,
         entry_price: Decimal,
-        stop_loss_price: Optional[Decimal] = None
+        stop_loss_price: Optional[Decimal] = None,
     ) -> Decimal:
         """
         Calculate safe position size
@@ -124,7 +131,9 @@ class RiskManager:
             return Decimal("0")
 
         # Maximum position value based on percentage
-        max_position_value = account_balance * Decimal(str(self.settings.max_position_size_pct / 100))
+        max_position_value = account_balance * Decimal(
+            str(self.settings.max_position_size_pct / 100)
+        )
 
         # Fixed: Protect against division by zero (Critical Issue)
         if entry_price <= 0:
@@ -138,20 +147,24 @@ class RiskManager:
         if stop_loss_price and stop_loss_price > 0:
             risk_per_unit = abs(entry_price - stop_loss_price)
             if risk_per_unit > 0:
-                max_risk = account_balance * Decimal(str(self.settings.max_position_size_pct / 100))
+                max_risk = account_balance * Decimal(
+                    str(self.settings.max_position_size_pct / 100)
+                )
                 risk_based_quantity = max_risk / risk_per_unit
 
                 # Use the smaller quantity (more conservative)
                 quantity = min(quantity, risk_based_quantity)
 
-        logger.info(f"Position size calculated: {quantity} units (value: {quantity * entry_price})")
+        logger.info(
+            f"Position size calculated: {quantity} units (value: {quantity * entry_price})"
+        )
         return quantity
 
     def calculate_stop_loss(
         self,
         entry_price: Decimal,
         side: PositionSide,
-        stop_loss_pct: Optional[float] = None
+        stop_loss_pct: Optional[float] = None,
     ) -> Decimal:
         """
         Calculate stop-loss price
@@ -165,7 +178,14 @@ class RiskManager:
             Stop loss price
         """
         if stop_loss_pct is None:
-            stop_loss_pct = self.settings.default_stop_loss_pct
+            # SHORT carries its own tighter stop (short_stop_loss_pct, declared
+            # 2026-01-19 and read by nothing until 2026-08-12). Callers that
+            # pass an explicit distance are unaffected.
+            stop_loss_pct = (
+                self.settings.short_stop_loss_pct
+                if side == PositionSide.SHORT
+                else self.settings.default_stop_loss_pct
+            )
 
         stop_loss_factor = Decimal(str(stop_loss_pct / 100))
 
@@ -176,14 +196,16 @@ class RiskManager:
             # For SHORT: stop loss above entry
             stop_loss = entry_price * (Decimal("1") + stop_loss_factor)
 
-        logger.debug(f"Stop loss calculated: {stop_loss} ({stop_loss_pct}% from {entry_price})")
+        logger.debug(
+            f"Stop loss calculated: {stop_loss} ({stop_loss_pct}% from {entry_price})"
+        )
         return stop_loss
 
     def calculate_take_profit(
         self,
         entry_price: Decimal,
         side: PositionSide,
-        take_profit_pct: Optional[float] = None
+        take_profit_pct: Optional[float] = None,
     ) -> Decimal:
         """
         Calculate take-profit price
@@ -208,13 +230,13 @@ class RiskManager:
             # For SHORT: take profit below entry
             take_profit = entry_price * (Decimal("1") - take_profit_factor)
 
-        logger.debug(f"Take profit calculated: {take_profit} ({take_profit_pct}% from {entry_price})")
+        logger.debug(
+            f"Take profit calculated: {take_profit} ({take_profit_pct}% from {entry_price})"
+        )
         return take_profit
 
     def check_position_limits(
-        self,
-        current_positions: list[Position],
-        account_balance: Decimal
+        self, current_positions: list[Position], account_balance: Decimal
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if opening new position would exceed limits
@@ -227,13 +249,25 @@ class RiskManager:
             Tuple of (allowed, reason if not allowed)
         """
         # Calculate current exposure
+        # Exposure is measured on REMAINING quantity — a position that has
+        # taken partial exits occupies only what is left. Original quantity
+        # overstates a scaled-out position and rejects new entries early.
+        # Mirrors auto_trader._passes_exposure_gate, which both gates must
+        # agree with: they run on the same paper entry path.
         total_exposure = sum(
-            pos.entry_price * pos.quantity
+            pos.entry_price
+            * (
+                pos.remaining_quantity
+                if getattr(pos, "remaining_quantity", None) is not None
+                else pos.quantity
+            )
             for pos in current_positions
             if pos.status.value == "OPEN"
         )
 
-        exposure_pct = (total_exposure / account_balance * 100) if account_balance > 0 else 0
+        exposure_pct = (
+            (total_exposure / account_balance * 100) if account_balance > 0 else 0
+        )
 
         # Check max exposure
         if exposure_pct >= self.settings.max_total_exposure_pct:
@@ -250,9 +284,7 @@ class RiskManager:
         return True, None
 
     def should_close_position(
-        self,
-        position: Position,
-        current_price: Decimal
+        self, position: Position, current_price: Decimal
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if position should be closed
@@ -282,9 +314,7 @@ class RiskManager:
         return False, None
 
     def validate_signal(
-        self,
-        signal_action: SignalAction,
-        signal_confidence: float
+        self, signal_action: SignalAction, signal_confidence: float
     ) -> Tuple[bool, Optional[str]]:
         """
         Validate if signal meets trading criteria
@@ -306,7 +336,10 @@ class RiskManager:
 
         # Check confidence threshold
         if signal_confidence < self.settings.min_signal_confidence:
-            return False, f"Signal confidence ({signal_confidence:.2f}) below threshold ({self.settings.min_signal_confidence})"
+            return (
+                False,
+                f"Signal confidence ({signal_confidence:.2f}) below threshold ({self.settings.min_signal_confidence})",
+            )
 
         return True, None
 

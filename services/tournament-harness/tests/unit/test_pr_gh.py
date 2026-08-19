@@ -204,5 +204,6 @@ def test_failure_returncode_raises(monkeypatch):
 
 
 def test_no_gh_pr_merge_in_module():
-    src = Path("services/tournament-harness/app/pr/gh.py").read_text()
+    # Resolve from this file, not cwd — CI runs pytest from services/tournament-harness.
+    src = (Path(__file__).resolve().parents[2] / "app" / "pr" / "gh.py").read_text()
     assert "gh pr merge" not in src, "CD-10: gh pr merge MUST NOT appear in pr/gh.py"

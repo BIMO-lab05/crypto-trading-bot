@@ -81,9 +81,11 @@ class IndicatorService:
 
         return {
             "timestamp": int(df.index[-1].timestamp() * 1000),
-            "macd_line": round(macd_data["macd_line"], 2),
-            "signal_line": round(macd_data["signal_line"], 2),
-            "histogram": round(macd_data["histogram"], 2),
+            # Full precision, never round(x, 2): ADA-scale MACD values (~1e-4)
+            # collapse to 0.0 and downstream crossover detection dies (487d1bd)
+            "macd_line": float(macd_data["macd_line"]),
+            "signal_line": float(macd_data["signal_line"]),
+            "histogram": float(macd_data["histogram"]),
             "signal": macd_signal,
             "confidence": confidence,
         }
@@ -329,18 +331,31 @@ class IndicatorService:
         if df.empty:
             raise HTTPException(status_code=404, detail="No data available")
 
-        min_required = senkou_b_period + 26
+        # Displacement must scale with the periods. Callers run crypto-scaled
+        # 20/60/120, but displacement was left at the calculator's 9/26/52
+        # default of 26, so `calculate()` read the cloud from 26 bars back
+        # instead of the 60 that a kijun=60 Ichimoku projects. Measured against
+        # displacement=60 on 365d hourly BTC/ADA, ~20% of final BUY/SELL/HOLD
+        # verdicts flipped, over half of them outright above/below-cloud sign
+        # reversals - on the aggregator's heaviest-weighted leg (1.3x).
+        # Conventional Ichimoku sets displacement == kijun period.
+        calculator = IchimokuCalculator(
+            tenkan_period=tenkan_period,
+            kijun_period=kijun_period,
+            senkou_b_period=senkou_b_period,
+            displacement=kijun_period,
+        )
+
+        # Gate on the calculator's own requirement rather than a hardcoded
+        # `senkou_b + 26`, which no longer tracks the actual displacement and
+        # would admit windows that calculate() then rejects.
+        min_required = calculator.min_periods
         if len(df) < min_required:
             raise HTTPException(
                 status_code=400,
                 detail=f"Insufficient data: need {min_required} candles, got {len(df)}",
             )
 
-        calculator = IchimokuCalculator(
-            tenkan_period=tenkan_period,
-            kijun_period=kijun_period,
-            senkou_b_period=senkou_b_period,
-        )
         result = calculator.calculate_with_signal(df)
 
         return {"timestamp": int(df.index[-1].timestamp() * 1000), "data": result}

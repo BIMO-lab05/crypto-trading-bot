@@ -17,7 +17,7 @@ from app.models import (
     PositionSide,
     PositionStatus,
 )
-from app.position_manager import get_position_manager, _as_utc
+from app.position_manager import get_position_manager, _as_utc, _spawn_persist
 from app.paper_slippage import build_slippage_model
 from app.risk_manager import get_risk_manager
 from app.repositories import get_trade_repository, get_portfolio_repository
@@ -75,8 +75,13 @@ class PaperTradingEngine:
         self.balance = (
             self.initial_balance
         )  # Will be adjusted in sync_balance_with_positions
-        self.commission_pct = Decimal(str(self.settings.paper_commission_pct / 100))
+        # `/ 100` after the Decimal wrap, not before: the old form did the
+        # division in float and handed Decimal an already-lossy value.
+        self.commission_pct = Decimal(
+            str(self.settings.paper_commission_pct)
+        ) / Decimal("100")
         self.slippage = build_slippage_model(self.settings)
+        self._funding_client = None  # built lazily; PAPER-02
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
 
@@ -91,19 +96,32 @@ class PaperTradingEngine:
         logger.info("  Database persistence: ENABLED")
 
     def _open_position_cost(self, positions) -> Decimal:
-        """Margin + commission actually debited when these positions opened."""
-        leverage = Decimal(str(self.settings.default_leverage))
+        """Margin + commission actually debited when these positions opened.
+
+        Stage 0 (2026-08-07): reads the margin each position RECORDED at open
+        rather than recomputing it from the current settings.default_leverage.
+        The previous form made this docstring false — after the 2026-08-04
+        DEFAULT_LEVERAGE 10.0 -> 1.0 flip it over-deducted for every 10x-era
+        position on every restart.
+
+        Fix round (2026-08-08): the commission term had the SAME defect one
+        line below the one being fixed. It recomputed
+        entry_price*qty*commission_pct from the CURRENT rate while
+        positions.entry_fee holds what was actually debited, so changing
+        PAPER_COMMISSION_PCT mis-deducted for every pre-change position on
+        every restart — structurally identical to the leverage flip that
+        caused this whole repair. Both terms now read what was recorded.
+
+        The fee term is the UNCONSUMED portion, matching the margin term: a
+        partial exit returns margin proportionally and charges the matching
+        slice of entry fee to that leg's realized P&L, so what remains owed
+        against the persisted cash figure is what neither has absorbed. At an
+        unchanged commission rate this equals the old recomputation exactly.
+        """
         total = Decimal("0")
         for pos in positions:
-            qty = (
-                pos.remaining_quantity
-                if pos.remaining_quantity is not None
-                else pos.quantity
-            )
-            position_value = pos.entry_price * qty
-            total += (position_value / leverage) + (
-                position_value * self.commission_pct
-            )
+            posted = getattr(pos, "posted_margin", None) or Decimal("0")
+            total += posted + self.position_manager.unconsumed_entry_fee(pos.id)
         return total
 
     async def sync_balance_with_positions(self):
@@ -123,11 +141,12 @@ class PaperTradingEngine:
         kill switch from this number, a drawdown breaker approaching its
         threshold was quietly re-armed toward par by any restart or crash-loop.
 
-        The persisted `portfolios.cash_balance` is the true running ledger, but
-        it is written only on position *close* (position_manager.close_position),
-        never on open. So it is accurate as of `portfolios.updated_at`, and any
-        position opened after that timestamp has had its margin debited in
-        memory but never persisted. Reconstruct as:
+        The persisted `portfolios.cash_balance` is the true running ledger. It
+        is written on position *close* (position_manager.close_position) and,
+        since 2026-08-12, on partial exit and scale-in (execute_market_order
+        below) — never on open. So it is accurate as of `portfolios.updated_at`,
+        and any position opened after that timestamp has had its margin debited
+        in memory but never persisted. Reconstruct as:
 
             cash_balance - cost(positions opened after portfolios.updated_at)
         """
@@ -199,6 +218,48 @@ class PaperTradingEngine:
         """Calculate commission for an order"""
         return order_value * self.commission_pct
 
+    async def _funding_for_leg(
+        self, symbol: str, side: PositionSide, notional: Decimal, opened_at
+    ) -> Decimal:
+        """Signed funding paid over [opened_at, now]. POSITIVE means PAID.
+
+        Fails open to zero with a loud log - a silent zero would read as
+        'no funding was due' rather than 'we could not find out'.
+        """
+        if not getattr(self.settings, "paper_funding_enabled", False):
+            return Decimal("0")
+
+        from datetime import datetime, timezone
+
+        from app.costs import funding_cost
+        from app.risk.funding_gate import FundingGateConfig, FundingRateClient
+
+        if self._funding_client is None:
+            self._funding_client = FundingRateClient(
+                connector_base_url=self.settings.bybit_connector_url,
+                config=FundingGateConfig(),
+            )
+
+        entry_ts_ms = int(_as_utc(opened_at).timestamp() * 1000)
+        exit_ts_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        settlements = await self._funding_client.get_settlements(
+            symbol, entry_ts_ms, exit_ts_ms
+        )
+        if not settlements and exit_ts_ms - entry_ts_ms >= 8 * 3600 * 1000:
+            logger.error(
+                f"[FUNDING] no settlements fetched for {symbol} over "
+                f"{(exit_ts_ms - entry_ts_ms) // 3600000}h hold - this leg's "
+                "P&L is GROSS of funding"
+            )
+
+        return funding_cost(
+            notional,
+            side.value,
+            settlements,
+            entry_ts_ms=entry_ts_ms,
+            exit_ts_ms=exit_ts_ms,
+        )
+
     async def execute_market_order(
         self, order: OrderCreate, current_price: Decimal
     ) -> tuple[Order, Optional[str]]:
@@ -250,7 +311,28 @@ class PaperTradingEngine:
 
         order_value = fill_price * order.quantity
         commission = self.calculate_commission(order_value)
-        leverage = Decimal(str(self.settings.default_leverage))
+        # Stage 0 (2026-08-07): this is the leverage a NEW leg posts margin at.
+        # It is stamped onto the position. The CLOSE leg no longer reads it —
+        # it consumes position.posted_margin instead. Gated on leverage_enabled
+        # AND clamped to [min_leverage, max_leverage] so this derives leverage
+        # identically to auto_trader.py:2008-2013 and :4410-4415, the two
+        # sizing sites. paper_trading did neither.
+        #
+        # The clamp is not cosmetic: config.py:617-626 permits default_leverage
+        # up to 100 while max_leverage defaults to 20. Unclamped, DEFAULT_LEVERAGE
+        # =50 had auto_trader size notional at 20x while this posted notional/50
+        # — 40% of the intended margin, so the per-trade cap under-bound by 2.5x
+        # in cash terms. Conservation still held (the close credits what was
+        # posted), but the sizing contract did not.
+        leverage = Decimal("1")
+        if getattr(self.settings, "leverage_enabled", False):
+            leverage = max(
+                Decimal(str(self.settings.min_leverage)),
+                min(
+                    Decimal(str(self.settings.default_leverage)),
+                    Decimal(str(self.settings.max_leverage)),
+                ),
+            )
 
         executed_order = Order(
             **order.model_dump(),
@@ -313,15 +395,49 @@ class PaperTradingEngine:
             # exit price. A SELL close fills below the ticker and a BUY close
             # (covering a short) fills above it, so the exit costs on both
             # sides — the SHORT leg is the one this repo has inverted before.
+            # GROSS here: the position manager nets out this leg's commission
+            # plus the proportional entry fee before anything is persisted
+            # (AUDIT H7, 2026-08-04).
             if target.side == PositionSide.LONG:
                 realized_pnl = (fill_price - target.entry_price) * close_qty
             else:  # SHORT
                 realized_pnl = (target.entry_price - fill_price) * close_qty
 
-            # Margin posted at open for this quantity, now returned
-            margin_returned = (target.entry_price * close_qty) / leverage
+            # Stage 0 (2026-08-07): return what this position POSTED, not what
+            # the current global leverage would imply. The old form recomputed
+            # entry_price*close_qty/settings.default_leverage; a position
+            # opened at 10x and closed after DEFAULT_LEVERAGE dropped to 1.0
+            # credited back 10x its margin (~$177 fabricated on a $100 account).
+            # Must run BEFORE close_position/reduce_position touch
+            # remaining_quantity.
+            margin_returned = self.position_manager.consume_posted_margin(
+                target.id, close_qty
+            )
 
-            self.balance += margin_returned + realized_pnl - close_commission
+            # Perp funding accrued over the hold (PAPER-02). Signed; POSITIVE
+            # means this leg PAID. Must reach both ledgers exactly as
+            # close_commission does, or it is invisible to reported P&L and
+            # the daily-loss breaker (paper_trading.py module docstring).
+            funding_paid = await self._funding_for_leg(
+                order.symbol,
+                target.side,
+                target.entry_price * close_qty,
+                target.opened_at,
+            )
+
+            # Cash ledger: gross P&L minus the exit commission and funding.
+            # The entry fee already left the cash balance at open — netting
+            # it here again would double-charge cash; it is netted only in
+            # REPORTED P&L.
+            self.balance += (
+                margin_returned + realized_pnl - close_commission - funding_paid
+            )
+
+            # Net P&L delta this leg contributes to the position's realized
+            # P&L (computed by the position manager, which owns the entry-fee
+            # ledger); captured via before/after so the trade log records the
+            # same net figure that the position row accumulates.
+            realized_before = target.realized_pnl
 
             full_close = close_qty >= qty_open
             if full_close:
@@ -331,13 +447,35 @@ class PaperTradingEngine:
                     reason=f"Market {order.side.value.lower()} order "
                     f"({target.side.value} close)"
                     + (f" [{order.strategy}]" if order.strategy else ""),
+                    close_commission=close_commission + funding_paid,
+                    exit_kind=order.exit_kind,
                 )
                 executed_order.position_id = closed_position.id
+                net_leg_pnl = closed_position.realized_pnl - realized_before
             else:
-                self.position_manager.reduce_position(
-                    target.id, close_qty, fill_price, realized_pnl
+                reduced_position = self.position_manager.reduce_position(
+                    target.id,
+                    close_qty,
+                    fill_price,
+                    realized_pnl,
+                    close_commission=close_commission + funding_paid,
                 )
                 executed_order.position_id = target.id
+                net_leg_pnl = reduced_position.realized_pnl - realized_before
+
+                # Only the full close writes the portfolio ledger. Without this
+                # snapshot the partial exit's credit lives in memory alone,
+                # while its position — opened before the last persisted write —
+                # counts as already reflected, so a restart drops the credit.
+                # Cash only: update_balance OVERWRITES realized_pnl, which the
+                # eventual close accumulates with this leg already in it.
+                _spawn_persist(
+                    self.portfolio_repo.update_balance(
+                        portfolio_id="paper_trading",
+                        cash_balance=self.balance,
+                    ),
+                    "portfolio cash snapshot (partial exit)",
+                )
 
             executed_order.filled_quantity = close_qty
 
@@ -345,8 +483,10 @@ class PaperTradingEngine:
                 f"✓ {target.side.value} {'closed' if full_close else 'reduced'}: "
                 f"{close_qty} {order.symbol} @ {fill_price} "
                 f"(ref {current_price}) | "
-                f"Margin returned: ${margin_returned:.4f} | P&L: ${realized_pnl:.4f} | "
-                f"Commission: ${close_commission:.4f} | Balance: ${self.balance:.4f}"
+                f"Margin returned: ${margin_returned:.4f} | "
+                f"Gross P&L: ${realized_pnl:.4f} | Net P&L: ${net_leg_pnl:.4f} | "
+                f"Commission: ${close_commission:.4f} | Funding: ${funding_paid:.4f} | "
+                f"Balance: ${self.balance:.4f}"
             )
 
             _spawn_trade_log(
@@ -360,7 +500,7 @@ class PaperTradingEngine:
                     commission=close_commission,
                     strategy=order.strategy,
                     signal_confidence=order.entry_signal_confidence,
-                    realized_pnl=realized_pnl,
+                    realized_pnl=net_leg_pnl,
                 )
             )
             return executed_order, None
@@ -396,7 +536,13 @@ class PaperTradingEngine:
                     return executed_order, error_msg
 
                 self.balance -= total_cost
-                self.position_manager.scale_in(pos.id, order.quantity, fill_price)
+                self.position_manager.scale_in(
+                    pos.id,
+                    order.quantity,
+                    fill_price,
+                    entry_fee=commission,
+                    posted_margin=margin_required,
+                )
                 executed_order.position_id = pos.id
 
                 logger.info(
@@ -404,6 +550,17 @@ class PaperTradingEngine:
                     f"@ {fill_price} (ref {current_price}) | "
                     f"New avg entry: {pos.entry_price} | "
                     f"Balance: ${self.balance:.4f}"
+                )
+
+                # Same reason as the partial-exit snapshot above, opposite sign:
+                # a scale-in debits margin + commission with no close of its own
+                # to persist them, so a restart refunds the debit.
+                _spawn_persist(
+                    self.portfolio_repo.update_balance(
+                        portfolio_id="paper_trading",
+                        cash_balance=self.balance,
+                    ),
+                    "portfolio cash snapshot (scale-in)",
                 )
 
                 _spawn_trade_log(
@@ -446,6 +603,9 @@ class PaperTradingEngine:
             quantity=order.quantity,
             strategy=order.strategy,
             entry_signal_confidence=order.entry_signal_confidence,
+            entry_fee=commission,
+            posted_margin=margin_required,
+            leverage=leverage,
         )
 
         executed_order.position_id = position.id
@@ -533,7 +693,15 @@ class PaperTradingEngine:
         # Get open positions for exposure calculation
         open_positions = self.position_manager.get_open_positions()
         total_exposure = sum(
-            float(pos.entry_price * pos.quantity) for pos in open_positions
+            float(
+                pos.entry_price
+                * (
+                    pos.remaining_quantity
+                    if getattr(pos, "remaining_quantity", None) is not None
+                    else pos.quantity
+                )
+            )
+            for pos in open_positions
         )
 
         return {

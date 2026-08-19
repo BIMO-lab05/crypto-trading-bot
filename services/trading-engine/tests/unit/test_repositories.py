@@ -6,6 +6,7 @@ Tests CRUD operations for Position, Trade, and Portfolio repositories
 import pytest
 from decimal import Decimal
 from datetime import datetime, UTC
+from types import SimpleNamespace
 from uuid import uuid4
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
@@ -15,7 +16,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "app"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "shared"))
 
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from app.repositories import PositionRepository, TradeRepository, PortfolioRepository
+from app.database.models import Position as DBPosition
 from app.models import Position, PositionStatus, PositionSide
 
 
@@ -162,6 +166,85 @@ class TestPositionRepository:
             assert result[1].symbol == "ETHUSDT"
 
 
+class TestClosedPnLStats:
+    """Realized-P&L aggregate over closed positions.
+
+    Backed by a real (in-memory) table rather than a mocked session: the
+    defect guarded here is a row LIMIT inside the query, which a mocked
+    session cannot see.
+    """
+
+    @pytest.fixture
+    def position_repo(self):
+        return PositionRepository()
+
+    @pytest.fixture
+    async def sqlite_sessions(self):
+        """async_sessionmaker over an in-memory positions table"""
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(DBPosition.__table__.create)
+        yield async_sessionmaker(engine, expire_on_commit=False)
+        await engine.dispose()
+
+    @staticmethod
+    def _closed(realized_pnl, portfolio_id="paper_trading", status="CLOSED"):
+        return DBPosition(
+            position_id=uuid4(),
+            portfolio_id=portfolio_id,
+            symbol="BTCUSDT",
+            side="LONG",
+            quantity=Decimal("0.001"),
+            entry_price=Decimal("50000"),
+            cost_basis=Decimal("50"),
+            realized_pnl=realized_pnl,
+            status=status,
+            closed_at=datetime.now(UTC),
+        )
+
+    @pytest.mark.asyncio
+    async def test_aggregates_every_closed_row_past_the_query_limit(
+        self, position_repo, sqlite_sessions
+    ):
+        """1200 closed rows: the row-by-row handler truncated at 1000."""
+        rows = [self._closed(Decimal("0.10")) for _ in range(1200)]
+        rows += [self._closed(Decimal("-0.40")) for _ in range(5)]
+        rows.append(self._closed(None))  # never closed with a P&L write
+        rows.append(self._closed(Decimal("0")))  # scratch
+        rows.append(self._closed(Decimal("99"), status="OPEN"))
+        rows.append(self._closed(Decimal("99"), portfolio_id="other"))
+
+        async with sqlite_sessions() as session:
+            session.add_all(rows)
+            await session.commit()
+
+        with patch.object(position_repo.db, "get_async_session", sqlite_sessions):
+            stats = await position_repo.get_closed_pnl_stats("paper_trading")
+
+        # Denominator is every CLOSED row, including the NULL and the scratch —
+        # that is what the old len(positions) counted.
+        assert stats.total_trades == 1207
+        assert stats.winning_trades == 1200
+        assert stats.losing_trades == 5
+        assert stats.realized_pnl == Decimal("118.00")
+        assert stats.gross_profit == Decimal("120.00")
+        assert stats.gross_loss == Decimal("-2.00")
+        assert isinstance(stats.realized_pnl, Decimal)
+
+    @pytest.mark.asyncio
+    async def test_flat_book_coalesces_to_zero(self, position_repo, sqlite_sessions):
+        """No closed positions: zeros, not None"""
+        with patch.object(position_repo.db, "get_async_session", sqlite_sessions):
+            stats = await position_repo.get_closed_pnl_stats("paper_trading")
+
+        assert stats.total_trades == 0
+        assert stats.winning_trades == 0
+        assert stats.losing_trades == 0
+        assert stats.realized_pnl == Decimal("0")
+        assert stats.gross_profit == Decimal("0")
+        assert stats.gross_loss == Decimal("0")
+
+
 class TestTradeRepository:
     """Test suite for TradeRepository"""
 
@@ -271,6 +354,44 @@ class TestPortfolioRepository:
             mock_async_session.commit.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_get_or_create_seeds_risk_columns_from_settings(self, portfolio_repo):
+        """RES-04: a new PAPER row carries ADR-010/ADR-028 values.
+
+        Settings are deliberately NON-DEFAULT (0.07 / 9.0). The real defaults
+        0.10 / 12.0 are close enough that a missing or wrong transform could
+        pass by luck; 9.0 PERCENT -> Decimal("0.09") FRACTION is the assertion
+        that actually pins the divide-by-100.
+        """
+        fake_settings = SimpleNamespace(
+            paper_initial_balance=100.0,
+            max_risk_per_trade=0.07,
+            max_daily_loss_pct=9.0,
+        )
+
+        with (
+            patch.object(portfolio_repo.db, "get_async_session") as mock_session,
+            patch("app.repositories.get_settings", return_value=fake_settings),
+        ):
+            mock_async_session = AsyncMock()
+            mock_result = Mock()
+            mock_result.scalar_one_or_none.return_value = None
+            mock_async_session.execute.return_value = mock_result
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            await portfolio_repo.get_or_create(portfolio_id="paper_trading")
+
+            mock_async_session.add.assert_called_once()
+            created = mock_async_session.add.call_args[0][0]
+
+            # Assert on VALUES, not on the call: with mocks there is no DB to
+            # reject an out-of-range write, so a percent leaking into the
+            # DECIMAL(5,4) fraction column would pass silently here and only
+            # surface as a numeric overflow against the real schema.
+            assert created.risk_per_trade == Decimal("0.07")
+            assert created.max_daily_loss == Decimal("0.09")
+            assert created.trading_mode == "PAPER"
+
+    @pytest.mark.asyncio
     async def test_get_or_create_existing_portfolio(self, portfolio_repo):
         """Test retrieving existing portfolio"""
         existing_portfolio = MagicMock(
@@ -316,6 +437,92 @@ class TestPortfolioRepository:
             # Verify
             mock_async_session.execute.assert_called_once()
             mock_async_session.commit.assert_called_once()
+
+    @staticmethod
+    def _updated_columns(stmt) -> set:
+        """Column names carried by an UPDATE statement's SET clause.
+
+        Asserting on key PRESENCE rather than generated SQL text: the exact
+        rendering of a scalar subquery is a SQLAlchemy implementation detail,
+        the set of maintained columns is the contract.
+        """
+        return {col.name for col in stmt._values.keys()}
+
+    @pytest.mark.asyncio
+    async def test_record_position_close_maintains_display_columns(
+        self, portfolio_repo
+    ):
+        """RES-03: the display trio moves in the SAME UPDATE as cash_balance.
+
+        Split across two statements they could disagree; that is exactly how
+        total_value / total_pnl / unrealized_pnl drifted from cash for months.
+        """
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_result = Mock()
+            mock_result.rowcount = 1
+            mock_async_session.execute.return_value = mock_result
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            await portfolio_repo.record_position_close(
+                portfolio_id="paper_trading",
+                cash_balance=Decimal("100.00"),
+                realized_pnl_delta=Decimal("1.50"),
+            )
+
+            mock_async_session.execute.assert_called_once()
+            stmt = mock_async_session.execute.call_args[0][0]
+            assert {
+                "cash_balance",
+                "realized_pnl",
+                "unrealized_pnl",
+                "total_value",
+                "total_pnl",
+            } <= self._updated_columns(stmt)
+
+    @pytest.mark.asyncio
+    async def test_update_balance_preserves_realized_pnl_overwrite_semantics(
+        self, portfolio_repo
+    ):
+        """RES-03 guard: the aggregates are maintained WITHOUT realized_pnl
+        becoming an unconditional write.
+
+        update_balance OVERWRITES realized_pnl when the param is supplied, so
+        writing the key on calls that omit it would clobber the accumulated
+        ledger with a stale value on every partial exit and scale-in.
+        """
+        aggregates = {"cash_balance", "unrealized_pnl", "total_value", "total_pnl"}
+
+        # Param omitted -> realized_pnl must NOT be in the SET clause
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            await portfolio_repo.update_balance(
+                portfolio_id="test_portfolio",
+                cash_balance=Decimal("120.00"),
+            )
+
+            stmt = mock_async_session.execute.call_args[0][0]
+            columns = self._updated_columns(stmt)
+            assert aggregates <= columns
+            assert "realized_pnl" not in columns
+
+        # Param supplied -> realized_pnl IS written (overwrite semantics)
+        with patch.object(portfolio_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            await portfolio_repo.update_balance(
+                portfolio_id="test_portfolio",
+                cash_balance=Decimal("120.00"),
+                realized_pnl=Decimal("30.00"),
+            )
+
+            stmt = mock_async_session.execute.call_args[0][0]
+            columns = self._updated_columns(stmt)
+            assert aggregates <= columns
+            assert "realized_pnl" in columns
 
     # Note: get_performance_metrics() method doesn't exist in PortfolioRepository
     # Removed test_get_performance_metrics as it tested a non-existent method
@@ -368,14 +575,38 @@ class TestRepositoryExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_position_get_open_positions_exception(self, position_repo):
-        """Test get_open_positions with database exception"""
+        """get_open_positions must raise: it feeds startup hydration, where an
+        empty list is indistinguishable from a flat book (2026-08-12)."""
         with patch.object(position_repo.db, "get_async_session") as mock_session:
             mock_async_session = AsyncMock()
             mock_async_session.execute.side_effect = Exception("Query failed")
             mock_session.return_value.__aenter__.return_value = mock_async_session
 
-            result = await position_repo.get_open_positions()
+            with pytest.raises(Exception, match="Query failed"):
+                await position_repo.get_open_positions()
+
+    @pytest.mark.asyncio
+    async def test_position_get_open_positions_or_empty_exception(self, position_repo):
+        """The lenient display wrapper still degrades to []"""
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_async_session.execute.side_effect = Exception("Query failed")
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            result = await position_repo.get_open_positions_or_empty()
             assert result == []
+
+    @pytest.mark.asyncio
+    async def test_position_get_closed_pnl_stats_exception(self, position_repo):
+        """get_closed_pnl_stats must raise: zeroed realized P&L is
+        indistinguishable from a flat book to the portfolio-manager mirror."""
+        with patch.object(position_repo.db, "get_async_session") as mock_session:
+            mock_async_session = AsyncMock()
+            mock_async_session.execute.side_effect = Exception("Query failed")
+            mock_session.return_value.__aenter__.return_value = mock_async_session
+
+            with pytest.raises(Exception, match="Query failed"):
+                await position_repo.get_closed_pnl_stats()
 
 
 class TestPortfolioRepositoryExceptionHandling:

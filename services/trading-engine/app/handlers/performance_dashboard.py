@@ -67,7 +67,11 @@ class EquityCurveResponse(BaseModel):
     curve: List[EquityCurvePoint] = Field(default_factory=list)
     period: str = "30d"
     interval: str = "1h"
-    initial_equity: float = 10000.0
+    # REQUIRED — no default. The old 10000.0 default was inert (the single
+    # constructor at get_equity_curve always passes the real balance) but would
+    # have silently reported a $10,000 baseline on a $100 account if any new
+    # caller omitted it (AUDIT 2.5). Omission is now a ValidationError.
+    initial_equity: float
 
 
 class DrawdownPoint(BaseModel):
@@ -920,11 +924,17 @@ async def get_trade_history_endpoint(
         position_repo = get_position_repository()
 
         if status.upper() == "ALL":
-            db_positions = await position_repo.get_positions_by_status(
+            open_positions = await position_repo.get_open_positions_or_empty(
                 portfolio_id="paper_trading"
             )
+            closed_positions = await position_repo.get_closed_positions(
+                portfolio_id="paper_trading", limit=limit + offset
+            )
+            db_positions = list(open_positions) + list(closed_positions)
         elif status.upper() == "OPEN":
-            db_positions = await position_repo.get_open_positions(
+            # Display path: a degraded read shows an empty history rather than
+            # a 500. The strict get_open_positions is for startup hydration.
+            db_positions = await position_repo.get_open_positions_or_empty(
                 portfolio_id="paper_trading"
             )
         else:
@@ -938,7 +948,7 @@ async def get_trade_history_endpoint(
 
         trades = [
             TradeHistoryItem(
-                id=str(pos.id),
+                id=str(pos.position_id),
                 symbol=pos.symbol,
                 side=pos.side,
                 strategy=getattr(pos, "strategy", None),

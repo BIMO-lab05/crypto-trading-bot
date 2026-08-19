@@ -420,7 +420,11 @@ function StrategyAttribution({
                     type="number"
                     stroke="#64748b"
                     tick={{ fill: '#94a3b8', fontSize: 10 }}
-                    tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                    tickFormatter={(v) =>
+                      Math.abs(v) >= 1000
+                        ? `$${(v / 1000).toFixed(0)}k`
+                        : `$${Number(v).toFixed(0)}`
+                    }
                     axisLine={{ stroke: '#475569' }}
                   />
                   <YAxis

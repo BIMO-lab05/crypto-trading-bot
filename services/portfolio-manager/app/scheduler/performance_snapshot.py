@@ -17,6 +17,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -330,13 +332,14 @@ class PerformanceSnapshotScheduler:
         app/services/portfolio_manager.py); there is no persistent
         portfolios table in this service. Returns every portfolio
         currently registered with the manager, falling back to the
-        default portfolio if the manager is not wired up.
+        canonical portfolio (settings.default_portfolio_id) if the manager
+        is not wired up.
         """
         if self.portfolio_manager is not None and hasattr(self.portfolio_manager, "list_portfolios"):
             return [p.portfolio_id for p in self.portfolio_manager.list_portfolios()]
         if self.portfolio_manager is not None and hasattr(self.portfolio_manager, "portfolios"):
             return list(self.portfolio_manager.portfolios.keys())
-        return ["default"]
+        return [settings.default_portfolio_id]
 
     def _job_executed_listener(self, event):
         """

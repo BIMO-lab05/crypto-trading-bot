@@ -8,6 +8,8 @@ from unittest.mock import patch
 from fastapi.responses import JSONResponse
 import json
 
+from app.config import settings
+
 
 class TestGatewayInfoEndpoint:
     """Test gateway-info endpoint.
@@ -78,7 +80,9 @@ class TestHealthEndpoint:
         with patch("app.main.get_proxy", return_value=mock_service_proxy):
             response = test_client.get("/health")
 
-        assert response.status_code == 200
+        # 503 on degraded since 2026-08-05 (AUDIT 4.4): a 200 here made the
+        # container healthcheck pass while required backends were down.
+        assert response.status_code == 503
         data = response.json()
         assert data["status"] == "degraded"
         assert data["backend_services"]["market_data"] is False
@@ -447,3 +451,122 @@ class TestErrorHandling:
             response = test_client.get("/api/market/ticker/BTCUSDT")
 
         assert response.status_code == 504
+
+
+class TestPortfolioIdResolution:
+    """RES-08 — an omitted portfolio_id resolves to the canonical id.
+
+    The gateway forwards its resolved value to portfolio-manager in
+    `query_params`, so this is the boundary where the dead "default" literal
+    used to leak over the wire. Every assertion here is on what the gateway
+    SENT (`proxy_request.call_args`), never on the canned mock response body:
+    `tests/conftest.py` still carries `"portfolio_id": "default"` as fixture
+    data, and asserting against that would prove nothing about the gateway.
+    """
+
+    @staticmethod
+    def _sent_portfolio_id(mock_service_proxy):
+        """The portfolio_id the gateway actually forwarded downstream."""
+        return mock_service_proxy.proxy_request.call_args[1]["query_params"][
+            "portfolio_id"
+        ]
+
+    def test_canonical_id_is_paper_trading(self):
+        """Pin the value. Must agree with trading-engine repositories.py."""
+        assert settings.default_portfolio_id == "paper_trading"
+
+    @pytest.mark.asyncio
+    async def test_trades_without_portfolio_id_resolves_to_canonical(
+        self, test_client, mock_service_proxy
+    ):
+        """Unparameterized /api/portfolio/trades must not forward "default"."""
+        mock_service_proxy.proxy_request.return_value = JSONResponse(
+            content={"success": True, "transactions": []}
+        )
+
+        with patch("app.main.get_proxy", return_value=mock_service_proxy):
+            response = test_client.get("/api/portfolio/trades")
+
+        assert response.status_code == 200
+        sent = self._sent_portfolio_id(mock_service_proxy)
+        assert sent == settings.default_portfolio_id
+        assert sent != "default"
+
+    @pytest.mark.asyncio
+    async def test_trades_explicit_portfolio_id_passes_through(
+        self, test_client, mock_service_proxy
+    ):
+        """An explicit value still wins over the resolved default."""
+        mock_service_proxy.proxy_request.return_value = JSONResponse(
+            content={"success": True, "transactions": []}
+        )
+
+        with patch("app.main.get_proxy", return_value=mock_service_proxy):
+            response = test_client.get(
+                "/api/portfolio/trades", params={"portfolio_id": "custom"}
+            )
+
+        assert response.status_code == 200
+        assert self._sent_portfolio_id(mock_service_proxy) == "custom"
+
+    @pytest.mark.asyncio
+    async def test_portfolio_without_portfolio_id_resolves_to_canonical(
+        self, test_client, mock_service_proxy
+    ):
+        """Unparameterized /api/portfolio must not forward "default"."""
+        mock_service_proxy.proxy_request.return_value = JSONResponse(
+            content={"success": True}
+        )
+
+        with patch("app.main.get_proxy", return_value=mock_service_proxy):
+            response = test_client.get("/api/portfolio")
+
+        assert response.status_code == 200
+        sent = self._sent_portfolio_id(mock_service_proxy)
+        assert sent == settings.default_portfolio_id
+        assert sent != "default"
+
+    @pytest.mark.asyncio
+    async def test_balance_and_holdings_resolve_to_canonical(
+        self, test_client, mock_service_proxy
+    ):
+        """The remaining unauthenticated portfolio reads resolve identically."""
+        mock_service_proxy.proxy_request.return_value = JSONResponse(
+            content={"success": True}
+        )
+
+        for path in (
+            "/api/portfolio/balance",
+            "/api/portfolio/holdings",
+            "/api/portfolio/performance",
+            "/api/v1/portfolio/balance",
+            "/api/v1/portfolio/holdings",
+        ):
+            with patch("app.main.get_proxy", return_value=mock_service_proxy):
+                response = test_client.get(path)
+
+            assert response.status_code == 200, path
+            assert self._sent_portfolio_id(mock_service_proxy) == (
+                settings.default_portfolio_id
+            ), path
+
+    @pytest.mark.asyncio
+    async def test_resolution_reads_settings_at_request_time(
+        self, test_client, mock_service_proxy, monkeypatch
+    ):
+        """Proves a body-time read, not a signature default frozen at import.
+
+        FastAPI evaluates signature defaults once when the module is imported,
+        so `= settings.default_portfolio_id` in a signature would pin the value
+        forever and this test would still see the old id.
+        """
+        monkeypatch.setattr(settings, "default_portfolio_id", "alt_portfolio")
+        mock_service_proxy.proxy_request.return_value = JSONResponse(
+            content={"success": True, "transactions": []}
+        )
+
+        with patch("app.main.get_proxy", return_value=mock_service_proxy):
+            response = test_client.get("/api/portfolio/trades")
+
+        assert response.status_code == 200
+        assert self._sent_portfolio_id(mock_service_proxy) == "alt_portfolio"

@@ -12,8 +12,9 @@ This harness imports the live CoreAggregator and drives it bar-by-bar across
   OOS Sharpe >= 1.0, OOS/IS >= 0.6, DSR >= 0.95, max DD < 30%, PF mean >= 1.2.
 
 Run:
-  python3 backtesting/run_walk_forward_ensemble.py [SYMBOL ...]
-  (no args => all five validated symbols)
+  python3 backtesting/run_walk_forward_ensemble.py [--realistic-sim] [SYMBOL ...]
+  (no symbols => all five validated; --realistic-sim => Bybit-perp fees +
+  ATR-aware slippage + funding on BOTH the IS and OOS engines)
 
 Design notes:
   - Dual-namespace import: TA indicator classes (services/technical-analysis)
@@ -216,6 +217,27 @@ INDICATOR_WEIGHTS: Dict[str, float] = {
     "ICHIMOKU": 0.9,
     # RSI_DIVERGENCE/SQZMOM_ENHANCED disabled in live; not emitted here.
 }
+
+# Cost-model kwargs shared by IS and OOS engines (mirrors run_walk_forward.py:
+# both sides of the ADR-013 OOS/IS gate must run the same fee/slippage model).
+_GLOBAL_ENGINE_KWARGS: dict = {}
+
+
+def _engine_kwargs() -> dict:
+    return dict(_GLOBAL_ENGINE_KWARGS)
+
+
+def _apply_cli_flags(argv: List[str]) -> List[str]:
+    """Strip harness flags from argv (the rest are symbols); wire engine kwargs."""
+    if "--realistic-sim" in argv:
+        argv = [a for a in argv if a != "--realistic-sim"]
+        _GLOBAL_ENGINE_KWARGS.update(
+            fee_mode="bybit_perp",
+            slippage_mode="atr_aware",
+            funding_enabled=True,
+        )
+    return argv
+
 
 # Regime confidence modifier table (per market_regime.MarketRegimeDetector)
 REGIME_MODIFIERS: Dict[str, float] = {
@@ -595,13 +617,19 @@ async def run_symbol(symbol: str, out_dir: str, progress_log) -> Optional[Dict]:
 
     for k, (is_slice, oos_slice) in enumerate(folds):
         # In-sample (rule-based: same strategy applied to IS slice).
-        is_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
+        # _engine_kwargs() on BOTH engines: IS and OOS must share one cost
+        # model or the OOS/IS gate ratio measures the fee delta, not drift.
+        is_engine = BacktestEngine(
+            initial_capital=PAPER_INITIAL_BALANCE, **_engine_kwargs()
+        )
         is_engine.run_backtest(is_slice, strategy, strategy_name=f"ensemble_is_{k}")
         is_sharpe = calc_sharpe(is_engine.equity_curve)
         is_sharpes.append(is_sharpe)
 
         # Out-of-sample.
-        oos_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
+        oos_engine = BacktestEngine(
+            initial_capital=PAPER_INITIAL_BALANCE, **_engine_kwargs()
+        )
         oos_result = oos_engine.run_backtest(
             oos_slice, strategy, strategy_name=f"ensemble_oos_{k}"
         )
@@ -709,7 +737,8 @@ async def run_symbol(symbol: str, out_dir: str, progress_log) -> Optional[Dict]:
 
 
 async def main():
-    symbols = sys.argv[1:] if len(sys.argv) > 1 else DEFAULT_SYMBOLS
+    argv = _apply_cli_flags(sys.argv[1:])
+    symbols = argv if argv else DEFAULT_SYMBOLS
     out_dir = os.path.join(_HERE, "results", RESULTS_SUBDIR)
     os.makedirs(out_dir, exist_ok=True)
     progress_path = os.path.join(out_dir, "_progress.log")

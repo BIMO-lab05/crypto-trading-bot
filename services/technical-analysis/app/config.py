@@ -100,6 +100,11 @@ class Settings(BaseSettings):
     # Caching TTL
     cache_ttl_indicator: int = Field(default=300)  # 5 minutes
     cache_ttl_signal: int = Field(default=60)  # 1 minute
+    # Kline fetch cache (fetcher.py) — the only cache that is actually wired.
+    # <= 0 disables. Keep well under the market-data collector's 5-minute
+    # cadence; 30s means a signal cycle's ~12 identical window requests cost
+    # one TimescaleDB query instead of twelve (2026-08-12 DB stampede fix).
+    kline_cache_ttl_seconds: int = Field(default=30)
 
     @property
     def redis_url(self) -> str:

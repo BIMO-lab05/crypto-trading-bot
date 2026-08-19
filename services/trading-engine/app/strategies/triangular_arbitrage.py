@@ -39,9 +39,7 @@ Author: Trading Bot Development Team
 Date: 2025-12-07
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import permutations
@@ -61,15 +59,14 @@ class TriangularPath:
         direction: Trade direction for each pair ('buy' or 'sell')
         start_asset: Starting asset (usually 'USDT')
     """
+
     symbols: List[str]
     pairs: List[str]
     directions: List[str]
     start_asset: str
 
     def __str__(self) -> str:
-        path_str = " → ".join([
-            f"{self.symbols[i]}" for i in range(len(self.symbols))
-        ])
+        path_str = " → ".join([f"{self.symbols[i]}" for i in range(len(self.symbols))])
         return f"{path_str} (start: {self.start_asset})"
 
 
@@ -89,6 +86,7 @@ class TriangularArbitrageSignal:
         confidence: Signal confidence (0-100)
         reason: Reason for signal
     """
+
     timestamp: datetime
     path: TriangularPath
     profit_pct: float
@@ -121,18 +119,19 @@ class TriangularArbitrageStrategy:
         # Discover paths
         paths = strategy.discover_paths(['BTC', 'ETH', 'USDT', 'BNB'])
 
-        # Check for arbitrage
-        signal = strategy.generate_signal(current_prices, capital=10000)
+        # Check for arbitrage (capital = the caller's allocated capital,
+        # e.g. manager.total_capital * allocation.triangular)
+        signal = strategy.generate_signal(current_prices, capital=allocated_capital)
     """
 
     def __init__(
         self,
-        base_asset: str = 'USDT',
+        base_asset: str = "USDT",
         min_profit_threshold: float = 0.001,  # 0.1% minimum profit after fees
-        trading_fee: float = 0.0005,           # 0.05% per trade (Bybit VIP 0)
-        max_latency_ms: float = 100.0,         # Max 100ms execution latency
-        execution_amount_pct: float = 0.1,     # 10% of portfolio per arbitrage
-        max_slippage: float = 0.001,           # 0.1% max slippage
+        trading_fee: float = 0.0005,  # 0.05% per trade (Bybit VIP 0)
+        max_latency_ms: float = 100.0,  # Max 100ms execution latency
+        execution_amount_pct: float = 0.1,  # 10% of portfolio per arbitrage
+        max_slippage: float = 0.001,  # 0.1% max slippage
     ):
         """
         Initialize Triangular Arbitrage Strategy
@@ -164,10 +163,10 @@ class TriangularArbitrageStrategy:
         logger.info(
             f"TriangularArbitrageStrategy initialized:\\n"
             f"  Base asset: {base_asset}\\n"
-            f"  Min profit threshold: {min_profit_threshold*100:.2f}%\\n"
-            f"  Trading fee: {trading_fee*100:.3f}% per trade\\n"
+            f"  Min profit threshold: {min_profit_threshold * 100:.2f}%\\n"
+            f"  Trading fee: {trading_fee * 100:.3f}% per trade\\n"
             f"  Max latency: {max_latency_ms}ms\\n"
-            f"  Execution amount: {execution_amount_pct*100}% of portfolio"
+            f"  Execution amount: {execution_amount_pct * 100}% of portfolio"
         )
 
     def discover_paths(self, available_assets: List[str]) -> List[TriangularPath]:
@@ -213,21 +212,21 @@ class TriangularArbitrageStrategy:
                 if from_asset == self.base_asset:
                     # Buying asset1 with USDT: BUY BTC/USDT
                     pairs.append(f"{to_asset}{from_asset}")
-                    directions.append('buy')
+                    directions.append("buy")
                 elif to_asset == self.base_asset:
                     # Selling asset2 for USDT: SELL ETH/USDT
                     pairs.append(f"{from_asset}{to_asset}")
-                    directions.append('sell')
+                    directions.append("sell")
                 else:
                     # Trading between two non-base assets: BUY ETH/BTC or SELL BTC/ETH
                     pairs.append(f"{to_asset}{from_asset}")
-                    directions.append('buy')
+                    directions.append("buy")
 
             path = TriangularPath(
                 symbols=symbols[:-1],  # Remove duplicate base asset at end
                 pairs=pairs,
                 directions=directions,
-                start_asset=self.base_asset
+                start_asset=self.base_asset,
             )
 
             paths.append(path)
@@ -238,10 +237,7 @@ class TriangularArbitrageStrategy:
         return paths
 
     def _calculate_arbitrage_profit(
-        self,
-        path: TriangularPath,
-        prices: Dict[str, float],
-        capital: float
+        self, path: TriangularPath, prices: Dict[str, float], capital: float
     ) -> Tuple[float, float, Dict[str, float]]:
         """
         Calculate arbitrage profit for a given path
@@ -271,7 +267,7 @@ class TriangularArbitrageStrategy:
             direction = path.directions[i]
 
             # Apply exchange rate and fee
-            if direction == 'buy':
+            if direction == "buy":
                 # Buying: amount / price × (1 - fee)
                 amount = (amount / price) * (1 - self.trading_fee)
                 exchange_rates[pair] = price
@@ -295,9 +291,7 @@ class TriangularArbitrageStrategy:
         return gross_profit_pct, net_profit_pct, exchange_rates
 
     def _estimate_execution_latency(
-        self,
-        path: TriangularPath,
-        prices: Dict[str, float]
+        self, path: TriangularPath, prices: Dict[str, float]
     ) -> float:
         """
         Estimate execution latency for triangular path
@@ -328,20 +322,25 @@ class TriangularArbitrageStrategy:
     def generate_signal(
         self,
         current_prices: Dict[str, float],
-        capital: float = 10000.0,
+        capital: float,
     ) -> Optional[TriangularArbitrageSignal]:
         """
         Generate arbitrage signal by checking all discovered paths
 
         Args:
             current_prices: Current prices for all pairs {pair: price}
-            capital: Available capital in base_asset
+            capital: Available capital in base_asset. REQUIRED — the old
+                10000.0 default was 100x the real account; every live caller
+                (StatisticalArbitrageManager) passes allocated capital
+                explicitly (AUDIT 2.5).
 
         Returns:
             TriangularArbitrageSignal if profitable opportunity found, None otherwise
         """
         if not self.triangular_paths:
-            logger.warning("No triangular paths discovered. Call discover_paths() first.")
+            logger.warning(
+                "No triangular paths discovered. Call discover_paths() first."
+            )
             return None
 
         best_signal = None
@@ -374,7 +373,10 @@ class TriangularArbitrageStrategy:
                     execution_amount = capital * self.execution_amount_pct
 
                     # Calculate confidence based on profit margin
-                    confidence = min(100.0, (net_profit_decimal / self.min_profit_threshold) * 50 + 50)
+                    confidence = min(
+                        100.0,
+                        (net_profit_decimal / self.min_profit_threshold) * 50 + 50,
+                    )
 
                     # Create signal
                     signal = TriangularArbitrageSignal(
@@ -389,7 +391,7 @@ class TriangularArbitrageStrategy:
                         reason=(
                             f"Arbitrage opportunity: {net_profit_pct:.4f}% profit "
                             f"(latency: {latency_ms:.1f}ms, path: {path})"
-                        )
+                        ),
                     )
 
                     best_signal = signal
@@ -418,7 +420,7 @@ class TriangularArbitrageStrategy:
         signal: TriangularArbitrageSignal,
         actual_profit: float,
         actual_latency_ms: float,
-        execution_status: str
+        execution_status: str,
     ):
         """
         Record arbitrage execution for performance tracking
@@ -429,26 +431,28 @@ class TriangularArbitrageStrategy:
             actual_latency_ms: Actual execution latency
             execution_status: 'success' or 'failed'
         """
-        if execution_status == 'success':
+        if execution_status == "success":
             self.total_arbitrages_executed += 1
             self.total_profit += actual_profit
 
         # Update average latency
         if self.total_arbitrages_executed > 0:
             self.average_latency_ms = (
-                (self.average_latency_ms * (self.total_arbitrages_executed - 1) + actual_latency_ms)
-                / self.total_arbitrages_executed
-            )
+                self.average_latency_ms * (self.total_arbitrages_executed - 1)
+                + actual_latency_ms
+            ) / self.total_arbitrages_executed
 
-        self.arbitrage_history.append({
-            'timestamp': datetime.now(),
-            'path': str(signal.path),
-            'expected_profit_pct': signal.net_profit_pct,
-            'actual_profit': actual_profit,
-            'expected_latency_ms': signal.estimated_latency_ms,
-            'actual_latency_ms': actual_latency_ms,
-            'status': execution_status,
-        })
+        self.arbitrage_history.append(
+            {
+                "timestamp": datetime.now(),
+                "path": str(signal.path),
+                "expected_profit_pct": signal.net_profit_pct,
+                "actual_profit": actual_profit,
+                "expected_latency_ms": signal.estimated_latency_ms,
+                "actual_latency_ms": actual_latency_ms,
+                "status": execution_status,
+            }
+        )
 
         logger.info(
             f"Arbitrage execution recorded: {execution_status}, "
@@ -463,19 +467,19 @@ class TriangularArbitrageStrategy:
             Dictionary with strategy state
         """
         return {
-            'base_asset': self.base_asset,
-            'num_paths_discovered': len(self.triangular_paths),
-            'total_arbitrages_executed': self.total_arbitrages_executed,
-            'total_profit': self.total_profit,
-            'average_latency_ms': self.average_latency_ms,
-            'parameters': {
-                'min_profit_threshold': self.min_profit_threshold,
-                'trading_fee': self.trading_fee,
-                'max_latency_ms': self.max_latency_ms,
-                'execution_amount_pct': self.execution_amount_pct,
-                'max_slippage': self.max_slippage,
+            "base_asset": self.base_asset,
+            "num_paths_discovered": len(self.triangular_paths),
+            "total_arbitrages_executed": self.total_arbitrages_executed,
+            "total_profit": self.total_profit,
+            "average_latency_ms": self.average_latency_ms,
+            "parameters": {
+                "min_profit_threshold": self.min_profit_threshold,
+                "trading_fee": self.trading_fee,
+                "max_latency_ms": self.max_latency_ms,
+                "execution_amount_pct": self.execution_amount_pct,
+                "max_slippage": self.max_slippage,
             },
-            'paths': [str(path) for path in self.triangular_paths]
+            "paths": [str(path) for path in self.triangular_paths],
         }
 
     def get_arbitrage_history(self, limit: int = 10) -> List[Dict]:
@@ -492,17 +496,19 @@ class TriangularArbitrageStrategy:
 
     def calculate_potential_daily_profit(
         self,
+        capital: float,
         average_opportunities_per_day: int = 10,
         average_profit_pct: float = 0.2,
-        capital: float = 10000.0
     ) -> Dict:
         """
         Calculate potential daily profit from triangular arbitrage
 
         Args:
+            capital: Trading capital. REQUIRED (moved first so it cannot be
+                silently omitted) — the old 10000.0 default was 100x the real
+                account (AUDIT 2.5).
             average_opportunities_per_day: Expected number of opportunities per day
             average_profit_pct: Average profit percentage per opportunity
-            capital: Trading capital
 
         Returns:
             Dictionary with profit projections
@@ -514,11 +520,11 @@ class TriangularArbitrageStrategy:
         annual_return_pct = daily_return_pct * 365
 
         return {
-            'execution_amount': execution_amount,
-            'profit_per_opportunity': profit_per_opportunity,
-            'opportunities_per_day': average_opportunities_per_day,
-            'daily_profit': daily_profit,
-            'daily_return_pct': daily_return_pct,
-            'annual_return_pct': annual_return_pct,
-            'annual_profit': daily_profit * 365,
+            "execution_amount": execution_amount,
+            "profit_per_opportunity": profit_per_opportunity,
+            "opportunities_per_day": average_opportunities_per_day,
+            "daily_profit": daily_profit,
+            "daily_return_pct": daily_return_pct,
+            "annual_return_pct": annual_return_pct,
+            "annual_profit": daily_profit * 365,
         }

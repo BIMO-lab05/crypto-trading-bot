@@ -21,33 +21,35 @@
 
 ## Service Management
 
+> **Canonical compose file:** `docker-compose.unified.yml` (ADR-009). The old plain `docker-compose.yml` was renamed to `docker-compose.legacy.yml.DISABLED` — it could not boot standalone and carried pre-ADR risk values. Every command below already names the canonical file and is copy-pasteable as written.
+
 ### Starting Services
 
 #### Development Environment
 ```bash
 # Start all services
 cd /mnt/d/Bimo_max/crypto-trading-bot
-docker-compose up -d
+docker compose -f docker-compose.unified.yml up -d
 
 # Start specific service
-docker-compose up -d trading-engine
+docker compose -f docker-compose.unified.yml up -d trading-engine
 
 # Start with logs
-docker-compose up trading-engine
+docker compose -f docker-compose.unified.yml up trading-engine
 ```
 
 #### Production Environment
 ```bash
 # Start all services with proper ordering
-docker-compose -f docker-compose.prod.yml up -d postgres redis rabbitmq
+docker compose -f docker-compose.unified.yml -f docker-compose.prod.yml up -d postgres redis rabbitmq
 sleep 10
-docker-compose -f docker-compose.prod.yml up -d bybit-connector market-data-service
+docker compose -f docker-compose.unified.yml -f docker-compose.prod.yml up -d bybit-connector market-data-service
 sleep 10
-docker-compose -f docker-compose.prod.yml up -d technical-analysis portfolio-manager
+docker compose -f docker-compose.unified.yml -f docker-compose.prod.yml up -d technical-analysis portfolio-manager
 sleep 10
-docker-compose -f docker-compose.prod.yml up -d trading-engine
+docker compose -f docker-compose.unified.yml -f docker-compose.prod.yml up -d trading-engine
 sleep 10
-docker-compose -f docker-compose.prod.yml up -d api-gateway
+docker compose -f docker-compose.unified.yml -f docker-compose.prod.yml up -d api-gateway
 ```
 
 ### Stopping Services
@@ -55,40 +57,42 @@ docker-compose -f docker-compose.prod.yml up -d api-gateway
 #### Graceful Shutdown (Recommended)
 ```bash
 # Stop all services gracefully (allows 30s cleanup)
-docker-compose stop
+docker compose -f docker-compose.unified.yml stop
 
 # Stop specific service
-docker-compose stop trading-engine
+docker compose -f docker-compose.unified.yml stop trading-engine
 
 # Verify shutdown
-docker-compose ps
+docker compose -f docker-compose.unified.yml ps
 ```
 
 #### Emergency Stop
 ```bash
 # Force stop (use only if graceful shutdown fails)
-docker-compose kill
+docker compose -f docker-compose.unified.yml kill
 
 # Restart after emergency stop
-docker-compose up -d
+docker compose -f docker-compose.unified.yml up -d
 ```
 
 ### Checking Service Status
 
 ```bash
 # Check all services
-docker-compose ps
+docker compose -f docker-compose.unified.yml ps
 
 # Check specific service logs
-docker-compose logs -f trading-engine
+docker compose -f docker-compose.unified.yml logs -f trading-engine
 
 # Check service health endpoints
 curl http://localhost:8000/health  # API Gateway
-curl http://localhost:8001/health  # Trading Engine
+curl http://localhost:8001/health  # Bybit Connector
 curl http://localhost:8002/health  # Market Data
-curl http://localhost:8003/health  # Technical Analysis
-curl http://localhost:8004/health  # Portfolio Manager
-curl http://localhost:8005/health  # Bybit Connector
+curl http://localhost:8003/health  # Portfolio Manager
+curl http://localhost:8004/health  # Technical Analysis
+curl http://localhost:8005/health  # Trading Engine
+curl http://localhost:8006/health  # Notification
+curl http://localhost:8009/health  # Risk Metrics
 ```
 
 ### Service Restart Procedures
@@ -98,7 +102,7 @@ curl http://localhost:8005/health  # Bybit Connector
 # Restart services one at a time
 for service in api-gateway trading-engine market-data-service technical-analysis; do
     echo "Restarting ${service}..."
-    docker-compose restart ${service}
+    docker compose -f docker-compose.unified.yml restart ${service}
     sleep 30  # Wait for health check
 done
 ```
@@ -106,13 +110,13 @@ done
 #### Full Restart
 ```bash
 # Stop all
-docker-compose down
+docker compose -f docker-compose.unified.yml down
 
 # Start all
-docker-compose up -d
+docker compose -f docker-compose.unified.yml up -d
 
 # Verify
-./scripts/healthcheck_all.sh
+./scripts/health_check.sh
 ```
 
 ### Log Locations
@@ -123,7 +127,7 @@ tail -f services/api-gateway/logs/service.log
 tail -f services/trading-engine/logs/service.log
 
 # Docker logs
-docker-compose logs -f --tail=100 trading-engine
+docker compose -f docker-compose.unified.yml logs -f --tail=100 trading-engine
 
 # System logs
 tail -f /var/log/crypto-bot/system.log
@@ -144,10 +148,10 @@ tail -f /var/log/backups.log
 curl http://localhost:8000/metrics
 
 # Trading Engine metrics
-curl http://localhost:8001/metrics
+curl http://localhost:8005/metrics
 
 # All services
-for port in 8000 8001 8002 8003 8004 8005; do
+for port in 8000 8001 8002 8003 8004 8005 8006 8009; do
     echo "=== Port ${port} ==="
     curl -s http://localhost:${port}/metrics | grep -E "^(http_requests_total|http_request_duration)"
 done
@@ -195,7 +199,7 @@ Password: [From .env file]
 - Database connection lost
 - Bybit API connection lost
 - Emergency stop triggered
-- Daily loss > 5%
+- Daily loss > 12% (ADR-028 breaker; warn at 10%)
 
 #### Warning Alerts (Slack/Email)
 - High API latency (> 1s p99)
@@ -233,26 +237,26 @@ curl -X POST http://localhost:9093/api/v1/silences \
 **Diagnosis:**
 ```bash
 # Check database connectivity
-docker-compose exec postgres psql -U cryptobot -c "SELECT 1;"
+docker compose -f docker-compose.unified.yml exec postgres psql -U cryptobot -c "SELECT 1;"
 
 # Check service logs
-docker-compose logs trading-engine
+docker compose -f docker-compose.unified.yml logs trading-engine
 ```
 
 **Solution:**
 ```bash
 # 1. Verify database is running
-docker-compose ps postgres
+docker compose -f docker-compose.unified.yml ps postgres
 
 # 2. If database is down, start it
-docker-compose up -d postgres
+docker compose -f docker-compose.unified.yml up -d postgres
 sleep 10
 
 # 3. Restart trading engine
-docker-compose restart trading-engine
+docker compose -f docker-compose.unified.yml restart trading-engine
 
 # 4. Verify health
-curl http://localhost:8001/health
+curl http://localhost:8005/health
 ```
 
 ### Issue 2: High Memory Usage
@@ -276,10 +280,10 @@ docker stats trading-engine
 docker stats --no-stream | sort -k 4 -h
 
 # 2. Restart affected service
-docker-compose restart [service-name]
+docker compose -f docker-compose.unified.yml restart [service-name]
 
 # 3. If persistent, check for memory leaks in code
-# 4. Increase memory limits in docker-compose.yml
+# 4. Increase memory limits in docker-compose.unified.yml
 ```
 
 ### Issue 3: Slow API Responses
@@ -294,7 +298,7 @@ docker-compose restart [service-name]
 curl -w "@curl-format.txt" -o /dev/null -s http://localhost:8000/api/market/ticker/BTCUSDT
 
 # Check database query performance
-docker-compose exec postgres psql -U cryptobot -c "SELECT * FROM pg_stat_statements ORDER BY total_time DESC LIMIT 10;"
+docker compose -f docker-compose.unified.yml exec postgres psql -U cryptobot -c "SELECT * FROM pg_stat_statements ORDER BY total_time DESC LIMIT 10;"
 
 # Check Redis connectivity
 redis-cli ping
@@ -309,13 +313,13 @@ redis-cli info stats | grep keyspace_hits
 ./scripts/warm_cache.sh
 
 # 3. Check database connections
-docker-compose exec postgres psql -U cryptobot -c "SELECT count(*) FROM pg_stat_activity;"
+docker compose -f docker-compose.unified.yml exec postgres psql -U cryptobot -c "SELECT count(*) FROM pg_stat_activity;"
 
 # 4. If connection pool exhausted, increase pool size
 # Edit shared/utils/db_pool.py: max_size = 100
 
 # 5. Restart services
-docker-compose restart api-gateway
+docker compose -f docker-compose.unified.yml restart api-gateway
 ```
 
 ### Issue 4: Database Connection Pool Exhausted
@@ -327,7 +331,7 @@ docker-compose restart api-gateway
 **Diagnosis:**
 ```bash
 # Check active connections
-docker-compose exec postgres psql -U cryptobot -c \
+docker compose -f docker-compose.unified.yml exec postgres psql -U cryptobot -c \
     "SELECT count(*), state FROM pg_stat_activity GROUP BY state;"
 
 # Check pool stats via API
@@ -337,14 +341,14 @@ curl http://localhost:8000/api/internal/pool-stats
 **Solution:**
 ```bash
 # 1. Kill idle connections
-docker-compose exec postgres psql -U cryptobot -c \
+docker compose -f docker-compose.unified.yml exec postgres psql -U cryptobot -c \
     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle' AND state_change < NOW() - INTERVAL '10 minutes';"
 
 # 2. Increase pool size (temporary)
-# Edit docker-compose.yml environment variables
+# Edit docker-compose.unified.yml environment variables
 
 # 3. Restart services
-docker-compose restart
+docker compose -f docker-compose.unified.yml restart
 
 # 4. Long-term: optimize queries to reduce connection time
 ```
@@ -358,10 +362,10 @@ docker-compose restart
 **Diagnosis:**
 ```bash
 # Check Bybit connector logs
-docker-compose logs bybit-connector | grep -i "rate limit"
+docker compose -f docker-compose.unified.yml logs bybit-connector | grep -i "rate limit"
 
 # Check request rate
-curl http://localhost:8005/metrics | grep bybit_requests_total
+curl http://localhost:8001/metrics | grep bybit_requests_total
 ```
 
 **Solution:**
@@ -374,7 +378,7 @@ curl http://localhost:8005/metrics | grep bybit_requests_total
 # 3. Use WebSocket for market data instead of REST
 
 # 4. Restart connector
-docker-compose restart bybit-connector
+docker compose -f docker-compose.unified.yml restart bybit-connector
 ```
 
 ### Issue 6: Logs Filling Disk
@@ -431,10 +435,10 @@ for service in api-gateway trading-engine market-data-service; do
     echo "Deploying ${service}..."
 
     # Build new image
-    docker-compose build ${service}
+    docker compose -f docker-compose.unified.yml build ${service}
 
     # Rolling restart
-    docker-compose up -d --no-deps ${service}
+    docker compose -f docker-compose.unified.yml up -d --no-deps ${service}
 
     # Wait for health check
     sleep 30
@@ -446,8 +450,8 @@ for service in api-gateway trading-engine market-data-service; do
         echo "Deployment failed for ${service}"
         # Rollback
         git checkout HEAD~1
-        docker-compose build ${service}
-        docker-compose up -d --no-deps ${service}
+        docker compose -f docker-compose.unified.yml build ${service}
+        docker compose -f docker-compose.unified.yml up -d --no-deps ${service}
         exit 1
     fi
 done
@@ -457,9 +461,16 @@ echo "Deployment complete"
 
 ### Blue-Green Deployment
 
+> **NOT IMPLEMENTED — do not follow this during an incident.** None of the
+> artifacts below exist in the repository: `docker-compose.green.yml`,
+> `docker-compose.blue.yml`, `scripts/switch_to_green.sh`,
+> `scripts/switch_to_blue.sh`, and `scripts/healthcheck_all.sh` are all
+> absent. The procedure is retained as a design sketch for whoever builds it.
+> For a real deploy use the Rolling Update procedure above.
+
 ```bash
 # 1. Start green environment
-docker-compose -f docker-compose.green.yml up -d
+docker compose -f docker-compose.green.yml up -d
 
 # 2. Verify green environment
 ./scripts/healthcheck_all.sh green
@@ -474,7 +485,7 @@ pytest tests/integration/ --env=green
 sleep 600
 
 # 6. If successful, stop blue environment
-docker-compose -f docker-compose.blue.yml down
+docker compose -f docker-compose.blue.yml down
 
 # 7. If issues, rollback
 ./scripts/switch_to_blue.sh
@@ -484,7 +495,7 @@ docker-compose -f docker-compose.blue.yml down
 
 ```bash
 # 1. Stop current version
-docker-compose down
+docker compose -f docker-compose.unified.yml down
 
 # 2. Revert code
 git revert HEAD
@@ -495,11 +506,11 @@ git checkout <previous-commit>
 ./scripts/recovery/restore_postgres.sh
 
 # 4. Rebuild and start
-docker-compose build
-docker-compose up -d
+docker compose -f docker-compose.unified.yml build
+docker compose -f docker-compose.unified.yml up -d
 
 # 5. Verify
-./scripts/healthcheck_all.sh
+./scripts/health_check.sh
 
 echo "Rollback complete"
 ```
@@ -518,7 +529,7 @@ curl -X POST http://localhost:8000/api/portfolio/emergency-stop
 touch /mnt/d/Bimo_max/crypto-trading-bot/EMERGENCY_STOP
 
 # Method 3: Stop trading engine
-docker-compose stop trading-engine
+docker compose -f docker-compose.unified.yml stop trading-engine
 
 # Verify trading stopped
 curl http://localhost:8000/api/trading/status
@@ -546,7 +557,7 @@ curl http://localhost:8000/api/trading/positions?status=open
 
 ```bash
 # 1. Stop all services
-docker-compose down
+docker compose -f docker-compose.unified.yml down
 
 # 2. Verify backup availability
 ls -lh /backups/postgres/
@@ -558,10 +569,10 @@ ls -lh /backups/postgres/
 ./scripts/testing/verify_database.sh
 
 # 5. Restart services
-docker-compose up -d
+docker compose -f docker-compose.unified.yml up -d
 
 # 6. Verify system health
-./scripts/healthcheck_all.sh
+./scripts/health_check.sh
 ```
 
 ---
@@ -577,7 +588,7 @@ docker-compose up -d
 # daily.sh contents:
 #!/bin/bash
 # 1. Health check
-./scripts/healthcheck_all.sh
+./scripts/health_check.sh
 
 # 2. Backup verification
 python scripts/testing/test_backup_restore.py
@@ -661,8 +672,8 @@ find /backups -mtime +30 -delete
 ```
 /mnt/d/Bimo_max/crypto-trading-bot/
 ├── .env                              # Environment configuration
-├── docker-compose.yml                # Service definitions
-├── EMERGENCY_STOP                    # Emergency stop flag
+├── docker-compose.unified.yml        # Service definitions (canonical, ADR-009; old docker-compose.yml renamed docker-compose.legacy.yml.DISABLED)
+├── safety/EMERGENCY_STOP             # Emergency stop flag (dir-to-dir bind mount)
 ├── services/*/logs/service.log       # Service logs
 ├── /backups/postgres/                # Database backups
 ├── /backups/redis/                   # Redis backups
@@ -676,7 +687,7 @@ find /backups -mtime +30 -delete
 curl -X POST http://localhost:8000/api/portfolio/emergency-stop
 
 # Check system health
-./scripts/healthcheck_all.sh
+./scripts/health_check.sh
 
 # Backup database now
 ./scripts/backup/postgres_backup.sh
@@ -685,10 +696,10 @@ curl -X POST http://localhost:8000/api/portfolio/emergency-stop
 ./scripts/recovery/restore_postgres.sh
 
 # View live logs
-docker-compose logs -f trading-engine
+docker compose -f docker-compose.unified.yml logs -f trading-engine
 
 # Restart service
-docker-compose restart trading-engine
+docker compose -f docker-compose.unified.yml restart trading-engine
 ```
 
 ---

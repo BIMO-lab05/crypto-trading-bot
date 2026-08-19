@@ -10,7 +10,8 @@ from app.models.enums import (
     OrderType,
     OrderStatus,
     TimeInForce,  # Added 2026-01-16 for Fix #3 (stop loss limit orders)
-    TradingMode
+    TradingMode,
+    ExitKind,  # Added 2026-08-07 for Stage 0 schema task
 )
 from app.models.signal import TradingSignal, IndicatorSignal
 from app.models.position import Position, PositionCreate, PositionUpdate
@@ -26,7 +27,7 @@ from app.models.response import (
     StrategyListResponse,
     TradingControlResponse,
     TradeHistoryStats,
-    TradeHistoryResponse
+    TradeHistoryResponse,
 )
 from app.models.stat_arb_models import (
     # Request Models
@@ -48,7 +49,7 @@ from app.models.stat_arb_models import (
     PerformanceResponse as StatArbPerformanceResponse,
     StatusResponse as StatArbStatusResponse,
     ResetResponse,
-    ErrorResponse
+    ErrorResponse,
 )
 
 __all__ = [
@@ -61,6 +62,7 @@ __all__ = [
     "OrderStatus",
     "TimeInForce",  # Added 2026-01-16 for Fix #3
     "TradingMode",
+    "ExitKind",  # Added 2026-08-07 for Stage 0 schema task
     # Signal Models
     "TradingSignal",
     "IndicatorSignal",
@@ -105,5 +107,5 @@ __all__ = [
     "StatArbPerformanceResponse",
     "StatArbStatusResponse",
     "ResetResponse",
-    "ErrorResponse"
+    "ErrorResponse",
 ]

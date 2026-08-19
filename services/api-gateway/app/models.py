@@ -6,6 +6,8 @@ Pydantic models for request validation
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 
+from app.config import settings
+
 
 class SymbolValidator(BaseModel):
     """Validator for trading symbol"""
@@ -74,7 +76,11 @@ class RSIRequest(BaseModel):
 
 class TradeRequest(BaseModel):
     """Request model for trade execution"""
-    portfolio_id: str = Field(default="default", max_length=50)
+    # default_factory, not default=: evaluated per instantiation so the
+    # canonical id is never frozen at import time (.claude/rules/money.md).
+    portfolio_id: str = Field(
+        default_factory=lambda: settings.default_portfolio_id, max_length=50
+    )
     symbol: str = Field(..., min_length=5, max_length=20)
     quantity: str = Field(..., description="Trade quantity")
     price: str = Field(..., description="Trade price")

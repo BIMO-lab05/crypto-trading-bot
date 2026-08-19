@@ -1441,8 +1441,11 @@ async def stat_arb_add_funding_endpoint(
     min_funding_rate: float = Query(
         default=0.0001, description="Minimum funding rate threshold"
     ),
-    max_position_size: float = Query(
-        default=10000.0, description="Maximum position size"
+    position_size_pct: float = Query(
+        default=0.2,
+        gt=0.0,
+        le=1.0,
+        description="Position size as a fraction of allocated capital per side",
     ),
 ):
     """
@@ -1451,10 +1454,18 @@ async def stat_arb_add_funding_endpoint(
     Creates a strategy that profits from funding rate differentials between
     spot and perpetual futures markets.
 
+    FIX 2026-08-05 (AUDIT 2.5): this endpoint used to pass
+    ``max_position_size=`` (Query default $10,000) to
+    ``add_funding_strategy``, whose signature has no such parameter — every
+    call raised TypeError. The parameter is now ``position_size_pct``, a
+    capital *fraction* matching the handler and the strategy; absolute sizing
+    derives from the manager's configured capital
+    (Settings.paper_initial_balance), never a hardcoded dollar figure.
+
     Args:
         symbol: Trading pair to monitor
         min_funding_rate: Minimum funding rate to trigger trade (default: 0.01%)
-        max_position_size: Maximum position size in USDT (default: $10,000)
+        position_size_pct: Fraction of allocated capital per side (default: 0.2)
 
     Returns:
         Strategy ID and configuration
@@ -1462,7 +1473,7 @@ async def stat_arb_add_funding_endpoint(
     return await add_funding_strategy(
         symbol=symbol,
         min_funding_rate=min_funding_rate,
-        max_position_size=max_position_size,
+        position_size_pct=position_size_pct,
     )
 
 
@@ -1771,11 +1782,13 @@ async def root():
             "symbols": sqzmom_config.enabled_symbols,
             "paper_trading": sqzmom_config.paper_trading,
             "auto_trading": sqzmom_config.auto_trading,
-            "backtesting_results": {
-                "SOLUSDT": "+2,706% (22% WR, 4.76 Sharpe)",
-                "DOGEUSDT": "+630% (28% WR, 5.41 Sharpe)",
-                "BNBUSDT": "+330% (31% WR)",
-            },
+            # AUDIT 2026-08-05 (AUDIT.md §1.4): the previous hardcoded
+            # "backtesting_results" (+2,706% SOL / +630% DOGE / +330% BNB) had
+            # no supporting artifact anywhere in the repo; the standalone doc
+            # carrying the same figures was archived as fabricated. Do not
+            # restore performance claims here without a reproducible backtest
+            # artifact (DSR/CPCV per CLAUDE.md §2).
+            "backtesting_results": None,
         },
     }
 

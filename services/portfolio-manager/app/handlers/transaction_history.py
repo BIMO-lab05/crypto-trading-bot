@@ -23,7 +23,7 @@ def get_portfolio_manager() -> PortfolioManager:
 
 
 async def get_transaction_history(
-    portfolio_id: str = "default",
+    portfolio_id: str,
     limit: Optional[int] = Query(None, description="Max number of transactions to return"),
     symbol: Optional[str] = Query(None, description="Filter by symbol")
 ) -> TransactionHistoryResponse:
@@ -36,7 +36,7 @@ async def get_transaction_history(
     - Summary statistics
 
     Args:
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         limit: Maximum number of transactions (most recent first)
         symbol: Filter by specific asset symbol
 

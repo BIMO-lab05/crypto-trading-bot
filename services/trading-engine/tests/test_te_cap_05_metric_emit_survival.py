@@ -79,8 +79,12 @@ class _StubInstrumentsCache:
 
 @pytest.fixture(autouse=True)
 def _force_live_mode(monkeypatch):
-    """Gate is LIVE-only (PAPER short-circuits to allow). Force LIVE so the
-    Category-M metric-emit branch is actually reached."""
+    """Pin LIVE so these tests isolate the Category-M metric-emit branch.
+
+    The gate runs in every mode (since 2026-08-04); LIVE only changes what a
+    MISSING spec does (fails open — review I12). These tests always supply a
+    spec, so the mode is pinned purely to keep the branch under test stable.
+    """
     from app.config import get_settings
 
     s = get_settings()

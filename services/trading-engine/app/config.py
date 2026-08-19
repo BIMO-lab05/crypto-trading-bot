@@ -5,9 +5,32 @@ Purpose: Centralized configuration management using Pydantic settings
 SECURITY UPDATE (2025-12-12): Added strict CORS configuration
 """
 
+import json
+import os
+
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
 from typing import Literal, List, Dict
+
+# Fields where a BLANK env value means "operator did not set it" — the compose
+# passthrough is `TRADING_SYMBOLS=${TRADING_SYMBOLS:-}`, so an unset .env key
+# arrives as "". pydantic-settings JSON-decodes complex fields at the SOURCE
+# layer, before any field validator runs, so "" raised SettingsError and the
+# container never booted. NoDecode would fix this but exists only in
+# pydantic-settings >= 2.6; the image pins 2.1.0, so the blank-handling lives
+# in a source subclass instead (decode_complex_value exists in both).
+_BLANK_MEANS_DEFAULT_FIELDS = frozenset({"trading_symbols", "symbol_allocations"})
+
+
+class _BlankTolerantEnvSource(EnvSettingsSource):
+    def decode_complex_value(self, field_name, field, value):
+        if (
+            field_name in _BLANK_MEANS_DEFAULT_FIELDS
+            and isinstance(value, str)
+            and not value.strip()
+        ):
+            return field.default
+        return super().decode_complex_value(field_name, field, value)
 
 
 class Settings(BaseSettings):
@@ -32,7 +55,7 @@ class Settings(BaseSettings):
         default="http://bybit-connector:8001", description="Bybit Connector Service URL"
     )
     portfolio_manager_url: str = Field(
-        default="http://localhost:8006", description="Portfolio Manager Service URL"
+        default="http://localhost:8003", description="Portfolio Manager Service URL"
     )
 
     # Phase 3 ML/AI Service URLs
@@ -204,6 +227,9 @@ class Settings(BaseSettings):
         default="consensus", description="Default trading strategy"
     )
     default_symbol: str = Field(default="BTCUSDT", description="Default trading symbol")
+    # Blank env value maps to this default via _BlankTolerantEnvSource above;
+    # non-blank values are JSON-decoded normally and still face
+    # validate_allocations().
     trading_symbols: List[str] = Field(
         default=[
             # =============================================================================
@@ -250,6 +276,8 @@ class Settings(BaseSettings):
     # - Proven historical performance (60-75% win rates)
     # - Removes noise from low-quality data symbols
     # =============================================================================
+    # Blank-tolerant for the same reason as trading_symbols above — the two
+    # must be overridable together or the pair goes incoherent.
     symbol_allocations: Dict[str, float] = Field(
         default={
             # ===========================================================================
@@ -469,11 +497,11 @@ class Settings(BaseSettings):
     )
 
     # ===========================================================================
-    # TRADE SIDE RESTRICTIONS (Updated 2026-01-19) - OPTION C: HYBRID CIRCUIT BREAKER
+    # TRADE SIDE RESTRICTIONS (Updated 2026-01-19)
     # ===========================================================================
     # Analysis: Backtest shows SHORT trading has +2-4% monthly profit potential in current bearish conditions
     # Recent analysis (Jan 19, 2026) confirms SHORT trades are profitable in current market
-    # Solution: Enable SHORT with TIGHTER risk controls + automatic circuit breaker
+    # Solution: Enable SHORT with TIGHTER risk controls
     allowed_trade_sides: List[str] = Field(
         default=["LONG", "SHORT"],  # Both sides enabled for market adaptability
         description="Allowed trade sides: ['LONG', 'SHORT'] for market adaptability",
@@ -501,52 +529,13 @@ class Settings(BaseSettings):
         le=1.0,
         description="SHORT minimum confidence: 70% (higher than LONG's 65%)",
     )
-    short_max_position_pct: float = Field(
-        default=3.0,  # SMALLER: 3% vs 5% for LONG (40% smaller)
-        ge=0.5,
-        le=10.0,
-        description="SHORT max position size: 3% (smaller than LONG's 5%)",
-    )
-
-    # ===========================================================================
-    # CIRCUIT BREAKER (Added 2026-01-19) - AUTOMATIC SHORT SAFETY SHUTDOWN
-    # ===========================================================================
-    # Purpose: Automatically disable SHORT if underperforms, protecting capital
-    # Trigger: If ANY condition breached during evaluation period → disable SHORT
-    # Recovery: Requires manual re-enable after review
-    circuit_breaker_enabled: bool = Field(
-        default=True, description="Enable automatic SHORT shutdown on poor performance"
-    )
-    circuit_breaker_max_consecutive_losses: int = Field(
-        default=3,  # Disable after 3 losses in a row
-        ge=2,
-        le=10,
-        description="Auto-disable SHORT after N consecutive losses",
-    )
-    circuit_breaker_max_drawdown_pct: float = Field(
-        default=10.0,  # Disable if portfolio drops 10%
-        ge=3.0,
-        le=25.0,
-        description="Auto-disable SHORT if drawdown exceeds %",
-    )
-    circuit_breaker_min_win_rate_pct: float = Field(
-        default=45.0,  # Disable if win rate falls below 45%
-        ge=30.0,
-        le=60.0,
-        description="Auto-disable SHORT if win rate below % (after evaluation period)",
-    )
-    circuit_breaker_evaluation_trades: int = Field(
-        default=30,  # Evaluate after 30 trades
-        ge=10,
-        le=100,
-        description="Number of SHORT trades before evaluating circuit breaker",
-    )
-    circuit_breaker_check_interval_minutes: int = Field(
-        default=60,  # Check every hour
-        ge=15,
-        le=1440,
-        description="How often to check circuit breaker conditions (minutes)",
-    )
+    # DELETED 2026-08-12 (audit finding 6): short_max_position_pct and the six
+    # circuit_breaker_* fields were declared 2026-01-19 and read by no code in
+    # the repo. short_max_position_pct is not resurrected: 3% of a $100 account
+    # is $3, under the ~$5 venue minimum, so enforcing it under
+    # reject-don't-clamp would silently end all SHORT trading. The equity /
+    # consecutive-loss halt that these breaker fields described is implemented
+    # by KillSwitchConfig (auto_trader.py), on its own thresholds.
 
     # Database Configuration
     # Port 5432 is the in-container TimescaleDB port. The host-mapped port
@@ -571,10 +560,15 @@ class Settings(BaseSettings):
         description="Initial balance for paper trading (matches portfolio-manager initial_capital and risk-budget base_equity)",
     )
     paper_commission_pct: float = Field(
-        default=0.1,
+        default=0.055,
         ge=0.0,
         le=1.0,
-        description="Commission percentage for paper trading",
+        description=(
+            "Commission percentage per side for paper trading. "
+            "0.055 = Bybit linear-perp taker fee (0.055%/side). "
+            "Was 0.1 until 2026-08-04 (AUDIT.md §6.2): the engine over-charged "
+            "fees ~1.8x vs the real venue, distorting every net-P&L figure."
+        ),
     )
 
     # Paper slippage (PAPER-01, 2026-08-03). ON by default: a frictionless
@@ -597,6 +591,40 @@ class Settings(BaseSettings):
         default=10.0,
         ge=0.0,
         description="Slippage in bps for symbols absent from the per-symbol table",
+    )
+
+    # Paper funding (PAPER-02). ON by default: a position held across an 8h
+    # Bybit settlement pays or receives funding on the real venue, and omitting
+    # it overstates P&L for longs in positive-funding regimes. Fetch failure
+    # fails open to zero and LOGS that the leg is gross of funding - silence
+    # must never become an assumed rate (costs.py:257-260).
+    paper_funding_enabled: bool = Field(
+        default=True,
+        description=(
+            "Charge/credit perp funding on paper closes for each settlement "
+            "crossed during the hold"
+        ),
+    )
+
+    # =========================================================================
+    # EXECUTION / SMART ORDER ROUTER (RES-05, 2026-08-16)
+    # =========================================================================
+    # Grouped with the paper-slippage block above because both concern fill
+    # mechanics rather than capital allocation.
+    smart_router_small_order_threshold_usd: float = Field(
+        default=1000.0,
+        gt=0,
+        description=(
+            "Order notional in USD below which a single market order is the "
+            "cheapest execution; above it the smart router prefers "
+            "limit/TWAP/iceberg strategies. This is a MARKET-MICROSTRUCTURE "
+            "CALIBRATION against Bybit order-book depth — it is NOT an "
+            "account-size figure and must never be derived from one. Deriving "
+            "it from equity would silently reclassify large orders as small as "
+            "the account grows, which is the opposite of what the threshold is "
+            "for. Env key: SMART_ROUTER_SMALL_ORDER_THRESHOLD_USD (Settings "
+            "declares no env_prefix, so the key is the upper-cased field name)."
+        ),
     )
 
     # =========================================================================
@@ -667,6 +695,23 @@ class Settings(BaseSettings):
             raise ValueError("Trading mode must be PAPER or LIVE")
         return v.upper()
 
+    @field_validator("trading_symbols", "symbol_allocations", mode="before")
+    @classmethod
+    def _blank_symbol_env_uses_default(cls, v, info):
+        """Blank value means "operator did not set it" — use the default.
+
+        The env path is handled earlier by _BlankTolerantEnvSource (the source
+        layer decodes complex fields before validators run); this validator
+        covers direct construction, e.g. Settings(trading_symbols=""). A
+        malformed non-blank value still raises: silently trading an unintended
+        symbol set is worse than refusing to boot.
+        """
+        if isinstance(v, str):
+            if not v.strip():
+                return cls.model_fields[info.field_name].default
+            return json.loads(v)
+        return v
+
     def validate_allocations(self) -> None:
         """
         Validate symbol allocations sum to 1.0 and all trading symbols have allocations
@@ -726,21 +771,96 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        # Same precedence order as stock pydantic-settings; only the plain env
+        # source is swapped for the blank-tolerant subclass defined above.
+        return (
+            init_settings,
+            _BlankTolerantEnvSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
+
+
+# =============================================================================
+# BOOT-TIME CAPITAL-ENV VALIDATION (2026-08-04, AUDIT.md workstream B task 5)
+# =============================================================================
+# Owner spec: missing capital/risk config must raise, never fall back to a
+# default. Making these five Settings fields *required* (no default) was
+# attempted first and rejected with evidence:
+#   * tests/test_account_config_sync.py compares DECLARED defaults against
+#     shared/account.py — required fields have default=PydanticUndefined, so
+#     that mandated-green test fails by construction (4/4 parametrized cases).
+#   * tests/conftest.py pins env_file=None and the host-test runbook
+#     (.claude/rules/testing.md) does not export these env vars, so every
+#     module importing app.main dies at collection with
+#     "ValidationError: 5 validation errors for Settings ... Field required".
+# So instead: defaults stay (they are the production values, enforced by the
+# sync test), and any *containerized* boot must receive all five explicitly
+# from the environment (docker-compose.unified.yml injects them — verified in
+# AUDIT.md §2.1). A container missing one refuses to construct Settings.
+
+REQUIRED_CAPITAL_ENV_VARS = (
+    "PAPER_INITIAL_BALANCE",
+    "MAX_RISK_PER_TRADE",
+    "MAX_DAILY_LOSS_PCT",
+    "MAX_POSITION_SIZE_PCT",
+    "MAX_TOTAL_EXPOSURE_PCT",
+)
+
+
+def _running_in_container() -> bool:
+    """True when executing inside a Docker container (/.dockerenv marker)."""
+    return os.path.exists("/.dockerenv")
+
+
+def assert_capital_env_present() -> None:
+    """Raise loudly if any required capital/risk env var is absent.
+
+    Called on every Settings construction when running in a container. Host
+    runs (tests, backtests) are exempt: there the config-default path IS the
+    production configuration (see tests/conftest.py).
+    """
+    missing = [key for key in REQUIRED_CAPITAL_ENV_VARS if not os.environ.get(key)]
+    if missing:
+        raise RuntimeError(
+            "Refusing to boot: required capital/risk environment variables "
+            f"are not set: {', '.join(missing)}. These must be injected "
+            "explicitly (docker-compose.unified.yml does so); silently "
+            "falling back to code defaults for money parameters is forbidden. "
+            "See AUDIT.md §2.1 and CLAUDE.md §1."
+        )
+
 
 # Global settings instance
 _settings: Settings | None = None
+
+
+def _build_settings() -> Settings:
+    """Construct Settings, enforcing capital-env presence inside containers."""
+    if _running_in_container():
+        assert_capital_env_present()
+    return Settings()
 
 
 def get_settings() -> Settings:
     """Get or create settings instance"""
     global _settings
     if _settings is None:
-        _settings = Settings()
+        _settings = _build_settings()
     return _settings
 
 
 def reload_settings() -> Settings:
     """Reload settings from environment"""
     global _settings
-    _settings = Settings()
+    _settings = _build_settings()
     return _settings

@@ -22,6 +22,12 @@ from app.circuit_breaker import CircuitBreaker, CircuitState
 # Configure logger
 logger = logging.getLogger(__name__)
 
+# Hard bound on instruments-info cursor following. A malformed or adversarial
+# never-terminating cursor chain cannot spin the connector indefinitely; hitting
+# the cap emits a WARNING rather than truncating silently, because a short
+# instruments list is exactly how the min-notional gate fails open.
+MAX_INSTRUMENTS_PAGES = 10
+
 
 class BybitRestClient:
     """
@@ -688,6 +694,12 @@ class BybitRestClient:
         T2.3 funding-rate awareness needs the per-symbol interval, not a
         hardcoded 8h.
 
+        Follows Bybit's ``nextPageCursor`` so a bulk (symbol-less) call returns
+        every instrument instead of only the first page — the default page size
+        caps ``linear`` at 500 alphabetically-ordered symbols, so SOLUSDT and
+        everything past it never arrived. Bounded at ``MAX_INSTRUMENTS_PAGES``
+        pages; hitting the cap logs a WARNING rather than truncating silently.
+
         Args:
             category: spot, linear, inverse, or option.
             symbol: Restrict to a single symbol (optional).
@@ -697,13 +709,45 @@ class BybitRestClient:
               symbol, fundingInterval (str minutes), priceFilter.tickSize,
               lotSizeFilter.minOrderQty, lotSizeFilter.maxOrderQty.
         """
-        params: Dict[str, Any] = {"category": category}
+        params: Dict[str, Any] = {"category": category, "limit": 1000}
         if symbol:
             params["symbol"] = symbol
-        result = await self._request(
-            "GET", "/v5/market/instruments-info", params=params, auth_required=False
-        )
-        return result.get("list", [])
+
+        instruments: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+
+        for _page in range(MAX_INSTRUMENTS_PAGES):
+            # Fresh per-page copy is load-bearing, not stylistic: the mock (and
+            # httpx) retain a reference to the dict they were handed, so
+            # mutating one shared dict in place would rewrite the recorded
+            # first-page params. Do not optimize the copy away.
+            params_page = dict(params)
+            if cursor:
+                params_page["cursor"] = cursor
+
+            result = await self._request(
+                "GET",
+                "/v5/market/instruments-info",
+                params=params_page,
+                auth_required=False,
+            )
+            instruments.extend(result.get("list") or [])
+
+            # Empty string (last linear page), absent key (spot) and explicit
+            # None all collapse into one falsy termination case.
+            cursor = result.get("nextPageCursor") or None
+            if not cursor:
+                break
+        else:
+            logger.warning(
+                "instruments-info pagination hit the %d-page cap for "
+                "category=%s after %d instruments — result may be truncated",
+                MAX_INSTRUMENTS_PAGES,
+                category,
+                len(instruments),
+            )
+
+        return instruments
 
     # ========================================================================
     # UTILITY METHODS

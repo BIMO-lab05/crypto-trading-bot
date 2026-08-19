@@ -9,7 +9,6 @@ and rate limiting.
 import logging
 import uuid
 from typing import Optional
-from decimal import Decimal
 from fastapi import HTTPException, Request, Query
 
 from app.models import TransactionResponse
@@ -19,10 +18,20 @@ from app.utils import check_rate_limit, parse_decimal
 
 logger = logging.getLogger(__name__)
 
+# FIX 11 (2026-08-12): the portfolio is a read-only mirror of the
+# trading-engine book — the engine sync overwrites local state within 60s,
+# so a manual fill here is fake and guaranteed to drift before vanishing.
+# Mutating spot paths are gated off; transaction history stays readable.
+MANUAL_TRANSACTIONS_DISABLED_DETAIL = (
+    "manual spot transactions disabled: portfolio mirrors the trading-engine "
+    "book; local trades are overwritten by sync within 60s"
+)
+
 
 def get_portfolio_manager() -> PortfolioManager:
     """Get portfolio manager instance (from global state)"""
     from app.main import portfolio_manager
+
     if portfolio_manager is None:
         raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
     return portfolio_manager
@@ -30,10 +39,10 @@ def get_portfolio_manager() -> PortfolioManager:
 
 async def buy_asset(
     request: Request,
-    portfolio_id: str = "default",
+    portfolio_id: str,
     symbol: str = Query(..., description="Asset symbol"),
     quantity: str = Query(..., description="Quantity to buy"),
-    price: Optional[str] = Query(None, description="Price (fetch if not provided)")
+    price: Optional[str] = Query(None, description="Price (fetch if not provided)"),
 ) -> TransactionResponse:
     """
     Execute buy transaction
@@ -51,7 +60,7 @@ async def buy_asset(
 
     Args:
         request: FastAPI request (for rate limiting)
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         symbol: Asset symbol (e.g., "BTCUSDT")
         quantity: Quantity to purchase
         price: Price per unit (optional, fetched if not provided)
@@ -60,10 +69,11 @@ async def buy_asset(
         TransactionResponse with transaction details
 
     Raises:
-        HTTPException: 404 if portfolio not found,
-                      400 if invalid inputs,
-                      503 if price unavailable
+        HTTPException: 409 always — manual spot transactions are disabled
+                      (portfolio mirrors the trading-engine book)
     """
+    raise HTTPException(status_code=409, detail=MANUAL_TRANSACTIONS_DISABLED_DETAIL)
+
     # Check rate limit
     check_rate_limit(request, settings.rate_limit_transactions_per_minute)
 
@@ -71,7 +81,9 @@ async def buy_asset(
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
     # Validate quantity
     qty = parse_decimal(quantity, "quantity")
@@ -85,7 +97,7 @@ async def buy_asset(
             if current_price == 0:
                 raise HTTPException(
                     status_code=503,
-                    detail=f"Could not fetch current price for {symbol}. Market Data service may be unavailable."
+                    detail=f"Could not fetch current price for {symbol}. Market Data service may be unavailable.",
                 )
         else:
             current_price = parse_decimal(price, "price")
@@ -96,7 +108,7 @@ async def buy_asset(
             symbol=symbol,
             action="BUY",
             quantity=qty,
-            price=current_price
+            price=current_price,
         )
 
     if not success:
@@ -112,16 +124,16 @@ async def buy_asset(
         quantity=str(qty),
         price=str(current_price),
         total_cost=str(total_cost),
-        message=message
+        message=message,
     )
 
 
 async def sell_asset(
     request: Request,
-    portfolio_id: str = "default",
+    portfolio_id: str,
     symbol: str = Query(..., description="Asset symbol"),
     quantity: str = Query(..., description="Quantity to sell"),
-    price: Optional[str] = Query(None, description="Price (fetch if not provided)")
+    price: Optional[str] = Query(None, description="Price (fetch if not provided)"),
 ) -> TransactionResponse:
     """
     Execute sell transaction
@@ -140,7 +152,7 @@ async def sell_asset(
 
     Args:
         request: FastAPI request (for rate limiting)
-        portfolio_id: Portfolio identifier (default: "default")
+        portfolio_id: Portfolio identifier (resolved from settings.default_portfolio_id by the caller)
         symbol: Asset symbol (e.g., "BTCUSDT")
         quantity: Quantity to sell
         price: Price per unit (optional, fetched if not provided)
@@ -149,10 +161,11 @@ async def sell_asset(
         TransactionResponse with transaction details and realized P&L
 
     Raises:
-        HTTPException: 404 if portfolio not found,
-                      400 if invalid inputs or insufficient holdings,
-                      503 if price unavailable
+        HTTPException: 409 always — manual spot transactions are disabled
+                      (portfolio mirrors the trading-engine book)
     """
+    raise HTTPException(status_code=409, detail=MANUAL_TRANSACTIONS_DISABLED_DETAIL)
+
     # Check rate limit
     check_rate_limit(request, settings.rate_limit_transactions_per_minute)
 
@@ -160,7 +173,9 @@ async def sell_asset(
 
     portfolio = manager.get_portfolio(portfolio_id)
     if not portfolio:
-        raise HTTPException(status_code=404, detail=f"Portfolio {portfolio_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Portfolio {portfolio_id} not found"
+        )
 
     # Validate quantity
     qty = parse_decimal(quantity, "quantity")
@@ -174,7 +189,7 @@ async def sell_asset(
             if current_price == 0:
                 raise HTTPException(
                     status_code=503,
-                    detail=f"Could not fetch current price for {symbol}. Market Data service may be unavailable."
+                    detail=f"Could not fetch current price for {symbol}. Market Data service may be unavailable.",
                 )
         else:
             current_price = parse_decimal(price, "price")
@@ -185,7 +200,7 @@ async def sell_asset(
             symbol=symbol,
             action="SELL",
             quantity=qty,
-            price=current_price
+            price=current_price,
         )
 
     if not success:
@@ -202,5 +217,5 @@ async def sell_asset(
         price=str(current_price),
         total_cost=str(total_proceeds),
         realized_pnl=str(realized_pnl) if realized_pnl else None,
-        message=message
+        message=message,
     )

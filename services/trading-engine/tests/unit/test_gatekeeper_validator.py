@@ -27,9 +27,7 @@ class TestTrendGatekeeper:
     def test_check_signal_no_trend_filter(self, gatekeeper):
         """Test signal check when no trend filter available"""
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.BUY,
-            0.8,
-            None
+            SignalAction.BUY, 0.8, None
         )
 
         assert action == SignalAction.BUY
@@ -43,9 +41,7 @@ class TestTrendGatekeeper:
         trend_filter.metadata = {"trend": "BEARISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.HOLD,
-            0.5,
-            trend_filter
+            SignalAction.HOLD, 0.5, trend_filter
         )
 
         assert action == SignalAction.HOLD
@@ -63,9 +59,7 @@ class TestTrendGatekeeper:
         trend_filter.metadata = {"trend": "BEARISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.BUY,
-            0.8,
-            trend_filter
+            SignalAction.BUY, 0.8, trend_filter
         )
 
         # AGGRESSIVE mode: 0.9 < 0.95 threshold, so apply 5% penalty instead of blocking
@@ -84,9 +78,7 @@ class TestTrendGatekeeper:
         trend_filter.metadata = {"trend": "BEARISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.BUY,
-            0.8,
-            trend_filter
+            SignalAction.BUY, 0.8, trend_filter
         )
 
         assert action == SignalAction.HOLD  # Changed to HOLD - blocked
@@ -106,9 +98,7 @@ class TestTrendGatekeeper:
         trend_filter.metadata = {"trend": "BULLISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.SELL,
-            0.8,
-            trend_filter
+            SignalAction.SELL, 0.8, trend_filter
         )
 
         # AGGRESSIVE mode: 0.9 < 0.95 threshold, so apply 5% penalty instead of blocking
@@ -127,9 +117,7 @@ class TestTrendGatekeeper:
         trend_filter.metadata = {"trend": "BULLISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.SELL,
-            0.8,
-            trend_filter
+            SignalAction.SELL, 0.8, trend_filter
         )
 
         assert action == SignalAction.HOLD  # Changed to HOLD - blocked
@@ -145,9 +133,7 @@ class TestTrendGatekeeper:
         trend_filter.metadata = {"trend": "BULLISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.BUY,
-            0.8,
-            trend_filter
+            SignalAction.BUY, 0.8, trend_filter
         )
 
         assert action == SignalAction.BUY  # Unchanged
@@ -163,9 +149,7 @@ class TestTrendGatekeeper:
         trend_filter.metadata = {"trend": "BEARISH"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.SELL,
-            0.8,
-            trend_filter
+            SignalAction.SELL, 0.8, trend_filter
         )
 
         assert action == SignalAction.SELL  # Unchanged
@@ -183,9 +167,7 @@ class TestTrendGatekeeper:
         trend_filter.metadata = {"trend": "NEUTRAL"}
 
         action, conf, blocked, reason = gatekeeper.check_signal(
-            SignalAction.BUY,
-            1.0,
-            trend_filter
+            SignalAction.BUY, 1.0, trend_filter
         )
 
         assert action == SignalAction.BUY  # Unchanged
@@ -249,6 +231,7 @@ class TestVolumeValidator:
         assert "STRONG" in validator.strength_stats
         assert "MODERATE" in validator.strength_stats
         assert "WEAK" in validator.strength_stats
+        assert "INSUFFICIENT" in validator.strength_stats
         assert "MINIMAL" in validator.strength_stats
         assert validator.strength_stats["STRONG"] == 0
 
@@ -296,7 +279,9 @@ class TestVolumeValidator:
 
         conf, penalty, reason = validator.validate_volume(0.8, volume_conf)
 
-        assert conf == pytest.approx(0.64)  # 0.8 * 0.8 = 20% penalty (PROFITABILITY FIX)
+        assert conf == pytest.approx(
+            0.64
+        )  # 0.8 * 0.8 = 20% penalty (PROFITABILITY FIX)
         assert penalty == 0.8
         assert "Moderate volume (unconfirmed)" in reason
         assert validator.rejected_count == 1
@@ -312,14 +297,37 @@ class TestVolumeValidator:
 
         conf, penalty, reason = validator.validate_volume(0.8, volume_conf)
 
-        assert conf == pytest.approx(0.6)  # 0.8 * 0.75 = 25% penalty (PROFITABILITY FIX)
+        assert conf == pytest.approx(
+            0.6
+        )  # 0.8 * 0.75 = 25% penalty (PROFITABILITY FIX)
         assert penalty == 0.75
         assert "Weak volume" in reason
         assert validator.rejected_count == 1
         assert validator.strength_stats["WEAK"] == 1
 
-    def test_validate_volume_not_confirmed_minimal(self, validator):
-        """Test validation with NOT CONFIRMED + MINIMAL volume (50% penalty)
+    def test_validate_volume_not_confirmed_insufficient(self, validator):
+        """NOT CONFIRMED + INSUFFICIENT volume must draw the 50% penalty.
+
+        INSUFFICIENT is the string the technical-analysis producer actually
+        emits (`app/indicators/volume_confirmation.py`) when volume is below
+        1.0x average — measured on 64.7% of 17,478 bars. Until 2026-08-09 the
+        validator branched only on the never-emitted "MINIMAL", so these bars
+        fell through to the UNKNOWN branch and were penalised 0.95x. This test
+        is the one that would have caught it.
+        """
+        volume_conf = Mock(spec=IndicatorSignal)
+        volume_conf.metadata = {"confirmed": False, "strength": "INSUFFICIENT"}
+
+        conf, penalty, reason = validator.validate_volume(0.9, volume_conf)
+
+        assert penalty == 0.5, "INSUFFICIENT must be penalised 0.5x, not 0.95x"
+        assert conf == pytest.approx(0.45)  # 0.9 * 0.5
+        assert "Insufficient volume" in reason
+        assert validator.rejected_count == 1
+        assert validator.strength_stats["INSUFFICIENT"] == 1
+
+    def test_validate_volume_not_confirmed_minimal_alias(self, validator):
+        """The legacy "MINIMAL" alias keeps the same 50% penalty.
 
         UPDATED 2025-12-03: PROFITABILITY FIX (2025-11-27) reduced penalty from 0.3x to 0.5x.
         """
@@ -328,11 +336,57 @@ class TestVolumeValidator:
 
         conf, penalty, reason = validator.validate_volume(0.9, volume_conf)
 
-        assert conf == pytest.approx(0.45)  # 0.9 * 0.5 = 50% penalty (PROFITABILITY FIX)
+        assert conf == pytest.approx(
+            0.45
+        )  # 0.9 * 0.5 = 50% penalty (PROFITABILITY FIX)
         assert penalty == 0.5
         assert "Minimal volume" in reason
         assert validator.rejected_count == 1
         assert validator.strength_stats["MINIMAL"] == 1
+
+    def test_every_producer_strength_is_tracked_and_penalised(self, validator):
+        """Contract test: no producer string may fall through to UNKNOWN.
+
+        The producer vocabulary lives in the technical-analysis service and
+        cannot be imported from here (separate Docker build context), so it is
+        mirrored on VolumeValidator.PRODUCER_STRENGTHS. Any string the producer
+        emits must (a) have a strength_stats bucket, or it is invisible in
+        telemetry, and (b) not land in the UNKNOWN 0.95x fallback, or its
+        designed penalty silently never applies.
+        """
+        for strength in VolumeValidator.PRODUCER_STRENGTHS:
+            assert strength in validator.strength_stats, (
+                f"{strength} has no strength_stats bucket - it will never "
+                f"appear in get_stats()"
+            )
+
+        # (strength, confirmed, expected_penalty) as the producer emits them:
+        # STRONG/MODERATE always set confirmed=True, WEAK only for
+        # continuation signals, INSUFFICIENT never.
+        producer_cases = [
+            ("STRONG", True, 1.0),
+            ("MODERATE", True, 0.9),
+            ("WEAK", False, 0.75),
+            ("INSUFFICIENT", False, 0.5),
+        ]
+        assert {c[0] for c in producer_cases} == set(
+            VolumeValidator.PRODUCER_STRENGTHS
+        ), "producer vocabulary changed - update this table"
+
+        for strength, confirmed, expected_penalty in producer_cases:
+            fresh = VolumeValidator()
+            volume_conf = Mock(spec=IndicatorSignal)
+            volume_conf.metadata = {"confirmed": confirmed, "strength": strength}
+
+            _, penalty, reason = fresh.validate_volume(1.0, volume_conf)
+
+            assert "Unknown volume strength" not in reason, (
+                f"{strength} fell through to the UNKNOWN fallback"
+            )
+            assert penalty == expected_penalty, (
+                f"{strength} penalised {penalty}x, expected {expected_penalty}x"
+            )
+            assert fresh.strength_stats[strength] == 1
 
     def test_get_stats_empty(self, validator):
         """Test getting stats when no validations performed"""
@@ -367,6 +421,7 @@ class TestVolumeValidator:
         validator.rejected_count = 5
         validator.strength_stats["STRONG"] = 3
         validator.strength_stats["WEAK"] = 7
+        validator.strength_stats["INSUFFICIENT"] = 11
 
         validator.reset_stats()
 
@@ -375,6 +430,7 @@ class TestVolumeValidator:
         # NEW: Verify strength stats are also reset
         assert validator.strength_stats["STRONG"] == 0
         assert validator.strength_stats["WEAK"] == 0
+        assert validator.strength_stats["INSUFFICIENT"] == 0
         assert validator.strength_stats["MINIMAL"] == 0
 
 
@@ -397,9 +453,7 @@ class TestGatekeeperValidatorIntegration:
 
         # Pass through gatekeeper
         action, conf, blocked, _ = gatekeeper.check_signal(
-            SignalAction.BUY,
-            0.8,
-            trend_filter
+            SignalAction.BUY, 0.8, trend_filter
         )
 
         assert action == SignalAction.BUY
@@ -431,9 +485,7 @@ class TestGatekeeperValidatorIntegration:
 
         # Pass through gatekeeper (AGGRESSIVE mode: penalize but don't block at 0.9)
         action, conf, blocked, _ = gatekeeper.check_signal(
-            SignalAction.BUY,
-            0.8,
-            trend_filter
+            SignalAction.BUY, 0.8, trend_filter
         )
 
         assert action == SignalAction.BUY  # Not blocked - just penalized
@@ -465,9 +517,7 @@ class TestGatekeeperValidatorIntegration:
 
         # Pass through gatekeeper (should block BUY at >= 0.95)
         action, conf, blocked, _ = gatekeeper.check_signal(
-            SignalAction.BUY,
-            0.8,
-            trend_filter
+            SignalAction.BUY, 0.8, trend_filter
         )
 
         assert action == SignalAction.HOLD  # Blocked
@@ -499,9 +549,7 @@ class TestGatekeeperValidatorIntegration:
 
         # Pass through gatekeeper (should allow)
         action, conf, blocked, _ = gatekeeper.check_signal(
-            SignalAction.BUY,
-            0.8,
-            trend_filter
+            SignalAction.BUY, 0.8, trend_filter
         )
 
         assert action == SignalAction.BUY
@@ -535,9 +583,7 @@ class TestGatekeeperValidatorIntegration:
 
         # Pass through gatekeeper (NEUTRAL trend = no penalty in AGGRESSIVE mode)
         action, conf, blocked, _ = gatekeeper.check_signal(
-            SignalAction.BUY,
-            1.0,
-            trend_filter
+            SignalAction.BUY, 1.0, trend_filter
         )
 
         assert action == SignalAction.BUY
@@ -571,9 +617,7 @@ class TestGatekeeperValidatorIntegration:
 
         # Pass through gatekeeper (NEUTRAL = no penalty - AGGRESSIVE 2025-11-28)
         action, conf, blocked, _ = gatekeeper.check_signal(
-            SignalAction.BUY,
-            1.0,
-            trend_filter
+            SignalAction.BUY, 1.0, trend_filter
         )
 
         assert action == SignalAction.BUY

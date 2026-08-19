@@ -33,6 +33,7 @@ from typing import Optional, List, Dict, Set
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
+from uuid import UUID
 
 from app.config import get_settings
 from app.risk.vol_targeting import (
@@ -54,7 +55,7 @@ from app.position_manager import get_position_manager
 from app.position_sizing import get_position_sizer, SizingMethod
 from app.performance_tracker import get_performance_tracker
 from app.models import OrderSide, OrderType, OrderCreate, OrderStatus, TimeInForce
-from app.models.enums import SignalAction
+from app.models.enums import SignalAction, ExitKind
 from app.aggregation.market_regime import get_market_regime_detector, MarketRegime
 
 # Import hybrid strategy router (combines trend-following + mean reversion)
@@ -184,7 +185,6 @@ class AutoTrader:
         symbols: Optional[List[str]] = None,
         interval: str = "60",
         check_frequency_seconds: Optional[int] = None,  # Use config default
-        enable_volume_profile: bool = False,  # Enable VP analysis (Phase 3)
         position_sizing_method: SizingMethod = SizingMethod.FIXED,  # 2026-05-06: predictable 10%-per-trade sizing on $100 paper balance
         use_performance_data: bool = True,  # Use performance tracker for Kelly
         enable_market_regime: bool = True,  # Enable ADX-based market regime detection
@@ -200,7 +200,6 @@ class AutoTrader:
             symbols: List of trading symbols (default: from config)
             interval: Timeframe for analysis (default: 60 minutes)
             check_frequency_seconds: How often to check signals (default: from config)
-            enable_volume_profile: Enable Volume Profile analysis (default: False)
             position_sizing_method: Position sizing method (default: CONFIDENCE_ADJUSTED)
             use_performance_data: Use performance tracker for Kelly calculation
             enable_market_regime: Enable ADX-based market regime detection (default: True)
@@ -223,7 +222,6 @@ class AutoTrader:
         self.check_frequency = check_frequency_seconds or getattr(
             settings, "check_frequency_seconds", 30
         )
-        self.enable_vp = enable_volume_profile
         self.position_sizing_method = position_sizing_method
         self.use_performance_data = use_performance_data
         self.enable_market_regime = enable_market_regime
@@ -281,6 +279,20 @@ class AutoTrader:
         # Keep research strategy for backward compatibility
         self.research_strategy = self.hybrid_strategy.trend_strategy
 
+        # GRID_TRADING has no execution path (2026-08-12). The dispatch called
+        # _check_and_trade_grid, which was never written: every symbol raised
+        # AttributeError inside the per-symbol try, the circuit breaker counted
+        # it as an aggregator failure, and the engine traded nothing while
+        # looking like it had a flaky upstream. Refuse at construction — the
+        # mode_map in get_auto_trader falls back silently, so dropping the key
+        # there would trade HYBRID under a grid label instead.
+        if strategy_mode == StrategyMode.GRID_TRADING:
+            raise ValueError(
+                "STRATEGY_MODE=grid_trading is not implemented — AutoTrader has no "
+                "grid execution path. Supported modes: standard, research, hybrid, "
+                "ensemble."
+            )
+
         # Initialize Grid Trading strategy (Phase 2.3 - 2025-12-08)
         # NOTE: Grid Trading showed poor walk-forward validation results:
         #   - Avg Return: -0.00%, Avg Sharpe: -0.49, Avg Win Rate: 32.6%
@@ -288,6 +300,15 @@ class AutoTrader:
         self.grid_strategies: Dict[
             str, GridTradingStrategy
         ] = {}  # One strategy per symbol
+
+        # Ensemble leg attribution, position id -> leg contributions (2026-08-12).
+        # Written at fill, popped in _finalize_closed_position and fed to
+        # record_trade_outcome (ADR-015). Previously stashed on Position.metadata,
+        # a field the pydantic model does not declare, so every write raised and
+        # the weights never adapted. Entries are consumed by the close they
+        # belong to; a close that bypasses _finalize_closed_position leaves one
+        # key behind until restart.
+        self._ensemble_attribution: Dict[UUID, Dict[str, float]] = {}
 
         # Statistics
         self.total_signals_checked = 0
@@ -626,7 +647,6 @@ class AutoTrader:
         logger.info(
             f"AutoTrader initialized: symbols={len(self.symbols)} pairs, "
             f"interval={self.interval}, frequency={self.check_frequency}s, "
-            f"VP={'ENABLED' if self.enable_vp else 'DISABLED'}, "
             f"Sizing={self.position_sizing_method.value}, "
             f"MarketRegime={'ENABLED' if self.enable_market_regime else 'DISABLED'}, "
             f"StrategyMode={self.strategy_mode.value}"
@@ -804,7 +824,6 @@ class AutoTrader:
         logger.info(
             f"  ML Predictions: {'ENABLED (Phase 3)' if self.enable_ml else 'DISABLED'}"
         )
-        logger.info(f"  Volume Profile: {'ENABLED' if self.enable_vp else 'DISABLED'}")
         logger.info(
             f"  Market Regime: {'ENABLED' if self.enable_market_regime else 'DISABLED'}"
         )
@@ -958,9 +977,6 @@ class AutoTrader:
                             elif self.strategy_mode == StrategyMode.HYBRID:
                                 # Use both strategies and trade only if both agree
                                 await self._check_and_trade_hybrid(symbol)
-                            elif self.strategy_mode == StrategyMode.GRID_TRADING:
-                                # Use Grid Trading strategy (Phase 2.3 - 2025-12-08)
-                                await self._check_and_trade_grid(symbol)
                             elif self.strategy_mode == StrategyMode.ENSEMBLE:
                                 # Combined RSI + multi-indicator + mean-reversion with performance weighting (2026-04-25)
                                 await self._check_and_trade_ensemble(symbol)
@@ -1144,16 +1160,6 @@ class AutoTrader:
                 signal = await aggregator.get_trading_signal_enhanced(
                     symbol=symbol, interval=self.interval, use_phase3=True
                 )
-            elif self.enable_vp:
-                # Use VP-enhanced signals (Phase 3 - VP only)
-                signal = await aggregator.get_trading_signal_with_vp(
-                    symbol=symbol,
-                    primary_interval=self.interval,
-                    timeframes=["15", self.interval, "240"],
-                    enable_vp=True,
-                    vp_lookback=100,
-                    regime_analysis=regime_analysis,
-                )
             else:
                 # Use multi-timeframe only (Phase 2)
                 signal = await aggregator.get_trading_signal_multi_timeframe(
@@ -1181,21 +1187,7 @@ class AutoTrader:
             regime_data = signal.metadata.get("market_regime", {})
 
             # Build comprehensive log message
-            if self.enable_vp and vp_data:
-                # Show VP-enhanced signal (Phase 3)
-                logger.info(
-                    f"Signal for {symbol}: {action} "
-                    f"(confidence: {confidence:.2%}, score: {aggregated_score:.2f})"
-                )
-                logger.info(
-                    f"   MTF: {mtf_data.get('alignment_strength', 'N/A')} "
-                    f"(modifier: {mtf_data.get('confidence_modifier', 1.0):.2f}x)"
-                )
-                logger.info(
-                    f"   VP: {vp_data.get('strategy', 'N/A')} | {vp_data.get('position', 'N/A')} "
-                    f"| POC=${vp_data.get('poc', 0):.2f} | SL=${vp_data.get('stop_loss', 0):.2f}"
-                )
-            elif mtf_data and mtf_data.get("enabled"):
+            if mtf_data and mtf_data.get("enabled"):
                 # Show MTF-only signal (Phase 2)
                 logger.info(
                     f"Signal for {symbol}: {action} "
@@ -1520,40 +1512,35 @@ class AutoTrader:
         """Pre-submit gate: reject orders below the exchange's min-notional.
 
         Returns ``(True, None)`` to proceed, ``(False, reason)`` to reject.
-        ``reason`` is one of ``"min_qty"`` / ``"min_notional"`` and matches
-        the Prometheus counter label.
+        ``reason`` is one of ``"min_qty"`` / ``"min_notional"`` /
+        ``"spec_unavailable"`` and matches the Prometheus counter label.
 
-        Fail-open: if the instruments cache has no entry for the symbol
-        (connector outage at boot, symbol not yet refreshed), this returns
-        ``(True, None)`` with a WARN log — refusing to trade because the
-        metadata service is down would be a worse failure mode than letting
-        the order through. Paper engine fills any quantity; LIVE mode would
-        surface Bybit's own rejection.
+        Missing spec (connector outage at boot, symbol not yet refreshed)
+        resolves by mode (2026-08-06, review I12):
 
-        We deliberately do NOT auto-upround the quantity here. On a $100
-        balance × 2% per-trade cap, forcing a $5 alt min-notional would
-        silently breach the risk cap (5% notional). Surface the reject so
-        the operator sees the cap configuration is incompatible with
-        live-mode minimums.
+        * LIVE — fail OPEN with a loud WARN. Bybit re-checks the order itself,
+          so refusing to trade because a metadata service is down would be the
+          worse failure mode.
+        * PAPER — fail CLOSED, reason ``"spec_unavailable"``. Nothing
+          downstream re-checks a paper fill, so fail-open let through exactly
+          the trade this gate exists to prevent, and the cold-cache window is
+          engine startup — when the first cycles run.
 
-        PAPER mode short-circuit: paper-engine fills any quantity
-        deterministically — exchange minimums don't apply. Enforcing the
-        gate in PAPER would zero out trading on small paper balances
-        ($100 × 2% = $2 cap, all crypto mins above). Gate's purpose is
-        LIVE-mode protection; in PAPER we let the order through and rely
-        on the paper-engine to fill it.
+        We deliberately do NOT auto-upround the quantity here. The per-trade
+        cap is a fraction of the configured paper balance
+        (``max_risk_per_trade``/``max_position_size_pct``, 10% in paper);
+        forcing a $5 alt min-notional onto a smaller sized order would
+        silently breach it. Surface the reject so the operator sees the cap
+        configuration is incompatible with live-mode minimums.
+
+        Enforced in ALL modes (2026-08-04, AUDIT §2.4 / H1): the gate used
+        to short-circuit to ``(True, None)`` in PAPER, so paper trading
+        measured an account that could never exist on the venue — BTC at
+        ~$62 min position sailed through a $10 cap. Paper must mirror the
+        real $100 account constraints; a paper trade the venue would reject
+        is rejected here too, with the same labeled reason.
         """
         from decimal import Decimal as _Decimal
-
-        try:
-            from app.config import get_settings
-
-            if get_settings().trading_mode != "LIVE":
-                return True, None
-        except Exception as e:
-            logger.warning(
-                f"min-notional gate: could not read trading_mode ({e!r}), enforcing gate"
-            )
 
         # Normalise call-site types (Decimal vs float vs int) to Decimal once.
         try:
@@ -1567,33 +1554,53 @@ class AutoTrader:
             )
             return True, None
 
+        def _no_spec(detail: str):
+            """Resolve a missing instrument spec by mode (review I12).
+
+            LIVE fails open — Bybit re-checks. PAPER fails closed, because
+            nothing downstream re-checks a simulated fill.
+            """
+            if str(self.settings.trading_mode).upper() == "LIVE":
+                logger.warning(
+                    f"[MIN_NOTIONAL][FAIL-OPEN] {symbol}: {detail} — gate NOT "
+                    f"enforced, order allowed through (LIVE: Bybit re-checks)"
+                )
+                return True, None
+            try:
+                from app.core.metrics import trades_rejected_min_notional_total
+
+                trades_rejected_min_notional_total.labels(
+                    symbol=symbol, reason="spec_unavailable"
+                ).inc()
+            except (ImportError, ValueError, AttributeError) as exc:
+                # Same survival contract as the min_qty / min_notional emits
+                # below: a metrics failure must never open the gate.
+                logger.warning("metrics emit failed (spec_unavailable): %r", exc)
+            logger.warning(
+                f"[MIN_NOTIONAL][FAIL-CLOSED] {symbol}: {detail} — rejecting in "
+                f"PAPER (qty {qty_d} @ {price_d}, balance ${balance_d:.2f}); "
+                f"paper must mirror the venue constraints it cannot verify"
+            )
+            return False, "spec_unavailable"
+
         # Deferred import: avoids a circular at module load and lets tests
         # monkeypatch app.main.get_instruments_cache cleanly.
         try:
             from app.main import get_instruments_cache
         except Exception as e:
-            logger.warning(
-                f"min-notional gate: instruments cache import failed for {symbol} ({e!r}), allowing"
-            )
-            return True, None
+            return _no_spec(f"instruments cache import failed ({e!r})")
 
         try:
             spec = await get_instruments_cache().get(symbol)
         except Exception as e:
-            logger.warning(
-                f"min-notional gate: cache.get({symbol}) raised {e!r}, allowing"
-            )
-            return True, None
+            return _no_spec(f"cache.get raised {e!r} (connector unreachable?)")
 
         if spec is None:
-            logger.warning(
-                f"min-notional cache miss for {symbol}, allowing trade "
-                f"(connector outage or symbol unlisted)"
+            return _no_spec(
+                "no instrument spec cached (connector outage or symbol unlisted)"
             )
-            return True, None
 
         notional = qty_d * price_d
-        cap = balance_d * _Decimal("0.02")
 
         if qty_d < spec.min_order_qty:
             try:
@@ -1614,8 +1621,7 @@ class AutoTrader:
                 logger.warning("metrics emit failed (min_qty): %r", e)
             logger.info(
                 f"rejecting {symbol}: qty {qty_d} below min {spec.min_order_qty} "
-                f"(notional ${notional:.2f}, balance ${balance_d:.2f}, "
-                f"cap 2% = ${cap:.2f})"
+                f"(notional ${notional:.2f}, balance ${balance_d:.2f})"
             )
             return False, "min_qty"
 
@@ -1638,12 +1644,96 @@ class AutoTrader:
                 logger.warning("metrics emit failed (min_notional): %r", e)
             logger.info(
                 f"rejecting {symbol}: notional ${notional:.2f} below min "
-                f"${spec.min_notional} (qty {qty_d}, balance ${balance_d:.2f}, "
-                f"cap 2% = ${cap:.2f})"
+                f"${spec.min_notional} (qty {qty_d}, balance ${balance_d:.2f})"
             )
             return False, "min_notional"
 
         return True, None
+
+    def _passes_exposure_gate(
+        self,
+        symbol: str,
+        new_notional,
+        balance,
+        position_mgr,
+        *,
+        tag: str = "[RISK_GATE]",
+    ) -> bool:
+        """Account-level exposure gate: open entry notionals plus the new
+        notional must stay under ``max_total_exposure_pct`` (a PERCENT) of
+        balance.
+
+        Rejects, never clamps — a silently resized order hides the breach.
+
+        Hoisted out of the ensemble path 2026-08-06 (review I20). It used to
+        exist inline in ``_check_and_trade_ensemble`` only, so the research/
+        hybrid and default entry paths could open a position with no
+        account-level check at all. Not breachable on today's configuration
+        (per-symbol dedup x 5 validated symbols x the per-trade cap cannot
+        reach the exposure cap), but that bound rests entirely on the symbol
+        list staying at 5 — which nothing in the sizing code checks.
+
+        Open notional is measured on each position's REMAINING quantity, so a
+        position that has taken partial exits occupies only what is left.
+        """
+        open_notional = 0.0
+        for p in position_mgr.get_open_positions():
+            p_qty = (
+                p.remaining_quantity
+                if getattr(p, "remaining_quantity", None) is not None
+                else p.quantity
+            )
+            open_notional += float(p.entry_price) * float(p_qty)
+
+        new_value = float(new_notional)
+        exposure_cap = float(balance) * self.settings.max_total_exposure_pct / 100.0
+        if open_notional + new_value > exposure_cap:
+            logger.warning(
+                f"{tag} EXPOSURE REJECT | {symbol} "
+                f"open=${open_notional:.2f} + new=${new_value:.2f} > "
+                f"cap=${exposure_cap:.2f} "
+                f"({self.settings.max_total_exposure_pct:.1f}% of "
+                f"${float(balance):.2f})"
+            )
+            return False
+        return True
+
+    async def _snap_quantity_to_step(self, symbol: str, quantity) -> Decimal:
+        """Floor an order quantity DOWN to the venue's qty_step.
+
+        Never rounds up: rounding a quantity UP silently inflates the
+        notional past the per-trade cap — the same failure mode as
+        min-notional uprounding (see _passes_min_notional docstring).
+        A quantity that floors to zero is returned as zero; callers must
+        treat that as a rejection, never as a fillable order.
+
+        Fail-open like _passes_min_notional: if no spec is available the
+        quantity is returned unchanged, with a loud WARN.
+        """
+        qty_d = Decimal(str(quantity))
+        try:
+            from app.main import get_instruments_cache
+
+            spec = await get_instruments_cache().get(symbol)
+        except Exception as e:
+            logger.warning(
+                f"[QTY_STEP][FAIL-OPEN] {symbol}: instruments cache unavailable "
+                f"({e!r}) — quantity {qty_d} passed through UNSNAPPED"
+            )
+            return qty_d
+        if spec is None or spec.qty_step is None or spec.qty_step <= 0:
+            logger.warning(
+                f"[QTY_STEP][FAIL-OPEN] {symbol}: no qty_step in spec — "
+                f"quantity {qty_d} passed through UNSNAPPED"
+            )
+            return qty_d
+        snapped = (qty_d // spec.qty_step) * spec.qty_step
+        if snapped != qty_d:
+            logger.info(
+                f"[QTY_STEP] {symbol}: quantity {qty_d} floored to {snapped} "
+                f"(step {spec.qty_step}) — snap is DOWN-only, never up"
+            )
+        return snapped
 
     async def _claim_open_slot(self, symbol: str) -> bool:
         """
@@ -1715,32 +1805,11 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
-            # ================================================================
-            # PORTFOLIO HEAT CHECK (2025-12-02)
-            # Block trades if portfolio heat is too high
-            # ================================================================
+            # Equity read for sizing and for the portfolio-heat gate, which now
+            # runs after final sizing (see the [HEAT] block below the per-trade
+            # cap clamp) so it sees the order actually placed.
             paper_engine = get_paper_engine()
             current_equity = float(paper_engine.get_balance())
-
-            # Calculate proposed risk for this trade
-            proposed_risk_pct = (
-                trade_setup.position_size_pct
-                * 100
-                * (settings.default_stop_loss_pct / 100)
-            )  # Risk = position size * stop distance
-
-            can_trade, heat_reason, heat_multiplier = (
-                self.portfolio_heat_manager.can_open_trade(
-                    symbol=symbol,
-                    proposed_risk_pct=proposed_risk_pct,
-                    equity=current_equity,
-                )
-            )
-
-            if not can_trade:
-                logger.warning(f"[HEAT] Trade BLOCKED for {symbol}: {heat_reason}")
-                self.total_trades_rejected += 1
-                return
 
             # ================================================================
             # CORRELATION-BASED POSITION SIZING (2025-12-02)
@@ -1843,20 +1912,11 @@ class AutoTrader:
 
             logger.info(f"[{trading_mode}] Executing {action} trade for {symbol}")
 
-            # ================================================================
-            # SLIPPAGE CHECK (Enhanced 2025-11-30)
-            # ================================================================
-            # Check if limit order should be used based on order value
-            position_value_estimate = (
-                trade_setup.entry_price * trade_setup.position_size_pct * 10000
-            )  # Rough estimate
-            should_use_limit, limit_reason = (
-                self.slippage_manager.should_use_limit_order(
-                    position_value_estimate, symbol
-                )
-            )
-            if should_use_limit:
-                logger.info(f"[RESEARCH] Limit order recommended: {limit_reason}")
+            # NOTE 2026-08-04 (AUDIT §2.2 mechanism 3): the slippage
+            # limit-order check used to run HERE on
+            # `entry_price * position_size_pct * 10000` — dimensionally wrong
+            # (price × fraction, no quantity term) AND hardcoding a $10k
+            # account. It now runs after sizing, on the actual order notional.
 
             # Get appropriate trading engine based on mode
             position_mgr = get_position_manager()
@@ -2032,6 +2092,65 @@ class AutoTrader:
                     else quantity
                 )
 
+            # Portfolio heat gate, fed the ACTUAL order: the cap-clamped
+            # notional and the ATR stop the position will carry. Stop-distance
+            # based to match PositionRisk.risk_pct (percent of equity) - a raw
+            # notional percent would be 10.0 and would trip max_per_trade_pct
+            # (2.0) on every single entry. The regime adjustment happens
+            # post-fill, so this uses the pre-adjustment stop, exactly as the
+            # ensemble path does with its own.
+            stop_distance_frac = (
+                abs(trade_setup.entry_price - trade_setup.stop_loss)
+                / trade_setup.entry_price
+                if trade_setup.entry_price
+                else 0.0
+            )
+            proposed_risk_pct = (
+                (position_value / current_equity) * stop_distance_frac * 100.0
+                if current_equity
+                else 0.0
+            )
+            can_trade, heat_reason, _heat_mult = (
+                self.portfolio_heat_manager.can_open_trade(
+                    symbol=symbol,
+                    proposed_risk_pct=proposed_risk_pct,
+                    equity=current_equity,
+                    side=side,
+                )
+            )
+            if not can_trade:
+                logger.warning(f"[HEAT] Trade BLOCKED for {symbol}: {heat_reason}")
+                self.total_trades_rejected += 1
+                return
+
+            # Account-level exposure gate (review I20): shared with the default
+            # and ensemble paths. Runs on the post-clamp notional, as it does
+            # on the ensemble path.
+            if not self._passes_exposure_gate(
+                symbol, position_value, balance, position_mgr
+            ):
+                self.total_trades_rejected += 1
+                return
+
+            # ================================================================
+            # SLIPPAGE CHECK (moved here 2026-08-04): uses the ACTUAL order
+            # notional. Previously ran pre-sizing on
+            # `entry_price * position_size_pct * 10000` — dimensionally wrong
+            # and hardcoding a $10k account (AUDIT §2.2 mechanism 3).
+            # ================================================================
+            should_use_limit, limit_reason = (
+                self.slippage_manager.should_use_limit_order(
+                    float(position_value), symbol
+                )
+            )
+            if should_use_limit:
+                logger.info(f"[RESEARCH] Limit order recommended: {limit_reason}")
+
+            # Venue quantity granularity: floor to qty_step, never up
+            # (2026-08-04). A zero-floored quantity is rejected by the
+            # min-notional gate below (qty 0 < min_order_qty).
+            quantity = float(await self._snap_quantity_to_step(symbol, quantity))
+
             # Min-notional / min-qty gate (added 2026-05-06).
             # Sub-cap sizing on small balances often produces qty < exchange min;
             # paper engine fills any quantity, but LIVE Bybit will reject.
@@ -2044,6 +2163,16 @@ class AutoTrader:
                 balance=balance,
             )
             if not ok:
+                self.total_trades_rejected += 1
+                return
+
+            if float(quantity) <= 0:
+                # Belt-and-braces for the gate's fail-open branches: a zero
+                # quantity must never become an order.
+                logger.warning(
+                    f"[RISK_GATE] {symbol}: quantity floored to zero at "
+                    f"qty_step — rejecting"
+                )
                 self.total_trades_rejected += 1
                 return
 
@@ -2117,14 +2246,21 @@ class AutoTrader:
                         f"[RESEARCH] Kill switch thresholds triggered: {triggered}"
                     )
 
-                # Record expected vs actual for slippage tracking
-                # (Actual price is same as expected for market orders in simulation)
+                # Record expected vs actual for slippage tracking. expected is
+                # the reference price the order was submitted at; actual is the
+                # engine's slippage-adjusted fill. These stopped being equal
+                # when PAPER-01 landed (fb45efe): paper_trading applies
+                # paper_slippage and returns the fill on filled_price. Feeding
+                # the reference as both made every record read 0.0 slippage.
+                actual_fill = (
+                    executed_order.filled_price
+                    if executed_order.filled_price is not None
+                    else Decimal(str(trade_setup.entry_price))
+                )
                 self.slippage_manager.record_execution(
                     symbol=symbol,
                     expected_price=Decimal(str(trade_setup.entry_price)),
-                    actual_price=Decimal(
-                        str(trade_setup.entry_price)
-                    ),  # Same for simulated market orders
+                    actual_price=actual_fill,
                     side=action,
                     quantity=Decimal(str(quantity)),
                 )
@@ -2753,6 +2889,10 @@ class AutoTrader:
                         # Problem: SOLUSDT SHORT stop loss at -3% executed at -4.8% (+60% slippage)
                         # Solution: Use limit order with 0.5% buffer, fallback to market if not filled
                         # ================================================================
+                        # Stage 0: this predicate ROUTES (limit vs market close). It is no
+                        # longer the record — positions.exit_kind comes from _exit_kind_for.
+                        # Deliberately left divergent from the :3073 cooldown predicate;
+                        # unifying them changes which exits arm the cooldown.
                         if "stop" in reason.lower() or "loss" in reason.lower():
                             await self._close_position_with_limit_order(
                                 position, current_price, reason
@@ -2844,6 +2984,43 @@ class AutoTrader:
             logger.warning(f"[MONITOR] Failed to get ATR for {symbol}: {e}")
             return None
 
+    @staticmethod
+    def _exit_kind_for(reason: Optional[str]) -> Optional[ExitKind]:
+        """Map a producer's reason string to a structured ExitKind.
+
+        Stage 0 (2026-08-07). Replaces two divergent inline predicates
+        (:2883 tested "stop"/"loss"; :3073 also tested "max_hold") as the
+        SOURCE OF TRUTH. Those predicates may remain as ROUTING - they decide
+        limit-vs-market close and whether to arm the SL cooldown - but the
+        persisted record now comes from here.
+
+        Returns None for anything unrecognised, including the non-exit
+        diagnostics check_all_exit_conditions returns ('Position not found',
+        'Position not open', 'No exit conditions met'). Never guess: a wrong
+        ExitKind is worse than a null one, because the whole point is to be
+        able to measure which exit destroys edge.
+        """
+        if not reason:
+            return None
+        low = reason.lower()
+
+        # Order matters: "Trailing stop triggered" also contains "stop".
+        if "trailing" in low:
+            return ExitKind.TRAILING_STOP
+        if "max_hold" in low or "max hold" in low:
+            return ExitKind.MAX_HOLD
+        if "stop" in low or "stop_loss" in low or "loss" in low:
+            return ExitKind.HARD_STOP
+        if "take profit" in low or "take_profit" in low or low.startswith("tp"):
+            return ExitKind.TAKE_PROFIT
+        if "reversal" in low:
+            return ExitKind.SIGNAL_REVERSAL
+        if "liquidat" in low:
+            return ExitKind.LIQUIDATION
+        if "manual" in low:
+            return ExitKind.MANUAL
+        return None
+
     async def _close_position(self, position, current_price: float, reason: str):
         """
         Close a position completely
@@ -2881,7 +3058,10 @@ class AutoTrader:
             if self.settings.trading_mode == "LIVE":
                 live_engine = get_live_engine()
                 ok, close_err = await live_engine.close_position(
-                    position.id, Decimal(str(current_price)), reason
+                    position.id,
+                    Decimal(str(current_price)),
+                    reason,
+                    exit_kind=self._exit_kind_for(reason),
                 )
                 if not ok:
                     logger.error(
@@ -2898,6 +3078,7 @@ class AutoTrader:
                     reduce_only=True,
                     position_id=position.id,
                     strategy="auto_close",
+                    exit_kind=self._exit_kind_for(reason),
                 )
                 executed, close_err = await paper_engine.execute_market_order(
                     close_order, Decimal(str(current_price))
@@ -2937,8 +3118,17 @@ class AutoTrader:
         try:
             paper_engine = get_paper_engine()
 
-            # Arm SL cooldown if this close was a stop-loss event (2026-05-15)
-            if "stop" in reason.lower() or "loss" in reason.lower():
+            # Arm re-entry cooldown: stop-loss exits (2026-05-15) AND max-hold
+            # exits (H6 fix 2026-08-04, AUDIT §7-H2/H6). Max-hold closes used
+            # to bypass the cooldown: the 2026-08-04 restart sweep closed and
+            # instantly reopened 4 same-symbol positions at identical prices
+            # within 25s, burning ~$0.66 in fees for zero exposure change.
+            reason_lc = reason.lower()
+            # Stage 0: this predicate ROUTES (arms the SL cooldown). It is no
+            # longer the record — positions.exit_kind comes from _exit_kind_for.
+            # Deliberately left divergent from the :2883 limit-vs-market predicate;
+            # unifying them changes which exits arm the cooldown.
+            if "stop" in reason_lc or "loss" in reason_lc or "max_hold" in reason_lc:
                 self._record_sl_hit(position.symbol, reason)
 
             # ================================================================
@@ -2966,11 +3156,30 @@ class AutoTrader:
                 perf_tracker = get_performance_tracker()
                 perf_tracker.add_trade(
                     closed,
-                    Decimal(str(current_price)),
-                    datetime.now(timezone.utc),
+                    # The slipped fill the engine recorded, not the pre-trade
+                    # reference tick. getattr-with-fallback because the
+                    # get_position miss above can hand back the pre-close
+                    # object, whose exit_price is still None.
+                    getattr(closed, "exit_price", None) or Decimal(str(current_price)),
+                    getattr(closed, "closed_at", None) or datetime.now(timezone.utc),
                 )
             except Exception as perf_err:
                 logger.debug(f"[MONITOR] Perf tracker note: {perf_err}")
+
+            # ADR-015 weight adaptation (2026-08-12): the ensemble only learns
+            # if the trade outcome reaches it. Pop unconditionally so the store
+            # stays bounded by the open book; the same signed trade_pnl the kill
+            # switch saw decides which legs were directionally right.
+            leg_contributions = self._ensemble_attribution.pop(
+                getattr(position, "id", None), None
+            )
+            if leg_contributions:
+                try:
+                    from app.strategies.multi_strategy_ensemble import get_ensemble
+
+                    get_ensemble().record_trade_outcome(leg_contributions, trade_pnl)
+                except Exception as ens_err:
+                    logger.debug(f"[ENSEMBLE] Weight update note: {ens_err}")
 
             if triggered:
                 logger.warning(
@@ -3054,7 +3263,7 @@ class AutoTrader:
         position,
         current_price: float,
         reason: str,
-        limit_buffer_pct: float = 0.005,  # 0.5% buffer
+        limit_buffer_pct: float = 0.0,
         timeout_seconds: int = 10,
     ):
         """
@@ -3066,8 +3275,19 @@ class AutoTrader:
         - Solution: Use limit orders with small buffer, fallback to market if not filled
         - Expected Impact: Reduce slippage from 60% to <5%
 
+        H2 FIX (2026-08-04, AUDIT §6.5c / §7-H2): limit_buffer_pct now
+        defaults to 0.0 and the PAPER fill reference is the STOP PRICE
+        itself, never stop ± buffer. The old 0.5% default fed straight into
+        the paper fill, so every paper stop exit realized stop-distance
+        + 0.5% as a deterministic penalty (all 5 observed stop exits landed
+        at exactly −2.49%/−2.51% on a 2% stop; cost $1.49 = 20% of stop
+        losses). The slippage model inside execute_market_order is the ONLY
+        adverse adjustment a paper stop fill gets now. The parameter is kept
+        for a future LIVE LIMIT-IOC close (where a buffer means "willing to
+        cross the spread this far"); the PAPER fill ignores it even if set.
+
         Flow:
-        1. Calculate limit price with buffer (0.5% beyond stop loss)
+        1. Determine the stop reference price (position.stop_loss)
         2. Place limit order (IOC - Immediate or Cancel)
         3. If not filled within timeout, place market order as fallback
         4. Update position manager with final execution price
@@ -3076,7 +3296,8 @@ class AutoTrader:
             position: Position to close
             current_price: Current market price
             reason: Reason for closing (e.g., "stop_loss")
-            limit_buffer_pct: Buffer percentage for limit order (default 0.5%)
+            limit_buffer_pct: Buffer for a LIVE limit close (default 0.0);
+                              PAPER fills ignore it
             timeout_seconds: Max wait time for limit order (default 10s)
         """
         # ====================================================================
@@ -3122,7 +3343,10 @@ class AutoTrader:
             try:
                 live_engine = get_live_engine()
                 ok, close_err = await live_engine.close_position(
-                    position.id, Decimal(str(current_price)), reason
+                    position.id,
+                    Decimal(str(current_price)),
+                    reason,
+                    exit_kind=self._exit_kind_for(reason),
                 )
             except Exception as live_err:
                 ok, close_err = False, str(live_err)
@@ -3154,32 +3378,36 @@ class AutoTrader:
                     )
             return
 
-        # ---- PAPER: limit IOC with buffer, market fallback -----------------
+        # ---- PAPER: limit IOC at the stop, market fallback -----------------
         try:
             paper_engine = get_paper_engine()
 
-            # STEP 1: Calculate limit price with buffer
-            # LONG stop: sell slightly below the stop; SHORT stop: buy slightly above
+            # STEP 1 (H2 fix 2026-08-04): the paper fill reference is the
+            # STOP PRICE itself. The buffer is NOT applied to the paper fill —
+            # the old default 0.5% buffer landed every stop exit exactly 0.5%
+            # beyond the stop as a deterministic penalty. limit_price (with
+            # buffer, default 0.0) is retained only as the order's limit field
+            # for a future LIVE LIMIT-IOC close.
+            stop_ref = (
+                float(position.stop_loss) if position.stop_loss else current_price
+            )
             if _pos_side == "LONG":
-                limit_price = (
-                    float(position.stop_loss) * (1 - limit_buffer_pct)
-                    if position.stop_loss
-                    else current_price * (1 - limit_buffer_pct)
-                )
+                limit_price = stop_ref * (1 - limit_buffer_pct)
             else:  # SHORT
-                limit_price = (
-                    float(position.stop_loss) * (1 + limit_buffer_pct)
-                    if position.stop_loss
-                    else current_price * (1 + limit_buffer_pct)
-                )
+                limit_price = stop_ref * (1 + limit_buffer_pct)
 
             logger.info(
                 f"[LIMIT_STOP] {position.symbol} {_pos_side} | "
                 f"Stop: ${position.stop_loss} | Current: ${current_price:.2f} | "
-                f"Limit: ${limit_price:.2f} (buffer: {limit_buffer_pct * 100:.1f}%)"
+                f"Fill ref: ${stop_ref:.4f} (paper fill = stop + slippage model; "
+                f"buffer {limit_buffer_pct * 100:.1f}% not applied to paper fill)"
             )
 
             # STEP 2: Attempt limit order execution (IOC, reduce-only)
+            # exit_kind is derived from the UNDECORATED reason (this method's
+            # own `reason` param) — _finalize_closed_position below appends
+            # "(limit order @ $...)" to the prose reason it persists, but that
+            # decoration must never reach _exit_kind_for's mapping.
             limit_order = OrderCreate(
                 symbol=position.symbol,
                 side=exit_side,
@@ -3190,6 +3418,7 @@ class AutoTrader:
                 reduce_only=True,
                 position_id=position.id,
                 strategy="stop_loss_limit",
+                exit_kind=self._exit_kind_for(reason),
             )
 
             logger.info(
@@ -3201,7 +3430,9 @@ class AutoTrader:
             try:
                 limit_result = await paper_engine.execute_market_order(
                     limit_order,
-                    Decimal(str(limit_price)),  # Paper trading: fill at limit price
+                    # H2 fix: fill reference is the stop itself; the engine's
+                    # slippage model applies the only adverse adjustment.
+                    Decimal(str(stop_ref)),
                 )
             except Exception as limit_err:
                 limit_result, fill_error = None, str(limit_err)
@@ -3247,6 +3478,7 @@ class AutoTrader:
                 reduce_only=True,
                 position_id=position.id,
                 strategy="stop_loss_market_fallback",
+                exit_kind=self._exit_kind_for(reason),
             )
 
             market_result = await paper_engine.execute_market_order(
@@ -3652,6 +3884,15 @@ class AutoTrader:
             confidence: Signal confidence score
             signal: TradingSignal object
         """
+        # Daily trade limit. The research/hybrid (:1891) and ensemble (:4648)
+        # paths already gate here; standard mode did not, so it could open
+        # unlimited trades per day and its fills never consumed the budget the
+        # other paths measure against.
+        if not self._check_daily_trade_limit():
+            logger.info(f"Daily trade limit reached, skipping {symbol}")
+            self.total_trades_rejected += 1
+            return
+
         # SL cooldown check (2026-05-15). Block re-entry on same symbol within
         # sl_cooldown_seconds after a stop-loss exit. Mirrors the check in
         # _execute_trade_with_setup; placed before the open-slot claim so we
@@ -3807,9 +4048,23 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
+            # Account-level exposure gate (review I20): shared with the
+            # research/hybrid and ensemble paths. Runs on the post-clamp
+            # notional, as it does on the ensemble path.
+            if not self._passes_exposure_gate(
+                symbol, position_value, balance, position_mgr
+            ):
+                self.total_trades_rejected += 1
+                return
+
+            # Venue quantity granularity: floor to qty_step, never up
+            # (2026-08-04). A zero-floored quantity is rejected by the
+            # min-notional gate below (qty 0 < min_order_qty).
+            quantity = await self._snap_quantity_to_step(symbol, quantity)
+
             # Min-notional / min-qty gate (added 2026-05-06).
             # See _passes_min_notional docstring; reject-not-upround keeps
-            # the 2% per-trade cap intact.
+            # the per-trade cap intact.
             ok, _reason = await self._passes_min_notional(
                 symbol=symbol,
                 quantity=quantity,
@@ -3817,6 +4072,16 @@ class AutoTrader:
                 balance=balance,
             )
             if not ok:
+                self.total_trades_rejected += 1
+                return
+
+            if float(quantity) <= 0:
+                # Belt-and-braces for the gate's fail-open branches: a zero
+                # quantity must never become an order.
+                logger.warning(
+                    f"[RISK_GATE] {symbol}: quantity floored to zero at "
+                    f"qty_step — rejecting"
+                )
                 self.total_trades_rejected += 1
                 return
 
@@ -3849,6 +4114,7 @@ class AutoTrader:
             if executed_order.status == OrderStatus.FILLED:
                 self.total_trades_executed += 1
                 opened = True  # arm dedup cooldown for this symbol
+                self._record_trade(symbol)  # Track for daily limit and cooldown
                 logger.info(f"Trade executed successfully for {symbol}")
                 logger.info(
                     f"Stats: Checked={self.total_signals_checked}, "
@@ -4156,6 +4422,137 @@ class AutoTrader:
 
         return status
 
+    @staticmethod
+    def _ensemble_stops_are_consistent(
+        action: SignalAction,
+        entry_price: float,
+        stop_loss: float,
+        take_profit: float,
+    ) -> bool:
+        """True if the stop/target pair is on the correct side of entry.
+
+        Stage 0 (2026-08-07). EnsembleSignal inherits both levels verbatim
+        from whichever leg contributed most in absolute terms
+        (multi_strategy_ensemble.py:277-284) and validates nothing. A
+        weighted-vote BUY whose dominant leg fired SELL produces an inverted
+        pair — the Jan 2026 inverted-R/R bug (380a674) is the precedent for
+        why that must never reach a position.
+
+        A stop exactly at entry is also rejected: R would be zero, making
+        every downstream R-multiple infinite.
+        """
+        if stop_loss <= 0 or take_profit <= 0 or entry_price <= 0:
+            return False
+        if action == SignalAction.BUY:
+            return stop_loss < entry_price < take_profit
+        if action == SignalAction.SELL:
+            return take_profit < entry_price < stop_loss
+        return False
+
+    @staticmethod
+    def _side_is_allowed(allowed_raw, side: str) -> bool:
+        """True iff ``side`` ("LONG"/"SHORT") is permitted by allowed_trade_sides.
+
+        Production ships a ``List[str]`` (config.py:479, default
+        ``["LONG", "SHORT"]``); operator overrides and older fixtures use a
+        token string ("BOTH", "LONG_ONLY"). Both shapes are accepted. Anything
+        unrecognised — ``None``, a bare bool, an empty collection — fails
+        CLOSED, because a side gate that cannot read its own config must not
+        wave the trade through.
+        """
+        if allowed_raw is None or isinstance(allowed_raw, bool):
+            return False
+        if isinstance(allowed_raw, str):
+            token = allowed_raw.strip().upper()
+            if token == "BOTH":
+                return True
+            return side in token
+        try:
+            return side in {str(s).strip().upper() for s in allowed_raw}
+        except TypeError:
+            return False
+
+    def _ensemble_passes_signal_gates(self, symbol: str, ens_signal) -> bool:
+        """Confidence and side gates for the ensemble entry path.
+
+        Stage 0 (2026-08-07). These exist on the default path at :3953-3985 and
+        were never applied here. Live evidence: seven of eight ensemble entries
+        fired below min_signal_confidence=0.30, at confidences down to 0.1730.
+        The floor is real (config.py:408) but was read in exactly one function,
+        RiskManager.validate_signal, whose sole production caller is the REST
+        /signal endpoint — no autonomous path ever consulted it.
+
+        Consolidated into one method because _check_and_trade_ensemble already
+        has 8 early returns; four more inline gates would make the
+        _release_open_slot bookkeeping in the same method unmanageable.
+
+        Every floor fails CLOSED when its setting is absent. The default path
+        uses ``getattr(self.settings, "short_min_confidence", 0.0)``, so a
+        rename or typo there silently sets the floor to zero rather than
+        raising — that is a footgun, not a pattern to copy.
+
+        Deliberately touches only ``self.settings`` and
+        ``self.total_trades_rejected`` so it stays unit-testable against a bare
+        ``AutoTrader.__new__`` instance.
+        """
+        conf = float(ens_signal.confidence)
+        side = "LONG" if ens_signal.action == SignalAction.BUY else "SHORT"
+
+        floor = getattr(self.settings, "min_signal_confidence", None)
+        if floor is None:
+            logger.error(
+                f"[ENSEMBLE][GATE] {symbol}: min_signal_confidence is not "
+                f"configured — refusing the entry rather than defaulting the "
+                f"floor to zero"
+            )
+            self.total_trades_rejected += 1
+            return False
+        if conf < float(floor):
+            logger.info(
+                f"[ENSEMBLE][GATE] {symbol}: confidence {conf:.4f} < "
+                f"min_signal_confidence {float(floor):.2f} — rejecting"
+            )
+            self.total_trades_rejected += 1
+            return False
+
+        allowed_raw = getattr(self.settings, "allowed_trade_sides", None)
+        if not self._side_is_allowed(allowed_raw, side):
+            logger.warning(
+                f"[ENSEMBLE][GATE] {symbol}: {side} not permitted by "
+                f"allowed_trade_sides={allowed_raw!r} — rejecting"
+            )
+            self.total_trades_rejected += 1
+            return False
+
+        if side == "SHORT":
+            if not getattr(self.settings, "short_trading_enabled", None):
+                logger.warning(
+                    f"[ENSEMBLE][GATE] {symbol}: SHORT blocked — "
+                    f"short_trading_enabled is "
+                    f"{getattr(self.settings, 'short_trading_enabled', None)!r}"
+                )
+                self.total_trades_rejected += 1
+                return False
+
+            short_floor = getattr(self.settings, "short_min_confidence", None)
+            if short_floor is None:
+                logger.error(
+                    f"[ENSEMBLE][GATE] {symbol}: short_min_confidence is not "
+                    f"configured — refusing the SHORT rather than defaulting "
+                    f"the floor to zero"
+                )
+                self.total_trades_rejected += 1
+                return False
+            if conf < float(short_floor):
+                logger.info(
+                    f"[ENSEMBLE][GATE] {symbol}: SHORT confidence {conf:.4f} < "
+                    f"short_min_confidence {float(short_floor):.2f} — rejecting"
+                )
+                self.total_trades_rejected += 1
+                return False
+
+        return True
+
     async def _check_and_trade_ensemble(self, symbol: str):
         """ENSEMBLE mode: SimpleRSI + multi-indicator + mean-reversion with performance weighting.
 
@@ -4217,84 +4614,408 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
-            # Apply leverage to ensemble sizing (fix 2026-05-19).
-            # ensemble.position_size_pct sets the MARGIN fraction (already capped
-            # at max_risk_per_trade by ensemble's own cascade). Multiplying by
-            # leverage converts margin to notional position value. paper_engine
-            # then divides notional by default_leverage to compute margin
-            # deducted, so cash impact = balance × position_size_pct regardless
-            # of leverage; leverage only scales notional (P&L exposure).
-            leverage = 1.0
-            if self.settings.leverage_enabled:
-                leverage = max(
-                    self.settings.min_leverage,
-                    min(self.settings.default_leverage, self.settings.max_leverage),
-                )
-            margin_value = float(balance) * ens_signal.position_size_pct
-            position_value = margin_value * leverage
-            quantity = position_value / current_price
-
-            if self.settings.leverage_enabled:
+            # H6 (AUDIT §7): SL / max-hold re-entry cooldown. Previously
+            # unchecked on this path — the 2026-08-04 restart sweep closed and
+            # instantly reopened 4 same-symbol positions at identical prices
+            # within 25 seconds because nothing blocked the re-entry.
+            if not self._check_symbol_cooldown(symbol):
                 logger.info(
-                    f"[ENSEMBLE][LEVERAGE] {symbol}: margin=${margin_value:.2f} × "
-                    f"{leverage:.0f}x = notional ${position_value:.2f}"
+                    f"[ENSEMBLE] {symbol} in post-exit cooldown — rejecting re-entry"
                 )
-
-            from decimal import Decimal
-
-            order = OrderCreate(
-                symbol=symbol,
-                side=OrderSide.BUY
-                if ens_signal.action == SignalAction.BUY
-                else OrderSide.SELL,
-                type=OrderType.MARKET,
-                quantity=Decimal(str(quantity)),
-                strategy="ensemble",
-                # 2026-05-15: persist confidence for post-hoc analysis.
-                entry_signal_confidence=float(ens_signal.confidence),
-            )
-            executed_order, error = await paper_engine.execute_market_order(
-                order, Decimal(str(current_price))
-            )
-            if executed_order is None or executed_order.status != OrderStatus.FILLED:
                 self.total_trades_rejected += 1
-                logger.warning(f"[ENSEMBLE] Execution failed for {symbol}: {error}")
                 return
 
-            self.total_trades_executed += 1
-            logger.info(
-                f"[ENSEMBLE] Trade executed for {symbol}: ${position_value:.2f} ({quantity:.6f} units)"
-            )
+            # ================================================================
+            # Stage 0 (2026-08-07): the confidence and side gates every other
+            # entry path enforces. Placed BEFORE the open-slot claim so a
+            # guaranteed rejection never burns a slot — same reasoning as the
+            # cooldown check at :3863.
+            # ================================================================
+            if not self._ensemble_passes_signal_gates(symbol, ens_signal):
+                return
 
-            # Tag latest position with leg contributions so we can attribute outcome at close.
+            # Race-safe per-symbol claim (2026-05-06). The get_open_positions
+            # scan above is a cheap non-atomic pre-check; this is what actually
+            # stops two signal paths opening twins on the same symbol. Both are
+            # kept, exactly as _execute_trade_with_setup does (:1800 and :1965)
+            # — the claim tracks in-flight opens and the open cooldown, it does
+            # NOT know about already-open positions.
+            # _claim_open_slot increments total_trades_rejected itself; do NOT
+            # increment again here or one rejection is counted twice.
+            if not await self._claim_open_slot(symbol):
+                return
+
+            opened = False
             try:
-                latest_positions = [
-                    p for p in position_mgr.get_open_positions() if p.symbol == symbol
-                ]
-                if latest_positions:
-                    latest_positions[-1].metadata = (
-                        getattr(latest_positions[-1], "metadata", {}) or {}
+                if not self._check_daily_trade_limit():
+                    logger.info(f"[ENSEMBLE][GATE] {symbol}: daily trade limit reached")
+                    self.total_trades_rejected += 1
+                    return
+
+                # ============================================================
+                # Portfolio heat. can_open_trade is SYNCHRONOUS, REQUIRES
+                # equity, and returns a 3-tuple (ok, reason, size_multiplier).
+                #
+                # proposed_risk_pct must be STOP-DISTANCE based to stay in the
+                # same units as PositionRisk.risk_pct (portfolio_heat.py:233,
+                # risk_amount / equity * 100). Feeding it the raw notional
+                # percent (10.0) would trip max_per_trade_pct=2.0 on every
+                # single entry and silently kill this path — the fraction-vs-
+                # percent trap in CLAUDE.md §5, one level up.
+                #
+                # The ensemble's OWN stop is authoritative since Task 8;
+                # default_stop_loss_pct, used by the sibling call at :1827,
+                # would misstate it.
+                # ============================================================
+                #
+                # Final review (2026-08-08): the abs() below makes an INVERTED
+                # stop indistinguishable from a valid one — |entry - sl| is
+                # positive either way — so an inverted pair used to sail
+                # through this gate, get FILLED, and only be caught by the
+                # post-fill guard at :4827, after a real entry and its
+                # round-trip fee had been spent. Reject it here instead, with
+                # the same predicate the post-fill guard uses.
+                try:
+                    stops_consistent = self._ensemble_stops_are_consistent(
+                        ens_signal.action,
+                        float(current_price),
+                        float(ens_signal.stop_loss),
+                        float(ens_signal.take_profit),
                     )
-                    latest_positions[-1].metadata["ensemble_attribution"] = (
+                except (TypeError, ValueError):
+                    stops_consistent = False
+                if not stops_consistent:
+                    logger.error(
+                        f"[ENSEMBLE][GATE] {symbol}: INCONSISTENT stop/target for "
+                        f"{getattr(ens_signal.action, 'value', ens_signal.action)} "
+                        f"— entry={current_price} "
+                        f"sl={getattr(ens_signal, 'stop_loss', None)!r} "
+                        f"tp={getattr(ens_signal, 'take_profit', None)!r}. "
+                        f"Dominant leg fired {getattr(ens_signal, 'leg_actions', None)}. "
+                        f"Rejecting BEFORE the fill — no entry, no fee."
+                    )
+                    self.total_trades_rejected += 1
+                    return
+
+                try:
+                    stop_distance_pct = (
+                        abs(current_price - float(ens_signal.stop_loss)) / current_price
+                    )
+                except (TypeError, ValueError):
+                    stop_distance_pct = 0.0
+                if stop_distance_pct <= 0.0:
+                    logger.error(
+                        f"[ENSEMBLE][GATE] {symbol}: unusable stop "
+                        f"{getattr(ens_signal, 'stop_loss', None)!r} against "
+                        f"entry {current_price} — risk is undefined, rejecting"
+                    )
+                    self.total_trades_rejected += 1
+                    return
+
+                # side= matters: the existing call at :1831 omits it, so the
+                # pyramiding / no-hedging branch (portfolio_heat.py:499-502)
+                # never fires there.
+                heat_ok, heat_reason, _heat_multiplier = (
+                    self.portfolio_heat_manager.can_open_trade(
+                        symbol=symbol,
+                        proposed_risk_pct=(
+                            float(ens_signal.position_size_pct)
+                            * stop_distance_pct
+                            * 100.0
+                        ),
+                        equity=float(balance),
+                        side=(
+                            "LONG" if ens_signal.action == SignalAction.BUY else "SHORT"
+                        ),
+                    )
+                )
+                if not heat_ok:
+                    logger.info(
+                        f"[ENSEMBLE][GATE] {symbol}: portfolio heat — {heat_reason}"
+                    )
+                    self.total_trades_rejected += 1
+                    return
+
+                # Apply leverage to ensemble sizing (fix 2026-05-19).
+                # ensemble.position_size_pct sets the MARGIN fraction (already capped
+                # at max_risk_per_trade by ensemble's own cascade). Multiplying by
+                # leverage converts margin to notional position value.
+                # paper_engine posts margin = notional / leverage and RECORDS the
+                # dollar amount on the position (Stage 0, 2026-08-07); the close
+                # leg returns exactly that recorded amount, so cash impact =
+                # balance x position_size_pct regardless of any later change to
+                # DEFAULT_LEVERAGE. Leverage only scales notional (P&L exposure).
+                leverage = 1.0
+                if self.settings.leverage_enabled:
+                    leverage = max(
+                        self.settings.min_leverage,
+                        min(self.settings.default_leverage, self.settings.max_leverage),
+                    )
+                margin_value = float(balance) * ens_signal.position_size_pct
+                position_value = margin_value * leverage
+
+                # ================================================================
+                # H1(a) (AUDIT §6.4, 2026-08-04): cap the NOTIONAL at
+                # max_position_size_pct of balance REGARDLESS of leverage.
+                # Leverage divides the margin posted; it must never multiply the
+                # cap ceiling. Before this fix, 10% size × 10x leverage sized
+                # every ensemble trade at ~100% of balance (observed: $34-$96
+                # positions on a $100 account, 3 open = 251% of equity).
+                # ================================================================
+                cap_pct = self.settings.max_position_size_pct
+                # ================================================================
+                # ADR-010 hard, non-configurable 2% cap in LIVE mode — mirrors the
+                # clamps in _execute_trade_with_setup and _execute_trade. Note the
+                # knob difference is deliberate: those paths cap the MARGIN
+                # fraction (max_risk_per_trade, a fraction), this path caps the
+                # NOTIONAL percent (max_position_size_pct); both are 10 in paper
+                # and both must clamp to 2% before any LIVE order.
+                # ================================================================
+                if str(self.settings.trading_mode).upper() == "LIVE":
+                    cap_pct = min(cap_pct, 2.0)
+                cap_notional = float(balance) * cap_pct / 100.0
+                if position_value > cap_notional:
+                    logger.warning(
+                        f"[ENSEMBLE][RISK_GATE] PER_TRADE_CAP CLAMP | {symbol} "
+                        f"attempted=${position_value:.2f} → clamped=${cap_notional:.2f} "
+                        f"({cap_pct:.1f}% of "
+                        f"${float(balance):.2f}; leverage={leverage:.1f}x does not "
+                        f"raise the cap)"
+                    )
+                    position_value = cap_notional
+                    margin_value = position_value / leverage
+
+                # ================================================================
+                # H1(b): total-exposure gate. Shared with the other two entry paths
+                # since review I20 — see _passes_exposure_gate.
+                # ================================================================
+                if not self._passes_exposure_gate(
+                    symbol,
+                    position_value,
+                    balance,
+                    position_mgr,
+                    tag="[ENSEMBLE][RISK_GATE]",
+                ):
+                    self.total_trades_rejected += 1
+                    return
+
+                # Venue quantity granularity: floor to qty_step, never up.
+                quantity = await self._snap_quantity_to_step(
+                    symbol, position_value / current_price
+                )
+                position_value = float(quantity) * current_price
+
+                # ================================================================
+                # H1(c): min-notional / min-qty gate — enforced in PAPER too since
+                # 2026-08-04 (paper must mirror the real $100 account; see
+                # _passes_min_notional). BTC's 0.001 min qty ≈ $62 cannot fit a
+                # $10 per-trade cap and must be REJECTED (reason "min_qty" — a
+                # zero-floored quantity lands here too), never clamped up.
+                # ================================================================
+                ok, _reason = await self._passes_min_notional(
+                    symbol=symbol,
+                    quantity=quantity,
+                    price=current_price,
+                    balance=balance,
+                )
+                if not ok:
+                    self.total_trades_rejected += 1
+                    return
+
+                if quantity <= 0:
+                    # Belt-and-braces for the gate's fail-open branches: a zero
+                    # quantity must never become an order.
+                    logger.warning(
+                        f"[ENSEMBLE][RISK_GATE] {symbol}: quantity floored to zero "
+                        f"at qty_step (notional ${position_value:.2f} @ "
+                        f"${current_price}) — rejecting"
+                    )
+                    self.total_trades_rejected += 1
+                    return
+
+                if self.settings.leverage_enabled:
+                    logger.info(
+                        f"[ENSEMBLE][LEVERAGE] {symbol}: margin=${margin_value:.2f} × "
+                        f"{leverage:.0f}x = notional ${position_value:.2f}"
+                    )
+
+                from decimal import Decimal
+
+                order = OrderCreate(
+                    symbol=symbol,
+                    side=OrderSide.BUY
+                    if ens_signal.action == SignalAction.BUY
+                    else OrderSide.SELL,
+                    type=OrderType.MARKET,
+                    quantity=Decimal(str(quantity)),
+                    strategy="ensemble",
+                    # 2026-05-15: persist confidence for post-hoc analysis.
+                    entry_signal_confidence=float(ens_signal.confidence),
+                )
+                executed_order, error = await paper_engine.execute_market_order(
+                    order, Decimal(str(current_price))
+                )
+                if (
+                    executed_order is None
+                    or executed_order.status != OrderStatus.FILLED
+                ):
+                    self.total_trades_rejected += 1
+                    logger.warning(f"[ENSEMBLE] Execution failed for {symbol}: {error}")
+                    return
+
+                self.total_trades_executed += 1
+                opened = True
+                # Feed the counter the daily-limit gate above reads.
+                # daily_trades_count moves only in _record_trade, which was
+                # called from _execute_trade_with_setup alone (:2222) — so
+                # without this the new gate would guard a counter this path
+                # never moved. min_time_between_trades (60s) matches
+                # open_cooldown_seconds (60s), so this adds no cooldown the
+                # slot claim did not already impose.
+                self._record_trade(symbol)
+                logger.info(
+                    f"[ENSEMBLE] Trade executed for {symbol}: ${position_value:.2f} ({quantity:.6f} units)"
+                )
+
+                # ================================================================
+                # Stage 0 (2026-08-07): apply the ensemble's OWN stop/target.
+                # Previously these were read only inside the Telegram call below,
+                # so the position carried risk_manager's flat 2%/4% default while
+                # the operator was told an ATR level. Do NOT try to do this by
+                # adding stop_loss=/take_profit= to the OrderCreate above —
+                # OrderBase declares neither and pydantic v2 extra='ignore' drops
+                # them silently, with no error and no stops.
+                #
+                # Final review (2026-08-08): clear_partial_levels=True is the
+                # other half of that fix. create_position derives TP1/TP2/TP3
+                # from |entry - stop| at INSERT time (position_manager.py:252),
+                # and the stop known at INSERT time on this path is the
+                # risk-manager default 2% — so the position arrives carrying a
+                # ladder of ±1.6% / ±2.6% / ±4.0%. check_all_exit_conditions
+                # tests partial exits at step 3, BEFORE the legacy take-profit
+                # at step 4, and a TP3 hit is a FULL close stamped TAKE_PROFIT.
+                # Left in place, every ensemble position would scale out at a
+                # level unrelated to its real R and force-close at +4% whenever
+                # its own target sat further out — recording "ensemble target
+                # hit" for an exit that hit a stale default.
+                #
+                # Chosen deliberately over re-deriving 0.8R/1.3R/2.0R from the
+                # ensemble's own stop: that keeps the property that no level
+                # comes from default_stop_loss_pct, but TP3 at 2R still closes
+                # ahead of ens_signal.take_profit whenever the target is
+                # further out than 2R. The ensemble emits exactly one stop and
+                # one target; a scale-out ladder is invented by the executor,
+                # and inventing one changes the return distribution of every
+                # ensemble trade on the branch whose whole purpose is honest
+                # exit attribution. One R, one target, one exit reason.
+                # ================================================================
+                if executed_order.position_id:
+                    # Whole block guarded: a stops failure (consistency check or
+                    # set_position_stops itself) must never unwind a filled order.
+                    try:
+                        # Kept as defence even though the pre-fill gate above
+                        # now rejects an inconsistent pair with the same
+                        # predicate and the same inputs, so this branch should
+                        # be unreachable in production. It is the last thing
+                        # standing between a bad pair and a live position, and
+                        # it costs one comparison.
+                        if not self._ensemble_stops_are_consistent(
+                            ens_signal.action,
+                            float(current_price),
+                            float(ens_signal.stop_loss),
+                            float(ens_signal.take_profit),
+                        ):
+                            logger.error(
+                                f"[ENSEMBLE][STOPS] {symbol}: INCONSISTENT stop/target for "
+                                f"{ens_signal.action.value} — entry={current_price} "
+                                f"sl={ens_signal.stop_loss} tp={ens_signal.take_profit}. "
+                                f"Dominant leg fired {ens_signal.leg_actions}. Keeping the "
+                                f"risk-manager default; NOT applying the ensemble levels."
+                            )
+                        else:
+                            position_mgr.set_position_stops(
+                                position_id=executed_order.position_id,
+                                stop_loss=Decimal(str(ens_signal.stop_loss)),
+                                take_profit=Decimal(str(ens_signal.take_profit)),
+                                enable_trailing=False,
+                                clear_partial_levels=True,
+                            )
+                            logger.info(
+                                f"[ENSEMBLE][STOPS] {symbol}: applied SL="
+                                f"{ens_signal.stop_loss} TP={ens_signal.take_profit} "
+                                f"(entry {current_price}); create-time TP1/2/3 ladder "
+                                f"cleared — only this target closes the position"
+                            )
+                    except Exception as stop_error:
+                        logger.warning(
+                            f"[ENSEMBLE][STOPS] {symbol}: failed to apply stops "
+                            f"— position keeps the risk-manager default: {stop_error}"
+                        )
+
+                # Store leg contributions against the position id so the close
+                # can attribute the outcome (2026-08-12). Copied, not aliased:
+                # the ensemble rebuilds leg_contributions every signal.
+                if executed_order.position_id:
+                    self._ensemble_attribution[executed_order.position_id] = dict(
                         ens_signal.leg_contributions
                     )
-            except Exception as attr_err:
-                logger.debug(f"[ENSEMBLE] Could not tag attribution: {attr_err}")
 
-            try:
-                await self.notification_client.notify_trade_open(
-                    symbol=symbol,
-                    action=ens_signal.action.value,
-                    quantity=float(quantity),
-                    price=current_price,
-                    confidence=float(ens_signal.confidence),
-                    stop_loss=float(ens_signal.stop_loss),
-                    take_profit=float(ens_signal.take_profit),
-                )
-            except Exception as notify_err:
-                logger.warning(
-                    f"[ENSEMBLE] Notification failed (non-critical): {notify_err}"
-                )
+                # ================================================================
+                # Final review (2026-08-08): report the levels the position
+                # ACTUALLY carries, read back from the position — never the
+                # signal's. Echoing ens_signal here was unconditional, so the
+                # rejection branch ~35 lines up told the operator the exact
+                # levels it had just refused to apply. Reading back also means
+                # the message cannot drift from reality again if a future
+                # caller changes what gets applied.
+                #
+                # No fallback to the signal values when the position cannot be
+                # read: a missing level is honest, a wrong one is not, and both
+                # notify_trade_open params are Optional[float].
+                # ================================================================
+                actual_sl, actual_tp = None, None
+                try:
+                    opened_position = (
+                        position_mgr.get_position(executed_order.position_id)
+                        if executed_order.position_id
+                        else None
+                    )
+                    if opened_position is not None:
+                        actual_sl = (
+                            float(opened_position.stop_loss)
+                            if opened_position.stop_loss is not None
+                            else None
+                        )
+                        actual_tp = (
+                            float(opened_position.take_profit)
+                            if opened_position.take_profit is not None
+                            else None
+                        )
+                except Exception as read_err:
+                    logger.warning(
+                        f"[ENSEMBLE] Could not read back position stops for "
+                        f"{symbol}; notifying without levels: {read_err}"
+                    )
+
+                try:
+                    await self.notification_client.notify_trade_open(
+                        symbol=symbol,
+                        action=ens_signal.action.value,
+                        quantity=float(quantity),
+                        price=current_price,
+                        confidence=float(ens_signal.confidence),
+                        stop_loss=actual_sl,
+                        take_profit=actual_tp,
+                    )
+                except Exception as notify_err:
+                    logger.warning(
+                        f"[ENSEMBLE] Notification failed (non-critical): {notify_err}"
+                    )
+
+            finally:
+                # 8 early returns live above this point, and Task 8 added more
+                # code after the fill. A leaked slot blocks the symbol forever.
+                self._release_open_slot(symbol, opened=opened)
 
         except Exception as e:
             logger.error(f"[ENSEMBLE] Error for {symbol}: {e}", exc_info=True)

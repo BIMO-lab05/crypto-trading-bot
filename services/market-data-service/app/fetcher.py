@@ -368,10 +368,14 @@ class BybitDataFetcher:
                 logger.info(f"Reached target start date for {symbol}")
                 break
 
-            # Check if we got fewer candles than requested (no more data available)
-            if len(klines) < MAX_CANDLES_PER_REQUEST:
-                logger.info(f"Received partial batch ({len(klines)} candles), no more data")
-                break
+            # NOTE: a short batch is NOT an end-of-history signal. get_kline
+            # drops the still-forming candle by time filter, so a full page
+            # comes back as MAX_CANDLES_PER_REQUEST - 1 rows and the old
+            # `len(klines) < MAX_CANDLES_PER_REQUEST -> break` truncated every
+            # backfill to a single batch. Termination is still guaranteed by
+            # the empty-batch break above, the target-start break above, the
+            # max_batches loop guard, and current_end_ms strictly decreasing
+            # each iteration (oldest_ts <= current_end_ms always holds).
 
             # Update end time for next batch (1 ms before oldest to avoid duplicates)
             current_end_ms = oldest_ts - 1

@@ -6,13 +6,37 @@ Tests automated trading loop initialization and core functionality
 import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal as _Decimal
 
-from app.auto_trader import (
-    AutoTrader,
-    get_auto_trader,
-    reset_auto_trader
-)
+# Pre-import app.main so patching its get_instruments_cache below does not
+# re-import the module mid-test (that re-runs prometheus Counter registration
+# and trips "Duplicated timeseries in CollectorRegistry"). Load-bearing noqa:
+# autoflake strips bare imports otherwise.
+import app.main  # noqa: F401
+
+from app.auto_trader import AutoTrader, get_auto_trader, reset_auto_trader
+from app.services.instruments_cache import InstrumentSpec
+
+
+class _PermissiveInstrumentsCache:
+    """Instrument spec that clears every venue floor.
+
+    Needed since review I12: a missing spec now fails CLOSED in PAPER, so an
+    unstubbed cache (which times out reaching the connector under test) would
+    reject the order. Tests here assert execution mechanics, not venue
+    minimums, so they supply a spec that never blocks.
+    """
+
+    async def get(self, symbol: str) -> InstrumentSpec:
+        return InstrumentSpec(
+            symbol=symbol,
+            min_order_qty=_Decimal("1E-15"),
+            qty_step=_Decimal("1E-15"),
+            tick_size=_Decimal("0.10"),
+            min_notional=None,
+            fetched_at=datetime.now(timezone.utc),
+        )
 
 
 class TestAutoTrader:
@@ -63,7 +87,7 @@ class TestAutoTrader:
         trader = AutoTrader()
 
         # Mock _trading_loop to avoid actual execution
-        with patch.object(trader, '_trading_loop', new_callable=AsyncMock):
+        with patch.object(trader, "_trading_loop", new_callable=AsyncMock):
             await trader.start()
 
             assert trader.is_running is True
@@ -255,16 +279,21 @@ class TestAutoTraderCheckAndTrade:
         trader = AutoTrader(symbols=["BTCUSDT"])
 
         # Mock dependencies
-        with patch('app.auto_trader.get_risk_manager') as mock_risk_mgr, \
-             patch('app.auto_trader.get_aggregator', new_callable=AsyncMock) as mock_aggregator:
-
+        with (
+            patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
+            patch(
+                "app.auto_trader.get_aggregator", new_callable=AsyncMock
+            ) as mock_aggregator,
+        ):
             # Risk manager is synchronous, not async
             mock_risk = Mock()
             mock_risk.should_halt_trading.return_value = False
             mock_risk_mgr.return_value = mock_risk
 
             # Aggregator is async
-            mock_aggregator.return_value.get_trading_signal.return_value = None  # No signal
+            mock_aggregator.return_value.get_trading_signal.return_value = (
+                None  # No signal
+            )
 
             initial_count = trader.total_signals_checked
             await trader._check_and_trade("BTCUSDT")
@@ -276,7 +305,7 @@ class TestAutoTraderCheckAndTrade:
         """Test that trading is halted when risk limits exceeded"""
         trader = AutoTrader(symbols=["BTCUSDT"])
 
-        with patch('app.auto_trader.get_risk_manager') as mock_risk_mgr:
+        with patch("app.auto_trader.get_risk_manager") as mock_risk_mgr:
             # Risk manager is synchronous, not async
             mock_risk = Mock()
             mock_risk.should_halt_trading.return_value = True  # Halt trading
@@ -293,9 +322,12 @@ class TestAutoTraderCheckAndTrade:
         """Test handling when no signal data is returned"""
         trader = AutoTrader(symbols=["BTCUSDT"])
 
-        with patch('app.auto_trader.get_risk_manager') as mock_risk_mgr, \
-             patch('app.auto_trader.get_aggregator', new_callable=AsyncMock) as mock_aggregator:
-
+        with (
+            patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
+            patch(
+                "app.auto_trader.get_aggregator", new_callable=AsyncMock
+            ) as mock_aggregator,
+        ):
             # Risk manager is synchronous, not async
             mock_risk = Mock()
             mock_risk.should_halt_trading.return_value = False
@@ -312,11 +344,11 @@ class TestAutoTraderCheckAndTrade:
         """Test handling when signal doesn't meet minimum requirements"""
         trader = AutoTrader(symbols=["BTCUSDT"])
         trader.enable_ml = False  # Disable ML to use simpler code path
-        trader.enable_vp = False  # Disable VP
         trader.enable_market_regime = False  # Disable regime detection
 
         # Create mock signal that doesn't meet requirements
         from app.models import TradingSignal, SignalAction
+
         mock_signal = Mock(spec=TradingSignal)
         mock_signal.action = SignalAction.BUY
         mock_signal.confidence = 0.5
@@ -324,9 +356,10 @@ class TestAutoTraderCheckAndTrade:
         mock_signal.metadata = {"meets_requirements": False}
         mock_signal.indicators = {}
 
-        with patch('app.auto_trader.get_risk_manager') as mock_risk_mgr, \
-             patch('app.auto_trader.get_aggregator') as mock_aggregator:
-
+        with (
+            patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
+            patch("app.auto_trader.get_aggregator") as mock_aggregator,
+        ):
             # Risk manager is synchronous, not async
             mock_risk = Mock()
             mock_risk.should_halt_trading.return_value = False
@@ -334,9 +367,13 @@ class TestAutoTraderCheckAndTrade:
 
             # Aggregator is async - mock both old and new method names
             mock_agg_instance = AsyncMock()
-            mock_agg_instance.get_trading_signal_multi_timeframe = AsyncMock(return_value=mock_signal)
+            mock_agg_instance.get_trading_signal_multi_timeframe = AsyncMock(
+                return_value=mock_signal
+            )
             mock_agg_instance.get_trading_signal = AsyncMock(return_value=mock_signal)
-            mock_agg_instance.get_trading_signal_enhanced = AsyncMock(return_value=mock_signal)
+            mock_agg_instance.get_trading_signal_enhanced = AsyncMock(
+                return_value=mock_signal
+            )
             mock_aggregator.return_value = mock_agg_instance
 
             initial_rejected = trader.total_trades_rejected
@@ -353,15 +390,19 @@ class TestAutoTraderCheckAndTrade:
         trader = AutoTrader(symbols=["BTCUSDT"])
 
         from app.models import TradingSignal, SignalAction
+
         mock_signal = Mock(spec=TradingSignal)
         mock_signal.action = SignalAction.HOLD
         mock_signal.confidence = 0.8
         mock_signal.aggregated_score = 0.0
         mock_signal.metadata = {"meets_requirements": True}
 
-        with patch('app.auto_trader.get_risk_manager') as mock_risk_mgr, \
-             patch('app.auto_trader.get_aggregator', new_callable=AsyncMock) as mock_aggregator:
-
+        with (
+            patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
+            patch(
+                "app.auto_trader.get_aggregator", new_callable=AsyncMock
+            ) as mock_aggregator,
+        ):
             # Risk manager is synchronous, not async
             mock_risk = Mock()
             mock_risk.should_halt_trading.return_value = False
@@ -378,7 +419,7 @@ class TestAutoTraderCheckAndTrade:
         """Test exception handling in check_and_trade"""
         trader = AutoTrader(symbols=["BTCUSDT"])
 
-        with patch('app.auto_trader.get_risk_manager') as mock_risk_mgr:
+        with patch("app.auto_trader.get_risk_manager") as mock_risk_mgr:
             # Make get_risk_manager raise an exception
             mock_risk_mgr.side_effect = Exception("Test error")
 
@@ -399,7 +440,9 @@ class TestAutoTraderLoop:
         trader = AutoTrader(symbols=["BTCUSDT"], check_frequency_seconds=1)
 
         # Mock dependencies to avoid actual trading
-        with patch.object(trader, '_check_and_trade', new_callable=AsyncMock) as mock_check:
+        with patch.object(
+            trader, "_check_and_trade", new_callable=AsyncMock
+        ) as mock_check:
             # Start the loop
             result = await trader.start()
             assert result is True  # Should return True on successful start
@@ -439,17 +482,24 @@ class TestAutoTraderExecuteTrade:
         mock_signal.indicators = {"RSI": mock_indicator}
         mock_signal.metadata = {}  # Add metadata to avoid AttributeError
 
-        with patch('app.auto_trader.get_paper_engine') as mock_paper_engine, \
-             patch('app.auto_trader.get_position_manager') as mock_position_mgr, \
-             patch('app.auto_trader.get_risk_manager') as mock_risk_mgr, \
-             patch('app.auto_trader.get_position_sizer') as mock_position_sizer:
-
+        with (
+            patch("app.auto_trader.get_paper_engine") as mock_paper_engine,
+            patch("app.auto_trader.get_position_manager") as mock_position_mgr,
+            patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
+            patch("app.auto_trader.get_position_sizer") as mock_position_sizer,
+            patch(
+                "app.main.get_instruments_cache",
+                lambda: _PermissiveInstrumentsCache(),
+            ),
+        ):
             # Mock paper engine
             mock_engine = Mock()
             mock_engine.get_balance.return_value = 100.0  # Synchronous
             mock_executed_order = Mock()
             mock_executed_order.status = OrderStatus.FILLED
-            mock_engine.execute_market_order = AsyncMock(return_value=(mock_executed_order, None))
+            mock_engine.execute_market_order = AsyncMock(
+                return_value=(mock_executed_order, None)
+            )
             mock_paper_engine.return_value = mock_engine
 
             # Mock position manager
@@ -463,6 +513,7 @@ class TestAutoTraderExecuteTrade:
 
             # Mock position sizer
             from app.position_sizing import PositionSizeResult, SizingMethod
+
             mock_sizer = Mock()
             mock_size_result = PositionSizeResult(
                 position_size_pct=3.0,
@@ -471,7 +522,7 @@ class TestAutoTraderExecuteTrade:
                 method=SizingMethod.FIXED,
                 kelly_fraction=None,
                 confidence_modifier=None,
-                reasoning="Fixed 3% position size"
+                reasoning="Fixed 3% position size",
             )
             mock_sizer.calculate_position_size.return_value = mock_size_result
             mock_position_sizer.return_value = mock_sizer
@@ -497,7 +548,7 @@ class TestAutoTraderExecuteTrade:
         mock_signal.action = SignalAction.BUY
         mock_signal.indicators = {"RSI": mock_indicator}
 
-        with patch('app.auto_trader.get_paper_engine') as mock_paper_engine:
+        with patch("app.auto_trader.get_paper_engine") as mock_paper_engine:
             mock_engine = Mock()
             mock_engine.get_balance.return_value = 100.0
             mock_paper_engine.return_value = mock_engine
@@ -513,7 +564,7 @@ class TestAutoTraderExecuteTrade:
         """Test trade execution when position already exists"""
         trader = AutoTrader(symbols=["BTCUSDT"])
 
-        from app.models import TradingSignal, SignalAction, IndicatorSignal
+        from app.models import TradingSignal, IndicatorSignal
 
         mock_indicator = Mock(spec=IndicatorSignal)
         mock_indicator.metadata = {"current_price": 50000.0}
@@ -521,9 +572,10 @@ class TestAutoTraderExecuteTrade:
         mock_signal = Mock(spec=TradingSignal)
         mock_signal.indicators = {"RSI": mock_indicator}
 
-        with patch('app.auto_trader.get_paper_engine') as mock_paper_engine, \
-             patch('app.auto_trader.get_position_manager') as mock_position_mgr:
-
+        with (
+            patch("app.auto_trader.get_paper_engine") as mock_paper_engine,
+            patch("app.auto_trader.get_position_manager") as mock_position_mgr,
+        ):
             mock_engine = Mock()
             mock_engine.get_balance.return_value = 100.0
             mock_paper_engine.return_value = mock_engine
@@ -546,7 +598,12 @@ class TestAutoTraderExecuteTrade:
         """Test successful SELL trade execution"""
         trader = AutoTrader(symbols=["BTCUSDT"])
 
-        from app.models import TradingSignal, SignalAction, IndicatorSignal, OrderStatus, OrderSide
+        from app.models import (
+            TradingSignal,
+            SignalAction,
+            IndicatorSignal,
+            OrderStatus,
+        )
         from decimal import Decimal
 
         mock_indicator = Mock(spec=IndicatorSignal)
@@ -557,16 +614,23 @@ class TestAutoTraderExecuteTrade:
         mock_signal.indicators = {"RSI": mock_indicator}
         mock_signal.metadata = {}  # Add metadata to avoid AttributeError
 
-        with patch('app.auto_trader.get_paper_engine') as mock_paper_engine, \
-             patch('app.auto_trader.get_position_manager') as mock_position_mgr, \
-             patch('app.auto_trader.get_risk_manager') as mock_risk_mgr, \
-             patch('app.auto_trader.get_position_sizer') as mock_position_sizer:
-
+        with (
+            patch("app.auto_trader.get_paper_engine") as mock_paper_engine,
+            patch("app.auto_trader.get_position_manager") as mock_position_mgr,
+            patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
+            patch("app.auto_trader.get_position_sizer") as mock_position_sizer,
+            patch(
+                "app.main.get_instruments_cache",
+                lambda: _PermissiveInstrumentsCache(),
+            ),
+        ):
             mock_engine = Mock()
             mock_engine.get_balance.return_value = 100.0
             mock_executed_order = Mock()
             mock_executed_order.status = OrderStatus.FILLED
-            mock_engine.execute_market_order = AsyncMock(return_value=(mock_executed_order, None))
+            mock_engine.execute_market_order = AsyncMock(
+                return_value=(mock_executed_order, None)
+            )
             mock_paper_engine.return_value = mock_engine
 
             mock_pos_mgr = Mock()
@@ -579,6 +643,7 @@ class TestAutoTraderExecuteTrade:
 
             # Mock position sizer
             from app.position_sizing import PositionSizeResult, SizingMethod
+
             mock_sizer = Mock()
             mock_size_result = PositionSizeResult(
                 position_size_pct=3.0,
@@ -587,7 +652,7 @@ class TestAutoTraderExecuteTrade:
                 method=SizingMethod.FIXED,
                 kelly_fraction=None,
                 confidence_modifier=None,
-                reasoning="Fixed 3% position size"
+                reasoning="Fixed 3% position size",
             )
             mock_sizer.calculate_position_size.return_value = mock_size_result
             mock_position_sizer.return_value = mock_sizer
@@ -602,7 +667,7 @@ class TestAutoTraderExecuteTrade:
         """Test trade execution when order fails"""
         trader = AutoTrader(symbols=["BTCUSDT"])
 
-        from app.models import TradingSignal, SignalAction, IndicatorSignal, OrderStatus
+        from app.models import TradingSignal, IndicatorSignal, OrderStatus
 
         mock_indicator = Mock(spec=IndicatorSignal)
         mock_indicator.metadata = {"current_price": 50000.0}
@@ -610,14 +675,17 @@ class TestAutoTraderExecuteTrade:
         mock_signal = Mock(spec=TradingSignal)
         mock_signal.indicators = {"RSI": mock_indicator}
 
-        with patch('app.auto_trader.get_paper_engine') as mock_paper_engine, \
-             patch('app.auto_trader.get_position_manager') as mock_position_mgr:
-
+        with (
+            patch("app.auto_trader.get_paper_engine") as mock_paper_engine,
+            patch("app.auto_trader.get_position_manager") as mock_position_mgr,
+        ):
             mock_engine = Mock()
             mock_engine.get_balance.return_value = 100.0
             mock_failed_order = Mock()
             mock_failed_order.status = OrderStatus.FAILED  # Order failed
-            mock_engine.execute_market_order = AsyncMock(return_value=(mock_failed_order, None))
+            mock_engine.execute_market_order = AsyncMock(
+                return_value=(mock_failed_order, None)
+            )
             mock_paper_engine.return_value = mock_engine
 
             mock_pos_mgr = Mock()
@@ -635,12 +703,12 @@ class TestAutoTraderExecuteTrade:
         """Test exception handling in execute_trade"""
         trader = AutoTrader(symbols=["BTCUSDT"])
 
-        from app.models import TradingSignal, SignalAction
+        from app.models import TradingSignal
 
         mock_signal = Mock(spec=TradingSignal)
         mock_signal.indicators = {}  # Empty indicators will cause error
 
-        with patch('app.auto_trader.get_paper_engine') as mock_paper_engine:
+        with patch("app.auto_trader.get_paper_engine") as mock_paper_engine:
             mock_paper_engine.side_effect = Exception("Test error")
 
             initial_rejected = trader.total_trades_rejected
@@ -673,9 +741,7 @@ class TestVolTargetingWiring:
         assert "SOLUSDT" not in trader._vol_last_hour
 
     def test_enabled_when_settings_flagged(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.auto_trader.settings.enable_vol_targeting", True
-        )
+        monkeypatch.setattr("app.auto_trader.settings.enable_vol_targeting", True)
         trader = AutoTrader()
         assert trader.vol_estimator is not None
         assert (
@@ -684,9 +750,7 @@ class TestVolTargetingWiring:
         )
 
     def test_update_with_invalid_price_is_noop(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.auto_trader.settings.enable_vol_targeting", True
-        )
+        monkeypatch.setattr("app.auto_trader.settings.enable_vol_targeting", True)
         trader = AutoTrader()
         trader._update_vol_estimator("SOLUSDT", 0.0)
         trader._update_vol_estimator("SOLUSDT", -5.0)
@@ -694,9 +758,7 @@ class TestVolTargetingWiring:
         assert trader._vol_last_hour == {}
 
     def test_update_with_valid_price_records_hour(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.auto_trader.settings.enable_vol_targeting", True
-        )
+        monkeypatch.setattr("app.auto_trader.settings.enable_vol_targeting", True)
         trader = AutoTrader()
         trader._update_vol_estimator("SOLUSDT", 100.0)
         assert "SOLUSDT" in trader._vol_last_hour

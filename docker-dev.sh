@@ -15,9 +15,17 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
-COMPOSE_FILE="docker-compose.yml"
+# Canonical compose file per ADR-009. Plain docker-compose.yml was renamed to
+# docker-compose.legacy.yml.DISABLED, so pointing at it made every command in
+# this script fail with "no configuration file provided".
+COMPOSE_FILE="docker-compose.unified.yml"
 COMPOSE_MONITORING="docker-compose.monitoring.yml"
 PROJECT_NAME="crypto-trading-bot"
+
+# Compose binary, resolved by check_compose(). Compose v2 is the `docker
+# compose` subcommand; v1 is the standalone `docker-compose`. Both are
+# supported so the script runs on either.
+DC=()
 
 # Function to display help
 show_help() {
@@ -58,10 +66,15 @@ check_docker() {
     fi
 }
 
-# Function to check if docker-compose is available
+# Function to resolve the Compose binary (v2 preferred, v1 fallback)
 check_compose() {
-    if ! command -v docker-compose &> /dev/null; then
-        echo -e "${RED}Error: docker-compose is not installed${NC}"
+    if docker compose version &> /dev/null; then
+        DC=(docker compose)
+    elif command -v docker-compose &> /dev/null; then
+        DC=(docker-compose)
+    else
+        echo -e "${RED}Error: Docker Compose is not installed${NC}"
+        echo "Install Compose v2 (docker compose) or v1 (docker-compose)"
         exit 1
     fi
 }
@@ -89,7 +102,7 @@ start_services() {
     done
 
     echo -e "${BLUE}Starting Crypto Trading Bot services...${NC}"
-    docker-compose $compose_files up $detach
+    "${DC[@]}" $compose_files up $detach
 
     if [ -n "$detach" ]; then
         echo -e "${GREEN}Services started successfully!${NC}"
@@ -102,7 +115,7 @@ start_services() {
 # Function to stop services
 stop_services() {
     echo -e "${YELLOW}Stopping Crypto Trading Bot services...${NC}"
-    docker-compose -f $COMPOSE_FILE down
+    "${DC[@]}" -f $COMPOSE_FILE down
     echo -e "${GREEN}Services stopped successfully!${NC}"
 }
 
@@ -117,12 +130,12 @@ restart_services() {
 show_status() {
     echo -e "${BLUE}Service Status:${NC}"
     echo ""
-    docker-compose -f $COMPOSE_FILE ps
+    "${DC[@]}" -f $COMPOSE_FILE ps
     echo ""
 
     # Count running services
-    running=$(docker-compose -f $COMPOSE_FILE ps | grep -c "Up" || true)
-    total=$(docker-compose -f $COMPOSE_FILE config --services | wc -l)
+    running=$("${DC[@]}" -f $COMPOSE_FILE ps | grep -c "Up" || true)
+    total=$("${DC[@]}" -f $COMPOSE_FILE config --services | wc -l)
 
     echo "Running: $running / $total services"
 }
@@ -148,10 +161,10 @@ show_logs() {
 
     if [ -n "$service" ]; then
         echo -e "${BLUE}Showing logs for $service...${NC}"
-        docker-compose -f $COMPOSE_FILE logs $follow "$service"
+        "${DC[@]}" -f $COMPOSE_FILE logs $follow "$service"
     else
         echo -e "${BLUE}Showing logs for all services...${NC}"
-        docker-compose -f $COMPOSE_FILE logs $follow
+        "${DC[@]}" -f $COMPOSE_FILE logs $follow
     fi
 }
 
@@ -163,7 +176,7 @@ clean_all() {
 
     if [[ $REPLY == "yes" ]]; then
         echo -e "${YELLOW}Stopping and removing all services...${NC}"
-        docker-compose -f $COMPOSE_FILE down -v --rmi all
+        "${DC[@]}" -f $COMPOSE_FILE down -v --rmi all
         echo -e "${GREEN}Cleanup completed!${NC}"
     else
         echo "Cleanup cancelled"
@@ -177,7 +190,7 @@ build_all() {
     if [ -f "./build-all.sh" ]; then
         bash ./build-all.sh "$@"
     else
-        docker-compose -f $COMPOSE_FILE build
+        "${DC[@]}" -f $COMPOSE_FILE build
     fi
 }
 
@@ -186,18 +199,21 @@ check_health() {
     echo -e "${BLUE}Checking service health...${NC}"
     echo ""
 
-    # Service ports
+    # Service ports, per the canonical table in CLAUDE.md. Six of these were
+    # wrong (trading-engine was listed on 8001, bybit-connector on 8004, and
+    # so on), so `docker-dev.sh health` probed the wrong service for most of
+    # the mesh and reported whatever happened to answer on that port.
     declare -A PORTS=(
         ["api-gateway"]="8000"
-        ["trading-engine"]="8001"
-        ["portfolio-manager"]="8002"
-        ["technical-analysis"]="8003"
-        ["bybit-connector"]="8004"
-        ["market-data-service"]="8005"
+        ["bybit-connector"]="8001"
+        ["market-data-service"]="8002"
+        ["portfolio-manager"]="8003"
+        ["technical-analysis"]="8004"
+        ["trading-engine"]="8005"
         ["notification-service"]="8006"
         ["ml-prediction-service"]="8007"
-        ["risk-metrics-service"]="8008"
-        ["sentiment-analysis-service"]="8009"
+        ["sentiment-analysis-service"]="8008"
+        ["risk-metrics-service"]="8009"
     )
 
     local healthy=0

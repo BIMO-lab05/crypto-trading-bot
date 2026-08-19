@@ -199,7 +199,7 @@ def test_dsr_row_schema_passes_after_seed(leaderboard_dsr_seeded):
 
     After leaderboard_dsr_seeded arranges:
       - leaderboard row with dsr=0.97 at /data/tournament.db
-      - MLGATE marker at /run/mlgate_auto_flip.json
+      - MLGATE marker at /tmp/mlgate_auto_flip.json
       - trading-engine restarted with ENABLE_ML_PREDICTIONS=true
 
     /api/preflight/live-readiness must return a dsr_evidence check with:

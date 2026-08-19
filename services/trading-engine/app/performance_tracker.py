@@ -16,7 +16,7 @@ from datetime import datetime
 from dataclasses import dataclass
 import numpy as np
 
-from app.models import Position, PositionSide
+from app.models import Position, PositionSide, PositionStatus
 from app.config import get_settings  # noqa: F401  (used by _default_initial_balance)
 
 
@@ -182,11 +182,29 @@ class PerformanceTracker:
         Returns:
             TradeMetrics for the trade
         """
-        # Calculate P&L
-        if position.side == PositionSide.LONG:
-            pnl = (exit_price - position.entry_price) * position.quantity
-        else:  # SHORT
-            pnl = (position.entry_price - exit_price) * position.quantity
+        # P&L: trust the position's own accounting. For a CLOSED position,
+        # realized_pnl is NET of entry and exit commissions, computed on the
+        # actually-closed quantity at the slipped fill price, and it
+        # ACCUMULATES partial-exit legs (position_manager.close_position).
+        # Recomputing gross-on-original-quantity here fed Kelly optimistic
+        # stats: fee-eaten scratch trades counted as wins, avg_win too high,
+        # avg_loss too shallow.
+        #
+        # remaining_quantity is NOT usable for CLOSED positions - close_position
+        # zeroes it before this runs. It is only the fallback basis for a
+        # caller that hands over a still-open position.
+        if position.status == PositionStatus.CLOSED:
+            pnl = position.realized_pnl
+        else:
+            qty = (
+                position.remaining_quantity
+                if getattr(position, "remaining_quantity", None) is not None
+                else position.quantity
+            )
+            if position.side == PositionSide.LONG:
+                pnl = (exit_price - position.entry_price) * qty
+            else:  # SHORT
+                pnl = (position.entry_price - exit_price) * qty
 
         pnl_pct = float((pnl / (position.entry_price * position.quantity)) * 100)
 

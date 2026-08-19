@@ -11,6 +11,7 @@ endpoint. Validates:
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -55,6 +56,21 @@ def _eth_item(min_qty="0.01", qty_step="0.01", tick="0.05"):
             "minOrderQty": min_qty,
             "qtyStep": qty_step,
             "maxOrderQty": "1000.00",
+        },
+        "priceFilter": {"tickSize": tick},
+    }
+
+
+def _sol_item(min_qty="0.1", qty_step="0.1", tick="0.010", min_notional="5"):
+    """SOL item — the symbol Bybit's page-1 (500-item) cap omits."""
+    return {
+        "symbol": "SOLUSDT",
+        "contractType": "LinearPerpetual",
+        "lotSizeFilter": {
+            "minOrderQty": min_qty,
+            "qtyStep": qty_step,
+            "maxOrderQty": "10000.0",
+            "minNotionalValue": min_notional,
         },
         "priceFilter": {"tickSize": tick},
     }
@@ -244,3 +260,84 @@ async def test_get_unknown_symbol_returns_none():
     )
 
     assert (await cache.get("ZZZUSDT")) is None
+
+
+# ---------------------------------------------------------------- per-symbol fallback
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_refresh_falls_back_to_per_symbol_when_bulk_omits_symbol(caplog):
+    """bybit-connector does not paginate instruments-info.
+
+    Its page-1 cap of 500 items drops SOLUSDT, so the bulk call alone left the
+    min-notional gate failing open for SOL. refresh() must retry the missing
+    symbols one at a time.
+    """
+    cache = InstrumentsCache(connector_url=CONNECTOR_URL)
+
+    # respx matches in registration order — the symbol-scoped route must come
+    # first or the catch-all would swallow it. The bulk request sends only
+    # `category`, so it cannot match a route keyed on `symbol`.
+    sol_route = respx.get(
+        f"{CONNECTOR_URL}/api/v1/market/instruments-info",
+        params={"symbol": "SOLUSDT"},
+    ).mock(return_value=httpx.Response(200, json=_payload([_sol_item()])))
+
+    bulk_route = respx.get(f"{CONNECTOR_URL}/api/v1/market/instruments-info").mock(
+        return_value=httpx.Response(
+            200, json=_payload([_btc_item(), _eth_item()])  # SOL absent: 500-cap
+        )
+    )
+
+    with caplog.at_level(logging.INFO, logger="app.services.instruments_cache"):
+        await cache.refresh(["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+
+    assert bulk_route.call_count == 1
+    assert sol_route.call_count == 1
+    assert cache._cache.keys() == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+
+    sol = await cache.get("SOLUSDT")
+    assert sol is not None and sol.min_order_qty == Decimal("0.1")
+
+    assert any(
+        "refreshed 3/3" in rec.message for rec in caplog.records
+    ), f"summary log wrong: {[r.message for r in caplog.records]!r}"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_refresh_fallback_error_does_not_abort_remaining_symbols(caplog):
+    """One failing fallback must not cancel the rest (fail-open contract).
+
+    Proves the try/except sits *inside* the per-symbol loop: ETH errors first,
+    SOL is requested afterwards and lands in the cache anyway.
+    """
+    cache = InstrumentsCache(connector_url=CONNECTOR_URL)
+
+    eth_route = respx.get(
+        f"{CONNECTOR_URL}/api/v1/market/instruments-info",
+        params={"symbol": "ETHUSDT"},
+    ).mock(return_value=httpx.Response(500, text="boom"))
+
+    sol_route = respx.get(
+        f"{CONNECTOR_URL}/api/v1/market/instruments-info",
+        params={"symbol": "SOLUSDT"},
+    ).mock(return_value=httpx.Response(200, json=_payload([_sol_item()])))
+
+    respx.get(f"{CONNECTOR_URL}/api/v1/market/instruments-info").mock(
+        return_value=httpx.Response(200, json=_payload([_btc_item()]))
+    )
+
+    # Must not raise.
+    with caplog.at_level(logging.INFO, logger="app.services.instruments_cache"):
+        await cache.refresh(["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+
+    assert eth_route.called
+    assert sol_route.call_count == 1
+    assert "SOLUSDT" in cache._cache
+    assert "ETHUSDT" not in cache._cache
+
+    assert any(
+        "refreshed 2/3" in rec.message for rec in caplog.records
+    ), f"summary log wrong: {[r.message for r in caplog.records]!r}"

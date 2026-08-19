@@ -42,30 +42,21 @@ async def get_performance() -> PerformanceResponse:
         paper_engine = get_paper_engine()
         position_repo = get_position_repository()
 
-        # Get closed positions from DATABASE for accurate realized P&L
-        db_closed_positions = await position_repo.get_closed_positions(
-            portfolio_id="paper_trading",
-            limit=1000  # Get all closed positions for accurate stats
-        )
+        # SQL aggregate over EVERY closed position. Summing a limited row query
+        # truncated realized P&L, and portfolio-manager mirrors this endpoint
+        # as its authoritative cash + realized P&L — a DB failure must reach
+        # the caller as 500, never as zeroed metrics with success=True.
+        stats = await position_repo.get_closed_pnl_stats(portfolio_id="paper_trading")
 
-        # Calculate realized P&L from database
-        realized_pnl = Decimal("0")
-        winning_trades = 0
-        losing_trades = 0
-
-        for pos in db_closed_positions:
-            if pos.realized_pnl:
-                pnl = Decimal(str(pos.realized_pnl))
-                realized_pnl += pnl
-                if pnl > 0:
-                    winning_trades += 1
-                elif pnl < 0:
-                    losing_trades += 1
-
-        total_trades = len(db_closed_positions)
+        realized_pnl = stats.realized_pnl
+        winning_trades = stats.winning_trades
+        losing_trades = stats.losing_trades
+        total_trades = stats.total_trades
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
 
-        logger.info(f"Performance from DB: {total_trades} trades, realized P&L: ${realized_pnl:.2f}")
+        logger.info(
+            f"Performance from DB: {total_trades} trades, realized P&L: ${realized_pnl:.2f}"
+        )
 
         # Get unrealized P&L from memory (current open positions)
         summary = paper_engine.get_performance_summary()
@@ -79,7 +70,9 @@ async def get_performance() -> PerformanceResponse:
         current_balance = initial_balance + realized_pnl
 
         # ROI based on realized P&L
-        roi = float(realized_pnl / initial_balance * 100) if initial_balance > 0 else 0.0
+        roi = (
+            float(realized_pnl / initial_balance * 100) if initial_balance > 0 else 0.0
+        )
 
         # Create metrics object with database-accurate values
         metrics = PerformanceMetrics(
@@ -92,16 +85,14 @@ async def get_performance() -> PerformanceResponse:
             win_rate=win_rate,
             current_balance=current_balance,
             initial_balance=initial_balance,
-            roi=roi
+            roi=roi,
         )
 
         # Calculate additional metrics (avg win/loss, profit factor, etc.)
         metrics.calculate_metrics()
 
         return PerformanceResponse(
-            success=True,
-            metrics=metrics,
-            timestamp=int(time.time() * 1000)
+            success=True, metrics=metrics, timestamp=int(time.time() * 1000)
         )
 
     except Exception as e:

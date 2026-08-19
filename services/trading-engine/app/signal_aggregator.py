@@ -716,14 +716,14 @@ class SignalAggregator:
         Indicator Categories (2025-12-17 Update - Optimization):
         - Original 5: RSI, MACD, Bollinger Bands, SMA, EMA
         - Phase 1: Trend Filter (GATEKEEPER), Volume Confirmation (VALIDATOR), Stochastic
-        - Advanced: Ichimoku (RSI_DIVERGENCE and SQZMOM_ENHANCED disabled for low confidence)
+        - Advanced: Ichimoku, SQZMOM_ENHANCED (RSI_DIVERGENCE disabled for low confidence)
         - Risk Management: ATR (not a voting indicator)
 
         Total voting indicators: 9 (excludes ATR, TREND_FILTER, VOLUME_CONFIRMATION, disabled indicators)
         """
         logger.info(f"Fetching all indicators for {symbol} ({interval}m)")
         logger.info(
-            "  Including advanced indicators: ICHIMOKU (RSI_DIVERGENCE and SQZMOM_ENHANCED disabled for better confidence)"
+            "  Including advanced indicators: ICHIMOKU, SQZMOM_ENHANCED (RSI_DIVERGENCE disabled for better confidence)"
         )
 
         # Fetch all indicators concurrently
@@ -743,7 +743,10 @@ class SignalAggregator:
             # Advanced indicators (2025-11-26)
             # "RSI_DIVERGENCE": self.fetch_rsi_divergence(symbol, interval),  # DISABLED: stuck at 0.20 confidence
             "ICHIMOKU": self.fetch_ichimoku(symbol, interval),
-            # "SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom(symbol, interval),  # DISABLED: stuck at 0.50 HOLD
+            # Re-enabled 2026-08-17: the "stuck at 0.50 HOLD" cause was fixed
+            # 2026-05-05 (indicator_service.py:403-422 — the endpoint read
+            # non-prefixed keys; it now reads the sqz_-prefixed columns).
+            "SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom(symbol, interval),
             # ADX as TREND_GATE (added 2026-05-06). Required by
             # HybridStrategyRouter.detect_regime — without this leg the router
             # always falls through to RANGING regardless of actual market.
@@ -789,8 +792,8 @@ class SignalAggregator:
                 # Record into rolling-confidence registry (2026-05-06).
                 # was_voted=True for every active indicator; the False branch
                 # is the shadow-mode hook reserved for a follow-up that
-                # observes disabled indicators (RSI_DIVERGENCE,
-                # SQZMOM_ENHANCED) without counting their vote.
+                # observes disabled indicators (RSI_DIVERGENCE) without
+                # counting their vote.
                 try:
                     await get_indicator_registry().record(
                         name=name,
@@ -1141,178 +1144,6 @@ class SignalAggregator:
 
         signal.symbol = symbol
         return signal
-
-    async def get_trading_signal_with_vp(
-        self,
-        symbol: str,
-        primary_interval: str = "60",
-        timeframes: Optional[List[str]] = None,
-        enable_vp: bool = True,
-        vp_lookback: int = 100,
-        regime_analysis=None,  # FIX 2026-07-28: accept pre-fetched regime
-    ) -> TradingSignal:
-        """
-        Get trading signal with Volume Profile integration (Phase 3 - VP Strategy)
-
-        Combines multi-timeframe confirmation with volume profile analysis
-        for enhanced entry/exit levels and strategy selection.
-
-        FIX 2026-07-28: added `regime_analysis` parameter — auto_trader passes
-        it, and its absence made every VP-mode signal check raise TypeError
-        (swallowed by the catch-all upstream), so VP mode silently never traded.
-
-        Args:
-            symbol: Trading pair
-            primary_interval: Primary timeframe
-            timeframes: Timeframes for MTF analysis
-            enable_vp: Enable volume profile analysis
-            vp_lookback: Number of candles for VP calculation
-            regime_analysis: Pre-fetched market regime analysis (optional)
-
-        Returns:
-            TradingSignal with VP enhancements
-        """
-        from app.volume_profile import get_vp_calculator
-        from app.vp_strategy import get_vp_strategy_analyzer
-
-        # Get multi-timeframe signal first (Phase 2)
-        signal = await self.get_trading_signal_multi_timeframe(
-            symbol=symbol,
-            primary_interval=primary_interval,
-            timeframes=timeframes,
-            regime_analysis=regime_analysis,
-        )
-
-        # If VP not enabled, return MTF signal as-is
-        if not enable_vp:
-            return signal
-
-        try:
-            # Fetch historical candles for VP calculation
-            candles = await self._fetch_candles_for_vp(
-                symbol=symbol, interval=primary_interval, limit=vp_lookback
-            )
-
-            if not candles or len(candles) < 10:
-                logger.warning(
-                    f"Insufficient candles for VP calculation ({len(candles) if candles else 0})"
-                )
-                return signal
-
-            # Calculate volume profile
-            vp_calculator = get_vp_calculator()
-            vp_profile = vp_calculator.calculate_profile(
-                symbol=symbol, interval=primary_interval, candles=candles
-            )
-
-            if not vp_profile:
-                logger.warning(f"VP calculation failed for {symbol}")
-                return signal
-
-            # Get current price from signal metadata
-            current_price = None
-            for indicator_name, indicator_signal in signal.indicators.items():
-                if hasattr(indicator_signal, "metadata") and indicator_signal.metadata:
-                    if "current_price" in indicator_signal.metadata:
-                        current_price = Decimal(
-                            str(indicator_signal.metadata["current_price"])
-                        )
-                        break
-
-            if not current_price:
-                logger.warning("No current price found in signal")
-                return signal
-
-            # Analyze VP strategy
-            vp_analyzer = get_vp_strategy_analyzer()
-
-            # Convert signal to dict for VP analyzer
-            mtf_signal_dict = {
-                "action": signal.action,
-                "confidence": signal.confidence,
-                "metadata": signal.metadata,
-            }
-
-            vp_signal = vp_analyzer.analyze_vp_signal(
-                symbol=symbol,
-                current_price=current_price,
-                vp_profile=vp_profile,
-                mtf_signal=mtf_signal_dict,
-            )
-
-            # Combine VP signal with MTF signal
-            combined = vp_analyzer.combine_with_mtf_signal(vp_signal, mtf_signal_dict)
-
-            # Update original signal with VP enhancements
-            signal.confidence = combined["confidence"]
-            signal.metadata.update(combined.get("metadata", {}))
-            signal.metadata["vp_strategy"] = combined.get("vp_strategy")
-            signal.metadata["vp_position"] = combined.get("vp_position")
-            signal.metadata["vp_confidence_modifier"] = combined.get(
-                "vp_confidence_modifier"
-            )
-
-            logger.info(
-                f"VP Analysis: {vp_signal.strategy_type.value} "
-                f"| Position: {vp_signal.price_position} "
-                f"| Modifier: {combined.get('vp_confidence_modifier', 1.0):.2f}x"
-            )
-            logger.info(
-                f"   VP Levels: POC=${vp_profile.poc:.2f}, VAH=${vp_profile.vah:.2f}, VAL=${vp_profile.val:.2f}"
-            )
-            logger.info(f"   {vp_signal.reasoning}")
-
-        except Exception as e:
-            logger.error(f"VP analysis error for {symbol}: {e}", exc_info=True)
-            # Return original signal if VP fails
-            return signal
-
-        return signal
-
-    async def _fetch_candles_for_vp(
-        self, symbol: str, interval: str, limit: int = 100
-    ) -> List[Dict]:
-        """
-        Fetch historical candles for volume profile calculation
-
-        Args:
-            symbol: Trading symbol
-            interval: Timeframe interval
-            limit: Number of candles to fetch
-
-        Returns:
-            List of candle dicts with OHLCV data
-        """
-        try:
-            # Fetch klines from TA service
-            url = f"{self.base_url}/api/v1/klines/{symbol}"
-            params = {"interval": interval, "limit": limit}
-
-            response = await self.client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            klines = data.get("klines", [])
-
-            # Convert to candle format expected by VP calculator
-            candles = []
-            for k in klines:
-                candles.append(
-                    {
-                        "timestamp": datetime.fromtimestamp(k[0] / 1000),
-                        "open": float(k[1]),
-                        "high": float(k[2]),
-                        "low": float(k[3]),
-                        "close": float(k[4]),
-                        "volume": float(k[5]),
-                    }
-                )
-
-            logger.info(f"Fetched {len(candles)} candles for VP calculation")
-            return candles
-
-        except Exception as e:
-            logger.error(f"Error fetching candles for VP: {e}")
-            return []
 
 
 # Global signal aggregator instance

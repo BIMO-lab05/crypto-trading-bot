@@ -132,10 +132,20 @@ class OrderBook(Base):
     """
     Order book snapshots
     Stores bid/ask depth
+
+    NOTE: the DB-level primary key is the COMPOSITE `(id, timestamp)`, not the
+    `id` mapped below. TimescaleDB requires the partition column to appear in
+    every unique index, and this table is a hypertable partitioned on
+    `timestamp`. The reshape is performed by the boot DDL — see
+    `app/database.py::DDL_STATEMENTS`. The ORM mapping intentionally keeps `id`
+    as the sole key: this model is insert-only and never loads or updates by
+    primary key, so declaring the composite here would only make SQLAlchemy
+    emit a compound key it does not need.
     """
     __tablename__ = "orderbook_snapshots"
     
-    # Primary key
+    # Primary key (ORM-level only — see the class docstring; the DB PK is
+    # the composite (id, timestamp))
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     timestamp = Column(BigInteger, nullable=False)
     symbol = Column(String(20), nullable=False)
@@ -153,54 +163,12 @@ class OrderBook(Base):
     )
 
 
-# SQL to create TimescaleDB hypertable (run after table creation)
-CREATE_HYPERTABLE_SQL = """
--- Convert tables to TimescaleDB hypertables
-SELECT create_hypertable('klines', 'timestamp', 
-    chunk_time_interval => 86400000,  -- 1 day chunks
-    if_not_exists => TRUE,
-    migrate_data => TRUE
-);
-
-SELECT create_hypertable('tickers', 'timestamp',
-    chunk_time_interval => 86400000,  -- 1 day chunks  
-    if_not_exists => TRUE,
-    migrate_data => TRUE
-);
-
-SELECT create_hypertable('orderbook_snapshots', 'timestamp',
-    chunk_time_interval => 86400000,  -- 1 day chunks
-    if_not_exists => TRUE,
-    migrate_data => TRUE
-);
-
--- Create continuous aggregates for common queries
-CREATE MATERIALIZED VIEW IF NOT EXISTS klines_1h
-WITH (timescaledb.continuous) AS
-SELECT
-    time_bucket(3600000, timestamp) AS bucket,  -- 1 hour buckets
-    symbol,
-    interval,
-    first(open, timestamp) as open,
-    max(high) as high,
-    min(low) as low,
-    last(close, timestamp) as close,
-    sum(volume) as volume,
-    sum(turnover) as turnover
-FROM klines
-GROUP BY bucket, symbol, interval
-WITH NO DATA;
-
--- Add refresh policy (refresh every hour)
-SELECT add_continuous_aggregate_policy('klines_1h',
-    start_offset => INTERVAL '3 hours',
-    end_offset => INTERVAL '1 hour',
-    schedule_interval => INTERVAL '1 hour',
-    if_not_exists => TRUE
-);
-
--- Create retention policy (keep data for 90 days)
-SELECT add_retention_policy('klines', INTERVAL '90 days', if_not_exists => TRUE);
-SELECT add_retention_policy('tickers', INTERVAL '30 days', if_not_exists => TRUE);
-SELECT add_retention_policy('orderbook_snapshots', INTERVAL '7 days', if_not_exists => TRUE);
-"""
+# TimescaleDB hypertable / retention DDL is NOT declared here.
+#
+# The authoritative, executed definition is `app/database.py::DDL_STATEMENTS`,
+# applied on every service boot by `create_hypertables()`. The former
+# `CREATE_HYPERTABLE_SQL` constant that lived at this spot had zero importers
+# (dead since it was written) and still asserted the wrong state: unqualified
+# table names and a 90-day klines retention policy that would delete the
+# backfilled research history. Removed 2026-08-16 (RES-02) so there is exactly
+# one place describing this schema.

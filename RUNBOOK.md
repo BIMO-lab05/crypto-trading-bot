@@ -382,7 +382,7 @@ section above for the full recovery flow including clearing the API-side flag.
 ### Precondition 6: DSR > 0.95 evidence row (only when ML enabled)
 
 **Diagnose:**
-- `python3 scripts/preflight_live.py --check=dsr_evidence --json` — reports `"status": "UNKNOWN"` when `ENABLE_ML_PREDICTIONS=true` but Phase 9's auto-flip marker `/run/mlgate_auto_flip.json` is absent.
+- `python3 scripts/preflight_live.py --check=dsr_evidence --json` — reports `"status": "UNKNOWN"` when `ENABLE_ML_PREDICTIONS=true` but Phase 9's auto-flip marker `/tmp/mlgate_auto_flip.json` is absent.
 - With `ENABLE_ML_PREDICTIONS=false` (the default), this check short-circuits to `"PASS"` — ML is disabled by default, so the gate does not apply.
 - Query the leaderboard directly for the latest DSR row:
   ```bash

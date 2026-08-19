@@ -42,7 +42,9 @@ class BollingerBandsCalculator:
         """
         self.period = period
         self.std_dev = std_dev
-        logger.info(f"Bollinger Bands Calculator initialized: period={period}, std_dev={std_dev}")
+        logger.info(
+            f"Bollinger Bands Calculator initialized: period={period}, std_dev={std_dev}"
+        )
 
     def calculate(self, df: pd.DataFrame) -> Optional[Dict[str, float]]:
         """
@@ -56,38 +58,44 @@ class BollingerBandsCalculator:
             or None if insufficient data
         """
         if len(df) < self.period:
-            logger.warning(f"Insufficient data for BB: need {self.period}, got {len(df)}")
+            logger.warning(
+                f"Insufficient data for BB: need {self.period}, got {len(df)}"
+            )
             return None
 
         try:
             # Calculate middle band (SMA)
-            middle_band = df['close'].rolling(window=self.period).mean()
+            middle_band = df["close"].rolling(window=self.period).mean()
 
             # Calculate standard deviation
-            std = df['close'].rolling(window=self.period).std()
+            std = df["close"].rolling(window=self.period).std()
 
             # Calculate upper and lower bands
             upper_band = middle_band + (std * self.std_dev)
             lower_band = middle_band - (std * self.std_dev)
 
             # Get current price
-            current_price = df['close'].iloc[-1]
+            current_price = df["close"].iloc[-1]
 
             # Fixed: Calculate bandwidth with division by zero protection (Critical Issue #2)
             # When middle_band is 0 or very close to 0, bandwidth calculation would crash
             middle_val = middle_band.iloc[-1]
             if middle_val == 0 or np.isnan(middle_val):
-                logger.warning(f"Middle band is {middle_val}, cannot calculate bandwidth")
+                logger.warning(
+                    f"Middle band is {middle_val}, cannot calculate bandwidth"
+                )
                 bandwidth = 0.0
             else:
-                bandwidth = float((upper_band.iloc[-1] - lower_band.iloc[-1]) / middle_val)
+                bandwidth = float(
+                    (upper_band.iloc[-1] - lower_band.iloc[-1]) / middle_val
+                )
 
             result = {
                 "upper_band": float(upper_band.iloc[-1]),
                 "middle_band": float(middle_val),
                 "lower_band": float(lower_band.iloc[-1]),
                 "current_price": float(current_price),
-                "bandwidth": bandwidth
+                "bandwidth": bandwidth,
             }
 
             logger.debug(f"Calculated BB: {result}")
@@ -139,28 +147,49 @@ class BollingerBandsCalculator:
             # confidence). This ties the strong-zone floor (0.7) to the
             # moderate zone's ceiling for a continuous confidence curve.
             confidence = 0.7 + ((0.15 - price_position) / 0.15) * 0.3
-            logger.info(f"Price {price:.2f} at lower band {lower:.2f} -> Strong BUY (pos: {price_position:.2f})")
+            logger.info(
+                f"Price {price:.2f} at lower band {lower:.2f} -> Strong BUY (pos: {price_position:.2f})"
+            )
 
         elif price_position <= 0.35:
             # Price in lower zone - Moderate BUY
             # Updated: Threshold widened from 0.3 to 0.35
             signal = SignalType.BUY
-            confidence = 0.7 - (price_position - 0.15) * 1.5  # Confidence decreases as price rises
-            logger.info(f"Price {price:.2f} in lower zone -> Moderate BUY (pos: {price_position:.2f})")
+            confidence = (
+                0.7 - (price_position - 0.15) * 1.5
+            )  # Confidence decreases as price rises
+            logger.info(
+                f"Price {price:.2f} in lower zone -> Moderate BUY (pos: {price_position:.2f})"
+            )
 
         elif price_position >= 0.85:
             # Price at or above upper band - Strong SELL
             # Updated: Threshold lowered from 0.9 to 0.85
             signal = SignalType.SELL
-            confidence = price_position
-            logger.info(f"Price {price:.2f} at upper band {upper:.2f} -> Strong SELL (pos: {price_position:.2f})")
+            # Mirror of the strong-BUY ladder above (audit 2026-08: the SELL
+            # side was never mirrored when the BUY side was repaired in
+            # 2026-07). It used the raw `price_position`, which made pos 0.8499
+            # score 0.90 while pos 0.85 scored 0.85 - the strongest quarter of
+            # SELLs weighted below weaker ones. Monotone 0.7 -> 1.0 as position
+            # rises from 0.85 to 1.0.
+            confidence = 0.7 + ((price_position - 0.85) / 0.15) * 0.3
+            logger.info(
+                f"Price {price:.2f} at upper band {upper:.2f} -> Strong SELL (pos: {price_position:.2f})"
+            )
 
         elif price_position >= 0.65:
             # Price in upper zone - Moderate SELL
             # Updated: Threshold lowered from 0.7 to 0.65
             signal = SignalType.SELL
-            confidence = (price_position - 0.65) * 2.5 + 0.4  # Confidence increases as price rises
-            logger.info(f"Price {price:.2f} in upper zone -> Moderate SELL (pos: {price_position:.2f})")
+            # Mirror of the moderate-BUY slope above. The old
+            # `(pos - 0.65) * 2.5 + 0.4` peaked at 0.9 rather than the BUY
+            # side's 0.7, so it both broke the join with the strong zone and
+            # left the boundary asymmetric (BUY at 0.15 = 0.70 vs SELL at
+            # 0.85 = 0.90). Now 0.4 at 0.65 -> 0.7 at 0.85.
+            confidence = 0.7 - (0.85 - price_position) * 1.5
+            logger.info(
+                f"Price {price:.2f} in upper zone -> Moderate SELL (pos: {price_position:.2f})"
+            )
 
         else:
             # Price in middle of bands - HOLD
@@ -208,8 +237,7 @@ class BollingerBandsCalculator:
         return is_squeeze
 
     def calculate_with_signal(
-        self,
-        df: pd.DataFrame
+        self, df: pd.DataFrame
     ) -> Tuple[Optional[Dict[str, float]], SignalType, float]:
         """
         Calculate Bollinger Bands and generate signal in one call
@@ -248,8 +276,8 @@ class BollingerBandsCalculator:
             return pd.DataFrame()
 
         try:
-            middle_band = df['close'].rolling(window=self.period).mean()
-            std = df['close'].rolling(window=self.period).std()
+            middle_band = df["close"].rolling(window=self.period).mean()
+            std = df["close"].rolling(window=self.period).std()
             upper_band = middle_band + (std * self.std_dev)
             lower_band = middle_band - (std * self.std_dev)
 
@@ -258,12 +286,14 @@ class BollingerBandsCalculator:
             # Replace 0 with inf to avoid division by zero (results in inf bandwidth for those rows)
             bandwidth = (upper_band - lower_band) / middle_band.replace(0, np.inf)
 
-            result_df = pd.DataFrame({
-                'upper_band': upper_band,
-                'middle_band': middle_band,
-                'lower_band': lower_band,
-                'bandwidth': bandwidth
-            })
+            result_df = pd.DataFrame(
+                {
+                    "upper_band": upper_band,
+                    "middle_band": middle_band,
+                    "lower_band": lower_band,
+                    "bandwidth": bandwidth,
+                }
+            )
 
             return result_df
 

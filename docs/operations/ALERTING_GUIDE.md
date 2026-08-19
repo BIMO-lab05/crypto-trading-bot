@@ -141,7 +141,7 @@ chmod +x test_alerts.sh
 | Alert | Condition | Impact |
 |-------|-----------|--------|
 | TradingEngineDown | Service down for 30s | No trades can be executed |
-| DailyLossExceeded | Daily loss > 5% | Significant financial loss |
+| DailyLossExceeded | Daily loss > 12% (ADR-028) | Significant financial loss |
 | ServiceDown | Any service down for 1m | Service unavailable |
 | HighErrorRate | Error rate > 5% for 5m | Service degradation |
 | DatabaseDown | Database unreachable for 1m | All services affected |

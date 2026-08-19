@@ -16,14 +16,19 @@ class TestHealthHandler:
     @pytest.mark.asyncio
     async def test_health_check_all_healthy(self):
         """Test health_check when all services are healthy"""
-        with patch('app.handlers.health.check_service_health', new_callable=AsyncMock) as mock_health, \
-             patch('app.handlers.health.settings') as mock_settings:
+        with (
+            patch(
+                "app.handlers.health.check_service_health", new_callable=AsyncMock
+            ) as mock_health,
+            patch("app.handlers.health.settings") as mock_settings,
+        ):
             mock_health.return_value = True
             mock_settings.use_database = False
             mock_settings.trading_engine_url = "http://localhost:8001"
             mock_settings.market_data_url = "http://localhost:8005"
 
             from app.handlers.health import health_check
+
             result = await health_check()
 
             assert result.status == "healthy"
@@ -33,14 +38,19 @@ class TestHealthHandler:
     @pytest.mark.asyncio
     async def test_health_check_services_down(self):
         """Test health_check when services are down"""
-        with patch('app.handlers.health.check_service_health', new_callable=AsyncMock) as mock_health, \
-             patch('app.handlers.health.settings') as mock_settings:
+        with (
+            patch(
+                "app.handlers.health.check_service_health", new_callable=AsyncMock
+            ) as mock_health,
+            patch("app.handlers.health.settings") as mock_settings,
+        ):
             mock_health.return_value = False
             mock_settings.use_database = False
             mock_settings.trading_engine_url = "http://localhost:8001"
             mock_settings.market_data_url = "http://localhost:8005"
 
             from app.handlers.health import health_check
+
             result = await health_check()
 
             assert result.status == "healthy"
@@ -50,15 +60,16 @@ class TestHealthHandler:
     @pytest.mark.asyncio
     async def test_get_status_function(self):
         """Test get_status function directly"""
-        with patch('app.handlers.health.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.health.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.list_portfolios.return_value = [
                 MagicMock(total_value=Decimal("10000"), assets=[]),
-                MagicMock(total_value=Decimal("5000"), assets=["BTC"])
+                MagicMock(total_value=Decimal("5000"), assets=["BTC"]),
             ]
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.health import get_status
+
             result = await get_status()
 
             assert result.status == "running"
@@ -68,12 +79,13 @@ class TestHealthHandler:
     @pytest.mark.asyncio
     async def test_get_status_empty_portfolios(self):
         """Test get_status with no portfolios"""
-        with patch('app.handlers.health.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.health.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.list_portfolios.return_value = []
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.health import get_status
+
             result = await get_status()
 
             assert result.status == "running"
@@ -88,7 +100,7 @@ class TestPortfolioHandler:
         """Test get_portfolio raises 404 when not found"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = None
             mock_get_pm.return_value = mock_pm
@@ -103,7 +115,7 @@ class TestPortfolioHandler:
     @pytest.mark.asyncio
     async def test_get_balance_success(self):
         """Test get_balance returns balance info"""
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = MagicMock(
                 portfolio_id="default",
@@ -112,12 +124,14 @@ class TestPortfolioHandler:
                 unrealized_pnl=Decimal("500"),
                 realized_pnl=Decimal("200"),
                 total_pnl=Decimal("700"),
-                total_return_pct=Decimal("7.0")
+                total_return_pct=Decimal("7.0"),
             )
             mock_pm.update_prices = AsyncMock()
+            mock_pm.sync_with_trading_engine = AsyncMock(return_value=True)
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.portfolio import get_balance
+
             result = await get_balance("default")
 
             assert result.success is True
@@ -128,7 +142,7 @@ class TestPortfolioHandler:
         """Test get_balance raises 404 when portfolio not found"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = None
             mock_get_pm.return_value = mock_pm
@@ -145,7 +159,7 @@ class TestPortfolioHandler:
         """Test get_holdings raises 404 when portfolio not found"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = None
             mock_get_pm.return_value = mock_pm
@@ -160,13 +174,14 @@ class TestPortfolioHandler:
     @pytest.mark.asyncio
     async def test_sync_with_trading_engine_success(self):
         """Test sync_with_trading_engine success"""
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = MagicMock(portfolio_id="default")
             mock_pm.sync_with_trading_engine = AsyncMock(return_value=True)
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.portfolio import sync_with_trading_engine
+
             result = await sync_with_trading_engine("default")
 
             assert result["success"] is True
@@ -176,7 +191,7 @@ class TestPortfolioHandler:
         """Test sync_with_trading_engine failure"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = MagicMock(portfolio_id="default")
             mock_pm.sync_with_trading_engine = AsyncMock(return_value=False)
@@ -194,7 +209,7 @@ class TestPortfolioHandler:
         """Test sync raises 404 when portfolio not found"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = None
             mock_get_pm.return_value = mock_pm
@@ -213,14 +228,16 @@ class TestPerformanceHandler:
     @pytest.mark.asyncio
     async def test_get_asset_performance_success(self):
         """Test get_asset_performance returns asset metrics"""
-        with patch('app.handlers.performance.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.performance.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = MagicMock(portfolio_id="default")
             mock_pm.update_prices = AsyncMock()
+            mock_pm.sync_with_trading_engine = AsyncMock(return_value=True)
             mock_pm.get_asset_performance.return_value = []
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.performance import get_asset_performance
+
             result = await get_asset_performance("default")
 
             assert result.success is True
@@ -231,7 +248,7 @@ class TestPerformanceHandler:
         """Test get_asset_performance raises 404"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.performance.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.performance.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = None
             mock_get_pm.return_value = mock_pm
@@ -252,7 +269,7 @@ class TestAllocationHandler:
         """Test get_allocation raises 404"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.allocation.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.allocation.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = None
             mock_get_pm.return_value = mock_pm
@@ -269,7 +286,7 @@ class TestAllocationHandler:
         """Test get_rebalance_recommendations raises 404"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.allocation.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.allocation.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = None
             mock_get_pm.return_value = mock_pm
@@ -282,6 +299,199 @@ class TestAllocationHandler:
             assert exc_info.value.status_code == 404
 
 
+class TestSyncFirstEquityMirror:
+    """FIX 2026-08-12: the six read endpoints must mirror the engine book first
+    (equity = cash + unrealized) and call update_prices — which recomputes a
+    SPOT total (cash + full notional) — only when the engine sync fails."""
+
+    @staticmethod
+    def _manager(sync_ok: bool) -> MagicMock:
+        # Engine-mirrored book on the $100 account: started 100, realized -8,
+        # unrealized +3 → equity 95 = cash 92 + unrealized 3.
+        mock_pm = MagicMock()
+        mock_pm.get_portfolio.return_value = MagicMock(
+            portfolio_id="default",
+            cash_balance=Decimal("92"),
+            total_value=Decimal("95"),
+            unrealized_pnl=Decimal("3"),
+            realized_pnl=Decimal("-8"),
+            total_pnl=Decimal("-5"),
+            total_return_pct=Decimal("-5.0"),
+        )
+        mock_pm.sync_with_trading_engine = AsyncMock(return_value=sync_ok)
+        mock_pm.update_prices = AsyncMock()
+        return mock_pm
+
+    @staticmethod
+    def _metrics():
+        from app.models.performance import PerformanceMetrics
+
+        return PerformanceMetrics(
+            total_return=Decimal("-5"),
+            total_return_pct=Decimal("-5.0"),
+            daily_return=Decimal("-1"),
+            daily_return_pct=Decimal("-1.0"),
+            volatility=0.15,
+            sharpe_ratio=-0.3,
+            max_drawdown=5.0,
+            total_trades=10,
+            winning_trades=4,
+            losing_trades=6,
+            win_rate=40.0,
+            total_pnl=Decimal("-5"),
+            realized_pnl=Decimal("-8"),
+            unrealized_pnl=Decimal("3"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_balance_serves_engine_mirror_when_sync_succeeds(self):
+        """get_balance must not clobber the mirrored equity with update_prices"""
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
+            mock_pm = self._manager(sync_ok=True)
+            mock_get_pm.return_value = mock_pm
+
+            from app.handlers.portfolio import get_balance
+
+            result = await get_balance("default")
+
+            mock_pm.sync_with_trading_engine.assert_awaited_once_with("default")
+            mock_pm.update_prices.assert_not_called()
+            # Engine equity (cash + unrealized), not the spot formula
+            assert result.total_value == "95"
+            assert result.unrealized_pnl == "3"
+
+    @pytest.mark.asyncio
+    async def test_get_balance_falls_back_to_update_prices_when_sync_fails(self):
+        """get_balance falls back to the local price refresh on sync failure"""
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
+            mock_pm = self._manager(sync_ok=False)
+            mock_get_pm.return_value = mock_pm
+
+            from app.handlers.portfolio import get_balance
+
+            result = await get_balance("default")
+
+            mock_pm.sync_with_trading_engine.assert_awaited_once_with("default")
+            mock_pm.update_prices.assert_awaited_once_with("default")
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_get_holdings_syncs_before_falling_back(self):
+        """get_holdings must try the engine mirror before update_prices"""
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
+            mock_pm = self._manager(sync_ok=True)
+            mock_pm.get_snapshot.return_value = MagicMock(holdings=[])
+            mock_get_pm.return_value = mock_pm
+
+            from app.handlers.portfolio import get_holdings
+
+            result = await get_holdings("default")
+
+            mock_pm.sync_with_trading_engine.assert_awaited_once_with("default")
+            mock_pm.update_prices.assert_not_called()
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_get_performance_serves_engine_mirror_when_sync_succeeds(self):
+        """get_performance must not clobber the mirrored equity with update_prices"""
+        with (
+            patch("app.handlers.performance.get_portfolio_manager") as mock_get_pm,
+            patch(
+                "app.handlers.performance.get_performance_calculator"
+            ) as mock_get_calc,
+            patch("app.handlers.performance.get_performance_history") as mock_get_hist,
+        ):
+            mock_pm = self._manager(sync_ok=True)
+            mock_get_pm.return_value = mock_pm
+            mock_calc = MagicMock()
+            mock_calc.calculate_metrics.return_value = self._metrics()
+            mock_get_calc.return_value = mock_calc
+            mock_get_hist.return_value = MagicMock()
+
+            from app.handlers.performance import get_performance
+
+            result = await get_performance("default")
+
+            mock_pm.sync_with_trading_engine.assert_awaited_once_with("default")
+            mock_pm.update_prices.assert_not_called()
+            assert result.success is True
+            assert result.metrics.unrealized_pnl == Decimal("3")
+
+    @pytest.mark.asyncio
+    async def test_get_performance_falls_back_to_update_prices_when_sync_fails(self):
+        """get_performance falls back to the local price refresh on sync failure"""
+        with (
+            patch("app.handlers.performance.get_portfolio_manager") as mock_get_pm,
+            patch(
+                "app.handlers.performance.get_performance_calculator"
+            ) as mock_get_calc,
+            patch("app.handlers.performance.get_performance_history") as mock_get_hist,
+        ):
+            mock_pm = self._manager(sync_ok=False)
+            mock_get_pm.return_value = mock_pm
+            mock_calc = MagicMock()
+            mock_calc.calculate_metrics.return_value = self._metrics()
+            mock_get_calc.return_value = mock_calc
+            mock_get_hist.return_value = MagicMock()
+
+            from app.handlers.performance import get_performance
+
+            result = await get_performance("default")
+
+            mock_pm.sync_with_trading_engine.assert_awaited_once_with("default")
+            mock_pm.update_prices.assert_awaited_once_with("default")
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_get_asset_performance_syncs_before_falling_back(self):
+        """get_asset_performance must try the engine mirror before update_prices"""
+        with patch("app.handlers.performance.get_portfolio_manager") as mock_get_pm:
+            mock_pm = self._manager(sync_ok=True)
+            mock_pm.get_asset_performance.return_value = []
+            mock_get_pm.return_value = mock_pm
+
+            from app.handlers.performance import get_asset_performance
+
+            result = await get_asset_performance("default")
+
+            mock_pm.sync_with_trading_engine.assert_awaited_once_with("default")
+            mock_pm.update_prices.assert_not_called()
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_get_allocation_syncs_before_falling_back(self):
+        """get_allocation must try the engine mirror before update_prices"""
+        with patch("app.handlers.allocation.get_portfolio_manager") as mock_get_pm:
+            mock_pm = self._manager(sync_ok=True)
+            mock_pm.get_portfolio.return_value.get_asset_allocation.return_value = {}
+            mock_pm.check_rebalancing_needed.return_value = (False, [])
+            mock_get_pm.return_value = mock_pm
+
+            from app.handlers.allocation import get_allocation
+
+            result = await get_allocation("default")
+
+            mock_pm.sync_with_trading_engine.assert_awaited_once_with("default")
+            mock_pm.update_prices.assert_not_called()
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_get_rebalance_recommendations_syncs_before_falling_back(self):
+        """get_rebalance_recommendations must try the engine mirror before update_prices"""
+        with patch("app.handlers.allocation.get_portfolio_manager") as mock_get_pm:
+            mock_pm = self._manager(sync_ok=True)
+            mock_pm.check_rebalancing_needed.return_value = (False, [])
+            mock_get_pm.return_value = mock_pm
+
+            from app.handlers.allocation import get_rebalance_recommendations
+
+            result = await get_rebalance_recommendations("default")
+
+            mock_pm.sync_with_trading_engine.assert_awaited_once_with("default")
+            mock_pm.update_prices.assert_not_called()
+            assert result.success is True
+
+
 class TestPortfolioManagerNotInitialized:
     """Test error handling when portfolio manager is not initialized"""
 
@@ -290,7 +500,7 @@ class TestPortfolioManagerNotInitialized:
         """Test health handler when portfolio_manager is None"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.health.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.health.get_portfolio_manager") as mock_get_pm:
             mock_get_pm.side_effect = HTTPException(
                 status_code=503, detail="Portfolio Manager not initialized"
             )
@@ -307,7 +517,7 @@ class TestPortfolioManagerNotInitialized:
         """Test portfolio handler when portfolio_manager is None"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_get_pm.side_effect = HTTPException(
                 status_code=503, detail="Portfolio Manager not initialized"
             )
@@ -326,16 +536,17 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_list_portfolios_with_none_snapshot(self):
         """Test list_portfolios handles None snapshots"""
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.list_portfolios.return_value = [
                 MagicMock(portfolio_id="default"),
-                MagicMock(portfolio_id="test")
+                MagicMock(portfolio_id="test"),
             ]
             mock_pm.get_snapshot.side_effect = [None, None]
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.portfolio import list_portfolios
+
             result = await list_portfolios()
 
             assert result.success is True
@@ -344,17 +555,18 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_get_status_with_large_portfolio(self):
         """Test get_status with many assets"""
-        with patch('app.handlers.health.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.health.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.list_portfolios.return_value = [
                 MagicMock(
                     total_value=Decimal("1000000"),
-                    assets=["BTC", "ETH", "SOL", "XRP", "ADA"]
+                    assets=["BTC", "ETH", "SOL", "XRP", "ADA"],
                 )
             ]
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.health import get_status
+
             result = await get_status()
 
             assert result.status == "running"
@@ -365,7 +577,7 @@ class TestEdgeCases:
         """Test allocation handler when portfolio_manager is None"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.allocation.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.allocation.get_portfolio_manager") as mock_get_pm:
             mock_get_pm.side_effect = HTTPException(
                 status_code=503, detail="Portfolio Manager not initialized"
             )
@@ -382,7 +594,7 @@ class TestEdgeCases:
         """Test performance handler when portfolio_manager is None"""
         from fastapi import HTTPException
 
-        with patch('app.handlers.performance.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.performance.get_portfolio_manager") as mock_get_pm:
             mock_get_pm.side_effect = HTTPException(
                 status_code=503, detail="Portfolio Manager not initialized"
             )
@@ -397,7 +609,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_get_balance_with_zero_values(self):
         """Test get_balance with zero values"""
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = MagicMock(
                 portfolio_id="default",
@@ -406,12 +618,14 @@ class TestEdgeCases:
                 unrealized_pnl=Decimal("0"),
                 realized_pnl=Decimal("0"),
                 total_pnl=Decimal("0"),
-                total_return_pct=Decimal("0")
+                total_return_pct=Decimal("0"),
             )
             mock_pm.update_prices = AsyncMock()
+            mock_pm.sync_with_trading_engine = AsyncMock(return_value=True)
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.portfolio import get_balance
+
             result = await get_balance("default")
 
             assert result.success is True
@@ -420,7 +634,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_get_balance_with_negative_pnl(self):
         """Test get_balance with negative P&L"""
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.get_portfolio.return_value = MagicMock(
                 portfolio_id="default",
@@ -429,12 +643,14 @@ class TestEdgeCases:
                 unrealized_pnl=Decimal("-2000"),
                 realized_pnl=Decimal("-500"),
                 total_pnl=Decimal("-2500"),
-                total_return_pct=Decimal("-25.0")
+                total_return_pct=Decimal("-25.0"),
             )
             mock_pm.update_prices = AsyncMock()
+            mock_pm.sync_with_trading_engine = AsyncMock(return_value=True)
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.portfolio import get_balance
+
             result = await get_balance("default")
 
             assert result.success is True
@@ -443,7 +659,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_get_status_single_portfolio(self):
         """Test get_status with single portfolio"""
-        with patch('app.handlers.health.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.health.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.list_portfolios.return_value = [
                 MagicMock(total_value=Decimal("10000"), assets=["BTC", "ETH"])
@@ -451,6 +667,7 @@ class TestEdgeCases:
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.health import get_status
+
             result = await get_status()
 
             assert result.status == "running"
@@ -460,14 +677,19 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_health_check_partial_connectivity(self):
         """Test health_check with mixed service connectivity"""
-        with patch('app.handlers.health.check_service_health', new_callable=AsyncMock) as mock_health, \
-             patch('app.handlers.health.settings') as mock_settings:
+        with (
+            patch(
+                "app.handlers.health.check_service_health", new_callable=AsyncMock
+            ) as mock_health,
+            patch("app.handlers.health.settings") as mock_settings,
+        ):
             mock_health.side_effect = [True, False]
             mock_settings.use_database = False
             mock_settings.trading_engine_url = "http://localhost:8001"
             mock_settings.market_data_url = "http://localhost:8005"
 
             from app.handlers.health import health_check
+
             result = await health_check()
 
             assert result.status == "healthy"
@@ -477,12 +699,13 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_list_portfolios_empty(self):
         """Test list_portfolios with no portfolios"""
-        with patch('app.handlers.portfolio.get_portfolio_manager') as mock_get_pm:
+        with patch("app.handlers.portfolio.get_portfolio_manager") as mock_get_pm:
             mock_pm = MagicMock()
             mock_pm.list_portfolios.return_value = []
             mock_get_pm.return_value = mock_pm
 
             from app.handlers.portfolio import list_portfolios
+
             result = await list_portfolios()
 
             assert result.success is True

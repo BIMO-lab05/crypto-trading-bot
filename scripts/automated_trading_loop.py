@@ -17,30 +17,34 @@ import logging
 import signal
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+# Host-run script: repo-root shared/ is importable (CLAUDE.md money rules).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/trading_loop.log'),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("logs/trading_loop.log"), logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
 
 class TradingMode(Enum):
     """Trading modes"""
+
     PAPER = "paper"  # Paper trading (simulation)
-    LIVE = "live"    # Live trading with real money
+    LIVE = "live"  # Live trading with real money
 
 
 class SignalStrength(Enum):
     """Signal strength levels"""
+
     STRONG_BUY = "strong_buy"
     BUY = "buy"
     HOLD = "hold"
@@ -51,6 +55,7 @@ class SignalStrength(Enum):
 @dataclass
 class TradingConfig:
     """Trading configuration"""
+
     # API endpoints
     api_gateway_url: str = "http://localhost:8000"
 
@@ -82,7 +87,15 @@ class TradingConfig:
         """Initialize default symbols"""
         if self.symbols is None:
             # Default symbols - now includes 7 trading pairs
-            self.symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"]
+            self.symbols = [
+                "BTCUSDT",
+                "ETHUSDT",
+                "BNBUSDT",
+                "SOLUSDT",
+                "XRPUSDT",
+                "ADAUSDT",
+                "DOGEUSDT",
+            ]
 
 
 class TradingBot:
@@ -167,7 +180,9 @@ class TradingBot:
 
             # Check max trades limit
             if self.trades_today >= self.config.max_trades_per_day:
-                logger.warning(f"Max trades per day ({self.config.max_trades_per_day}) reached")
+                logger.warning(
+                    f"Max trades per day ({self.config.max_trades_per_day}) reached"
+                )
                 return
 
             # Process each symbol
@@ -177,7 +192,9 @@ class TradingBot:
             # Log cycle completion
             cycle_duration = (datetime.now() - cycle_start).total_seconds()
             logger.info(f"Trading cycle completed in {cycle_duration:.2f} seconds")
-            logger.info(f"Trades today: {self.trades_today}/{self.config.max_trades_per_day}")
+            logger.info(
+                f"Trades today: {self.trades_today}/{self.config.max_trades_per_day}"
+            )
             logger.info(f"Daily P&L: ${self.daily_pnl:.2f}")
 
         except Exception as e:
@@ -194,7 +211,7 @@ class TradingBot:
                 logger.warning(f"Failed to get ticker for {symbol}")
                 return
 
-            current_price = float(ticker['last_price'])
+            current_price = float(ticker["last_price"])
             logger.info(f"{symbol} current price: ${current_price:,.2f}")
 
             # Get trading signal
@@ -205,11 +222,15 @@ class TradingBot:
 
             # Evaluate signal
             action = self._evaluate_signal(signal)
-            logger.info(f"{symbol} signal: {action} (confidence: {signal.get('confidence', 0):.2%})")
+            logger.info(
+                f"{symbol} signal: {action} (confidence: {signal.get('confidence', 0):.2%})"
+            )
 
             # Execute trade if appropriate
             if action in ["BUY", "SELL"]:
-                await self._execute_trade(symbol, action, current_price, signal, portfolio)
+                await self._execute_trade(
+                    symbol, action, current_price, signal, portfolio
+                )
 
         except Exception as e:
             logger.error(f"Error processing {symbol}: {e}", exc_info=True)
@@ -221,7 +242,7 @@ class TradingBot:
             response = await self.client.get(url)
             response.raise_for_status()
             data = response.json()
-            return data.get('portfolio')
+            return data.get("portfolio")
         except Exception as e:
             logger.error(f"Error fetching portfolio: {e}")
             return None
@@ -233,7 +254,7 @@ class TradingBot:
             response = await self.client.get(url)
             response.raise_for_status()
             data = response.json()
-            return data.get('ticker')
+            return data.get("ticker")
         except Exception as e:
             logger.error(f"Error fetching ticker for {symbol}: {e}")
             return None
@@ -246,7 +267,7 @@ class TradingBot:
             response = await self.client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
-            return data.get('signal')
+            return data.get("signal")
         except Exception as e:
             logger.error(f"Error fetching signal for {symbol}: {e}")
             return None
@@ -256,13 +277,15 @@ class TradingBot:
         if not signal:
             return "HOLD"
 
-        signal_type = signal.get('action', 'HOLD')
-        confidence = signal.get('confidence', 0)
-        consensus = signal.get('aggregated_score', confidence)
+        signal_type = signal.get("action", "HOLD")
+        confidence = signal.get("confidence", 0)
+        consensus = signal.get("aggregated_score", confidence)
 
         # Check minimum confidence
         if confidence < self.config.min_confidence:
-            logger.debug(f"Signal confidence {confidence:.2%} below minimum {self.config.min_confidence:.2%}")
+            logger.debug(
+                f"Signal confidence {confidence:.2%} below minimum {self.config.min_confidence:.2%}"
+            )
             return "HOLD"
 
         # Check consensus if required
@@ -272,12 +295,13 @@ class TradingBot:
 
         return signal_type
 
-    async def _execute_trade(self, symbol: str, action: str, price: float,
-                            signal: Dict, portfolio: Dict):
+    async def _execute_trade(
+        self, symbol: str, action: str, price: float, signal: Dict, portfolio: Dict
+    ):
         """Execute a trade"""
         try:
             # Calculate position size
-            cash_balance = float(portfolio.get('cash_balance', 0))
+            cash_balance = float(portfolio.get("cash_balance", 0))
             position_size = self._calculate_position_size(cash_balance, price)
 
             if position_size <= 0:
@@ -290,11 +314,7 @@ class TradingBot:
             else:  # SELL
                 url = f"{self.config.api_gateway_url}/api/portfolio/sell"
 
-            params = {
-                "symbol": symbol,
-                "quantity": position_size,
-                "price": price
-            }
+            params = {"symbol": symbol, "quantity": position_size, "price": price}
 
             # Execute trade
             logger.info(f"Executing {action} {position_size} {symbol} @ ${price:,.2f}")
@@ -315,7 +335,9 @@ class TradingBot:
         except Exception as e:
             logger.error(f"Error executing trade for {symbol}: {e}", exc_info=True)
             # Enter cooldown after failed trade
-            self.cooldown_until = datetime.now() + timedelta(minutes=self.config.cooldown_after_loss_minutes)
+            self.cooldown_until = datetime.now() + timedelta(
+                minutes=self.config.cooldown_after_loss_minutes
+            )
 
     def _calculate_position_size(self, cash_balance: float, price: float) -> float:
         """Calculate position size based on risk management rules"""
@@ -332,8 +354,15 @@ class TradingBot:
 
     def _check_daily_loss_limit(self, portfolio: Dict) -> bool:
         """Check if daily loss limit has been reached"""
-        total_pnl = float(portfolio.get('total_pnl', 0))
-        initial_balance = 10000.0  # TODO: Get from config or portfolio
+        total_pnl = float(portfolio.get("total_pnl", 0))
+        # FIX 2026-08-05 (AUDIT 2.5): was a hardcoded 10000.0, which made this
+        # breaker 100x too lenient on the real $100 account. Prefer the live
+        # portfolio figure; otherwise the declaration of record
+        # (shared/account.py).
+        if "initial_balance" in portfolio:
+            initial_balance = float(portfolio["initial_balance"])
+        else:
+            initial_balance = PAPER_INITIAL_BALANCE
 
         loss_pct = abs(total_pnl / initial_balance * 100)
 
@@ -350,8 +379,15 @@ class TradingBot:
         self.cooldown_until = None
         return False
 
-    def _log_trade(self, symbol: str, action: str, quantity: float, price: float,
-                   signal: Dict, result: Dict):
+    def _log_trade(
+        self,
+        symbol: str,
+        action: str,
+        quantity: float,
+        price: float,
+        signal: Dict,
+        result: Dict,
+    ):
         """Log trade details"""
         trade_log = {
             "timestamp": datetime.now().isoformat(),
@@ -360,14 +396,14 @@ class TradingBot:
             "quantity": quantity,
             "price": price,
             "total_value": quantity * price,
-            "signal_confidence": signal.get('confidence'),
-            "signal_consensus": signal.get('consensus_strength'),
-            "result": result
+            "signal_confidence": signal.get("confidence"),
+            "signal_consensus": signal.get("consensus_strength"),
+            "result": result,
         }
 
         # Write to trade log file
-        with open('logs/trades.jsonl', 'a') as f:
-            f.write(json.dumps(trade_log) + '\n')
+        with open("logs/trades.jsonl", "a") as f:
+            f.write(json.dumps(trade_log) + "\n")
 
     def _print_summary(self):
         """Print trading session summary"""
@@ -389,12 +425,20 @@ async def main():
     # Load configuration (can be from file or environment)
     # UPDATED: Default symbols now include all 7 trading pairs
     config = TradingConfig(
-        symbols=["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"],
+        symbols=[
+            "BTCUSDT",
+            "ETHUSDT",
+            "BNBUSDT",
+            "SOLUSDT",
+            "XRPUSDT",
+            "ADAUSDT",
+            "DOGEUSDT",
+        ],
         interval_minutes=5,
         signal_interval=60,
         min_confidence=0.65,
         mode=TradingMode.PAPER,
-        max_trades_per_day=20
+        max_trades_per_day=20,
     )
 
     # Create and start bot
@@ -405,7 +449,8 @@ async def main():
 if __name__ == "__main__":
     # Create logs directory
     import os
-    os.makedirs('logs', exist_ok=True)
+
+    os.makedirs("logs", exist_ok=True)
 
     # Run the bot
     try:

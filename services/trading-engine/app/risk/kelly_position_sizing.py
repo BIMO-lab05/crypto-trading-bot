@@ -34,13 +34,12 @@ Date: 2025-12-11
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Tuple, Any
+from typing import Optional, Dict, Tuple, Any
 from collections import deque
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +52,7 @@ class KellyMode(str, Enum):
     FRACTIONAL: Conservative (25% of full Kelly)
     DYNAMIC: Adjusts between 10-50% based on recent performance
     """
+
     FULL = "FULL"  # Full Kelly - theoretical optimal but high variance
     FRACTIONAL = "FRACTIONAL"  # Fractional Kelly (default 25%)
     DYNAMIC = "DYNAMIC"  # Dynamic Kelly - adjusts based on streak
@@ -77,6 +77,7 @@ class TradeRecord:
         kelly_suggested: Kelly-suggested position size at entry
         actual_size: Actual position size used
     """
+
     trade_id: str
     symbol: str
     entry_time: datetime
@@ -111,6 +112,7 @@ class KellyResult:
         reasoning: Human-readable explanation
         metadata: Additional calculation details
     """
+
     position_size_pct: float
     position_value: Decimal
     quantity: Decimal
@@ -150,9 +152,9 @@ class KellyPositionSizer:
         # Record trades
         sizer.record_trade(TradeRecord(...))
 
-        # Calculate position size
+        # Calculate position size (capital from Settings, never hardcoded)
         result = sizer.calculate_position_size(
-            capital=10000,
+            capital=get_settings().paper_initial_balance,
             current_price=50000,
             mode=KellyMode.DYNAMIC
         )
@@ -304,8 +306,7 @@ class KellyPositionSizer:
 
         # Clamp to valid range
         self._current_kelly_fraction = max(
-            self.min_kelly_fraction,
-            min(self.max_kelly_fraction, new_fraction)
+            self.min_kelly_fraction, min(self.max_kelly_fraction, new_fraction)
         )
 
     def calculate_position_size(
@@ -370,7 +371,9 @@ class KellyPositionSizer:
         # Apply daily P&L adjustment if provided
         daily_pnl_adjustment = 1.0
         if daily_pnl is not None and total_capital is not None and total_capital > 0:
-            daily_pnl_pct = float(daily_pnl) / total_capital * 100  # Convert to percentage
+            daily_pnl_pct = (
+                float(daily_pnl) / total_capital * 100
+            )  # Convert to percentage
 
             # Performance-based scaling based on daily P&L
             if daily_pnl_pct > 0.5:  # Daily gain > 0.5%
@@ -384,10 +387,12 @@ class KellyPositionSizer:
             position_pct *= daily_pnl_adjustment
 
         # Apply min/max limits
-        position_pct = max(self.MIN_POSITION_PCT, min(self.MAX_POSITION_PCT, position_pct))
+        position_pct = max(
+            self.MIN_POSITION_PCT, min(self.MAX_POSITION_PCT, position_pct)
+        )
 
         # Handle insufficient data
-        if stats['total_trades'] < self.MIN_TRADES_FOR_KELLY:
+        if stats["total_trades"] < self.MIN_TRADES_FOR_KELLY:
             position_pct = self.fallback_position_pct
             reasoning = (
                 f"Insufficient trade history ({stats['total_trades']}/{self.MIN_TRADES_FOR_KELLY}). "
@@ -396,11 +401,17 @@ class KellyPositionSizer:
             confidence_level = 0.0
         else:
             reasoning = self._build_reasoning(
-                full_kelly_pct, kelly_fraction, position_pct,
-                stats, mode, signal_confidence, risk_limited, daily_pnl_adjustment
+                full_kelly_pct,
+                kelly_fraction,
+                position_pct,
+                stats,
+                mode,
+                signal_confidence,
+                risk_limited,
+                daily_pnl_adjustment,
             )
             # Confidence based on sample size
-            confidence_level = min(1.0, stats['total_trades'] / self.ROLLING_WINDOW)
+            confidence_level = min(1.0, stats["total_trades"] / self.ROLLING_WINDOW)
 
         # Calculate position value and quantity (handle edge cases)
         position_value = Decimal(str(capital)) * Decimal(str(position_pct / 100))
@@ -421,19 +432,19 @@ class KellyPositionSizer:
             full_kelly_pct=full_kelly_pct,
             kelly_fraction_used=kelly_fraction,
             mode=mode,
-            win_rate=stats['win_rate'],
-            avg_win_pct=stats['avg_win_pct'],
-            avg_loss_pct=stats['avg_loss_pct'],
+            win_rate=stats["win_rate"],
+            avg_win_pct=stats["avg_win_pct"],
+            avg_loss_pct=stats["avg_loss_pct"],
             edge=edge,
             confidence_level=confidence_level,
             reasoning=reasoning,
             metadata={
-                'streak': self._current_streak,
-                'total_trades': stats['total_trades'],
-                'rolling_trades': len(self._trade_history),
-                'confidence_adjustment': confidence_adjustment,
-                'risk_limited': risk_limited,
-            }
+                "streak": self._current_streak,
+                "total_trades": stats["total_trades"],
+                "rolling_trades": len(self._trade_history),
+                "confidence_adjustment": confidence_adjustment,
+                "risk_limited": risk_limited,
+            },
         )
 
     def _calculate_full_kelly(self, stats: Dict) -> Tuple[float, float]:
@@ -452,9 +463,9 @@ class KellyPositionSizer:
         Returns:
             Tuple of (full_kelly_pct, edge)
         """
-        win_rate = stats['win_rate']
-        avg_win = stats['avg_win_pct']
-        avg_loss = stats['avg_loss_pct']
+        win_rate = stats["win_rate"]
+        avg_win = stats["avg_win_pct"]
+        avg_loss = stats["avg_loss_pct"]
 
         # Validate inputs - win_rate must be strictly between 0 and 1
         if win_rate <= 0 or win_rate >= 1:
@@ -521,15 +532,15 @@ class KellyPositionSizer:
         # Calculate from rolling window
         if len(self._trade_history) == 0:
             stats = {
-                'win_rate': 0.5,  # Neutral assumption
-                'avg_win_pct': 2.0,  # Default 2%
-                'avg_loss_pct': 1.5,  # Default 1.5%
-                'total_trades': 0,
-                'rolling_trades': 0,
-                'profit_factor': 0.0,
-                'expectancy': 0.0,
-                'current_streak': self._current_streak,
-                'current_kelly_fraction': self._current_kelly_fraction,
+                "win_rate": 0.5,  # Neutral assumption
+                "avg_win_pct": 2.0,  # Default 2%
+                "avg_loss_pct": 1.5,  # Default 1.5%
+                "total_trades": 0,
+                "rolling_trades": 0,
+                "profit_factor": 0.0,
+                "expectancy": 0.0,
+                "current_streak": self._current_streak,
+                "current_kelly_fraction": self._current_kelly_fraction,
             }
             self._stats_cache = stats
             self._stats_cache_time = datetime.now()
@@ -549,35 +560,31 @@ class KellyPositionSizer:
         win_rate = win_count / total if total > 0 else 0.5
 
         # Average win percentage
-        avg_win_pct = (
-            sum(t.pnl_pct for t in wins) / win_count
-            if win_count > 0 else 2.0
-        )
+        avg_win_pct = sum(t.pnl_pct for t in wins) / win_count if win_count > 0 else 2.0
 
         # Average loss percentage (as positive value)
         avg_loss_pct = (
-            sum(abs(t.pnl_pct) for t in losses) / loss_count
-            if loss_count > 0 else 1.5
+            sum(abs(t.pnl_pct) for t in losses) / loss_count if loss_count > 0 else 1.5
         )
 
         # Profit factor
         total_wins = sum(t.pnl_pct for t in wins) if wins else 0
         total_losses = sum(abs(t.pnl_pct) for t in losses) if losses else 0
-        profit_factor = total_wins / total_losses if total_losses > 0 else float('inf')
+        profit_factor = total_wins / total_losses if total_losses > 0 else float("inf")
 
         # Expectancy (expected return per trade)
         expectancy = (win_rate * avg_win_pct) - ((1 - win_rate) * avg_loss_pct)
 
         stats = {
-            'win_rate': win_rate,
-            'avg_win_pct': avg_win_pct,
-            'avg_loss_pct': avg_loss_pct,
-            'total_trades': self._total_trades,
-            'rolling_trades': total,
-            'profit_factor': profit_factor,
-            'expectancy': expectancy,
-            'current_streak': self._current_streak,
-            'current_kelly_fraction': self._current_kelly_fraction,
+            "win_rate": win_rate,
+            "avg_win_pct": avg_win_pct,
+            "avg_loss_pct": avg_loss_pct,
+            "total_trades": self._total_trades,
+            "rolling_trades": total,
+            "profit_factor": profit_factor,
+            "expectancy": expectancy,
+            "current_streak": self._current_streak,
+            "current_kelly_fraction": self._current_kelly_fraction,
         }
 
         self._stats_cache = stats
@@ -594,7 +601,7 @@ class KellyPositionSizer:
         mode: KellyMode,
         signal_confidence: Optional[float],
         risk_limited: bool,
-        daily_pnl_adjustment: float = 1.0
+        daily_pnl_adjustment: float = 1.0,
     ) -> str:
         """
         Build human-readable reasoning for position size recommendation
@@ -629,7 +636,9 @@ class KellyPositionSizer:
         elif mode == KellyMode.FRACTIONAL:
             parts.append(f"Using {kelly_fraction:.0%} fractional Kelly for safety")
         else:  # DYNAMIC
-            streak_desc = f"{'+' if self._current_streak > 0 else ''}{self._current_streak}"
+            streak_desc = (
+                f"{'+' if self._current_streak > 0 else ''}{self._current_streak}"
+            )
             parts.append(
                 f"Dynamic Kelly at {kelly_fraction:.0%} (streak: {streak_desc})"
             )
@@ -651,7 +660,7 @@ class KellyPositionSizer:
         parts.append(f"Final position size: {final_pct:.2f}%")
 
         # Edge assessment
-        if stats['expectancy'] > 0:
+        if stats["expectancy"] > 0:
             parts.append(f"Positive edge: +{stats['expectancy']:.2f}% per trade")
         else:
             parts.append(f"Warning: Negative edge ({stats['expectancy']:.2f}%)")
@@ -713,36 +722,39 @@ class KellyPositionSizer:
         full_kelly, edge = self._calculate_full_kelly(stats)
 
         return {
-            'kelly': {
-                'full_kelly_pct': full_kelly,
-                'current_fraction': self._current_kelly_fraction,
-                'default_fraction': self.default_kelly_fraction,
-                'edge': edge,
+            "kelly": {
+                "full_kelly_pct": full_kelly,
+                "current_fraction": self._current_kelly_fraction,
+                "default_fraction": self.default_kelly_fraction,
+                "edge": edge,
             },
-            'performance': {
-                'win_rate': stats['win_rate'],
-                'avg_win_pct': stats['avg_win_pct'],
-                'avg_loss_pct': stats['avg_loss_pct'],
-                'profit_factor': stats['profit_factor'],
-                'expectancy': stats['expectancy'],
+            "performance": {
+                "win_rate": stats["win_rate"],
+                "avg_win_pct": stats["avg_win_pct"],
+                "avg_loss_pct": stats["avg_loss_pct"],
+                "profit_factor": stats["profit_factor"],
+                "expectancy": stats["expectancy"],
             },
-            'trades': {
-                'total_trades': stats['total_trades'],
-                'rolling_window': self.ROLLING_WINDOW,
-                'trades_in_window': stats['rolling_trades'],
-                'min_for_kelly': self.MIN_TRADES_FOR_KELLY,
-                'has_sufficient_data': stats['total_trades'] >= self.MIN_TRADES_FOR_KELLY,
+            "trades": {
+                "total_trades": stats["total_trades"],
+                "rolling_window": self.ROLLING_WINDOW,
+                "trades_in_window": stats["rolling_trades"],
+                "min_for_kelly": self.MIN_TRADES_FOR_KELLY,
+                "has_sufficient_data": stats["total_trades"]
+                >= self.MIN_TRADES_FOR_KELLY,
             },
-            'streak': {
-                'current_streak': self._current_streak,
-                'streak_type': 'win' if self._current_streak > 0 else ('loss' if self._current_streak < 0 else 'none'),
+            "streak": {
+                "current_streak": self._current_streak,
+                "streak_type": "win"
+                if self._current_streak > 0
+                else ("loss" if self._current_streak < 0 else "none"),
             },
-            'limits': {
-                'max_position_pct': self.MAX_POSITION_PCT,
-                'min_position_pct': self.MIN_POSITION_PCT,
-                'fallback_pct': self.fallback_position_pct,
+            "limits": {
+                "max_position_pct": self.MAX_POSITION_PCT,
+                "min_position_pct": self.MIN_POSITION_PCT,
+                "fallback_pct": self.fallback_position_pct,
             },
-            'timestamp': datetime.now().isoformat(),
+            "timestamp": datetime.now().isoformat(),
         }
 
     async def load_trades_from_db(self, limit: int = 50) -> int:
@@ -826,9 +838,9 @@ class KellyPositionSizer:
         win_rate: float,
         avg_win_pct: float,
         avg_loss_pct: float,
-        capital: float = 10000,
+        capital: Optional[float] = None,
         current_price: float = 50000,
-        mode: KellyMode = KellyMode.FRACTIONAL
+        mode: KellyMode = KellyMode.FRACTIONAL,
     ) -> KellyResult:
         """
         Simulate Kelly calculation with hypothetical parameters
@@ -842,13 +854,22 @@ class KellyPositionSizer:
             win_rate: Hypothetical win rate (0-1)
             avg_win_pct: Hypothetical average win percentage
             avg_loss_pct: Hypothetical average loss percentage
-            capital: Capital for position calculation
+            capital: Capital for position calculation. None (default) resolves
+                to Settings.paper_initial_balance — the old hardcoded 10000
+                default WAS reachable via the /kelly-compare endpoint
+                (handlers/risk_kelly.py omits capital), so it simulated a
+                $10,000 account on a $100 one (AUDIT 2.5).
             current_price: Price for quantity calculation
             mode: Kelly mode to use
 
         Returns:
             KellyResult with simulated position size
         """
+        if capital is None:
+            from app.config import get_settings
+
+            capital = get_settings().paper_initial_balance
+
         # Handle edge case: 100% win rate would cause division by zero
         # in profit_factor calculation, so cap it at 0.9999
         safe_win_rate = min(0.9999, max(0.0001, win_rate))
@@ -858,18 +879,19 @@ class KellyPositionSizer:
 
         # Create temporary stats dict
         temp_stats = {
-            'win_rate': safe_win_rate,
-            'avg_win_pct': avg_win_pct,
-            'avg_loss_pct': avg_loss_pct,
-            'total_trades': self.MIN_TRADES_FOR_KELLY,  # Bypass minimum check
-            'rolling_trades': self.MIN_TRADES_FOR_KELLY,
-            'profit_factor': (
+            "win_rate": safe_win_rate,
+            "avg_win_pct": avg_win_pct,
+            "avg_loss_pct": avg_loss_pct,
+            "total_trades": self.MIN_TRADES_FOR_KELLY,  # Bypass minimum check
+            "rolling_trades": self.MIN_TRADES_FOR_KELLY,
+            "profit_factor": (
                 (safe_win_rate * avg_win_pct) / (loss_rate * avg_loss_pct)
-                if avg_loss_pct > 0 and loss_rate > 0 else 0
+                if avg_loss_pct > 0 and loss_rate > 0
+                else 0
             ),
-            'expectancy': (safe_win_rate * avg_win_pct) - (loss_rate * avg_loss_pct),
-            'current_streak': 0,
-            'current_kelly_fraction': self.default_kelly_fraction,
+            "expectancy": (safe_win_rate * avg_win_pct) - (loss_rate * avg_loss_pct),
+            "current_streak": 0,
+            "current_kelly_fraction": self.default_kelly_fraction,
         }
 
         # Calculate Kelly
@@ -887,7 +909,9 @@ class KellyPositionSizer:
         position_pct = full_kelly_pct * kelly_fraction
 
         # Apply limits
-        position_pct = max(self.MIN_POSITION_PCT, min(self.MAX_POSITION_PCT, position_pct))
+        position_pct = max(
+            self.MIN_POSITION_PCT, min(self.MAX_POSITION_PCT, position_pct)
+        )
 
         # Calculate values (handle edge cases)
         position_value = Decimal(str(capital)) * Decimal(str(position_pct / 100))
@@ -913,7 +937,7 @@ class KellyPositionSizer:
             edge=edge,
             confidence_level=1.0,  # Simulation has "perfect" data
             reasoning=f"SIMULATION: Win rate={safe_win_rate:.1%}, Avg Win={avg_win_pct:.2f}%, Avg Loss={avg_loss_pct:.2f}%",
-            metadata={'simulated': True}
+            metadata={"simulated": True},
         )
 
 

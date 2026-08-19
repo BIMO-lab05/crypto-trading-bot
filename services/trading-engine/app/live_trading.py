@@ -20,7 +20,14 @@ from typing import Optional, Tuple
 from uuid import UUID
 
 from app.config import get_settings
-from app.models import Order, OrderCreate, OrderStatus, OrderSide, OrderType, PositionSide
+from app.models import (
+    Order,
+    OrderCreate,
+    OrderStatus,
+    OrderSide,
+    PositionSide,
+)
+from app.models.enums import ExitKind
 from app.position_manager import get_position_manager
 from app.risk_manager import get_risk_manager
 
@@ -43,6 +50,16 @@ class LiveTradingEngine:
 
     def __init__(self):
         """Initialize live trading engine"""
+        raise RuntimeError(
+            "LIVE trading path is fenced off (2026-08-17): LiveTradingEngine "
+            "records fills at the reference price with zero fees and zero "
+            "posted margin, and its closes write the PAPER cash ledger "
+            "(position_manager.close_position -> get_paper_engine()"
+            ".get_balance() -> portfolio row 'paper_trading'). LIVE is also "
+            "not mechanically viable at the $100 account: the 2% LIVE cap is "
+            "$2, below the ~$5 venue min-notional. Repair the accounting and "
+            "remove this fence deliberately before any LIVE build-out."
+        )
         self.settings = get_settings()
         self.bybit_url = self.settings.bybit_connector_url
         self.position_manager = get_position_manager()
@@ -53,7 +70,7 @@ class LiveTradingEngine:
         logger.info("LIVE TRADING ENGINE INITIALIZED")
         logger.info("=" * 60)
         logger.info(f"  Bybit Connector URL: {self.bybit_url}")
-        logger.info(f"  Mode: LIVE (REAL MONEY)")
+        logger.info("  Mode: LIVE (REAL MONEY)")
         logger.info("  WARNING: Real trades will be executed!")
         logger.info("=" * 60)
 
@@ -72,20 +89,24 @@ class LiveTradingEngine:
                 if account_list:
                     account = account_list[0]
                     # Try different balance fields
-                    balance = account.get("totalAvailableBalance") or \
-                             account.get("totalEquity") or \
-                             account.get("totalWalletBalance") or \
-                             "0"
+                    balance = (
+                        account.get("totalAvailableBalance")
+                        or account.get("totalEquity")
+                        or account.get("totalWalletBalance")
+                        or "0"
+                    )
                     logger.info(f"[LIVE] Bybit balance extracted: {balance}")
                     return Decimal(str(balance))
 
             # Fallback: try result structure
             if data.get("result"):
                 result = data["result"]
-                balance = result.get("totalAvailableBalance") or \
-                         result.get("availableBalance") or \
-                         result.get("totalWalletBalance") or \
-                         "0"
+                balance = (
+                    result.get("totalAvailableBalance")
+                    or result.get("availableBalance")
+                    or result.get("totalWalletBalance")
+                    or "0"
+                )
                 return Decimal(str(balance))
 
             logger.warning(f"Could not extract balance from Bybit response: {data}")
@@ -120,9 +141,7 @@ class LiveTradingEngine:
             return Decimal("0")
 
     async def execute_market_order(
-        self,
-        order: OrderCreate,
-        current_price: Decimal
+        self, order: OrderCreate, current_price: Decimal
     ) -> Tuple[Optional[Order], Optional[str]]:
         """
         Execute a real market order on Bybit
@@ -162,11 +181,11 @@ class LiveTradingEngine:
                 "order_type": "Market",
                 "qty": str(order.quantity),
                 "time_in_force": "GTC",
-                "reduce_only": False
+                "reduce_only": False,
             }
 
             logger.info("=" * 60)
-            logger.info(f"[LIVE] PLACING REAL ORDER ON BYBIT")
+            logger.info("[LIVE] PLACING REAL ORDER ON BYBIT")
             logger.info("=" * 60)
             logger.info(f"  Symbol: {order.symbol}")
             logger.info(f"  Side: {side}")
@@ -180,8 +199,7 @@ class LiveTradingEngine:
             # from response["data"]["orderId"] and rely on raise_for_status
             # plus the broad except below for error handling.
             response = await self.client.post(
-                f"{self.bybit_url}/api/v1/order/place",
-                json=order_request
+                f"{self.bybit_url}/api/v1/order/place", json=order_request
             )
             response.raise_for_status()
             payload = response.json()
@@ -206,11 +224,17 @@ class LiveTradingEngine:
             )
 
             # Create position in position manager
-            position_side = PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
+            position_side = (
+                PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
+            )
 
             # Get stop loss and take profit from risk manager
-            stop_loss = self.risk_manager.calculate_stop_loss(current_price, position_side)
-            take_profit = self.risk_manager.calculate_take_profit(current_price, position_side)
+            stop_loss = self.risk_manager.calculate_stop_loss(
+                current_price, position_side
+            )
+            take_profit = self.risk_manager.calculate_take_profit(
+                current_price, position_side
+            )
 
             position = self.position_manager.create_position(
                 symbol=order.symbol,
@@ -221,11 +245,11 @@ class LiveTradingEngine:
                 take_profit=take_profit,
                 strategy=order.strategy or "live_trading",
                 # CRITICAL FIX 2025-12-07: Save entry signal confidence
-                entry_signal_confidence=order.entry_signal_confidence
+                entry_signal_confidence=order.entry_signal_confidence,
             )
 
             logger.info("=" * 60)
-            logger.info(f"[LIVE] ORDER FILLED SUCCESSFULLY")
+            logger.info("[LIVE] ORDER FILLED SUCCESSFULLY")
             logger.info(f"  Bybit Order ID: {order_id}")
             logger.info(f"  Position ID: {position.id}")
             logger.info(f"  Entry: ${current_price}")
@@ -384,7 +408,7 @@ class LiveTradingEngine:
             except Exception as e:
                 logger.warning(f"[LIVE][MAKER] Cancel failed for {order_id}: {e}")
             if self.settings.maker_fallback_to_taker:
-                logger.info(f"[LIVE][MAKER] Falling back to taker market order")
+                logger.info("[LIVE][MAKER] Falling back to taker market order")
                 return await self.execute_market_order(order, current_price)
             return None, "Maker quote timed out; taker fallback disabled"
 
@@ -406,7 +430,9 @@ class LiveTradingEngine:
             PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
         )
         stop_loss = self.risk_manager.calculate_stop_loss(limit_price, position_side)
-        take_profit = self.risk_manager.calculate_take_profit(limit_price, position_side)
+        take_profit = self.risk_manager.calculate_take_profit(
+            limit_price, position_side
+        )
 
         self.position_manager.create_position(
             symbol=order.symbol,
@@ -429,7 +455,8 @@ class LiveTradingEngine:
         self,
         position_id: UUID,
         close_price: Decimal,
-        reason: str = "manual"
+        reason: str = "manual",
+        exit_kind: Optional[ExitKind] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
         Close a position by placing opposite order on Bybit
@@ -437,7 +464,12 @@ class LiveTradingEngine:
         Args:
             position_id: Position ID to close
             close_price: Current price for closing
-            reason: Reason for closing
+            reason: Reason for closing (prose)
+            exit_kind: Structured close reason (Stage 0, 2026-08-07). PAPER
+                and LIVE previously wrote structurally different values for
+                the same event — LIVE had no channel at all. None for
+                legacy callers; Task 6 wires actual values in from
+                auto_trader.py.
 
         Returns:
             Tuple of (success, error_message)
@@ -458,11 +490,11 @@ class LiveTradingEngine:
                 "order_type": "Market",
                 "qty": str(position.remaining_quantity),
                 "time_in_force": "GTC",
-                "reduce_only": True  # Only reduce position
+                "reduce_only": True,  # Only reduce position
             }
 
             logger.info("=" * 60)
-            logger.info(f"[LIVE] CLOSING POSITION ON BYBIT")
+            logger.info("[LIVE] CLOSING POSITION ON BYBIT")
             logger.info("=" * 60)
             logger.info(f"  Position ID: {position_id}")
             logger.info(f"  Symbol: {position.symbol}")
@@ -474,13 +506,14 @@ class LiveTradingEngine:
             # Send close order. The bybit-connector raises HTTP 400 on Bybit
             # rejection, so a 2xx here means the close was accepted.
             response = await self.client.post(
-                f"{self.bybit_url}/api/v1/order/place",
-                json=close_request
+                f"{self.bybit_url}/api/v1/order/place", json=close_request
             )
             response.raise_for_status()
 
             # Update position manager
-            self.position_manager.close_position(position_id, close_price, reason)
+            self.position_manager.close_position(
+                position_id, close_price, reason, exit_kind=exit_kind
+            )
 
             logger.info(f"[LIVE] Position closed successfully: {position_id}")
             return True, None
@@ -497,7 +530,9 @@ class LiveTradingEngine:
         This should be called on startup to reconcile state.
         """
         try:
-            response = await self.client.get(f"{self.bybit_url}/api/v1/account/positions")
+            response = await self.client.get(
+                f"{self.bybit_url}/api/v1/account/positions"
+            )
             response.raise_for_status()
             payload = response.json()
 

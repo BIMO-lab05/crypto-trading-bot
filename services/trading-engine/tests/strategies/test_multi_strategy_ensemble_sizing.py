@@ -32,10 +32,32 @@ def ensemble_module():
     return mod
 
 
+def _atr_payload(price: float) -> dict:
+    """The dict signal_aggregator.fetch_atr returns, verbatim in shape."""
+    return {
+        "atr": price * 0.02,
+        "atr_pct": 2.0,
+        "stop_loss_long": price * 0.98,
+        "stop_loss_short": price * 1.02,
+        "take_profit_long": price * 1.04,
+        "take_profit_short": price * 0.96,
+        "volatility": "NORMAL",
+        "confidence": 0.7,
+        "risk_reward_ratio": 2.0,
+    }
+
+
 def _build_aggregator_signal(
     action: SignalAction, confidence: float, price: float = 100.0
 ):
-    """Build a minimal TradingSignal that the ensemble's MULTI leg accepts."""
+    """Build a minimal TradingSignal that the ensemble's MULTI leg accepts.
+
+    metadata mirrors what aggregator_core._build_metadata actually emits — the
+    ATR payload nested under "atr", keyed by side. This fixture carried flat
+    "atr_stop_loss"/"atr_take_profit" keys until 2026-08-08; no production
+    code has ever written those, and the fixture agreeing with the consumer's
+    misreading is how the zero-width-stop bug survived.
+    """
     return TradingSignal(
         symbol="ADAUSDT",
         timestamp=0,
@@ -44,10 +66,7 @@ def _build_aggregator_signal(
         aggregated_score=confidence if action == SignalAction.BUY else -confidence,
         consensus_count=3,
         indicators={},
-        metadata={
-            "atr_stop_loss": price * 0.98,
-            "atr_take_profit": price * 1.03,
-        },
+        metadata={"atr": _atr_payload(price)},
     )
 
 

@@ -571,7 +571,7 @@ kubectl top pods
 
 **Solutions:**
 ```bash
-# Increase memory limits (docker-compose.yml)
+# Increase memory limits (docker-compose.unified.yml)
 mem_limit: 2g
 mem_reservation: 1g
 
@@ -772,8 +772,8 @@ docker-compose logs > all_logs.txt
 
 ### Configuration Files
 
-- `docker-compose.yml` - Development environment
-- `docker-compose-prod.yml` - Production deployment
+- `docker-compose.unified.yml` - Canonical local/dev stack (ADR-009; the old `docker-compose.yml` was renamed `docker-compose.legacy.yml.DISABLED`)
+- `docker-compose-prod.yml` - Production deployment (generated in the Docker Swarm section above)
 - `infrastructure/kubernetes/` - K8s manifests
 - `services/*/\.env` - Service configurations
 - `scripts/health_check.sh` - Health check script

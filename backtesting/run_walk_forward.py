@@ -407,7 +407,12 @@ async def main():
         # IS Sharpe (no fitting — strategy is rule-based; we just measure
         # that the SAME strategy applied to the IS slice would have produced
         # similar returns; ratio detects regime drift).
-        is_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
+        # _engine_kwargs() so IS shares the OOS cost model — a bare engine
+        # here made the ratio measure the fee-model delta under
+        # --realistic-sim instead of drift.
+        is_engine = BacktestEngine(
+            initial_capital=PAPER_INITIAL_BALANCE, **_engine_kwargs()
+        )
         is_engine.run_backtest(
             is_slice, phase1_strategy_prod, strategy_name=f"phase1_is_{k}"
         )

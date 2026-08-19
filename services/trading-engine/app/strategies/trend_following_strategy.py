@@ -45,8 +45,7 @@ Date: 2025-12-11
 """
 
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
@@ -65,140 +64,145 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # EMA Parameters for Trend Detection
-EMA_FAST = 21                     # Fast EMA for short-term trend (research-optimized)
-EMA_MEDIUM = 50                   # Medium EMA for intermediate trend
-EMA_SLOW = 200                    # Slow EMA for long-term trend
+EMA_FAST = 21  # Fast EMA for short-term trend (research-optimized)
+EMA_MEDIUM = 50  # Medium EMA for intermediate trend
+EMA_SLOW = 200  # Slow EMA for long-term trend
 
 # Trend Confirmation Settings
 TREND_EMA_ALIGNMENT_REQUIRED = True  # Require all EMAs aligned
-TREND_MIN_EMA_SEPARATION = 0.005     # Minimum 0.5% separation between EMAs
-TREND_STRENGTH_PERIODS = 10          # Periods to measure trend strength
+TREND_MIN_EMA_SEPARATION = 0.005  # Minimum 0.5% separation between EMAs
+TREND_STRENGTH_PERIODS = 10  # Periods to measure trend strength
 
 # Pullback Detection Parameters
-PULLBACK_TO_EMA_TOLERANCE = 0.015    # Price within 1.5% of EMA = pullback
-PULLBACK_RSI_OVERSOLD = 40           # RSI below 40 in uptrend = pullback
-PULLBACK_RSI_OVERBOUGHT = 60         # RSI above 60 in downtrend = pullback
-PULLBACK_MIN_DEPTH = 0.01            # Minimum 1% pullback depth
-PULLBACK_MAX_DEPTH = 0.05            # Maximum 5% pullback (beyond = trend break)
+PULLBACK_TO_EMA_TOLERANCE = 0.015  # Price within 1.5% of EMA = pullback
+PULLBACK_RSI_OVERSOLD = 40  # RSI below 40 in uptrend = pullback
+PULLBACK_RSI_OVERBOUGHT = 60  # RSI above 60 in downtrend = pullback
+PULLBACK_MIN_DEPTH = 0.01  # Minimum 1% pullback depth
+PULLBACK_MAX_DEPTH = 0.05  # Maximum 5% pullback (beyond = trend break)
 
 # Multi-Timeframe Settings
-MTF_RATIO = 4                        # 4:1 ratio (e.g., 4H to 1H)
-MTF_ALIGNMENT_REQUIRED = True        # Require higher TF trend alignment
-MTF_TREND_STRENGTH_MIN = 0.6         # Minimum higher TF trend strength
+MTF_RATIO = 4  # 4:1 ratio (e.g., 4H to 1H)
+MTF_ALIGNMENT_REQUIRED = True  # Require higher TF trend alignment
+MTF_TREND_STRENGTH_MIN = 0.6  # Minimum higher TF trend strength
 
 # RSI Parameters
-RSI_PERIOD = 14                      # RSI calculation period
-RSI_TREND_BULLISH_MIN = 45           # RSI floor in bullish trend
-RSI_TREND_BEARISH_MAX = 55           # RSI ceiling in bearish trend
-RSI_PULLBACK_BUY_MAX = 50            # RSI must be below 50 for pullback buy
-RSI_PULLBACK_SELL_MIN = 50           # RSI must be above 50 for pullback sell
+RSI_PERIOD = 14  # RSI calculation period
+RSI_TREND_BULLISH_MIN = 45  # RSI floor in bullish trend
+RSI_TREND_BEARISH_MAX = 55  # RSI ceiling in bearish trend
+RSI_PULLBACK_BUY_MAX = 50  # RSI must be below 50 for pullback buy
+RSI_PULLBACK_SELL_MIN = 50  # RSI must be above 50 for pullback sell
 
 # MACD Parameters for Momentum
-MACD_FAST = 12                       # Fast EMA period
-MACD_SLOW = 26                       # Slow EMA period
-MACD_SIGNAL = 9                      # Signal line period
-MACD_HISTOGRAM_THRESHOLD = 0         # Histogram must be positive/negative
+MACD_FAST = 12  # Fast EMA period
+MACD_SLOW = 26  # Slow EMA period
+MACD_SIGNAL = 9  # Signal line period
+MACD_HISTOGRAM_THRESHOLD = 0  # Histogram must be positive/negative
 
 # ADX Parameters for Trend Strength
-ADX_PERIOD = 14                      # ADX calculation period
-ADX_STRONG_TREND = 25                # ADX > 25 = strong trend
-ADX_VERY_STRONG_TREND = 35           # ADX > 35 = very strong trend
-ADX_MIN_FOR_ENTRY = 20               # Minimum ADX for trend entry
+ADX_PERIOD = 14  # ADX calculation period
+ADX_STRONG_TREND = 25  # ADX > 25 = strong trend
+ADX_VERY_STRONG_TREND = 35  # ADX > 35 = very strong trend
+ADX_MIN_FOR_ENTRY = 20  # Minimum ADX for trend entry
 
 # ATR Parameters for Risk Management
-ATR_PERIOD = 14                      # ATR calculation period
-ATR_STOP_MULTIPLIER = 3.0            # Wider stops for trend following (3x ATR)
-ATR_TRAILING_MULTIPLIER = 2.5        # Trailing stop at 2.5x ATR
-ATR_ENTRY_BUFFER = 0.5               # Entry buffer above/below pullback
+ATR_PERIOD = 14  # ATR calculation period
+ATR_STOP_MULTIPLIER = 3.0  # Wider stops for trend following (3x ATR)
+ATR_TRAILING_MULTIPLIER = 2.5  # Trailing stop at 2.5x ATR
+ATR_ENTRY_BUFFER = 0.5  # Entry buffer above/below pullback
 
 # Parabolic SAR Parameters
-SAR_ACCELERATION = 0.02              # SAR acceleration factor
-SAR_MAX_ACCELERATION = 0.2           # SAR maximum acceleration
+SAR_ACCELERATION = 0.02  # SAR acceleration factor
+SAR_MAX_ACCELERATION = 0.2  # SAR maximum acceleration
 
 # Fibonacci Extension Targets
-FIB_EXTENSION_1 = 1.618              # First extension target
-FIB_EXTENSION_2 = 2.618              # Second extension target
-FIB_EXTENSION_3 = 4.236              # Third extension target (runners)
+FIB_EXTENSION_1 = 1.618  # First extension target
+FIB_EXTENSION_2 = 2.618  # Second extension target
+FIB_EXTENSION_3 = 4.236  # Third extension target (runners)
 
 # Pyramiding Parameters
-PYRAMID_ENABLED = True               # Enable pyramiding
-PYRAMID_MAX_POSITIONS = 3            # Maximum pyramid levels
-PYRAMID_SCALE_FACTOR = 0.5           # Each pyramid is 50% of base size
-PYRAMID_ATR_DISTANCE = 2.0           # Add at 2x ATR intervals
-PYRAMID_MIN_PROFIT_PCT = 0.02        # Only pyramid if 2%+ in profit
+PYRAMID_ENABLED = True  # Enable pyramiding
+PYRAMID_MAX_POSITIONS = 3  # Maximum pyramid levels
+PYRAMID_SCALE_FACTOR = 0.5  # Each pyramid is 50% of base size
+PYRAMID_ATR_DISTANCE = 2.0  # Add at 2x ATR intervals
+PYRAMID_MIN_PROFIT_PCT = 0.02  # Only pyramid if 2%+ in profit
 
 # Position Sizing Parameters
-MAX_POSITION_SIZE = 0.08             # Maximum 8% of capital per trade
-MIN_POSITION_SIZE = 0.015            # Minimum 1.5% position size
-BASE_RISK_PER_TRADE = 0.02           # 2% risk per trade base
-TOTAL_POSITION_LIMIT = 0.15          # Max 15% total with pyramids
+MAX_POSITION_SIZE = 0.08  # Maximum 8% of capital per trade
+MIN_POSITION_SIZE = 0.015  # Minimum 1.5% position size
+BASE_RISK_PER_TRADE = 0.02  # 2% risk per trade base
+TOTAL_POSITION_LIMIT = 0.15  # Max 15% total with pyramids
 
 # Volume Parameters
-VOLUME_LOOKBACK = 20                 # Periods for average volume
-VOLUME_CONFIRM_MULT = 1.0            # At least average volume for entry
-VOLUME_DECREASE_PULLBACK = 0.7       # Expect lower volume in pullback
+VOLUME_LOOKBACK = 20  # Periods for average volume
+VOLUME_CONFIRM_MULT = 1.0  # At least average volume for entry
+VOLUME_DECREASE_PULLBACK = 0.7  # Expect lower volume in pullback
 
 # Confidence Score Weights
-WEIGHT_TREND_ALIGNMENT = 0.30        # 30% for trend direction alignment
-WEIGHT_PULLBACK_QUALITY = 0.25       # 25% for pullback characteristics
-WEIGHT_MOMENTUM = 0.20               # 20% for momentum confirmation
-WEIGHT_ADX = 0.15                    # 15% for trend strength
-WEIGHT_VOLUME = 0.10                 # 10% for volume confirmation
+WEIGHT_TREND_ALIGNMENT = 0.30  # 30% for trend direction alignment
+WEIGHT_PULLBACK_QUALITY = 0.25  # 25% for pullback characteristics
+WEIGHT_MOMENTUM = 0.20  # 20% for momentum confirmation
+WEIGHT_ADX = 0.15  # 15% for trend strength
+WEIGHT_VOLUME = 0.10  # 10% for volume confirmation
 
 # Minimum Thresholds
-MIN_CONFIDENCE_LONG = 0.55           # Minimum confidence for long
-MIN_CONFIDENCE_SHORT = 0.70          # Minimum confidence for short
+MIN_CONFIDENCE_LONG = 0.55  # Minimum confidence for long
+MIN_CONFIDENCE_SHORT = 0.70  # Minimum confidence for short
 
 
 class TrendDirection(Enum):
     """
     Direction of the trend
     """
-    BULLISH = "BULLISH"              # Upward trend
-    BEARISH = "BEARISH"              # Downward trend
-    NEUTRAL = "NEUTRAL"              # No clear trend
+
+    BULLISH = "BULLISH"  # Upward trend
+    BEARISH = "BEARISH"  # Downward trend
+    NEUTRAL = "NEUTRAL"  # No clear trend
 
 
 class TrendStrength(Enum):
     """
     Strength of the trend
     """
-    VERY_STRONG = "VERY_STRONG"      # ADX >= 35, clear direction
-    STRONG = "STRONG"                # ADX 25-35
-    MODERATE = "MODERATE"            # ADX 20-25
-    WEAK = "WEAK"                    # ADX < 20
+
+    VERY_STRONG = "VERY_STRONG"  # ADX >= 35, clear direction
+    STRONG = "STRONG"  # ADX 25-35
+    MODERATE = "MODERATE"  # ADX 20-25
+    WEAK = "WEAK"  # ADX < 20
 
 
 class PullbackState(Enum):
     """
     Current pullback state within the trend
     """
+
     PULLBACK_START = "PULLBACK_START"  # Beginning of pullback
-    PULLBACK_DEEP = "PULLBACK_DEEP"    # Deep pullback (near support)
+    PULLBACK_DEEP = "PULLBACK_DEEP"  # Deep pullback (near support)
     PULLBACK_REVERSAL = "PULLBACK_REVERSAL"  # Pullback reversing
-    NO_PULLBACK = "NO_PULLBACK"        # Trending without pullback
-    OVEREXTENDED = "OVEREXTENDED"      # Too far from EMA
+    NO_PULLBACK = "NO_PULLBACK"  # Trending without pullback
+    OVEREXTENDED = "OVEREXTENDED"  # Too far from EMA
 
 
 class SignalStrength(Enum):
     """
     Signal strength classification for position sizing
     """
-    STRONG = "STRONG"                # High confidence, multiple confirmations
-    MODERATE = "MODERATE"            # Medium confidence, some confirmations
-    WEAK = "WEAK"                    # Low confidence, minimal confirmations
-    NONE = "NONE"                    # No actionable signal
+
+    STRONG = "STRONG"  # High confidence, multiple confirmations
+    MODERATE = "MODERATE"  # Medium confidence, some confirmations
+    WEAK = "WEAK"  # Low confidence, minimal confirmations
+    NONE = "NONE"  # No actionable signal
 
 
 class MarketCondition(Enum):
     """
     Market condition classification
     """
-    STRONG_TREND = "STRONG_TREND"    # ADX >= 30, clear direction
-    TRENDING = "TRENDING"             # ADX 25-30, moderate trend
-    WEAK_TREND = "WEAK_TREND"        # ADX 20-25, weak trend
-    RANGING = "RANGING"               # ADX < 20, sideways market
-    PULLBACK = "PULLBACK"             # In trend but pulling back
+
+    STRONG_TREND = "STRONG_TREND"  # ADX >= 30, clear direction
+    TRENDING = "TRENDING"  # ADX 25-30, moderate trend
+    WEAK_TREND = "WEAK_TREND"  # ADX 20-25, weak trend
+    RANGING = "RANGING"  # ADX < 20, sideways market
+    PULLBACK = "PULLBACK"  # In trend but pulling back
 
 
 @dataclass
@@ -217,6 +221,7 @@ class TrendAnalysis:
         price_above_emas: Number of EMAs price is above
         trend_duration: Periods in current trend direction
     """
+
     direction: TrendDirection
     strength: TrendStrength
     ema_fast: float
@@ -241,6 +246,7 @@ class PullbackAnalysis:
         is_valid_entry: Whether this is a valid entry point
         pullback_depth: Depth of pullback from recent high/low
     """
+
     state: PullbackState
     nearest_ema: str  # "EMA20", "EMA50", "EMA200"
     distance_to_ema: float
@@ -260,6 +266,7 @@ class PyramidLevel:
         position_pct: Position size percentage
         condition: Condition required for this level
     """
+
     level: int
     entry_price: float
     position_pct: float
@@ -271,6 +278,7 @@ class PartialExitLevel:
     """
     Partial profit taking level
     """
+
     price: float
     exit_percent: float
     fib_level: float
@@ -282,6 +290,7 @@ class TradeSetup:
     """
     Complete trade setup compatible with auto_trader system
     """
+
     action: SignalAction
     confidence: float
     signal_strength: SignalStrength
@@ -342,7 +351,7 @@ class TrendFollowingStrategy:
         setup = strategy.generate_signal(
             df=ohlcv_dataframe,
             current_price=95000.0,
-            capital=10000.0
+            capital=available_capital,  # e.g. paper_engine.get_balance()
         )
 
         if setup and setup.action == SignalAction.BUY:
@@ -398,11 +407,7 @@ class TrendFollowingStrategy:
     # INDICATOR CALCULATIONS
     # =========================================================================
 
-    def _calculate_ema(
-        self,
-        df: pd.DataFrame,
-        period: int
-    ) -> pd.Series:
+    def _calculate_ema(self, df: pd.DataFrame, period: int) -> pd.Series:
         """
         Calculate Exponential Moving Average
 
@@ -413,11 +418,10 @@ class TrendFollowingStrategy:
         Returns:
             EMA series
         """
-        return df['close'].ewm(span=period, adjust=False).mean()
+        return df["close"].ewm(span=period, adjust=False).mean()
 
     def _calculate_all_emas(
-        self,
-        df: pd.DataFrame
+        self, df: pd.DataFrame
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate all three EMAs
@@ -434,11 +438,7 @@ class TrendFollowingStrategy:
 
         return ema_fast, ema_medium, ema_slow
 
-    def _calculate_atr(
-        self,
-        df: pd.DataFrame,
-        period: int = ATR_PERIOD
-    ) -> pd.Series:
+    def _calculate_atr(self, df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.Series:
         """
         Calculate Average True Range
 
@@ -449,9 +449,9 @@ class TrendFollowingStrategy:
         Returns:
             ATR series
         """
-        high_low = df['high'] - df['low']
-        high_close_prev = abs(df['high'] - df['close'].shift(1))
-        low_close_prev = abs(df['low'] - df['close'].shift(1))
+        high_low = df["high"] - df["low"]
+        high_close_prev = abs(df["high"] - df["close"].shift(1))
+        low_close_prev = abs(df["low"] - df["close"].shift(1))
 
         tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
         atr = tr.rolling(window=period, min_periods=period).mean()
@@ -459,9 +459,7 @@ class TrendFollowingStrategy:
         return atr
 
     def _calculate_adx(
-        self,
-        df: pd.DataFrame,
-        period: int = ADX_PERIOD
+        self, df: pd.DataFrame, period: int = ADX_PERIOD
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate ADX and DI lines
@@ -473,8 +471,8 @@ class TrendFollowingStrategy:
         Returns:
             Tuple of (ADX, +DI, -DI)
         """
-        high_diff = df['high'].diff()
-        low_diff = -df['low'].diff()
+        high_diff = df["high"].diff()
+        low_diff = -df["low"].diff()
 
         plus_dm = np.where((high_diff > low_diff) & (high_diff > 0), high_diff, 0)
         minus_dm = np.where((low_diff > high_diff) & (low_diff > 0), low_diff, 0)
@@ -498,11 +496,7 @@ class TrendFollowingStrategy:
 
         return adx, plus_di, minus_di
 
-    def _calculate_rsi(
-        self,
-        df: pd.DataFrame,
-        period: int = RSI_PERIOD
-    ) -> pd.Series:
+    def _calculate_rsi(self, df: pd.DataFrame, period: int = RSI_PERIOD) -> pd.Series:
         """
         Calculate RSI
 
@@ -513,7 +507,7 @@ class TrendFollowingStrategy:
         Returns:
             RSI series
         """
-        delta = df['close'].diff()
+        delta = df["close"].diff()
         gains = delta.where(delta > 0, 0.0)
         losses = -delta.where(delta < 0, 0.0)
 
@@ -526,8 +520,7 @@ class TrendFollowingStrategy:
         return rsi
 
     def _calculate_macd(
-        self,
-        df: pd.DataFrame
+        self, df: pd.DataFrame
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate MACD
@@ -538,8 +531,8 @@ class TrendFollowingStrategy:
         Returns:
             Tuple of (MACD line, signal line, histogram)
         """
-        ema_fast = df['close'].ewm(span=MACD_FAST, adjust=False).mean()
-        ema_slow = df['close'].ewm(span=MACD_SLOW, adjust=False).mean()
+        ema_fast = df["close"].ewm(span=MACD_FAST, adjust=False).mean()
+        ema_slow = df["close"].ewm(span=MACD_SLOW, adjust=False).mean()
 
         macd_line = ema_fast - ema_slow
         signal_line = macd_line.ewm(span=MACD_SIGNAL, adjust=False).mean()
@@ -551,7 +544,7 @@ class TrendFollowingStrategy:
         self,
         df: pd.DataFrame,
         acceleration: float = SAR_ACCELERATION,
-        max_acceleration: float = SAR_MAX_ACCELERATION
+        max_acceleration: float = SAR_MAX_ACCELERATION,
     ) -> pd.Series:
         """
         Calculate Parabolic SAR for trailing stops
@@ -564,9 +557,9 @@ class TrendFollowingStrategy:
         Returns:
             Parabolic SAR series
         """
-        high = df['high'].values
-        low = df['low'].values
-        close = df['close'].values
+        high = df["high"].values
+        low = df["low"].values
+        close = df["close"].values
 
         length = len(close)
         sar = np.zeros(length)
@@ -581,47 +574,45 @@ class TrendFollowingStrategy:
         af[0] = acceleration
 
         for i in range(1, length):
-            if uptrend[i-1]:
-                sar[i] = sar[i-1] + af[i-1] * (ep[i-1] - sar[i-1])
-                sar[i] = min(sar[i], low[i-1], low[i-2] if i > 1 else low[i-1])
+            if uptrend[i - 1]:
+                sar[i] = sar[i - 1] + af[i - 1] * (ep[i - 1] - sar[i - 1])
+                sar[i] = min(sar[i], low[i - 1], low[i - 2] if i > 1 else low[i - 1])
 
                 if low[i] < sar[i]:
                     uptrend[i] = False
-                    sar[i] = ep[i-1]
+                    sar[i] = ep[i - 1]
                     ep[i] = low[i]
                     af[i] = acceleration
                 else:
                     uptrend[i] = True
-                    if high[i] > ep[i-1]:
+                    if high[i] > ep[i - 1]:
                         ep[i] = high[i]
-                        af[i] = min(af[i-1] + acceleration, max_acceleration)
+                        af[i] = min(af[i - 1] + acceleration, max_acceleration)
                     else:
-                        ep[i] = ep[i-1]
-                        af[i] = af[i-1]
+                        ep[i] = ep[i - 1]
+                        af[i] = af[i - 1]
             else:
-                sar[i] = sar[i-1] + af[i-1] * (ep[i-1] - sar[i-1])
-                sar[i] = max(sar[i], high[i-1], high[i-2] if i > 1 else high[i-1])
+                sar[i] = sar[i - 1] + af[i - 1] * (ep[i - 1] - sar[i - 1])
+                sar[i] = max(sar[i], high[i - 1], high[i - 2] if i > 1 else high[i - 1])
 
                 if high[i] > sar[i]:
                     uptrend[i] = True
-                    sar[i] = ep[i-1]
+                    sar[i] = ep[i - 1]
                     ep[i] = high[i]
                     af[i] = acceleration
                 else:
                     uptrend[i] = False
-                    if low[i] < ep[i-1]:
+                    if low[i] < ep[i - 1]:
                         ep[i] = low[i]
-                        af[i] = min(af[i-1] + acceleration, max_acceleration)
+                        af[i] = min(af[i - 1] + acceleration, max_acceleration)
                     else:
-                        ep[i] = ep[i-1]
-                        af[i] = af[i-1]
+                        ep[i] = ep[i - 1]
+                        af[i] = af[i - 1]
 
         return pd.Series(sar, index=df.index)
 
     def _calculate_volume_ratio(
-        self,
-        df: pd.DataFrame,
-        lookback: int = VOLUME_LOOKBACK
+        self, df: pd.DataFrame, lookback: int = VOLUME_LOOKBACK
     ) -> float:
         """
         Calculate current volume relative to average
@@ -633,25 +624,21 @@ class TrendFollowingStrategy:
         Returns:
             Volume ratio
         """
-        if 'volume' not in df.columns or len(df) < lookback:
+        if "volume" not in df.columns or len(df) < lookback:
             return 1.0
 
-        avg_volume = df['volume'].tail(lookback + 1).head(lookback).mean()
+        avg_volume = df["volume"].tail(lookback + 1).head(lookback).mean()
         if avg_volume <= 0:
             return 1.0
 
-        current_volume = df['volume'].iloc[-1]
-        return round(current_volume / avg_volume, 2)
+        current_volume = df["volume"].iloc[-1]
+        return round(current_volume / avg_volume, 2)  # non-price-round
 
     # =========================================================================
     # TREND ANALYSIS
     # =========================================================================
 
-    def _analyze_trend(
-        self,
-        df: pd.DataFrame,
-        current_price: float
-    ) -> TrendAnalysis:
+    def _analyze_trend(self, df: pd.DataFrame, current_price: float) -> TrendAnalysis:
         """
         Analyze overall trend direction and strength
 
@@ -675,28 +662,35 @@ class TrendFollowingStrategy:
 
         # Determine EMA alignment
         bullish_alignment = (
-            current_ema_fast > current_ema_medium > current_ema_slow and
-            current_price > current_ema_fast
+            current_ema_fast > current_ema_medium > current_ema_slow
+            and current_price > current_ema_fast
         )
 
         bearish_alignment = (
-            current_ema_fast < current_ema_medium < current_ema_slow and
-            current_price < current_ema_fast
+            current_ema_fast < current_ema_medium < current_ema_slow
+            and current_price < current_ema_fast
         )
 
         # Check EMA separation
-        fast_medium_sep = abs(current_ema_fast - current_ema_medium) / current_ema_medium
+        fast_medium_sep = (
+            abs(current_ema_fast - current_ema_medium) / current_ema_medium
+        )
         medium_slow_sep = abs(current_ema_medium - current_ema_slow) / current_ema_slow
-        emas_well_separated = fast_medium_sep >= TREND_MIN_EMA_SEPARATION and medium_slow_sep >= TREND_MIN_EMA_SEPARATION
+        emas_well_separated = (
+            fast_medium_sep >= TREND_MIN_EMA_SEPARATION
+            and medium_slow_sep >= TREND_MIN_EMA_SEPARATION
+        )
 
         ema_aligned = (bullish_alignment or bearish_alignment) and emas_well_separated
 
         # Count EMAs price is above
-        price_above_emas = sum([
-            current_price > current_ema_fast,
-            current_price > current_ema_medium,
-            current_price > current_ema_slow
-        ])
+        price_above_emas = sum(
+            [
+                current_price > current_ema_fast,
+                current_price > current_ema_medium,
+                current_price > current_ema_slow,
+            ]
+        )
 
         # Determine trend direction
         if bullish_alignment and plus_di.iloc[-1] > minus_di.iloc[-1]:
@@ -746,14 +740,11 @@ class TrendFollowingStrategy:
             ema_aligned=ema_aligned,
             adx_value=current_adx,
             price_above_emas=price_above_emas,
-            trend_duration=trend_duration
+            trend_duration=trend_duration,
         )
 
     def _analyze_pullback(
-        self,
-        df: pd.DataFrame,
-        current_price: float,
-        trend: TrendAnalysis
+        self, df: pd.DataFrame, current_price: float, trend: TrendAnalysis
     ) -> PullbackAnalysis:
         """
         Analyze pullback state within the trend
@@ -779,17 +770,17 @@ class TrendFollowingStrategy:
         distances = {
             "EMA20": dist_to_fast,
             "EMA50": dist_to_medium,
-            "EMA200": dist_to_slow
+            "EMA200": dist_to_slow,
         }
         nearest_ema = min(distances, key=distances.get)
         distance_to_ema = distances[nearest_ema]
 
         # Calculate pullback depth
         if trend.direction == TrendDirection.BULLISH:
-            recent_high = df['high'].tail(20).max()
+            recent_high = df["high"].tail(20).max()
             pullback_depth = (recent_high - current_price) / recent_high
         elif trend.direction == TrendDirection.BEARISH:
-            recent_low = df['low'].tail(20).min()
+            recent_low = df["low"].tail(20).min()
             pullback_depth = (current_price - recent_low) / recent_low
         else:
             pullback_depth = 0
@@ -805,10 +796,16 @@ class TrendFollowingStrategy:
             # Price is near an EMA
             if pullback_depth >= PULLBACK_MIN_DEPTH:
                 # Check if RSI confirms pullback
-                if trend.direction == TrendDirection.BULLISH and current_rsi <= RSI_PULLBACK_BUY_MAX:
+                if (
+                    trend.direction == TrendDirection.BULLISH
+                    and current_rsi <= RSI_PULLBACK_BUY_MAX
+                ):
                     state = PullbackState.PULLBACK_REVERSAL
                     is_valid_entry = True
-                elif trend.direction == TrendDirection.BEARISH and current_rsi >= RSI_PULLBACK_SELL_MIN:
+                elif (
+                    trend.direction == TrendDirection.BEARISH
+                    and current_rsi >= RSI_PULLBACK_SELL_MIN
+                ):
                     state = PullbackState.PULLBACK_REVERSAL
                     is_valid_entry = True
                 else:
@@ -826,7 +823,7 @@ class TrendFollowingStrategy:
 
         logger.debug(
             f"Pullback analysis: state={state.value}, nearest={nearest_ema}, "
-            f"distance={distance_to_ema*100:.2f}%, depth={pullback_depth*100:.2f}%, "
+            f"distance={distance_to_ema * 100:.2f}%, depth={pullback_depth * 100:.2f}%, "
             f"RSI={current_rsi:.1f}, valid={is_valid_entry}"
         )
 
@@ -836,7 +833,7 @@ class TrendFollowingStrategy:
             distance_to_ema=distance_to_ema,
             rsi_value=current_rsi,
             is_valid_entry=is_valid_entry,
-            pullback_depth=pullback_depth
+            pullback_depth=pullback_depth,
         )
 
     # =========================================================================
@@ -844,9 +841,7 @@ class TrendFollowingStrategy:
     # =========================================================================
 
     def _validate_momentum(
-        self,
-        df: pd.DataFrame,
-        trend: TrendAnalysis
+        self, df: pd.DataFrame, trend: TrendAnalysis
     ) -> Tuple[bool, float, Dict]:
         """
         Validate momentum aligns with trend direction
@@ -864,54 +859,58 @@ class TrendFollowingStrategy:
         # MACD validation
         macd_line, signal_line, histogram = self._calculate_macd(df)
         current_histogram = histogram.iloc[-1] if not pd.isna(histogram.iloc[-1]) else 0
-        momentum_details['macd_histogram'] = current_histogram
+        momentum_details["macd_histogram"] = current_histogram
 
         if trend.direction == TrendDirection.BULLISH:
             if current_histogram > 0:
                 momentum_score += 0.5
-                momentum_details['macd_aligned'] = True
+                momentum_details["macd_aligned"] = True
             else:
-                momentum_details['macd_aligned'] = False
+                momentum_details["macd_aligned"] = False
         elif trend.direction == TrendDirection.BEARISH:
             if current_histogram < 0:
                 momentum_score += 0.5
-                momentum_details['macd_aligned'] = True
+                momentum_details["macd_aligned"] = True
             else:
-                momentum_details['macd_aligned'] = False
+                momentum_details["macd_aligned"] = False
 
         # Check if MACD is above/below signal line
         macd_above_signal = macd_line.iloc[-1] > signal_line.iloc[-1]
         if trend.direction == TrendDirection.BULLISH and macd_above_signal:
             momentum_score += 0.3
-            momentum_details['macd_crossover'] = True
+            momentum_details["macd_crossover"] = True
         elif trend.direction == TrendDirection.BEARISH and not macd_above_signal:
             momentum_score += 0.3
-            momentum_details['macd_crossover'] = True
+            momentum_details["macd_crossover"] = True
         else:
-            momentum_details['macd_crossover'] = False
+            momentum_details["macd_crossover"] = False
 
         # Check RSI trend
         rsi = self._calculate_rsi(df)
         current_rsi = rsi.iloc[-1]
-        momentum_details['rsi'] = current_rsi
+        momentum_details["rsi"] = current_rsi
 
-        if trend.direction == TrendDirection.BULLISH and current_rsi >= RSI_TREND_BULLISH_MIN:
+        if (
+            trend.direction == TrendDirection.BULLISH
+            and current_rsi >= RSI_TREND_BULLISH_MIN
+        ):
             momentum_score += 0.2
-            momentum_details['rsi_trend_aligned'] = True
-        elif trend.direction == TrendDirection.BEARISH and current_rsi <= RSI_TREND_BEARISH_MAX:
+            momentum_details["rsi_trend_aligned"] = True
+        elif (
+            trend.direction == TrendDirection.BEARISH
+            and current_rsi <= RSI_TREND_BEARISH_MAX
+        ):
             momentum_score += 0.2
-            momentum_details['rsi_trend_aligned'] = True
+            momentum_details["rsi_trend_aligned"] = True
         else:
-            momentum_details['rsi_trend_aligned'] = False
+            momentum_details["rsi_trend_aligned"] = False
 
         is_valid = momentum_score >= 0.5
 
         return is_valid, momentum_score, momentum_details
 
     def _validate_volume(
-        self,
-        df: pd.DataFrame,
-        pullback: PullbackAnalysis
+        self, df: pd.DataFrame, pullback: PullbackAnalysis
     ) -> Tuple[bool, float]:
         """
         Validate volume conditions for entry
@@ -948,7 +947,7 @@ class TrendFollowingStrategy:
         trend: TrendAnalysis,
         pullback: PullbackAnalysis,
         momentum_score: float,
-        volume_ratio: float
+        volume_ratio: float,
     ) -> Tuple[float, List[str]]:
         """
         Calculate confidence score for the trend following signal
@@ -966,15 +965,24 @@ class TrendFollowingStrategy:
         confidence = 0.0
 
         # 1. Trend alignment score (30%)
-        if trend.ema_aligned and trend.strength in [TrendStrength.VERY_STRONG, TrendStrength.STRONG]:
+        if trend.ema_aligned and trend.strength in [
+            TrendStrength.VERY_STRONG,
+            TrendStrength.STRONG,
+        ]:
             trend_score = 1.0
-            reasoning.append(f"{trend.strength.value} {trend.direction.value} trend with aligned EMAs")
+            reasoning.append(
+                f"{trend.strength.value} {trend.direction.value} trend with aligned EMAs"
+            )
         elif trend.ema_aligned:
             trend_score = 0.7
-            reasoning.append(f"{trend.direction.value} trend with aligned EMAs (moderate strength)")
+            reasoning.append(
+                f"{trend.direction.value} trend with aligned EMAs (moderate strength)"
+            )
         elif trend.direction != TrendDirection.NEUTRAL:
             trend_score = 0.4
-            reasoning.append(f"Weak {trend.direction.value} trend, EMAs not fully aligned")
+            reasoning.append(
+                f"Weak {trend.direction.value} trend, EMAs not fully aligned"
+            )
         else:
             trend_score = 0.0
             reasoning.append("No clear trend direction")
@@ -984,10 +992,14 @@ class TrendFollowingStrategy:
         # 2. Pullback quality score (25%)
         if pullback.state == PullbackState.PULLBACK_REVERSAL:
             pullback_score = 1.0
-            reasoning.append(f"Ideal pullback to {pullback.nearest_ema} with reversal confirmation")
+            reasoning.append(
+                f"Ideal pullback to {pullback.nearest_ema} with reversal confirmation"
+            )
         elif pullback.state == PullbackState.PULLBACK_DEEP:
             pullback_score = 0.6
-            reasoning.append(f"Deep pullback to {pullback.nearest_ema}, awaiting reversal")
+            reasoning.append(
+                f"Deep pullback to {pullback.nearest_ema}, awaiting reversal"
+            )
         elif pullback.state == PullbackState.PULLBACK_START:
             pullback_score = 0.3
             reasoning.append("Early pullback, not yet at entry zone")
@@ -1050,7 +1062,7 @@ class TrendFollowingStrategy:
         trend: TrendAnalysis,
         atr: float,
         swing_low: float,
-        swing_high: float
+        swing_high: float,
     ) -> Tuple[float, float, List[PartialExitLevel]]:
         """
         Calculate stop loss, take profit, and partial exits using Fibonacci
@@ -1101,52 +1113,68 @@ class TrendFollowingStrategy:
         partial_exits = []
 
         if trend.direction == TrendDirection.BULLISH:
-            partial_exits.append(PartialExitLevel(
-                price=round(tp1, 2),
-                exit_percent=0.30,
-                fib_level=FIB_EXTENSION_1,
-                label="TP1 (161.8%)"
-            ))
-            partial_exits.append(PartialExitLevel(
-                price=round(tp2, 2),
-                exit_percent=0.40,
-                fib_level=FIB_EXTENSION_2,
-                label="TP2 (261.8%)"
-            ))
-            partial_exits.append(PartialExitLevel(
-                price=round(tp3, 2),
-                exit_percent=0.30,
-                fib_level=FIB_EXTENSION_3,
-                label="TP3 (423.6%)"
-            ))
+            partial_exits.append(
+                PartialExitLevel(
+                    # Trigger compared against market price, closed at market —
+                    # no exchange tick precision at this layer. round(price, 2)
+                    # collapsed adjacent ladder rungs onto one trigger at ADA
+                    # scale (PRICE-01).
+                    price=tp1,
+                    exit_percent=0.30,
+                    fib_level=FIB_EXTENSION_1,
+                    label="TP1 (161.8%)",
+                )
+            )
+            partial_exits.append(
+                PartialExitLevel(
+                    price=tp2,
+                    exit_percent=0.40,
+                    fib_level=FIB_EXTENSION_2,
+                    label="TP2 (261.8%)",
+                )
+            )
+            partial_exits.append(
+                PartialExitLevel(
+                    price=tp3,
+                    exit_percent=0.30,
+                    fib_level=FIB_EXTENSION_3,
+                    label="TP3 (423.6%)",
+                )
+            )
         else:
-            partial_exits.append(PartialExitLevel(
-                price=round(tp1, 2),
-                exit_percent=0.30,
-                fib_level=FIB_EXTENSION_1,
-                label="TP1 (161.8%)"
-            ))
-            partial_exits.append(PartialExitLevel(
-                price=round(tp2, 2),
-                exit_percent=0.40,
-                fib_level=FIB_EXTENSION_2,
-                label="TP2 (261.8%)"
-            ))
-            partial_exits.append(PartialExitLevel(
-                price=round(tp3, 2),
-                exit_percent=0.30,
-                fib_level=FIB_EXTENSION_3,
-                label="TP3 (423.6%)"
-            ))
+            partial_exits.append(
+                PartialExitLevel(
+                    price=tp1,
+                    exit_percent=0.30,
+                    fib_level=FIB_EXTENSION_1,
+                    label="TP1 (161.8%)",
+                )
+            )
+            partial_exits.append(
+                PartialExitLevel(
+                    price=tp2,
+                    exit_percent=0.40,
+                    fib_level=FIB_EXTENSION_2,
+                    label="TP2 (261.8%)",
+                )
+            )
+            partial_exits.append(
+                PartialExitLevel(
+                    price=tp3,
+                    exit_percent=0.30,
+                    fib_level=FIB_EXTENSION_3,
+                    label="TP3 (423.6%)",
+                )
+            )
 
-        return round(stop_loss, 2), round(take_profit, 2), partial_exits
+        return stop_loss, take_profit, partial_exits
 
     def _calculate_pyramid_levels(
         self,
         entry_price: float,
         trend: TrendAnalysis,
         atr: float,
-        base_position_size: float
+        base_position_size: float,
     ) -> List[PyramidLevel]:
         """
         Calculate pyramid levels for adding to winners
@@ -1177,14 +1205,16 @@ class TrendFollowingStrategy:
                 add_price = entry_price - distance
 
             # Decreasing position size for each pyramid
-            level_size = base_position_size * (PYRAMID_SCALE_FACTOR ** level)
+            level_size = base_position_size * (PYRAMID_SCALE_FACTOR**level)
 
-            pyramid_levels.append(PyramidLevel(
-                level=level + 1,  # Level 2, 3, etc.
-                entry_price=round(add_price, 2),
-                position_pct=round(level_size, 4),
-                condition=f"Price reaches {add_price:.2f} with {PYRAMID_MIN_PROFIT_PCT*100:.1f}%+ profit"
-            ))
+            pyramid_levels.append(
+                PyramidLevel(
+                    level=level + 1,  # Level 2, 3, etc.
+                    entry_price=add_price,
+                    position_pct=round(level_size, 4),  # non-price-round
+                    condition=f"Price reaches {add_price:.2f} with {PYRAMID_MIN_PROFIT_PCT * 100:.1f}%+ profit",
+                )
+            )
 
         return pyramid_levels
 
@@ -1194,7 +1224,7 @@ class TrendFollowingStrategy:
         entry_price: float,
         stop_loss: float,
         confidence: float,
-        atr: float
+        atr: float,
     ) -> float:
         """
         Calculate position size based on risk and confidence
@@ -1229,14 +1259,14 @@ class TrendFollowingStrategy:
         if self._total_position_pct + adjusted_position > TOTAL_POSITION_LIMIT:
             adjusted_position = max(0, TOTAL_POSITION_LIMIT - self._total_position_pct)
 
-        final_position = max(MIN_POSITION_SIZE, min(adjusted_position, MAX_POSITION_SIZE))
+        final_position = max(
+            MIN_POSITION_SIZE, min(adjusted_position, MAX_POSITION_SIZE)
+        )
 
-        return round(final_position, 4)
+        return round(final_position, 4)  # non-price-round
 
     def _classify_signal_strength(
-        self,
-        confidence: float,
-        indicators_aligned: int
+        self, confidence: float, indicators_aligned: int
     ) -> SignalStrength:
         """
         Classify signal strength
@@ -1258,9 +1288,7 @@ class TrendFollowingStrategy:
             return SignalStrength.NONE
 
     def _classify_market_condition(
-        self,
-        trend: TrendAnalysis,
-        pullback: PullbackAnalysis
+        self, trend: TrendAnalysis, pullback: PullbackAnalysis
     ) -> MarketCondition:
         """
         Classify current market condition
@@ -1272,7 +1300,10 @@ class TrendFollowingStrategy:
         Returns:
             MarketCondition enum
         """
-        if pullback.state in [PullbackState.PULLBACK_DEEP, PullbackState.PULLBACK_REVERSAL]:
+        if pullback.state in [
+            PullbackState.PULLBACK_DEEP,
+            PullbackState.PULLBACK_REVERSAL,
+        ]:
             return MarketCondition.PULLBACK
 
         if trend.adx_value >= 30:
@@ -1292,9 +1323,12 @@ class TrendFollowingStrategy:
         self,
         df: pd.DataFrame,
         current_price: float,
-        capital: float = 10000.0,
+        # REQUIRED — the old 10000.0 default was 100x the real account; every
+        # caller (hybrid router, generate_trend_signal) passes capital
+        # explicitly (AUDIT 2.5).
+        capital: float,
         indicators: Optional[Dict[str, IndicatorSignal]] = None,
-        higher_tf_df: Optional[pd.DataFrame] = None
+        higher_tf_df: Optional[pd.DataFrame] = None,
     ) -> Optional[TradeSetup]:
         """
         Generate a trend following trading signal
@@ -1348,7 +1382,9 @@ class TrendFollowingStrategy:
             return None
 
         # Step 3: Validate momentum
-        momentum_valid, momentum_score, momentum_details = self._validate_momentum(df, trend)
+        momentum_valid, momentum_score, momentum_details = self._validate_momentum(
+            df, trend
+        )
 
         if not momentum_valid:
             logger.debug("Momentum not aligned with trend")
@@ -1358,13 +1394,15 @@ class TrendFollowingStrategy:
         volume_valid, volume_ratio = self._validate_volume(df, pullback)
 
         # Count aligned indicators
-        indicators_aligned = sum([
-            trend.ema_aligned,
-            trend.adx_value >= ADX_MIN_FOR_ENTRY,
-            momentum_valid,
-            pullback.is_valid_entry,
-            volume_valid
-        ])
+        indicators_aligned = sum(
+            [
+                trend.ema_aligned,
+                trend.adx_value >= ADX_MIN_FOR_ENTRY,
+                momentum_valid,
+                pullback.is_valid_entry,
+                volume_valid,
+            ]
+        )
 
         # Need at least 3 confirmations
         if indicators_aligned < 3:
@@ -1376,29 +1414,35 @@ class TrendFollowingStrategy:
             trend=trend,
             pullback=pullback,
             momentum_score=momentum_score,
-            volume_ratio=volume_ratio
+            volume_ratio=volume_ratio,
         )
 
         # Check minimum confidence
-        min_conf = MIN_CONFIDENCE_LONG if trend.direction == TrendDirection.BULLISH else MIN_CONFIDENCE_SHORT
+        min_conf = (
+            MIN_CONFIDENCE_LONG
+            if trend.direction == TrendDirection.BULLISH
+            else MIN_CONFIDENCE_SHORT
+        )
         if confidence < min_conf:
             logger.debug(f"Confidence too low: {confidence:.2f} < {min_conf}")
             return None
 
         # Step 6: Calculate stops and targets
         atr = self._calculate_atr(df)
-        current_atr = atr.iloc[-1] if not pd.isna(atr.iloc[-1]) else current_price * 0.02
+        current_atr = (
+            atr.iloc[-1] if not pd.isna(atr.iloc[-1]) else current_price * 0.02
+        )
 
         # Find recent swing high/low for Fibonacci
-        swing_high = df['high'].tail(50).max()
-        swing_low = df['low'].tail(50).min()
+        swing_high = df["high"].tail(50).max()
+        swing_low = df["low"].tail(50).min()
 
         stop_loss, take_profit, partial_exits = self._calculate_stops_and_targets(
             entry_price=current_price,
             trend=trend,
             atr=current_atr,
             swing_low=swing_low,
-            swing_high=swing_high
+            swing_high=swing_high,
         )
 
         # Step 7: Calculate position size
@@ -1411,7 +1455,7 @@ class TrendFollowingStrategy:
             entry_price=current_price,
             trend=trend,
             atr=current_atr,
-            base_position_size=position_size
+            base_position_size=position_size,
         )
 
         # Classify signal strength and market condition
@@ -1419,12 +1463,20 @@ class TrendFollowingStrategy:
         market_condition = self._classify_market_condition(trend, pullback)
 
         # Determine action
-        action = SignalAction.BUY if trend.direction == TrendDirection.BULLISH else SignalAction.SELL
+        action = (
+            SignalAction.BUY
+            if trend.direction == TrendDirection.BULLISH
+            else SignalAction.SELL
+        )
 
         # Add final details to reasoning
-        reasoning.append(f"Entry: {current_price:.2f}, SL: {stop_loss:.2f}, TP: {take_profit:.2f}")
-        reasoning.append(f"Pullback to {pullback.nearest_ema}, RSI: {pullback.rsi_value:.1f}")
-        reasoning.append(f"Position size: {position_size*100:.1f}% of capital")
+        reasoning.append(
+            f"Entry: {current_price:.2f}, SL: {stop_loss:.2f}, TP: {take_profit:.2f}"
+        )
+        reasoning.append(
+            f"Pullback to {pullback.nearest_ema}, RSI: {pullback.rsi_value:.1f}"
+        )
+        reasoning.append(f"Position size: {position_size * 100:.1f}% of capital")
         if pyramid_levels:
             reasoning.append(f"Pyramid levels available: {len(pyramid_levels)}")
 
@@ -1450,7 +1502,7 @@ class TrendFollowingStrategy:
             pullback_state=pullback.state,
             adx_value=trend.adx_value,
             pyramid_levels=pyramid_levels,
-            partial_exits=partial_exits
+            partial_exits=partial_exits,
         )
 
     def reset_position_tracking(self) -> None:
@@ -1464,11 +1516,7 @@ class TrendFollowingStrategy:
         self._total_position_pct = 0.0
         logger.debug("Position tracking reset for trend following strategy")
 
-    def update_position(
-        self,
-        direction: TrendDirection,
-        position_pct: float
-    ) -> None:
+    def update_position(self, direction: TrendDirection, position_pct: float) -> None:
         """
         Update position tracking after adding to position
 
@@ -1497,61 +1545,57 @@ class TrendFollowingStrategy:
                 "fast": self.ema_fast,
                 "medium": self.ema_medium,
                 "slow": self.ema_slow,
-                "min_separation": TREND_MIN_EMA_SEPARATION
+                "min_separation": TREND_MIN_EMA_SEPARATION,
             },
             "adx": {
                 "period": self.adx_period,
                 "strong_trend": ADX_STRONG_TREND,
                 "very_strong": ADX_VERY_STRONG_TREND,
-                "min_for_entry": ADX_MIN_FOR_ENTRY
+                "min_for_entry": ADX_MIN_FOR_ENTRY,
             },
             "pullback": {
                 "ema_tolerance": PULLBACK_TO_EMA_TOLERANCE,
                 "min_depth": PULLBACK_MIN_DEPTH,
                 "max_depth": PULLBACK_MAX_DEPTH,
                 "rsi_oversold": PULLBACK_RSI_OVERSOLD,
-                "rsi_overbought": PULLBACK_RSI_OVERBOUGHT
+                "rsi_overbought": PULLBACK_RSI_OVERBOUGHT,
             },
             "rsi": {
                 "period": RSI_PERIOD,
                 "bullish_min": RSI_TREND_BULLISH_MIN,
-                "bearish_max": RSI_TREND_BEARISH_MAX
+                "bearish_max": RSI_TREND_BEARISH_MAX,
             },
-            "macd": {
-                "fast": MACD_FAST,
-                "slow": MACD_SLOW,
-                "signal": MACD_SIGNAL
-            },
+            "macd": {"fast": MACD_FAST, "slow": MACD_SLOW, "signal": MACD_SIGNAL},
             "atr": {
                 "period": self.atr_period,
                 "stop_multiplier": ATR_STOP_MULTIPLIER,
-                "trailing_multiplier": ATR_TRAILING_MULTIPLIER
+                "trailing_multiplier": ATR_TRAILING_MULTIPLIER,
             },
             "fibonacci_targets": {
                 "extension_1": FIB_EXTENSION_1,
                 "extension_2": FIB_EXTENSION_2,
-                "extension_3": FIB_EXTENSION_3
+                "extension_3": FIB_EXTENSION_3,
             },
             "pyramiding": {
                 "enabled": self.enable_pyramiding,
                 "max_positions": PYRAMID_MAX_POSITIONS,
                 "scale_factor": PYRAMID_SCALE_FACTOR,
                 "atr_distance": PYRAMID_ATR_DISTANCE,
-                "min_profit_pct": PYRAMID_MIN_PROFIT_PCT
+                "min_profit_pct": PYRAMID_MIN_PROFIT_PCT,
             },
             "position_sizing": {
                 "min_size": MIN_POSITION_SIZE,
                 "max_size": MAX_POSITION_SIZE,
                 "base_risk": BASE_RISK_PER_TRADE,
-                "total_limit": TOTAL_POSITION_LIMIT
+                "total_limit": TOTAL_POSITION_LIMIT,
             },
             "confidence_weights": {
                 "trend_alignment": WEIGHT_TREND_ALIGNMENT,
                 "pullback_quality": WEIGHT_PULLBACK_QUALITY,
                 "momentum": WEIGHT_MOMENTUM,
                 "adx": WEIGHT_ADX,
-                "volume": WEIGHT_VOLUME
-            }
+                "volume": WEIGHT_VOLUME,
+            },
         }
 
 
@@ -1581,9 +1625,11 @@ def get_trend_strategy() -> TrendFollowingStrategy:
 def generate_trend_signal(
     df: pd.DataFrame,
     current_price: float,
-    capital: float = 10000.0,
+    # REQUIRED — the old 10000.0 default was 100x the real account; no caller
+    # in the repo omits capital (AUDIT 2.5).
+    capital: float,
     indicators: Optional[Dict[str, IndicatorSignal]] = None,
-    higher_tf_df: Optional[pd.DataFrame] = None
+    higher_tf_df: Optional[pd.DataFrame] = None,
 ) -> Optional[TradeSetup]:
     """
     Convenience function to generate trend following signal using default strategy
@@ -1599,4 +1645,6 @@ def generate_trend_signal(
         TradeSetup if valid trend following signal found, None otherwise
     """
     strategy = get_trend_strategy()
-    return strategy.generate_signal(df, current_price, capital, indicators, higher_tf_df)
+    return strategy.generate_signal(
+        df, current_price, capital, indicators, higher_tf_df
+    )
