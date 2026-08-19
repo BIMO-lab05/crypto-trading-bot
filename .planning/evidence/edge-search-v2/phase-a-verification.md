@@ -169,3 +169,41 @@ docker-compose.unified.yml logs market-data` around the breaching symbol's max
 gap timestamp before accepting Phase A as durable.
 
 <!-- 48h re-run output goes here -->
+
+## Correction — symbol scope, disk sizing, compression (final review M-5)
+
+Spec §2 A1 said "the service's configured trading pairs (the 5 validated: BTC,
+ETH, SOL, BNB, ADA)". The implementation reads `settings.symbols_list`, which
+holds the **14-symbol research universe** (CLAUDE.md §5: market-data ingests
+14, trading-engine restricts position-taking to 5). All 14 are collecting.
+
+This is a documentation correction, not a code defect: the normative clause
+("the service's configured trading pairs") was followed correctly; the
+parenthetical was a false factual claim about what the config holds. 14
+symbols is the better choice for research breadth, so the code is not
+changing — the spec's *derived numbers* were wrong and are corrected here:
+
+- **Disk.** Measured `hypertable_size('public.orderbook_snapshots')` = 5968 kB
+  for 4534 rows = 1.32 KB/row. At 14 symbols this projects to ~23 GB at
+  90-day retention on the pre-fix ~6.14s cadence, ~29 GB once H-2's cadence
+  fix lands closer to the true 5s target — against the spec's original
+  10-15 GB estimate (computed for 5 symbols).
+- **Rate limit.** The spec's "1 req/s, comfortable margin" assumed 5
+  symbols; the real figure at 14 symbols is ~2.8 req/s (see final review
+  H-4, addressed by raising the bybit-connector orderbook route limit to
+  600/minute).
+- **Compression.** TimescaleDB compression (segmentby `symbol`, orderby
+  `timestamp DESC`, compress chunks older than 7 days) was added to
+  `database.py::DDL_STATEMENTS` as mitigation against the 23-29 GB
+  projection — the other lever spec §9.3 names besides retention.
+
+## Correction — two `orderbook_snapshots` hypertables, different schemas (final review L-11)
+
+An empty, pre-existing `market_data.orderbook_snapshots` hypertable (0
+chunks) coexists with the live `public.orderbook_snapshots` (the one this
+document's proofs and the gap-check script query). The boot DDL's
+`hypertable_schema = 'public'` guard already handles this correctly — no
+code defect — but any future ad-hoc SQL against this data must query
+`public.orderbook_snapshots` explicitly. Querying the bare table name can
+resolve to the empty `market_data` schema copy depending on `search_path`
+and looks exactly like "collection is dead."
