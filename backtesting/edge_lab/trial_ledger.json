@@ -315,5 +315,112 @@
   {
     "candidate": "pairs_statarb",
     "variant": "pairs_orthogonal_30d"
+  },
+  {
+    "candidate": "intraday_seasonality",
+    "variant": "funding_window_drift",
+    "params": {
+      "roll_days": "30"
+    },
+    "date": "20260819",
+    "gate1_verdict": "KILL",
+    "gate2_passed": false
+  },
+  {
+    "candidate": "intraday_seasonality",
+    "variant": "hour_of_day",
+    "params": {
+      "roll_days": "30"
+    },
+    "date": "20260819",
+    "gate1_verdict": "KILL",
+    "gate2_passed": false
+  },
+  {
+    "candidate": "baseline_rsi_ema",
+    "variant": "baseline_rsi_ema_walkforward_taker",
+    "params": {
+      "engine": "make_engine() defaults (bybit_perp fees, atr_aware slippage, funding on)",
+      "folds": "3",
+      "epoch": "clean epoch 2026-04-25..2026-08-06"
+    },
+    "date": "20260819",
+    "gate1_verdict": "N/A - walk-forward IS/OOS/DSR gate, not edge_lab screen_trades",
+    "gate2_passed": false,
+    "source": "/mnt/d/Bimo_max/crypto-trading-bot/backtesting/results/wf_baseline_fixed_engine_2026-08-19.txt"
+  },
+  {
+    "candidate": "xs_momentum",
+    "variant": "lookback_7d_maker",
+    "params": {
+      "lookback_days": "7"
+    },
+    "date": "20260819",
+    "gate1_verdict": "KILL",
+    "gate2_passed": false
+  },
+  {
+    "candidate": "lf_trend",
+    "variant": "dc_55_20_maker",
+    "params": {
+      "entry_n": "55",
+      "exit_n": "20"
+    },
+    "date": "20260819",
+    "gate1_verdict": "PASS",
+    "gate2_passed": false
+  },
+  {
+    "candidate": "funding_carry",
+    "variant": "thresh_2x_maker",
+    "params": {
+      "threshold_mult": "2"
+    },
+    "date": "20260819",
+    "gate1_verdict": "KILL",
+    "gate2_passed": false
+  },
+  {
+    "candidate": "pairs_statarb",
+    "variant": "pairs_volume_top10_60d_maker",
+    "params": {
+      "lookback_days": "60",
+      "recalc_days": "60",
+      "entry_z": "1.5",
+      "exit_z": "0.0",
+      "max_holding_days": "2",
+      "pair_filter": "top_volume10"
+    },
+    "date": "20260819",
+    "gate1_verdict": "KILL",
+    "gate2_passed": false
+  },
+  {
+    "candidate": "vol_breakout",
+    "variant": "sqz_default_maker",
+    "params": {
+      "bb_n": "20",
+      "bb_mult": "2.0",
+      "kc_n": "20",
+      "kc_mult": "1.5",
+      "atr_n": "14",
+      "stop_atr_mult": "2.0",
+      "max_hold_bars": "30",
+      "min_squeeze_bars": "6"
+    },
+    "date": "20260819",
+    "gate1_verdict": "KILL",
+    "gate2_passed": false
+  },
+  {
+    "candidate": "baseline_rsi_ema",
+    "variant": "baseline_rsi_ema",
+    "params": {
+      "strategy": "RSI9_EMA20_baseline",
+      "symbols": "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,ADAUSDT"
+    },
+    "date": "20260819",
+    "gate1_verdict": "PASS",
+    "gate2_passed": false
   }
 ]

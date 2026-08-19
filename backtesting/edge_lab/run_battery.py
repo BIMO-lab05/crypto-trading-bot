@@ -709,6 +709,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "output docs. Defaults to now."
         ),
     )
+    parser.add_argument(
+        "--candidates",
+        default=None,
+        help=(
+            "comma-separated candidate names (e.g. 'intraday_seasonality') to "
+            "run instead of the full default_registry() set — filters, never "
+            "adds; an unknown name raises. Defaults to all registered "
+            "candidates."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -721,7 +731,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         now_ms = int(time.time() * 1000)
 
-    results = run_battery(Path(args.data_dir), Path(args.pin), Path(args.out), now_ms)
+    candidates = None
+    if args.candidates:
+        registry = default_registry()
+        names = [n.strip() for n in args.candidates.split(",") if n.strip()]
+        unknown = [n for n in names if n not in registry]
+        if unknown:
+            raise SystemExit(
+                f"--candidates: unknown name(s) {unknown}; known: {sorted(registry)}"
+            )
+        candidates = {n: registry[n] for n in names}
+
+    results = run_battery(
+        Path(args.data_dir), Path(args.pin), Path(args.out), now_ms, candidates
+    )
     for candidate, result in results.items():
         logger.info("%s: %s", candidate, result["verdict"])
 
