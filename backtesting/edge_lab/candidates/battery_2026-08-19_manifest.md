@@ -103,3 +103,58 @@ before any battery-#3 candidate code, data fetch, or result is observed. No
 variant may be added after this commitment; no parameter may change after
 testing. Any variant that dies at Gate 1 or produces zero trades is still
 recorded in the ledger as a trial.
+
+## Amendment 1 (pre-battery, reviewer fix round 1)
+
+**Status: no battery-#3 result has been observed when this amendment was
+committed.** This amendment corrects three pre-registration gaps found in
+review — no variant, parameter, or pass criterion changes; only additions and
+one arithmetic correction, filed before any data is fetched.
+
+### (a) n_trials floor correction: 38 → 39
+
+The original "Trial accounting" section above computed `max(16, 30 + 8) = 38`,
+treating the 2026-08-19 baseline walk-forward run as not itself a ledger row.
+Spec §3 states verbatim: "currently 30 ledger entries + the 2026-08-19
+baseline walk-forward" — i.e. the walk-forward run is counted as a distinct,
+already-executed trial (no `baseline_rsi_ema` / RSI-EMA-family row exists
+anywhere in the ledger prior to it), separate from the 8 new variants this
+battery adds.
+
+- **Old value:** 38 (`max(16, 30+8)`)
+- **New value:** **39** (`max(16, 30 + 1 + 8)`)
+- **Reason:** the baseline walk-forward is a genuinely new executed trial, not
+  a re-derivation of an existing ledger entry, and per spec §3 must be counted
+  before this battery's 8 additions.
+- **Effect:** this only tightens the DSR gate (higher `n_trials` raises the
+  multiple-testing correction), so it is a legal post-hoc correction under the
+  Anti-P-Hacking Commitment — costs-only-tighten, never loosens a pass
+  criterion.
+- **Downstream note for Task 4:** the ledger append for the baseline
+  walk-forward trial must use a distinct variant name —
+  `baseline_rsi_ema_walkforward_taker` — so it is never confused with variant
+  #8 (`baseline_rsi_ema`, the maker re-gate of the same underlying trades).
+
+### (b) h1 data source pin for intraday_seasonality
+
+Both `funding_window_drift` and `hour_of_day` (variants #1–#2) consume h1
+(hourly) candles. Pinned inputs:
+
+| Parameter | Value |
+|-----------|-------|
+| Interval | "60" (Bybit API) |
+| Filename convention | `{symbol}_60m_365d_bybit.csv` |
+| Lookback | 365 days |
+
+### (c) Clean-data epoch pin
+
+Per CLAUDE.md §10, TimescaleDB holds mixed testnet/mainnet history; the
+testnet→mainnet cutover happened mid-day **2026-04-25**. All 8 variants in
+this battery are pinned to that epoch:
+
+- **Trade entries** (signal generation, fills, exits) occur only on bars
+  with timestamp **>= 2026-04-25**.
+- **Rolling-window warmup** (e.g. the 30-day rolling mean windows in
+  `funding_window_drift` / `hour_of_day`, or historical trade regeneration
+  for `maker_regate` variants) may read bars **before** 2026-04-25 for
+  indicator/state computation only — never as a tradeable bar.
