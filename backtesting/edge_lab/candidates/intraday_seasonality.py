@@ -36,10 +36,18 @@ def _funding_window_drift(d: pd.DataFrame, symbol: str) -> list[Trade]:
     # close, exit = settlement bar close).
     for i in range(ROLL_DAYS * 24, len(d) - 1):
         nxt = d.iloc[i + 1]
-        if nxt["hour"] not in FUNDING_HOURS_UTC or nxt["ts_ms"] < CLEAN_EPOCH_MS:
+        if nxt["hour"] not in FUNDING_HOURS_UTC:
             continue
-        # Rolling mean of PRIOR pre-funding-hour returns (strictly before bar i+1).
-        hist = d.iloc[: i + 1]
+        # Gate on the ENTRY bar (i), not the exit bar (i+1) — the entry is
+        # the trade this candidate is pre-registered to skip before the
+        # clean-data epoch. Gating on the exit bar let entries land on the
+        # last pre-epoch bar.
+        if d.iloc[i]["ts_ms"] < CLEAN_EPOCH_MS:
+            continue
+        # Rolling mean of PRIOR pre-funding-hour returns, strictly before the
+        # entry bar (i) — the entry bar's own return is excluded even though
+        # it is technically known at decision time, to match the manifest.
+        hist = d.iloc[:i]
         prior = hist[hist["hour"].isin(FUNDING_HOURS_UTC)]["ret"].tail(
             ROLL_DAYS * len(FUNDING_HOURS_UTC)
         )
@@ -65,7 +73,7 @@ def _hour_of_day(d: pd.DataFrame, symbol: str) -> list[Trade]:
     d = d.assign(date=ts.dt.date)
     for day, day_rows in d.groupby("date"):
         first_idx = day_rows.index[0]
-        if first_idx < ROLL_DAYS * 24 or day_rows.iloc[0]["ts_ms"] < CLEAN_EPOCH_MS:
+        if first_idx < ROLL_DAYS * 24:
             continue
         hist = d.loc[: first_idx - 1].tail(ROLL_DAYS * 24)
         by_hour = hist.groupby("hour")["ret"].mean()
@@ -79,11 +87,18 @@ def _hour_of_day(d: pd.DataFrame, symbol: str) -> list[Trade]:
             i = bar.index[0]
             if i == 0 or i + 1 >= len(d):
                 continue
+            entry_ts = int(d.loc[i - 1, "ts_ms"])
+            # Gate on the actual entry bar (i-1), not the day's first bar —
+            # when the strong/weak hour is 0, the entry (the prior hour) can
+            # be the LAST bar of the previous, pre-epoch day even though the
+            # day itself starts after the epoch.
+            if entry_ts < CLEAN_EPOCH_MS:
+                continue
             trades.append(
                 Trade(
                     symbol,
                     side,
-                    int(d.loc[i - 1, "ts_ms"]),
+                    entry_ts,
                     int(d.loc[i, "ts_ms"]),
                     float(d.loc[i - 1, "close"]),
                     float(d.loc[i, "close"]),
