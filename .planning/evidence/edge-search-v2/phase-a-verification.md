@@ -102,9 +102,22 @@ SELECT symbol, count(*), to_timestamp(max(timestamp)/1000) FROM open_interest GR
 
 All 14 collected symbols (the wider market-data research universe, per CLAUDE.md
 §5) show rows in both tables, including the 5 validated trading symbols
-(BTC, ETH, SOL, BNB, ADA). `open_interest` already carried history back to
-2026-08-18 23:40:00 UTC — collection had been running continuously since the
-prior (pre-restart) container instance; the redeploy did not reset it.
+(BTC, ETH, SOL, BNB, ADA). `open_interest` shows 200 rows per symbol with a
+`timestamp` span back to 2026-08-18 23:40:00 UTC, but this is **not** evidence of
+continuous pre-deploy collection. Checking `created_at` for all 200 ADAUSDT rows
+shows them clustered in a ~5-minute window at deploy time:
+
+```sql
+SELECT min(created_at), max(created_at), count(*) FROM open_interest WHERE symbol='ADAUSDT';
+-- min=1787156281570  max=1787156582040  count=201
+```
+
+That is a single bulk insert, not 200 separate 5-minute-interval writes. The
+correct explanation: Bybit's open-interest endpoint natively returns up to 200
+entries per request at 5-minute granularity, so the collector's first fetch after
+deploy pulled the exchange's own ~16.7-hour history page and wrote it in one
+batch — exactly the natural backfill spec §2 A2 intended, not evidence the
+service was already running before this deploy.
 
 ## Proof 4 — service restarted with the new code
 
