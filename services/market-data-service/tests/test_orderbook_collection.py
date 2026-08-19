@@ -69,3 +69,22 @@ async def test_save_snapshot_writes_row(mock_time, mock_get_db_session):
     assert row.timestamp == 1755600000000
     assert '"bids"' in row.snapshot_data
     assert '"asks"' in row.snapshot_data
+
+
+@pytest.mark.asyncio
+async def test_collect_orderbook_data_fetches_and_saves_all_pairs():
+    from app import scheduler as sched
+
+    fake_ob = {"symbol": "X", "timestamp_ms": 1, "bids": [], "asks": []}
+    with (
+        patch.object(sched, "_trading_pairs", return_value=["BTCUSDT", "ETHUSDT"]),
+        patch("app.scheduler.BybitDataFetcher") as F,
+        patch("app.scheduler.OrderbookRepository") as R,
+    ):
+        F.return_value.get_orderbook = AsyncMock(return_value=fake_ob)
+        F.return_value.close = AsyncMock()
+        R.return_value.save_snapshot = AsyncMock(return_value=True)
+        await sched.collect_orderbook_data()
+    assert F.return_value.get_orderbook.await_count == 2
+    assert R.return_value.save_snapshot.await_count == 2
+    F.return_value.close.assert_awaited()  # pool leak guard, same as ticker job

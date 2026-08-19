@@ -15,7 +15,7 @@ from typing import List
 import asyncio
 
 from app.fetcher import BybitDataFetcher, get_interval_minutes
-from app.repository import KlineRepository, TickerRepository
+from app.repository import KlineRepository, OrderbookRepository, TickerRepository
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -243,6 +243,37 @@ async def collect_kline_data():
     )
 
 
+async def collect_orderbook_data():
+    """Scheduled job: top-25 orderbook snapshot per pair. Runs every 5 seconds.
+
+    max_instances=1 + coalesce=True at registration make a slow tick SKIP
+    the next rather than queue (spec A1 rate-limit rule).
+    """
+    fetcher = BybitDataFetcher()
+    repo = OrderbookRepository()
+    success_count = 0
+    error_count = 0
+    try:
+        for symbol in _trading_pairs():
+            try:
+                snapshot = await fetcher.get_orderbook(symbol, limit=25)
+                if snapshot and await repo.save_snapshot(snapshot):
+                    success_count += 1
+                else:
+                    error_count += 1
+            except Exception as e:
+                logger.error(f"❌ Error collecting orderbook for {symbol}: {e}")
+                error_count += 1
+    finally:
+        # Always release the httpx connection pool (see collect_ticker_data).
+        await fetcher.close()
+
+    if error_count:
+        logger.warning(
+            f"📖 Orderbook collection: {success_count} ok, {error_count} errors"
+        )
+
+
 async def collect_all_data():
     """
     Scheduled job: Collect both ticker and kline data
@@ -309,6 +340,19 @@ def start_scheduler():
         coalesce=True,
     )
     logger.info("✅ Scheduled: Kline collection every 5 minutes (offset +2min)")
+
+    # Job: orderbook snapshots every 5 seconds (edge-search v2 A1)
+    _scheduler.add_job(
+        collect_orderbook_data,
+        trigger=IntervalTrigger(seconds=5),
+        id="orderbook_collection",
+        name="Orderbook Snapshot Collection",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=4,  # < interval: a missed tick is dropped, not queued
+        coalesce=True,
+    )
+    logger.info("✅ Scheduled: Orderbook snapshots every 5 seconds")
 
     # Job 3: Hourly comprehensive collection (backup)
     _scheduler.add_job(
