@@ -2,19 +2,19 @@
 # Purpose: Execute trading strategies with risk management
 
 # Web Framework
-fastapi==0.109.0          # Modern async web framework
-uvicorn[standard]==0.27.0 # ASGI server
+fastapi==0.109.2          # Modern async web framework
+uvicorn[standard]==0.52.3 # ASGI server
 pydantic==2.5.3           # Data validation
 pydantic-settings==2.1.0  # Settings management
 
 # Data Processing
-pandas==2.2.0             # Data manipulation
-numpy==1.26.3             # Numerical computing
-scipy==1.11.4             # Scientific computing (for statistical tests)
-statsmodels==0.14.1       # Statistical analysis (ADF, cointegration tests)
+pandas==3.0.5             # Data manipulation
+numpy==1.26.4             # Numerical computing
+scipy==1.18.0             # Scientific computing (for statistical tests)
+statsmodels==0.14.6       # Statistical analysis (ADF, cointegration tests)
 
 # Model artifact loader (lightweight)
-joblib==1.3.2
+joblib==1.5.3
 
 # NOTE: scikit-learn and tensorflow were removed 2026-05-02. LSTM was deleted
 # (commits 324e162, 9a0f584) and there are zero `import sklearn` / `import
@@ -23,54 +23,54 @@ joblib==1.3.2
 # would re-introduce ~600 MB of dead weight for the slim trading orchestrator.
 
 # Database
-asyncpg==0.29.0           # Async PostgreSQL driver
-psycopg2-binary==2.9.9    # Sync PostgreSQL driver
-sqlalchemy==2.0.25        # ORM
-alembic==1.13.1           # Migrations
+asyncpg==0.31.0           # Async PostgreSQL driver
+psycopg2-binary==2.9.12    # Sync PostgreSQL driver
+sqlalchemy==2.0.52        # ORM
+alembic==1.19.1           # Migrations
 
 # Caching & Messaging
 aioredis==2.0.1           # Redis client
-redis==5.0.1              # Sync Redis
-pika==1.3.2               # RabbitMQ client
+redis==5.3.1              # Sync Redis
+pika==1.4.4               # RabbitMQ client
 
 # State Machine (for order lifecycle)
-transitions==0.9.0        # Finite state machine
+transitions==0.9.3        # Finite state machine
 
 # HTTP Client
-httpx==0.27.0             # HTTP client
-aiohttp==3.9.3            # Async HTTP client (for notification service)
+httpx==0.28.1             # HTTP client
+aiohttp==3.14.3            # Async HTTP client (for notification service)
 
 # Monitoring & Logging
-prometheus-client==0.19.0 # Metrics
+prometheus-client==0.26.0 # Metrics
 python-json-logger==2.0.7 # Structured logging
-sentry-sdk==1.40.0        # Error tracking
+sentry-sdk==2.68.0        # Error tracking
 
 # Utilities
-pyjwt[crypto]>=2.10.1     # app/exchanges/coinbase.py signs ES256 JWTs at module import;
+pyjwt[crypto]>=2.13.0     # app/exchanges/coinbase.py signs ES256 JWTs at module import;
                           # app/exchanges/__init__.py imports it unconditionally, so the
                           # whole exchanges package (incl. bybit_adapter) fails to import
                           # without this. [crypto] extra is required for ES256.
-python-dotenv==1.0.0      # Environment variables
-python-dateutil==2.8.2    # Date utilities
-schedule==1.2.0           # Task scheduling
+python-dotenv==1.2.2      # Environment variables
+python-dateutil==2.9.0.post0    # Date utilities
+schedule==1.2.2           # Task scheduling
 
 # Testing
 pytest==7.4.4             # Testing framework
-pytest-asyncio==0.23.3    # Async test support
-pytest-cov==4.1.0         # Coverage
-pytest-mock==3.12.0       # Mocking
-pytest-timeout==2.2.0     # Test timeouts
-freezegun==1.4.0          # Time mocking
-respx==0.22.0             # HTTP mocking for integration tests (>=0.21 needed for httpx 0.27)
+pytest-asyncio==0.26.0    # Async test support
+pytest-cov==7.1.0         # Coverage
+pytest-mock==3.15.1       # Mocking
+pytest-timeout==2.4.0     # Test timeouts
+freezegun==1.5.5          # Time mocking
+respx==0.23.1             # HTTP mocking for integration tests (>=0.21 needed for httpx 0.27)
 
 # Development
-black==24.1.1             # Code formatter
-isort==5.13.2             # Import sorter
-mypy==1.8.0               # Type checker
-flake8==7.0.0             # Linter
-flake8-bugbear==24.1.17   # Additional flake8 checks
-flake8-comprehensions==3.14.0  # Comprehension checks
-bandit==1.7.6             # Security linter
+black==26.5.1             # Code formatter
+isort==8.0.1             # Import sorter
+mypy==2.3.1               # Type checker
+flake8==7.3.0             # Linter
+flake8-bugbear==25.11.29   # Additional flake8 checks
+flake8-comprehensions==3.17.0  # Comprehension checks
+bandit==1.9.4             # Security linter
 pydocstyle==6.3.0         # Documentation style checker
-pre-commit==3.6.0         # Git hooks framework
-psutil==5.9.7             # System monitoring (for stress tests)
+pre-commit==4.6.2         # Git hooks framework
+psutil==7.2.2             # System monitoring (for stress tests)

@@ -5,61 +5,61 @@
 # Added slowapi with Redis backend for distributed rate limiting
 
 # Web Framework
-fastapi==0.109.0          # Modern async web framework
-uvicorn[standard]==0.27.0 # ASGI server
-pydantic[email]==2.13.3   # Data validation; cp314 wheels (was 2.5.3 -> pydantic-core 2.14.6, no cp314)
-pydantic-settings==2.14.0 # Settings management (compat with pydantic 2.13)
-email-validator==2.2.0    # Email validation for pydantic (2.1.0 was yanked)
+fastapi==0.109.2          # Modern async web framework
+uvicorn[standard]==0.52.3 # ASGI server
+pydantic[email]==2.13.4   # Data validation; cp314 wheels (was 2.5.3 -> pydantic-core 2.14.6, no cp314)
+pydantic-settings==2.14.2 # Settings management (compat with pydantic 2.13)
+email-validator==2.3.0    # Email validation for pydantic (2.1.0 was yanked)
 starlette==0.35.1         # ASGI framework (security headers middleware)
 
 # Authentication & Security
-pyjwt[crypto]>=2.10.1     # JWT token handling (replaces unmaintained python-jose; cp314 compatible)
-python-jose[cryptography]>=3.3.0  # Temporary pin — auth_models.py still imports `from jose`; remove after migration to pyjwt API
-cryptography>=46.0.0      # Pinned for cp314 wheels; pyjwt[crypto] extra also depends on it
+pyjwt[crypto]>=2.13.0     # JWT token handling (replaces unmaintained python-jose; cp314 compatible)
+python-jose[cryptography]>=3.5.0  # Temporary pin — auth_models.py still imports `from jose`; remove after migration to pyjwt API
+cryptography>=50.0.0      # Pinned for cp314 wheels; pyjwt[crypto] extra also depends on it
 libpass[bcrypt]==1.9.3    # passlib successor (drop-in `passlib` namespace); fixes bcrypt 5.0 ValueError on detect_wrap_bug check
-python-multipart==0.0.6   # Form data support
+python-multipart==0.0.32   # Form data support
 bcrypt==5.0.0             # Password hashing backend; cp314 wheels start at 5.0.0
 
 # Rate Limiting (SECURITY: Redis-backed for distributed limiting)
-slowapi==0.1.9            # Rate limiting for FastAPI
-limits==3.7.0             # Rate limiting backend with Redis storage
+slowapi==0.1.10            # Rate limiting for FastAPI
+limits==5.8.0             # Rate limiting backend with Redis storage
 
 # Retry & Resilience
-tenacity==9.1.2           # Retry with exponential backoff
+tenacity==9.1.4           # Retry with exponential backoff
 circuitbreaker==2.1.3     # Circuit breaker pattern
 
 # HTTP Client
-httpx==0.27.0             # HTTP client for routing (compatible with pytest-httpx)
+httpx==0.28.1             # HTTP client for routing (compatible with pytest-httpx)
 
 # CORS (Note: FastAPI has built-in CORSMiddleware)
 # Removed fastapi-cors as it's deprecated - using starlette.middleware.cors
 
 # Database (for auth tokens/sessions)
 asyncpg==0.31.0           # Async PostgreSQL driver; cp314 wheels start at 0.31.0
-sqlalchemy==2.0.49        # ORM; <2.0.45 fails on Py3.14 (TypingOnly assertion vs PEP 749 __static_attributes__)
+sqlalchemy==2.0.52        # ORM; <2.0.45 fails on Py3.14 (TypingOnly assertion vs PEP 749 __static_attributes__)
 aioredis==2.0.1           # Redis for sessions
 
 # Caching & Rate Limit Storage
-fastapi-cache2==0.2.1     # Redis caching for FastAPI
-redis==5.0.1              # Redis client (used by slowapi for distributed rate limiting)
+fastapi-cache2==0.2.2     # Redis caching for FastAPI
+redis==5.3.1              # Redis client (used by slowapi for distributed rate limiting)
 
 # Monitoring & Logging
-prometheus-client==0.19.0 # Metrics
+prometheus-client==0.26.0 # Metrics
 python-json-logger==2.0.7 # Structured logging
-sentry-sdk==1.40.0        # Error tracking
+sentry-sdk==2.68.0        # Error tracking
 
 # Utilities
-python-dotenv==1.0.0      # Environment variables
+python-dotenv==1.2.2      # Environment variables
 
 # Testing
 pytest==7.4.4             # Testing framework
-pytest-asyncio==0.23.3    # Async test support
-pytest-cov==4.1.0         # Coverage
-pytest-mock==3.12.0       # Mocking
-pytest-httpx==0.30.0      # HTTP mocking (httpx-mock renamed)
+pytest-asyncio==0.26.0    # Async test support
+pytest-cov==7.1.0         # Coverage
+pytest-mock==3.15.1       # Mocking
+pytest-httpx==0.36.2      # HTTP mocking (httpx-mock renamed)
 
 # Development
-black==24.1.1             # Code formatter
-isort==5.13.2             # Import sorter
-mypy==1.8.0               # Type checker
-flake8==7.0.0             # Linter
+black==26.5.1             # Code formatter
+isort==8.0.1             # Import sorter
+mypy==2.3.1               # Type checker
+flake8==7.3.0             # Linter

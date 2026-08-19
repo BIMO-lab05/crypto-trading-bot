@@ -2,13 +2,13 @@
 
 # FastAPI and server
 fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
+uvicorn[standard]==0.52.3
+pydantic==2.5.3
 pydantic-settings==2.1.0
-python-dotenv==1.0.0
+python-dotenv==1.2.2
 
 # HTTP client for Telegram/Slack
-httpx==0.27.0
+httpx==0.28.1
 
 # Email support - using stdlib smtplib, no additional packages needed
 
@@ -16,24 +16,24 @@ httpx==0.27.0
 python-json-logger==2.0.7
 
 # Prometheus metrics (used by app/main.py)
-prometheus-client==0.19.0
+prometheus-client==0.26.0
 
 # Timezone support for quiet hours
-pytz==2024.1
+pytz==2026.3.post1
 
 # SMS support (optional - Twilio)
-twilio==8.10.0
+twilio==9.11.0
 
 # Database support for alert storage (optional)
-asyncpg==0.29.0
-sqlalchemy[asyncio]==2.0.23
+asyncpg==0.31.0
+sqlalchemy[asyncio]==2.0.52
 
 # Redis for rate limiting (optional)
-redis==5.0.1
+redis==5.3.1
 
 # Testing
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-cov==4.1.0
-pytest-mock==3.12.0
-respx==0.20.2
+pytest==7.4.4
+pytest-asyncio==0.26.0
+pytest-cov==7.1.0
+pytest-mock==3.15.1
+respx==0.23.1
