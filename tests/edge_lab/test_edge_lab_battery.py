@@ -275,3 +275,33 @@ def test_verdict_docs_written_with_caveats(tmp_path, monkeypatch):
     assert "Survivorship" in text and "num_trials floor = 16" in text
     summaries = list(out.glob("battery-summary-*.md"))
     assert len(summaries) == 1
+
+
+def test_trades_csv_is_date_stamped(tmp_path, monkeypatch):
+    """A re-run must not overwrite an earlier battery's committed trades CSVs.
+
+    Verdict docs are date-stamped; the trades CSVs they reference were not, so
+    re-running truncated the eight files the committed *-verdict-20260817.json
+    records point at.
+    """
+    from edge_lab.run_battery import date_str_from_ms
+
+    monkeypatch.setattr(trial_ledger, "ledger_path", lambda: tmp_path / "ledger.json")
+
+    daily = make_daily(["AUSDT"], n_days=400)
+    _write_daily_csvs(tmp_path, daily)
+    pin = _pin(tmp_path, ["AUSDT"])
+    now_ms = T0 + 400 * DAY
+
+    res = run_battery(
+        tmp_path,
+        pin,
+        tmp_path / "out",
+        now_ms,
+        candidates=_stub_registry({"quiet": lambda b, v: []}),
+    )
+
+    csv_path = Path(res["quiet"]["variants"][0]["trades_csv"])
+    assert csv_path.parent.name == date_str_from_ms(now_ms)
+    assert csv_path.parent.parent.name == "trades"
+    assert csv_path.exists()

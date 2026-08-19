@@ -440,9 +440,10 @@ def _score_variant(
     out_dir: Path,
     funding_dir: Path,
     num_trials_floor: int,
+    date_str: str,
 ) -> dict[str, Any]:
     trades = _generate(entry, bundle, variant)
-    csv_path = Path(out_dir) / "trades" / f"{candidate}_{variant.name}.csv"
+    csv_path = Path(out_dir) / "trades" / date_str / f"{candidate}_{variant.name}.csv"
     write_trades_csv(trades, csv_path)
 
     record: dict[str, Any] = {
@@ -575,6 +576,7 @@ def run_battery(
                         out_dir,
                         funding_dir,
                         effective_floor,
+                        date_str,
                     )
                 )
             result["verdict"] = overall_verdict(result["variants"])
