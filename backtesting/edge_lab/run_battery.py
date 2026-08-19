@@ -85,6 +85,13 @@ logger = logging.getLogger(__name__)
 
 DAY = 86_400_000
 
+# Not in config.py (intentional — that file is pinned for the other five
+# candidates' gate thresholds). "60" is Bybit's v5 kline interval for 1h;
+# 365d matches the h4 lookback and the manifest's frozen filename
+# convention {symbol}_60m_365d_bybit.csv.
+H1_INTERVAL = "60"
+H1_LOOKBACK_DAYS = 365
+
 # CPCV purge/embargo horizon per candidate — the holding period each one's
 # label spans. Wrong here means purging the wrong amount of data around each
 # test fold, so it is pinned rather than inferred from realized holds.
@@ -94,6 +101,7 @@ LABEL_HORIZONS = {
     "lf_trend": 30,
     "vol_breakout": 5,
     "pairs_statarb": 2,
+    "intraday_seasonality": 1,
 }
 # Only reachable for a candidate outside the registry (a test stub). Named
 # and warned about rather than silently assumed.
@@ -106,6 +114,7 @@ _CANDIDATE_SPECS = (
     ("lf_trend", "edge_lab.candidates.lf_trend", ("daily",)),
     ("vol_breakout", "edge_lab.candidates.vol_breakout", ("h4",)),
     ("pairs_statarb", "edge_lab.candidates.pairs_statarb", ("daily",)),
+    ("intraday_seasonality", "edge_lab.candidates.intraday_seasonality", ("h1",)),
 )
 
 _costs = load_costs()
@@ -201,7 +210,7 @@ def load_bundle(
 ) -> tuple[dict[str, dict], str]:
     """Gate 0 over every pinned symbol, then the surviving data bundle.
 
-    Returns `({"daily": ..., "h4": ..., "funding": ...}, sanity_summary)`.
+    Returns `({"daily": ..., "h4": ..., "h1": ..., "funding": ...}, sanity_summary)`.
 
     Drops are scoped to the interval that failed. A 4h defect costs the
     symbol its 4h entry only; its daily bars are still trustworthy and the
@@ -227,11 +236,13 @@ def load_bundle(
 
     daily: dict[str, pd.DataFrame] = {}
     h4: dict[str, pd.DataFrame] = {}
+    h1: dict[str, pd.DataFrame] = {}
     funding: dict[str, pd.DataFrame] = {}
     reports: list[SanityReport] = []
     notes: list[str] = []
     dropped_daily: set[str] = set()
     dropped_h4: set[str] = set()
+    dropped_h1: set[str] = set()
 
     for symbol in symbols:
         # Funding is per symbol, not per interval, so it is resolved once
@@ -292,21 +303,40 @@ def load_bundle(
             else:
                 dropped_h4.add(symbol)
 
+        h1_path = kline_csv_path(data_dir, symbol, H1_INTERVAL, H1_LOOKBACK_DAYS)
+        if not h1_path.is_file():
+            notes.append(
+                f"{symbol} [{H1_INTERVAL}] no kline CSV at {h1_path} — "
+                "1h candidates skip this symbol (not a Gate 0 defect)"
+            )
+        else:
+            h1_df = read_kline_csv(h1_path, H1_INTERVAL, now_ms)
+            h1_report = check_klines(h1_df, symbol, H1_INTERVAL)
+            h1_report.funding_ok, h1_report.funding_n = funding_ok, funding_n
+            reports.append(h1_report)
+            if h1_report.ok:
+                h1[symbol] = h1_df.sort_values("ts_ms").reset_index(drop=True)
+            else:
+                dropped_h1.add(symbol)
+
     for symbol in dropped_daily:
         daily.pop(symbol, None)
         funding.pop(symbol, None)
     for symbol in dropped_h4:
         h4.pop(symbol, None)
+    for symbol in dropped_h1:
+        h1.pop(symbol, None)
 
     summary_lines = [render_sanity_table(reports)] if reports else []
     summary_lines.extend(notes)
     summary_lines.append(
         f"pinned={len(symbols)} kept_daily={len(daily)} kept_h4={len(h4)} "
-        f"funding_series={len(funding)} "
+        f"kept_h1={len(h1)} funding_series={len(funding)} "
         f"dropped_daily=[{', '.join(sorted(dropped_daily))}] "
-        f"dropped_h4=[{', '.join(sorted(dropped_h4))}]"
+        f"dropped_h4=[{', '.join(sorted(dropped_h4))}] "
+        f"dropped_h1=[{', '.join(sorted(dropped_h1))}]"
     )
-    bundle = {"daily": daily, "h4": h4, "funding": funding}
+    bundle = {"daily": daily, "h4": h4, "h1": h1, "funding": funding}
     return bundle, "\n".join(line for line in summary_lines if line)
 
 
