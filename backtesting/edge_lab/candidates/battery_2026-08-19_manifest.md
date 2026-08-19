@@ -213,3 +213,138 @@ must derive its projected floor from `distinct_variant_count()` (distinct
 (raw row count) — the two diverge whenever a battery re-runs a
 previously-ledgered variant, which every battery so far has done at least
 once.
+
+## Amendment 3 (post-battery, final-review fix wave)
+
+**Status: filed after the whole-plan final review (`.superpowers/sdd/
+2026-08-19-edge-search-v2-phase-b-batteries/final-review.md`) found three
+defects in how the v1 maker re-gate (2026-08-19, commits through
+`c11b111`) was executed. v1's 6 verdicts are RETAINED as failed-methodology
+trials, not deleted or overwritten; v2 supersedes them with corrections
+below. No pass criterion, threshold, or gate is changed — costs only go
+up, per §5.2.**
+
+### (a) C1 — the maker fill filter tested the wrong bar for 5 of 6 candidates
+
+`maker_fill.py` (Task 3) assumed every candidate's `entry_px` is the
+signal bar's own close, and tested the STRICT NEXT-ADJACENT bar for
+trade-through. That is correct for `pairs_statarb` only. The other five —
+`xs_momentum`, `lf_trend`, `funding_carry`, `vol_breakout`, and
+`baseline_rsi_ema` — all stamp `entry_ts_ms`/`entry_px` from the SAME bar
+(the fill bar, one bar after the signal bar), with `entry_px` equal to
+that bar's own open. v1 tested the bar AFTER that one — the bar after the
+one the order would actually have rested on — which (i) discarded
+trades on an adversely-selected basis (kept pullbacks, dropped
+run-aways) and (ii) turned three v1 Gate-1 KILLs into artifacts of the
+displaced test rather than measurements of maker economics.
+
+Fixed in `maker_fill.apply_maker_fill` via a new `entry_basis:
+Literal["open", "close"]` parameter (default `"close"`, the original,
+still-correct behavior for `pairs_statarb`). `"open"` tests the entry bar
+itself, with the limit price read from the bars frame's own `open`
+column — never from `entry_px` directly, because `baseline_rsi_ema`'s
+engine-derived `entry_px` carries a slippage markup that would make the
+trade-through test true by construction (see (a.1) below). Each
+candidate's classification is cited to source line numbers in
+`run_maker_regate.py`'s `_CANDIDATE_ENTRY_BASIS`.
+
+**(a.1) baseline_rsi_ema was independently re-classified during the fix,
+not taken as given.** The final review's own m2 finding called
+`baseline_rsi_ema` "close" basis, citing `backtest_engine.py:460`
+(`entry_price = price * (1 +/- slip)`) in isolation. Tracing the actual
+caller (`backtest_engine.py:310-319`, the pending-signal branch) shows
+`price` there is `row["open"]` of the CURRENT bar, and `time` is that
+same bar's own `current_time` — i.e. `entry_time`/`entry_price` anchor to
+the SAME bar, exactly like the other four "open" candidates, not to the
+signal bar's close. Empirically verified against the live h1 bundle
+(sampled trades, `entry_price / matching_bar_open` = `1 +/- 0.0005`,
+matching the ATR-floor slippage, not the bar's close) — see the Task 4
+fix report. Re-classified `baseline_rsi_ema` as `"open"`.
+
+### (b) H2 — Gate 2 charged taker costs inside a maker re-gate
+
+v1 called `run_battery.score_gate2`, whose cost map is hardcoded to
+taker/taker `round_trip_bps` — so Gate 1 ran on ~4-30 bps (taker/maker
+mix depending on the column) while Gate 2, immediately after, charged the
+full ~24-30 bps taker round trip. Both Gate-1 passers were then
+statistically tested against a cost floor the re-gate exists to relax.
+
+Fixed via `run_maker_regate._score_gate2_maker`, a parallel implementation
+that reuses `gate2.daily_returns_from_trades`/`gate2.run_gate2` (the
+actual CPCV/DSR statistical machinery) unchanged, substituting only the
+cost map. `run_battery.py` and `screen.py` are untouched — no shared gate
+logic was modified, only duplicated with a different cost input, because
+neither function accepts an injectable cost map.
+
+### (c) M1 — the executed maker cost model was cheaper than the frozen one
+
+The frozen model (this manifest, "Maker fill model" above) mixes exit
+legs (stop=taker, TP/time=maker-with-its-own-trade-through-test, fallback
+to taker) — nowhere fully implemented, and v1's Gate 1 read
+`screen_trades`' pure MAKER/MAKER `ratio_maker` column (4 bps flat,
+cheaper than the frozen model, against §5.2 "costs only go up").
+
+v2 implements the conservative, spec-compliant UPPER BOUND: maker fee, no
+slippage, on the entry leg (a resting order fills at the price it
+posted); taker fee PLUS the same per-symbol slippage table on the exit
+leg (`_maker_regate_round_trip_bps`, using
+`costs.round_trip_cost_bps(entry_liquidity=MAKER, exit_liquidity=TAKER,
+...)`, which already supports mixed legs — no new cost function was
+needed). This is used as BOTH the Gate 1 hurdle cost and the Gate 2 H2
+cost map — the two gates never disagree about what a trade costs.
+Realized `cost_bps_mixed` across the six v2 verdicts: 14.7-17.5 bps,
+strictly between the pure-maker (4 bps) and pure-taker (~24-30 bps)
+reference columns, which are still reported alongside for comparison
+(informational only — not the verdict basis).
+
+### (d) M2/M3 — wording and a missing summary
+
+`MAKER_NOTE` reworded: it no longer claims "slippage table unchanged" in
+a way that reads as slippage still applying to the maker leg — it now
+states the entry leg pays no slippage and the exit leg pays taker fee
+plus the (unchanged) table. A `maker_regate_v2-summary-20260819.md`
+aggregate summary was added (`_write_regate_summary`, reusing
+`verdicts.render_summary`) — v1 never had one; a reader of the evidence
+directory previously had no single-page view of the 6 re-gates.
+
+### v1 -> v2 verdict table
+
+All figures are the actual measured output — REJECT was the expectation
+per this manifest's own "fast REJECT" framing for weak candidates, but
+the numbers decide, and four candidates now clear Gate 1 (not softened,
+not rounded):
+
+| candidate | v1 fill_rate | v2 fill_rate | v1 gate1 | v2 gate1 | v2 gate2 | v2 overall |
+|---|---|---|---|---|---|---|
+| xs_momentum | 0.760 | 0.989 | KILL | KILL | — | REJECT |
+| lf_trend | 0.752 | 0.996 | PASS | PASS | FAIL (dsr ~0) | REJECT |
+| funding_carry | 0.742 | 0.992 | KILL | **PASS** | FAIL (dsr ~0) | REJECT |
+| pairs_statarb | 0.996 | 0.996 | KILL | KILL | — | REJECT (unaffected — was already "close" basis) |
+| vol_breakout | 0.762 | 0.979 | KILL | **PASS** | FAIL (dsr ~0) | REJECT |
+| baseline_rsi_ema | 0.720 | 1.000 | PASS | PASS | FAIL (dsr ~0) | REJECT |
+
+`baseline_rsi_ema`'s v2 `fill_rate = 1.000` was independently sanity-checked
+against raw bar data (not assumed): sampled trades show the limit tested
+is the bar's own `open` (distinct from the engine's slippage-inflated
+`entry_px`), and the trade-through condition is a genuine per-bar
+empirical check, not a tautology — see the Task 4 fix report for the
+verification trace.
+
+Every v2 candidate that reaches Gate 2 fails it by a wide margin (`dsr` at
+or near the float-underflow floor, `2.6e-6` to `1.9e-7`, against the 0.95
+threshold) — the REJECT verdicts are unchanged in outcome, but three of
+them (`funding_carry`, `vol_breakout`, and — after re-classification —
+`baseline_rsi_ema`) now correctly answer B3's question ("was this REJECT
+purely a taker-cost artifact?") as **no, it clears costs but fails the
+statistical bar**, rather than the v1 "no, it dies under maker costs too"
+answer, which was itself an artifact of the displaced fill test.
+
+### Trial ledger
+
+6 new v2 trials appended with `_v2` (or `_maker_v2`) variant-name suffixes,
+distinct from every v1 name — v1 rows are NOT overwritten or removed.
+Ledger after this fix wave: 45 raw rows, 36 distinct trials (was 39/30
+before). Effective floor for the v2 run: `max(16, 30 + 6)` = 36 (verified:
+`thresholds.num_trials_floor` in every v2 verdict JSON). As with Amendments
+1-2, `num_trials_used = max(floor, n_paths_valid) = 45` for every
+Gate-2-scored v2 variant, so the floor never bound.

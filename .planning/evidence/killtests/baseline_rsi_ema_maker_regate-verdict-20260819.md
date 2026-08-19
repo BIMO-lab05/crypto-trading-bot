@@ -1,5 +1,8 @@
 # baseline_rsi_ema_maker_regate verdict: REJECT
 
+> **SUPERSEDED (2026-08-19, final-review fix wave).** This v1 maker re-gate tested the wrong bar for open-basis candidates (final-review C1) and charged Gate 2 at taker cost inside a maker re-gate (H2) — see manifest Amendment 3. Retained for audit trail, not deleted. Superseded by `baseline_rsi_ema_maker_regate_v2-verdict-20260819.md`.
+
+
 **Criterion (edge-research-battery design §5, paraphrased; every threshold below is read live from `edge_lab.config`, not transcribed):** Gate 1 gross edge ≥ 2× the taker round-trip cost; Gate 2 DSR ≥ 0.95 deflated at a num_trials floor of 30, pooled profit factor > 1.0, and positive net expectancy in ≥ 70% of CPCV paths. A variant must clear both gates; the candidate passes if any variant does.
 
 - date: 20260819
