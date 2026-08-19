@@ -38,7 +38,13 @@ def _trending_up():
 
 
 def test_two_variants_declared():
-    assert [v.name for v in VARIANTS] == ["dc_20_10", "dc_55_20"]
+    assert [v.name for v in VARIANTS] == [
+        "dc_20_10",
+        "dc_55_20",
+        "trend_atr_high_20d",
+        "trend_vol_spike_20d",
+        "trend_vix_analog_10d",
+    ]
 
 
 def test_uptrend_produces_long():
