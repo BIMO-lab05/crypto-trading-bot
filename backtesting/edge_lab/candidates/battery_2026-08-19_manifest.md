@@ -158,3 +158,58 @@ this battery are pinned to that epoch:
   `funding_window_drift` / `hour_of_day`, or historical trade regeneration
   for `maker_regate` variants) may read bars **before** 2026-04-25 for
   indicator/state computation only — never as a tradeable bar.
+
+## Amendment 2 (post-battery, reviewer fix round 1)
+
+**Status: all 8 battery-#3 variants have been observed and are committed
+(REJECT everywhere) when this amendment was filed.** This amendment is a
+documentation-only correction to Amendment 1(a)'s arithmetic model — it
+changes no variant, parameter, or verdict, and touches nothing but this
+manifest file.
+
+### Trial-floor mechanism corrected
+
+**(a) Amendment 1's formula mismodeled the code.** Amendment 1(a) computed
+the target floor as `max(16, 30 + 1 + 8) = 39`, treating "30" as the
+pre-battery **raw ledger row count**. `trial_ledger.effective_trials_floor()`
+does not key off raw row count — it keys off `distinct_variant_count()`, the
+number of **distinct** `(candidate, variant)` pairs in the ledger at call
+time. Re-running the same variant on a later date adds a row but not a
+distinct trial (`trial_ledger.py`'s own docstring: "counts once - it is the
+same hypothesis re-measured, not a new one drawn"). The pre-battery ledger
+held 30 raw rows but only **21 distinct trials**, so no run in this battery
+was ever going to see a floor of 39 by this mechanism.
+
+**(b) Actual floors applied**, confirmed from the committed verdict JSONs'
+`thresholds.num_trials_floor`:
+
+| Run | Ledger state at call time | Floor computed |
+|---|---|---|
+| `intraday_seasonality` (Step 3) | 21 distinct + 1 walk-forward-taker record not yet appended + 2 new variants | `max(16, 21+2)` = **23** |
+| maker re-gate, 6 candidates (Step 4) | 21 distinct + 1 walk-forward-taker + 2 seasonality = 24 distinct + 6 new variants | `max(16, 24+6)` = **30** |
+
+Neither run saw 39. The walk-forward-taker record-only trial
+(`baseline_rsi_ema_walkforward_taker`) was appended between the two runs
+(sequencing detail, see Task 4 report), which is why the seasonality run's
+own floor (23) does not yet include it while the maker re-gate's (30) does.
+
+**(c) Inert this battery.** `trial_ledger.py`'s own docstring already flags
+where this binds: `num_trials_used = max(effective_floor, n_paths_valid)`,
+and every Gate-2-scored variant in this battery (`lf_trend`,
+`baseline_rsi_ema`) reached the full `n_paths_valid = 45` (the pinned CPCV
+10/2 path count), which dominates both 23 and 30 and would have dominated
+39 too. No reported DSR, pooled PF, or `positive_path_frac` figure in any
+battery-#3 verdict would differ under any of the three floor values.
+
+**(d) Safe under the Anti-P-Hacking Commitment.** This is a post-hoc
+documentation correction with zero effect on any threshold, gate, or
+verdict already recorded — not a parameter change, not a variant addition,
+and it does not retroactively loosen anything. It corrects only how this
+manifest *describes* an already-correct, unmodified piece of code.
+
+**(e) Forward guidance.** Any future battery's pre-registration arithmetic
+must derive its projected floor from `distinct_variant_count()` (distinct
+`(candidate, variant)` pairs), not from `len(trial_ledger.load_entries())`
+(raw row count) — the two diverge whenever a battery re-runs a
+previously-ledgered variant, which every battery so far has done at least
+once.
