@@ -314,3 +314,19 @@ Check the marker file path exactly:
 `.planning/evidence/forward_paper_test/<flag_name>/PSR_CI_PUBLISHED`
 The `<flag_name>` must match the Python field name exactly (e.g.,
 `enable_vol_targeting`, not `ENABLE_VOL_TARGETING`).
+
+## Automation (2026-08-20)
+
+- Daily evidence tick: cron `30 6 * * *` runs `scripts/forward_paper_test/daily_evidence_tick.sh`
+  (evidence loop against `TOURNAMENT_DB_PATH`, default
+  `services/tournament-harness/data/leaderboard/leaderboard.db`), writing
+  `.planning/state/evidence_loop_last_tick.json` on every attempt.
+- Staleness tripwire: cron `0 7 * * *` runs `scripts/check_evidence_staleness.py`
+  (exit 1 when the marker is missing or older than 48h). WSL caveat: cron only
+  runs while WSL is up and the cron service is started (`sudo service cron start`);
+  the tripwire exists precisely because this scheduler can die silently — check
+  `.planning/state/evidence_staleness.log` when in doubt.
+- Weekly collection gap check: cron `15 7 * * 1` (Mondays) runs `check_collection_gaps.py --window-minutes 10080` into `.planning/state/collection_gaps_weekly.log` — the Phase C 21-day clock's tripwire (spec Stream 0).
+- The tick is expected to exit 2 (sqlite error, marker still written) until the
+  tournament harness first creates the leaderboard DB — dormant-but-alive is the
+  designed state during accrual.
