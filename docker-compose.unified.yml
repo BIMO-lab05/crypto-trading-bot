@@ -741,6 +741,14 @@ services:
       # host path). File does not exist until the harness's first run — the
       # preflight check is fail-soft (UNKNOWN) on a missing file.
       - TOURNAMENT_DB_PATH=/data/leaderboard.db
+      # Task 10 (2026-08-20): Tier-1 opt-in flags for forward-paper-test
+      # isolation runs (scripts/forward_paper_test/run_isolation.py). Must
+      # interpolate from the shell — the launcher rides the subprocess env
+      # (docker compose up has no -e flag) so overrides land here via
+      # ${VAR:-default}. Off by default until forward-paper-tested ≥7 days.
+      - ENABLE_VOL_TARGETING=${ENABLE_VOL_TARGETING:-false}
+      - PREFER_MAKER_ORDERS=${PREFER_MAKER_ORDERS:-false}
+      - ENABLE_FUNDING_GATE=${ENABLE_FUNDING_GATE:-false}
     volumes:
       - ./services/trading-engine/logs:/app/logs
       # RO dir-to-dir mount of shared safety/ directory. The kill-switch

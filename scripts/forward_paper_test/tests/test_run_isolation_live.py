@@ -5,7 +5,8 @@ All tests in this file FAIL until Task 2 implementation is in place.
 Tests
 -----
 Test 0  — PAPER_TRADING_MODE precondition: live launch refuses when env says LIVE.
-Test 1  — Live launch docker compose argv contains correct env overrides.
+Test 1  — Live launch docker compose argv is plain (no -e); env overrides ride
+          the subprocess environment instead.
 Test 2  — Evidence path directory + meta.json created before docker invocation.
 Test 3  — README.md documents run.json schema and operator workflow.
 Test 4  — publish-evidence subcommand validates presence of run.json + psr_ci.json
@@ -162,14 +163,24 @@ def test_live_launch_refuses_when_paper_trading_mode_false(tmp_path: Path, monke
 
 
 def test_live_launch_argv_contains_correct_env_overrides(tmp_path: Path, monkeypatch):
-    """Test 1: live launch builds docker compose argv with correct env overrides."""
+    """Test 1: live launch builds a plain docker compose argv (no -e — that
+    flag does not exist on `docker compose up`); env overrides ride the
+    subprocess environment instead.
+
+    Corrected 2026-08-20 (Task 10): this test previously asserted the old
+    broken `-e KEY=VALUE` argv shape, which pinned a defect that made the
+    launcher unable to invoke docker at all (`docker compose up` has no -e
+    flag). Updated to the real contract.
+    """
     monkeypatch.delenv("TRADING_MODE", raising=False)
     monkeypatch.setenv("PAPER_TRADING_MODE", "true")
 
     captured_argv: list = []
+    captured_env: dict = {}
 
     def fake_runner(argv, **kw):
         captured_argv.extend(argv)
+        captured_env.update(kw.get("env") or {})
         return subprocess.CompletedProcess(argv, returncode=0)
 
     sys.path.insert(0, str(_REPO))
@@ -189,8 +200,6 @@ def test_live_launch_argv_contains_correct_env_overrides(tmp_path: Path, monkeyp
         subprocess_runner=fake_runner,
     )
 
-    argv_str = " ".join(captured_argv)
-
     # Must use the unified compose file
     assert "-f" in captured_argv
     compose_file_idx = captured_argv.index("-f")
@@ -198,21 +207,62 @@ def test_live_launch_argv_contains_correct_env_overrides(tmp_path: Path, monkeyp
         f"Expected docker-compose.unified.yml in argv, got: {captured_argv}"
     )
 
-    # Must reference trading-engine service
-    assert "trading-engine" in argv_str, f"trading-engine not in argv: {argv_str}"
+    # Must reference trading-engine service as the final argv element
+    assert captured_argv[-1] == "trading-engine", (
+        f"trading-engine not the final argv element: {captured_argv}"
+    )
 
-    # Must include flag env overrides as -e KEY=VALUE pairs
-    assert "-e" in captured_argv, "No -e flags in docker compose argv"
-    assert "ENABLE_VOL_TARGETING=true" in argv_str, (
-        "ENABLE_VOL_TARGETING=true not in argv"
-    )
+    # docker compose up has no -e flag — must NOT appear in argv
+    assert "-e" not in captured_argv, f"-e must not appear in argv: {captured_argv}"
+
+    # Flag env overrides must ride the subprocess environment instead
+    assert captured_env["ENABLE_VOL_TARGETING"] == "true"
     # Other flags must be explicitly set to false (isolation guarantee)
-    assert "PREFER_MAKER_ORDERS=false" in argv_str, (
-        "PREFER_MAKER_ORDERS=false not in argv (isolation guarantee)"
+    assert captured_env["PREFER_MAKER_ORDERS"] == "false"
+    assert captured_env["ENABLE_FUNDING_GATE"] == "false"
+    # Sanity: the rest of the operator environment is preserved (os.environ
+    # merged in), not replaced outright.
+    assert "PATH" in captured_env
+
+
+def test_launcher_passes_overrides_via_env_not_argv(tmp_path: Path, monkeypatch):
+    """Task 10: docker compose up has no -e flag; overrides must ride the
+    subprocess env, not argv. Regression test for the launcher defect that
+    made every isolation run fail to launch since it shipped.
+    """
+    monkeypatch.delenv("TRADING_MODE", raising=False)
+    monkeypatch.setenv("PAPER_TRADING_MODE", "true")
+
+    captured = {}
+
+    def fake_runner(argv, cwd=None, env=None):
+        captured["argv"] = argv
+        captured["env"] = env
+        return subprocess.CompletedProcess(argv, returncode=0)
+
+    sys.path.insert(0, str(_REPO))
+    from scripts.forward_paper_test import run_isolation as ri_module
+    from scripts.forward_paper_test.run_isolation import run_isolation
+
+    # Override evidence base to tmp_path so mkdir doesn't fail in real repo
+    monkeypatch.setattr(ri_module, "_EVIDENCE_BASE", tmp_path / "evidence")
+
+    run_isolation(
+        flag="prefer_maker_orders",
+        duration_days=7,
+        run_id="test-run",
+        paper_trade_log=None,
+        dry_run=False,
+        subprocess_runner=fake_runner,
     )
-    assert "ENABLE_FUNDING_GATE=false" in argv_str, (
-        "ENABLE_FUNDING_GATE=false not in argv (isolation guarantee)"
-    )
+
+    assert "-e" not in captured["argv"]
+    assert captured["argv"][-1] == "trading-engine"
+    assert captured["env"]["PREFER_MAKER_ORDERS"] == "true"
+    assert captured["env"]["ENABLE_VOL_TARGETING"] == "false"
+    assert captured["env"]["ENABLE_FUNDING_GATE"] == "false"
+    # sanity: the rest of the operator environment is preserved
+    assert "PATH" in captured["env"]
 
 
 # ---------------------------------------------------------------------------
@@ -348,9 +398,7 @@ def test_publish_evidence_refuses_when_psr_ci_low_lte_zero(tmp_path: Path):
         text=True,
         cwd=str(_REPO),
     )
-    assert result.returncode != 0, (
-        "publish-evidence should exit non-zero when psr_ci_low <= 0.0"
-    )
+    assert result.returncode != 0, "publish-evidence should exit non-zero when psr_ci_low <= 0.0"
     marker = ev_dir / "PSR_CI_PUBLISHED"
     assert not marker.exists(), "Marker should NOT be written when CI brackets zero"
 
@@ -385,9 +433,7 @@ def test_publish_evidence_refuses_when_run_json_missing(tmp_path: Path):
         text=True,
         cwd=str(_REPO),
     )
-    assert result.returncode != 0, (
-        "publish-evidence should refuse when run.json is missing"
-    )
+    assert result.returncode != 0, "publish-evidence should refuse when run.json is missing"
     assert not (ev_dir / "PSR_CI_PUBLISHED").exists()
 
 
@@ -401,9 +447,7 @@ def test_publish_evidence_refuses_when_psr_ci_json_missing(tmp_path: Path):
         text=True,
         cwd=str(_REPO),
     )
-    assert result.returncode != 0, (
-        "publish-evidence should refuse when psr_ci.json is missing"
-    )
+    assert result.returncode != 0, "publish-evidence should refuse when psr_ci.json is missing"
     assert not (ev_dir / "PSR_CI_PUBLISHED").exists()
 
 

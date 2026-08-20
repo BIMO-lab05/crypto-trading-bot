@@ -111,28 +111,15 @@ def _check_paper_mode_precondition() -> None:
         sys.exit(1)
 
 
-def _build_docker_argv(flag: str, env_overrides: dict) -> list[str]:
-    """Build the docker compose argv for an isolation run.
+def _build_docker_argv(flag: str) -> list[str]:
+    """docker compose argv for an isolation run.
 
-    Produces:
-        docker compose -f docker-compose.unified.yml up -d
-            -e KEY=VALUE ... trading-engine
-
-    Each env override is passed as a separate -e KEY=VALUE pair so that the
-    isolation is explicit and NOT inherited from the operator's .env file.
+    Env overrides are NOT argv: `docker compose up` has no -e flag (the
+    pre-2026-08-20 version emitted one and could never have launched). They
+    ride the subprocess environment instead — compose interpolates
+    ${VAR:-default} entries in the trading-engine block from it.
     """
-    argv = [
-        "docker",
-        "compose",
-        "-f",
-        _COMPOSE_FILE,
-        "up",
-        "-d",
-    ]
-    for key, value in env_overrides.items():
-        argv.extend(["-e", f"{key}={value}"])
-    argv.append(_TRADING_ENGINE_SERVICE)
-    return argv
+    return ["docker", "compose", "-f", _COMPOSE_FILE, "up", "-d", _TRADING_ENGINE_SERVICE]
 
 
 def _write_meta_json(
@@ -239,7 +226,11 @@ def run_isolation(
     runner = subprocess_runner if subprocess_runner is not None else subprocess.run
 
     # Build the full env override dict: flag ON + other two explicitly OFF.
-    # This is the isolation guarantee: never inherit from .env.
+    # This is the isolation guarantee: these three flags are pinned
+    # regardless of .env — never inherited. The rest of the operator
+    # environment (PATH, credentials, service URLs, etc.) still rides along
+    # via os.environ below, since docker compose needs a usable environment
+    # to run at all.
     env_overrides = dict(profile["env_overrides"])
 
     # 1. Materialise evidence directory and write meta.json BEFORE docker call.
@@ -247,9 +238,13 @@ def run_isolation(
     ev_dir.mkdir(parents=True, exist_ok=True)
     _write_meta_json(ev_dir, flag, run_id, duration_days, paper_trade_log, profile)
 
-    # 2. Launch docker compose with explicit env overrides.
-    argv = _build_docker_argv(flag, env_overrides)
-    result = runner(argv, cwd=str(_REPO))
+    # 2. Launch docker compose with explicit env overrides riding the
+    # subprocess environment (docker compose up has no -e flag; compose
+    # interpolates ${VAR:-default} entries in the trading-engine block from
+    # the invoking process's environment).
+    argv = _build_docker_argv(flag)
+    run_env = {**os.environ, **env_overrides}
+    result = runner(argv, cwd=str(_REPO), env=run_env)
     if hasattr(result, "returncode") and result.returncode != 0:
         print(
             f"ERROR: docker compose exited {result.returncode}. "
