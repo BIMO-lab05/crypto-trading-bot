@@ -624,8 +624,21 @@ class TestWebSocketEndpoint:
     def test_websocket_route_exists(self, test_client):
         """Test WebSocket endpoint is defined"""
         # TestClient doesn't support WebSocket connections directly
-        # Just verify the route is registered by checking app
-        assert "/ws" in [str(route.path) for route in app.routes]
+        # Just verify the route is registered by checking app.
+        #
+        # Walk nested routers: starlette 1.x (via fastapi 0.141.1) wraps
+        # `include_router` results in `_IncludedRouter` entries that carry
+        # their children under `.routes` and expose no `.path` of their own.
+        # A flat comprehension over `app.routes` both misses /ws and raises
+        # AttributeError on those wrappers.
+        def iter_paths(routes):
+            for route in routes:
+                path = getattr(route, "path", None)
+                if path is not None:
+                    yield str(path)
+                yield from iter_paths(getattr(route, "routes", None) or [])
+
+        assert "/ws" in set(iter_paths(app.routes))
 
 
 if __name__ == "__main__":

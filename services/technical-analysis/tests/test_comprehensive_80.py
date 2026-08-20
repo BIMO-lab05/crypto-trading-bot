@@ -229,18 +229,26 @@ class TestMarketDataFetcherDataFrame:
         """Test successful DataFrame conversion"""
         fetcher = MarketDataFetcher()
 
+        # fetcher.MIN_VALID_ROWS is 30: get_klines_as_dataframe refuses to
+        # return a frame with fewer valid candles rather than let indicators
+        # be computed on insufficient data. Feed 35 hourly candles so this
+        # exercises the success path it is named for. Timestamps are hourly
+        # and far in the past, so none is treated as a still-forming candle.
+        _n = 35
+        _base_ts = 1700000000000
         mock_data = {
             "success": True,
             "data": [
                 {
-                    "timestamp": 1700000000000,
-                    "open": "30000.0",
-                    "high": "30500.0",
-                    "low": "29800.0",
-                    "close": "30200.0",
-                    "volume": "100.5"
+                    "timestamp": _base_ts + (i * 3_600_000),
+                    "open": f"{30000.0 + i:.1f}",
+                    "high": f"{30500.0 + i:.1f}",
+                    "low": f"{29800.0 + i:.1f}",
+                    "close": f"{30200.0 + i:.1f}",
+                    "volume": "100.5",
                 }
-            ]
+                for i in range(_n)
+            ],
         }
 
         with patch.object(fetcher.client, 'get') as mock_get:
@@ -252,7 +260,7 @@ class TestMarketDataFetcherDataFrame:
             df = await fetcher.get_klines_as_dataframe("BTCUSDT", "60", 200)
 
             assert isinstance(df, pd.DataFrame)
-            assert len(df) == 1
+            assert len(df) == _n
             assert 'close' in df.columns
             assert 'high' in df.columns
             assert 'low' in df.columns
@@ -278,11 +286,11 @@ class TestMarketDataFetcherDataFrame:
             mock_response.raise_for_status = Mock()
             mock_get.return_value = mock_response
 
-            df = await fetcher.get_klines_as_dataframe("BTCUSDT", "60", 200)
-
-            assert isinstance(df, pd.DataFrame)
-            assert len(df) == 0
-            assert df.empty
+            # An empty payload is an error, not an empty frame: returning
+            # `df.empty` used to let callers compute indicators on nothing.
+            # get_klines_as_dataframe now raises instead.
+            with pytest.raises(ValueError, match="No kline data available"):
+                await fetcher.get_klines_as_dataframe("BTCUSDT", "60", 200)
 
         await fetcher.close()
 
