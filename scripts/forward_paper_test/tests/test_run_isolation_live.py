@@ -545,6 +545,7 @@ def test_complete_run_writes_run_json(tmp_path, monkeypatch):
     data = json.loads((ev / "run.json").read_text())
     assert len(data["returns"]) == 2
     assert abs(data["returns"][0] - 0.25 / (180.0 * 0.05)) < 1e-12
+    assert abs(data["returns"][1] - (-0.03) / (700.0 * 0.012)) < 1e-12
     assert data["n_positions"] == 2
     assert data["run_id"] == "r1"
     assert data["flag"] == "prefer_maker_orders"
@@ -576,3 +577,107 @@ def test_complete_run_refuses_empty_window(tmp_path, monkeypatch):
     rc = ri.complete_run(ev)
     assert rc != 0
     assert not (ev / "run.json").exists()
+
+
+def test_complete_run_rejects_garbage_iso_timestamp(tmp_path):
+    """The ISO-parse guard in _fetch_closed_positions must reject an
+    unparseable planned_start_utc BEFORE any SQL string is built — this is
+    the injection-surface guard called out in the task brief; it must never
+    be skipped. complete_run does not wrap the call in try/except, so the
+    ValueError from datetime.fromisoformat propagates uncaught (documented
+    contract: raised ValueError, not a routed clean-exit path). Deliberately
+    does NOT monkeypatch _fetch_closed_positions, so the real ISO-parse
+    guard runs; if it were skipped, this test would instead see a
+    subprocess/docker failure (no docker available in CI) rather than
+    ValueError, which would also fail the assertion below.
+    """
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r3"
+    ev.mkdir(parents=True)
+    (ev / "meta.json").write_text(
+        json.dumps(
+            {
+                "flag": "prefer_maker_orders",
+                "run_id": "r3",
+                "planned_start_utc": "2026-13-99 nonsense'; DROP TABLE positions;--",
+                "planned_end_utc": "2026-08-27T12:00:00+00:00",
+                "duration_days": 7,
+                "git_sha": "abc1234",
+                "baseline_env_overrides": {},
+                "flag_env_overrides": {},
+                "paper_trade_log_path": "",
+            }
+        )
+    )
+
+    with pytest.raises(ValueError):
+        ri.complete_run(ev)
+
+    assert not (ev / "run.json").exists()
+
+
+def test_fetch_closed_positions_parses_psql_output_and_builds_argv(monkeypatch):
+    """Direct test of _fetch_closed_positions (not routed through
+    complete_run): monkeypatches subprocess.run itself — NOT
+    _fetch_closed_positions — with canned pipe-delimited psql stdout, so
+    this pins two contracts at once: (1) the 7-field split('|') parsing of
+    psql's -t -A -F| output into tuples, and (2) the docker-exec argv shape
+    (container name, clean_epoch_positions view, psql flags) actually sent
+    to subprocess.run.
+    """
+    import scripts.forward_paper_test.run_isolation as ri
+
+    canned_stdout = (
+        "SOLUSDT|LONG|180.00000000|0.05000000|0.25105825|"
+        "2026-08-21 01:00:00|2026-08-22 01:00:00\n"
+        "BNBUSDT|LONG|700.00000000|0.01200000|-0.03047842|"
+        "2026-08-21 02:00:00|2026-08-23 02:00:00\n"
+    )
+
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(argv, returncode=0, stdout=canned_stdout, stderr="")
+
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    rows = ri._fetch_closed_positions("2026-08-20T12:00:00+00:00")
+
+    assert rows == [
+        (
+            "SOLUSDT",
+            "LONG",
+            "180.00000000",
+            "0.05000000",
+            "0.25105825",
+            "2026-08-21 01:00:00",
+            "2026-08-22 01:00:00",
+        ),
+        (
+            "BNBUSDT",
+            "LONG",
+            "700.00000000",
+            "0.01200000",
+            "-0.03047842",
+            "2026-08-21 02:00:00",
+            "2026-08-23 02:00:00",
+        ),
+    ]
+
+    argv = captured["argv"]
+    assert argv[:2] == ["docker", "exec"]
+    assert "crypto-bot-postgres" in argv
+    assert "psql" in argv
+    assert "-t" in argv
+    assert "-A" in argv
+    f_idx = argv.index("-F")
+    assert argv[f_idx + 1] == "|"
+    sql = argv[argv.index("-c") + 1]
+    assert "clean_epoch_positions" in sql
+    assert "status = 'CLOSED'" in sql
+    assert "2026-08-20T12:00:00+00:00" in sql
+    # subprocess.run was invoked with check=True (surfaces psql failures loudly)
+    assert captured["kwargs"].get("check") is True
