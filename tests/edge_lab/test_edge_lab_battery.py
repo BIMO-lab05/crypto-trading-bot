@@ -6,7 +6,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
-from conftest import DAY, T0, make_daily  # noqa: E402
+from el_shared import DAY, T0, make_daily  # noqa: E402
 from edge_lab import trial_ledger  # noqa: E402
 from edge_lab.run_battery import run_battery  # noqa: E402
 from edge_lab.trades import Trade, Variant  # noqa: E402

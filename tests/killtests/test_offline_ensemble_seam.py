@@ -11,7 +11,7 @@ sys.path.insert(0, str(REPO / "backtesting"))
 
 from killtests.candles import INTERVAL_MS, CandleStore  # noqa: E402
 
-from conftest import _write_candles  # noqa: E402 same-dir conftest; pytest puts it on the path
+from kt_shared import _write_candles  # noqa: E402 same-dir conftest; pytest puts it on the path
 
 
 @pytest.fixture(scope="module")

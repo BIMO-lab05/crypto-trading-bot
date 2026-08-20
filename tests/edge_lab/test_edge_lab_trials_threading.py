@@ -25,7 +25,7 @@ from edge_lab.config import NUM_TRIALS_FLOOR  # noqa: E402
 from edge_lab.gate2 import run_gate2  # noqa: E402
 from edge_lab.trades import Trade  # noqa: E402
 
-from conftest import DAY, T0, make_daily  # noqa: E402
+from el_shared import DAY, T0, make_daily  # noqa: E402
 from test_edge_lab_battery import (  # noqa: E402
     _pin,
     _stub_registry,

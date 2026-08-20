@@ -7,7 +7,7 @@ import pandas as pd
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
-from conftest import DAY, T0, assert_shift_invariant  # noqa: E402
+from el_shared import DAY, T0, assert_shift_invariant  # noqa: E402
 from edge_lab.candidates.lf_trend import (  # noqa: E402
     _REGIME_VARIANTS,
     _regime_symbol_trades,

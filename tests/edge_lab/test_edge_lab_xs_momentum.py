@@ -6,7 +6,7 @@ import pandas as pd
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
-from conftest import DAY, T0, assert_shift_invariant, make_daily  # noqa: E402
+from el_shared import DAY, T0, assert_shift_invariant, make_daily  # noqa: E402
 from edge_lab.candidates.xs_momentum import VARIANTS, generate_trades  # noqa: E402
 
 V30 = next(v for v in VARIANTS if v.name == "lookback_30d")

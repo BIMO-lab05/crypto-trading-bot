@@ -6,7 +6,7 @@ import pandas as pd
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
-from conftest import DAY, T0, make_daily  # noqa: E402
+from el_shared import DAY, T0, make_daily  # noqa: E402
 from edge_lab.candidates.funding_carry import VARIANTS, generate_trades  # noqa: E402
 
 V15 = next(v for v in VARIANTS if v.name == "thresh_1.5x")
@@ -77,7 +77,7 @@ def test_no_funding_data_no_trades():
 
 def test_shift_invariance_manual():
     """Truncating both price and funding history must not change past trades."""
-    from conftest import assert_shift_invariant
+    from el_shared import assert_shift_invariant
 
     daily = make_daily(["AUSDT"], n_days=120, seed=2)
     n = 360
