@@ -236,8 +236,14 @@ async def get_current_active_user_strict(
     Used by identity/session endpoints (``/auth/me``, ``/auth/logout``) where
     returning a synthetic principal makes no sense: "who am I" must reflect a
     real authenticated user regardless of the trading-mode gate. ``get_current_user``
-    uses HTTPBearer(auto_error=True), so a missing header yields 403 and an
-    invalid token yields 401 — the long-standing contract these endpoints test.
+    uses HTTPBearer(auto_error=True), so a missing header yields 401 and an
+    invalid token yields 401 — the contract these endpoints test.
+
+    NOTE: missing-credentials used to yield 403. FastAPI changed
+    ``HTTPBearer(auto_error=True)`` to raise 401 (RFC 7235: no credentials =
+    Unauthorized, not Forbidden); this service picked the new behaviour up
+    with the fastapi 0.109.2 -> 0.141.1 bump. An *inactive* user is still a
+    genuine 403 below — authenticated but not permitted.
     """
     if not current_user.is_active:
         raise HTTPException(

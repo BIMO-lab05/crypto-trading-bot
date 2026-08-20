@@ -50,7 +50,7 @@ def generate_stationary_series(n: int = 100, seed: int = 42) -> pd.Series:
     for t in range(1, n):
         y[t] = 0.7 * y[t-1] + np.random.normal(0, 0.5)
 
-    return pd.Series(y, index=pd.date_range('2025-01-01', periods=n, freq='H'))
+    return pd.Series(y, index=pd.date_range('2025-01-01', periods=n, freq='h'))
 
 
 def generate_nonstationary_series(n: int = 100, seed: int = 42) -> pd.Series:
@@ -60,7 +60,7 @@ def generate_nonstationary_series(n: int = 100, seed: int = 42) -> pd.Series:
     # Random walk: y_t = y_{t-1} + noise
     y = np.cumsum(np.random.normal(0, 1, n))
 
-    return pd.Series(y, index=pd.date_range('2025-01-01', periods=n, freq='H'))
+    return pd.Series(y, index=pd.date_range('2025-01-01', periods=n, freq='h'))
 
 
 def generate_cointegrated_pair(
@@ -77,7 +77,7 @@ def generate_cointegrated_pair(
     """
     np.random.seed(seed)
 
-    dates = pd.date_range('2025-01-01', periods=n, freq='H')
+    dates = pd.date_range('2025-01-01', periods=n, freq='h')
 
     # Generate non-stationary series X (random walk)
     x_returns = np.random.normal(0.001, 0.02, n)
@@ -100,7 +100,7 @@ def generate_non_cointegrated_pair(
     """Generate two independent non-cointegrated series"""
     np.random.seed(seed)
 
-    dates = pd.date_range('2025-01-01', periods=n, freq='H')
+    dates = pd.date_range('2025-01-01', periods=n, freq='h')
 
     # Two independent random walks
     x = pd.Series(

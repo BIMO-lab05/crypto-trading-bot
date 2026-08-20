@@ -26,7 +26,7 @@ jobs:
     name: TOURN-07 grep gate (no parallel metrics)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run grep gate (Phase 3 success criterion #5)
         run: |
           set -e
@@ -45,8 +45,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: tourn07-grep-gate
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install tournament-harness deps + ml-retraining for shared imports
@@ -65,8 +65,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: unit-tests
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install deps
@@ -101,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: unit-tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build tournament-harness image (no cache, no BuildKit)
         env:
           DOCKER_BUILDKIT: 0
@@ -144,8 +144,8 @@ jobs:
     needs: unit-tests
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install deps

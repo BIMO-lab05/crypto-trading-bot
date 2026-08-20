@@ -5,12 +5,12 @@
 # Added slowapi with Redis backend for distributed rate limiting
 
 # Web Framework
-fastapi==0.109.2          # Modern async web framework
+fastapi==0.141.1          # Modern async web framework
 uvicorn[standard]==0.52.3 # ASGI server
 pydantic[email]==2.13.4   # Data validation; cp314 wheels (was 2.5.3 -> pydantic-core 2.14.6, no cp314)
 pydantic-settings==2.14.2 # Settings management (compat with pydantic 2.13)
 email-validator==2.3.0    # Email validation for pydantic (2.1.0 was yanked)
-starlette==0.35.1         # ASGI framework (security headers middleware)
+starlette==1.6.0         # ASGI framework (security headers middleware); pinned to fastapi 0.141.1 range
 
 # Authentication & Security
 pyjwt[crypto]>=2.13.0     # JWT token handling (replaces unmaintained python-jose; cp314 compatible)
@@ -45,15 +45,15 @@ redis==5.3.1              # Redis client (used by slowapi for distributed rate l
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics
-python-json-logger==2.0.7 # Structured logging
+python-json-logger==4.1.0 # Structured logging
 sentry-sdk==2.68.0        # Error tracking
 
 # Utilities
 python-dotenv==1.2.2      # Environment variables
 
 # Testing
-pytest==7.4.4             # Testing framework
-pytest-asyncio==0.26.0    # Async test support
+pytest==9.1.1             # Testing framework
+pytest-asyncio==1.4.0    # Async test support
 pytest-cov==7.1.0         # Coverage
 pytest-mock==3.15.1       # Mocking
 pytest-httpx==0.36.2      # HTTP mocking (httpx-mock renamed)

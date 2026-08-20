@@ -1,10 +1,10 @@
 # Notification Service Dependencies
 
 # FastAPI and server
-fastapi==0.104.1
+fastapi==0.141.1
 uvicorn[standard]==0.52.3
-pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic==2.13.4
+pydantic-settings==2.14.2
 python-dotenv==1.2.2
 
 # HTTP client for Telegram/Slack
@@ -13,7 +13,7 @@ httpx==0.28.1
 # Email support - using stdlib smtplib, no additional packages needed
 
 # Logging
-python-json-logger==2.0.7
+python-json-logger==4.1.0
 
 # Prometheus metrics (used by app/main.py)
 prometheus-client==0.26.0
@@ -32,8 +32,8 @@ sqlalchemy[asyncio]==2.0.52
 redis==5.3.1
 
 # Testing
-pytest==7.4.4
-pytest-asyncio==0.26.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 pytest-mock==3.15.1
 respx==0.23.1

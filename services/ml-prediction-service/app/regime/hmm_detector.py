@@ -713,7 +713,7 @@ if __name__ == "__main__":
         close_prices[i] = max(price, 40000)
 
     # Create DataFrame
-    dates = pd.date_range(start='2024-01-01', periods=n_candles, freq='1H')
+    dates = pd.date_range(start='2024-01-01', periods=n_candles, freq='1h')
     df = pd.DataFrame({
         'timestamp': dates,
         'open': close_prices - np.random.uniform(0, 100, n_candles),

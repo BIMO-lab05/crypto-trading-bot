@@ -70,7 +70,11 @@ class TestSettingsInitialization:
         assert settings.log_level == "INFO"
         # Note: debug may be True from .env file, so we check it exists
         assert isinstance(settings.debug, bool)
-        assert settings.bybit_testnet is True
+        # Default is False (mainnet/production prices), per the Field default
+        # in app/config.py and CLAUDE.md 3: market data comes from Bybit
+        # mainnet while orders stay simulated. Testnet is opt-in via
+        # BYBIT_TESTNET=true, which this test deletes from the env above.
+        assert settings.bybit_testnet is False
         assert settings.bybit_recv_window == 5000
         assert settings.service_name == "bybit-connector"
         # Default port is 8001 per CLAUDE.md service map.

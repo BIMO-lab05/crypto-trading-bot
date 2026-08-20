@@ -144,7 +144,10 @@ class TestAuthenticationEndpoints:
         """Test getting current user without token"""
         response = test_client.get("/auth/me")
 
-        assert response.status_code == 403  # Forbidden
+        # 401, not 403: HTTPBearer(auto_error=True) raises Unauthorized when
+        # the Authorization header is absent (RFC 7235). FastAPI corrected
+        # this from 403 -> 401; picked up with the 0.141.1 bump.
+        assert response.status_code == 401  # Unauthorized
 
     @pytest.mark.asyncio
     async def test_logout(self, test_client):

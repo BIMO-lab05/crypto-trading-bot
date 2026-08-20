@@ -244,9 +244,16 @@ def test_detail_returns_500_when_file_exceeds_50mb(test_client, tmp_path, monkey
         def __getattr__(self, name):
             return getattr(self._real, name)
 
+    # Resolve the target ONCE, before the patch is installed. On Python 3.12
+    # `Path.resolve()` itself calls `Path.stat()`, so resolving inside
+    # `fake_stat` re-enters the patched stat and recurses until the stack
+    # blows (RecursionError). Precomputing keeps the comparison cheap and
+    # keeps `fake_stat` free of any call that can re-enter stat().
+    target_resolved = target.resolve()
+
     def fake_stat(self, *args, **kwargs):  # type: ignore[override]
         real = original_stat(self, *args, **kwargs)
-        if self == target.resolve() or self == target:
+        if self == target_resolved or self == target:
             return _BigStat(real)
         return real
 

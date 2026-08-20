@@ -2,10 +2,10 @@
 # Purpose: Interface with Bybit exchange API (REST & WebSocket)
 
 # Web Framework
-fastapi==0.109.2          # Modern async web framework
+fastapi==0.141.1          # Modern async web framework
 uvicorn[standard]==0.52.3 # ASGI server with auto-reload
-pydantic==2.5.3           # Data validation and settings
-pydantic-settings==2.1.0  # Environment-based configuration
+pydantic==2.13.4           # Data validation and settings
+pydantic-settings==2.14.2  # Environment-based configuration
 
 # Bybit SDK
 pybit==5.17.0              # Official Bybit Python SDK
@@ -24,7 +24,7 @@ limits==5.8.0             # Rate limiting backend
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics for monitoring
-python-json-logger==2.0.7 # Structured JSON logging
+python-json-logger==4.1.0 # Structured JSON logging
 
 # Utilities
 python-dotenv==1.2.2      # Environment variable management
@@ -32,8 +32,8 @@ aioredis==2.0.1           # Async Redis client for caching
 pika==1.4.4               # RabbitMQ client for messaging
 
 # Testing
-pytest==7.4.4             # Testing framework
-pytest-asyncio==0.26.0    # Async test support
+pytest==9.1.1             # Testing framework
+pytest-asyncio==1.4.0    # Async test support
 pytest-cov==7.1.0         # Code coverage
 pytest-mock==3.15.1       # Mocking support
 pytest-httpx==0.36.2         # HTTP mock for testing
