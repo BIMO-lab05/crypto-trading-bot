@@ -206,8 +206,27 @@ class LiveTradingEngine:
 
             logger.info(f"[LIVE] Bybit response: {payload}")
 
+            # Do NOT trust HTTP 200 alone. The connector signals failure by
+            # raising (non-2xx), but an explicit {"success": false, ...} body
+            # or a response carrying no orderId must never be recorded as a
+            # fill: the code below stamps OrderStatus.FILLED and opens a
+            # position, so accepting either shape invents a phantom position
+            # against an order the exchange never accepted.
+            if payload.get("success") is False:
+                error = payload.get("detail") or payload.get("error") or "Order rejected by connector"
+                logger.error(f"[LIVE] Order rejected: {error}")
+                return None, error
+
             order_result = payload.get("data") or {}
             order_id = order_result.get("orderId", "")
+
+            if not order_id:
+                error = (
+                    "Connector returned no orderId; refusing to record a fill "
+                    f"for {order.symbol}. Payload: {payload}"
+                )
+                logger.error(f"[LIVE] {error}")
+                return None, error
 
             # Create executed order record
             executed_order = Order(

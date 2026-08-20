@@ -213,12 +213,22 @@ class TestLiveTradingResponseEnvelope:
         engine.client.post = AsyncMock()
 
         # Stub risk + position managers — they're orthogonal to the response shape.
+        # `execute_market_order` gates on check_position_limits(positions,
+        # balance) -> (allowed, reason); the 2026-05-01 audit replaced
+        # can_open_position with it. A bare MagicMock returns a MagicMock,
+        # which fails to unpack into two names before the envelope is ever
+        # parsed, so the tuple must be stubbed explicitly.
         engine.risk_manager = MagicMock()
-        engine.risk_manager.can_open_position.return_value = True
+        engine.risk_manager.check_position_limits.return_value = (True, "")
         engine.risk_manager.calculate_stop_loss.return_value = Decimal("145")
         engine.risk_manager.calculate_take_profit.return_value = Decimal("160")
         engine.position_manager = MagicMock()
+        engine.position_manager.get_open_positions.return_value = []
         engine.position_manager.create_position.return_value = MagicMock(id=uuid4())
+        # get_balance() awaits self.client.get(); stub the coroutine directly
+        # so this test stays about the response envelope. $100 is the account
+        # size of record (CLAUDE.md 1).
+        engine.get_balance = AsyncMock(return_value=Decimal("100"))
 
         # The connector returns the wrapped envelope.
         response = MagicMock()
@@ -256,8 +266,10 @@ class TestLiveTradingResponseEnvelope:
         engine.client.post = AsyncMock()
 
         engine.risk_manager = MagicMock()
-        engine.risk_manager.can_open_position.return_value = True
+        engine.risk_manager.check_position_limits.return_value = (True, "")
         engine.position_manager = MagicMock()
+        engine.position_manager.get_open_positions.return_value = []
+        engine.get_balance = AsyncMock(return_value=Decimal("100"))
 
         response = MagicMock()
         response.raise_for_status = MagicMock()
