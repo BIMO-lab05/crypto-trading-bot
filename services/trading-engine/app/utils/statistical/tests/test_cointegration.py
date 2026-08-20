@@ -15,13 +15,13 @@ Phase 2.2 - Statistical Arbitrage Implementation
 import pytest
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
 from typing import Tuple
 
 # Import the module we're testing
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
 from app.utils.statistical.cointegration import (
     test_adf,
@@ -39,6 +39,7 @@ from app.utils.statistical.cointegration import (
 # Test Data Generation
 # ============================================================================
 
+
 def generate_stationary_series(n: int = 100, seed: int = 42) -> pd.Series:
     """Generate a stationary time series (mean-reverting)"""
     np.random.seed(seed)
@@ -48,9 +49,9 @@ def generate_stationary_series(n: int = 100, seed: int = 42) -> pd.Series:
     y[0] = np.random.normal(0, 1)
 
     for t in range(1, n):
-        y[t] = 0.7 * y[t-1] + np.random.normal(0, 0.5)
+        y[t] = 0.7 * y[t - 1] + np.random.normal(0, 0.5)
 
-    return pd.Series(y, index=pd.date_range('2025-01-01', periods=n, freq='H'))
+    return pd.Series(y, index=pd.date_range("2025-01-01", periods=n, freq="h"))
 
 
 def generate_nonstationary_series(n: int = 100, seed: int = 42) -> pd.Series:
@@ -60,13 +61,11 @@ def generate_nonstationary_series(n: int = 100, seed: int = 42) -> pd.Series:
     # Random walk: y_t = y_{t-1} + noise
     y = np.cumsum(np.random.normal(0, 1, n))
 
-    return pd.Series(y, index=pd.date_range('2025-01-01', periods=n, freq='H'))
+    return pd.Series(y, index=pd.date_range("2025-01-01", periods=n, freq="h"))
 
 
 def generate_cointegrated_pair(
-    n: int = 100,
-    hedge_ratio: float = 0.5,
-    seed: int = 42
+    n: int = 100, hedge_ratio: float = 0.5, seed: int = 42
 ) -> Tuple[pd.Series, pd.Series]:
     """
     Generate two cointegrated price series
@@ -77,7 +76,7 @@ def generate_cointegrated_pair(
     """
     np.random.seed(seed)
 
-    dates = pd.date_range('2025-01-01', periods=n, freq='H')
+    dates = pd.date_range("2025-01-01", periods=n, freq="h")
 
     # Generate non-stationary series X (random walk)
     x_returns = np.random.normal(0.001, 0.02, n)
@@ -85,7 +84,7 @@ def generate_cointegrated_pair(
     x = pd.Series(x_prices, index=dates)
 
     # Generate stationary spread
-    spread = generate_stationary_series(n, seed=seed+1) * 2
+    spread = generate_stationary_series(n, seed=seed + 1) * 2
 
     # Cointegrated series: Y = β*X + spread
     y = hedge_ratio * x + spread
@@ -93,24 +92,15 @@ def generate_cointegrated_pair(
     return x, y
 
 
-def generate_non_cointegrated_pair(
-    n: int = 100,
-    seed: int = 42
-) -> Tuple[pd.Series, pd.Series]:
+def generate_non_cointegrated_pair(n: int = 100, seed: int = 42) -> Tuple[pd.Series, pd.Series]:
     """Generate two independent non-cointegrated series"""
     np.random.seed(seed)
 
-    dates = pd.date_range('2025-01-01', periods=n, freq='H')
+    dates = pd.date_range("2025-01-01", periods=n, freq="h")
 
     # Two independent random walks
-    x = pd.Series(
-        100 * np.exp(np.cumsum(np.random.normal(0.001, 0.02, n))),
-        index=dates
-    )
-    y = pd.Series(
-        100 * np.exp(np.cumsum(np.random.normal(0.001, 0.02, n))),
-        index=dates
-    )
+    x = pd.Series(100 * np.exp(np.cumsum(np.random.normal(0.001, 0.02, n))), index=dates)
+    y = pd.Series(100 * np.exp(np.cumsum(np.random.normal(0.001, 0.02, n))), index=dates)
 
     return x, y
 
@@ -118,6 +108,7 @@ def generate_non_cointegrated_pair(
 # ============================================================================
 # Test ADF Stationarity Test
 # ============================================================================
+
 
 class TestADF:
     """Test Augmented Dickey-Fuller stationarity test"""
@@ -170,6 +161,7 @@ class TestADF:
 # Test Hedge Ratio Calculation
 # ============================================================================
 
+
 class TestHedgeRatio:
     """Test hedge ratio calculation via OLS regression"""
 
@@ -192,7 +184,7 @@ class TestHedgeRatio:
     def test_hedge_ratio_perfect_correlation(self):
         """Test hedge ratio when Y = 2*X (perfect correlation)"""
         n = 100
-        x = pd.Series(np.arange(1, n+1), index=pd.date_range('2025-01-01', periods=n))
+        x = pd.Series(np.arange(1, n + 1), index=pd.date_range("2025-01-01", periods=n))
         y = 2 * x  # Y = 2*X
 
         hedge_ratio, intercept, residuals = calculate_hedge_ratio(x, y)
@@ -207,6 +199,7 @@ class TestHedgeRatio:
 # ============================================================================
 # Test Half-Life Calculation
 # ============================================================================
+
 
 class TestHalfLife:
     """Test half-life of mean reversion calculation"""
@@ -240,6 +233,7 @@ class TestHalfLife:
 # ============================================================================
 # Test Engle-Granger Cointegration
 # ============================================================================
+
 
 class TestEngleGranger:
     """Test Engle-Granger two-step cointegration test"""
@@ -296,13 +290,14 @@ class TestEngleGranger:
 # Test Johansen Cointegration
 # ============================================================================
 
+
 class TestJohansen:
     """Test Johansen cointegration test"""
 
     def test_johansen_cointegrated_pair(self):
         """Test Johansen on cointegrated pair"""
         x, y = generate_cointegrated_pair(n=300, hedge_ratio=0.5)
-        data = pd.DataFrame({'x': x, 'y': y})
+        data = pd.DataFrame({"x": x, "y": y})
 
         result = test_johansen(data, significance_level=0.05)
 
@@ -318,6 +313,7 @@ class TestJohansen:
 # ============================================================================
 # Test CointegrationTester Class
 # ============================================================================
+
 
 class TestCointegrationTester:
     """Test unified CointegrationTester interface"""
@@ -359,15 +355,13 @@ class TestCointegrationTester:
 # Test PairScanner Class
 # ============================================================================
 
+
 class TestPairScanner:
     """Test automated pair scanning"""
 
     def test_scanner_initialization(self):
         """Test scanner initialization"""
-        scanner = PairScanner(
-            significance_level=0.05,
-            min_quality_score=50.0
-        )
+        scanner = PairScanner(significance_level=0.05, min_quality_score=50.0)
 
         assert scanner.min_quality_score == 50.0
 
@@ -381,12 +375,12 @@ class TestPairScanner:
         x3, y3 = generate_non_cointegrated_pair(n=300, seed=3)
 
         price_data = {
-            'SYMBOL_X1': x1,
-            'SYMBOL_Y1': y1,
-            'SYMBOL_X2': x2,
-            'SYMBOL_Y2': y2,
-            'SYMBOL_X3': x3,
-            'SYMBOL_Y3': y3,
+            "SYMBOL_X1": x1,
+            "SYMBOL_Y1": y1,
+            "SYMBOL_X2": x2,
+            "SYMBOL_Y2": y2,
+            "SYMBOL_X3": x3,
+            "SYMBOL_Y3": y3,
         }
 
         pairs = scanner.scan_pairs(price_data, max_pairs=10)
@@ -397,14 +391,14 @@ class TestPairScanner:
 
         # Each pair should have required fields
         for pair in pairs:
-            assert 'symbol_x' in pair
-            assert 'symbol_y' in pair
-            assert 'hedge_ratio' in pair
-            assert 'score' in pair
-            assert 'result' in pair
+            assert "symbol_x" in pair
+            assert "symbol_y" in pair
+            assert "hedge_ratio" in pair
+            assert "score" in pair
+            assert "result" in pair
 
             # Score should be 0-100
-            assert 0 <= pair['score'] <= 100
+            assert 0 <= pair["score"] <= 100
 
     def test_scanner_max_pairs_limit(self):
         """Test that scanner respects max_pairs limit"""
@@ -414,7 +408,7 @@ class TestPairScanner:
         symbols = {}
         for i in range(4):
             x, y = generate_cointegrated_pair(n=200, seed=i)
-            symbols[f'SYM{i}'] = x
+            symbols[f"SYM{i}"] = x
 
         # Request max 3 pairs
         pairs = scanner.scan_pairs(symbols, max_pairs=3)
@@ -431,22 +425,23 @@ class TestPairScanner:
         x2, y2 = generate_non_cointegrated_pair(n=300, seed=2)
 
         price_data = {
-            'GOOD_X': x1,
-            'GOOD_Y': y1,
-            'BAD_X': x2,
-            'BAD_Y': y2,
+            "GOOD_X": x1,
+            "GOOD_Y": y1,
+            "BAD_X": x2,
+            "BAD_Y": y2,
         }
 
         pairs = scanner.scan_pairs(price_data)
 
         # All returned pairs should meet minimum quality
         for pair in pairs:
-            assert pair['score'] >= 80.0
+            assert pair["score"] >= 80.0
 
 
 # ============================================================================
 # Integration Tests
 # ============================================================================
+
 
 class TestCointegrationIntegration:
     """Integration tests for complete workflow"""
@@ -457,7 +452,7 @@ class TestCointegrationIntegration:
         btc_prices, eth_prices = generate_cointegrated_pair(
             n=500,
             hedge_ratio=0.05,  # 1 BTC = 0.05 ETH (hypothetical)
-            seed=42
+            seed=42,
         )
 
         # 2. Initialize tester
@@ -475,8 +470,8 @@ class TestCointegrationIntegration:
         assert 0 <= score <= 100
 
         # 6. Log results
-        print(f"\n=== Cointegration Test Results ===")
-        print(f"Pair: BTC/ETH")
+        print("\n=== Cointegration Test Results ===")
+        print("Pair: BTC/ETH")
         print(f"Cointegrated: {result.is_cointegrated}")
         print(f"Hedge Ratio: {result.hedge_ratio:.4f}")
         print(f"Half-life: {result.half_life:.2f} periods")
@@ -489,9 +484,9 @@ class TestCointegrationIntegration:
 
         # Create 3 cointegrated pairs
         for i in range(3):
-            x, y = generate_cointegrated_pair(n=300, hedge_ratio=0.5+i*0.1, seed=i)
-            price_data[f'ASSET_X{i}'] = x
-            price_data[f'ASSET_Y{i}'] = y
+            x, y = generate_cointegrated_pair(n=300, hedge_ratio=0.5 + i * 0.1, seed=i)
+            price_data[f"ASSET_X{i}"] = x
+            price_data[f"ASSET_Y{i}"] = y
 
         # 2. Initialize scanner
         scanner = PairScanner(min_quality_score=30.0)
@@ -503,11 +498,13 @@ class TestCointegrationIntegration:
         assert len(pairs) > 0
 
         # 5. Print top pairs
-        print(f"\n=== Top Cointegrated Pairs ===")
+        print("\n=== Top Cointegrated Pairs ===")
         for pair in pairs[:3]:
-            print(f"{pair['symbol_x']} / {pair['symbol_y']}: "
-                  f"Score={pair['score']:.1f}, "
-                  f"Hedge Ratio={pair['hedge_ratio']:.4f}")
+            print(
+                f"{pair['symbol_x']} / {pair['symbol_y']}: "
+                f"Score={pair['score']:.1f}, "
+                f"Hedge Ratio={pair['hedge_ratio']:.4f}"
+            )
 
 
 # ============================================================================
