@@ -235,6 +235,7 @@ def test_detail_returns_500_when_file_exceeds_50mb(test_client, tmp_path, monkey
     import pathlib
 
     original_stat = pathlib.Path.stat
+    resolved_target = target.resolve()  # BEFORE the patch — resolve() calls stat()
 
     class _BigStat:
         def __init__(self, real):
@@ -246,7 +247,7 @@ def test_detail_returns_500_when_file_exceeds_50mb(test_client, tmp_path, monkey
 
     def fake_stat(self, *args, **kwargs):  # type: ignore[override]
         real = original_stat(self, *args, **kwargs)
-        if self == target.resolve() or self == target:
+        if self == resolved_target or self == target:
             return _BigStat(real)
         return real
 
