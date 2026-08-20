@@ -22,7 +22,13 @@ import time
 import traceback
 
 # Structured logging
-from pythonjsonlogger import jsonlogger
+# python-json-logger>=3 moved JsonFormatter into pythonjsonlogger.json;
+# importing the legacy `jsonlogger` module emits a DeprecationWarning on
+# 4.x. Try the new path first, fall back for python-json-logger<3.
+try:
+    from pythonjsonlogger import json as jsonlogger  # type: ignore[import]
+except ImportError:  # pragma: no cover - only on python-json-logger<3
+    from pythonjsonlogger import jsonlogger  # type: ignore[no-redef]
 
 # Rate limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
