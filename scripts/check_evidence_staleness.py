@@ -13,7 +13,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_MARKER = ".planning/state/evidence_loop_last_tick.json"
+_REPO = Path(__file__).resolve().parent.parent
+DEFAULT_MARKER = str(_REPO / ".planning/state/evidence_loop_last_tick.json")
 MAX_AGE_HOURS = 48
 
 parser = argparse.ArgumentParser()
