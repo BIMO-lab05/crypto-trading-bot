@@ -127,11 +127,7 @@ class LiveTradingEngine:
             account_list = data.get("list") or []
             if account_list:
                 account = account_list[0]
-                equity = (
-                    account.get("totalEquity")
-                    or account.get("totalWalletBalance")
-                    or "0"
-                )
+                equity = account.get("totalEquity") or account.get("totalWalletBalance") or "0"
                 return Decimal(str(equity))
 
             return await self.get_balance()
@@ -206,6 +202,17 @@ class LiveTradingEngine:
 
             logger.info(f"[LIVE] Bybit response: {payload}")
 
+            # Defense-in-depth: the connector currently always raises HTTP 4xx
+            # on rejection (caught by raise_for_status above), so this branch
+            # is not reachable via the real connector today. Restores the
+            # {"success": False, ...} guard authored/reviewed in 41a32d5
+            # alongside TestLiveTradingResponseEnvelope, which a merge
+            # resolution silently dropped from this file.
+            if not payload.get("success", True):
+                error_msg = payload.get("detail", payload.get("retMsg", "Unknown error"))
+                logger.error(f"[LIVE] Order rejected by Bybit: {error_msg}")
+                return None, error_msg
+
             order_result = payload.get("data") or {}
             order_id = order_result.get("orderId", "")
 
@@ -224,17 +231,11 @@ class LiveTradingEngine:
             )
 
             # Create position in position manager
-            position_side = (
-                PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
-            )
+            position_side = PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
 
             # Get stop loss and take profit from risk manager
-            stop_loss = self.risk_manager.calculate_stop_loss(
-                current_price, position_side
-            )
-            take_profit = self.risk_manager.calculate_take_profit(
-                current_price, position_side
-            )
+            stop_loss = self.risk_manager.calculate_stop_loss(current_price, position_side)
+            take_profit = self.risk_manager.calculate_take_profit(current_price, position_side)
 
             position = self.position_manager.create_position(
                 symbol=order.symbol,
@@ -323,17 +324,13 @@ class LiveTradingEngine:
         # so the maker entry path doesn't raise AttributeError.
         open_positions = self.position_manager.get_open_positions()
         balance_for_check = await self.get_balance()
-        allowed, reason = self.risk_manager.check_position_limits(
-            open_positions, balance_for_check
-        )
+        allowed, reason = self.risk_manager.check_position_limits(open_positions, balance_for_check)
         if not allowed:
             return None, f"Risk manager rejected: {reason}"
 
         quote = await self._get_best_quote(order.symbol)
         if quote is None:
-            logger.warning(
-                f"[LIVE][MAKER] No orderbook for {order.symbol}; falling back to taker"
-            )
+            logger.warning(f"[LIVE][MAKER] No orderbook for {order.symbol}; falling back to taker")
             return await self.execute_market_order(order, current_price)
         best_bid, best_ask = quote
 
@@ -393,9 +390,7 @@ class LiveTradingEngine:
                 break
 
         if not filled:
-            logger.info(
-                f"[LIVE][MAKER] Timeout after {timeout_s}s — cancelling {order_id}"
-            )
+            logger.info(f"[LIVE][MAKER] Timeout after {timeout_s}s — cancelling {order_id}")
             try:
                 await self.client.post(
                     f"{self.bybit_url}/api/v1/order/cancel",
@@ -426,13 +421,9 @@ class LiveTradingEngine:
             filled_quantity=order.quantity,
         )
 
-        position_side = (
-            PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
-        )
+        position_side = PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
         stop_loss = self.risk_manager.calculate_stop_loss(limit_price, position_side)
-        take_profit = self.risk_manager.calculate_take_profit(
-            limit_price, position_side
-        )
+        take_profit = self.risk_manager.calculate_take_profit(limit_price, position_side)
 
         self.position_manager.create_position(
             symbol=order.symbol,
@@ -530,9 +521,7 @@ class LiveTradingEngine:
         This should be called on startup to reconcile state.
         """
         try:
-            response = await self.client.get(
-                f"{self.bybit_url}/api/v1/account/positions"
-            )
+            response = await self.client.get(f"{self.bybit_url}/api/v1/account/positions")
             response.raise_for_status()
             payload = response.json()
 
