@@ -40,7 +40,7 @@ def generate_cointegrated_pair(
     """Generate synthetic cointegrated price series"""
     np.random.seed(seed)
 
-    dates = pd.date_range('2025-01-01', periods=n, freq='H')
+    dates = pd.date_range('2025-01-01', periods=n, freq='h')
 
     # Generate non-stationary series X (random walk)
     x_returns = np.random.normal(0.001, 0.02, n)
@@ -139,7 +139,7 @@ class TestPairsTradingCalibration:
 
         # Generate independent random walks
         np.random.seed(42)
-        dates = pd.date_range('2025-01-01', periods=300, freq='H')
+        dates = pd.date_range('2025-01-01', periods=300, freq='h')
         price_x = pd.Series(
             100 * np.exp(np.cumsum(np.random.normal(0.001, 0.02, 300))),
             index=dates
@@ -554,11 +554,17 @@ class TestPairsTradingIntegration:
         current_price_x = 100.0
         current_price_y = strategy.hedge_ratio * current_price_x + strategy.spread_mean + 3 * strategy.spread_std
 
+        # `portfolio_value` is a required positional arg on generate_signal;
+        # this call was never updated when it was added. $100 is the account
+        # size of record (CLAUDE.md 1) -- the 10000.0 used by the other
+        # calls in this file predates that and is tracked separately as a
+        # capital-literal violation, not adopted here.
         signal_entry = strategy.generate_signal(
             current_price_x,
             current_price_y,
             price_x,
-            price_y
+            price_y,
+            portfolio_value=100.0,
         )
 
         assert signal_entry is not None
@@ -571,7 +577,8 @@ class TestPairsTradingIntegration:
             current_price_x,
             current_price_y_exit,
             price_x,
-            price_y
+            price_y,
+            portfolio_value=100.0,
         )
 
         assert signal_exit is not None
