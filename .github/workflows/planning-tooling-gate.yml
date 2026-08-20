@@ -81,9 +81,9 @@ jobs:
     name: TOOL-01 placeholder one-liner grep gate (PLAN.md + SUMMARY.md)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -103,9 +103,9 @@ jobs:
     name: TOOL-02 roadmap.analyze supersession wiring + fixture validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -127,9 +127,9 @@ jobs:
     name: TOOL-03 audit-freshness wiring + 13h-gap fixture validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
