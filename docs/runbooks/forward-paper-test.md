@@ -330,3 +330,24 @@ The `<flag_name>` must match the Python field name exactly (e.g.,
 - The tick is expected to exit 2 (sqlite error, marker still written) until the
   tournament harness first creates the leaderboard DB — dormant-but-alive is the
   designed state during accrual.
+- **Never run a bare `docker compose up -d` against `trading-engine` while an
+  isolation window is active.** The Tier-1 flag overrides (`ENABLE_VOL_TARGETING`,
+  `PREFER_MAKER_ORDERS`, `ENABLE_FUNDING_GATE`) are not baked into the image or
+  the compose file — they interpolate from the *invoking shell's* environment
+  (`${VAR:-false}` in `docker-compose.unified.yml`). A bare invocation from any
+  shell that doesn't have the run's override exported recreates the container
+  with the compose-file default (`false`), silently reverting the flag under
+  test mid-window — the container keeps running, logs look normal, and nothing
+  errors. To relaunch or restart trading-engine mid-window: use
+  `python -m scripts.forward_paper_test.run_isolation --flag <flag> ...`
+  (which re-exports the overrides before calling docker), or manually `export`
+  the three override vars from the run's `meta.json` `flag_env_overrides` in
+  the same shell before running `docker compose up -d trading-engine` by hand.
+  `complete-run` now guards against exactly this: before writing `run.json` it
+  verifies the running container's env and `StartedAt` against `meta.json`
+  (`_verify_flag_window`) and refuses — printing each violation and exiting
+  non-zero — if the container was recreated mid-window without the override
+  (StartedAt more than ~5 minutes after `planned_start_utc`, or any override
+  env var mismatched). Pass `--force-unverified` to write `run.json` anyway
+  with `"flag_window_verified": false` and the violation list recorded, rather
+  than being blocked outright — honest evidence over blocked evidence.

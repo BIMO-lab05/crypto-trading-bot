@@ -25,7 +25,8 @@ CLI entry point (two modes):
     writes PSR_CI_PUBLISHED AND force_override.txt (logged for CI visibility).
 
 **Complete-run subcommand**:
-    python -m scripts.forward_paper_test.run_isolation complete-run <dir>
+    python -m scripts.forward_paper_test.run_isolation complete-run <dir> \\
+        [--force-unverified]
 
     Reads meta.json for the run window (planned_start_utc), queries closed
     positions opened at/after that timestamp via the clean_epoch_positions
@@ -33,6 +34,13 @@ CLI entry point (two modes):
     per-trade returns. Refuses (nonzero exit, no run.json written) when the
     window has zero closed positions — psr_ci.load_run_returns requires a
     non-empty returns array.
+
+    Before writing run.json, also verifies the LIVE trading-engine
+    container's env + StartedAt still match meta.json's recorded flag window
+    (_verify_flag_window) — catching a mid-window `docker compose up -d` that
+    silently reverted the flag under test. Refuses on violations unless
+    --force-unverified is passed, in which case run.json is still written but
+    with "flag_window_verified": false and the violation list recorded.
 
 Safety invariants (CLAUDE.md load-bearing):
   - PAPER_TRADING_MODE must be "true" in env before launching.
@@ -371,6 +379,108 @@ def publish_evidence(evidence_dir: Path, force: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 _POSTGRES_CONTAINER = "crypto-bot-postgres"
+_TRADING_ENGINE_CONTAINER = "crypto-bot-trading"
+
+# How much later than planned_start_utc the container's StartedAt may be
+# before it's treated as a mid-window recreate rather than the original
+# launch. See _verify_flag_window docstring for the reasoning.
+_FLAG_WINDOW_TOLERANCE_SECONDS = 300
+
+
+def _verify_flag_window(meta: dict) -> list[str]:
+    """Verify the running trading-engine container still matches meta's flag window.
+
+    Returns a list of human-readable violation strings — empty means clean.
+
+    Two independent checks, both against the LIVE container (docker-exec /
+    docker-inspect style, mirroring _fetch_closed_positions):
+
+    1. Env override match: for every key in meta["flag_env_overrides"], the
+       container's actual env value (`docker exec <container> printenv <KEY>`)
+       must equal the recorded value. A bare `docker compose up -d` run
+       against trading-engine from a shell that never exported the override
+       recreates the container with the compose file's `${VAR:-false}`
+       default, silently reverting the flag mid-window — this is exactly the
+       failure this check exists to catch.
+
+    2. StartedAt timing (`docker inspect <container> --format
+       '{{.State.StartedAt}}'`): compared against meta["planned_start_utc"].
+
+       IMPORTANT — read before "fixing" the comparison direction:
+       meta.json is written FIRST by the launcher, THEN `docker compose up -d`
+       is invoked, which creates/recreates the container. So StartedAt a few
+       seconds AFTER planned_start_utc is the EXPECTED, normal case for every
+       run — it is NOT a violation. Flagging "StartedAt is after
+       planned_start" as a violation would make every clean run fail.
+
+       The actual violation this check catches is the opposite direction of
+       magnitude: StartedAt LATER than planned_start_utc by MORE than
+       _FLAG_WINDOW_TOLERANCE_SECONDS (5 minutes). A gap that large means the
+       container was (re)created well after the window's launch moment — i.e.
+       some *other*, later `docker compose up -d` recycled the container
+       (mid-window), not the original launch sequencing. That is the mixed-
+       flag-window scenario this whole helper exists to detect. A negative
+       delta (StartedAt before planned_start_utc) is not flagged either way —
+       it should not occur given the launcher's own write-meta-then-launch
+       ordering, but this helper stays narrowly focused on the "too late"
+       failure mode rather than asserting an ordering invariant that belongs
+       to the launcher, not the verifier.
+
+    Never raises on docker/subprocess failure — a failed docker call is
+    itself recorded as a violation string so callers can refuse cleanly
+    (fail-closed) instead of crashing complete_run with a traceback.
+    """
+    violations: list[str] = []
+
+    inspect_result = subprocess.run(
+        ["docker", "inspect", _TRADING_ENGINE_CONTAINER, "--format", "{{.State.StartedAt}}"],
+        capture_output=True,
+        text=True,
+    )
+    if inspect_result.returncode != 0:
+        violations.append(
+            f"docker inspect {_TRADING_ENGINE_CONTAINER} failed (rc="
+            f"{inspect_result.returncode}): {inspect_result.stderr.strip()}"
+        )
+    else:
+        started_at_raw = inspect_result.stdout.strip()
+        try:
+            started_at = datetime.fromisoformat(started_at_raw)
+            planned_start = datetime.fromisoformat(meta["planned_start_utc"])
+            delta_seconds = (started_at - planned_start).total_seconds()
+            if delta_seconds > _FLAG_WINDOW_TOLERANCE_SECONDS:
+                violations.append(
+                    f"container StartedAt ({started_at_raw}) is {delta_seconds:.0f}s "
+                    f"after planned_start_utc ({meta['planned_start_utc']}) — exceeds "
+                    f"the {_FLAG_WINDOW_TOLERANCE_SECONDS:.0f}s tolerance. The "
+                    "container was likely recreated mid-window (e.g. a bare "
+                    "`docker compose up -d` run without the flag override exported), "
+                    "so this window may mix flag-on and flag-off behaviour."
+                )
+        except ValueError as exc:
+            violations.append(f"could not parse container StartedAt {started_at_raw!r}: {exc}")
+
+    for key, expected in meta.get("flag_env_overrides", {}).items():
+        env_result = subprocess.run(
+            ["docker", "exec", _TRADING_ENGINE_CONTAINER, "printenv", key],
+            capture_output=True,
+            text=True,
+        )
+        if env_result.returncode != 0:
+            violations.append(
+                f"docker exec {_TRADING_ENGINE_CONTAINER} printenv {key} failed (rc="
+                f"{env_result.returncode}): {env_result.stderr.strip()}"
+            )
+            continue
+        actual = env_result.stdout.strip()
+        if actual != expected:
+            violations.append(
+                f"container env {key}={actual!r} does not match "
+                f"meta.flag_env_overrides[{key}]={expected!r} — the container was "
+                "likely recreated mid-window without the override exported."
+            )
+
+    return violations
 
 
 def _fetch_closed_positions(since_iso: str) -> list[tuple]:
@@ -423,7 +533,7 @@ def _fetch_closed_positions(since_iso: str) -> list[tuple]:
     return [tuple(line.split("|")) for line in out.stdout.strip().splitlines() if line]
 
 
-def complete_run(evidence_dir) -> int:
+def complete_run(evidence_dir, force_unverified: bool = False) -> int:
     """Write run.json: per-trade returns for the run's window. Returns exit code.
 
     Per-trade return = realized_pnl / (entry_price * quantity), computed via
@@ -432,6 +542,24 @@ def complete_run(evidence_dir) -> int:
     window has zero closed positions: psr_ci.load_run_returns requires a
     non-empty, NaN-free returns array, and an empty one would poison the
     downstream evidence loop silently.
+
+    Flag-window verification (BEFORE run.json is written): once there are
+    positions to harvest, _verify_flag_window(meta) checks the LIVE
+    trading-engine container's env and StartedAt against meta.json — guarding
+    against a mid-window `docker compose up -d` that silently reverted the
+    flag under test (see _verify_flag_window docstring). On violations:
+      - force_unverified=False (default): print each violation to stderr,
+        refuse to write run.json, return nonzero. Evidence integrity over a
+        best-effort guess.
+      - force_unverified=True: print a loud WARNING for each violation to
+        stderr, but proceed — run.json is written with
+        "flag_window_verified": false and "flag_window_violations": [...],
+        so the compromised window is recorded honestly rather than silently
+        passed off as clean. Mirrors publish-evidence's --force pattern
+        (which also writes an override marker instead of pretending nothing
+        happened).
+      On a clean pass, run.json records "flag_window_verified": true and
+      "flag_window_violations": [] .
     """
     evidence_dir = Path(evidence_dir)
     meta_path = evidence_dir / "meta.json"
@@ -450,6 +578,34 @@ def complete_run(evidence_dir) -> int:
         )
         return 1
 
+    violations = _verify_flag_window(meta)
+    if violations:
+        if not force_unverified:
+            print(
+                "ERROR: flag-window verification failed — the running "
+                "trading-engine container no longer matches this run's "
+                "recorded flag window:",
+                file=sys.stderr,
+            )
+            for v in violations:
+                print(f"  - {v}", file=sys.stderr)
+            print(
+                "Refusing to write run.json (evidence would be unverifiable). "
+                "Relaunch the window cleanly, or re-run with --force-unverified "
+                "to record the violations honestly instead of blocking evidence "
+                "entirely.",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            "WARNING: flag-window verification failed but --force-unverified was "
+            "passed. Recording flag_window_verified=false and the violations "
+            "below in run.json instead of refusing:",
+            file=sys.stderr,
+        )
+        for v in violations:
+            print(f"  - {v}", file=sys.stderr)
+
     from decimal import Decimal
 
     returns = []
@@ -464,6 +620,8 @@ def complete_run(evidence_dir) -> int:
         "window": {"since": since},
         "n_positions": len(rows),
         "source": "clean_epoch_positions view via complete-run",
+        "flag_window_verified": not violations,
+        "flag_window_violations": violations,
     }
     (evidence_dir / "run.json").write_text(json.dumps(payload, indent=2))
     print(f"run.json written: {len(returns)} returns -> {evidence_dir / 'run.json'}")
@@ -588,10 +746,20 @@ def _main_complete_run() -> None:
         metavar="DIR",
         help="Path to the evidence directory (contains meta.json).",
     )
+    parser.add_argument(
+        "--force-unverified",
+        action="store_true",
+        help=(
+            "Downgrade a flag-window verification failure from a refusal to a "
+            "loud warning. run.json is still written, but with "
+            "flag_window_verified: false and the violation list recorded — "
+            "honest evidence over blocked evidence."
+        ),
+    )
 
     # Strip 'complete-run' from argv before parsing
     args = parser.parse_args(sys.argv[2:])
-    sys.exit(complete_run(Path(args.evidence_dir)))
+    sys.exit(complete_run(Path(args.evidence_dir), force_unverified=args.force_unverified))
 
 
 if __name__ == "__main__":

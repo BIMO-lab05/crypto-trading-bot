@@ -539,6 +539,11 @@ def test_complete_run_writes_run_json(tmp_path, monkeypatch):
         ),
     ]
     monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: rows)
+    # Flag-window verification (Task: mid-window recreate guard) hits real
+    # docker in production; this test is about the fetch/write path, not
+    # verification, so treat the window as clean here — verification itself
+    # is covered by the dedicated tests below.
+    monkeypatch.setattr(ri, "_verify_flag_window", lambda meta: [])
 
     rc = ri.complete_run(ev)
     assert rc == 0
@@ -549,6 +554,8 @@ def test_complete_run_writes_run_json(tmp_path, monkeypatch):
     assert data["n_positions"] == 2
     assert data["run_id"] == "r1"
     assert data["flag"] == "prefer_maker_orders"
+    assert data["flag_window_verified"] is True
+    assert data["flag_window_violations"] == []
 
 
 def test_complete_run_refuses_empty_window(tmp_path, monkeypatch):
@@ -681,3 +688,152 @@ def test_fetch_closed_positions_parses_psql_output_and_builds_argv(monkeypatch):
     assert "2026-08-20T12:00:00+00:00" in sql
     # subprocess.run was invoked with check=True (surfaces psql failures loudly)
     assert captured["kwargs"].get("check") is True
+
+
+# ---------------------------------------------------------------------------
+# Test 7: flag-window verification (mid-window recreate guard)
+# ---------------------------------------------------------------------------
+#
+# These monkeypatch subprocess.run itself (not _verify_flag_window), the
+# same style as test_fetch_closed_positions_parses_psql_output_and_builds_argv
+# above, so the real StartedAt/env comparison logic in _verify_flag_window
+# runs under test. _fetch_closed_positions is monkeypatched separately (as
+# in the Test 6 complete-run tests) so these tests never touch the postgres
+# container.
+
+
+def _make_flag_window_meta() -> dict:
+    """meta.json dict for the prefer_maker_orders window used by Test 7."""
+    return {
+        "flag": "prefer_maker_orders",
+        "run_id": "r-verify",
+        "planned_start_utc": "2026-08-20T15:13:51.917042+00:00",
+        "planned_end_utc": "2026-08-27T15:13:51.917042+00:00",
+        "duration_days": 7,
+        "git_sha": "754b2b0",
+        "baseline_env_overrides": {
+            "ENABLE_VOL_TARGETING": "false",
+            "PREFER_MAKER_ORDERS": "false",
+            "ENABLE_FUNDING_GATE": "false",
+        },
+        "flag_env_overrides": {
+            "ENABLE_VOL_TARGETING": "false",
+            "PREFER_MAKER_ORDERS": "true",
+            "ENABLE_FUNDING_GATE": "false",
+        },
+        "paper_trade_log_path": "",
+    }
+
+
+def _fake_closed_rows() -> list[tuple]:
+    return [
+        (
+            "SOLUSDT",
+            "LONG",
+            "180.0",
+            "0.05",
+            "0.25",
+            "2026-08-21T01:00:00+00:00",
+            "2026-08-22T01:00:00+00:00",
+        )
+    ]
+
+
+def _make_docker_fake(env_values: dict, started_at: str):
+    """Build a fake subprocess.run that answers docker inspect / docker exec
+    printenv calls for the trading-engine container, branching on argv shape
+    exactly as run_isolation._verify_flag_window constructs it."""
+
+    def fake_run(argv, **kwargs):
+        if argv[:2] == ["docker", "inspect"]:
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=started_at + "\n", stderr=""
+            )
+        if argv[:2] == ["docker", "exec"] and argv[3] == "printenv":
+            key = argv[4]
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=env_values[key] + "\n", stderr=""
+            )
+        raise AssertionError(f"unexpected argv in flag-window test fake: {argv}")
+
+    return fake_run
+
+
+def test_complete_run_clean_flag_window_verified_true(tmp_path, monkeypatch):
+    """(a) Clean case: container env matches meta, StartedAt is a few seconds
+    after planned_start_utc (the launcher's own expected sequencing, not a
+    violation). run.json is written with flag_window_verified: true."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r-clean"
+    ev.mkdir(parents=True)
+    meta = _make_flag_window_meta()
+    (ev / "meta.json").write_text(json.dumps(meta))
+
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: _fake_closed_rows())
+    fake_run = _make_docker_fake(
+        env_values=meta["flag_env_overrides"],
+        started_at="2026-08-20T15:14:02.050549990+00:00",  # ~10s after planned_start
+    )
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    rc = ri.complete_run(ev)
+    assert rc == 0
+    assert (ev / "run.json").exists()
+    data = json.loads((ev / "run.json").read_text())
+    assert data["flag_window_verified"] is True
+    assert data["flag_window_violations"] == []
+
+
+def test_complete_run_flag_mismatch_refuses(tmp_path, monkeypatch):
+    """(b) A bare `docker compose up -d` mid-window reverted PREFER_MAKER_ORDERS
+    to false. complete_run must refuse: nonzero exit, no run.json written."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r-mismatch"
+    ev.mkdir(parents=True)
+    meta = _make_flag_window_meta()
+    (ev / "meta.json").write_text(json.dumps(meta))
+
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: _fake_closed_rows())
+    reverted_env = dict(meta["flag_env_overrides"])
+    reverted_env["PREFER_MAKER_ORDERS"] = "false"  # reverted by a bare `up -d`
+    fake_run = _make_docker_fake(
+        env_values=reverted_env,
+        started_at="2026-08-20T15:14:02.050549990+00:00",
+    )
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    rc = ri.complete_run(ev)
+    assert rc != 0
+    assert not (ev / "run.json").exists()
+
+
+def test_complete_run_flag_mismatch_force_unverified_records_violations(tmp_path, monkeypatch):
+    """(c) Same mismatch as (b), but with force_unverified=True: run.json IS
+    written, with flag_window_verified: false and the violation list recorded
+    — honest evidence over blocked evidence, mirroring publish-evidence
+    --force."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r-forced"
+    ev.mkdir(parents=True)
+    meta = _make_flag_window_meta()
+    (ev / "meta.json").write_text(json.dumps(meta))
+
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: _fake_closed_rows())
+    reverted_env = dict(meta["flag_env_overrides"])
+    reverted_env["PREFER_MAKER_ORDERS"] = "false"
+    fake_run = _make_docker_fake(
+        env_values=reverted_env,
+        started_at="2026-08-20T15:14:02.050549990+00:00",
+    )
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    rc = ri.complete_run(ev, force_unverified=True)
+    assert rc == 0
+    assert (ev / "run.json").exists()
+    data = json.loads((ev / "run.json").read_text())
+    assert data["flag_window_verified"] is False
+    assert len(data["flag_window_violations"]) >= 1
+    assert any("PREFER_MAKER_ORDERS" in v for v in data["flag_window_violations"])
