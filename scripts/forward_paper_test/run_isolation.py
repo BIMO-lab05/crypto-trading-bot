@@ -24,6 +24,16 @@ CLI entry point (two modes):
     without --force when CI brackets zero (psr_ci_low <= 0.0). With --force,
     writes PSR_CI_PUBLISHED AND force_override.txt (logged for CI visibility).
 
+**Complete-run subcommand**:
+    python -m scripts.forward_paper_test.run_isolation complete-run <dir>
+
+    Reads meta.json for the run window (planned_start_utc), queries closed
+    positions opened at/after that timestamp via the clean_epoch_positions
+    view (docker exec into crypto-bot-postgres), and writes run.json with
+    per-trade returns. Refuses (nonzero exit, no run.json written) when the
+    window has zero closed positions — psr_ci.load_run_returns requires a
+    non-empty returns array.
+
 Safety invariants (CLAUDE.md load-bearing):
   - PAPER_TRADING_MODE must be "true" in env before launching.
   - TRADING_MODE must NOT be "LIVE" in env.
@@ -300,7 +310,7 @@ def publish_evidence(evidence_dir: Path, force: bool = False) -> None:
             f"ERROR: run.json not found in {ev_dir}\n"
             "Complete the paper-trade run first:\n"
             "  python -m scripts.forward_paper_test.run_isolation complete-run "
-            f"--evidence-dir {ev_dir}",
+            f"{ev_dir}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -357,17 +367,125 @@ def publish_evidence(evidence_dir: Path, force: bool = False) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Complete-run subcommand
+# ---------------------------------------------------------------------------
+
+_POSTGRES_CONTAINER = "crypto-bot-postgres"
+
+
+def _fetch_closed_positions(since_iso: str) -> list[tuple]:
+    """Closed clean-epoch positions opened at/after since_iso, via docker-exec psql.
+
+    Uses the public.clean_epoch_positions view (scripts/sql/create_clean_epoch_views.sql)
+    so pre-epoch legacy rows can never leak into evidence — the view itself
+    already restricts to opened_at >= the epoch cutover, and this query adds
+    the run-window filter on top. Host-run: goes through the postgres
+    container like scripts/check_collection_gaps.py does for TimescaleDB.
+    Injection-safe: since_iso comes from our own meta.json, but is still
+    passed through a strict ISO parse before interpolation — never skip this
+    guard.
+
+    Real schema (verified 2026-08-20 against the live DB, not the SQLAlchemy
+    model — this repo has known schema drift): status is a plain varchar
+    column with CHECK IN ('OPEN', 'CLOSED'); side is 'LONG'/'SHORT'. Column
+    names (symbol, side, entry_price, quantity, realized_pnl, opened_at,
+    closed_at, status) match the brief's SQL sketch exactly.
+    """
+    datetime.fromisoformat(since_iso)  # raises on garbage — never skip
+
+    sql = (
+        "SELECT symbol, side, entry_price, quantity, realized_pnl, "
+        "opened_at, closed_at FROM public.clean_epoch_positions "
+        f"WHERE status = 'CLOSED' AND opened_at >= '{since_iso}' "
+        "ORDER BY opened_at"
+    )
+    out = subprocess.run(
+        [
+            "docker",
+            "exec",
+            _POSTGRES_CONTAINER,
+            "psql",
+            "-U",
+            "cryptobot",
+            "-d",
+            "cryptobot",
+            "-t",
+            "-A",
+            "-F",
+            "|",
+            "-c",
+            sql,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [tuple(line.split("|")) for line in out.stdout.strip().splitlines() if line]
+
+
+def complete_run(evidence_dir) -> int:
+    """Write run.json: per-trade returns for the run's window. Returns exit code.
+
+    Per-trade return = realized_pnl / (entry_price * quantity), computed via
+    Decimal and only cast to float at the JSON-serialization boundary (money
+    rule — CLAUDE.md). Refuses (nonzero exit, no run.json written) when the
+    window has zero closed positions: psr_ci.load_run_returns requires a
+    non-empty, NaN-free returns array, and an empty one would poison the
+    downstream evidence loop silently.
+    """
+    evidence_dir = Path(evidence_dir)
+    meta_path = evidence_dir / "meta.json"
+    if not meta_path.exists():
+        print(f"ERROR: meta.json not found in {evidence_dir}", file=sys.stderr)
+        return 1
+
+    meta = json.loads(meta_path.read_text())
+    since = meta["planned_start_utc"]  # real _write_meta_json key (not launched_at_utc)
+    rows = _fetch_closed_positions(since)
+    if not rows:
+        print(
+            f"ERROR: no closed positions opened since {since}; refusing to write "
+            "an empty run.json (psr_ci requires a non-empty returns array).",
+            file=sys.stderr,
+        )
+        return 1
+
+    from decimal import Decimal
+
+    returns = []
+    for symbol, side, entry_price, quantity, realized_pnl, opened_at, closed_at in rows:
+        notional = Decimal(entry_price) * Decimal(quantity)
+        returns.append(float(Decimal(realized_pnl) / notional))
+
+    payload = {
+        "returns": returns,
+        "run_id": meta["run_id"],
+        "flag": meta["flag"],
+        "window": {"since": since},
+        "n_positions": len(rows),
+        "source": "clean_epoch_positions view via complete-run",
+    }
+    (evidence_dir / "run.json").write_text(json.dumps(payload, indent=2))
+    print(f"run.json written: {len(returns)} returns -> {evidence_dir / 'run.json'}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
-    # Top-level parser: check for publish-evidence first (first positional arg).
-    # We use a two-phase parse: peek at sys.argv[1] before delegating.
-    # This preserves backward compat: `--help`, `--flag`, etc. at top level
-    # still work exactly as Task 1's tests expect.
+    # Top-level parser: check for publish-evidence / complete-run first (first
+    # positional arg). We use a two-phase parse: peek at sys.argv[1] before
+    # delegating. This preserves backward compat: `--help`, `--flag`, etc. at
+    # top level still work exactly as Task 1's tests expect.
     if len(sys.argv) >= 2 and sys.argv[1] == "publish-evidence":
         _main_publish_evidence()
+        return
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "complete-run":
+        _main_complete_run()
         return
 
     _main_run()
@@ -452,6 +570,28 @@ def _main_publish_evidence() -> None:
     # Strip 'publish-evidence' from argv before parsing
     args = parser.parse_args(sys.argv[2:])
     publish_evidence(Path(args.evidence_dir), force=args.force)
+
+
+def _main_complete_run() -> None:
+    """Argparse for the complete-run subcommand."""
+    # sys.argv[1] is already 'complete-run'; parse the rest.
+    parser = argparse.ArgumentParser(
+        prog="run_isolation.py complete-run",
+        description=(
+            "Derive per-trade returns from closed clean-epoch positions opened "
+            "since the run's launch time (per meta.json) and write run.json — "
+            "the input publish-evidence and psr_ci.load_run_returns consume."
+        ),
+    )
+    parser.add_argument(
+        "evidence_dir",
+        metavar="DIR",
+        help="Path to the evidence directory (contains meta.json).",
+    )
+
+    # Strip 'complete-run' from argv before parsing
+    args = parser.parse_args(sys.argv[2:])
+    sys.exit(complete_run(Path(args.evidence_dir)))
 
 
 if __name__ == "__main__":

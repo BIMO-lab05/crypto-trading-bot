@@ -483,3 +483,96 @@ def test_runbook_contains_required_sections():
     ]
     for section in required_sections:
         assert section in content, f"Runbook missing section heading: '{section}'"
+
+
+# ---------------------------------------------------------------------------
+# Test 6: complete-run subcommand (Task 11)
+# ---------------------------------------------------------------------------
+#
+# meta.json keys below match the REAL _write_meta_json output (verified by
+# reading run_isolation.py before writing these tests), not the brief's
+# sketch: the launch timestamp key is "planned_start_utc", not
+# "launched_at_utc".
+
+
+def test_complete_run_writes_run_json(tmp_path, monkeypatch):
+    """complete-run derives per-trade returns from closed positions and writes run.json."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r1"
+    ev.mkdir(parents=True)
+    (ev / "meta.json").write_text(
+        json.dumps(
+            {
+                "flag": "prefer_maker_orders",
+                "run_id": "r1",
+                "planned_start_utc": "2026-08-20T12:00:00+00:00",
+                "planned_end_utc": "2026-08-27T12:00:00+00:00",
+                "duration_days": 7,
+                "git_sha": "abc1234",
+                "baseline_env_overrides": {},
+                "flag_env_overrides": {},
+                "paper_trade_log_path": "",
+            }
+        )
+    )
+
+    rows = [
+        # (symbol, side, entry_price, quantity, realized_pnl, opened_at, closed_at)
+        (
+            "SOLUSDT",
+            "LONG",
+            "180.0",
+            "0.05",
+            "0.25",
+            "2026-08-21T01:00:00+00:00",
+            "2026-08-22T01:00:00+00:00",
+        ),
+        (
+            "BNBUSDT",
+            "LONG",
+            "700.0",
+            "0.012",
+            "-0.03",
+            "2026-08-21T02:00:00+00:00",
+            "2026-08-23T02:00:00+00:00",
+        ),
+    ]
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: rows)
+
+    rc = ri.complete_run(ev)
+    assert rc == 0
+    data = json.loads((ev / "run.json").read_text())
+    assert len(data["returns"]) == 2
+    assert abs(data["returns"][0] - 0.25 / (180.0 * 0.05)) < 1e-12
+    assert data["n_positions"] == 2
+    assert data["run_id"] == "r1"
+    assert data["flag"] == "prefer_maker_orders"
+
+
+def test_complete_run_refuses_empty_window(tmp_path, monkeypatch):
+    """complete-run refuses to write an empty run.json (would poison psr_ci)."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r2"
+    ev.mkdir(parents=True)
+    (ev / "meta.json").write_text(
+        json.dumps(
+            {
+                "flag": "prefer_maker_orders",
+                "run_id": "r2",
+                "planned_start_utc": "2026-08-20T12:00:00+00:00",
+                "planned_end_utc": "2026-08-27T12:00:00+00:00",
+                "duration_days": 7,
+                "git_sha": "abc1234",
+                "baseline_env_overrides": {},
+                "flag_env_overrides": {},
+                "paper_trade_log_path": "",
+            }
+        )
+    )
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: [])
+
+    rc = ri.complete_run(ev)
+    assert rc != 0
+    assert not (ev / "run.json").exists()
