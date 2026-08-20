@@ -58,9 +58,19 @@ def test_stale_marker_exits_1(tmp_path):
 
 
 def test_default_marker_repo_anchored():
-    """Verify script finds default marker at repo root even when run from /tmp."""
-    # Write a fresh marker at the real repo location
+    """Verify script finds default marker at repo root even when run from /tmp.
+
+    IMPORTANT: This test operates on the PRODUCTION marker path that the
+    tripwire reads for liveness. We must not destroy a live marker, as
+    that would silently break the tripwire until the next cron tick. We
+    save pre-existing marker bytes, restore them after, and only clean up
+    if we created it ourselves.
+    """
+    # Save any pre-existing marker (the tripwire signal is precious)
     DEFAULT_MARKER.parent.mkdir(parents=True, exist_ok=True)
+    saved_marker_bytes = DEFAULT_MARKER.read_bytes() if DEFAULT_MARKER.exists() else None
+
+    # Write a fresh test marker
     DEFAULT_MARKER.write_text(
         json.dumps(
             {
@@ -76,6 +86,10 @@ def test_default_marker_repo_anchored():
         # Verify it found the repo-anchored marker
         assert "last tick:" in r.stdout
     finally:
-        # Clean up the marker file
-        if DEFAULT_MARKER.exists():
+        # Restore the marker to its pre-test state (production signal safety)
+        if saved_marker_bytes is not None:
+            DEFAULT_MARKER.write_bytes(saved_marker_bytes)
+        elif DEFAULT_MARKER.exists():
+            # Only delete if we created it (saved_marker_bytes is None and
+            # file now exists)
             DEFAULT_MARKER.unlink()
