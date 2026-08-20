@@ -41,6 +41,15 @@ exclude = '''
 # preview = false
 
 
+[tool.ruff]
+# Must agree with [tool.black] line-length and [tool.isort] line_length above.
+# The PostToolUse format hook (.claude/scripts/format-python.sh) runs ruff with
+# no explicit config; without this section ruff falls back to its 88-column
+# default and reflows every edited file against the repo's 100-column standard.
+line-length = 100
+target-version = "py312"
+
+
 [tool.isort]
 # Profile to use (black-compatible)
 profile = "black"
