@@ -735,6 +735,12 @@ services:
       - DEFAULT_LEVERAGE=${DEFAULT_LEVERAGE:-1.0}
       - MAX_LEVERAGE=${MAX_LEVERAGE:-20.0}
       - MIN_LEVERAGE=${MIN_LEVERAGE:-1.0}
+      # Task 6: wires preflight's check_dsr_evidence to the tournament-harness's
+      # REAL sqlite DB (the /data/tournament.db literal that both this service
+      # and the evidence-loop driver defaulted to satisfies no container or
+      # host path). File does not exist until the harness's first run — the
+      # preflight check is fail-soft (UNKNOWN) on a missing file.
+      - TOURNAMENT_DB_PATH=/data/leaderboard.db
     volumes:
       - ./services/trading-engine/logs:/app/logs
       # RO dir-to-dir mount of shared safety/ directory. The kill-switch
@@ -743,6 +749,10 @@ services:
       # the host file is missing (Docker auto-creates a dir at the mount point).
       # Operator: `touch safety/EMERGENCY_STOP` to halt, `rm` to resume.
       - ./safety:/app/safety:ro
+      # Task 6: RO — preflight only reads; the tournament-harness service
+      # (writable at ./services/tournament-harness/data:/app/data) and the
+      # host-run evidence-loop driver are the only writers.
+      - ./services/tournament-harness/data/leaderboard:/data:ro
     networks:
       - crypto-bot-network
     depends_on:

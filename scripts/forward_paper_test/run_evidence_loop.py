@@ -50,6 +50,12 @@ from scripts.forward_paper_test.psr_ci import compute_psr_with_bootstrap_ci, loa
 # and Phase 9 read the same DB by default.
 DEFAULT_TOURNAMENT_DB_PATH = "/data/tournament.db"
 
+
+def resolve_db_path() -> str:
+    """CLI default for --db-path: TOURNAMENT_DB_PATH env, else the legacy literal."""
+    return os.environ.get("TOURNAMENT_DB_PATH", DEFAULT_TOURNAMENT_DB_PATH)
+
+
 # ≥7-day wall-clock accrual window before a row's natural-key group becomes
 # eligible for PSR-CI publication (decision D-09-01-04).
 ACCRUAL_WINDOW_DAYS = 7
@@ -382,12 +388,9 @@ def main(argv: Optional[list] = None) -> int:
     )
     parser.add_argument(
         "--db-path",
-        default=DEFAULT_TOURNAMENT_DB_PATH,
+        default=resolve_db_path(),
         metavar="PATH",
-        help=(
-            f"Path to the tournament-harness sqlite DB "
-            f"(default: {DEFAULT_TOURNAMENT_DB_PATH})."
-        ),
+        help=(f"Path to the tournament-harness sqlite DB (default: {DEFAULT_TOURNAMENT_DB_PATH})."),
     )
     parser.add_argument(
         "--dry-run",
