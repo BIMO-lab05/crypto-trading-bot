@@ -2,15 +2,15 @@
 # Purpose: Calculate technical indicators and generate trading signals
 
 # Web Framework
-fastapi==0.109.2          # Modern async web framework
+fastapi==0.141.1          # Modern async web framework
 uvicorn[standard]==0.52.3 # ASGI server
-pydantic==2.5.3           # Data validation
-pydantic-settings==2.1.0  # Settings management
+pydantic==2.13.4           # Data validation
+pydantic-settings==2.14.2  # Settings management
 
 # Data Analysis
 pandas==3.0.5             # Data manipulation
 numpy==1.26.4             # Numerical computing
-scipy==1.18.0             # Scientific computing
+scipy==1.17.1             # Scientific computing
 
 # Technical Analysis Libraries
 # TA-Lib removed - requires gcc/system install, adding complexity
@@ -26,15 +26,15 @@ httpx==0.28.1             # HTTP client
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics
-python-json-logger==2.0.7 # Structured logging
+python-json-logger==4.1.0 # Structured logging
 
 # Utilities
 python-dotenv==1.2.2      # Environment variables
 python-dateutil==2.9.0.post0    # Date utilities
 
 # Testing
-pytest==7.4.4             # Testing framework
-pytest-asyncio==0.26.0    # Async test support
+pytest==9.1.1             # Testing framework
+pytest-asyncio==1.4.0    # Async test support
 pytest-cov==7.1.0         # Coverage
 pytest-mock==3.15.1       # Mocking
 pytest-benchmark==5.2.3   # Performance testing

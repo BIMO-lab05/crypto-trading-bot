@@ -12,7 +12,7 @@ httpx>=0.28.1
 requests-mock>=1.12.1
 
 # FastAPI testing
-fastapi[all]>=0.100.0
+fastapi[all]>=0.141.1
 httpx>=0.28.1
 
 # Code quality
