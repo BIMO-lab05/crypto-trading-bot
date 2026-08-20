@@ -3,7 +3,7 @@ type: meta
 title: "Wiki Index"
 status: current
 created: 2026-05-05
-updated: 2026-07-30
+updated: 2026-08-19
 tags: [meta, index]
 ---
 
@@ -15,7 +15,7 @@ Master catalog. Updated on every ingest.
 
 - [[modules/_index|Modules]] — per-service pages (11 microservices + frontend)
 - [[components/_index|Components]] — reusable engine sub-systems (Volume-Profile, Multi-Timeframe-Blender)
-- [[decisions/_index|Decisions]] — ADRs 001–027 (single canonical ADR home since 2026-07-30)
+- [[decisions/_index|Decisions]] — ADRs 001–028, 27 files (**ADR-012 is intentionally absent** — renumbered to ADR-016 on 2026-05-15; the gap is deliberate). Single canonical ADR home since 2026-07-30.
 - [[dependencies/_index|Dependencies]] — external packages, models, infra *(stub — unpopulated)*
 - [[flows/_index|Flows]] — request paths, signal pipeline, order lifecycle
 - [[concepts/_index|Concepts]] — strategy patterns, ML lifecycle, risk model (14 pages)
@@ -53,7 +53,7 @@ Master catalog. Updated on every ingest.
 - [[concepts/Graphify-Shadow-Nodes|Graphify Shadow Nodes]]
 - [[concepts/Test-Setup-Gotchas|Test Setup Gotchas]]
 
-### Decisions (ADRs 001–027)
+### Decisions (ADRs 001–028; ADR-012 renumbered to ADR-016)
 
 Founding set (2026-05-05):
 - [[decisions/ADR-001-LSTM-removed|ADR-001 LSTM removed]] · [[decisions/ADR-002-trading-engine-lifespan-refactor|ADR-002 lifespan refactor]] · [[decisions/ADR-003-bcrypt-sha256-prehash|ADR-003 bcrypt_sha256]] · [[decisions/ADR-004-paper-trading-default|ADR-004 paper default]] · [[decisions/ADR-005-emergency-stop-file-flag|ADR-005 EMERGENCY_STOP flag]] · [[decisions/ADR-006-mainnet-prices-paper-orders|ADR-006 mainnet+paper]] · [[decisions/ADR-007-no-v1-api-prefix|ADR-007 no /v1/]] · [[decisions/ADR-008-conventional-commits|ADR-008 conventional commits]] · [[decisions/ADR-009-docker-compose-unified-canonical|ADR-009 unified compose]]
@@ -67,12 +67,15 @@ July 2026 fix campaign:
 Merged from docs/decisions (2026-07-30):
 - [[decisions/ADR-026-monitoring-disposition|ADR-026 monitoring disposition]] · [[decisions/ADR-027-extended-backtest-disposition|ADR-027 extended-backtest disposition]]
 
+August 2026:
+- [[decisions/ADR-028-daily-loss-breaker-reconciliation|ADR-028 daily-loss breaker reconciliation]] — 5% → 12%; **allows more** daily loss, a coherence fix rather than a tightening
+
 ### Sources
 - [[sources/Archive-Distillation-2026-07-30|Archive Distillation 2026-07-30]] — load-bearing facts rescued from archived reports
 - [[sources/progress|progress.md summary]] · [[sources/SYSTEM_OVERVIEW|SYSTEM_OVERVIEW (stale source)]] · [[sources/SERVICE_CONTRACTS|SERVICE_CONTRACTS (stale source)]]
 
 ### Meta
-- [[meta/lint-report-2026-07-30|Lint report 2026-07-30]] (latest) · [[meta/lint-report-2026-05-06|Lint report 2026-05-06]]
+- [[meta/lint-report-2026-07-30|Lint report 2026-07-30]] (latest) · Lint report 2026-05-06 — archived 2026-08-03, now at `docs/archive/2026-08-03/wiki/meta/lint-report-2026-05-06.md` (wikilink removed: it resolved to nothing)
 
 ## Where things live (repo map)
 
@@ -80,3 +83,6 @@ Merged from docs/decisions (2026-07-30):
 - Historical reports (Nov 2025 – May 2026): `docs/archive/` — excluded from the Graphify graph
 - Planning state (GSD-managed, machine-consumed): `.planning/` — do not hand-edit
 - Scheduled-task outputs: `reports/{edge-audits,premarket,runtime-checks,walk-forward,circuit-breaker}/`
+- Edge research: `backtesting/edge_lab/` (pre-registered kill-test battery, candidates, append-only `trial_ledger.json`, pinned universe) and `backtesting/killtests/` (hurdle-first cost screen)
+- Edge verdicts + evidence: `.planning/evidence/killtests/` — `battery-summary-<YYYYMMDD>.md` plus per-candidate `*-verdict-*.{md,json}` and the trade CSVs behind them
+- Account size declaration of record: `shared/account.py` (host-run code only — not importable inside any service container)
