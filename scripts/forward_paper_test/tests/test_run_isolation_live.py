@@ -893,3 +893,25 @@ def test_verify_flag_window_uses_created_not_started_at(monkeypatch):
         f"got format {captured_format!r}"
     )
     assert violations == []
+
+
+def test_verify_flag_window_created_past_tolerance_is_a_violation(monkeypatch):
+    """Companion to the test above: pinning the field alone doesn't prove the
+    comparison logic still fires. `.Created` days after planned_start_utc
+    (e.g. a real mid-window recreate — the actual bug this fix targets) must
+    still be flagged as a violation, exactly as it would be if the field were
+    StartedAt. Only the false-positive case (restart-without-recreate) is
+    supposed to change with this fix, not the true-positive case."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    meta = _make_flag_window_meta()  # planned_start_utc = 2026-08-20T15:13:51...
+    fake_run = _make_docker_fake(
+        env_values=meta["flag_env_overrides"],
+        created_at="2026-08-25T09:00:00.000000000+00:00",  # ~5 days later
+    )
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    violations = ri._verify_flag_window(meta)
+
+    assert violations, "Created far past tolerance must still be reported as a violation"
+    assert any("Created" in v and "exceeds" in v for v in violations)
