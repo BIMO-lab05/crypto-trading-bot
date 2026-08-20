@@ -14,14 +14,13 @@ detect the drift it exists to detect: until 2026-08-06 this file asserted a
 (ADR-010, ADR-028) and reported PASS, because both sides of every comparison
 came from the same stale literals.
 
-Tests:
-1. Position size calculation (paper per-trade risk cap)
-2. Daily loss limit enforcement (ADR-028 breaker)
-3. Circuit breaker activation (10% drawdown)
-4. Stop-loss calculation (ATR-based)
-5. Emergency stop procedures
-6. Maximum position limits
-7. Leverage restrictions
+Tests (in run order):
+1. Service connectivity
+2. Position size calculation (paper per-trade risk cap)
+3. Daily loss limit enforcement (ADR-028 breaker)
+4. Circuit breaker activation (10% drawdown)
+5. Maximum position limits
+6. Emergency stop procedures
 """
 
 import asyncio
@@ -80,7 +79,6 @@ MAX_POSITION_SIZE_FRACTION = max_position_size_fraction()  # 0.10
 # pretending it has an upstream source.
 MAX_DRAWDOWN = 0.10  # fraction, 10% peak-to-trough
 MAX_POSITIONS = 5  # Maximum concurrent positions
-MAX_LEVERAGE = 1  # No leverage in initial version
 
 
 class RiskValidator:
@@ -120,7 +118,7 @@ class RiskValidator:
 
     async def test_service_connectivity(self) -> bool:
         """Test 1: Verify required services are accessible"""
-        print(f"\n{BLUE}[1/8] Service Connectivity${NC}")
+        print(f"\n{BLUE}[1/6] Service Connectivity${NC}")
         print("─" * 50)
 
         services = {
@@ -137,9 +135,7 @@ class RiskValidator:
                     if response.status_code == 200:
                         self.print_test(f"{name} accessible", True)
                     else:
-                        self.print_test(
-                            f"{name} accessible", False, f"HTTP {response.status_code}"
-                        )
+                        self.print_test(f"{name} accessible", False, f"HTTP {response.status_code}")
                         all_healthy = False
                 except Exception as e:
                     self.print_test(f"{name} accessible", False, str(e))
@@ -162,7 +158,7 @@ class RiskValidator:
         one), and notional above the position cap must be clamped DOWN.
         """
         risk_pct = MAX_RISK_PER_TRADE * 100
-        print(f"\n{BLUE}[2/8] Position Size Calculation ({risk_pct:.0f}% Risk){NC}")
+        print(f"\n{BLUE}[2/6] Position Size Calculation ({risk_pct:.0f}% Risk){NC}")
         print("─" * 50)
 
         equity = ACCOUNT_EQUITY_USD
@@ -180,9 +176,7 @@ class RiskValidator:
         # notional is risk_budget / stop_distance in every case.
         for stop_loss_pct in (0.02, 0.05, 0.10, 0.50):
             implied_notional = risk_budget / stop_loss_pct
-            label = (
-                f"Stop {stop_loss_pct * 100:.0f}% -> notional ${implied_notional:.2f}"
-            )
+            label = f"Stop {stop_loss_pct * 100:.0f}% -> notional ${implied_notional:.2f}"
 
             if implied_notional > position_cap:
                 # Clamping DOWN to the position cap is correct behaviour.
@@ -210,8 +204,7 @@ class RiskValidator:
                 self.print_test(
                     f"{label}: within [min, cap]",
                     True,
-                    f"${MIN_NOTIONAL_USD:.2f} <= ${implied_notional:.2f} "
-                    f"<= ${position_cap:.2f}",
+                    f"${MIN_NOTIONAL_USD:.2f} <= ${implied_notional:.2f} <= ${position_cap:.2f}",
                 )
 
         # The structural check: is there any stop distance at which a trade is
@@ -223,8 +216,7 @@ class RiskValidator:
         self.print_test(
             "A compliant position size exists at this account size",
             window_exists,
-            f"position cap ${position_cap:.2f} vs venue minimum "
-            f"${MIN_NOTIONAL_USD:.2f}",
+            f"position cap ${position_cap:.2f} vs venue minimum ${MIN_NOTIONAL_USD:.2f}",
         )
         if not window_exists:
             all_passed = False
@@ -248,8 +240,7 @@ class RiskValidator:
     async def test_daily_loss_limit(self) -> bool:
         """Test 3: Daily loss limit enforcement (ADR-028 breaker)"""
         print(
-            f"\n{BLUE}[3/8] Daily Loss Limit "
-            f"({MAX_DAILY_LOSS_PCT:.0f}% of Portfolio, ADR-028){NC}"
+            f"\n{BLUE}[3/6] Daily Loss Limit ({MAX_DAILY_LOSS_PCT:.0f}% of Portfolio, ADR-028){NC}"
         )
         print("─" * 50)
 
@@ -279,9 +270,7 @@ class RiskValidator:
 
                     daily_loss = initial_balance - current_balance
                     daily_loss_pct = (
-                        (daily_loss / initial_balance) * 100
-                        if initial_balance > 0
-                        else 0
+                        (daily_loss / initial_balance) * 100 if initial_balance > 0 else 0
                     )
 
                     # Test 1: Check if daily loss is within limit
@@ -295,9 +284,7 @@ class RiskValidator:
                     )
 
                     # Test 2: Calculate remaining daily loss allowance
-                    remaining_loss = (
-                        initial_balance * DAILY_LOSS_LIMIT_FRACTION
-                    ) - daily_loss
+                    remaining_loss = (initial_balance * DAILY_LOSS_LIMIT_FRACTION) - daily_loss
                     remaining_pct = (remaining_loss / initial_balance) * 100
 
                     if remaining_loss > 0:
@@ -315,9 +302,7 @@ class RiskValidator:
                     # Test 3: Verify trading should stop if limit reached
                     if daily_loss_pct >= MAX_DAILY_LOSS_PCT:
                         # Check if trading is actually stopped
-                        status_response = await client.get(
-                            f"{TRADING_ENGINE_URL}/api/v1/status"
-                        )
+                        status_response = await client.get(f"{TRADING_ENGINE_URL}/api/v1/status")
                         if status_response.status_code == 200:
                             status_data = status_response.json()
                             trading_active = status_data.get("trading_active", False)
@@ -354,15 +339,13 @@ class RiskValidator:
 
     async def test_circuit_breaker(self) -> bool:
         """Test 4: Circuit breaker activates at 10% drawdown"""
-        print(f"\n{BLUE}[4/8] Circuit Breaker (10% Drawdown Limit){NC}")
+        print(f"\n{BLUE}[4/6] Circuit Breaker (10% Drawdown Limit){NC}")
         print("─" * 50)
 
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # Get risk metrics
-                response = await client.get(
-                    f"{RISK_METRICS_URL}/api/v1/metrics/portfolio"
-                )
+                response = await client.get(f"{RISK_METRICS_URL}/api/v1/metrics/portfolio")
 
                 if response.status_code == 200:
                     data = response.json()
@@ -391,14 +374,10 @@ class RiskValidator:
                     # Test 3: Verify circuit breaker status
                     if max_drawdown_pct >= (MAX_DRAWDOWN * 100):
                         # Circuit breaker should be activated
-                        status_response = await client.get(
-                            f"{TRADING_ENGINE_URL}/api/v1/status"
-                        )
+                        status_response = await client.get(f"{TRADING_ENGINE_URL}/api/v1/status")
                         if status_response.status_code == 200:
                             status_data = status_response.json()
-                            circuit_breaker = status_data.get(
-                                "circuit_breaker_active", False
-                            )
+                            circuit_breaker = status_data.get("circuit_breaker_active", False)
 
                             if circuit_breaker:
                                 self.print_test(
@@ -422,108 +401,22 @@ class RiskValidator:
 
                     return within_limit
                 else:
-                    self.print_warning(
-                        "Cannot fetch risk metrics", f"HTTP {response.status_code}"
-                    )
+                    self.print_warning("Cannot fetch risk metrics", f"HTTP {response.status_code}")
                     return False
 
         except Exception as e:
             self.print_test("Circuit breaker check", False, str(e))
             return False
 
-    async def test_stop_loss_calculation(self) -> bool:
-        """Test 5: Stop-loss calculation (ATR-based)"""
-        print(f"\n{BLUE}[5/8] Stop-Loss Calculation (ATR-Based){NC}")
-        print("─" * 50)
-
-        # Test scenarios with mock data
-        test_cases = [
-            {
-                "symbol": "BTCUSDT",
-                "entry_price": 40000,
-                "atr": 800,  # $800 ATR
-                "multiplier": 2.0,  # 2x ATR
-                "expected_sl_long": 38400,  # 40000 - (2 * 800)
-                "expected_sl_short": 41600,  # 40000 + (2 * 800)
-                "description": "BTC standard volatility",
-            },
-            {
-                "symbol": "ETHUSDT",
-                "entry_price": 2500,
-                "atr": 50,  # $50 ATR
-                "multiplier": 2.0,
-                "expected_sl_long": 2400,  # 2500 - (2 * 50)
-                "expected_sl_short": 2600,  # 2500 + (2 * 50)
-                "description": "ETH moderate volatility",
-            },
-            {
-                "symbol": "BNBUSDT",
-                "entry_price": 300,
-                "atr": 10,  # $10 ATR
-                "multiplier": 2.0,
-                "expected_sl_long": 280,  # 300 - (2 * 10)
-                "expected_sl_short": 320,  # 300 + (2 * 10)
-                "description": "BNB low volatility",
-            },
-        ]
-
-        all_passed = True
-
-        for case in test_cases:
-            # Calculate stop loss for LONG position
-            calculated_sl_long = case["entry_price"] - (
-                case["atr"] * case["multiplier"]
-            )
-            passed_long = abs(calculated_sl_long - case["expected_sl_long"]) < 0.01
-
-            # Calculate stop loss for SHORT position
-            calculated_sl_short = case["entry_price"] + (
-                case["atr"] * case["multiplier"]
-            )
-            passed_short = abs(calculated_sl_short - case["expected_sl_short"]) < 0.01
-
-            # Test LONG
-            details = f"Entry: ${case['entry_price']}, ATR: ${case['atr']}, SL: ${calculated_sl_long:.2f}"
-            self.print_test(f"{case['description']} - LONG", passed_long, details)
-
-            # Test SHORT
-            details = f"Entry: ${case['entry_price']}, ATR: ${case['atr']}, SL: ${calculated_sl_short:.2f}"
-            self.print_test(f"{case['description']} - SHORT", passed_short, details)
-
-            if not (passed_long and passed_short):
-                all_passed = False
-
-        # Test edge case: Very high volatility
-        high_vol_sl = 40000 - (2000 * 2.0)  # $2000 ATR = 10% stop loss
-        sl_percentage = ((40000 - high_vol_sl) / 40000) * 100
-
-        if sl_percentage <= 10:  # Should not exceed 10% stop loss
-            self.print_test(
-                "Edge case: High volatility caps SL at reasonable level",
-                True,
-                f"SL: ${high_vol_sl:.2f} ({sl_percentage:.2f}%)",
-            )
-        else:
-            self.print_warning(
-                "Edge case: High volatility SL may be too wide",
-                f"SL: ${high_vol_sl:.2f} ({sl_percentage:.2f}%)",
-            )
-
-        return all_passed
-
     async def test_max_positions(self) -> bool:
-        """Test 6: Maximum concurrent positions limit"""
-        print(
-            f"\n{BLUE}[6/8] Maximum Concurrent Positions (Limit: {MAX_POSITIONS}){NC}"
-        )
+        """Test 5: Maximum concurrent positions limit"""
+        print(f"\n{BLUE}[5/6] Maximum Concurrent Positions (Limit: {MAX_POSITIONS}){NC}")
         print("─" * 50)
 
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # Get current open positions
-                response = await client.get(
-                    f"{TRADING_ENGINE_URL}/api/v1/positions?status=open"
-                )
+                response = await client.get(f"{TRADING_ENGINE_URL}/api/v1/positions?status=open")
 
                 if response.status_code == 200:
                     data = response.json()
@@ -533,9 +426,7 @@ class RiskValidator:
                     # Test 1: Current positions within limit
                     within_limit = open_count <= MAX_POSITIONS
                     details = f"Current: {open_count}/{MAX_POSITIONS} positions"
-                    self.print_test(
-                        "Open positions within limit", within_limit, details
-                    )
+                    self.print_test("Open positions within limit", within_limit, details)
 
                     # Test 2: Show position diversity
                     if open_count > 0:
@@ -574,87 +465,21 @@ class RiskValidator:
 
                     return within_limit
                 else:
-                    self.print_warning(
-                        "Cannot fetch positions", f"HTTP {response.status_code}"
-                    )
+                    self.print_warning("Cannot fetch positions", f"HTTP {response.status_code}")
                     return False
 
         except Exception as e:
             self.print_test("Max positions check", False, str(e))
             return False
 
-    async def test_leverage_restrictions(self) -> bool:
-        """Test 7: Leverage restrictions (1x only)"""
-        print(f"\n{BLUE}[7/8] Leverage Restrictions (Max: {MAX_LEVERAGE}x){NC}")
-        print("─" * 50)
-
-        # In initial version, leverage should be disabled (1x only)
-        self.print_test(
-            "Leverage set to 1x (no leverage)",
-            True,
-            "Paper trading mode: leverage disabled",
-        )
-
-        self.print_test(
-            "Margin trading disabled", True, "Only spot-equivalent positions allowed"
-        )
-
-        self.print_test(
-            "No liquidation risk",
-            True,
-            "1x leverage eliminates liquidation possibility",
-        )
-
-        # Test that position size never exceeds balance. Uses the real
-        # account and the real position cap rather than invented figures —
-        # $8,000 against a $10,000 balance was never a scenario this system
-        # can produce.
-        test_balance = ACCOUNT_EQUITY_USD
-        test_position = ACCOUNT_EQUITY_USD * MAX_POSITION_SIZE_FRACTION
-
-        if test_position <= test_balance:
-            self.print_test(
-                "Position size <= balance",
-                True,
-                f"${test_position} position with ${test_balance} balance",
-            )
-        else:
-            self.print_test(
-                "Position size <= balance",
-                False,
-                f"${test_position} position exceeds ${test_balance} balance",
-            )
-            return False
-
-        return True
-
     async def test_emergency_stop(self) -> bool:
-        """Test 8: Emergency stop procedures"""
-        print(f"\n{BLUE}[8/8] Emergency Stop Procedures{NC}")
+        """Test 6: Emergency stop procedures"""
+        print(f"\n{BLUE}[6/6] Emergency Stop Procedures{NC}")
         print("─" * 50)
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # Test 1: Emergency stop endpoint exists
-                try:
-                    # Don't actually trigger emergency stop, just verify endpoint
-                    self.print_test(
-                        "Emergency stop endpoint exists",
-                        True,
-                        "POST /api/v1/emergency/stop available",
-                    )
-                except:
-                    self.print_test("Emergency stop endpoint exists", False)
-                    return False
-
-                # Test 2: Emergency close all positions endpoint
-                self.print_test(
-                    "Emergency close all endpoint exists",
-                    True,
-                    "POST /api/v1/emergency/close-all available",
-                )
-
-                # Test 3: Verify trading status endpoint
+                # Verify trading status endpoint
                 response = await client.get(f"{TRADING_ENGINE_URL}/api/v1/status")
                 if response.status_code == 200:
                     self.print_test(
@@ -670,7 +495,7 @@ class RiskValidator:
                     )
                     return False
 
-                # Test 4: Verify notification system for alerts
+                # Verify notification system for alerts
                 notification_response = await client.get("http://localhost:8006/health")
                 if notification_response.status_code == 200:
                     self.print_test(
@@ -717,15 +542,10 @@ class RiskValidator:
                 f"  • Position cap: {MAX_POSITION_SIZE_PCT:.0f}% of equity "
                 f"(${ACCOUNT_EQUITY_USD * MAX_POSITION_SIZE_FRACTION:.2f})"
             )
-            print(
-                f"  • Daily loss limit: {MAX_DAILY_LOSS_PCT:.0f}% of portfolio "
-                "(ADR-028)"
-            )
+            print(f"  • Daily loss limit: {MAX_DAILY_LOSS_PCT:.0f}% of portfolio (ADR-028)")
             print(f"  • Circuit breaker: {MAX_DRAWDOWN * 100:.0f}% drawdown")
-            print("  • Stop-loss: ATR-based dynamic")
             print(f"  • Max positions: {MAX_POSITIONS} concurrent")
-            print(f"  • Leverage: {MAX_LEVERAGE}x (no leverage)")
-            print("  • Emergency stop: Available")
+            print("  • Emergency stop: status + notification health endpoints respond")
             print(
                 f"\n{YELLOW}Pre-live gate: LIVE caps per-trade risk at "
                 f"{LIVE_MAX_RISK_PER_TRADE * 100:.0f}% "
@@ -737,9 +557,7 @@ class RiskValidator:
 
         elif self.failed <= 2:
             print(f"\n{YELLOW}⚠ Some Risk Rules Need Attention{NC}")
-            print(
-                f"\n{self.failed} test(s) failed - review and fix before live trading"
-            )
+            print(f"\n{self.failed} test(s) failed - review and fix before live trading")
             print("\nAction items:")
             print("  1. Review failed tests above")
             print("  2. Check trading engine configuration")
@@ -791,17 +609,13 @@ async def main():
     await validator.test_position_size_calculation()
     await validator.test_daily_loss_limit()
     await validator.test_circuit_breaker()
-    await validator.test_stop_loss_calculation()
     await validator.test_max_positions()
-    await validator.test_leverage_restrictions()
     await validator.test_emergency_stop()
 
     # Print summary and exit
     exit_code = validator.print_summary()
 
-    print(
-        f"\n{BLUE}Validation completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{NC}\n"
-    )
+    print(f"\n{BLUE}Validation completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{NC}\n")
 
     sys.exit(exit_code)
 
