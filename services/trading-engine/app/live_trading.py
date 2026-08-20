@@ -189,11 +189,12 @@ class LiveTradingEngine:
             logger.info(f"  Price (reference): {current_price}")
             logger.info("=" * 60)
 
-            # Send order to Bybit. The bybit-connector raises HTTP 400 on Bybit
-            # API errors and wraps the success payload as
-            # {"success": True, "data": <bybit_result>}, so we extract orderId
-            # from response["data"]["orderId"] and rely on raise_for_status
-            # plus the broad except below for error handling.
+            # Send order to Bybit. HTTP-level rejections (connector raises
+            # HTTPException on Bybit errors) are caught by raise_for_status
+            # below; a 2xx response still needs its own envelope checked —
+            # the connector wraps success as {"success": True, "data":
+            # <bybit_result>}, so we verify "success" before extracting
+            # orderId from response["data"]["orderId"].
             response = await self.client.post(
                 f"{self.bybit_url}/api/v1/order/place", json=order_request
             )
@@ -207,8 +208,10 @@ class LiveTradingEngine:
             # is not reachable via the real connector today. Restores the
             # {"success": False, ...} guard authored/reviewed in 41a32d5
             # alongside TestLiveTradingResponseEnvelope, which a merge
-            # resolution silently dropped from this file.
-            if not payload.get("success", True):
+            # resolution silently dropped from this file. No default on the
+            # .get — a malformed/missing "success" key must fail closed
+            # (rejected), not fall through as a phantom fill.
+            if not payload.get("success"):
                 error_msg = payload.get("detail", payload.get("retMsg", "Unknown error"))
                 logger.error(f"[LIVE] Order rejected by Bybit: {error_msg}")
                 return None, error_msg
