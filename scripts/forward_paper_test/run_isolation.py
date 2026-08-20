@@ -36,9 +36,9 @@ CLI entry point (two modes):
     non-empty returns array.
 
     Before writing run.json, also verifies the LIVE trading-engine
-    container's env + StartedAt still match meta.json's recorded flag window
-    (_verify_flag_window) — catching a mid-window `docker compose up -d` that
-    silently reverted the flag under test. Refuses on violations unless
+    container's env + Created timestamp still match meta.json's recorded flag
+    window (_verify_flag_window) — catching a mid-window `docker compose up -d`
+    that silently reverted the flag under test. Refuses on violations unless
     --force-unverified is passed, in which case run.json is still written but
     with "flag_window_verified": false and the violation list recorded.
 
@@ -381,9 +381,9 @@ def publish_evidence(evidence_dir: Path, force: bool = False) -> None:
 _POSTGRES_CONTAINER = "crypto-bot-postgres"
 _TRADING_ENGINE_CONTAINER = "crypto-bot-trading"
 
-# How much later than planned_start_utc the container's StartedAt may be
-# before it's treated as a mid-window recreate rather than the original
-# launch. See _verify_flag_window docstring for the reasoning.
+# How much later than planned_start_utc the container's Created timestamp
+# may be before it's treated as a mid-window recreate rather than the
+# original launch. See _verify_flag_window docstring for the reasoning.
 _FLAG_WINDOW_TOLERANCE_SECONDS = 300
 
 
@@ -403,24 +403,44 @@ def _verify_flag_window(meta: dict) -> list[str]:
        default, silently reverting the flag mid-window — this is exactly the
        failure this check exists to catch.
 
-    2. StartedAt timing (`docker inspect <container> --format
-       '{{.State.StartedAt}}'`): compared against meta["planned_start_utc"].
+    2. Creation timing (`docker inspect <container> --format '{{.Created}}'`):
+       compared against meta["planned_start_utc"].
+
+       Uses `.Created`, NOT `.State.StartedAt` — deliberately, despite the
+       finding that motivated this fix naming StartedAt. `.State.StartedAt`
+       updates on every *start* (plain `docker restart`, `docker compose
+       restart`, a restart-policy bounce after a host suspend/resume, `docker
+       compose stop` + `start` per this runbook's own Step 2) even when the
+       container is never recreated and its env is untouched — env is fixed
+       at creation and cannot change across a restart. Verified empirically
+       in this exact environment before choosing the field: `docker inspect
+       crypto-bot-postgres --format '{{.Created}} | {{.State.StartedAt}}'`
+       showed `.Created` = 2026-08-08 vs `.State.StartedAt` = 2026-08-16 — an
+       8-day gap from a restart with no recreate. Using StartedAt here would
+       make an ordinary restart mid-window trip a false violation on an
+       otherwise-clean window (env still correct) — exactly the kind of
+       spurious refusal this check must not produce on harvest day.
+       `.Created` only changes when the container is actually replaced
+       (`docker compose up -d` recreating it because the desired config —
+       including env — no longer matches, which is precisely the failure
+       mode under test), so it is the field that actually answers "was this
+       container's env baked in by our launch."
 
        IMPORTANT — read before "fixing" the comparison direction:
        meta.json is written FIRST by the launcher, THEN `docker compose up -d`
-       is invoked, which creates/recreates the container. So StartedAt a few
-       seconds AFTER planned_start_utc is the EXPECTED, normal case for every
-       run — it is NOT a violation. Flagging "StartedAt is after
-       planned_start" as a violation would make every clean run fail.
+       is invoked, which creates the container. So Created a few seconds
+       AFTER planned_start_utc is the EXPECTED, normal case for every run —
+       it is NOT a violation. Flagging "Created is after planned_start" as a
+       violation would make every clean run fail.
 
        The actual violation this check catches is the opposite direction of
-       magnitude: StartedAt LATER than planned_start_utc by MORE than
+       magnitude: Created LATER than planned_start_utc by MORE than
        _FLAG_WINDOW_TOLERANCE_SECONDS (5 minutes). A gap that large means the
-       container was (re)created well after the window's launch moment — i.e.
-       some *other*, later `docker compose up -d` recycled the container
+       container was recreated well after the window's launch moment — i.e.
+       some *other*, later `docker compose up -d` replaced the container
        (mid-window), not the original launch sequencing. That is the mixed-
        flag-window scenario this whole helper exists to detect. A negative
-       delta (StartedAt before planned_start_utc) is not flagged either way —
+       delta (Created before planned_start_utc) is not flagged either way —
        it should not occur given the launcher's own write-meta-then-launch
        ordering, but this helper stays narrowly focused on the "too late"
        failure mode rather than asserting an ordering invariant that belongs
@@ -433,7 +453,7 @@ def _verify_flag_window(meta: dict) -> list[str]:
     violations: list[str] = []
 
     inspect_result = subprocess.run(
-        ["docker", "inspect", _TRADING_ENGINE_CONTAINER, "--format", "{{.State.StartedAt}}"],
+        ["docker", "inspect", _TRADING_ENGINE_CONTAINER, "--format", "{{.Created}}"],
         capture_output=True,
         text=True,
     )
@@ -443,14 +463,14 @@ def _verify_flag_window(meta: dict) -> list[str]:
             f"{inspect_result.returncode}): {inspect_result.stderr.strip()}"
         )
     else:
-        started_at_raw = inspect_result.stdout.strip()
+        created_raw = inspect_result.stdout.strip()
         try:
-            started_at = datetime.fromisoformat(started_at_raw)
+            created = datetime.fromisoformat(created_raw)
             planned_start = datetime.fromisoformat(meta["planned_start_utc"])
-            delta_seconds = (started_at - planned_start).total_seconds()
+            delta_seconds = (created - planned_start).total_seconds()
             if delta_seconds > _FLAG_WINDOW_TOLERANCE_SECONDS:
                 violations.append(
-                    f"container StartedAt ({started_at_raw}) is {delta_seconds:.0f}s "
+                    f"container Created ({created_raw}) is {delta_seconds:.0f}s "
                     f"after planned_start_utc ({meta['planned_start_utc']}) — exceeds "
                     f"the {_FLAG_WINDOW_TOLERANCE_SECONDS:.0f}s tolerance. The "
                     "container was likely recreated mid-window (e.g. a bare "
@@ -458,7 +478,7 @@ def _verify_flag_window(meta: dict) -> list[str]:
                     "so this window may mix flag-on and flag-off behaviour."
                 )
         except ValueError as exc:
-            violations.append(f"could not parse container StartedAt {started_at_raw!r}: {exc}")
+            violations.append(f"could not parse container Created {created_raw!r}: {exc}")
 
     for key, expected in meta.get("flag_env_overrides", {}).items():
         env_result = subprocess.run(
@@ -545,9 +565,10 @@ def complete_run(evidence_dir, force_unverified: bool = False) -> int:
 
     Flag-window verification (BEFORE run.json is written): once there are
     positions to harvest, _verify_flag_window(meta) checks the LIVE
-    trading-engine container's env and StartedAt against meta.json — guarding
-    against a mid-window `docker compose up -d` that silently reverted the
-    flag under test (see _verify_flag_window docstring). On violations:
+    trading-engine container's env and Created timestamp against meta.json —
+    guarding against a mid-window `docker compose up -d` that silently
+    reverted the flag under test (see _verify_flag_window docstring). On
+    violations:
       - force_unverified=False (default): print each violation to stderr,
         refuse to write run.json, return nonzero. Evidence integrity over a
         best-effort guess.
@@ -560,6 +581,12 @@ def complete_run(evidence_dir, force_unverified: bool = False) -> int:
         happened).
       On a clean pass, run.json records "flag_window_verified": true and
       "flag_window_violations": [] .
+
+    Note: "flag_window_verified" is recorded for operator/auditor visibility
+    only — publish_evidence does not read it and does not gate on it (it
+    checks run.json existence + psr_ci_low > 0.0 only). A force-unverified
+    run still flows through to PSR_CI_PUBLISHED if the CI clears; this
+    function's contract is "record honestly," not "block downstream."
     """
     evidence_dir = Path(evidence_dir)
     meta_path = evidence_dir / "meta.json"

@@ -344,10 +344,18 @@ The `<flag_name>` must match the Python field name exactly (e.g.,
   the three override vars from the run's `meta.json` `flag_env_overrides` in
   the same shell before running `docker compose up -d trading-engine` by hand.
   `complete-run` now guards against exactly this: before writing `run.json` it
-  verifies the running container's env and `StartedAt` against `meta.json`
-  (`_verify_flag_window`) and refuses — printing each violation and exiting
-  non-zero — if the container was recreated mid-window without the override
-  (StartedAt more than ~5 minutes after `planned_start_utc`, or any override
-  env var mismatched). Pass `--force-unverified` to write `run.json` anyway
-  with `"flag_window_verified": false` and the violation list recorded, rather
-  than being blocked outright — honest evidence over blocked evidence.
+  verifies the running container's env and `Created` timestamp against
+  `meta.json` (`_verify_flag_window`) and refuses — printing each violation
+  and exiting non-zero — if the container was recreated mid-window without
+  the override (`Created` more than ~5 minutes after `planned_start_utc`, or
+  any override env var mismatched). It checks `Created`, not `StartedAt`:
+  `StartedAt` updates on a plain restart too (`docker restart`, `docker
+  compose stop`/`start`, a restart-policy bounce after host suspend/resume)
+  even when the container was never recreated and its env is untouched, so
+  using it would make an ordinary restart mid-window look like a violation.
+  `Created` only changes when the container is actually replaced. Pass
+  `--force-unverified` to write `run.json` anyway with
+  `"flag_window_verified": false` and the violation list recorded, rather
+  than being blocked outright — honest evidence over blocked evidence. This
+  is recorded for visibility only: `publish-evidence` does not read
+  `flag_window_verified` and does not gate on it.

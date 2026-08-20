@@ -696,10 +696,16 @@ def test_fetch_closed_positions_parses_psql_output_and_builds_argv(monkeypatch):
 #
 # These monkeypatch subprocess.run itself (not _verify_flag_window), the
 # same style as test_fetch_closed_positions_parses_psql_output_and_builds_argv
-# above, so the real StartedAt/env comparison logic in _verify_flag_window
+# above, so the real Created/env comparison logic in _verify_flag_window
 # runs under test. _fetch_closed_positions is monkeypatched separately (as
 # in the Test 6 complete-run tests) so these tests never touch the postgres
 # container.
+#
+# _verify_flag_window checks docker inspect's `.Created` field, NOT
+# `.State.StartedAt` — StartedAt updates on a plain restart even when the
+# container (and its env) was never recreated, which would make an ordinary
+# restart mid-window look like a violation. See _verify_flag_window's
+# docstring for the empirical evidence that motivated this choice.
 
 
 def _make_flag_window_meta() -> dict:
@@ -739,15 +745,16 @@ def _fake_closed_rows() -> list[tuple]:
     ]
 
 
-def _make_docker_fake(env_values: dict, started_at: str):
+def _make_docker_fake(env_values: dict, created_at: str):
     """Build a fake subprocess.run that answers docker inspect / docker exec
     printenv calls for the trading-engine container, branching on argv shape
-    exactly as run_isolation._verify_flag_window constructs it."""
+    exactly as run_isolation._verify_flag_window constructs it. `created_at`
+    answers the `docker inspect --format '{{.Created}}'` call."""
 
     def fake_run(argv, **kwargs):
         if argv[:2] == ["docker", "inspect"]:
             return subprocess.CompletedProcess(
-                argv, returncode=0, stdout=started_at + "\n", stderr=""
+                argv, returncode=0, stdout=created_at + "\n", stderr=""
             )
         if argv[:2] == ["docker", "exec"] and argv[3] == "printenv":
             key = argv[4]
@@ -760,7 +767,7 @@ def _make_docker_fake(env_values: dict, started_at: str):
 
 
 def test_complete_run_clean_flag_window_verified_true(tmp_path, monkeypatch):
-    """(a) Clean case: container env matches meta, StartedAt is a few seconds
+    """(a) Clean case: container env matches meta, Created is a few seconds
     after planned_start_utc (the launcher's own expected sequencing, not a
     violation). run.json is written with flag_window_verified: true."""
     import scripts.forward_paper_test.run_isolation as ri
@@ -773,7 +780,7 @@ def test_complete_run_clean_flag_window_verified_true(tmp_path, monkeypatch):
     monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: _fake_closed_rows())
     fake_run = _make_docker_fake(
         env_values=meta["flag_env_overrides"],
-        started_at="2026-08-20T15:14:02.050549990+00:00",  # ~10s after planned_start
+        created_at="2026-08-20T15:14:02.050549990+00:00",  # ~10s after planned_start
     )
     monkeypatch.setattr(ri.subprocess, "run", fake_run)
 
@@ -800,7 +807,7 @@ def test_complete_run_flag_mismatch_refuses(tmp_path, monkeypatch):
     reverted_env["PREFER_MAKER_ORDERS"] = "false"  # reverted by a bare `up -d`
     fake_run = _make_docker_fake(
         env_values=reverted_env,
-        started_at="2026-08-20T15:14:02.050549990+00:00",
+        created_at="2026-08-20T15:14:02.050549990+00:00",
     )
     monkeypatch.setattr(ri.subprocess, "run", fake_run)
 
@@ -826,7 +833,7 @@ def test_complete_run_flag_mismatch_force_unverified_records_violations(tmp_path
     reverted_env["PREFER_MAKER_ORDERS"] = "false"
     fake_run = _make_docker_fake(
         env_values=reverted_env,
-        started_at="2026-08-20T15:14:02.050549990+00:00",
+        created_at="2026-08-20T15:14:02.050549990+00:00",
     )
     monkeypatch.setattr(ri.subprocess, "run", fake_run)
 
@@ -837,3 +844,52 @@ def test_complete_run_flag_mismatch_force_unverified_records_violations(tmp_path
     assert data["flag_window_verified"] is False
     assert len(data["flag_window_violations"]) >= 1
     assert any("PREFER_MAKER_ORDERS" in v for v in data["flag_window_violations"])
+
+
+def test_verify_flag_window_uses_created_not_started_at(monkeypatch):
+    """Regression guard for the false-positive this fix must NOT produce: a
+    plain restart (docker restart / compose stop+start / a restart-policy
+    bounce after host suspend-resume) bumps `.State.StartedAt` without
+    recreating the container or touching its env — env is fixed at creation
+    and cannot change across a restart. `.Created` stays pinned to the
+    original launch time; only an actual recreate changes it. Verified
+    empirically in the live environment before choosing this field: docker
+    inspect on crypto-bot-postgres showed `.Created` 2026-08-08 vs
+    `.State.StartedAt` 2026-08-16 (an 8-day gap from a restart, no recreate).
+    If _verify_flag_window checked StartedAt instead of Created, an ordinary
+    restart mid-window would be indistinguishable from the actual bug (a
+    reverted flag) and would spuriously refuse a clean window. This test
+    pins the `docker inspect --format` argv directly so a future edit can't
+    silently swap the field back."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    meta = _make_flag_window_meta()
+    captured_format: list[str] = []
+
+    def fake_run(argv, **kwargs):
+        if argv[:2] == ["docker", "inspect"]:
+            fmt_idx = argv.index("--format")
+            captured_format.append(argv[fmt_idx + 1])
+            # Created ~10s after planned_start (normal launch sequencing).
+            return subprocess.CompletedProcess(
+                argv,
+                returncode=0,
+                stdout="2026-08-20T15:14:02.050549990+00:00\n",
+                stderr="",
+            )
+        if argv[:2] == ["docker", "exec"] and argv[3] == "printenv":
+            key = argv[4]
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=meta["flag_env_overrides"][key] + "\n", stderr=""
+            )
+        raise AssertionError(f"unexpected argv: {argv}")
+
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    violations = ri._verify_flag_window(meta)
+
+    assert captured_format == ["{{.Created}}"], (
+        f"_verify_flag_window must inspect .Created, not .State.StartedAt; "
+        f"got format {captured_format!r}"
+    )
+    assert violations == []
