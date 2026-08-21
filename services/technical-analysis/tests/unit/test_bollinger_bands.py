@@ -27,7 +27,7 @@ from app.models import SignalType
 
 @pytest.fixture
 def bb_calculator():
-    """Standard Bollinger Bands calculator with default parameters (20, 2.0)"""
+    """Standard Bollinger Bands calculator with default parameters (20, 2.5)"""
     return BollingerBandsCalculator()
 
 
@@ -72,7 +72,9 @@ def sample_volatile_data():
 def test_bb_initialization(bb_calculator):
     """Test Bollinger Bands calculator initialization with default parameters"""
     assert bb_calculator.period == 20
-    assert bb_calculator.std_dev == 2.0
+    # Class default aligned with Settings.default_bb_std (2.5) on 2026-08-20;
+    # SQZMOM pins its own internal BB at 2.0 and is unaffected.
+    assert bb_calculator.std_dev == 2.5
 
 
 def test_bb_custom_parameters():
@@ -121,8 +123,10 @@ def test_bb_band_math(bb_calculator, sample_uptrend_data):
     middle = prices.mean()
     std = prices.std()
 
-    expected_upper = middle + (std * 2.0)
-    expected_lower = middle - (std * 2.0)
+    # Expected values recomputed at the new class default std_dev=2.5
+    # (was 2.0 before the 2026-08-20 default alignment with config).
+    expected_upper = middle + (std * 2.5)
+    expected_lower = middle - (std * 2.5)
 
     # Allow small floating point differences
     assert abs(result["middle_band"] - middle) < 0.01

@@ -6,17 +6,23 @@ Extracted from main.py - Responsibility: HTTP endpoints for basic indicators
 import logging
 from fastapi import HTTPException, Query
 
+from app.config import get_settings
 from app.models import RSIResponse, MACDResponse, BollingerBandsResponse, MovingAverageResponse
 from app.services import IndicatorService
 
 logger = logging.getLogger(__name__)
+
+# Query() defaults below are evaluated once at import time from the Settings
+# singleton — Settings is the single source of truth for endpoint defaults
+# (pinned by tests/test_endpoint_defaults_from_settings.py).
+settings = get_settings()
 
 
 async def get_rsi(
     symbol: str,
     interval: str = Query(default="60", description="Candlestick interval"),
     # RESEARCH-OPTIMIZED 2025-11-28: Period 9 is optimal for crypto (prev: 14)
-    period: int = Query(default=9, ge=2, le=200, description="RSI period (optimized for crypto)"),
+    period: int = Query(default=settings.default_rsi_period, ge=2, le=200, description="RSI period (optimized for crypto)"),
     limit: int = Query(default=200, ge=50, le=1000, description="Number of candles to fetch")
 ) -> RSIResponse:
     """Calculate RSI (Relative Strength Index)"""
@@ -43,9 +49,9 @@ async def get_macd(
     interval: str = Query(default="60"),
     # RESEARCH-OPTIMIZED 2025-11-29 (Kang 2021 Study):
     # Standard 12-26-9: -3.6% annual | Optimized 5-35-5: +11.0% annual
-    fast: int = Query(default=5, ge=2, le=50, description="Fast EMA (Kang 2021: 5)"),
-    slow: int = Query(default=35, ge=10, le=200, description="Slow EMA (Kang 2021: 35)"),
-    signal: int = Query(default=5, ge=2, le=50, description="Signal line (Kang 2021: 5)"),
+    fast: int = Query(default=settings.default_macd_fast, ge=2, le=50, description="Fast EMA (Kang 2021: 5)"),
+    slow: int = Query(default=settings.default_macd_slow, ge=10, le=200, description="Slow EMA (Kang 2021: 35)"),
+    signal: int = Query(default=settings.default_macd_signal, ge=2, le=50, description="Signal line (Kang 2021: 5)"),
     limit: int = Query(default=200, ge=100, le=1000)
 ) -> MACDResponse:
     """Calculate MACD (Moving Average Convergence Divergence)"""
@@ -72,9 +78,9 @@ async def get_macd(
 async def get_bollinger_bands(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=20, ge=5, le=100),
+    period: int = Query(default=settings.default_bb_period, ge=5, le=100),
     # RESEARCH-OPTIMIZED 2025-11-29: Wider bands (2.5 SD) for crypto volatility
-    std_dev: float = Query(default=2.5, ge=1.0, le=4.0, description="Std dev (2.5 optimal for crypto)"),
+    std_dev: float = Query(default=settings.default_bb_std, ge=1.0, le=4.0, description="Std dev (2.5 optimal for crypto)"),
     limit: int = Query(default=200, ge=50, le=1000)
 ) -> BollingerBandsResponse:
     """Calculate Bollinger Bands"""
@@ -102,7 +108,7 @@ async def get_bollinger_bands(
 async def get_sma(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=20, ge=2, le=200),
+    period: int = Query(default=settings.default_sma_period, ge=2, le=200),
     limit: int = Query(default=200, ge=50, le=1000)
 ) -> MovingAverageResponse:
     """Calculate SMA (Simple Moving Average)"""
@@ -129,7 +135,7 @@ async def get_sma(
 async def get_ema(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=20, ge=2, le=200),
+    period: int = Query(default=settings.default_ema_period, ge=2, le=200),
     limit: int = Query(default=200, ge=50, le=1000)
 ) -> MovingAverageResponse:
     """Calculate EMA (Exponential Moving Average)"""

@@ -64,15 +64,27 @@ from app.handlers import (
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
-# Configure logging
+# Settings (loaded before logging config so LOG_LEVEL is honored)
+settings = get_settings()
+
+# Configure logging - honor settings.log_level (LOG_LEVEL env). Previously
+# hardcoded to INFO, silently ignoring the container's LOG_LEVEL=DEBUG.
+# Invalid values fall back to INFO with a warning (emitted below, once a
+# logger exists).
+_log_level_name = str(settings.log_level).upper()
+_log_level = getattr(logging, _log_level_name, None)
+_log_level_invalid = not isinstance(_log_level, int)
+if _log_level_invalid:
+    _log_level = logging.INFO
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Settings
-settings = get_settings()
+if _log_level_invalid:
+    logger.warning(
+        f"Invalid LOG_LEVEL {settings.log_level!r} - falling back to INFO"
+    )
 
 
 # ============================================================================
@@ -329,7 +341,7 @@ async def bollinger_endpoint(
 async def sma_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=20, ge=2, le=200),
+    period: int = Query(default=settings.default_sma_period, ge=2, le=200),
     limit: int = Query(default=200, ge=50, le=1000)
 ):
     """
@@ -347,7 +359,7 @@ async def sma_endpoint(
 async def ema_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=20, ge=2, le=200),
+    period: int = Query(default=settings.default_ema_period, ge=2, le=200),
     limit: int = Query(default=200, ge=50, le=1000)
 ):
     """
@@ -369,9 +381,9 @@ async def ema_endpoint(
 async def trend_filter_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    fast_period: int = Query(default=50, ge=10, le=100, description="Fast EMA period"),
-    slow_period: int = Query(default=200, ge=100, le=300, description="Slow EMA period"),
-    limit: int = Query(default=300, ge=200, le=1000)
+    fast_period: int = Query(default=settings.default_trend_fast_period, ge=10, le=100, description="Fast EMA period"),
+    slow_period: int = Query(default=settings.default_trend_slow_period, ge=100, le=300, description="Slow EMA period"),
+    limit: int = Query(default=settings.default_trend_limit, ge=200, le=1000)
 ):
     """
     Calculate Trend Filter using dual EMA system
@@ -396,9 +408,9 @@ async def trend_filter_endpoint(
 async def volume_confirmation_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=20, ge=5, le=50, description="Volume averaging period"),
-    signal_type: str = Query(default="breakout", description="breakout or continuation"),
-    limit: int = Query(default=100, ge=30, le=200)  # INCREASED 2026-02-25: 50→100 for better volume analysis
+    period: int = Query(default=settings.default_volume_period, ge=5, le=50, description="Volume averaging period"),
+    signal_type: str = Query(default=settings.default_volume_signal_type, description="breakout or continuation"),
+    limit: int = Query(default=settings.default_volume_limit, ge=30, le=200)  # INCREASED 2026-02-25: 50→100 for better volume analysis
 ):
     """
     Calculate Volume Confirmation
@@ -423,7 +435,7 @@ async def volume_confirmation_endpoint(
 async def atr_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=14, ge=7, le=30, description="ATR period"),
+    period: int = Query(default=settings.default_atr_period, ge=7, le=30, description="ATR period"),
     current_price: Optional[float] = Query(default=None, description="Entry price for position"),
     limit: int = Query(default=50, ge=30, le=200)
 ):
@@ -452,10 +464,10 @@ async def atr_endpoint(
 async def adx_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=14, ge=7, le=30, description="ADX period"),
-    trending_threshold: float = Query(default=25.0, ge=15.0, le=40.0, description="ADX threshold for TRENDING"),
-    weak_trend_threshold: float = Query(default=20.0, ge=10.0, le=30.0, description="ADX threshold for WEAK_TREND"),
-    strong_trend_threshold: float = Query(default=30.0, ge=25.0, le=50.0, description="ADX threshold for STRONG_TREND"),
+    period: int = Query(default=settings.default_adx_period, ge=7, le=30, description="ADX period"),
+    trending_threshold: float = Query(default=settings.default_adx_trending_threshold, ge=15.0, le=40.0, description="ADX threshold for TRENDING"),
+    weak_trend_threshold: float = Query(default=settings.default_adx_weak_trend_threshold, ge=10.0, le=30.0, description="ADX threshold for WEAK_TREND"),
+    strong_trend_threshold: float = Query(default=settings.default_adx_strong_trend_threshold, ge=25.0, le=50.0, description="ADX threshold for STRONG_TREND"),
     limit: int = Query(default=100, ge=50, le=500)
 ):
     """
@@ -495,9 +507,9 @@ async def adx_endpoint(
 async def stochastic_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=14, ge=5, le=30, description="Stochastic period"),
-    smooth_k: int = Query(default=3, ge=1, le=10, description="K smoothing"),
-    smooth_d: int = Query(default=3, ge=1, le=10, description="D smoothing"),
+    period: int = Query(default=settings.default_stochastic_period, ge=5, le=30, description="Stochastic period"),
+    smooth_k: int = Query(default=settings.default_stochastic_smooth_k, ge=1, le=10, description="K smoothing"),
+    smooth_d: int = Query(default=settings.default_stochastic_smooth_d, ge=1, le=10, description="D smoothing"),
     limit: int = Query(default=50, ge=30, le=200)
 ):
     """
@@ -528,8 +540,8 @@ async def stochastic_endpoint(
 async def rsi_divergence_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    period: int = Query(default=14, ge=7, le=30, description="RSI period"),
-    lookback: int = Query(default=20, ge=10, le=50, description="Lookback for divergence detection"),
+    period: int = Query(default=settings.default_rsi_divergence_period, ge=7, le=30, description="RSI period"),
+    lookback: int = Query(default=settings.default_rsi_divergence_lookback, ge=10, le=50, description="Lookback for divergence detection"),
     limit: int = Query(default=200, ge=100, le=500)
 ):
     """
@@ -553,9 +565,9 @@ async def rsi_divergence_endpoint(
 async def ichimoku_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    tenkan_period: int = Query(default=9, ge=5, le=30, description="Tenkan-sen (conversion) period - crypto optimized: 20"),
-    kijun_period: int = Query(default=26, ge=20, le=120, description="Kijun-sen (base) period - crypto optimized: 60"),
-    senkou_b_period: int = Query(default=52, ge=40, le=200, description="Senkou Span B period - crypto optimized: 120"),
+    tenkan_period: int = Query(default=settings.default_ichimoku_tenkan, ge=5, le=30, description="Tenkan-sen (conversion) period - crypto optimized: 20"),
+    kijun_period: int = Query(default=settings.default_ichimoku_kijun, ge=20, le=120, description="Kijun-sen (base) period - crypto optimized: 60"),
+    senkou_b_period: int = Query(default=settings.default_ichimoku_senkou_b, ge=40, le=200, description="Senkou Span B period - crypto optimized: 120"),
     limit: int = Query(default=200, ge=100, le=500)
 ):
     """
@@ -583,11 +595,11 @@ async def ichimoku_endpoint(
 async def enhanced_sqzmom_endpoint(
     symbol: str,
     interval: str = Query(default="60"),
-    bb_period: int = Query(default=20, ge=10, le=50, description="Bollinger Bands period"),
-    bb_mult: float = Query(default=2.0, ge=1.0, le=3.0, description="Bollinger Bands multiplier"),
-    kc_period: int = Query(default=20, ge=10, le=50, description="Keltner Channel period"),
-    kc_mult: float = Query(default=1.5, ge=1.0, le=3.0, description="Keltner Channel multiplier"),
-    mom_period: int = Query(default=12, ge=5, le=30, description="Momentum period"),
+    bb_period: int = Query(default=settings.default_sqzmom_bb_period, ge=10, le=50, description="Bollinger Bands period"),
+    bb_mult: float = Query(default=settings.default_sqzmom_bb_mult, ge=1.0, le=3.0, description="Bollinger Bands multiplier"),
+    kc_period: int = Query(default=settings.default_sqzmom_kc_period, ge=10, le=50, description="Keltner Channel period"),
+    kc_mult: float = Query(default=settings.default_sqzmom_kc_mult, ge=1.0, le=3.0, description="Keltner Channel multiplier"),
+    mom_period: int = Query(default=settings.default_sqzmom_mom_period, ge=5, le=30, description="Momentum period"),
     limit: int = Query(default=200, ge=100, le=500)
 ):
     """

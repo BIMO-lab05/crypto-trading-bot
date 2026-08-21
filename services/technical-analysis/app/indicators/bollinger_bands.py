@@ -32,13 +32,19 @@ class BollingerBandsCalculator:
         - Lower Band = Middle Band - (std_dev x StdDev)
     """
 
-    def __init__(self, period: int = 20, std_dev: float = 2.0):
+    # Default std_dev 2.5 matches Settings.default_bb_std (app/config.py) and
+    # the /bollinger endpoint default — research-optimized for crypto
+    # volatility (2025-11-29). NOTE: SQZMOM intentionally pins BB std 2.0 for
+    # its squeeze definition, but it computes BB internally
+    # (EnhancedSqueezeMomentum.bb_mult=2.0) and does not use this class, so
+    # this default does not affect squeeze detection.
+    def __init__(self, period: int = 20, std_dev: float = 2.5):
         """
         Initialize Bollinger Bands calculator
 
         Args:
             period: Number of periods for SMA (default: 20)
-            std_dev: Number of standard deviations (default: 2.0)
+            std_dev: Number of standard deviations (default: 2.5)
         """
         self.period = period
         self.std_dev = std_dev

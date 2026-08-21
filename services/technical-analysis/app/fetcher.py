@@ -92,7 +92,9 @@ class MarketDataFetcher:
             response = await self.client.get(f"{self.base_url}/health")
             return response.status_code == 200
         except Exception as e:
-            logger.error(f"Health check failed: {e}")
+            # exc_info deliberately omitted: the health probe fires
+            # frequently and {e!r} suffices.
+            logger.error(f"Health check failed: {e!r}")
             return False
 
     async def get_klines(
@@ -193,7 +195,11 @@ class MarketDataFetcher:
                 return []
 
         except Exception as e:
-            logger.error(f"Error fetching klines for {symbol}: {e}")
+            # {e!r} + exc_info: httpx timeout exceptions str() to "" - the
+            # bare {e} form produced 71 undiagnosable blank-message errors.
+            logger.error(
+                f"Error fetching klines for {symbol}: {e!r}", exc_info=True
+            )
             raise
 
     async def get_klines_as_dataframe(
@@ -310,7 +316,9 @@ class MarketDataFetcher:
                 return klines[-1].close
             return None
         except Exception as e:
-            logger.error(f"Error getting latest price for {symbol}: {e}")
+            logger.error(
+                f"Error getting latest price for {symbol}: {e!r}", exc_info=True
+            )
             return None
 
 

@@ -492,8 +492,10 @@ class EnhancedSqueezeMomentum:
         squeeze_off = (bb_lower < kc_lower) & (bb_upper > kc_upper)
 
         # Squeeze FIRING: The critical transition from ON to OFF
-        # Shift squeeze_on by 1 to get previous state
-        previous_squeeze_on = squeeze_on.shift(1).fillna(False)
+        # Shift squeeze_on by 1 to get previous state. fill_value=False keeps
+        # the Series bool-dtyped (shift().fillna(False) went through object
+        # dtype and fired a pandas FutureWarning on every call).
+        previous_squeeze_on = squeeze_on.shift(1, fill_value=False)
 
         # Firing occurs when previous bar was in squeeze, current bar is not
         squeeze_firing = previous_squeeze_on & squeeze_off

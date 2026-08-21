@@ -3,20 +3,27 @@ Route defaults must come from Settings, not from duplicated literals.
 
 The trading-engine calls /api/v1/indicators/macd with NO fast/slow/signal
 params on purpose, treating this service's endpoint defaults as the single
-source of truth (signal_aggregator.py:117-122). While main.py hardcodes
-5/35/5, an operator's DEFAULT_MACD_FAST reaches the /analyze path but not the
-endpoint the engine calls - the two disagree silently.
+source of truth (signal_aggregator.py:117-122). Until 2026-08-20 an
+operator's DEFAULT_MACD_FAST reached the /analysis path but not the
+endpoints - the two disagreed silently. Now BOTH layers (main.py routes and
+the handler Query() signatures they delegate to) read Settings; the
+parametrized tests below pin every wired param in both layers so drift in
+either one fails loudly.
 """
 
+import inspect
 import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
+from app.handlers import advanced as advanced_handlers
+from app.handlers import indicators as indicator_handlers
 from app.main import app
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -116,4 +123,179 @@ def test_rsi_bounds_and_description_survive_the_settings_rewire():
     )
     assert period["description"] == "RSI period (optimized for crypto)", (
         f"RSI description changed: {period.get('description')!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Full coverage of the 2026-08-20 Settings rewire.
+# (route path, query param, Settings field) - one row per wired default.
+# ---------------------------------------------------------------------------
+WIRED_ROUTE_DEFAULTS = [
+    ("/api/v1/indicators/rsi/{symbol}", "period", "default_rsi_period"),
+    ("/api/v1/indicators/macd/{symbol}", "fast", "default_macd_fast"),
+    ("/api/v1/indicators/macd/{symbol}", "slow", "default_macd_slow"),
+    ("/api/v1/indicators/macd/{symbol}", "signal", "default_macd_signal"),
+    ("/api/v1/indicators/bollinger/{symbol}", "period", "default_bb_period"),
+    ("/api/v1/indicators/bollinger/{symbol}", "std_dev", "default_bb_std"),
+    ("/api/v1/indicators/sma/{symbol}", "period", "default_sma_period"),
+    ("/api/v1/indicators/ema/{symbol}", "period", "default_ema_period"),
+    ("/api/v1/indicators/trend/{symbol}", "fast_period", "default_trend_fast_period"),
+    ("/api/v1/indicators/trend/{symbol}", "slow_period", "default_trend_slow_period"),
+    ("/api/v1/indicators/trend/{symbol}", "limit", "default_trend_limit"),
+    ("/api/v1/indicators/volume/{symbol}", "period", "default_volume_period"),
+    ("/api/v1/indicators/volume/{symbol}", "signal_type", "default_volume_signal_type"),
+    ("/api/v1/indicators/volume/{symbol}", "limit", "default_volume_limit"),
+    ("/api/v1/indicators/atr/{symbol}", "period", "default_atr_period"),
+    ("/api/v1/indicators/adx/{symbol}", "period", "default_adx_period"),
+    (
+        "/api/v1/indicators/adx/{symbol}",
+        "trending_threshold",
+        "default_adx_trending_threshold",
+    ),
+    (
+        "/api/v1/indicators/adx/{symbol}",
+        "weak_trend_threshold",
+        "default_adx_weak_trend_threshold",
+    ),
+    (
+        "/api/v1/indicators/adx/{symbol}",
+        "strong_trend_threshold",
+        "default_adx_strong_trend_threshold",
+    ),
+    ("/api/v1/indicators/stochastic/{symbol}", "period", "default_stochastic_period"),
+    (
+        "/api/v1/indicators/stochastic/{symbol}",
+        "smooth_k",
+        "default_stochastic_smooth_k",
+    ),
+    (
+        "/api/v1/indicators/stochastic/{symbol}",
+        "smooth_d",
+        "default_stochastic_smooth_d",
+    ),
+    (
+        "/api/v1/indicators/rsi-divergence/{symbol}",
+        "period",
+        "default_rsi_divergence_period",
+    ),
+    (
+        "/api/v1/indicators/rsi-divergence/{symbol}",
+        "lookback",
+        "default_rsi_divergence_lookback",
+    ),
+    (
+        "/api/v1/indicators/ichimoku/{symbol}",
+        "tenkan_period",
+        "default_ichimoku_tenkan",
+    ),
+    ("/api/v1/indicators/ichimoku/{symbol}", "kijun_period", "default_ichimoku_kijun"),
+    (
+        "/api/v1/indicators/ichimoku/{symbol}",
+        "senkou_b_period",
+        "default_ichimoku_senkou_b",
+    ),
+    (
+        "/api/v1/indicators/sqzmom-enhanced/{symbol}",
+        "bb_period",
+        "default_sqzmom_bb_period",
+    ),
+    ("/api/v1/indicators/sqzmom-enhanced/{symbol}", "bb_mult", "default_sqzmom_bb_mult"),
+    (
+        "/api/v1/indicators/sqzmom-enhanced/{symbol}",
+        "kc_period",
+        "default_sqzmom_kc_period",
+    ),
+    ("/api/v1/indicators/sqzmom-enhanced/{symbol}", "kc_mult", "default_sqzmom_kc_mult"),
+    (
+        "/api/v1/indicators/sqzmom-enhanced/{symbol}",
+        "mom_period",
+        "default_sqzmom_mom_period",
+    ),
+]
+
+
+@pytest.fixture(scope="module")
+def openapi_schema():
+    return client.get("/openapi.json").json()
+
+
+@pytest.mark.parametrize("path,param,field", WIRED_ROUTE_DEFAULTS)
+def test_route_schema_default_tracks_settings(openapi_schema, path, param, field):
+    """main.py route layer: the published OpenAPI default IS the Settings value."""
+    params = {
+        p["name"]: p for p in openapi_schema["paths"][path]["get"]["parameters"]
+    }
+    assert params[param]["schema"]["default"] == getattr(settings, field), (
+        f"{path} ?{param} default drifted from settings.{field}"
+    )
+
+
+# Handler layer: main.py routes pass values explicitly, so handler Query()
+# defaults never surface over HTTP - but they are the defaults for any direct
+# caller and must not drift back to literals either.
+WIRED_HANDLER_DEFAULTS = [
+    (indicator_handlers.get_rsi, "period", "default_rsi_period"),
+    (indicator_handlers.get_macd, "fast", "default_macd_fast"),
+    (indicator_handlers.get_macd, "slow", "default_macd_slow"),
+    (indicator_handlers.get_macd, "signal", "default_macd_signal"),
+    (indicator_handlers.get_bollinger_bands, "period", "default_bb_period"),
+    (indicator_handlers.get_bollinger_bands, "std_dev", "default_bb_std"),
+    (indicator_handlers.get_sma, "period", "default_sma_period"),
+    (indicator_handlers.get_ema, "period", "default_ema_period"),
+    (advanced_handlers.get_trend_filter, "fast_period", "default_trend_fast_period"),
+    (advanced_handlers.get_trend_filter, "slow_period", "default_trend_slow_period"),
+    (advanced_handlers.get_trend_filter, "limit", "default_trend_limit"),
+    (advanced_handlers.get_volume_confirmation, "period", "default_volume_period"),
+    (
+        advanced_handlers.get_volume_confirmation,
+        "signal_type",
+        "default_volume_signal_type",
+    ),
+    (advanced_handlers.get_volume_confirmation, "limit", "default_volume_limit"),
+    (advanced_handlers.get_atr, "period", "default_atr_period"),
+    (advanced_handlers.get_adx, "period", "default_adx_period"),
+    (
+        advanced_handlers.get_adx,
+        "trending_threshold",
+        "default_adx_trending_threshold",
+    ),
+    (
+        advanced_handlers.get_adx,
+        "weak_trend_threshold",
+        "default_adx_weak_trend_threshold",
+    ),
+    (
+        advanced_handlers.get_adx,
+        "strong_trend_threshold",
+        "default_adx_strong_trend_threshold",
+    ),
+    (advanced_handlers.get_stochastic, "period", "default_stochastic_period"),
+    (advanced_handlers.get_stochastic, "smooth_k", "default_stochastic_smooth_k"),
+    (advanced_handlers.get_stochastic, "smooth_d", "default_stochastic_smooth_d"),
+    (advanced_handlers.get_rsi_divergence, "period", "default_rsi_divergence_period"),
+    (
+        advanced_handlers.get_rsi_divergence,
+        "lookback",
+        "default_rsi_divergence_lookback",
+    ),
+    (advanced_handlers.get_ichimoku, "tenkan_period", "default_ichimoku_tenkan"),
+    (advanced_handlers.get_ichimoku, "kijun_period", "default_ichimoku_kijun"),
+    (advanced_handlers.get_ichimoku, "senkou_b_period", "default_ichimoku_senkou_b"),
+    (advanced_handlers.get_enhanced_sqzmom, "bb_period", "default_sqzmom_bb_period"),
+    (advanced_handlers.get_enhanced_sqzmom, "bb_mult", "default_sqzmom_bb_mult"),
+    (advanced_handlers.get_enhanced_sqzmom, "kc_period", "default_sqzmom_kc_period"),
+    (advanced_handlers.get_enhanced_sqzmom, "kc_mult", "default_sqzmom_kc_mult"),
+    (advanced_handlers.get_enhanced_sqzmom, "mom_period", "default_sqzmom_mom_period"),
+]
+
+
+@pytest.mark.parametrize(
+    "func,param,field",
+    WIRED_HANDLER_DEFAULTS,
+    ids=[f"{f.__name__}-{p}" for f, p, _ in WIRED_HANDLER_DEFAULTS],
+)
+def test_handler_query_default_tracks_settings(func, param, field):
+    query_obj = inspect.signature(func).parameters[param].default
+    assert query_obj.default == getattr(settings, field), (
+        f"{func.__name__}({param}=...) default drifted from settings.{field}"
     )
