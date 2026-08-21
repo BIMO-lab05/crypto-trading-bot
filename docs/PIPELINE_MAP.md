@@ -138,12 +138,19 @@ masking anything today. The percentages at `:266-268` use a genuinely non-zero d
 
 ---
 
-## 3. Where ADX comes from (two distinct call sites — verified to agree)
+## 3. Where ADX comes from (two distinct call sites, on different intervals)
 
-| Consumer | Source | Live values observed 2026-08-21 |
-|---|---|---|
-| `app.aggregation.market_regime` (regime modifier, runs today) | HTTP `GET technical-analysis:8004/api/v1/indicators/adx/{symbol}?interval=240&period=14&limit=100` | ADAUSDT 19.6 / 52.1 / 58.0 · BNBUSDT 54.9 / 55.5 |
-| `HybridStrategyRouter.detect_regime()` (does not run today) | `indicators["ADX"]` off the aggregator dict — `.value`, then `.metadata["adx"]` | BTCUSDT `"ADX":{"signal":"BUY","confidence":0.73,"value":61.63,"metadata":{"adx":61.63,...}}` — captured from `GET /api/dashboard/BTCUSDT` |
+| Consumer | Source | Interval | Live values observed 2026-08-21 |
+|---|---|---|---|
+| `app.aggregation.market_regime` (regime confidence modifier) | HTTP `GET technical-analysis:8004/api/v1/indicators/adx/{symbol}?period=14&limit=100` | **whichever interval that aggregation is running** — logs show 15, 60 and 240 in the same cycle | ADAUSDT 19.6 / 52.1 / 58.0 · BNBUSDT 54.9 / 55.5 |
+| `HybridStrategyRouter` (advisory routing branch) | `indicators["ADX"]` off the **primary 60 m** aggregator dict — `.value`, then `.metadata["adx"]` | 60 m only | BTCUSDT `"ADX":{...,"value":61.63,"metadata":{"adx":61.63}}` — from `GET /api/dashboard/BTCUSDT` |
+
+**These are not the same number and were never compared on the same input.** Both are live and numeric,
+which is not the same as agreement: the regime modifier reads ADX at each timeframe's own interval,
+the router reads the 60 m leg. The dashboard advertises a single "ADX ≥ 25" rule — it is the **60 m**
+ADX that decides the routing branch. The value the tile shows under `adx_distribution` is the router's,
+so tile and branch are consistent with each other; the regime modifier can legitimately disagree,
+because it is answering a different question at a different resolution.
 
 **The "always-NaN ADX" hypothesis is DEAD.** ADX is live, numeric, populated in both the aggregator dict and the
 regime detector, and spans both sides of the 25.0 threshold (16.4 … 61.6 observed within one hour). The
