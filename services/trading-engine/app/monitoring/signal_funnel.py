@@ -84,7 +84,6 @@ DISTRIBUTION_SERIES = (
     "atr_pct",
     "aggregator_confidence",
     "ensemble_confidence",
-    "ensemble_weighted_score",
     "aggregated_vote_score",
 )
 

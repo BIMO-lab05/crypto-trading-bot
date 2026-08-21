@@ -154,7 +154,18 @@ class Replay:
         self.missing_timeframes: Dict[str, List[str]] = {}
 
     async def _aggregate_one(self, legs: Dict, timestamp: int):
-        indicators = {name: _to_indicator(leg) for name, leg in legs.items()}
+        # ATR is NOT an indicator leg in production. `signal_aggregator.fetch_atr`
+        # returns a plain Dict that is passed to `aggregate_signals(atr_data=...)`
+        # for stops; it never enters the indicators dict. Leaving it in here gave
+        # the replay a 12th leg — and since it carries no `role`, the voter would
+        # treat it as a VOTER (`NON_VOTING_ROLES` is only GATEKEEPER/VALIDATOR),
+        # adding a permanent HOLD vote with weight 1.0 that dilutes both
+        # `aggregated_score` and `compute_agreement_confidence`.
+        # Production logs "Filtered voting indicators: 9/11"; with ATR present
+        # this replay produced 10/12. Excluded so the two match exactly.
+        indicators = {
+            name: _to_indicator(leg) for name, leg in legs.items() if name != "ATR"
+        }
         adx_meta = legs.get("ADX", {}).get("metadata", {})
         regime_analysis = self.agg.regime_detector._analyze_regime(
             {
