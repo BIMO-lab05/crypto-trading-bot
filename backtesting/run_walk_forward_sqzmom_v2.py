@@ -26,6 +26,10 @@ from data_downloader import HistoricalDataDownloader
 from backtest_engine import BacktestEngine
 from sqzmom_v2 import precompute_features, make_sqzmom_v2
 
+# 2026-08-20: capital from the declaration of record (was a bare 10000.0 —
+# a $10k literal in a $100 repo; shared/account.py is authoritative).
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
+
 
 SYMBOLS = ["SOLUSDT", "BNBUSDT", "ADAUSDT", "BTCUSDT", "ETHUSDT"]
 DAYS = 180  # 6 months — needs to be post-2026-04-25 + walk-forward fold size
@@ -37,13 +41,15 @@ N_TRIALS = 6  # honest number of variants explored: L0..L5
 
 
 def calc_sharpe(equity_curve, periods_per_year=24 * 365):
+    """ANNUALIZED Sharpe — display + OOS/IS ratio only, never DSR input
+    (DSR takes raw per-bar returns). ddof=1 since 2026-08-20."""
     if len(equity_curve) < 2:
         return 0.0
     arr = np.asarray(equity_curve, dtype=float)
     rets = np.diff(arr) / arr[:-1]
-    if rets.std(ddof=0) == 0:
+    if rets.size < 2 or rets.std(ddof=1) == 0:
         return 0.0
-    return float(rets.mean() / rets.std(ddof=0) * math.sqrt(periods_per_year))
+    return float(rets.mean() / rets.std(ddof=1) * math.sqrt(periods_per_year))
 
 
 def split_folds(data, n_folds, is_frac=0.75):
@@ -58,18 +64,64 @@ def split_folds(data, n_folds, is_frac=0.75):
     return folds
 
 
-def deflated_sharpe(sr_obs, n_trials, n_obs):
-    if n_obs <= 1:
-        return 0.0
-    if n_trials <= 1:
-        n_trials = 2
-    from scipy.stats import norm
+def per_bar_returns(equity_curve):
+    """Per-bar fractional returns from an equity curve."""
+    if len(equity_curve) < 2:
+        return np.empty(0, dtype=float)
+    arr = np.asarray(equity_curve, dtype=float)
+    return np.diff(arr) / arr[:-1]
 
-    expected_max_sr = (1 - np.euler_gamma) * norm.ppf(
-        1 - 1.0 / n_trials
-    ) + np.euler_gamma * norm.ppf(1 - 1.0 / (n_trials * np.e))
-    z = (sr_obs - expected_max_sr) * math.sqrt(n_obs - 1)
-    return float(norm.cdf(z))
+
+def per_bar_sharpe(rets):
+    """Per-bar (NOT annualized) Sharpe, ddof=1. 0.0 for degenerate series."""
+    rets = np.asarray(rets, dtype=float)
+    if rets.size < 2:
+        return 0.0
+    sd = float(rets.std(ddof=1))
+    if sd == 0.0:
+        return 0.0
+    return float(rets.mean() / sd)
+
+
+def deflated_sharpe_per_bar(oos_returns, fold_bar_sharpes, num_trials):
+    """DSR via the canonical Bailey & Lopez de Prado kernel
+    (services/risk-metrics-service/app/sharpe_metrics.py), reached through
+    killtests.offline_ensemble._load_kernels — the same spec-load mechanism
+    edge_lab/gate2.py uses from host-run backtesting code.
+
+    Feed RAW PER-BAR OOS returns. The kernel derives the per-bar Sharpe
+    itself (mean/std, ddof=1) and applies the full machinery: sqrt(V)
+    expected-max threshold plus the skew/kurtosis standard-error term.
+    Never feed an ANNUALIZED Sharpe here — the pre-2026-08-20 local
+    implementation paired an annualized SR with the per-bar sqrt(n-1)
+    z-statistic, which made DSR a step function (0.000 or 1.000, nothing
+    between).
+
+    trial_sharpes_variance = variance (ddof=1) of the per-fold PER-BAR
+    Sharpes of this one config. Honest limitation: Bailey/LdP want the
+    Sharpe dispersion across the `num_trials` variants tried during
+    selection, but per-trial return series were never logged for the
+    historical variants, so fold-level dispersion of the surviving config
+    is the only estimate available here. It understates deflation if the
+    discarded variants dispersed more than the folds do.
+
+    Returns NaN (gate-failing) with fewer than 2 folds or 2 return
+    observations — never a silent zero-variance pass-through.
+    """
+    from killtests.offline_ensemble import _load_kernels
+
+    rets = np.asarray(oos_returns, dtype=float)
+    valid = [s for s in fold_bar_sharpes if np.isfinite(s)]
+    if rets.size < 2 or len(valid) < 2:
+        return float("nan")
+    kernels = _load_kernels()
+    return float(
+        kernels["deflated_sharpe_ratio"](
+            rets,
+            num_trials=max(2, int(num_trials)),
+            trial_sharpes_variance=float(np.var(valid, ddof=1)),
+        )
+    )
 
 
 async def run_symbol(symbol):
@@ -93,22 +145,26 @@ async def run_symbol(symbol):
 
     is_sharpes = []
     oos_sharpes = []
+    oos_bar_rets = []
+    oos_fold_bar_sharpes = []
     fold_rows = []
     for k, (is_slice, oos_slice) in enumerate(folds):
         # IS run
-        is_engine = BacktestEngine(initial_capital=10000.0)
+        is_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
         strategy = make_sqzmom_v2(layer=LAYER)
         is_engine.run_backtest(is_slice, strategy, strategy_name=f"is_{k}")
         is_sharpe = calc_sharpe(is_engine.equity_curve)
         is_sharpes.append(is_sharpe)
 
         # OOS run
-        oos_engine = BacktestEngine(initial_capital=10000.0)
+        oos_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
         oos_result = oos_engine.run_backtest(
             oos_slice, strategy, strategy_name=f"oos_{k}"
         )
         oos_sharpe = calc_sharpe(oos_engine.equity_curve)
         oos_sharpes.append(oos_sharpe)
+        oos_bar_rets.append(per_bar_returns(oos_engine.equity_curve))
+        oos_fold_bar_sharpes.append(per_bar_sharpe(oos_bar_rets[-1]))
 
         fold_rows.append(
             (
@@ -136,11 +192,17 @@ async def run_symbol(symbol):
     is_mean = float(np.mean(is_sharpes)) if is_sharpes else 0.0
     oos_mean = float(np.mean(oos_sharpes)) if oos_sharpes else 0.0
     is_oos_ratio = (oos_mean / is_mean) if is_mean > 0 else 0.0
-    n_obs_total = sum(len(oos_slice) for _, oos_slice in folds)
-    dsr = deflated_sharpe(oos_mean, N_TRIALS, n_obs_total)
+    # Disjoint OOS windows at FOLDS=4 / IS_FRAC=0.75 — the concatenation
+    # is the stitched per-bar OOS return series for the canonical kernel.
+    all_oos_rets = (
+        np.concatenate(oos_bar_rets) if oos_bar_rets else np.empty(0, dtype=float)
+    )
+    dsr = deflated_sharpe_per_bar(all_oos_rets, oos_fold_bar_sharpes, N_TRIALS)
     print(
-        f"  IS Sharpe mean: {is_mean:.2f}  OOS Sharpe mean: {oos_mean:.2f}  "
-        f"OOS/IS ratio: {is_oos_ratio:.2f}  DSR(n_trials={N_TRIALS}): {dsr:.2f}"
+        f"  IS Sharpe mean (ann): {is_mean:.2f}  "
+        f"OOS Sharpe mean (ann): {oos_mean:.2f}  "
+        f"OOS/IS ratio: {is_oos_ratio:.2f}  "
+        f"DSR (per-bar kernel, n_trials={N_TRIALS}): {dsr:.2f}"
     )
 
     # Gate
@@ -155,7 +217,12 @@ async def run_symbol(symbol):
         fail.append(f"PF mean {float(np.mean(pfs)):.2f} < 1.2")
     if is_oos_ratio < 0.6:
         fail.append(f"OOS/IS ratio {is_oos_ratio:.2f} < 0.60")
-    if dsr < 0.95:
+    # Real gate as of 2026-08-20 (canonical per-bar kernel; NaN fails via
+    # the `not >=` form). Pre-2026-08-20 results through this gate are VOID
+    # — the old local DSR fed an annualized Sharpe into a per-bar
+    # sqrt(n-1) z-statistic (step function) AND dropped the sqrt(V)
+    # multiplier and skew/kurtosis term.
+    if not (dsr >= 0.95):
         fail.append(f"DSR {dsr:.2f} < 0.95")
 
     if fail:

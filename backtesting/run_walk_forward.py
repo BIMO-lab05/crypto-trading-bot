@@ -54,6 +54,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+# backtesting/ itself on sys.path so `from killtests....` resolves — the
+# same bootstrap edge_lab/gate2.py uses to reach the canonical
+# risk-metrics DSR kernel from host-run code.
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
 # 2026-08-03: capital sourced from the declaration of record. Was 10000.0 —
 # missed by the capital audit, so every walk-forward result predating this
@@ -197,22 +202,68 @@ def phase1_strategy_prod(row, position, idx, data: pd.DataFrame):
     return None
 
 
-def deflated_sharpe(
-    sr_obs: float, n_trials: int, sr_std: float = 1.0, n_obs: int = 252
-) -> float:
-    """Bailey & Lopez de Prado DSR. n_trials = honest count of all variants tried."""
-    if n_obs <= 1:
-        return 0.0
-    if n_trials <= 1:
-        n_trials = 2
-    from scipy.stats import norm
+def per_bar_returns(equity_curve: List[float]) -> np.ndarray:
+    """Per-bar fractional returns from an equity curve."""
+    if len(equity_curve) < 2:
+        return np.empty(0, dtype=float)
+    arr = np.asarray(equity_curve, dtype=float)
+    return np.diff(arr) / arr[:-1]
 
-    expected_max_sr = sr_std * (
-        (1 - np.euler_gamma) * norm.ppf(1 - 1.0 / n_trials)
-        + np.euler_gamma * norm.ppf(1 - 1.0 / (n_trials * np.e))
+
+def per_bar_sharpe(rets: np.ndarray) -> float:
+    """Per-bar (NOT annualized) Sharpe, ddof=1. 0.0 for degenerate series."""
+    rets = np.asarray(rets, dtype=float)
+    if rets.size < 2:
+        return 0.0
+    sd = float(rets.std(ddof=1))
+    if sd == 0.0:
+        return 0.0
+    return float(rets.mean() / sd)
+
+
+def deflated_sharpe_per_bar(
+    oos_returns: np.ndarray,
+    fold_bar_sharpes: List[float],
+    num_trials: int,
+) -> float:
+    """DSR via the canonical Bailey & Lopez de Prado kernel
+    (services/risk-metrics-service/app/sharpe_metrics.py), reached through
+    killtests.offline_ensemble._load_kernels — the same spec-load mechanism
+    edge_lab/gate2.py uses from host-run backtesting code.
+
+    Feed RAW PER-BAR OOS returns. The kernel derives the per-bar Sharpe
+    itself (mean/std, ddof=1) and applies the full machinery: sqrt(V)
+    expected-max threshold plus the skew/kurtosis standard-error term.
+    Never feed an ANNUALIZED Sharpe here — the pre-2026-08-20 local
+    implementation paired an annualized SR with the per-bar sqrt(n-1)
+    z-statistic, which made DSR a step function (0.000 or 1.000, nothing
+    between).
+
+    trial_sharpes_variance = variance (ddof=1) of the per-fold PER-BAR
+    Sharpes of this one config. Honest limitation: Bailey/LdP want the
+    Sharpe dispersion across the `num_trials` variants tried during
+    selection, but per-trial return series were never logged for the
+    historical variants, so fold-level dispersion of the surviving config
+    is the only estimate available here. It understates deflation if the
+    discarded variants dispersed more than the folds do.
+
+    Returns NaN (gate-failing) with fewer than 2 folds or 2 return
+    observations — never a silent zero-variance pass-through.
+    """
+    from killtests.offline_ensemble import _load_kernels
+
+    rets = np.asarray(oos_returns, dtype=float)
+    valid = [s for s in fold_bar_sharpes if np.isfinite(s)]
+    if rets.size < 2 or len(valid) < 2:
+        return float("nan")
+    kernels = _load_kernels()
+    return float(
+        kernels["deflated_sharpe_ratio"](
+            rets,
+            num_trials=max(2, int(num_trials)),
+            trial_sharpes_variance=float(np.var(valid, ddof=1)),
+        )
     )
-    z = (sr_obs - expected_max_sr) * math.sqrt(n_obs - 1)
-    return float(norm.cdf(z))
 
 
 def split_folds(
@@ -242,14 +293,17 @@ def split_folds(
 
 
 def calc_sharpe(equity_curve: List[float], periods_per_year: int = 24 * 365) -> float:
-    """Annualized Sharpe from equity curve (per-bar returns, hourly bars assumed)."""
+    """ANNUALIZED Sharpe from equity curve (hourly bars assumed). Human
+    display + OOS/IS ratio only — never feed this into DSR, which takes
+    raw per-bar returns (deflated_sharpe_per_bar). ddof=1 since 2026-08-20
+    (was ddof=0, a small upward bias)."""
     if len(equity_curve) < 2:
         return 0.0
     arr = np.asarray(equity_curve, dtype=float)
     rets = np.diff(arr) / arr[:-1]
-    if rets.std(ddof=0) == 0:
+    if rets.size < 2 or rets.std(ddof=1) == 0:
         return 0.0
-    return float(rets.mean() / rets.std(ddof=0) * math.sqrt(periods_per_year))
+    return float(rets.mean() / rets.std(ddof=1) * math.sqrt(periods_per_year))
 
 
 _GLOBAL_ENGINE_KWARGS: dict = {}
@@ -265,11 +319,13 @@ def run_one_fold(
     oos_data: pd.DataFrame,
     strategy_func: Callable,
     initial_capital: float = PAPER_INITIAL_BALANCE,
-) -> FoldResult:
+) -> tuple[FoldResult, np.ndarray]:
+    """Returns (FoldResult, per-bar OOS returns); the returns feed DSR."""
     engine = BacktestEngine(initial_capital=initial_capital, **_engine_kwargs())
     result: BacktestResult = engine.run_backtest(
         oos_data, strategy_func, strategy_name=f"phase1_prod_fold_{fold_id}"
     )
+    bar_rets = per_bar_returns(engine.equity_curve)
     sharpe = calc_sharpe(engine.equity_curve)
     start = (
         oos_data.index[0]
@@ -281,7 +337,7 @@ def run_one_fold(
         if isinstance(oos_data.index[-1], (pd.Timestamp, datetime))
         else pd.to_datetime(oos_data.iloc[-1]["timestamp"])
     )
-    return FoldResult(
+    fr = FoldResult(
         fold_id=fold_id,
         start=start,
         end=end,
@@ -293,6 +349,7 @@ def run_one_fold(
         profit_factor=getattr(result, "profit_factor", 0.0),
         total_pnl_pct=getattr(result, "total_profit_loss_pct", 0.0),
     )
+    return fr, bar_rets
 
 
 def gate_check(summary: WalkForwardSummary) -> tuple[bool, List[str]]:
@@ -312,7 +369,11 @@ def gate_check(summary: WalkForwardSummary) -> tuple[bool, List[str]]:
         reasons.append(f"profit factor mean {float(np.mean(pfs)):.2f} < 1.2")
     if summary.is_oos_ratio < 0.6:
         reasons.append(f"OOS/IS Sharpe ratio {summary.is_oos_ratio:.2f} < 0.60")
-    if summary.dsr < 0.95:
+    # Real gate as of 2026-08-20 (canonical per-bar kernel; NaN fails via
+    # the `not >=` form). Pre-2026-08-20 results through this gate are VOID
+    # — the old local DSR fed an annualized Sharpe into a per-bar
+    # sqrt(n-1) z-statistic, a step function (0.000 or 1.000 only).
+    if not (summary.dsr >= 0.95):
         reasons.append(f"DSR {summary.dsr:.2f} < 0.95")
     return (not reasons), reasons
 
@@ -333,7 +394,12 @@ async def main():
         action="store_true",
         help="Skip the testnet-flip date guard (NOT recommended for promotion runs)",
     )
-    parser.add_argument("--n-trials", type=int, default=10, help="DSR n_trials param")
+    parser.add_argument(
+        "--n-trials",
+        type=int,
+        default=10,
+        help="DSR num_trials — honest count of ALL variants tried on this data",
+    )
     # Realistic-sim knobs (B-4). Defaults preserve legacy behavior.
     parser.add_argument(
         "--realistic-sim",
@@ -403,6 +469,8 @@ async def main():
     folds = split_folds(data, args.folds, args.is_frac)
     fold_results: List[FoldResult] = []
     is_sharpes: List[float] = []
+    oos_bar_returns: List[np.ndarray] = []
+    oos_fold_bar_sharpes: List[float] = []
     for k, (is_slice, oos_slice) in enumerate(folds):
         # IS Sharpe (no fitting — strategy is rule-based; we just measure
         # that the SAME strategy applied to the IS slice would have produced
@@ -418,18 +486,23 @@ async def main():
         )
         is_sharpes.append(calc_sharpe(is_engine.equity_curve))
 
-        oos_result = run_one_fold(k, oos_slice, phase1_strategy_prod)
+        oos_result, oos_rets = run_one_fold(k, oos_slice, phase1_strategy_prod)
         fold_results.append(oos_result)
+        oos_bar_returns.append(oos_rets)
+        oos_fold_bar_sharpes.append(per_bar_sharpe(oos_rets))
 
     oos_sharpes = [f.sharpe for f in fold_results]
     is_mean = float(np.mean(is_sharpes)) if is_sharpes else 0.0
     oos_mean = float(np.mean(oos_sharpes)) if oos_sharpes else 0.0
     is_oos_ratio = (oos_mean / is_mean) if is_mean != 0 else 0.0
-    dsr = deflated_sharpe(
-        sr_obs=oos_mean,
-        n_trials=args.n_trials,
-        sr_std=float(np.std(oos_sharpes, ddof=0)) if len(oos_sharpes) > 1 else 1.0,
-        n_obs=int(np.mean([f.bars for f in fold_results])) if fold_results else 1,
+    # Disjoint OOS windows at the default folds=4 / is_frac=0.75; the
+    # concatenation is the stitched per-bar OOS return series for the
+    # canonical DSR kernel.
+    all_oos_rets = (
+        np.concatenate(oos_bar_returns) if oos_bar_returns else np.empty(0)
+    )
+    dsr = deflated_sharpe_per_bar(
+        all_oos_rets, oos_fold_bar_sharpes, num_trials=args.n_trials
     )
 
     summary = WalkForwardSummary(
@@ -457,10 +530,13 @@ async def main():
             f"{f.max_drawdown_pct:>7.2f} {f.profit_factor:>5.2f} {f.total_pnl_pct:>7.2f}"
         )
     print("-" * 80)
-    print(f"IS Sharpe mean : {is_mean:+.3f}")
-    print(f"OOS Sharpe mean: {oos_mean:+.3f}")
+    print(f"IS Sharpe mean : {is_mean:+.3f}  (annualized)")
+    print(f"OOS Sharpe mean: {oos_mean:+.3f}  (annualized)")
     print(f"OOS/IS ratio   : {is_oos_ratio:+.3f}  (gate ≥ 0.60)")
-    print(f"DSR            : {dsr:.3f}  (gate ≥ 0.95)")
+    print(
+        f"DSR            : {dsr:.3f}  (per-bar canonical kernel, "
+        f"num_trials={args.n_trials}; gate ≥ 0.95)"
+    )
     print(f"Gate passed    : {summary.gate_passed}")
     if not summary.gate_passed:
         print("Gate failures  :")
