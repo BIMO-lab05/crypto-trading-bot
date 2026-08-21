@@ -4,9 +4,9 @@ Purpose: Voting and consensus logic for indicator aggregation
 Pattern: Strangler Fig - Extracted from signal_aggregator.py
 
 UPDATE 2025-11-26: Added weighted voting support for advanced indicators
-- RSI Divergence: 1.2x weight (strong reversal signals)
-- Ichimoku Cloud: 1.3x weight (multi-factor confirmation)
-- Enhanced SQZMOM: 1.4x weight (high win-rate breakout signals)
+Live weights come from each indicator's metadata['weight'] set in
+signal_aggregator.py (e.g. Ichimoku 1.3x, Enhanced SQZMOM 1.4x, SMA 0.8x).
+RSI Divergence is disabled and does not vote.
 
 UPDATE 2025-11-29: RESEARCH-BACKED CATEGORY CONSENSUS
 Based on comprehensive research from Quantified Strategies, academic papers, and
@@ -41,23 +41,14 @@ INDICATOR_CATEGORIES = {
     "VOLATILITY": {"BOLLINGER_BANDS", "SQZMOM_ENHANCED"},
 }
 
-# Research-backed indicator weights (2025-11-29)
-# Based on backtested win rates and reliability
-# ADJUSTED 2026-02-25: Reduced Ichimoku weight (1.2→0.9) to reduce SELL bias in ranging markets
-RESEARCH_WEIGHTS = {
-    # Highest reliability (research shows 40-73% win rates)
-    "RSI": 1.0,
-    "MACD": 1.0,
-    "EMA": 1.0,
-    "BOLLINGER_BANDS": 1.0,
-    # Advanced with proven track record
-    "RSI_DIVERGENCE": 1.3,  # Strong reversal detection
-    "ICHIMOKU": 0.9,  # REDUCED: 1.2→0.9 (less weight in ranging/choppy markets)
-    "SQZMOM_ENHANCED": 1.5,  # Highest win rate for breakouts (research: 92%)
-    # Supporting indicators
-    "SMA": 0.8,  # Lagging, less reliable alone
-    "STOCHASTIC": 0.9,  # Good for timing, not direction
-}
+# RESEARCH_WEIGHTS removed 2026-08-20: dead code; its 2026-02-25 tuning never took effect (parked).
+
+# Roles that never vote (2026-08-20, replaces the hardcoded name list):
+# GATEKEEPER filters signals, VALIDATOR confirms them - neither votes.
+NON_VOTING_ROLES = {"GATEKEEPER", "VALIDATOR"}
+
+# Defensive fallback for indicators whose metadata lacks a 'role' field.
+NON_VOTING_NAMES = {"TREND_FILTER", "VOLUME_CONFIRMATION"}
 
 
 class SignalVoter:
@@ -76,11 +67,12 @@ class SignalVoter:
     - Advanced indicators have custom weights in metadata
     - Weighted voting gives more influence to high-quality signals
 
-    Indicator Weights:
-    - Standard indicators (RSI, MACD, BB, SMA, EMA, Stochastic): 1.0x
-    - RSI Divergence: 1.2x (strong reversal detection)
+    Indicator Weights (read from metadata['weight'], set in signal_aggregator.py):
+    - Standard (RSI, MACD, BB, EMA, Stochastic, ADX): 1.0x
+    - SMA: 0.8x (lagging, less reliable alone)
     - Ichimoku Cloud: 1.3x (multi-factor trend confirmation)
     - Enhanced SQZMOM: 1.4x (high win-rate breakout signals)
+    - RSI Divergence: disabled, does not vote
 
     Voting Logic:
     - BUY -> +1.0
@@ -358,6 +350,21 @@ class SignalVoter:
         raw_confidence = agreeing_weighted_conf / total_weight
         return validate_confidence(raw_confidence, source="voter.agreement_confidence")
 
+    def _is_non_voting(self, name: str, indicator: IndicatorSignal) -> bool:
+        """
+        True if the indicator must not vote.
+
+        Primary check is role-based: metadata['role'] in NON_VOTING_ROLES
+        (GATEKEEPER, VALIDATOR). Indicators missing the role field fall
+        back to the legacy name list (NON_VOTING_NAMES) so a metadata
+        regression cannot silently promote TREND_FILTER or
+        VOLUME_CONFIRMATION into voters.
+        """
+        role = (indicator.metadata or {}).get("role")
+        if role is not None:
+            return role in NON_VOTING_ROLES
+        return name in NON_VOTING_NAMES
+
     def filter_non_voting_indicators(
         self, all_indicators: Dict[str, IndicatorSignal]
     ) -> Dict[str, IndicatorSignal]:
@@ -370,18 +377,20 @@ class SignalVoter:
         Returns:
             Dictionary of voting indicators only
 
-        Excluded from voting:
-        - TREND_FILTER (GATEKEEPER) - filters, doesn't vote
-        - VOLUME_CONFIRMATION (VALIDATOR) - validates, doesn't vote
+        Excluded from voting (role-based since 2026-08-20):
+        - role GATEKEEPER (TREND_FILTER) - filters, doesn't vote
+        - role VALIDATOR (VOLUME_CONFIRMATION) - validates, doesn't vote
+        Indicators missing metadata['role'] fall back to the legacy name list.
 
-        Included in voting (2025-11-26):
+        Included in voting:
         - Standard: RSI, MACD, BOLLINGER_BANDS, SMA, EMA, STOCHASTIC
-        - Advanced: RSI_DIVERGENCE, ICHIMOKU, SQZMOM_ENHANCED
+        - Advanced: ICHIMOKU, SQZMOM_ENHANCED, ADX (role TREND_GATE - votes)
+        - RSI_DIVERGENCE is disabled upstream and normally absent
         """
         voting_indicators = {
             k: v
             for k, v in all_indicators.items()
-            if k not in ["TREND_FILTER", "VOLUME_CONFIRMATION"]
+            if not self._is_non_voting(k, v)
         }
 
         # Count weighted indicators
@@ -558,20 +567,3 @@ class SignalVoter:
         logger.info(f"Category diversity check: {reason}")
 
         return passes, category_count, reason
-
-    def get_research_weight(self, indicator_name: str) -> float:
-        """
-        Get research-backed weight for an indicator
-
-        Weights based on backtested performance data:
-        - SQZMOM_ENHANCED: 1.5x (92% win rate in research)
-        - RSI_DIVERGENCE: 1.3x (strong reversal detection)
-        - ICHIMOKU: 1.2x (multi-factor confirmation)
-
-        Args:
-            indicator_name: Name of the indicator
-
-        Returns:
-            Weight multiplier (0.8-1.5x based on research)
-        """
-        return RESEARCH_WEIGHTS.get(indicator_name, 1.0)

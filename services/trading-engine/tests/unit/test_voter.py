@@ -298,6 +298,107 @@ class TestAgreementConfidence:
         assert conf >= 0.30, f"Confidence {conf} fails the 0.30 floor"
 
 
+class TestRoleBasedExclusion:
+    """
+    Role-based non-voting exclusion (2026-08-20).
+
+    Replicates the role map that signal_aggregator.py attaches to each
+    indicator's metadata (fetch_* methods; line refs as of 2026-08-20)
+    and asserts the role-based filter excludes exactly the same set as
+    the legacy hardcoded name list ['TREND_FILTER', 'VOLUME_CONFIRMATION'].
+    """
+
+    # name -> role exactly as signal_aggregator.py sets it today.
+    # None = the fetcher sets no 'role' key in metadata (RSI, MACD,
+    # BOLLINGER_BANDS, SMA, EMA set weight only).
+    LIVE_ROLE_MAP = {
+        "RSI": None,
+        "MACD": None,
+        "BOLLINGER_BANDS": None,
+        "SMA": None,
+        "EMA": None,
+        "STOCHASTIC": "MOMENTUM",  # signal_aggregator.py:441
+        "TREND_FILTER": "GATEKEEPER",  # :276
+        "VOLUME_CONFIRMATION": "VALIDATOR",  # :321
+        "ADX": "TREND_GATE",  # :406
+        "ICHIMOKU": "MULTI_ASPECT_TREND",  # :613
+        "SQZMOM_ENHANCED": "BREAKOUT_DETECTOR",  # :694
+    }
+
+    @pytest.fixture
+    def voter(self):
+        return SignalVoter(aggregation_threshold=0.15)
+
+    @pytest.fixture
+    def live_indicators(self):
+        """One IndicatorSignal per live indicator, roles as deployed."""
+        indicators = {}
+        for name, role in self.LIVE_ROLE_MAP.items():
+            metadata = {} if role is None else {"role": role}
+            indicators[name] = IndicatorSignal(
+                name=name,
+                signal=SignalAction.BUY,
+                confidence=0.5,
+                value=1.0,
+                metadata=metadata,
+            )
+        return indicators
+
+    def test_excluded_set_equals_legacy_name_list(self, voter, live_indicators):
+        """Role-based exclusion == legacy {TREND_FILTER, VOLUME_CONFIRMATION}."""
+        voting = voter.filter_non_voting_indicators(live_indicators)
+        excluded = set(live_indicators) - set(voting)
+        assert excluded == {"TREND_FILTER", "VOLUME_CONFIRMATION"}
+
+    def test_adx_trend_gate_votes(self, voter, live_indicators):
+        """ADX carries role TREND_GATE — it must vote, not be excluded."""
+        voting = voter.filter_non_voting_indicators(live_indicators)
+        assert "ADX" in voting
+
+    def test_all_nine_voters_present(self, voter, live_indicators):
+        """The 9 voting indicators all survive the filter."""
+        voting = voter.filter_non_voting_indicators(live_indicators)
+        assert set(voting) == {
+            "RSI",
+            "MACD",
+            "BOLLINGER_BANDS",
+            "SMA",
+            "EMA",
+            "STOCHASTIC",
+            "ADX",
+            "ICHIMOKU",
+            "SQZMOM_ENHANCED",
+        }
+
+    def test_missing_role_falls_back_to_name_list(self, voter):
+        """Metadata without 'role' → legacy name list still excludes."""
+        indicators = {
+            "TREND_FILTER": IndicatorSignal(
+                name="TREND_FILTER",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=1.0,
+                metadata={},
+            ),
+            "VOLUME_CONFIRMATION": IndicatorSignal(
+                name="VOLUME_CONFIRMATION",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=1.0,
+                metadata={},
+            ),
+            "RSI": IndicatorSignal(
+                name="RSI",
+                signal=SignalAction.BUY,
+                confidence=0.8,
+                value=30.0,
+                metadata={},
+            ),
+        }
+        voting = voter.filter_non_voting_indicators(indicators)
+        assert set(voting) == {"RSI"}
+
+
 # Test configuration
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

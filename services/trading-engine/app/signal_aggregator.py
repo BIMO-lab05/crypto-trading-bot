@@ -716,14 +716,15 @@ class SignalAggregator:
         Indicator Categories (2025-12-17 Update - Optimization):
         - Original 5: RSI, MACD, Bollinger Bands, SMA, EMA
         - Phase 1: Trend Filter (GATEKEEPER), Volume Confirmation (VALIDATOR), Stochastic
-        - Advanced: Ichimoku, SQZMOM_ENHANCED (RSI_DIVERGENCE disabled for low confidence)
+        - Advanced: Ichimoku, SQZMOM_ENHANCED (re-enabled 2026-08-17), ADX (TREND_GATE, votes)
+        - Disabled: RSI_DIVERGENCE (low confidence)
         - Risk Management: ATR (not a voting indicator)
 
         Total voting indicators: 9 (excludes ATR, TREND_FILTER, VOLUME_CONFIRMATION, disabled indicators)
         """
         logger.info(f"Fetching all indicators for {symbol} ({interval}m)")
         logger.info(
-            "  Including advanced indicators: ICHIMOKU, SQZMOM_ENHANCED (RSI_DIVERGENCE disabled for better confidence)"
+            "  Advanced: ICHIMOKU, SQZMOM_ENHANCED active; ADX votes (TREND_GATE); RSI_DIVERGENCE disabled"
         )
 
         # Fetch all indicators concurrently
