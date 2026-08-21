@@ -1,0 +1,618 @@
+{
+  "label": "baseline_5sym",
+  "config": {
+    "min_signal_confidence": 0.3,
+    "short_min_confidence": 0.35,
+    "aggregator_min_confidence": 0.3,
+    "aggregator_min_consensus": 3,
+    "aggregator_min_category": 2,
+    "vote_threshold": 0.15,
+    "ensemble_threshold": 0.1,
+    "adx_threshold": 25.0,
+    "short_trading_enabled": true
+  },
+  "account_equity_usd": 100.0,
+  "cost_model": {
+    "schedule": "bybit_linear_perp taker 0.055% / maker 0.020%",
+    "legs": "TAKER entry + TAKER exit",
+    "slippage_table_bps": {
+      "BTCUSDT": 5.0,
+      "ETHUSDT": 5.0,
+      "SOLUSDT": 5.0,
+      "BNBUSDT": 10.0,
+      "ADAUSDT": 10.0
+    },
+    "slippage_fallback_bps": 10.0
+  },
+  "symbols_requested": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "ADAUSDT"
+  ],
+  "symbols_included": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "ADAUSDT"
+  ],
+  "symbols_excluded": {},
+  "sizing": {
+    "max_position_size_pct": 10.0,
+    "cooldown_seconds": 14400,
+    "one_open_position_per_symbol": true,
+    "instruments": {
+      "BTCUSDT": {
+        "min_order_qty": 0.001,
+        "qty_step": 0.001,
+        "min_notional": 5.0
+      },
+      "ETHUSDT": {
+        "min_order_qty": 0.01,
+        "qty_step": 0.01,
+        "min_notional": 5.0
+      },
+      "SOLUSDT": {
+        "min_order_qty": 0.1,
+        "qty_step": 0.1,
+        "min_notional": 5.0
+      },
+      "BNBUSDT": {
+        "min_order_qty": 0.01,
+        "qty_step": 0.01,
+        "min_notional": 5.0
+      },
+      "ADAUSDT": {
+        "min_order_qty": 1.0,
+        "qty_step": 1.0,
+        "min_notional": 5.0
+      }
+    }
+  },
+  "timeframes": [
+    "15",
+    "60",
+    "240"
+  ],
+  "missing_timeframes": {},
+  "signals_emitted": 525,
+  "signals_not_traded": {
+    "blocked_position_open_or_cooldown": 188,
+    "BTCUSDT:below_min_order_qty": 126,
+    "ETHUSDT:below_min_order_qty": 123
+  },
+  "funnel": {
+    "schema_version": 1,
+    "started_at": "2026-08-21T21:47:53.362355+00:00",
+    "last_event_at": "2026-08-21T21:48:05.840409+00:00",
+    "cycles": 0,
+    "stages": [
+      {
+        "stage": "evaluations",
+        "advisory": false,
+        "evaluated": 13555,
+        "passed": 13555,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "passed_risk_halt",
+        "advisory": false,
+        "evaluated": 13555,
+        "passed": 13555,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "raw_signals_generated",
+        "advisory": false,
+        "evaluated": 13555,
+        "passed": 13555,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "passed_price_lookup",
+        "advisory": false,
+        "evaluated": 13555,
+        "passed": 13555,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "passed_indicator_agreement",
+        "advisory": false,
+        "evaluated": 39170,
+        "passed": 17845,
+        "rejected": 21325,
+        "pass_rate_pct": 45.557824865968854,
+        "rejection_reasons": {
+          "vote_score_below_aggregation_threshold": {
+            "count": 21325,
+            "threshold": 0.15,
+            "observed_min": 0.0,
+            "observed_max": 0.14994736842105263,
+            "observed_mean": 0.07405272783365298,
+            "examples": [
+              "0.147368 vs threshold 0.15",
+              "0.0823158 vs threshold 0.15",
+              "0.147789 vs threshold 0.15",
+              "0.0349474 vs threshold 0.15",
+              "0.139789 vs threshold 0.15"
+            ]
+          }
+        },
+        "notes": {}
+      },
+      {
+        "stage": "passed_gatekeeper",
+        "advisory": false,
+        "evaluated": 39170,
+        "passed": 38555,
+        "rejected": 615,
+        "pass_rate_pct": 98.42992085779933,
+        "rejection_reasons": {
+          "counter_trend_blocked_by_trend_filter": {
+            "count": 615,
+            "threshold": 0.95,
+            "observed_min": 0.9500112486480866,
+            "observed_max": 1.0,
+            "observed_mean": 0.9990082946317578,
+            "examples": [
+              "Counter-trend blocked (SELL in extreme BULLISH): trend_confidence 1.0000 >= 0.95",
+              "Counter-trend blocked (SELL in extreme BULLISH): trend_confidence 1.0000 >= 0.95",
+              "Counter-trend blocked (SELL in extreme BULLISH): trend_confidence 1.0000 >= 0.95",
+              "Counter-trend blocked (SELL in extreme BULLISH): trend_confidence 1.0000 >= 0.95",
+              "Counter-trend blocked (SELL in extreme BULLISH): trend_confidence 1.0000 >= 0.95"
+            ]
+          }
+        },
+        "notes": {}
+      },
+      {
+        "stage": "passed_validator",
+        "advisory": false,
+        "evaluated": 39170,
+        "passed": 39170,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {
+          "volume_confidence_penalty_applied": {
+            "count": 31653,
+            "threshold": 1.0,
+            "observed_min": 0.5,
+            "observed_max": 0.9,
+            "observed_mean": 0.5726029128360561,
+            "examples": [
+              "0.8522 -> 0.4261 (x0.50) Insufficient volume",
+              "0.6568 -> 0.5912 (x0.90) Moderate volume confirmed",
+              "0.9651 -> 0.4825 (x0.50) Insufficient volume",
+              "0.8602 -> 0.4301 (x0.50) Insufficient volume",
+              "0.6568 -> 0.5912 (x0.90) Moderate volume confirmed"
+            ]
+          }
+        }
+      },
+      {
+        "stage": "passed_regime_filter",
+        "advisory": false,
+        "evaluated": 39170,
+        "passed": 39147,
+        "rejected": 23,
+        "pass_rate_pct": 99.9412815930559,
+        "rejection_reasons": {
+          "counter_trend_hard_blocked_by_regime": {
+            "count": 23,
+            "threshold": null,
+            "observed_min": 25.04,
+            "observed_max": 38.59,
+            "observed_mean": 28.838260869565215,
+            "examples": [
+              "BUY vs TRENDING (Counter-trend HARD-BLOCKED in TRENDING (ADX=26.1, +DI=15.8, -DI=24.4))",
+              "BUY vs TRENDING (Counter-trend HARD-BLOCKED in TRENDING (ADX=28.3, +DI=12.4, -DI=25.8))",
+              "SELL vs STRONG_TREND (Counter-trend HARD-BLOCKED in STRONG_TREND (ADX=30.2, +DI=19.7, -DI=15.5))",
+              "SELL vs TRENDING (Counter-trend HARD-BLOCKED in TRENDING (ADX=26.5, +DI=19.7, -DI=15.6))",
+              "SELL vs STRONG_TREND (Counter-trend HARD-BLOCKED in STRONG_TREND (ADX=38.6, +DI=28.1, -DI=19.4))"
+            ]
+          }
+        },
+        "notes": {}
+      },
+      {
+        "stage": "passed_category_diversity",
+        "advisory": false,
+        "evaluated": 39170,
+        "passed": 37843,
+        "rejected": 1327,
+        "pass_rate_pct": 96.6122032167475,
+        "rejection_reasons": {
+          "insufficient_category_diversity": {
+            "count": 1327,
+            "threshold": 2.0,
+            "observed_min": 1.0,
+            "observed_max": 1.0,
+            "observed_mean": 1.0,
+            "examples": [
+              "Insufficient diversity: 1/2 categories (need 2)",
+              "Insufficient diversity: 1/2 categories (need 2)",
+              "Insufficient diversity: 1/2 categories (need 2)",
+              "Insufficient diversity: 1/2 categories (need 2)",
+              "Insufficient diversity: 1/2 categories (need 2)"
+            ]
+          }
+        },
+        "notes": {}
+      },
+      {
+        "stage": "passed_consensus_count",
+        "advisory": false,
+        "evaluated": 39170,
+        "passed": 39089,
+        "rejected": 81,
+        "pass_rate_pct": 99.79320908858821,
+        "rejection_reasons": {
+          "consensus_count_below_min_consensus": {
+            "count": 81,
+            "threshold": 3.0,
+            "observed_min": 2.0,
+            "observed_max": 2.0,
+            "observed_mean": 2.0,
+            "examples": [
+              "action=SELL buy=2 sell=2",
+              "action=SELL buy=2 sell=2",
+              "action=BUY buy=2 sell=3",
+              "action=BUY buy=2 sell=3",
+              "action=SELL buy=3 sell=2"
+            ]
+          }
+        },
+        "notes": {}
+      },
+      {
+        "stage": "passed_confidence_floor",
+        "advisory": false,
+        "evaluated": 39170,
+        "passed": 26768,
+        "rejected": 12402,
+        "pass_rate_pct": 68.33801378606076,
+        "rejection_reasons": {
+          "confidence_below_aggregator_min_confidence": {
+            "count": 12402,
+            "threshold": 0.3,
+            "observed_min": 0.0,
+            "observed_max": 0.2998947368421053,
+            "observed_mean": 0.1737819322626235,
+            "examples": [
+              "0.290526 vs threshold 0.3",
+              "0.261853 vs threshold 0.3",
+              "0.242105 vs threshold 0.3",
+              "0.227368 vs threshold 0.3",
+              "0.190421 vs threshold 0.3"
+            ]
+          }
+        },
+        "notes": {}
+      },
+      {
+        "stage": "passed_atr_filter",
+        "advisory": true,
+        "evaluated": 13555,
+        "passed": 13555,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "routing_decision_made",
+        "advisory": false,
+        "evaluated": 13555,
+        "passed": 13555,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "ensemble_signal_emitted",
+        "advisory": false,
+        "evaluated": 13555,
+        "passed": 2748,
+        "rejected": 10807,
+        "pass_rate_pct": 20.272962006639617,
+        "rejection_reasons": {
+          "ensemble_returned_hold": {
+            "count": 10807,
+            "threshold": 0.1,
+            "observed_min": null,
+            "observed_max": null,
+            "observed_mean": null,
+            "examples": [
+              "weighted leg score below threshold or no leg fired",
+              "weighted leg score below threshold or no leg fired",
+              "weighted leg score below threshold or no leg fired",
+              "weighted leg score below threshold or no leg fired",
+              "weighted leg score below threshold or no leg fired"
+            ]
+          }
+        },
+        "notes": {}
+      },
+      {
+        "stage": "passed_position_dedupe",
+        "advisory": false,
+        "evaluated": 2748,
+        "passed": 2748,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "passed_cooldown",
+        "advisory": false,
+        "evaluated": 2748,
+        "passed": 2748,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "passed_side_gate",
+        "advisory": false,
+        "evaluated": 2748,
+        "passed": 2748,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "passed_signal_confidence_gate",
+        "advisory": false,
+        "evaluated": 2748,
+        "passed": 525,
+        "rejected": 2223,
+        "pass_rate_pct": 19.104803493449783,
+        "rejection_reasons": {
+          "short_confidence_below_short_min_confidence": {
+            "count": 1266,
+            "threshold": 0.35,
+            "observed_min": 0.10200000000000001,
+            "observed_max": 0.3499,
+            "observed_mean": 0.22276479989468173,
+            "examples": [
+              "0.110877 vs threshold 0.35",
+              "0.139215 vs threshold 0.35",
+              "0.134795 vs threshold 0.35",
+              "0.14082 vs threshold 0.35",
+              "0.276033 vs threshold 0.35"
+            ]
+          },
+          "confidence_below_min_signal_confidence": {
+            "count": 957,
+            "threshold": 0.3,
+            "observed_min": 0.10200000000000001,
+            "observed_max": 0.29996333333333336,
+            "observed_mean": 0.2006487495646117,
+            "examples": [
+              "0.1442 vs threshold 0.3",
+              "0.252693 vs threshold 0.3",
+              "0.111755 vs threshold 0.3",
+              "0.205485 vs threshold 0.3",
+              "0.11536 vs threshold 0.3"
+            ]
+          }
+        },
+        "notes": {}
+      },
+      {
+        "stage": "passed_daily_limit",
+        "advisory": false,
+        "evaluated": 525,
+        "passed": 525,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "passed_stop_consistency",
+        "advisory": false,
+        "evaluated": 525,
+        "passed": 525,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "passed_portfolio_heat",
+        "advisory": false,
+        "evaluated": 525,
+        "passed": 525,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      },
+      {
+        "stage": "order_intent_emitted",
+        "advisory": false,
+        "evaluated": 525,
+        "passed": 525,
+        "rejected": 0,
+        "pass_rate_pct": 100.0,
+        "rejection_reasons": {},
+        "notes": {}
+      }
+    ],
+    "routing": {
+      "total_decisions": 13555,
+      "branches": {
+        "trend_following": 6694,
+        "mean_reversion": 6861
+      },
+      "trend_following": 6694,
+      "mean_reversion": 6861,
+      "unknown": 0,
+      "adx_distribution": {
+        "n": 13555,
+        "min": 6.92,
+        "p25": 19.15,
+        "median": 24.83,
+        "p75": 33.21,
+        "max": 77.73,
+        "mean": 27.531147915898195
+      }
+    },
+    "distributions": {
+      "adx": {
+        "n": 20000,
+        "min": 6.84,
+        "p25": 18.62,
+        "median": 24.575,
+        "p75": 33.56,
+        "max": 72.06,
+        "mean": 27.0421765
+      },
+      "atr_pct": {
+        "n": 13555,
+        "min": 0.08527591591128858,
+        "p25": 0.464825721567773,
+        "median": 0.6619961948664795,
+        "p75": 0.9360073736141781,
+        "max": 3.656448552035553,
+        "mean": 0.7502193812116336
+      },
+      "aggregator_confidence": {
+        "n": 20000,
+        "min": 0.0,
+        "p25": 0.23344539473684212,
+        "median": 0.4473684210526316,
+        "p75": 0.49315789473684213,
+        "max": 0.9998421052631579,
+        "mean": 0.43472726094736847
+      },
+      "ensemble_confidence": {
+        "n": 2748,
+        "min": 0.10200000000000001,
+        "p25": 0.16320916666666666,
+        "median": 0.24476499999999995,
+        "p75": 0.30600000000000005,
+        "max": 0.45,
+        "mean": 0.2406128614750121
+      },
+      "aggregated_vote_score": {
+        "n": 20000,
+        "min": -0.5863157894736842,
+        "p25": -0.14742105263157895,
+        "median": -0.014736842105263161,
+        "p75": 0.12421052631578947,
+        "max": 0.5957894736842105,
+        "mean": -0.011978481578947368
+      }
+    },
+    "terminal_stage": {
+      "passed_indicator_agreement": 21325,
+      "passed_signal_confidence_gate": 2223,
+      "passed_confidence_floor": 12402,
+      "ensemble_signal_emitted": 10807,
+      "passed_category_diversity": 1327,
+      "passed_consensus_count": 81,
+      "passed_regime_filter": 23,
+      "passed_gatekeeper": 615
+    },
+    "terminal_stage_by_symbol": {
+      "UNKNOWN": {
+        "passed_indicator_agreement": 21325,
+        "passed_confidence_floor": 12402,
+        "passed_category_diversity": 1327,
+        "passed_consensus_count": 81,
+        "passed_regime_filter": 23,
+        "passed_gatekeeper": 615
+      },
+      "BTCUSDT": {
+        "passed_signal_confidence_gate": 422,
+        "ensemble_signal_emitted": 2163
+      },
+      "ETHUSDT": {
+        "ensemble_signal_emitted": 2158,
+        "passed_signal_confidence_gate": 430
+      },
+      "SOLUSDT": {
+        "ensemble_signal_emitted": 2150,
+        "passed_signal_confidence_gate": 460
+      },
+      "BNBUSDT": {
+        "ensemble_signal_emitted": 2166,
+        "passed_signal_confidence_gate": 448
+      },
+      "ADAUSDT": {
+        "ensemble_signal_emitted": 2170,
+        "passed_signal_confidence_gate": 463
+      }
+    }
+  },
+  "routing": {
+    "routing_mode": "advisory",
+    "adx_threshold": 25.0,
+    "total_signals": 13555,
+    "trend_signals": 6694,
+    "mean_reversion_signals": 6861,
+    "executed_signals": 0,
+    "observed_signals": 13555,
+    "trend_pct": 49.383991147178165,
+    "mean_reversion_pct": 50.616008852821835
+  },
+  "all": {
+    "trades": 88,
+    "win_rate_pct": 43.18181818181818,
+    "avg_net_return_pct": -0.7096591724916697,
+    "avg_r": -0.17715814574623556,
+    "expectancy_pct": -0.7096591724916697,
+    "total_net_return_pct": -49.39168470234113,
+    "max_drawdown_pct": 49.49106419122672,
+    "profit_factor": 0.6117947734522642
+  },
+  "leg_action_counts": {
+    "simple_rsi:BUY": 64,
+    "mean_reversion:BUY": 64,
+    "simple_rsi:SELL": 24,
+    "mean_reversion:SELL": 24,
+    "multi_indicator:SELL": 3
+  },
+  "in_sample": {
+    "trades": 55,
+    "win_rate_pct": 40.0,
+    "avg_net_return_pct": -0.9812913828734968,
+    "avg_r": -0.244817276562336,
+    "expectancy_pct": -0.9812913828734968,
+    "total_net_return_pct": -44.20250369601626,
+    "max_drawdown_pct": 47.86290705131153,
+    "profit_factor": 0.5592439152016644
+  },
+  "out_of_sample": {
+    "trades": 33,
+    "win_rate_pct": 48.484848484848484,
+    "avg_net_return_pct": -0.2569388218552908,
+    "avg_r": -0.06439292771940143,
+    "expectancy_pct": -0.2569388218552908,
+    "total_net_return_pct": -9.300024821999775,
+    "max_drawdown_pct": 20.188774215019826,
+    "profit_factor": 0.7792939642245245
+  },
+  "split_date": "2026-07-10"
+}

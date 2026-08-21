@@ -108,13 +108,18 @@ Clearing `min_signal_confidence = 0.30` therefore needs `Σ leg_conf ≥ 0.90` a
 shape of defect recorded in `ABANDONED.md` for `short_min_confidence = 0.70` against a structural
 SELL ceiling of 0.60. Quantified against the real distribution in `docs/FUNNEL_REPORT.md`.
 
-### C-2. The gatekeeper's blocking branch is close to unreachable
+### C-2. The gatekeeper's blocking branch is rare, not unreachable — **MEASURED**
 
 `TrendFilter` confidence is `min(abs(spread_pct) / 0.05, 1.0)` where `spread_pct` is the EMA50/EMA200
-gap (`technical-analysis/app/indicators/trend_filter.py:75`). Reaching the block threshold of
-**0.95 requires a 4.75 % EMA50/EMA200 spread**. In practice the ×0.95 *penalty* branch is what fires,
-not the block. The gatekeeper's headline behaviour ("blocks counter-trend trades") therefore
-describes a branch that almost never executes.
+gap (`technical-analysis/app/indicators/trend_filter.py:75`), so reaching the block threshold of
+**0.95 requires a 4.75 % EMA50/EMA200 spread**. That reads as unreachable, and an earlier draft of
+this document said so. **The replay disproves it:** over 31,336 aggregations
+(2026-04-25 → 2026-08-21, 4 symbols) the block fired **454 times — 1.4 %** — at observed trend
+confidences of 0.9500–1.0000. Crypto trends do reach a 4.75 % EMA spread.
+
+It is still true that the ×0.95 *penalty* branch is the dominant behaviour, and that the gatekeeper
+is nowhere near the binding constraint (see `docs/FUNNEL_REPORT.md`). But "almost never executes" was
+wrong, and the correction is recorded rather than quietly edited.
 
 ### C-3. There is **no ATR filter** in the trading path
 
@@ -161,13 +166,40 @@ role `REVERSAL_DETECTOR`) is never present. Nine of the eleven documented indica
 This is deliberate and documented in `voter.py:8`; recorded here so the "an indicator that never
 votes" question the mission raises has an answer.
 
-### D-2. `SQZMOM_ENHANCED` carries the largest weight (1.4) and is near-constant
+### D-2. The weight table is inverted relative to conviction — **MEASURED**
 
-Live observations show `signal=HOLD, confidence=0.25, squeeze_on=false, firing=false` on essentially
-every sample taken. A leg that never fires but carries the largest weight dilutes the denominator in
-`compute_agreement_confidence` (`voter.py:350` divides by `total_weight`, which includes non-agreeing
-legs), mechanically depressing every confidence the system can produce. Quantified in
-`docs/FUNNEL_REPORT.md`. **NOT TOUCHED** — re-weighting is a strategy change.
+Measured over **12,740 60m bars** across all five symbols (2026-04-25 → 2026-08-21):
+
+| Indicator | Weight | HOLD % | median confidence |
+|---|---|---|---|
+| SQZMOM_ENHANCED | **1.4** | 47.5 % | 0.480 |
+| ICHIMOKU | **1.3** | 20.5 % | 0.800 |
+| RSI | 1.0 | **69.1 %** | 0.300 |
+| MACD | 1.0 | 0.0 % | 0.610 |
+| BOLLINGER_BANDS | 1.0 | 35.5 % | 0.460 |
+| EMA | 1.0 | 0.0 % | **0.100** |
+| ADX | 1.0 | 37.8 % | 0.400 |
+| SMA | 0.8 | 0.0 % | **0.120** |
+| STOCHASTIC | 1.0 (no explicit weight) | 58.2 % | 0.300 |
+
+An earlier draft of this document said SQZMOM "never fires". **That was wrong** — it takes a
+directional side on 52.5 % of bars. Corrected here rather than silently edited.
+
+The real structural problem is different and worse. `compute_agreement_confidence`
+(`voter.py:345-350`) divides agreeing weighted conviction by the **total** voting weight (9.5),
+so every leg sitting on HOLD still occupies the denominator:
+
+- **RSI (69 % HOLD) and STOCHASTIC (58 % HOLD)** consume 2.0 of 9.5 weight while contributing
+  nothing most of the time.
+- **EMA and SMA always vote directionally** (0 % HOLD) — but at median conviction **0.10 and 0.12**.
+  They fill the denominator and add almost nothing to the numerator.
+- The two legs with real conviction, ICHIMOKU (median 0.80) and MACD (median 0.61), carry only
+  1.3 and 1.0 of 9.5.
+
+Result: the aggregator's agreement confidence is structurally pinned low, which is why the 0.30
+aggregator floor rejects ~29 % of aggregations and the downstream 0.30 entry gate rejects most of
+what survives. **NOT TOUCHED** — re-weighting is a strategy change requiring its own evidence, and
+the mission forbids loosening a filter without showing the extra trades are net positive.
 
 ### D-3. ADX is verified correct
 

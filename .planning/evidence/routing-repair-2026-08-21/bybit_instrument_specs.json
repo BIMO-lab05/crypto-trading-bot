@@ -1,0 +1,32 @@
+{
+ "BTCUSDT": {
+  "min_order_qty": "0.001",
+  "qty_step": "0.001",
+  "min_notional": "5",
+  "tick_size": "0.10"
+ },
+ "ETHUSDT": {
+  "min_order_qty": "0.01",
+  "qty_step": "0.01",
+  "min_notional": "5",
+  "tick_size": "0.01"
+ },
+ "SOLUSDT": {
+  "min_order_qty": "0.1",
+  "qty_step": "0.1",
+  "min_notional": "5",
+  "tick_size": "0.010"
+ },
+ "BNBUSDT": {
+  "min_order_qty": "0.01",
+  "qty_step": "0.01",
+  "min_notional": "5",
+  "tick_size": "0.10"
+ },
+ "ADAUSDT": {
+  "min_order_qty": "1",
+  "qty_step": "1",
+  "min_notional": "5",
+  "tick_size": "0.0001"
+ }
+}

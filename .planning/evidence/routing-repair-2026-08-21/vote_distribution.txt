@@ -1,0 +1,25 @@
+Per-indicator vote distribution — 60m bars, 2026-04-25 to 2026-08-21
+bars: 12740   symbols: ['ADAUSDT', 'BNBUSDT', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT']
+
+indicator                wt   BUY%  SELL%  HOLD%  conf p25  conf med  conf p90  role
+--------------------------------------------------------------------------------------------
+SQZMOM_ENHANCED         1.4   26.1   26.4   47.5     0.250     0.480     0.700  BREAKOUT_DETECTOR
+ICHIMOKU                1.3   35.9   43.6   20.5     0.600     0.800     1.000  MULTI_ASPECT_TREND
+RSI                     1.0   16.3   14.6   69.1     0.300     0.300     0.360  VOTER
+MACD                    1.0   50.4   49.6    0.0     0.270     0.610     1.000  VOTER
+BOLLINGER_BANDS         1.0   33.2   31.2   35.5     0.300     0.460     0.800  VOTER
+EMA                     1.0   48.1   51.9    0.0     0.100     0.100     0.380  VOTER
+ADX                     1.0   27.6   34.6   37.8     0.290     0.400     0.720  TREND_GATE
+SMA                     0.8   48.6   51.4    0.0     0.100     0.120     0.430  VOTER
+STOCHASTIC                —   21.1   20.8   58.2     0.300     0.300     0.650  MOMENTUM
+TREND_FILTER              —   33.7   46.9   19.4     0.240     0.300     0.893  GATEKEEPER (no vote)
+VOLUME_CONFIRMATION       —   26.6    0.0   73.4     0.100     0.100     1.000  VALIDATOR (no vote)
+
+ATR is EXCLUDED: signal_aggregator.fetch_atr returns a plain Dict passed as
+aggregate_signals(atr_data=...) for stops. It is not an indicator leg and does not vote.
+Voting legs: 9 of 11 (TREND_FILTER and VOLUME_CONFIRMATION are filtered by role).
+Total voting weight = 1.0*6 + 0.8 + 1.3 + 1.4 = 9.5
+
+HOLD% is the column that matters for confidence reachability:
+compute_agreement_confidence divides agreeing weighted conviction by TOTAL weight (9.5),
+so every leg sitting on HOLD still occupies the denominator.
