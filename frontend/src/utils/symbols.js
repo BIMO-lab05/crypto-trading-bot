@@ -7,8 +7,9 @@
  * /api/trading/status endpoint and the useTradingStatus hook. Don't infer
  * "what we trade" from this list.
  *
- * Per CLAUDE.md: trading is restricted to SOL/BNB/ADA per validated paper-
- * trading data; expanding this UI list does NOT expand what's traded.
+ * Per CLAUDE.md: this display list shows 11 symbols; the trading-engine
+ * restricts position-taking to the 5 validated symbols (BTC/ETH/SOL/BNB/ADA).
+ * Expanding this UI list does NOT expand what's traded.
  */
 
 export const DISPLAY_SYMBOLS = [

@@ -60,7 +60,7 @@ export function usePositions() {
  * Auto-refetches every 15 seconds
  *
  * UPDATED 2025-11-27: Added console.log debugging for data flow troubleshooting
- * UPDATED 2025-11-29: Fixed endpoint path to match backend /api/v1/trading/status
+ * UPDATED 2025-11-29: Fixed endpoint path to match gateway /api/trading/status (no v1 prefix)
  * UPDATED 2025-11-30: Increased interval from 5s to 15s to prevent request overload
  */
 export function useTradingStatus() {

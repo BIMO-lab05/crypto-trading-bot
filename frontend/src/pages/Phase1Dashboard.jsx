@@ -2,6 +2,7 @@ import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import api from '../services/api'
 import TileState from '../components/TileState'
+import { parseUtc } from '../utils/formatters'
 
 /**
  * Phase1Dashboard - Monitoring dashboard for Phase 1 signal processing
@@ -40,6 +41,14 @@ const usePhase1Health = () => {
     queryFn: () => api.get('/trading/phase1/health'),
     refetchInterval: 10000, // Refetch every 10 seconds
   })
+}
+
+// Timeline "Time" cell guard: parseUtc returns null for missing timestamps
+// and an Invalid Date for malformed ones — render a dash instead of
+// crashing (or showing "Invalid Date") on a bad row.
+const formatSignalTime = (timestamp) => {
+  const date = parseUtc(timestamp)
+  return date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString() : '—'
 }
 
 // Fetch latest Phase 1 signal
@@ -105,10 +114,10 @@ export default function Phase1Dashboard() {
         </div>
 
         {/* Error Display */}
-        {(metricsError || healthError) && (
+        {(metricsError || healthError || latestError) && (
           <div className="mb-6 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4 transition-colors duration-200">
             <p className="text-red-800 dark:text-red-300">
-              Error loading data: {metricsError?.message || healthError?.message}
+              Error loading data: {metricsError?.message || healthError?.message || latestError?.message}
             </p>
           </div>
         )}
@@ -172,7 +181,7 @@ export default function Phase1Dashboard() {
                 <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Last Signal</p>
                 <p className="text-sm font-bold text-gray-800 dark:text-slate-100">
                   {health.last_signal_time
-                    ? new Date(health.last_signal_time).toLocaleTimeString()
+                    ? parseUtc(health.last_signal_time).toLocaleTimeString()
                     : 'No signals yet'}
                 </p>
               </div>
@@ -220,7 +229,7 @@ export default function Phase1Dashboard() {
                 <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Timestamp</p>
                 <p className="text-sm font-bold text-gray-800 dark:text-slate-100">
                   {latest.timestamp
-                    ? new Date(latest.timestamp).toLocaleString()
+                    ? parseUtc(latest.timestamp).toLocaleString()
                     : 'N/A'}
                 </p>
               </div>
@@ -340,7 +349,7 @@ export default function Phase1Dashboard() {
           </div>
         )}
 
-        {!latest && !latestLoading && (
+        {!latest && !latestLoading && !latestError && (
           <div className="mb-6 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6 transition-colors duration-200">
             <p className="text-yellow-800 dark:text-yellow-300 text-center">
               No recent signals generated yet. Automated trading will check signals every 5 minutes.
@@ -619,7 +628,7 @@ export default function Phase1Dashboard() {
                   {metrics.timeline.slice(0, 10).map((signal, index) => (
                     <tr key={index} className="hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors duration-150">
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-slate-300">
-                        {new Date(signal.timestamp).toLocaleTimeString()}
+                        {formatSignalTime(signal.timestamp)}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${

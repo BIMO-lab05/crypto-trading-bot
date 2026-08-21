@@ -8,7 +8,8 @@
  * 1. React.StrictMode - Development mode checks
  * 2. ThemeProvider - Dark/Light mode theming
  * 3. QueryClientProvider - React Query data management
- * 4. App - Main application component
+ * 4. ErrorBoundary - Catches render errors, shows fallback instead of blank app
+ * 5. App - Main application component
  *
  * Author: Frontend Developer Agent
  * Date: 2025-11-28
@@ -23,6 +24,9 @@ import { ThemeProvider } from './contexts/ThemeContext'
 
 // Main application component
 import App from './App'
+
+// Top-level error boundary (fallback UI instead of a blank app on render errors)
+import ErrorBoundary from './components/ErrorBoundary'
 
 // Global styles with Tailwind CSS
 import './index.css'
@@ -84,6 +88,7 @@ const queryClient = new QueryClient({
  * 1. StrictMode - Enables development warnings and checks
  * 2. ThemeProvider - Provides dark mode context (defaults to dark)
  * 3. QueryClientProvider - Provides React Query data management
+ * 4. ErrorBoundary - Fallback UI + reload on uncaught render errors
  */
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -91,8 +96,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <ThemeProvider defaultTheme="dark">
       {/* React Query Provider - Data fetching and caching */}
       <QueryClientProvider client={queryClient}>
-        {/* Main Application */}
-        <App />
+        {/* Error Boundary - one render throw must not blank the whole app */}
+        <ErrorBoundary>
+          {/* Main Application */}
+          <App />
+        </ErrorBoundary>
       </QueryClientProvider>
     </ThemeProvider>
   </React.StrictMode>,
