@@ -1,0 +1,19 @@
+{
+  "flag": "prefer_maker_orders",
+  "run_id": "20260821T165830Z",
+  "planned_start_utc": "2026-08-21T16:58:30.778857+00:00",
+  "planned_end_utc": "2026-08-28T16:58:30.778857+00:00",
+  "duration_days": 7,
+  "git_sha": "2d45be2",
+  "baseline_env_overrides": {
+    "ENABLE_VOL_TARGETING": "false",
+    "PREFER_MAKER_ORDERS": "false",
+    "ENABLE_FUNDING_GATE": "false"
+  },
+  "flag_env_overrides": {
+    "ENABLE_VOL_TARGETING": "false",
+    "PREFER_MAKER_ORDERS": "true",
+    "ENABLE_FUNDING_GATE": "false"
+  },
+  "paper_trade_log_path": ""
+}
