@@ -101,16 +101,52 @@ class StrategyPerformanceWeights:
             if os.path.exists(self.STATE_PATH):
                 with open(self.STATE_PATH, "r") as f:
                     data = json.load(f)
-                self._win_rates.update(data.get("win_rates", {}))
-                self._trade_counts.update(data.get("trade_counts", {}))
+                # Schema-validate before adopting. A corrupt-but-valid-JSON
+                # file (non-numeric win rate, foreign leg key) would pass a
+                # blind dict.update here and detonate later as a TypeError
+                # inside normalized_weights — ON THE SIGNAL PATH. Known leg
+                # ids are the keys of _win_rates as initialized in __init__;
+                # invalid entries are skipped (that leg keeps its default).
+                for leg_id, rate in (data.get("win_rates") or {}).items():
+                    if (
+                        leg_id in self._win_rates
+                        and isinstance(rate, (int, float))
+                        and not isinstance(rate, bool)
+                        and 0.0 <= rate <= 1.0
+                    ):
+                        self._win_rates[leg_id] = float(rate)
+                    else:
+                        logger.warning(
+                            f"[ENSEMBLE] Ignoring invalid win_rates entry "
+                            f"{leg_id!r}={rate!r} in {self.STATE_PATH}; "
+                            f"default retained for that leg"
+                        )
+                for leg_id, count in (data.get("trade_counts") or {}).items():
+                    if (
+                        leg_id in self._trade_counts
+                        and isinstance(count, int)
+                        and not isinstance(count, bool)
+                        and count >= 0
+                    ):
+                        self._trade_counts[leg_id] = count
+                    else:
+                        logger.warning(
+                            f"[ENSEMBLE] Ignoring invalid trade_counts entry "
+                            f"{leg_id!r}={count!r} in {self.STATE_PATH}; "
+                            f"default retained for that leg"
+                        )
                 logger.info(f"[ENSEMBLE] Loaded weights: {self._win_rates}")
         except Exception as e:
             logger.warning(f"[ENSEMBLE] Could not load weights state: {e}")
 
     def _persist(self) -> None:
+        # Atomic write (tmp + os.replace): a torn write on trade close would
+        # parse as corrupt JSON at next boot and silently reset learning to
+        # the 1/3 defaults. os.replace is atomic on the same filesystem.
         try:
             os.makedirs(os.path.dirname(self.STATE_PATH), exist_ok=True)
-            with open(self.STATE_PATH, "w") as f:
+            tmp_path = self.STATE_PATH + ".tmp"
+            with open(tmp_path, "w") as f:
                 json.dump(
                     {
                         "win_rates": self._win_rates,
@@ -119,6 +155,7 @@ class StrategyPerformanceWeights:
                     },
                     f,
                 )
+            os.replace(tmp_path, self.STATE_PATH)
         except Exception as e:
             logger.warning(f"[ENSEMBLE] Could not persist weights state: {e}")
 
