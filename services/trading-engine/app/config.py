@@ -312,6 +312,82 @@ class Settings(BaseSettings):
         description="Trading strategy mode: standard (more active), research, hybrid (dual confirmation), or grid_trading",
     )
 
+    # Regime routing threshold (2026-08-21). Previously hardcoded at
+    # HybridStrategyRouter.__init__ as `self.ADX_TRENDING_THRESHOLD = 25.0`,
+    # which the dashboard advertised as the routing rule while the router
+    # itself was never invoked (docs/PIPELINE_MAP.md §0). Lifted to config so
+    # the value the UI claims and the value the code applies are the same
+    # object, and so Phase-3 recalibration can move it without a code edit.
+    #
+    # 25.0 is the conventional Wilder ADX trend threshold and matches
+    # technical-analysis `default_adx_trending_threshold`. Do NOT diverge the
+    # two without recording why — the TA service classifies the regime string
+    # the confidence-modifier path consumes, this one classifies the routing
+    # branch, and a split would make the tile disagree with the engine.
+    adx_trending_threshold: float = Field(
+        default=25.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "ADX at or above which the strategy router classifies TRENDING "
+            "(trend-following branch); below it, RANGING (mean-reversion "
+            "branch). Mirrors technical-analysis default_adx_trending_threshold."
+        ),
+    )
+
+    # Strategy routing mode (2026-08-21).
+    #   advisory  — the router classifies the regime and records the branch it
+    #               WOULD have taken on every evaluation, but execution is
+    #               unchanged (the configured strategy_mode still decides).
+    #   off       — no routing observation at all.
+    # `executing` is NOT a value here: a router that actually selects the
+    # sub-strategy is what STRATEGY_MODE=hybrid already does, and promoting
+    # the observer to an executor is a strategy change that must go through
+    # replay evidence, not a flag. See docs/PIPELINE_MAP.md §6.
+    # Gatekeeper (counter-trend trend-filter) knobs — 2026-08-21.
+    # Previously bare literals in TrendGatekeeper.check_signal, and the class
+    # docstring claimed 0.9 while the code applied 0.95. Lifted to config so
+    # the funnel can report "observed trend_confidence vs the threshold that
+    # rejected it" against a value that actually exists, and so Phase-3
+    # recalibration does not require a code edit.
+    #
+    # Reachability note before changing this: TREND_FILTER confidence is
+    # min(abs(ema50_ema200_spread_pct) / 0.05, 1.0), so 0.95 needs a 4.75%
+    # EMA50/EMA200 spread. The block branch is close to unreachable in
+    # practice — the penalty branch is what actually fires.
+    gatekeeper_block_threshold: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "TREND_FILTER confidence at or above which a counter-trend signal "
+            "is blocked outright rather than penalised."
+        ),
+    )
+    gatekeeper_block_penalty: float = Field(
+        default=0.30,
+        gt=0.0,
+        le=1.0,
+        description="Confidence multiplier applied to a blocked counter-trend signal.",
+    )
+    gatekeeper_counter_trend_penalty: float = Field(
+        default=0.95,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Confidence multiplier applied to a counter-trend signal that is "
+            "penalised but not blocked."
+        ),
+    )
+
+    strategy_routing_mode: str = Field(
+        default="advisory",
+        description=(
+            "advisory: record the regime branch the router would pick on every "
+            "evaluation without changing execution. off: disable observation."
+        ),
+    )
+
     # Trade Frequency Settings - ADJUSTED for 11 symbols (2026-01-07)
     max_daily_trades: int = Field(
         default=50,

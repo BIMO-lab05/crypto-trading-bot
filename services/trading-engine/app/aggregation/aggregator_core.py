@@ -22,6 +22,8 @@ optimization with 6-month historical windows.
 """
 
 import logging
+
+from app.monitoring.signal_funnel import get_signal_funnel
 from typing import Dict, Optional
 from app.models import TradingSignal, IndicatorSignal, SignalAction
 from app.config import get_settings
@@ -234,6 +236,17 @@ class CoreAggregator:
         # the 0.30 floor now means "majority of weighted voting power agrees
         # with mean conviction ~0.5" — operator-intended semantics. HOLD keeps
         # its `1 - |score|` semantics (high conf = strong "no-trade" view).
+        funnel = get_signal_funnel()
+        funnel.observe("aggregated_vote_score", aggregated_score)
+        funnel.gate(
+            "passed_indicator_agreement",
+            action != SignalAction.HOLD,
+            reason="vote_score_below_aggregation_threshold",
+            symbol=symbol,
+            observed=abs(float(aggregated_score)),
+            threshold=float(self.voter.aggregation_threshold),
+        )
+
         if action != SignalAction.HOLD:
             confidence = self.voter.compute_agreement_confidence(
                 voting_indicators, action
@@ -248,12 +261,42 @@ class CoreAggregator:
         action, confidence, trend_blocked, trend_reason = self.gatekeeper.check_signal(
             action, confidence, trend_filter
         )
+        funnel.gate(
+            "passed_gatekeeper",
+            not trend_blocked,
+            reason="counter_trend_blocked_by_trend_filter",
+            symbol=symbol,
+            observed=(
+                float(getattr(trend_filter, "confidence", float("nan")))
+                if trend_filter is not None
+                else None
+            ),
+            threshold=float(self.gatekeeper.block_threshold),
+            detail=str(trend_reason),
+        )
 
         # ==================== STEP 5: Apply VALIDATOR (Volume Confirmation) ====================
         volume_conf = indicators.get("VOLUME_CONFIRMATION")
+        _conf_before_validator = confidence
         confidence, volume_penalty, volume_reason = self.validator.validate_volume(
             confidence, volume_conf
         )
+        # The validator never blocks — it only multiplies confidence. Recorded
+        # as a pass with the penalty attached so the funnel shows how much
+        # confidence it removed rather than implying a filter that rejects.
+        funnel.gate("passed_validator", True, symbol=symbol)
+        if volume_penalty < 1.0:
+            funnel.note(
+                "passed_validator",
+                "volume_confidence_penalty_applied",
+                symbol=symbol,
+                observed=float(volume_penalty),
+                threshold=1.0,
+                detail=(
+                    f"{_conf_before_validator:.4f} -> {confidence:.4f} "
+                    f"(x{volume_penalty:.2f}) {volume_reason}"
+                ),
+            )
 
         # ==================== STEP 6: Apply REGIME DETECTOR (ADX-based) ====================
         regime_adjustment_reason = "Regime detection disabled"
@@ -286,6 +329,28 @@ class CoreAggregator:
                     f"REGIME HARD-BLOCK: counter-trend {action.value} rejected "
                     f"in {regime_analysis.regime.value}"
                 )
+            funnel.observe("adx", getattr(regime_analysis, "adx", None))
+            funnel.gate(
+                "passed_regime_filter",
+                not regime_blocked,
+                reason="counter_trend_hard_blocked_by_regime",
+                symbol=symbol,
+                observed=float(getattr(regime_analysis, "adx", float("nan"))),
+                detail=(
+                    f"{action.value} vs {regime_analysis.regime.value} "
+                    f"({regime_adjustment_reason})"
+                ),
+            )
+        else:
+            # Regime detection disabled or no analysis supplied. Not a pass —
+            # the stage did not run. Recording it as a pass would claim a
+            # filter was applied when it was not.
+            funnel.note(
+                "passed_regime_filter",
+                "regime_stage_not_run",
+                symbol=symbol,
+                detail=regime_adjustment_reason,
+            )
 
         # ==================== STEP 7: Check Consensus Requirements ====================
         # RESEARCH-BACKED 2025-11-29: Category-based consensus + confidence thresholds
@@ -322,6 +387,38 @@ class CoreAggregator:
             consensus_count = buy_count
         elif action == SignalAction.SELL:
             consensus_count = sell_count
+
+        # Funnel: record each leg of the AND gate separately. Reporting only
+        # the combined verdict is what made this pipeline opaque — "requirements
+        # not met" does not say WHICH requirement, and the four legs have very
+        # different fixes.
+        funnel.gate(
+            "passed_category_diversity",
+            category_passes,
+            reason="insufficient_category_diversity",
+            symbol=symbol,
+            observed=float(category_count),
+            threshold=float(self.min_category_consensus),
+            detail=str(category_reason),
+        )
+        funnel.gate(
+            "passed_consensus_count",
+            consensus_count >= self.min_consensus,
+            reason="consensus_count_below_min_consensus",
+            symbol=symbol,
+            observed=float(consensus_count),
+            threshold=float(self.min_consensus),
+            detail=f"action={action.value} buy={buy_count} sell={sell_count}",
+        )
+        funnel.observe("aggregator_confidence", float(confidence))
+        funnel.gate(
+            "passed_confidence_floor",
+            confidence >= self.min_confidence,
+            reason="confidence_below_aggregator_min_confidence",
+            symbol=symbol,
+            observed=float(confidence),
+            threshold=float(self.min_confidence),
+        )
 
         meets_requirements = (
             consensus_count >= self.min_consensus

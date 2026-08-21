@@ -684,6 +684,31 @@ services:
       - PAPER_INITIAL_BALANCE=100.0
       # Strategy mode: ensemble = SimpleRSI + multi-indicator + mean-reversion (performance-weighted)
       - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
+      # ------------------------------------------------------------------
+      # Signal-filter thresholds (2026-08-21).
+      #
+      # These exist as Settings fields but were NOT on this whitelist, and
+      # this service has no `env_file:` — so the container environment is
+      # exactly this list and nothing in .env could ever reach them. Any
+      # operator who "retuned" min_signal_confidence in .env was editing a
+      # file the engine never read. Whitelisted now so Phase-3 recalibration
+      # is a config change rather than a code edit, per the mission rule that
+      # every tuned value lives in config.
+      #
+      # Defaults below MUST match services/trading-engine/app/config.py or the
+      # compose file silently becomes the real source of truth.
+      # ------------------------------------------------------------------
+      - MIN_SIGNAL_CONFIDENCE=${MIN_SIGNAL_CONFIDENCE:-0.30}
+      - SHORT_MIN_CONFIDENCE=${SHORT_MIN_CONFIDENCE:-0.35}
+      - MIN_CONSENSUS_INDICATORS=${MIN_CONSENSUS_INDICATORS:-3}
+      - GATEKEEPER_BLOCK_THRESHOLD=${GATEKEEPER_BLOCK_THRESHOLD:-0.95}
+      - GATEKEEPER_BLOCK_PENALTY=${GATEKEEPER_BLOCK_PENALTY:-0.30}
+      - GATEKEEPER_COUNTER_TREND_PENALTY=${GATEKEEPER_COUNTER_TREND_PENALTY:-0.95}
+      # ADX at/above which the strategy router classifies TRENDING.
+      # strategy_routing_mode=advisory means the router records the branch it
+      # would take on every evaluation without changing execution.
+      - ADX_TRENDING_THRESHOLD=${ADX_TRENDING_THRESHOLD:-25.0}
+      - STRATEGY_ROUTING_MODE=${STRATEGY_ROUTING_MODE:-advisory}
       # 2026-08-12 (audit finding 8): neither var was whitelisted here and the
       # Dockerfile copies app/ only, so no .env could reach the container —
       # operator symbol/allocation edits were silently ignored. The empty

@@ -752,6 +752,30 @@ async def trading_status_endpoint():
     return await get_auto_trading_status()
 
 
+@app.get("/api/v1/trading/signal-funnel", tags=["Trading Control"])
+async def signal_funnel_endpoint():
+    """
+    Stage-by-stage signal funnel: how many evaluations reached each filter,
+    how many passed, and — for every rejection — the reason code plus the
+    numeric values that caused it.
+
+    Exists so the dashboard can never again show zeros without explaining
+    them. Every stage in the cascade is emitted even at zero, and pass rates
+    are `null` rather than `0.0` when the denominator is zero, so "no
+    evaluations" is distinguishable from "everything rejected".
+
+    Counters are process-local and reset when the container restarts —
+    `started_at` reports the epoch they cover.
+    """
+    from app.monitoring.signal_funnel import get_signal_funnel
+
+    return {
+        "success": True,
+        "funnel": get_signal_funnel().snapshot(),
+        "timestamp": int(time.time() * 1000),
+    }
+
+
 # ============================================================================
 # PHASE 1 METRICS ENDPOINTS
 # ============================================================================
