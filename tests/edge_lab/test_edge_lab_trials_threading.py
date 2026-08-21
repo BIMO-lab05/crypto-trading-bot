@@ -47,13 +47,29 @@ def test_explicit_floor_above_path_count_binds():
     assert r.num_trials_used == 60
 
 
-def test_dsr_non_increasing_as_floor_rises():
-    rng = np.random.default_rng(2)
-    rets = pd.Series(rng.normal(0.003, 0.006, 500))
-    dsr_low = run_gate2(rets, label_horizon_days=5, num_trials_floor=16).dsr
-    dsr_mid = run_gate2(rets, label_horizon_days=5, num_trials_floor=45).dsr
-    dsr_high = run_gate2(rets, label_horizon_days=5, num_trials_floor=200).dsr
-    assert dsr_low >= dsr_mid >= dsr_high
+def test_dsr_strictly_decreasing_as_floor_rises():
+    """Every compared floor must actually change num_trials_used.
+
+    The pre-fix version compared floors 16/45/200: at the pinned CPCV 10/2
+    config n_paths is 45, so max(16, 45) == max(45, 45) and the 16-vs-45 leg
+    was a tautology — it passed without the floor doing anything. All floors
+    here exceed the 45 paths, so each one IS num_trials_used, and the DSR
+    ordering must be strict (mean/sigma chosen so DSR sits in the sensitive
+    region, not saturated at 0.0 or 1.0 where floats would tie).
+    """
+    rng = np.random.default_rng(11)
+    rets = pd.Series(rng.normal(0.0012, 0.012, 500))
+    r_low = run_gate2(rets, label_horizon_days=5, num_trials_floor=46)
+    r_mid = run_gate2(rets, label_horizon_days=5, num_trials_floor=60)
+    r_high = run_gate2(rets, label_horizon_days=5, num_trials_floor=200)
+    # Each floor must bind: above n_paths, num_trials_used == the floor.
+    assert r_low.n_paths_valid < 46
+    assert (r_low.num_trials_used, r_mid.num_trials_used, r_high.num_trials_used) == (
+        46,
+        60,
+        200,
+    )
+    assert r_low.dsr > r_mid.dsr > r_high.dsr
 
 
 def test_insufficient_samples_records_floor_not_zero():
@@ -98,6 +114,20 @@ def test_floor_survives_round_trip_through_run_battery(tmp_path):
 
     payload = json.loads(next(out.glob("solo-verdict-*.json")).read_text())
     assert payload["thresholds"]["num_trials_floor"] == expected_floor
+
+    # Decision of record 2026-08-20: the num_trials components must be
+    # reported separately in every verdict artifact.
+    trials = payload["trials"]
+    assert trials["ledger_count"] == trial_ledger.effective_trial_count(0)
+    assert trials["num_trials_floor"] == expected_floor
+    assert trials["n_paths"] is not None
+    assert trials["num_trials_used"] == max(expected_floor, trials["n_paths"])
+    assert (
+        f"trials accounting: ledger_count={trials['ledger_count']}, "
+        f"n_paths={trials['n_paths']}, "
+        f"num_trials_used={trials['num_trials_used']}, "
+        f"num_trials_floor={expected_floor}"
+    ) in md
 
 
 def test_committed_verdict_json_keys_still_present(tmp_path):

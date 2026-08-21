@@ -16,6 +16,16 @@ cheapest, but the bar does NOT rise on every battery. Do not claim it does.
 Counting rule: a trial is a distinct (candidate, variant) pair. Re-running the
 same variant on a later date is recorded as a second row but counts once - it
 is the same hypothesis re-measured, not a new one drawn.
+
+Seeded 2026-08-20: pre-ledger-era historical trials (CLAUDE.md section-2
+strategy table, the May-2026 walk-forward sweep enumerated in
+run_walk_forward_ensemble.py N_TRIALS, the Dec-2025 RSI walk-forward
+optimizer records) were appended so the ledger count reflects the
+documented portion of the search actually spent (the Dec-2025 optimizer
+grid widths were never recorded, so the true historical count is higher
+and this ledger still understates it - anticonservative direction). The distinct count now exceeds the 45 CPCV paths, so the
+ledger-derived floor binds on current batteries - the paragraph above
+describes the mechanism, not a claim that it never binds.
 """
 
 import json
@@ -62,6 +72,19 @@ def append_entries(entries: list[dict], path: Path | None = None) -> None:
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
+
+
+def effective_trial_count(
+    new_variant_count: int = 0,
+    path: Path | None = None,
+) -> int:
+    """Raw ledger component of the num_trials formula: distinct
+    (candidate, variant) pairs already recorded plus the new variants the
+    caller is about to spend. Verdict artifacts report this as
+    `ledger_count`; `effective_trials_floor` is max(static floor, this).
+    """
+    path = Path(path) if path is not None else ledger_path()
+    return distinct_variant_count(load_entries(path)) + new_variant_count
 
 
 def effective_trials_floor(

@@ -496,5 +496,302 @@
     "date": "20260819",
     "gate1_verdict": "PASS",
     "gate2_passed": false
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "claude_md_s2_table",
+    "params": {
+      "documented_metrics": "win_rate 45.2%, sharpe -0.28, trades 1986"
+    },
+    "date": "pre-20260803",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: CLAUDE.md section-2 strategy table (frictionless engine, pre-2026-08-03)"
+  },
+  {
+    "candidate": "RSI_BB_Combo",
+    "variant": "claude_md_s2_table",
+    "params": {
+      "documented_metrics": "win_rate 48.9%, sharpe -0.47, trades 2993"
+    },
+    "date": "pre-20260803",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: CLAUDE.md section-2 strategy table (frictionless engine, pre-2026-08-03)"
+  },
+  {
+    "candidate": "MACDHistogram",
+    "variant": "claude_md_s2_table",
+    "params": {
+      "documented_metrics": "win_rate 32.5%, sharpe -0.31, trades 2088"
+    },
+    "date": "pre-20260803",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: CLAUDE.md section-2 strategy table (frictionless engine, pre-2026-08-03)"
+  },
+  {
+    "candidate": "BollingerMeanReversion",
+    "variant": "claude_md_s2_table",
+    "params": {
+      "documented_metrics": "win_rate 43.1%, sharpe -0.46, trades 2846"
+    },
+    "date": "pre-20260803",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: CLAUDE.md section-2 strategy table (frictionless engine, pre-2026-08-03)"
+  },
+  {
+    "candidate": "StochasticRSI",
+    "variant": "claude_md_s2_table",
+    "params": {
+      "documented_metrics": "win_rate 43.7%, sharpe -0.47, trades 4658"
+    },
+    "date": "pre-20260803",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: CLAUDE.md section-2 strategy table (frictionless engine, pre-2026-08-03)"
+  },
+  {
+    "candidate": "Grid",
+    "variant": "claude_md_s2_walkforward",
+    "params": {
+      "documented_metrics": "win_rate 19.2%, sharpe -0.50, 0/3 positive windows"
+    },
+    "date": "pre-20260803",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: CLAUDE.md section-2 strategy table (frictionless engine, pre-2026-08-03)"
+  },
+  {
+    "candidate": "TrendFollowing",
+    "variant": "claude_md_s2_table",
+    "params": {
+      "documented_metrics": "win_rate 0.0%, sharpe -0.22, trades 5"
+    },
+    "date": "pre-20260803",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: CLAUDE.md section-2 strategy table (frictionless engine, pre-2026-08-03)"
+  },
+  {
+    "candidate": "GRU_ensemble",
+    "variant": "directional_v0",
+    "params": {
+      "documented_metrics": "chance-level directional accuracy, loses to naive persistence"
+    },
+    "date": "pre-20260803",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: CLAUDE.md section-2 strategy table (frictionless engine, pre-2026-08-03)"
+  },
+  {
+    "candidate": "phase1_prod",
+    "variant": "wf_60m_180d",
+    "params": {
+      "interval": "60m",
+      "days": "180",
+      "folds": "4"
+    },
+    "date": "2026-05-19",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: run_walk_forward_ensemble.py:206-210 N_TRIALS honest count of distinct strategies explored on the same data window; backtesting/results/wf_2026-05-19/ (run_walk_forward.py); re-measured 2026-08-19 as 'phase1_filtered' in backtesting/results/rerun_fixed_engine_2026-08-19.csv - same hypothesis re-measured, counts once"
+  },
+  {
+    "candidate": "sqzmom_v2",
+    "variant": "L0",
+    "params": {
+      "layer": "0",
+      "interval": "60m",
+      "days": "180"
+    },
+    "date": "2026-05",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: run_walk_forward_ensemble.py:206-210 N_TRIALS honest count of distinct strategies explored on the same data window; run_walk_forward_sqzmom_v2.py / sqzmom_v2_layer_sweep.py layer L0"
+  },
+  {
+    "candidate": "sqzmom_v2",
+    "variant": "L1",
+    "params": {
+      "layer": "1",
+      "interval": "60m",
+      "days": "180"
+    },
+    "date": "2026-05",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: run_walk_forward_ensemble.py:206-210 N_TRIALS honest count of distinct strategies explored on the same data window; run_walk_forward_sqzmom_v2.py / sqzmom_v2_layer_sweep.py layer L1"
+  },
+  {
+    "candidate": "sqzmom_v2",
+    "variant": "L2",
+    "params": {
+      "layer": "2",
+      "interval": "60m",
+      "days": "180"
+    },
+    "date": "2026-05",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: run_walk_forward_ensemble.py:206-210 N_TRIALS honest count of distinct strategies explored on the same data window; run_walk_forward_sqzmom_v2.py / sqzmom_v2_layer_sweep.py layer L2"
+  },
+  {
+    "candidate": "sqzmom_v2",
+    "variant": "L3",
+    "params": {
+      "layer": "3",
+      "interval": "60m",
+      "days": "180"
+    },
+    "date": "2026-05",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: run_walk_forward_ensemble.py:206-210 N_TRIALS honest count of distinct strategies explored on the same data window; run_walk_forward_sqzmom_v2.py / sqzmom_v2_layer_sweep.py layer L3"
+  },
+  {
+    "candidate": "sqzmom_v2",
+    "variant": "L4",
+    "params": {
+      "layer": "4",
+      "interval": "60m",
+      "days": "180"
+    },
+    "date": "2026-05",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: run_walk_forward_ensemble.py:206-210 N_TRIALS honest count of distinct strategies explored on the same data window; run_walk_forward_sqzmom_v2.py / sqzmom_v2_layer_sweep.py layer L4"
+  },
+  {
+    "candidate": "sqzmom_v2",
+    "variant": "L5",
+    "params": {
+      "layer": "5",
+      "interval": "60m",
+      "days": "180"
+    },
+    "date": "2026-05",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: run_walk_forward_ensemble.py:206-210 N_TRIALS honest count of distinct strategies explored on the same data window; run_walk_forward_sqzmom_v2.py / sqzmom_v2_layer_sweep.py layer L5"
+  },
+  {
+    "candidate": "aggregator_ensemble",
+    "variant": "wf_60m_180d",
+    "params": {
+      "interval": "60m",
+      "days": "180",
+      "folds": "4",
+      "strategy_mode": "ensemble (aggregator_core)"
+    },
+    "date": "2026-05-21",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: run_walk_forward_ensemble.py:206-210 N_TRIALS honest count of distinct strategies explored on the same data window; backtesting/results/wf_ensemble_2026-05-20/ and wf_ensemble_2026-05-21_realdata/ (same hypothesis run twice, counts once)"
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "wf2025-12_rsi10_os25_ob70",
+    "params": {
+      "rsi_period": "10",
+      "oversold": "25",
+      "overbought": "70"
+    },
+    "date": "2025-12-06",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: backtesting/results/ BNBUSDT_walkforward_20251206_154017.json (walk-forward optimizer selected params, documented per period)"
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "wf2025-12_rsi10_os25_ob75",
+    "params": {
+      "rsi_period": "10",
+      "oversold": "25",
+      "overbought": "75"
+    },
+    "date": "2025-12-06",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: backtesting/results/ BNBUSDT_walkforward_20251206_154017.json (walk-forward optimizer selected params, documented per period)"
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "wf2025-12_rsi10_os30_ob65",
+    "params": {
+      "rsi_period": "10",
+      "oversold": "30",
+      "overbought": "65"
+    },
+    "date": "2025-12-06",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: backtesting/results/ SOLUSDT_walkforward_20251206_154055.json (walk-forward optimizer selected params, documented per period)"
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "wf2025-12_rsi10_os35_ob65",
+    "params": {
+      "rsi_period": "10",
+      "oversold": "35",
+      "overbought": "65"
+    },
+    "date": "2025-12-06",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: backtesting/results/ ADAUSDT_walkforward_20251206_154128.json, BNBUSDT_walkforward_20251206_154017.json (walk-forward optimizer selected params, documented per period)"
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "wf2025-12_rsi10_os35_ob70",
+    "params": {
+      "rsi_period": "10",
+      "oversold": "35",
+      "overbought": "70"
+    },
+    "date": "2025-12-06",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: backtesting/results/ ADAUSDT_walkforward_20251206_154128.json, BNBUSDT_walkforward_20251206_154017.json, SOLUSDT_walkforward_20251206_154055.json (walk-forward optimizer selected params, documented per period)"
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "wf2025-12_rsi14_os25_ob65",
+    "params": {
+      "rsi_period": "14",
+      "oversold": "25",
+      "overbought": "65"
+    },
+    "date": "2025-12-06",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: backtesting/results/ ADAUSDT_walkforward_20251206_154128.json, SOLUSDT_walkforward_20251206_154055.json (walk-forward optimizer selected params, documented per period)"
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "wf2025-12_rsi14_os30_ob65",
+    "params": {
+      "rsi_period": "14",
+      "oversold": "30",
+      "overbought": "65"
+    },
+    "date": "2025-12-06",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: backtesting/results/ ADAUSDT_walkforward_20251206_154128.json (walk-forward optimizer selected params, documented per period)"
+  },
+  {
+    "candidate": "RSIMomentum",
+    "variant": "wf2025-12_rsi14_os35_ob65",
+    "params": {
+      "rsi_period": "14",
+      "oversold": "35",
+      "overbought": "65"
+    },
+    "date": "2025-12-06",
+    "gate1_verdict": "N/A - pre-ledger historical trial, no edge_lab gates",
+    "gate2_passed": false,
+    "source": "seeded 2026-08-20 from historical record: backtesting/results/ SOLUSDT_walkforward_20251206_154055.json (walk-forward optimizer selected params, documented per period)"
   }
 ]

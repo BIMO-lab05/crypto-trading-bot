@@ -615,6 +615,7 @@ def _write_regate_summary(
     date_str: str,
     num_trials_floor: int,
     out_dir: Path,
+    ledger_count: int | None = None,
 ) -> Path:
     """Aggregate summary for the 6 maker re-gates (M3) — `render_summary`
     reused verbatim for the table/Gate-0/caveats rendering, written to its
@@ -622,7 +623,12 @@ def _write_regate_summary(
     already belongs to the seasonality-only battery run from the same
     date and must not be overwritten)."""
     text = render_summary(
-        results, pin, sanity_summary, date_str, num_trials_floor=num_trials_floor
+        results,
+        pin,
+        sanity_summary,
+        date_str,
+        num_trials_floor=num_trials_floor,
+        ledger_count=ledger_count,
     )
     text = text.replace(
         f"# Edge research battery summary — {date_str}",
@@ -656,6 +662,10 @@ def run_maker_regate(
     planned_variants = {(name, _v2_variant_name(name)) for name in names}
     total_new_variants = len(planned_variants - known)
     effective_floor = trial_ledger.effective_trials_floor(total_new_variants)
+    # Reported in every verdict artifact alongside the floor (decision of
+    # record 2026-08-20): the raw ledger component before the static-floor
+    # max, so a reader can audit which side of max(floor, n_paths) bound.
+    ledger_count = trial_ledger.effective_trial_count(total_new_variants)
 
     results: dict[str, dict] = {}
     for candidate in names:
@@ -671,6 +681,7 @@ def run_maker_regate(
                 sanity_summary,
                 date_str,
                 num_trials_floor=effective_floor,
+                ledger_count=ledger_count,
             )
             text = body.rstrip() + "\n\n" + _maker_appendix(candidate, record)
         except Exception:
@@ -690,6 +701,7 @@ def run_maker_regate(
                     sanity_summary,
                     date_str,
                     num_trials_floor=effective_floor,
+                    ledger_count=ledger_count,
                 )
             except Exception:
                 logger.exception(
@@ -708,6 +720,7 @@ def run_maker_regate(
                 date_str,
                 out_dir,
                 num_trials_floor=effective_floor,
+                ledger_count=ledger_count,
             )
         except Exception:
             logger.exception(
@@ -741,7 +754,13 @@ def run_maker_regate(
             for name, rec in results.items()
         }
         _write_regate_summary(
-            summary_shaped, pin, sanity_summary, date_str, effective_floor, out_dir
+            summary_shaped,
+            pin,
+            sanity_summary,
+            date_str,
+            effective_floor,
+            out_dir,
+            ledger_count=ledger_count,
         )
     except Exception:
         logger.exception("failed to write the maker-regate v2 summary")

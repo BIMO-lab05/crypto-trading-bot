@@ -561,6 +561,10 @@ def run_battery(
     scored = {(c, v.name) for c, e in registry.items() for v in e["variants"]}
     total_new_variants = len(scored - known)
     effective_floor = trial_ledger.effective_trials_floor(total_new_variants)
+    # Reported in every verdict artifact alongside the floor (decision of
+    # record 2026-08-20): the raw ledger component before the static-floor
+    # max, so a reader can audit which side of max(floor, n_paths) bound.
+    ledger_count = trial_ledger.effective_trial_count(total_new_variants)
 
     results: dict[str, dict] = {}
     for candidate, entry in registry.items():
@@ -629,6 +633,7 @@ def run_battery(
                     sanity_summary,
                     date_str,
                     num_trials_floor=effective_floor,
+                    ledger_count=ledger_count,
                 ),
                 candidate,
                 date_str,
@@ -641,6 +646,7 @@ def run_battery(
                 date_str,
                 out_dir,
                 num_trials_floor=effective_floor,
+                ledger_count=ledger_count,
             )
         except Exception:
             logger.exception("failed to write the %s verdict doc", candidate)
@@ -681,6 +687,7 @@ def run_battery(
                 sanity_summary,
                 date_str,
                 num_trials_floor=effective_floor,
+                ledger_count=ledger_count,
             ),
             date_str,
             out_dir,
