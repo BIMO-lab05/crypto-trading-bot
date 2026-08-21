@@ -77,6 +77,36 @@ STAGES: List[str] = [
 # 100% pass rate as evidence of a working filter.
 ADVISORY_STAGES = {"passed_atr_filter"}
 
+# The cascade is NOT monotonic and its stages do not share a denominator.
+# The aggregator runs once per TIMEFRAME (15/60/240), so its stages count ~3x
+# the per-evaluation stages around them. Without this label a reader compares
+# "180/180" against "221/575" and concludes the funnel is broken. Emitted on
+# every stage so the UI can say which population each rate is over.
+STAGE_BASIS = {
+    "evaluations": "per_evaluation",
+    "passed_risk_halt": "per_evaluation",
+    "raw_signals_generated": "per_evaluation",
+    "passed_price_lookup": "per_evaluation",
+    "passed_indicator_agreement": "per_timeframe_aggregation",
+    "passed_gatekeeper": "per_timeframe_aggregation",
+    "passed_validator": "per_timeframe_aggregation",
+    "passed_regime_filter": "per_timeframe_aggregation",
+    "passed_category_diversity": "per_timeframe_aggregation",
+    "passed_consensus_count": "per_timeframe_aggregation",
+    "passed_confidence_floor": "per_timeframe_aggregation",
+    "passed_atr_filter": "per_evaluation",
+    "routing_decision_made": "per_evaluation",
+    "ensemble_signal_emitted": "per_evaluation",
+    "passed_position_dedupe": "per_emitted_signal",
+    "passed_cooldown": "per_emitted_signal",
+    "passed_side_gate": "per_emitted_signal",
+    "passed_signal_confidence_gate": "per_emitted_signal",
+    "passed_daily_limit": "per_order_candidate",
+    "passed_stop_consistency": "per_order_candidate",
+    "passed_portfolio_heat": "per_order_candidate",
+    "order_intent_emitted": "per_order_candidate",
+}
+
 # Named numeric series sampled for distribution reporting (Phase 3 needs the
 # real distribution to set thresholds from, not a guessed constant).
 DISTRIBUTION_SERIES = (
@@ -156,6 +186,7 @@ class _StageStat:
         return {
             "stage": name,
             "advisory": name in ADVISORY_STAGES,
+            "basis": STAGE_BASIS.get(name, "unknown"),
             "evaluated": self.evaluated,
             "passed": self.passed,
             "rejected": self.rejected,
@@ -361,6 +392,9 @@ class SignalFunnel:
                 "trend_following": routes.get("trend_following", 0),
                 "mean_reversion": routes.get("mean_reversion", 0),
                 "unknown": routes.get("unknown", 0),
+                # Rolling: `_route_adx` is a bounded deque (_SERIES_CAP), so
+                # this is the most recent N routing decisions, not lifetime.
+                "adx_distribution_window": _SERIES_CAP,
                 "adx_distribution": _describe(list(self._route_adx)),
             },
             "distributions": distributions,

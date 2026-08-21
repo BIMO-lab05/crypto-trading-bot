@@ -4703,10 +4703,21 @@ class AutoTrader:
                 "aggregator_confidence", getattr(base_signal, "confidence", None)
             )
             _sig_meta = getattr(base_signal, "metadata", None) or {}
-            funnel.observe("aggregated_vote_score", _sig_meta.get("aggregated_score"))
-            _atr_leg = (base_signal.indicators or {}).get("ATR")
-            if _atr_leg is not None and getattr(_atr_leg, "metadata", None):
-                funnel.observe("atr_pct", _atr_leg.metadata.get("atr_pct"))
+            # No aggregated_vote_score observation here: `aggregated_score` is a
+            # TOP-LEVEL field on TradingSignal, not a metadata key, so the
+            # obvious-looking _sig_meta.get("aggregated_score") is always None.
+            # aggregator_core records the score once per aggregation, which is
+            # the right granularity anyway (3 timeframes per evaluation).
+            # ATR is NOT an indicator leg — signal_aggregator.fetch_atr returns a
+            # plain Dict that the aggregator stores under metadata["atr"]. The
+            # first version of this read base_signal.indicators["ATR"], which is
+            # always absent, so the live atr_pct distribution sat at n=0:
+            # decorative telemetry of exactly the kind this module exists to
+            # prevent. Verified against the deployed payload, which carries
+            # metadata.atr = {"atr":..., "atr_pct":..., "stop_loss_long":...}.
+            _atr_meta = (_sig_meta or {}).get("atr")
+            if isinstance(_atr_meta, dict):
+                funnel.observe("atr_pct", _atr_meta.get("atr_pct"))
             # ATR is declared in the funnel for completeness but is NOT a gate
             # anywhere on this path — it feeds stops and confidence only. Record
             # it as advisory so a 100% pass rate is never read as a live filter.

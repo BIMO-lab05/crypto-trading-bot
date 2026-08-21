@@ -30,27 +30,36 @@ The replay pushes historical bars through the **deployed objects** — `CoreAggr
 `SignalFunnel` the live engine writes to. Nothing on the path is reimplemented.
 
 **Fidelity check (the reason to believe any of this).** Stage 1 recomputes the 11 indicator legs
-from the live TA calculators and was compared against the running system's `/api/dashboard/{symbol}`
-payload for the most recent bar:
+from the live TA calculators and was compared against the running system's `/api/dashboard/BTCUSDT`
+payload for the most recent closed bar. Captured verbatim, 2026-08-21 22:5x UTC, bar
+`1787342400000` (close 77486.4):
 
 ```
 indicator                          replay                 live
-ADX                              BUY/0.73             BUY/0.73  ok
+ADX                              BUY/0.74             BUY/0.74  ok
+ATR                      (not a live leg)                    —
 BOLLINGER_BANDS                 HOLD/0.27            HOLD/0.27  ok
-EMA                              BUY/0.22             BUY/0.22  ok
+EMA                              BUY/0.32             BUY/0.32  ok
 ICHIMOKU                         BUY/1.00             BUY/1.00  ok
 MACD                            SELL/1.00            SELL/1.00  ok
 RSI                             HOLD/0.30            HOLD/0.30  ok
-SMA                              BUY/0.17             BUY/0.17  ok
-SQZMOM_ENHANCED                 HOLD/0.25            HOLD/0.25  ok
+SMA                              BUY/0.25             BUY/0.25  ok
+SQZMOM_ENHANCED                  BUY/0.61             BUY/0.61  ok
 STOCHASTIC                      HOLD/0.30            HOLD/0.30  ok
 TREND_FILTER                     BUY/1.00             BUY/1.00  ok
 VOLUME_CONFIRMATION             HOLD/0.10            HOLD/0.10  ok
+signal agreement: 11/11   confidence agreement: 11/11
 ```
 
-11/11 signals and 11/11 confidences identical. The voter filter also matches production exactly:
-**9 voting legs of 11**, verified on a real frame against the live log line
-`Filtered voting indicators: 9/11`.
+The klines feeding the replay must be re-exported immediately before this check. An earlier run of
+the same comparison against a 90-minute-old CSV showed 10/11 with four confidence mismatches —
+entirely because the replay was evaluating a different (older) bar than the live system, not because
+of any formula divergence. That is a trap worth naming: the check is only meaningful when both sides
+see the same bar.
+
+The voter filter also matches production exactly: **9 voting legs of 11**, verified on a real frame
+against the live log line `Filtered voting indicators: 9/11`. ATR is deliberately absent from the
+indicator dict — see §3 of `FINDINGS.md` and the commit that removed it.
 
 **Data floor.** All bars are on or after **2026-04-25**, the mainnet flip. TimescaleDB holds mixed
 testnet/mainnet history before that date, and Stage 1 refuses any earlier bar. A replay over "the
@@ -71,7 +80,16 @@ Re-run before citing.
 
 **Known sampling caveat.** The `adx` and `aggregator_confidence` distribution series are bounded
 deques capped at 20,000 samples; with 39,170 aggregations they hold the most recent 20,000. The
-routing ADX distribution (n = 13,555) is complete.
+routing ADX distribution (n = 13,555) is complete. The same cap applies to the live funnel, where
+the ADX figures the dashboard shows are the most recent 20,000 routing decisions — roughly 33 hours
+at the current 30 s loop over five symbols — and are labelled as such in the tile.
+
+**One live-telemetry defect this exercise caught.** The first version of the live `atr_pct`
+observation read `base_signal.indicators["ATR"]`, which is always absent for the same reason the
+replay had to stop feeding ATR to the voter — ATR is not an indicator leg. The deployed funnel
+reported `atr_pct: n=0` until it was repointed at `metadata["atr"]["atr_pct"]`, where the aggregator
+actually stores it. The ATR distribution in §2 is from the replay and was always correct; the live
+one was dead until 2026-08-21.
 
 ---
 

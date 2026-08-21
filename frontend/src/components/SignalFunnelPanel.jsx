@@ -118,6 +118,13 @@ export default function SignalFunnelPanel() {
             behind each rejection. Counters are process-local and reset when the
             trading engine restarts.
           </p>
+          <p className="text-xs text-amber-400/70 mb-4 leading-relaxed">
+            This is <span className="font-medium">not</span> a single-denominator
+            funnel. Aggregator stages are counted <em>per timeframe</em>
+            {' '}(15m/60m/240m run separately, so ~3&times; the evaluations);
+            everything else is per evaluation or per emitted signal. Each row
+            shows its basis — compare a rate only against rows with the same one.
+          </p>
 
           <div className="space-y-2">
             {stages.map((s) => {
@@ -141,6 +148,11 @@ export default function SignalFunnelPanel() {
                       {s.advisory && (
                         <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-400/80">
                           advisory · not a gate
+                        </span>
+                      )}
+                      {s.basis && s.basis !== 'unknown' && (
+                        <span className="ml-2 text-[10px] tracking-wide text-slate-600">
+                          {s.basis.replace(/_/g, ' ')}
                         </span>
                       )}
                     </span>
@@ -194,7 +206,12 @@ export default function SignalFunnelPanel() {
               </div>
               {routing.adx_distribution?.n > 0 && (
                 <div className="flex justify-between">
-                  <span>ADX min / median / max</span>
+                  <span>
+                    ADX min / median / max
+                    <span className="text-slate-600">
+                      {' '}(recent {routing.adx_distribution.n.toLocaleString()} decisions)
+                    </span>
+                  </span>
                   <span className="font-mono">
                     {fmtVal(routing.adx_distribution.min)} /{' '}
                     {fmtVal(routing.adx_distribution.median)} /{' '}
