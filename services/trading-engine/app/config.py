@@ -523,11 +523,23 @@ class Settings(BaseSettings):
         le=5.0,
         description="SHORT stop loss: 1.5% (tighter than LONG's 2.0%)",
     )
+    # short_min_confidence history: shipped 2026-01-19 at 0.70 claiming "higher
+    # than LONG's 0.65" — but the live LONG floor is min_signal_confidence=0.30,
+    # and the 3-leg ensemble's structural SELL ceiling is ~0.60 (leg SELL caps:
+    # simple_rsi 0.80, mean_reversion 1.00, aggregator observed 0; weights
+    # frozen at 1/3 each), so 0.70 was mathematically unreachable — 379 of 623
+    # SELL signals died at this gate in one run, all-time max recorded ensemble
+    # confidence 0.3804. Lowered to 0.35 on 2026-08-20.
     short_min_confidence: float = Field(
-        default=0.70,  # HIGHER: 70% vs 65% for LONG (higher bar)
-        ge=0.5,
+        default=0.35,
+        ge=0.0,
         le=1.0,
-        description="SHORT minimum confidence: 70% (higher than LONG's 65%)",
+        description=(
+            "SHORT minimum confidence: 0.35 — modestly above the LONG floor "
+            "(min_signal_confidence=0.30) to demand extra conviction for "
+            "shorts, below the ~0.60 structural ensemble SELL ceiling so the "
+            "gate is reachable."
+        ),
     )
     # DELETED 2026-08-12 (audit finding 6): short_max_position_pct and the six
     # circuit_breaker_* fields were declared 2026-01-19 and read by no code in
@@ -745,6 +757,36 @@ class Settings(BaseSettings):
             logger.warning(
                 f"Allocations defined for symbols not in trading_symbols: {extra_symbols}. "
                 f"These allocations will be ignored."
+            )
+
+    def warn_if_short_gate_unreachable(self) -> None:
+        """Boot-time sanity check (log-only, never aborts startup).
+
+        Under DEFAULT 1/3 leg weights the 3-leg ensemble's structural SELL
+        confidence ceiling is ~0.60 (leg SELL caps: simple_rsi 0.80,
+        mean_reversion 1.00, aggregator observed 0). Adaptive weights can
+        raise that ceiling, so a floor >= 0.60 is flagged as unreachable
+        under default weights rather than impossible outright. A floor at
+        or below the general min_signal_confidence is inert - the general
+        floor rejects first.
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+        if self.short_min_confidence >= 0.60:
+            logger.warning(
+                f"short_min_confidence={self.short_min_confidence:.2f} >= 0.60 - "
+                f"under default 1/3 ensemble weights, SELL ceiling ~0.60, so "
+                f"SHORT entries cannot pass the ensemble gate (adaptive "
+                f"weights can raise the ceiling). Lower it below 0.60 for "
+                f"shorts to fire under default weights."
+            )
+        elif self.short_min_confidence <= self.min_signal_confidence:
+            logger.warning(
+                f"short_min_confidence={self.short_min_confidence:.2f} <= "
+                f"min_signal_confidence={self.min_signal_confidence:.2f} - "
+                f"SHORT-specific floor is inert; the general floor rejects "
+                f"first."
             )
 
     @property

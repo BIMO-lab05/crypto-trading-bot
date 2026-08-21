@@ -14,6 +14,7 @@ against the token form blocks every SHORT in production while staying green
 against a string fixture, so both shapes are covered below.
 """
 
+import logging
 import sys
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -486,3 +487,130 @@ async def test_a_second_open_in_flight_is_refused_without_double_counting(
     await live_trader._check_and_trade_ensemble("SOLUSDT")
 
     assert live_trader.total_trades_rejected == before + 1
+# ============================================================================
+# 2026-08-20 default fix: short_min_confidence 0.70 -> 0.35. The old default
+# sat above the ensemble's structural SELL ceiling of ~0.60 (leg SELL caps
+# simple_rsi 0.80 + mean_reversion 1.00 + aggregator 0, weights 1/3 each), so
+# the SHORT gate was mathematically unreachable — 379 of 623 SELLs died there
+# in one run, all-time max recorded ensemble confidence 0.3804.
+# ============================================================================
+
+
+def test_shipped_short_floor_default_is_0_35():
+    """Guards the default itself, not just the mechanism: >= 0.60 is
+    unreachable for the 3-leg ensemble."""
+    from app.config import Settings
+
+    assert Settings.model_fields["short_min_confidence"].default == 0.35
+
+
+@pytest.fixture
+def trader_with_config_defaults():
+    """Gate fixture wired to the REAL shipped defaults, so these tests fail
+    if either floor drifts back above the structural ceiling."""
+    from app.auto_trader import AutoTrader
+    from app.config import Settings
+
+    fields = Settings.model_fields
+    t = AutoTrader.__new__(AutoTrader)
+    t.settings = SimpleNamespace(
+        min_signal_confidence=fields["min_signal_confidence"].default,
+        short_min_confidence=fields["short_min_confidence"].default,
+        short_trading_enabled=True,
+        allowed_trade_sides=["LONG", "SHORT"],
+    )
+    t.total_trades_rejected = 0
+    return t
+
+
+def test_short_at_0_40_passes_the_new_default_short_floor(
+    trader_with_config_defaults,
+):
+    """0.40 is inside the observed ensemble range (max 0.3804 is close) and
+    above the 0.35 floor — the gate is now reachable."""
+    sig = _signal(action=SignalAction.SELL, confidence=0.40)
+    assert (
+        trader_with_config_defaults._ensemble_passes_signal_gates("ADAUSDT", sig)
+        is True
+    )
+
+
+def test_short_at_0_32_fails_the_short_floor(trader_with_config_defaults):
+    """0.32 clears the general 0.30 floor but not the 0.35 short floor."""
+    sig = _signal(action=SignalAction.SELL, confidence=0.32)
+    assert (
+        trader_with_config_defaults._ensemble_passes_signal_gates("ADAUSDT", sig)
+        is False
+    )
+
+
+def test_long_at_0_32_passes_where_the_short_fails(trader_with_config_defaults):
+    """The 0.35 floor is SHORT-only extra conviction; LONGs face only 0.30."""
+    sig = _signal(action=SignalAction.BUY, confidence=0.32)
+    assert (
+        trader_with_config_defaults._ensemble_passes_signal_gates("ADAUSDT", sig)
+        is True
+    )
+
+
+def test_short_at_0_28_fails_the_general_floor(trader_with_config_defaults):
+    """Below min_signal_confidence=0.30 the general gate rejects before the
+    short floor is ever consulted."""
+    sig = _signal(action=SignalAction.SELL, confidence=0.28)
+    assert (
+        trader_with_config_defaults._ensemble_passes_signal_gates("ADAUSDT", sig)
+        is False
+    )
+
+
+# ============================================================================
+# Boot-time warning: an unreachable short floor must be flagged at startup
+# (log-only — never a boot failure). Wired in app/lifespan/data.py right
+# after validate_allocations().
+# ============================================================================
+
+
+def test_boot_warning_fires_when_short_floor_is_structurally_unreachable(
+    caplog,
+):
+    """0.70 sits above the ~0.60 ceiling that holds under DEFAULT 1/3 leg
+    weights (adaptive weights can raise it - the warning is hedged)."""
+    from app.config import Settings
+
+    s = Settings(short_min_confidence=0.70)
+    with caplog.at_level(logging.WARNING, logger="app.config"):
+        s.warn_if_short_gate_unreachable()
+    assert any(
+        "SHORT entries cannot pass the ensemble gate" in rec.message
+        for rec in caplog.records
+    )
+    assert any(
+        "under default 1/3 ensemble weights" in rec.message
+        for rec in caplog.records
+    )
+
+
+def test_boot_warning_fires_when_short_floor_is_inert(caplog):
+    """0.25 sits below min_signal_confidence=0.30: the SHORT-specific floor
+    can never be the rejecting gate - the general floor rejects first."""
+    from app.config import Settings
+
+    s = Settings(short_min_confidence=0.25)
+    with caplog.at_level(logging.WARNING, logger="app.config"):
+        s.warn_if_short_gate_unreachable()
+    assert any(
+        "SHORT-specific floor is inert" in rec.message for rec in caplog.records
+    )
+
+
+def test_no_boot_warning_at_the_shipped_default(caplog):
+    """0.35 sits between the general floor (0.30) and the default-weights
+    ceiling (~0.60): neither warning may fire."""
+    from app.config import Settings
+
+    s = Settings()
+    with caplog.at_level(logging.WARNING, logger="app.config"):
+        s.warn_if_short_gate_unreachable()
+    assert not any(
+        "short_min_confidence" in rec.message for rec in caplog.records
+    )
