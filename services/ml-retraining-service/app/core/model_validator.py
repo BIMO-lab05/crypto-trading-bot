@@ -38,16 +38,29 @@ class ModelValidator:
         threshold: Optional[float],
         validation_checks: Dict[str, Any],
         reasons: List[str],
+        fail_closed: bool = False,
     ) -> bool:
         """
         Generic optional minimum-threshold gate.
 
-        Returns True when the gate passes, the threshold is None
-        (disabled), or the value is missing/NaN (older artifacts /
-        degenerate test set). Returns False only when a threshold is
-        configured and the value fails to clear it. Always records the
-        value in ``validation_checks[key]`` for observability — passed
-        is None when the gate didn't fire (disabled / unavailable),
+        Returns True when the gate passes or the threshold is None
+        (disabled). When the value is missing/NaN (older artifacts /
+        degenerate test set) the behaviour is per-gate explicit:
+
+        - ``fail_closed=False`` (legacy): the gate is skipped and the
+          model passes on the remaining checks (fail-open).
+        - ``fail_closed=True``: with the gate ENABLED (threshold set), a
+          missing/NaN metric FAILS the gate (passed=False, reason
+          'metric unavailable') — matching edge_lab gate2 semantics
+          where an uncomputable gating metric is a REJECT, never a pass
+          (SEV-6 fix 2026-08). With the threshold None the metric is
+          still recorded informationally.
+
+        Returns False when a threshold is configured and the value fails
+        to clear it, or when ``fail_closed`` and the value is
+        unavailable. Always records the value in
+        ``validation_checks[key]`` for observability — passed is None
+        when the gate didn't fire (disabled / unavailable+fail-open),
         bool when it did.
 
         Args:
@@ -65,6 +78,21 @@ class ModelValidator:
                 a real (non-None) threshold actually fires.
         """
         if value is None or (isinstance(value, float) and math.isnan(value)):
+            if threshold is not None and fail_closed:
+                # Gate is enabled but the metric cannot be computed:
+                # FAIL CLOSED (edge_lab gate2 semantics). A model whose
+                # DSR is unmeasurable must not deploy through the gate.
+                validation_checks[key] = {
+                    'passed': False,
+                    'value': value,
+                    'threshold': threshold,
+                    'note': f'{name} metric unavailable (missing or NaN); '
+                            'gate enabled — failing closed',
+                }
+                reasons.append(
+                    f"{name} metric unavailable — gate enabled, failing closed"
+                )
+                return False
             validation_checks[key] = {
                 'passed': None,
                 'value': value,
@@ -98,7 +126,8 @@ class ModelValidator:
         validation_checks: Dict[str, Any],
         reasons: List[str],
     ) -> bool:
-        """Deflated Sharpe Ratio gate. Off by default (settings.retrain_min_dsr)."""
+        """Deflated Sharpe Ratio gate. ON by default at 0.95 and FAIL-CLOSED
+        on a missing/NaN DSR (settings.retrain_min_dsr, SEV-6 fix 2026-08)."""
         return self._check_optional_gate(
             name="DSR",
             key="dsr",
@@ -107,6 +136,8 @@ class ModelValidator:
             threshold=self.settings.retrain_min_dsr,
             validation_checks=validation_checks,
             reasons=reasons,
+            # DSR is the honesty gate: unmeasurable ⇒ REJECT (fail closed).
+            fail_closed=True,
         )
 
     def _check_r2_returns_gate(
@@ -124,6 +155,10 @@ class ModelValidator:
             threshold=self.settings.retrain_min_r2_returns,
             validation_checks=validation_checks,
             reasons=reasons,
+            # Per-gate explicit (SEV-6): T0.1 pre-flight gates stay
+            # fail-open on a missing metric — they gate older artifacts
+            # that never recorded these metrics. Only DSR fails closed.
+            fail_closed=False,
         )
 
     def _check_dir_acc_gate(
@@ -141,6 +176,8 @@ class ModelValidator:
             threshold=self.settings.retrain_min_dir_acc,
             validation_checks=validation_checks,
             reasons=reasons,
+            # Per-gate explicit (SEV-6): fail-open, see r2_returns note.
+            fail_closed=False,
         )
 
     def validate_model(
@@ -174,11 +211,23 @@ class ModelValidator:
         new_r2 = new_metrics.get('val_r2', new_metrics.get('test_r2', 0))
         new_loss = new_metrics.get('val_loss', new_metrics.get('test_loss', 999))
         new_mae = new_metrics.get('val_mae', new_metrics.get('test_mae', 999))
-        # Deflated Sharpe Ratio from evaluation-time CPCV. May be missing
-        # (older artifacts) or NaN (degenerate test set / zero-variance
-        # strategy returns). Treated as informational unless
-        # retrain_min_dsr is configured.
-        new_dsr = new_metrics.get('test_dsr')
+        # Deflated Sharpe Ratio from evaluation-time CPCV. Decision of
+        # record (SEV-5, 2026-08): the deploy gate consumes the honest-N
+        # variant 'test_cpcv_dsr' (num_trials = max(valid paths, total
+        # CPCV path count, e.g. 45 at the pinned 10/2)); the legacy
+        # 'test_dsr' (num_trials = valid-path count, under-deflated
+        # whenever degenerate paths are dropped) is read only as a
+        # fallback for older artifacts that predate the honest-N key.
+        # May be missing (older artifacts) or NaN (degenerate test set /
+        # zero-variance strategy returns). While retrain_min_dsr is set
+        # (default 0.95) a missing/NaN DSR FAILS CLOSED; threshold None
+        # records it informationally only.
+        if 'test_cpcv_dsr' in new_metrics:
+            new_dsr = new_metrics.get('test_cpcv_dsr')
+            new_dsr_source = 'test_cpcv_dsr'
+        else:
+            new_dsr = new_metrics.get('test_dsr')
+            new_dsr_source = 'test_dsr'
         # T0.1 pre-flight gates: R² on log-returns + corrected directional
         # accuracy. Same shape as DSR — off by default; informational unless
         # the corresponding settings.retrain_min_* threshold is configured.
@@ -213,10 +262,21 @@ class ModelValidator:
                 f"Loss ({new_loss:.4f}) above maximum threshold ({max_loss})"
             )
 
-        # DSR gate (off by default — see settings.retrain_min_dsr)
+        # DSR gate (ON by default at 0.95, fail-closed — see settings.retrain_min_dsr)
         dsr_check_passed = self._check_dsr_gate(
             new_dsr, validation_checks, reasons
         )
+        # Decision of record: every verdict artifact reports the
+        # deflation components alongside the DSR. This service has no
+        # trial ledger, so ledger_count is None; n_paths /
+        # num_trials_used come from evaluation-time CPCV (absent on
+        # older artifacts).
+        validation_checks['dsr'].update({
+            'source': new_dsr_source,
+            'ledger_count': None,
+            'n_paths': new_metrics.get('test_cpcv_n_paths'),
+            'num_trials_used': new_metrics.get('test_cpcv_num_trials_used'),
+        })
         # T0.1 pre-flight gates (off by default)
         r2_returns_check_passed = self._check_r2_returns_gate(
             new_r2_returns, validation_checks, reasons
@@ -382,7 +442,9 @@ class ModelValidator:
                 "r2": current_r2,
                 "loss": current_loss,
                 "mae": current_mae,
-                "dsr": current_metrics.get('test_dsr'),
+                "dsr": current_metrics.get(
+                    'test_cpcv_dsr', current_metrics.get('test_dsr')
+                ),
                 "r2_returns": current_metrics.get('test_r2_returns'),
                 "dir_acc_corrected": current_metrics.get('test_dir_acc_corrected'),
             },

@@ -3,17 +3,19 @@ Tests for the Deflated-Sharpe-Ratio gate in ``ModelValidator``.
 
 The gate is configured via ``settings.retrain_min_dsr``:
 
-- ``None`` (default): DSR is recorded informationally; it never blocks
-  a deployment. This is the post-V0 default — current GRUs have no
-  measured edge (negative R² on returns) and would all fail any DSR
-  threshold; turning the gate on prematurely would freeze deployment.
-- A float in [0, 1]: a real gate. ``new_metrics['test_dsr']`` must clear
-  it for ``is_valid`` to be True. ``0.95`` corresponds to the 5%
-  significance level (Bailey & López de Prado 2014).
+- ``0.95`` (default, SEV-6 fix 2026-08): a real gate, ON out of the box.
+  ``new_metrics['test_dsr']`` must clear it for ``is_valid`` to be True.
+  ``0.95`` corresponds to the 5% significance level (Bailey & López de
+  Prado 2014). Under the current "no measured edge" reality this freezes
+  deployment — that is the point: no model deploys without significant
+  DSR evidence.
+- ``None``: deliberate operator override — DSR is recorded
+  informationally and never blocks a deployment.
 
 DSR can also be missing (older artifacts) or NaN (degenerate test set).
-Both cases are treated as "gate not applicable" — the deployment proceeds
-on the legacy R²/loss/MAE checks.
+While the gate is enabled those cases FAIL CLOSED (passed=False, reason
+'metric unavailable') — matching edge_lab gate2 semantics. With the gate
+disabled (None) they are informational only.
 """
 
 from __future__ import annotations
@@ -91,28 +93,32 @@ class TestDSRGateFirstModel:
         assert result["should_deploy"] is False
         assert result["validation_checks"]["dsr"]["passed"] is False
 
-    def test_dsr_missing_with_threshold_does_not_block(self):
-        # Older artifacts have no test_dsr at all → DSR informational.
+    def test_dsr_missing_with_threshold_fails_closed(self):
+        # SEV-6: gate enabled + no test_dsr at all → FAIL CLOSED.
         v = _validator_with_min_dsr(0.95)
         result = v.validate_model(
             new_metrics=_baseline_new_metrics(),  # no test_dsr key
             current_metrics=None,
             symbol="SOLUSDT",
         )
-        assert result["is_valid"] is True
-        assert result["validation_checks"]["dsr"]["passed"] is None
-        assert "DSR unavailable" in result["validation_checks"]["dsr"]["note"]
+        assert result["is_valid"] is False
+        assert result["should_deploy"] is False
+        assert result["validation_checks"]["dsr"]["passed"] is False
+        assert "metric unavailable" in result["validation_checks"]["dsr"]["note"]
 
-    def test_dsr_nan_with_threshold_does_not_block(self):
-        # Degenerate test set (zero-variance returns) returns NaN DSR.
+    def test_dsr_nan_with_threshold_fails_closed(self):
+        # SEV-6: degenerate test set (zero-variance returns) → NaN DSR.
+        # Gate enabled ⇒ FAIL CLOSED, never a silent pass.
         v = _validator_with_min_dsr(0.95)
         result = v.validate_model(
             new_metrics=_baseline_new_metrics(test_dsr=float("nan")),
             current_metrics=None,
             symbol="SOLUSDT",
         )
-        assert result["is_valid"] is True
-        assert result["validation_checks"]["dsr"]["passed"] is None
+        assert result["is_valid"] is False
+        assert result["should_deploy"] is False
+        assert result["validation_checks"]["dsr"]["passed"] is False
+        assert "metric unavailable" in result["validation_checks"]["dsr"]["note"]
         # NaN survives into new_metrics for the report
         assert math.isnan(result["new_metrics"]["dsr"])
 
@@ -160,22 +166,21 @@ class TestDSRGateWithCurrentModel:
 
 
 # ---------------------------------------------------------------------------
-# Settings default — V0 finding requires the gate be off out of the box
+# Settings default — SEV-6 (2026-08): the gate must be ON out of the box
 # ---------------------------------------------------------------------------
 
 
 class TestSettingsDefault:
-    def test_retrain_min_dsr_default_is_none(self):
-        # The pydantic model default must be None so retrains keep flowing
-        # under the current "no measured edge" reality. Flipping the
-        # default to 0.95 is a deliberate operational change — see
-        # docs/strategy/research-2026-04-29/V0-FINDINGS-gru-metric-bug.md.
+    def test_retrain_min_dsr_default_is_095(self):
+        # SEV-6 fix: the pydantic default is 0.95 so the DSR gate binds
+        # by default (fail-open default was the defect). Disabling the
+        # gate (None) is a deliberate operator override, not the default.
         from app.config.settings import RetrainingSettings
 
         # Use a fresh instance bypassing any cached env/file overrides.
         with patch.dict("os.environ", {}, clear=True):
             s = RetrainingSettings()
-        assert s.retrain_min_dsr is None
+        assert s.retrain_min_dsr == 0.95
 
 
 if __name__ == "__main__":  # pragma: no cover

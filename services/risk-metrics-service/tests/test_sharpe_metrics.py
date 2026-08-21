@@ -256,3 +256,70 @@ class TestAgainstScipy:
 
 def test_module_constant_euler_mascheroni():
     assert EULER_MASCHERONI == pytest.approx(0.577215664901, rel=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Absolute-value pins — hand-computed Bailey & López de Prado examples
+# ---------------------------------------------------------------------------
+
+
+class TestAbsoluteValuePins:
+    """Pin PSR and E[max SR] to independently computed literals (6 decimals).
+
+    The relational tests above verify monotonicity only; a kernel that
+    dropped a whole term could still pass them. These pins were computed
+    OUTSIDE app.sharpe_metrics — via scipy.stats.norm.cdf/ppf and
+    scipy.stats.skew/kurtosis(bias=False) — and are hardcoded so the test
+    never calls the code under test to produce its own expectation.
+    """
+
+    # Fixed 12-bar return series. Every intermediate below is reproducible
+    # by hand / any stats package (bias-corrected sample moments):
+    #
+    #   r    = [0.01, 0.02, -0.01, 0.03, -0.02, 0.01,
+    #           0.02, -0.01, 0.00, 0.01, 0.04, -0.03]
+    #   n    = 12
+    #   mean = 0.005833333333          (= 0.07 / 12)
+    #   std  = 0.020652243256          (ddof=1)
+    #   SR   = mean / std            = 0.282455191959
+    #   γ₃   = -0.142252490485         (adjusted skew,  scipy bias=False)
+    #   γ₄ₑ  = -0.563116266890         (adjusted excess kurt, bias=False)
+    #   var_term = 1 - γ₃·SR + ((γ₄ₑ+2)/4)·SR²
+    #            = 1 + 0.040180... + 0.028658... = 1.068838936602
+    #   z    = SR·√(n-1)/√var_term   = 0.282455·√11/√1.068839
+    #        = 0.906128461024
+    #   PSR  = Φ(z)                  = 0.817566068690
+    PIN_RETURNS = [
+        0.01, 0.02, -0.01, 0.03, -0.02, 0.01,
+        0.02, -0.01, 0.00, 0.01, 0.04, -0.03,
+    ]
+
+    def test_psr_pinned_to_hand_computed_value(self):
+        # Perturbations this pin kills (observed deltas vs 1e-6 tolerance):
+        #   - dropping the skew term  (1 - γ₃·SR → 1):        Δ ≈ 4.6e-3
+        #   - dropping the kurtosis term ((γ₄ₑ+2)/4·SR² → 0): Δ ≈ 3.3e-3
+        #   - dropping BOTH (var_term → 1):                   Δ ≈ 8.0e-3
+        #   - using √N instead of √(N-1):                     Δ ≈ 1.1e-2
+        r = np.array(self.PIN_RETURNS)
+        psr = probabilistic_sharpe_ratio(r, benchmark_sr=0.0)
+        assert psr == pytest.approx(0.817566, abs=1e-6)
+
+    def test_expected_max_sharpe_pinned_closed_form(self):
+        # Closed form (Bailey-LdP), N=10 trials, Sharpe variance V=0.04:
+        #
+        #   sd   = √V = 0.2
+        #   Φ⁻¹(1 - 1/10)      = Φ⁻¹(0.9)          = 1.281551565545
+        #   Φ⁻¹(1 - 1/(10·e))  = Φ⁻¹(0.963212...)  = 1.789241764582
+        #   E[maxSR] = sd·((1-γ_E)·1.281552 + γ_E·1.789242)
+        #            = 0.2·(0.422784·1.281552 + 0.577216·1.789242)
+        #            = 0.2·(0.541827 + 1.032771)
+        #            = 0.314919660269
+        #
+        # Perturbations this pin kills (deltas vs 1e-6 tolerance):
+        #   - using V instead of √V (sd = 0.04):  value 0.062984, Δ ≈ 0.25
+        #   - dropping the 1/(N·e) term:          value 0.108364, Δ ≈ 0.21
+        #   - dropping the 1/N term:              value 0.206556, Δ ≈ 0.11
+        # (kernel's Acklam Φ⁻¹ agrees with scipy.norm.ppf to ~1e-9, far
+        #  inside the 1e-6 tolerance)
+        e_max = expected_max_sharpe_under_null(10, 0.04)
+        assert e_max == pytest.approx(0.314920, abs=1e-6)

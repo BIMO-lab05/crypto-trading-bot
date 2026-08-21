@@ -108,12 +108,16 @@ class RetrainingSettings(BaseSettings):
         description="Maximum allowed metric degradation (10% = 0.10)"
     )
     retrain_min_dsr: Optional[float] = Field(
-        default=None,
+        default=0.95,
         description=(
-            "Deflated Sharpe Ratio gate (0..1). When set, retrains failing "
-            "this threshold are not deployed. None disables the gate "
-            "(DSR is still recorded as informational). 0.95 = 5% significance "
-            "level after correcting for non-normality and selection bias."
+            "Deflated Sharpe Ratio gate (0..1). ON by default at 0.95 "
+            "(5% significance after correcting for non-normality and "
+            "selection bias, Bailey & Lopez de Prado 2014). Retrains "
+            "failing this threshold are not deployed; a missing/NaN DSR "
+            "FAILS CLOSED while the gate is enabled (SEV-6 fix 2026-08, "
+            "matching edge_lab gate2 semantics). Set to None (env "
+            "RETRAIN_MIN_DSR=) only as a deliberate operator override to "
+            "record DSR informationally without gating."
         ),
     )
     retrain_target_mode: str = Field(

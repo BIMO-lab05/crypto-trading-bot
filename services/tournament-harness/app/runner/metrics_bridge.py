@@ -14,6 +14,7 @@ exact grep pattern used in CI.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Dict
 
 import numpy as np
@@ -109,12 +110,20 @@ def compute_all_metrics(
     y_test: np.ndarray,
     last_close_test: np.ndarray,
     label_horizon: int,
-) -> Dict[str, float]:
+) -> Dict[str, float | None]:
     """Compute the full TOURN-02 metric set using imported functions only.
 
     Returns a dict with keys:
-      r2_returns, dir_acc_corrected, oos_sharpe, psr, dsr, cpcv_dsr.
+      r2_returns, dir_acc_corrected, oos_sharpe, psr, dsr, cpcv_dsr,
+      forecast_path_sharpe, and (when CPCV ran) cpcv_num_trials_used.
     Caller adds train_seconds (wall time, not a 'metric' here).
+
+    Honesty contract (SEV-5 / SEV-7 fixes 2026-08):
+      - a metric that could not be computed is None — never a fabricated
+        0.0 and never a silent copy of another metric;
+      - ``psr`` is always None: the only return series available here is
+        the model's own predicted price path, whose Sharpe is emitted
+        under the honest name ``forecast_path_sharpe`` instead.
     """
     if not _CANONICAL_METRICS_AVAILABLE:
         raise RuntimeError(
@@ -144,46 +153,77 @@ def compute_all_metrics(
         label_horizon=label_horizon,
     )
 
-    out: Dict[str, float] = {}
+    out: Dict[str, float | None] = {}
     # The keys returned by compute_returns_metrics use a 'test_' prefix in
     # ml-retraining (see returns_metrics.py). Strip the prefix for the
-    # tournament leaderboard column names (TOURN-02).
+    # tournament leaderboard column names (TOURN-02). NaN/inf sentinels
+    # (e.g. from a degenerate CPCV _nan_dict) map to None — honest NULL,
+    # not a number that survives into the leaderboard (SEV-5).
     for src, dst in (
         ("test_r2_returns", "r2_returns"),
         ("test_dir_acc_corrected", "dir_acc_corrected"),
     ):
         if src in rm:
-            out[dst] = float(rm[src])
+            val = float(rm[src])
         elif dst in rm:
-            out[dst] = float(rm[dst])
+            val = float(rm[dst])
+        else:
+            continue
+        out[dst] = val if math.isfinite(val) else None
 
     for src, dst in (
         ("test_cpcv_oos_sharpe", "oos_sharpe"),
         ("test_dsr", "dsr"),
     ):
         if src in cpcv:
-            out[dst] = float(cpcv[src])
+            val = float(cpcv[src])
         elif dst in cpcv:
-            out[dst] = float(cpcv[dst])
+            val = float(cpcv[dst])
+        else:
+            continue
+        out[dst] = val if math.isfinite(val) else None
 
-    # PSR — direct call on returns derived from predictions
+    # SEV-7 (2026-08): the only return series available here derives from
+    # the model's own PREDICTED price path. A smoothly drifting forecast
+    # scores a high "Sharpe" on that series while trading nothing — calling
+    # it `psr` was dishonest. The number is kept under the honest name
+    # `forecast_path_sharpe` (a smoothness/drift diagnostic of the forecast
+    # path, NOT evidence of tradeable edge) and `psr` is emitted as None.
+    # Consumers tolerate the NULL: the leaderboard `psr` column is a
+    # nullable REAL, result_schema accepts None on success rows, and
+    # trading-engine preflight reads `psr_ci_published` + `dsr`, never the
+    # `psr` metric column.
     pred_returns = np.diff(pred_prices.flatten()) / np.where(
         pred_prices.flatten()[:-1] != 0, pred_prices.flatten()[:-1], 1.0
     )
-    out["psr"] = float(probabilistic_sharpe_ratio(pred_returns, benchmark_sr=0.0))
+    fps = float(probabilistic_sharpe_ratio(pred_returns, benchmark_sr=0.0))
+    out["forecast_path_sharpe"] = fps if math.isfinite(fps) else None
+    out["psr"] = None
 
-    # cpcv_dsr — only if the cpcv dict provided per-path returns
-    returns_per_path = cpcv.get("returns_per_path") or cpcv.get("test_returns_per_path")
-    concatenated = cpcv.get("concatenated_returns") or cpcv.get(
-        "test_concatenated_returns"
-    )
-    if returns_per_path is not None and concatenated is not None:
-        out["cpcv_dsr"] = float(cpcv_to_dsr(returns_per_path, concatenated))
-    else:
-        # Fall back to dsr if cpcv didn't expose path-level returns
-        out["cpcv_dsr"] = out.get("dsr", 0.0)
+    # SEV-5 (2026-08): cpcv_dsr is the honest-N DSR emitted by
+    # evaluate_with_cpcv — num_trials = max(valid paths, total CPCV path
+    # count), see cpcv_evaluation.py. The old code read
+    # `returns_per_path` / `concatenated_returns` keys that
+    # evaluate_with_cpcv never emitted, so the fallback silently copied
+    # `dsr` on every run. When CPCV could not produce the value (<2 valid
+    # paths / degenerate returns) it stays None — NEVER a copy of dsr and
+    # NEVER a fabricated 0.0.
+    for src in ("test_cpcv_dsr", "cpcv_dsr"):
+        if src in cpcv:
+            val = float(cpcv[src])
+            if math.isfinite(val):
+                out["cpcv_dsr"] = val
+            break
+    # Decision of record (2026-08): verdict artifacts report the
+    # num_trials components. Pass the honest-N component to result.json.
+    for src in ("test_cpcv_num_trials_used", "cpcv_num_trials_used"):
+        if src in cpcv:
+            out["cpcv_num_trials_used"] = int(cpcv[src])
+            break
 
-    # Defensive: every TOURN-02 metric is present (None acceptable but key must exist)
+    # Defensive: every TOURN-02 metric key exists. A missing/uncomputable
+    # metric stays None (honest NULL) — the old `setdefault(k, 0.0)`
+    # masked missing metrics as measured zeros (SEV-5).
     for k in (
         "r2_returns",
         "dir_acc_corrected",
@@ -191,7 +231,8 @@ def compute_all_metrics(
         "psr",
         "dsr",
         "cpcv_dsr",
+        "forecast_path_sharpe",
     ):
-        out.setdefault(k, 0.0)
+        out.setdefault(k, None)
 
     return out

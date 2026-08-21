@@ -45,6 +45,18 @@ REQUIRED_METRICS_ON_SUCCESS = (
     "train_seconds",
 )
 
+# SEV-5/SEV-7 (2026-08): the honest metric pipeline emits None for any
+# metric it could not compute (never a fabricated 0.0), and `psr` is now
+# ALWAYS None — the forecast-path Sharpe moved to the honest name
+# `forecast_path_sharpe` (see metrics_bridge). These columns are nullable
+# REALs in the leaderboard schema; None passes through to SQL NULL.
+# `train_seconds` is wall-clock, always measurable, and stays
+# required-finite. The key must still be PRESENT on success rows — only
+# its value may be None.
+NULLABLE_METRICS_ON_SUCCESS = frozenset(
+    {"r2_returns", "dir_acc_corrected", "oos_sharpe", "psr", "dsr", "cpcv_dsr"}
+)
+
 # Sanity ranges for honest-metrics columns. Outside these = corrupt result.
 METRIC_RANGES = {
     "r2_returns": (-100.0, 1.0),
@@ -123,6 +135,10 @@ def validate(payload: Dict[str, Any], raw_bytes: bytes) -> Tuple[str, Dict[str, 
             if m not in metrics:
                 raise ValueError(f"success row missing metric: {m}")
             v = metrics[m]
+            if v is None and m in NULLABLE_METRICS_ON_SUCCESS:
+                # Honest NULL: metric was uncomputable (or, for psr,
+                # intentionally not emitted). Persisted as SQL NULL.
+                continue
             if not _is_finite_number(v):
                 raise ValueError(f"metric {m} must be finite number, got {v!r}")
             lo, hi = METRIC_RANGES[m]
