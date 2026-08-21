@@ -107,6 +107,10 @@ export const tradingAPI = {
 
   // Get trading performance metrics
   getPerformance: () => api.get('/trading/performance'),
+
+  // Stage-by-stage signal rejection funnel (2026-08-21).
+  // Gateway route /api/trading/signal-funnel -> engine /api/v1/trading/signal-funnel.
+  getSignalFunnel: () => api.get('/trading/signal-funnel'),
 }
 
 // System health endpoint

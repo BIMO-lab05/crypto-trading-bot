@@ -11,6 +11,7 @@ import TradeHistory from './TradeHistory'
 import TradingEnhancementsPanel from './TradingEnhancementsPanel'
 import PerformanceAnalyticsPanel from './PerformanceAnalyticsPanel'
 import HybridStrategyPanel from './HybridStrategyPanel'
+import SignalFunnelPanel from './SignalFunnelPanel'
 import RegimeIndicator from './RegimeIndicator'
 import { DISPLAY_SYMBOLS } from '../utils/symbols'
 
@@ -170,6 +171,13 @@ export default function Dashboard() {
           {/* Hybrid Strategy Panel - NEW 2026-01-06: Shows strategy routing and market regime */}
           <section>
             <HybridStrategyPanel />
+          </section>
+
+          {/* Signal Funnel - NEW 2026-08-21: stage-by-stage rejection accounting.
+              Paired with the routing tile deliberately: when routing counts are
+              low the funnel says which upstream filter consumed the signals. */}
+          <section>
+            <SignalFunnelPanel />
           </section>
 
           {/* Trade History - Closed trades with win/loss statistics */}
