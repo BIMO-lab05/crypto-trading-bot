@@ -615,9 +615,6 @@ services:
       - SERVICE_PORT=8004
       - DEBUG=${DEBUG:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
       - MARKET_DATA_URL=http://market-data:8002
     volumes:
@@ -761,6 +758,14 @@ services:
       # (writable at ./services/tournament-harness/data:/app/data) and the
       # host-run evidence-loop driver are the only writers.
       - ./services/tournament-harness/data/leaderboard:/data:ro
+      # Ensemble adaptive-weights state (2026-08-20): multi_strategy_ensemble
+      # persists per-leg win rates to /app/data/ensemble_weights.json on every
+      # trade close (ADR-015 learning loop). Without a mount the file died on
+      # container recreate, so weights were frozen at the 1/3 defaults forever.
+      # Named volume, not a bind: the WSL bind race (see /app/logs gotcha) can
+      # leave the dir root-owned, and the image pre-creates /app/data owned by
+      # appuser (Dockerfile:74) so copy-on-first-use keeps writes working.
+      - trading_engine_data:/app/data
     networks:
       - crypto-bot-network
     depends_on:
@@ -1084,3 +1089,6 @@ volumes:
     name: crypto-bot-prometheus-data
   grafana_data:
     name: crypto-bot-grafana-data
+  # Application-state volumes
+  trading_engine_data:
+    name: crypto-bot-trading-engine-data
