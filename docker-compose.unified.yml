@@ -682,8 +682,26 @@ services:
       - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/safety/EMERGENCY_STOP}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
       - PAPER_INITIAL_BALANCE=100.0
-      # Strategy mode: ensemble = SimpleRSI + multi-indicator + mean-reversion (performance-weighted)
-      - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
+      # Strategy mode.
+      #   ensemble — SimpleRSI + multi-indicator + mean-reversion, performance-weighted.
+      #              The multi-indicator leg is gated on the MTF consensus action.
+      #   research — HybridStrategyRouter EXECUTES: ADX picks trend-following
+      #              (ResearchOptimizedStrategy) above adx_trending_threshold and
+      #              mean-reversion below it. No dual-confirmation gate.
+      #   hybrid   — router runs but only trades when it AGREES with the
+      #              aggregator's action; with the aggregator at HOLD this
+      #              cannot fire, so it is not the way to "turn the router on".
+      #
+      # 2026-08-22: switched ensemble -> research on explicit operator decision,
+      # promoting the router from advisory to executing. This REVERSES the
+      # Phase-3 deferral recorded in docs/PIPELINE_MAP.md §6, which held the
+      # router advisory pending replay evidence. Measured caveat, on the record:
+      # at the time of the switch the router returned None on all 5 symbols
+      # (ResearchOptimizedStrategy needs MIN_INDICATORS_ALIGNED=2 and was
+      # accumulating 1.5), so this is not expected to increase trade count on
+      # its own — see docs/FUNNEL_ROOT_CAUSE_2026-08-22.md. Revert by setting
+      # STRATEGY_MODE=ensemble.
+      - STRATEGY_MODE=${STRATEGY_MODE:-research}
       # ------------------------------------------------------------------
       # Signal-filter thresholds (2026-08-21).
       #
