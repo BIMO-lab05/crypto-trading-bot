@@ -321,9 +321,21 @@ class HybridStrategyRouter:
             MarketCondition,
         )
 
-        # Map mean reversion strength to signal strength
+        # Map mean reversion strength to signal strength.
+        #
+        # 2026-08-22: MeanReversionSignalStrength has four members
+        # (VERY_STRONG/STRONG/MODERATE/WEAK) but SignalStrength has no
+        # VERY_STRONG — its members are STRONG/MODERATE/WEAK/NONE. The old
+        # mapping referenced SignalStrength.VERY_STRONG, and because a dict
+        # literal is evaluated eagerly this raised AttributeError on EVERY
+        # call, not just on very-strong signals. The whole RANGING branch of
+        # the router was therefore dead: it could only ever throw. It went
+        # unnoticed because the executing path had never taken that branch
+        # (ADX has stayed above the trending threshold), and the caller wraps
+        # this in a broad `except Exception` that logs and returns no trade.
+        # VERY_STRONG collapses onto STRONG, the strongest member that exists.
         strength_mapping = {
-            "VERY_STRONG": SignalStrength.VERY_STRONG,
+            "VERY_STRONG": SignalStrength.STRONG,
             "STRONG": SignalStrength.STRONG,
             "MODERATE": SignalStrength.MODERATE,
             "WEAK": SignalStrength.WEAK,
@@ -333,12 +345,33 @@ class HybridStrategyRouter:
             mr_signal.strength.value, SignalStrength.MODERATE
         )
 
-        # Calculate position size (10-20% of capital based on confidence)
-        position_size_pct = 0.10 + (mr_signal.confidence * 0.10)  # 10-20%
-        position_value = capital * position_size_pct
-        quantity = position_value / current_price
+        # Position sizing, confidence-scaled but HARD-CAPPED.
+        #
+        # 2026-08-22: this read `0.10 + confidence * 0.10` (10-20% of capital),
+        # which exceeds max_risk_per_trade at every confidence above zero — up
+        # to 2x the 10% paper cap and 10x the 2% LIVE cap. CLAUDE.md §5 makes
+        # the per-trade cap a hard invariant, so the cap is applied LAST and
+        # always wins (same ordering as ADR-015 in MultiStrategyEnsemble).
+        # Never write the cap as a literal here — it differs between paper and
+        # LIVE and Settings is the single source.
+        cap = float(get_settings().max_risk_per_trade)
+        position_size_pct = min(cap, 0.10 + (mr_signal.confidence * 0.10))
 
-        # Create TradeSetup
+        # 2026-08-22: `quantity=` and `metadata=` were passed here but are NOT
+        # fields on TradeSetup, and the REQUIRED `trailing_stop_atr_mult` was
+        # never passed — so this constructor raised TypeError on every call,
+        # stacked behind the SignalStrength.VERY_STRONG AttributeError above.
+        # Notional is derived downstream from position_size_pct, so no quantity
+        # is carried here. The metadata that used to be dropped on the floor is
+        # folded into `reasoning`, which is a real field and is what surfaces in
+        # the trade log.
+        reasoning = list(mr_signal.reasoning) + [
+            "Strategy: mean_reversion (router RANGING branch)",
+            f"Indicators triggered: {', '.join(mr_signal.indicators_aligned)}",
+            f"Target mean: {mr_signal.target}",
+            f"Size {position_size_pct:.2%} (cap {cap:.2%})",
+        ]
+
         return TradeSetup(
             action=mr_signal.action,
             confidence=mr_signal.confidence,
@@ -347,15 +380,10 @@ class HybridStrategyRouter:
             stop_loss=mr_signal.stop_loss,
             take_profit=mr_signal.target,  # Mean is the target
             position_size_pct=position_size_pct,
-            quantity=quantity,
+            trailing_stop_atr_mult=self.trend_strategy.ATR_TRAILING_MULTIPLIER,
             indicators_aligned=len(mr_signal.indicators_aligned),
             market_condition=MarketCondition.RANGING,  # Explicitly ranging
-            reasoning=mr_signal.reasoning,
-            metadata={
-                "strategy_type": "mean_reversion",
-                "indicators_triggered": mr_signal.indicators_aligned,
-                "target_mean": mr_signal.target,
-            },
+            reasoning=reasoning,
         )
 
     def get_stats(self) -> Dict[str, any]:
