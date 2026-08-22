@@ -1035,8 +1035,27 @@ class SignalAggregator:
         )
         logger.info(f"      Reasoning: {mtf_analysis.reasoning}")
 
-        # Update signal with multi-timeframe analysis
+        # Update signal with multi-timeframe analysis.
+        #
+        # 2026-08-22: apply consensus_action to the ACTION, not just the
+        # confidence. Until this line existed, `consensus_action` was computed by
+        # MultiTimeframeAnalyzer._calculate_weighted_consensus, written to the
+        # metadata dict below, and never read by anything — while the returned
+        # action stayed whatever the primary (60m) timeframe said. Measured over
+        # 2,820 live evaluations the 60m timeframe was HOLD 100% of the time, so
+        # the ensemble's `multi_indicator` leg (guarded on action != HOLD) could
+        # never fire and the funnel emitted 0/146 signals.
+        # See docs/FUNNEL_ROOT_CAUSE_2026-08-22.md.
+        #
+        # This is a dead-code repair, NOT a trade-unblocking change: recomputed
+        # over 90 live cycles with the shipped weights (15m=0.20, 60m=0.50,
+        # 240m=0.30) and the shipped +/-0.2 band, the consensus resolves to HOLD
+        # in 90/90 cases (max score +0.106). The funnel stays empty because the
+        # voting set cancels — trend voters pinned bullish, oscillators pinned
+        # bearish, each individually correct. Do not "fix" that by lowering
+        # thresholds; Phase-3 tested that and returned NO CHANGE.
         primary_signal.confidence = adjusted_confidence
+        primary_signal.action = mtf_analysis.consensus_action
         primary_signal.metadata["multi_timeframe"] = {
             "enabled": True,
             "timeframes": timeframes,
