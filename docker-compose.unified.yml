@@ -692,16 +692,19 @@ services:
       #              aggregator's action; with the aggregator at HOLD this
       #              cannot fire, so it is not the way to "turn the router on".
       #
-      # 2026-08-22: switched ensemble -> research on explicit operator decision,
-      # promoting the router from advisory to executing. This REVERSES the
-      # Phase-3 deferral recorded in docs/PIPELINE_MAP.md §6, which held the
-      # router advisory pending replay evidence. Measured caveat, on the record:
-      # at the time of the switch the router returned None on all 5 symbols
-      # (ResearchOptimizedStrategy needs MIN_INDICATORS_ALIGNED=2 and was
-      # accumulating 1.5), so this is not expected to increase trade count on
-      # its own — see docs/FUNNEL_ROOT_CAUSE_2026-08-22.md. Revert by setting
-      # STRATEGY_MODE=ensemble.
-      - STRATEGY_MODE=${STRATEGY_MODE:-research}
+      # 2026-08-22: briefly switched to `research` (router executing, cc7d279)
+      # on operator decision, then switched BACK to `ensemble` the same day.
+      # Reason, measured both times: research mode never produced a trade —
+      # ResearchOptimizedStrategy needs MIN_INDICATORS_ALIGNED=2 and accumulates
+      # 1.5 in the current market (TREND_FILTER=BULLISH +0.5 buy vs ema=BEARISH
+      # +1.0 sell, RSI mid-range abstaining). `ensemble` is the only mode with a
+      # demonstrated ability to fire: last real entries 2026-08-16 at confidence
+      # 0.3227 (BNB) / 0.3330 (SOL), just over the 0.30 gate.
+      #
+      # The Phase-3 deferral holding the router advisory therefore stands again.
+      # Neither mode is broken — the indicators genuinely disagree, and both
+      # correctly decline. See docs/FUNNEL_ROOT_CAUSE_2026-08-22.md.
+      - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
       # ------------------------------------------------------------------
       # Signal-filter thresholds (2026-08-21).
       #
