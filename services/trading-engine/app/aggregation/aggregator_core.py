@@ -175,6 +175,7 @@ class CoreAggregator:
         timestamp: int,
         atr_data: Optional[Dict] = None,
         regime_analysis: Optional[RegimeAnalysis] = None,
+        symbol: Optional[str] = None,
     ) -> TradingSignal:
         """
         Aggregate individual indicator signals into a final trading signal
@@ -198,7 +199,13 @@ class CoreAggregator:
         7. Check consensus requirements
         8. Build and return TradingSignal
         """
-        symbol = "UNKNOWN"  # Will be set from context
+        # 2026-08-23: this was hardcoded, so all ~4,540 aggregation-stage
+        # rejections filed under the literal "UNKNOWN" and per-symbol
+        # attribution was dead for 7 of the 22 funnel stages -- which is the
+        # natural next diagnostic question ("which symbol dies at which gate").
+        # Optional so existing callers keep working; it falls back to the old
+        # literal rather than raising.
+        symbol = symbol or "UNKNOWN"
 
         # Validate inputs
         if not indicators:
@@ -245,6 +252,7 @@ class CoreAggregator:
             symbol=symbol,
             observed=abs(float(aggregated_score)),
             threshold=float(self.voter.aggregation_threshold),
+        terminal=False,  # AND-ed leg; does not short-circuit
         )
 
         if action != SignalAction.HOLD:
@@ -273,6 +281,7 @@ class CoreAggregator:
             ),
             threshold=float(self.gatekeeper.block_threshold),
             detail=str(trend_reason),
+        terminal=False,  # AND-ed leg; does not short-circuit
         )
 
         # ==================== STEP 5: Apply VALIDATOR (Volume Confirmation) ====================
@@ -284,7 +293,7 @@ class CoreAggregator:
         # The validator never blocks — it only multiplies confidence. Recorded
         # as a pass with the penalty attached so the funnel shows how much
         # confidence it removed rather than implying a filter that rejects.
-        funnel.gate("passed_validator", True, symbol=symbol)
+        funnel.gate("passed_validator", True, symbol=symbol, terminal=False)
         if volume_penalty < 1.0:
             funnel.note(
                 "passed_validator",
@@ -340,6 +349,7 @@ class CoreAggregator:
                     f"{action.value} vs {regime_analysis.regime.value} "
                     f"({regime_adjustment_reason})"
                 ),
+            terminal=False,  # AND-ed leg; does not short-circuit
             )
         else:
             # Regime detection disabled or no analysis supplied. Not a pass —
@@ -400,6 +410,7 @@ class CoreAggregator:
             observed=float(category_count),
             threshold=float(self.min_category_consensus),
             detail=str(category_reason),
+        terminal=False,  # AND-ed leg; does not short-circuit
         )
         funnel.gate(
             "passed_consensus_count",
@@ -409,6 +420,7 @@ class CoreAggregator:
             observed=float(consensus_count),
             threshold=float(self.min_consensus),
             detail=f"action={action.value} buy={buy_count} sell={sell_count}",
+        terminal=False,  # AND-ed leg; does not short-circuit
         )
         funnel.observe("aggregator_confidence", float(confidence))
         funnel.gate(
@@ -418,6 +430,7 @@ class CoreAggregator:
             symbol=symbol,
             observed=float(confidence),
             threshold=float(self.min_confidence),
+        terminal=False,  # AND-ed leg; does not short-circuit
         )
 
         meets_requirements = (

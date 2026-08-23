@@ -347,8 +347,11 @@ class TestSignalAggregator:
         result = signal_aggregator.aggregate_signals(indicators, timestamp, atr_data)
 
         # Verify CoreAggregator was called
+        # symbol added 2026-08-23: the funnel filed every aggregation-stage
+        # rejection under the literal "UNKNOWN" without it, killing per-symbol
+        # attribution for 7 of the 22 stages.
         mock_core_aggregator.aggregate_signals.assert_called_once_with(
-            indicators, timestamp, atr_data
+            indicators, timestamp, atr_data, symbol=None
         )
 
         # Verify result is a TradingSignal

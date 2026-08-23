@@ -907,6 +907,11 @@ class AutoTrader:
 
         while self.is_running:
             try:
+                # One tick of the autonomous loop. Without this the funnel's
+                # `cycles` field stayed 0 forever (start_cycle had zero call
+                # sites), so no consumer could normalise any funnel count to a
+                # per-cycle rate.
+                get_signal_funnel().start_cycle()
                 # ================================================================
                 # STEP 0a: FILE-BASED EMERGENCY STOP (operator kill switch)
                 # ================================================================

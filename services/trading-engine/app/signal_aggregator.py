@@ -902,6 +902,7 @@ class SignalAggregator:
         indicators: Dict[str, IndicatorSignal],
         timestamp: int,
         atr_data: Optional[Dict] = None,
+        symbol: Optional[str] = None,
     ) -> TradingSignal:
         """
         Aggregate individual indicator signals into a final trading signal
@@ -922,7 +923,9 @@ class SignalAggregator:
         5. OUTPUT: Final TradingSignal
         """
         # Delegate to modular CoreAggregator
-        return self.core_aggregator.aggregate_signals(indicators, timestamp, atr_data)
+        return self.core_aggregator.aggregate_signals(
+            indicators, timestamp, atr_data, symbol=symbol
+        )
 
     async def aggregate_signals_enhanced(
         self,
@@ -1011,7 +1014,8 @@ class SignalAggregator:
 
         # Aggregate signals with ATR data + regime analysis
         signal = self.core_aggregator.aggregate_signals(
-            indicators, timestamp, atr_data, regime_analysis=regime_analysis
+            indicators, timestamp, atr_data, regime_analysis=regime_analysis,
+            symbol=symbol,
         )
         signal.symbol = symbol
 
@@ -1231,7 +1235,9 @@ class SignalAggregator:
             # cross-plan fallback). The actual log literal is emitted by
             # log_ml_disabled() in the helper module.
             log_ml_disabled(detail="fallback_to_phase1")
-            signal = self.aggregate_signals(indicators, timestamp, atr_data)
+            signal = self.aggregate_signals(
+                indicators, timestamp, atr_data, symbol=symbol
+            )
 
         signal.symbol = symbol
         return signal

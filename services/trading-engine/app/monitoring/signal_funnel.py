@@ -250,6 +250,7 @@ class SignalFunnel:
         observed: Optional[float] = None,
         threshold: Optional[float] = None,
         detail: Optional[str] = None,
+        terminal: bool = True,
     ) -> None:
         """Record a rejection. `reason` is REQUIRED — there is no anonymous
         rejection. `observed`/`threshold` are what the mission calls "the
@@ -269,9 +270,20 @@ class SignalFunnel:
             st.reasons.setdefault(reason, _ReasonStat()).add(
                 observed, threshold, detail
             )
-            self._terminal_stage[stage] += 1
-            if symbol:
-                self._terminal_by_symbol.setdefault(symbol, Counter())[stage] += 1
+            # `terminal` distinguishes "this rejection ended the candidate's
+            # journey" from "this leg failed but the pipeline kept evaluating".
+            #
+            # 2026-08-23: this counter incremented on EVERY rejection, so
+            # terminal_stage[X] was identically stages[X].rejected and the total
+            # ran ~4.8x the population -- nothing recorded where a candidate
+            # actually died, which is the one question the field exists to
+            # answer. The aggregation legs (aggregator_core) are AND-ed together
+            # with no short-circuit, so they pass terminal=False; gates that
+            # return early keep the default.
+            if terminal:
+                self._terminal_stage[stage] += 1
+                if symbol:
+                    self._terminal_by_symbol.setdefault(symbol, Counter())[stage] += 1
             self._last_event_at = datetime.now(timezone.utc)
 
     def note(
@@ -310,6 +322,7 @@ class SignalFunnel:
         observed: Optional[float] = None,
         threshold: Optional[float] = None,
         detail: Optional[str] = None,
+        terminal: bool = True,
     ) -> bool:
         """enter() + passed()/reject() in one call. Returns `ok` unchanged so
         it can wrap an existing predicate without restructuring control flow."""
@@ -324,6 +337,7 @@ class SignalFunnel:
                 observed=observed,
                 threshold=threshold,
                 detail=detail,
+                terminal=terminal,
             )
         return ok
 
