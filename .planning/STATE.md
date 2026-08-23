@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
 status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). Stack healthy, trading resumed on clean-data epoch 2026-08-12T13:47:20Z; 2026-08-12..16 Docker outage repaired (evidence/resume-2026-08-16.md).
-stopped_at: 2026-08-16 resume session complete — outage repaired, kline holes backfilled, quick task 260816-l18 shipped (pagination break, InstrumentsCache SOL miss, MLGATE marker path). Trader running.
-last_updated: "2026-08-16"
-last_activity: 2026-08-16 -- resume after 4-day Docker Desktop outage; verification sweep + 3 fixes deployed; STATE reconciled (260730-vwn shipped as d5d31c6/1c21eac)
+stopped_at: 2026-08-23 quick task 260823-3j3 complete — 5 correctness commits, no threshold changed, deployed and verified end-to-end (order log line + DB row + open position). Trader running and taking positions again.
+last_updated: "2026-08-23"
+last_activity: 2026-08-23 -- quick task 260823-3j3: ensemble confidence unit mismatch repaired; trading resumed (first entry since 2026-08-18, SOLUSDT LONG verified in DB). Funnel diagnosis at .planning/evidence/hold-funnel-2026-08-22.md
 progress:
   total_phases: 9
   completed_phases: 3
@@ -183,6 +183,7 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 | 260816-qjn | RES-02 — market-data boot DDL: integer-now funcs, orderbook composite-PK hypertable, retention rewrite (klines deliberately none) | 2026-08-16 | `6c0273d` | [260816-qjn-fix-res-02-market-data-boot-ddl-integer-](./quick/260816-qjn-fix-res-02-market-data-boot-ddl-integer-/) |
 | 260816-qjo | RES-03/04/05 — portfolio display columns maintained + close-persist race chained; risk cols seeded from Settings (ADR-010/028); smart-router threshold settings-wired | 2026-08-16 | `277b4b9`, `217a115`, `aefca0a` | [260816-qjo-fix-res-03-04-05-portfolios-display-colu](./quick/260816-qjo-fix-res-03-04-05-portfolios-display-colu/) |
 | 260816-qjz | RES-07 — bybit-connector instruments-info cursor pagination (821 instruments, was 500) | 2026-08-16 | `c774638` | [260816-qjz-fix-res-07-bybit-connector-instruments-i](./quick/260816-qjz-fix-res-07-bybit-connector-instruments-i/) |
+| 260823-3j3 | Ensemble confidence unit mismatch — vote-share score measured against the conviction floor `min_signal_confidence`; normalise over firing legs. Plus MACD re-bucketed to TREND, MTF confidence derived from the action it describes, dead volume `signal_type` threshold wired, funnel terminal/symbol/cycles attribution repaired. **First trade since 2026-08-18.** | 2026-08-23 | `b4cb894`, `94727f3`, `744d3e7`, `58332fb`, `42e2250` | [260823-3j3-fix-ensemble-confidence-units](./quick/260823-3j3-fix-ensemble-confidence-units/) |
 
 ## Open Operator Actions (carry into v1.3)
 
