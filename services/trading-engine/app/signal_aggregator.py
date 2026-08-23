@@ -26,6 +26,70 @@ from app.services.indicator_registry import get_indicator_registry
 logger = logging.getLogger(__name__)
 
 
+def consolidate_mtf_confidence(mtf_analysis, primary_confidence: float):
+    """Pick the action and the confidence that actually describe each other.
+
+    2026-08-23. This used to be two unrelated quantities glued onto one object:
+    ``action`` came from ``mtf_analysis.consensus_action`` -- a weighted blend of
+    all three timeframes' raw PRE-GATE scores (multi_timeframe.py:189-211, which
+    never reads the gated action) -- while ``confidence`` was the PRIMARY (60m)
+    timeframe's number, untouched by the other two.
+
+    That mattered because aggregator_core forces ``action = HOLD`` when the
+    requirements gate fails but leaves ``confidence`` at the directional value
+    that just failed. A rejected signal could therefore re-enter the pipeline as
+    a trade candidate carrying its own rejected confidence, with the direction
+    supplied by a consensus that had never consulted it.
+
+    Measured over 8h of live logs, of 231 directional MTF consensuses:
+      152 (65.8%) had ZERO timeframe whose gated action matched the consensus
+       43         had exactly one
+       36         had two -- and those 36 are exactly the ones that emitted
+
+    So requiring at least one agreeing timeframe drops 152 laundered artifacts
+    at zero cost to signals that actually trade.
+
+    Returns ``(action, confidence)``:
+    - directional consensus with no agreeing gated action -> HOLD
+    - directional consensus with agreeing timeframes      -> weight-averaged
+      confidence over those timeframes only (HOLD legs abstain)
+    - HOLD consensus                                      -> primary confidence
+
+    The result is passed through ``validate_confidence``: TradingSignal declares
+    ``confidence`` with ``le=1.0``, but assignment bypasses pydantic validation
+    because the model does not set ``validate_assignment``, so a modifier above
+    1.0 could otherwise push it out of range.
+
+    See .planning/evidence/hold-funnel-2026-08-22.md
+    """
+    from app.aggregation.confidence_guard import validate_confidence
+
+    action = mtf_analysis.consensus_action
+    signals = (mtf_analysis.timeframe_signals or {}).values()
+    agreeing = [tf for tf in signals if tf.action == action]
+
+    if action != SignalAction.HOLD and not agreeing:
+        logger.info(
+            "   MTF consensus %s unsupported by any timeframe's gated action "
+            "-> HOLD (consensus is computed from pre-gate scores)",
+            action.value,
+        )
+        action = SignalAction.HOLD
+        agreeing = []
+
+    base = primary_confidence
+    if action != SignalAction.HOLD and agreeing:
+        total_weight = sum(tf.weight for tf in agreeing)
+        if total_weight > 0:
+            base = sum(tf.confidence * tf.weight for tf in agreeing) / total_weight
+
+    confidence = validate_confidence(
+        base * mtf_analysis.confidence_modifier,
+        source="signal_aggregator.multi_timeframe",
+    )
+    return action, confidence
+
+
 class SignalAggregator:
     """
     Fetches technical indicators and aggregates them into a trading signal
@@ -1025,7 +1089,9 @@ class SignalAggregator:
 
         # Apply confidence modifier from multi-timeframe analysis
         original_confidence = primary_signal.confidence
-        adjusted_confidence = original_confidence * mtf_analysis.confidence_modifier
+        consolidated_action, adjusted_confidence = consolidate_mtf_confidence(
+            mtf_analysis, original_confidence
+        )
 
         logger.info("   Multi-timeframe adjustment:")
         logger.info(f"      Alignment: {mtf_analysis.alignment_strength.value}")
@@ -1054,8 +1120,13 @@ class SignalAggregator:
         # voting set cancels — trend voters pinned bullish, oscillators pinned
         # bearish, each individually correct. Do not "fix" that by lowering
         # thresholds; Phase-3 tested that and returned NO CHANGE.
+        # 2026-08-23: confidence and action now come from the same place --
+        # consolidate_mtf_confidence() weight-averages over the timeframes whose
+        # GATED action matches the consensus, and demotes to HOLD when none does.
+        # Previously confidence was the 60m primary's number regardless of which
+        # action the consensus produced. See the helper's docstring.
         primary_signal.confidence = adjusted_confidence
-        primary_signal.action = mtf_analysis.consensus_action
+        primary_signal.action = consolidated_action
         primary_signal.metadata["multi_timeframe"] = {
             "enabled": True,
             "timeframes": timeframes,

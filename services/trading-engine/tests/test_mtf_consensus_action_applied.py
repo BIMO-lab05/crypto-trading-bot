@@ -63,10 +63,20 @@ class _StubAnalysis:
 
 
 class _StubTFSignal:
-    def __init__(self, action, confidence, score):
+    """Test double for multi_timeframe.TimeframeSignal.
+
+    ``weight`` added 2026-08-23: the real dataclass has carried it since the
+    module was written, and consolidate_mtf_confidence() now weight-averages
+    confidence over the agreeing timeframes, so a double without it no longer
+    stands in for the real thing. Values are the shipped weights
+    (15m=0.20, 60m=0.50, 240m=0.30).
+    """
+
+    def __init__(self, action, confidence, score, weight=0.0):
         self.action = action
         self.confidence = confidence
         self.score = score
+        self.weight = weight
 
 
 @pytest.fixture
@@ -92,8 +102,12 @@ def aggregator(monkeypatch):
 
 async def _run(agg, consensus: SignalAction, per_tf, monkeypatch):
     """Invoke the MTF path with the analyzer forced to a known consensus."""
+    shipped_weights = {"15": 0.20, "60": 0.50, "240": 0.30}
     tf_signals = {
-        k: _StubTFSignal(v.action, v.confidence, v.aggregated_score) for k, v in per_tf.items()
+        k: _StubTFSignal(
+            v.action, v.confidence, v.aggregated_score, shipped_weights.get(k, 0.0)
+        )
+        for k, v in per_tf.items()
     }
     analysis = _StubAnalysis(consensus, tf_signals)
 
