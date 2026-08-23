@@ -46,14 +46,41 @@ correctness repair.
   `min_signal_confidence` — all SOLUSDT, one recurring state. ~1 position, not a
   floodgate. Verified: exactly 1 trade after deploy.
 - **MACD re-bucket:** flips 712 of 1,924 diversity passes (37.0%) to fail —
-  makes the gate **stricter**. Cost: **zero**. All 247 signals that passed every
-  aggregator gate also had SQZMOM (VOLATILITY) agreeing, so they still span 2+
-  categories.
+  makes the gate **stricter**. On the pre-fix pipeline the cost was zero: all
+  247 signals that passed every aggregator gate also had SQZMOM (VOLATILITY)
+  agreeing, so they still spanned 2+ categories. **That figure describes the
+  old pipeline** — it was measured before items 2 and 4 changed which
+  confidence is forwarded and demoted 152 laundered consensuses to HOLD, so it
+  is not a post-deploy number. See the post-deploy section below for what was
+  actually observed.
 - **MTF consolidation:** of 231 directional consensuses, 152 (65.8%) had zero
   timeframe whose *gated* action matched; 43 had one; 36 had two — and those 36
   are exactly the ones that emitted. Drops 152 laundered artifacts at zero cost.
 - **Volume `signal_type`:** behaviour-identical for both callers; removes a dead
   variable and one of two expressions that had to agree.
+
+## Post-deploy measurement (all five live, 11 cycles, 187 aggregations)
+
+Read from the repaired funnel, so these are the real numbers for the current
+pipeline rather than a counterfactual on the old one:
+
+| stage | evaluated | passed | rejected |
+|---|---|---|---|
+| `passed_indicator_agreement` | 187 | 121 | 66 |
+| `passed_category_diversity` | 187 | 132 | **55 (29.4%)** |
+| `passed_confidence_floor` | 187 | 77 | **110 (58.8%)** |
+| `ensemble_signal_emitted` | 55 | **11** | 44 |
+| `passed_position_dedupe` | 11 | 0 | 11 |
+
+**The ensemble now emits on 11 of 55 evaluations (20%). Before the fix it was
+0 of 1,195.** The stricter MACD map is live for all of these, and diversity is
+not what blocks emission — the confidence floor still rejects roughly twice as
+often. All 11 emissions were SOLUSDT and were correctly refused by position
+dedupe because the position opened at 01:42:58 is still open, which is the
+guard working, not a failure.
+
+`terminal_stage` totals 55 against 104+ all-stage rejections — a strict subset,
+which is the point of item 6.
 
 ## Verification (CLAUDE.md §7)
 
