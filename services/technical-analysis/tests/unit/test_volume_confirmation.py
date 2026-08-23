@@ -434,3 +434,36 @@ def test_volume_trend_continuation():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestSignalTypeSwitchIsLive:
+    """The breakout/continuation switch must actually drive confirmation.
+
+    Until 2026-08-23 the `threshold` local was computed from signal_type and
+    never read; the WEAK branch tested `signal_type == "continuation"` directly.
+    Two expressions that had to agree, with nothing enforcing that they did.
+    These pin the behaviour so the switch cannot go dead again.
+    """
+
+    def _weak_band_volumes(self):
+        """20 bars whose last value sits in the WEAK band (1.0x-1.2x average)."""
+        base = [100.0] * 19
+        # mean of 19*100 + x over 20 bars; pick x so ratio lands ~1.1
+        return base + [110.0]
+
+    def test_weak_band_is_unconfirmed_for_breakout(self):
+        vc = VolumeConfirmation()
+        out = vc.calculate(self._weak_band_volumes(), signal_type="breakout")
+        assert out["strength"] == "WEAK", out["strength"]
+        assert out["confirmed"] is False, (
+            "a breakout demands volume expansion; 1.0-1.2x must not confirm"
+        )
+
+    def test_weak_band_is_confirmed_for_continuation(self):
+        vc = VolumeConfirmation()
+        out = vc.calculate(self._weak_band_volumes(), signal_type="continuation")
+        assert out["strength"] == "WEAK", out["strength"]
+        assert out["confirmed"] is True, (
+            "a continuation only needs volume at or above average; "
+            "if this fails the signal_type switch has gone dead again"
+        )

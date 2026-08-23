@@ -69,7 +69,23 @@ class VolumeConfirmation:
             # Volume ratio
             volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
 
-            # Determine threshold based on signal type
+            # Confirmation threshold depends on what the caller is asking about:
+            # a breakout wants volume expansion (>= breakout_threshold), a
+            # continuation only wants volume at or above its own average.
+            #
+            # 2026-08-23: this local was computed and never read. The WEAK branch
+            # below tested `signal_type == "continuation"` directly, so the
+            # breakout/continuation switch existed in name only. Wiring it in is
+            # behaviour-identical for both callers -- inside the WEAK branch
+            # `volume_ratio >= 1.0` holds by construction, and for breakout the
+            # band 1.0-1.2 stays unconfirmed -- but it removes the dead variable
+            # and makes the rule one expression instead of two that must agree.
+            #
+            # NOTE: the trading engine only ever requests signal_type="breakout"
+            # (app/signal_aggregator.py builds the URL with &signal_type=breakout),
+            # so the WEAK band is still unconfirmable in the live path. Making it
+            # reachable there means changing what the engine asks for, which is a
+            # behaviour change and is deliberately NOT made here.
             threshold = self.breakout_threshold if signal_type == "breakout" else 1.0
 
             # Classify volume strength
@@ -84,7 +100,11 @@ class VolumeConfirmation:
             elif volume_ratio >= 1.0:
                 strength = "WEAK"
                 confidence = 0.4
-                confirmed = (signal_type == "continuation")
+                # bool() is load-bearing: volume_ratio is a numpy float, so the
+                # comparison yields numpy.bool_, which fails `is False` and does
+                # not JSON-serialise. The branch it replaced returned a Python
+                # bool, so dropping this would be a silent type regression.
+                confirmed = bool(volume_ratio >= threshold)
             else:
                 strength = "INSUFFICIENT"
                 confidence = 0.1
