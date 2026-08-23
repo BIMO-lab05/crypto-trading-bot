@@ -101,6 +101,22 @@ signal_confidence 0.3060 | executed_at 2026-08-23 01:42:58.286475
 `$9.64` notional clears the ~$5 Bybit minimum. Fee `$0.0053` = 0.055%, one side
 of the ~0.11% round trip.
 
+## Test baseline
+
+Full trading-engine suite, compared against `931eb81` in an isolated worktree:
+
+| | failed | passed | skipped |
+|---|---|---|---|
+| baseline `931eb81` | 2 | 1,988 | 795 |
+| after all five fixes | 2 | 2,014 | 795 |
+
+Identical failure set both runs — `test_pairs_trading::test_complete_trading_cycle`
+and `test_signal_cache::test_cache_entries_isolated`. Neither is caused by this
+work; both are pre-existing, and `test_signal_cache` passes 33/33 in isolation
+and 40/40 alongside the new funnel tests, so it is cross-test pollution rather
+than a singleton interaction. The +26 is exactly the new tests added here
+(7 ensemble + 5 categories + 7 MTF + 7 funnel).
+
 ## What this does NOT establish
 
 **No edge claim.** One paper trade is not evidence of profitability, and no
