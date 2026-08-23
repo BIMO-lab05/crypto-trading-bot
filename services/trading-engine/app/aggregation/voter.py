@@ -14,8 +14,9 @@ top open-source bots (Freqtrade, Hummingbot, Jesse), implemented category-enforc
 consensus to prevent using redundant indicators for confirmation.
 
 Indicator Categories:
-- MOMENTUM: RSI, MACD, STOCHASTIC, RSI_DIVERGENCE (measure same thing)
-- TREND: SMA, EMA, ICHIMOKU (measure trend direction)
+- MOMENTUM: RSI, STOCHASTIC, RSI_DIVERGENCE (oscillators, mean-reverting)
+- TREND: SMA, EMA, ICHIMOKU, ADX, MACD (measure trend direction; MACD moved
+  here 2026-08-23 -- it is a moving-average crossover, not an oscillator)
 - VOLATILITY: BOLLINGER_BANDS, SQZMOM_ENHANCED (measure volatility)
 - VOLUME: Already separate (VOLUME_CONFIRMATION is validator)
 
@@ -34,9 +35,25 @@ logger = logging.getLogger(__name__)
 # Indicators in same category measure similar things - avoid counting multiple
 INDICATOR_CATEGORIES = {
     # Momentum oscillators - all measure momentum/overbought/oversold
-    "MOMENTUM": {"RSI", "MACD", "STOCHASTIC", "RSI_DIVERGENCE"},
-    # Trend indicators - measure trend direction
-    "TREND": {"SMA", "EMA", "ICHIMOKU", "ADX"},
+    "MOMENTUM": {"RSI", "STOCHASTIC", "RSI_DIVERGENCE"},
+    # Trend indicators - measure trend direction.
+    #
+    # MACD moved here from MOMENTUM on 2026-08-23. It is a moving-average
+    # crossover (EMA12 - EMA26 against its own signal line), i.e. a slower
+    # trend-follower, not an overbought/oversold oscillator. Bucketing it as
+    # MOMENTUM let the diversity gate report "trend + momentum confirmation"
+    # when it had trend + trend: measured over 8h of live logs, MACD was the
+    # sole non-TREND agreeing voter on 712 of 1,924 diversity passes (37.0%).
+    # On 240m it carried the entire MOMENTUM opposition (1,068/1,068) while the
+    # genuine mean-reverters were mostly HOLD, so the 240m failures were
+    # fast-trend vs slow-trend disagreement misread as trend vs mean-reversion.
+    #
+    # This makes the gate STRICTER. Measured cost: zero. All 247 signals that
+    # passed every aggregator gate in the same window also had SQZMOM_ENHANCED
+    # (VOLATILITY) agreeing, so they still span 2+ categories. The 712 that
+    # flip had already failed the confidence floor.
+    # See .planning/evidence/hold-funnel-2026-08-22.md
+    "TREND": {"SMA", "EMA", "ICHIMOKU", "ADX", "MACD"},
     # Volatility/Breakout indicators
     "VOLATILITY": {"BOLLINGER_BANDS", "SQZMOM_ENHANCED"},
 }
