@@ -355,16 +355,53 @@ class MultiStrategyEnsemble:
         leg_contributions: Dict[str, float] = {}
         leg_actions: Dict[str, str] = {}
 
+        # Denominator = the weight of the legs that actually took a side.
+        #
+        # 2026-08-23: this used to be implicit. Every contribution was scaled by
+        # the leg's share of ALL THREE legs' weight, so a lone firing leg could
+        # reach at most 1/3 however strong its conviction. That value is then
+        # compared by auto_trader._ensemble_passes_signal_gates against
+        # min_signal_confidence - a CONVICTION floor, the same constant
+        # RiskManager.validate_signal applies to an aggregator confidence on the
+        # REST path. A vote-share measured against a conviction bar: live
+        # SOLUSDT 2026-08-23 01:00-01:23 carried post-MTF conviction 0.36,
+        # reported it as conf=11.90% (0.36 / 3), and was rejected against the
+        # 0.30 floor thirty-six times.
+        #
+        # It also contradicted MIN_AGREEING_LEGS = 1. That knob says one leg
+        # suffices; the all-legs denominator made one leg arithmetically
+        # incapable of clearing 0.30 (it would have needed conviction >= 0.90,
+        # against an aggregator scale observed to top out near 0.62).
+        #
+        # Normalising over the legs that took a directional side keeps both
+        # sides of that comparison in conviction units. Legs returning HOLD
+        # abstain - they add nothing to the numerator and must not enter the
+        # denominator either, or the same dilution returns in miniature.
+        #
+        # No threshold value changed. Evidence and measured counterfactuals:
+        # .planning/evidence/hold-funnel-2026-08-22.md
+        directional_weight = 0.0
+
         for leg_id, (action, conf, _sl, _tp, _reason) in leg_signals.items():
             sign = (
                 1.0
                 if action == SignalAction.BUY
                 else (-1.0 if action == SignalAction.SELL else 0.0)
             )
-            contribution = sign * conf * weights.get(leg_id, 0.0)
+            leg_weight = weights.get(leg_id, 0.0)
+            contribution = sign * conf * leg_weight
             weighted_score += contribution
             leg_contributions[leg_id] = contribution
             leg_actions[leg_id] = action.value
+            if sign != 0.0:
+                directional_weight += leg_weight
+
+        if directional_weight > 0.0:
+            weighted_score /= directional_weight
+            leg_contributions = {
+                leg: value / directional_weight
+                for leg, value in leg_contributions.items()
+            }
 
         agreeing_legs = sum(
             1
