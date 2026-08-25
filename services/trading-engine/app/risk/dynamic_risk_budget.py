@@ -34,7 +34,6 @@ Date: 2025-12-12
 """
 
 import logging
-import os
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, List, Tuple, Any
@@ -93,6 +92,22 @@ RISK_LADDER = {
 # Low liquidity hours (UTC) - typically Asian session end / European pre-market
 LOW_LIQUIDITY_HOURS = [(4, 7), (20, 22)]  # 4-7 UTC and 20-22 UTC
 
+#: Mirrors config.py `paper_initial_balance`. Used only when `get_settings()`
+#: cannot be constructed (host-run session without the container env). The old
+#: RISK_BUDGET_INITIAL env channel was removed with ADR-029 — it was wired in
+#: no compose file, so its string default silently governed in-container.
+_FALLBACK_BASE_EQUITY_USD = 10000.0
+
+
+def _default_base_equity() -> float:
+    """Declared account size, resolved lazily from Settings — never at import."""
+    try:
+        from app.config import get_settings
+
+        return float(get_settings().paper_initial_balance)
+    except Exception:
+        return _FALLBACK_BASE_EQUITY_USD
+
 
 # =============================================================================
 # PYDANTIC-STYLE MODELS (using dataclasses for compatibility)
@@ -122,9 +137,7 @@ class RiskBudgetConfig:
         max_streak_adjustment: Maximum adjustment from streaks
     """
 
-    base_equity: float = field(
-        default_factory=lambda: float(os.getenv("RISK_BUDGET_INITIAL", "100.0"))
-    )
+    base_equity: float = field(default_factory=_default_base_equity)
     base_risk_pct: float = 2.0
     max_risk_pct: float = 2.5
     min_risk_pct: float = 0.5
@@ -145,9 +158,7 @@ class RiskBudgetConfig:
         if self.base_equity <= 0:
             raise ValueError(f"base_equity must be positive, got {self.base_equity}")
         if not (0 < self.base_risk_pct <= 100):
-            raise ValueError(
-                f"base_risk_pct must be between 0 and 100, got {self.base_risk_pct}"
-            )
+            raise ValueError(f"base_risk_pct must be between 0 and 100, got {self.base_risk_pct}")
         if self.min_risk_pct >= self.max_risk_pct:
             raise ValueError("min_risk_pct must be less than max_risk_pct")
         if not (0 < self.emergency_reduction_factor <= 1):
@@ -327,12 +338,13 @@ class DynamicRiskBudget:
     8. Strategy Allocation: Distributes budget across strategies
 
     Usage:
-        config = RiskBudgetConfig(base_equity=100000, base_risk_pct=2.0)
+        config = RiskBudgetConfig(base_risk_pct=2.0)
+        # base_equity resolves from Settings (paper_initial_balance)
         budget_manager = DynamicRiskBudget(config)
 
         # Calculate risk budget
         result = budget_manager.calculate_risk_budget(
-            equity=100000,
+            equity=10000,
             volatility=60,
             drawdown=0.05
         )
@@ -390,9 +402,7 @@ class DynamicRiskBudget:
         # Strategy allocations
         self._strategy_allocations: Dict[str, float] = {}  # strategy -> allocation_pct
         self._strategy_usage: Dict[str, float] = {}  # strategy -> current_usage_usd
-        self._strategy_performance: Dict[
-            str, Dict[str, float]
-        ] = {}  # strategy -> metrics
+        self._strategy_performance: Dict[str, Dict[str, float]] = {}  # strategy -> metrics
 
         # Asset tracking
         self._asset_usage: Dict[str, float] = {}  # symbol -> usage_usd
@@ -502,9 +512,7 @@ class DynamicRiskBudget:
             dd_mult = self._calculate_drawdown_multiplier()
             streak_mult = self._calculate_streak_multiplier()
             corr_mult = self._calculate_correlation_multiplier()
-            liq_mult = (
-                self._calculate_liquidity_multiplier() if check_liquidity else 1.0
-            )
+            liq_mult = self._calculate_liquidity_multiplier() if check_liquidity else 1.0
 
             # Combined multiplier with bounds
             combined_mult = vol_mult * dd_mult * streak_mult * corr_mult * liq_mult
@@ -751,14 +759,11 @@ class DynamicRiskBudget:
 
         if liq_mult < 1.0:
             recommendations.append(
-                "Currently in low-liquidity hours. "
-                "Expect wider spreads and potential slippage."
+                "Currently in low-liquidity hours. Expect wider spreads and potential slippage."
             )
 
         if not recommendations:
-            recommendations.append(
-                "Market conditions normal. Standard risk budget applies."
-            )
+            recommendations.append("Market conditions normal. Standard risk budget applies.")
 
         return recommendations
 
@@ -820,9 +825,7 @@ class DynamicRiskBudget:
         multiplier = regime_multipliers.get(regime, 1.0)
 
         adjusted_pct = budget.adjusted_budget_pct * multiplier
-        adjusted_pct = max(
-            self.config.min_risk_pct, min(self.config.max_risk_pct, adjusted_pct)
-        )
+        adjusted_pct = max(self.config.min_risk_pct, min(self.config.max_risk_pct, adjusted_pct))
 
         adjusted_usd = self._current_equity * (adjusted_pct / 100)
 
@@ -891,9 +894,7 @@ class DynamicRiskBudget:
                 # Performance multiplier
                 perf_mult = 1.0
                 if performance and strategy_name in performance:
-                    perf_mult = self._calculate_performance_multiplier(
-                        performance[strategy_name]
-                    )
+                    perf_mult = self._calculate_performance_multiplier(performance[strategy_name])
 
                 # Effective budget with performance adjustment
                 effective_usd = allocated_usd * perf_mult
@@ -903,13 +904,9 @@ class DynamicRiskBudget:
                     allocation_pct=allocation_pct,
                     allocated_budget_usd=round(allocated_usd, 2),
                     current_usage_usd=round(current_usage, 2),
-                    available_budget_usd=round(
-                        max(0, allocated_usd - current_usage), 2
-                    ),
+                    available_budget_usd=round(max(0, allocated_usd - current_usage), 2),
                     utilization_pct=round(
-                        (current_usage / allocated_usd * 100)
-                        if allocated_usd > 0
-                        else 0,
+                        (current_usage / allocated_usd * 100) if allocated_usd > 0 else 0,
                         2,
                     ),
                     performance_multiplier=round(perf_mult, 4),
@@ -1057,13 +1054,9 @@ class DynamicRiskBudget:
             self._strategy_usage[strategy_name] = max(
                 0, self._strategy_usage.get(strategy_name, 0.0) - risk_amount
             )
-            self._asset_usage[symbol] = max(
-                0, self._asset_usage.get(symbol, 0.0) - risk_amount
-            )
+            self._asset_usage[symbol] = max(0, self._asset_usage.get(symbol, 0.0) - risk_amount)
 
-            logger.debug(
-                f"Released usage: {strategy_name}/{symbol} -${risk_amount:.2f}"
-            )
+            logger.debug(f"Released usage: {strategy_name}/{symbol} -${risk_amount:.2f}")
 
     def can_place_trade(
         self,
@@ -1155,9 +1148,7 @@ class DynamicRiskBudget:
             )
             self._alerts.append(alert)
 
-            logger.critical(
-                f"EMERGENCY RISK REDUCTION: {trigger_reason.value} - {details}"
-            )
+            logger.critical(f"EMERGENCY RISK REDUCTION: {trigger_reason.value} - {details}")
 
             return {
                 "success": True,
@@ -1242,9 +1233,7 @@ class DynamicRiskBudget:
             elif adjustment_type == "set_level":
                 if value is None:
                     raise ValueError("set_level requires a value")
-                new_risk = max(
-                    self.config.min_risk_pct, min(self.config.max_risk_pct, value)
-                )
+                new_risk = max(self.config.min_risk_pct, min(self.config.max_risk_pct, value))
             elif adjustment_type == "emergency_stop":
                 new_risk = self.config.min_risk_pct
                 self.emergency_risk_reduction(EmergencyTrigger.MANUAL_TRIGGER, reason)
@@ -1305,9 +1294,7 @@ class DynamicRiskBudget:
         with self._lock:
             cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
             history = [
-                entry.to_dict()
-                for entry in self._budget_history
-                if entry.timestamp >= cutoff
+                entry.to_dict() for entry in self._budget_history if entry.timestamp >= cutoff
             ]
             return history
 

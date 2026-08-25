@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Dict, List, Optional, Any, Set
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # ENUMERATIONS
 # =============================================================================
+
 
 class StrategyStatus(str, Enum):
     """
@@ -41,6 +42,7 @@ class StrategyStatus(str, Enum):
     ERROR: Strategy encountered an error
     COOLDOWN: Temporarily paused after losses
     """
+
     ACTIVE = "active"
     PAUSED = "paused"
     DISABLED = "disabled"
@@ -61,6 +63,7 @@ class StrategyType(str, Enum):
     BREAKOUT: Trades on breakouts from ranges
     SCALPING: High-frequency small gains
     """
+
     TREND_FOLLOWING = "trend_following"
     MEAN_REVERSION = "mean_reversion"
     MOMENTUM = "momentum"
@@ -79,6 +82,7 @@ class RiskProfile(str, Enum):
     AGGRESSIVE: Higher risk, higher potential returns (max 3% per trade)
     VERY_AGGRESSIVE: Very high risk (max 5% per trade)
     """
+
     CONSERVATIVE = "conservative"
     MODERATE = "moderate"
     AGGRESSIVE = "aggressive"
@@ -89,6 +93,7 @@ class Timeframe(str, Enum):
     """
     Trading timeframes supported
     """
+
     M1 = "1m"
     M5 = "5m"
     M15 = "15m"
@@ -103,6 +108,7 @@ class SignalDirection(str, Enum):
     """
     Direction of a trading signal
     """
+
     LONG = "long"
     SHORT = "short"
     FLAT = "flat"  # Close positions, go neutral
@@ -120,6 +126,7 @@ class ConflictResolutionMethod(str, Enum):
     MAJORITY: Use signal with majority agreement
     VETO: Any opposing signal cancels action
     """
+
     WEIGHTED_VOTING = "weighted_voting"
     PRIORITY_BASED = "priority_based"
     STRONGEST_SIGNAL = "strongest_signal"
@@ -140,6 +147,7 @@ class AllocationMethod(str, Enum):
     FIXED: Use fixed predefined allocations
     DYNAMIC: Continuously adjust based on conditions
     """
+
     EQUAL = "equal"
     RISK_PARITY = "risk_parity"
     PERFORMANCE_BASED = "performance_based"
@@ -158,6 +166,7 @@ class RebalanceTrigger(str, Enum):
     VOLATILITY: Rebalance when volatility regime changes
     MANUAL: Manual rebalancing only
     """
+
     THRESHOLD = "threshold"
     PERIODIC = "periodic"
     PERFORMANCE = "performance"
@@ -168,6 +177,7 @@ class RebalanceTrigger(str, Enum):
 # =============================================================================
 # STRATEGY CONFIGURATION
 # =============================================================================
+
 
 @dataclass
 class StrategyMetadata:
@@ -180,6 +190,7 @@ class StrategyMetadata:
     - Allocation decisions
     - Conflict resolution
     """
+
     # Identification
     strategy_id: str
     name: str
@@ -249,6 +260,7 @@ class StrategyConfig:
     - Risk limits
     - Activation settings
     """
+
     # Core identification
     metadata: StrategyMetadata
 
@@ -293,6 +305,7 @@ class StrategyConfig:
 # STRATEGY STATE
 # =============================================================================
 
+
 @dataclass
 class StrategyState:
     """
@@ -304,6 +317,7 @@ class StrategyState:
     - Position information
     - Error states
     """
+
     # Identification
     strategy_id: str
 
@@ -391,6 +405,7 @@ class StrategyState:
 # SIGNAL MODELS
 # =============================================================================
 
+
 @dataclass
 class StrategySignal:
     """
@@ -402,6 +417,7 @@ class StrategySignal:
     - Risk parameters
     - Confidence metrics
     """
+
     # Identification
     signal_id: str
     strategy_id: str
@@ -476,6 +492,7 @@ class AggregatedSignal:
     Result of conflict resolution when multiple strategies
     provide signals for the same symbol.
     """
+
     # Core data
     symbol: str
     timestamp: datetime
@@ -530,11 +547,13 @@ class AggregatedSignal:
 # ALLOCATION MODELS
 # =============================================================================
 
+
 @dataclass
 class StrategyAllocation:
     """
     Capital allocation for a single strategy
     """
+
     strategy_id: str
 
     # Allocation percentages
@@ -566,6 +585,7 @@ class AllocationSnapshot:
     """
     Snapshot of all strategy allocations at a point in time
     """
+
     timestamp: datetime
     total_capital: float
     allocations: Dict[str, StrategyAllocation] = field(default_factory=dict)
@@ -596,11 +616,13 @@ class AllocationSnapshot:
 # PERFORMANCE METRICS
 # =============================================================================
 
+
 @dataclass
 class StrategyPerformanceMetrics:
     """
     Comprehensive performance metrics for a strategy
     """
+
     strategy_id: str
     period_start: datetime
     period_end: datetime
@@ -669,13 +691,29 @@ class StrategyPerformanceMetrics:
 # ORCHESTRATOR CONFIGURATION
 # =============================================================================
 
+#: Mirrors config.py `paper_initial_balance`. Used only when `get_settings()`
+#: cannot be constructed (host-run session without the container env).
+_FALLBACK_TOTAL_CAPITAL_USD = 10000.0
+
+
+def default_total_capital() -> float:
+    """Declared account size, resolved lazily from Settings — never at import."""
+    try:
+        from app.config import get_settings
+
+        return float(get_settings().paper_initial_balance)
+    except Exception:
+        return _FALLBACK_TOTAL_CAPITAL_USD
+
+
 @dataclass
 class OrchestratorConfig:
     """
     Configuration for the Strategy Orchestrator
     """
+
     # Capital management
-    total_capital: float = 100000.0
+    total_capital: float = field(default_factory=default_total_capital)
     max_total_exposure_pct: float = 80.0  # Max 80% deployed
     cash_reserve_pct: float = 10.0  # Always keep 10% cash
 
@@ -725,8 +763,10 @@ class OrchestratorConfig:
 # PYDANTIC MODELS FOR API
 # =============================================================================
 
+
 class RegisterStrategyRequest(BaseModel):
     """Request to register a new strategy"""
+
     strategy_id: str = Field(..., description="Unique strategy identifier")
     name: str = Field(..., description="Strategy display name")
     strategy_type: str = Field("trend_following", description="Strategy type")
@@ -740,12 +780,14 @@ class RegisterStrategyRequest(BaseModel):
 
 class UpdateStrategyStatusRequest(BaseModel):
     """Request to update strategy status"""
+
     status: str = Field(..., description="New status")
     reason: str = Field("", description="Reason for status change")
 
 
 class UpdateAllocationRequest(BaseModel):
     """Request to update strategy allocation"""
+
     target_allocation_pct: float = Field(..., ge=0.0, le=100.0)
     min_allocation_pct: float = Field(0.0, ge=0.0, le=100.0)
     max_allocation_pct: float = Field(100.0, ge=0.0, le=100.0)
@@ -753,6 +795,7 @@ class UpdateAllocationRequest(BaseModel):
 
 class SubmitSignalRequest(BaseModel):
     """Request to submit a strategy signal"""
+
     strategy_id: str
     symbol: str
     direction: str = Field(..., description="long, short, or flat")
@@ -769,6 +812,7 @@ class SubmitSignalRequest(BaseModel):
 
 class OrchestratorStatusResponse(BaseModel):
     """Response with orchestrator status"""
+
     is_active: bool
     total_capital: float
     total_allocated_pct: float
@@ -783,6 +827,7 @@ class OrchestratorStatusResponse(BaseModel):
 
 class StrategyStatusResponse(BaseModel):
     """Response with single strategy status"""
+
     strategy_id: str
     name: str
     status: str
@@ -799,6 +844,7 @@ class StrategyStatusResponse(BaseModel):
 
 class SignalAggregationResponse(BaseModel):
     """Response with aggregated signals"""
+
     symbol: str
     direction: str
     action: str

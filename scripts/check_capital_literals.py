@@ -143,6 +143,31 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
         "_FALLBACK_PAPER_BALANCE_USD",
         "same mirror-fallback pattern as backtester.py",
     ),
+    (
+        "services/trading-engine/app/orchestration/models.py",
+        "_FALLBACK_TOTAL_CAPITAL_USD",
+        "mirror fallback for default_total_capital(); primary path reads Settings",
+    ),
+    (
+        "services/trading-engine/app/risk/dynamic_budget.py",
+        "_FALLBACK_TOTAL_CAPITAL_USD",
+        "same mirror-fallback pattern as orchestration/models.py",
+    ),
+    (
+        "services/trading-engine/app/risk/dynamic_risk_budget.py",
+        "_FALLBACK_BASE_EQUITY_USD",
+        "mirror fallback replacing the removed RISK_BUDGET_INITIAL env channel",
+    ),
+    (
+        "services/trading-engine/app/handlers/risk_budget.py",
+        '"base_equity": 10000.0',
+        "OpenAPI example payload mirroring the declared size; not a config default",
+    ),
+    (
+        "services/trading-engine/app/handlers/risk_budget.py",
+        '"equity": 10000',
+        "same OpenAPI example payloads as above",
+    ),
 )
 
 
@@ -264,6 +289,9 @@ def collect(targets: list[Path]) -> list[tuple[str, int, str]]:
     found = []
     for path in targets:
         rel = path.relative_to(REPO_ROOT).as_posix()
+        if rel == "scripts/check_capital_literals.py":
+            # The guard's own ALLOWLIST quotes offending shapes verbatim.
+            continue
         for lineno, line in scan(path):
             if is_allowlisted(rel, line):
                 continue

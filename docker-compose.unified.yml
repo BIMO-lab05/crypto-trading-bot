@@ -575,7 +575,7 @@ services:
       # land and the service ran on its config.py default alone. Same value and
       # style as trading-engine's PAPER_INITIAL_BALANCE above; app/config.py
       # now REQUIRES this env var and refuses to boot without it.
-      - INITIAL_CAPITAL=100.0
+      - INITIAL_CAPITAL=10000.0
     volumes:
       - ./services/portfolio-manager/logs:/app/logs
     networks:
@@ -663,7 +663,8 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
       # Risk management
-      # 2026-05-06: bumped default 0.02 → 0.10 to align with $100 paper balance × 10%/trade target.
+      # 2026-05-06: bumped default 0.02 → 0.10 (then a $100 min-notional workaround);
+      # retained at the $10,000 balance as deliberate operator choice (ADR-029).
       # service-local .env was being overridden by this compose-level block.
       - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.10}
       - MAX_POSITION_SIZE_PCT=${MAX_POSITION_SIZE_PCT:-10.0}
@@ -681,7 +682,7 @@ services:
       # File path inside the shared safety/ dir (see api-gateway block for context).
       - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/safety/EMERGENCY_STOP}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
-      - PAPER_INITIAL_BALANCE=100.0
+      - PAPER_INITIAL_BALANCE=10000.0
       # Strategy mode.
       #   ensemble — SimpleRSI + multi-indicator + mean-reversion, performance-weighted.
       #              The multi-indicator leg is gated on the MTF consensus action.

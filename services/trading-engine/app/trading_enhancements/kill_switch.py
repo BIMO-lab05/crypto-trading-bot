@@ -45,7 +45,7 @@ class KillSwitchReason(Enum):
 # a different pydantic-settings version than the container pins). Keeping the
 # fallback equal to the stock configuration means a settings failure degrades to
 # the correct threshold rather than silently restoring the inert one.
-_FALLBACK_PAPER_BALANCE_USD = 100.0  # config.py paper_initial_balance
+_FALLBACK_PAPER_BALANCE_USD = 10000.0  # config.py paper_initial_balance (ADR-029)
 _FALLBACK_TOTAL_EXPOSURE_PCT = 80.0  # config.py max_total_exposure_pct
 
 
@@ -53,20 +53,22 @@ def _default_max_position_value() -> float:
     """Per-position runaway tripwire, derived from account equity.
 
     FIX 2026-08-03 (capital audit). This was a flat `100000.0`, and
-    `auto_trader.py` only ever overrode `max_daily_loss_pct`, so on the real
+    `auto_trader.py` only ever overrode `max_daily_loss_pct`, so on the then
     $100 account no position could ever reach the threshold and this arm of the
     kill switch was PERMANENTLY DEAD.
 
-    Derivation — `equity x max_total_exposure_pct`, i.e. $80 on a $100 account:
+    Derivation — `equity x max_total_exposure_pct`, i.e. $8,000 on the $10,000
+    account (ADR-029):
 
-      * NOT `equity x max_position_size_pct` ($10). `position_value` here is a
-        SINGLE position's notional at open (`auto_trader.py:2102`), already
-        clamped to `balance x max_risk_per_trade` = $10 by the per-trade cap
-        gate. A $10 threshold would therefore trip on EVERY normal max-size
+      * NOT `equity x max_position_size_pct` ($1,000). `position_value` here is
+        a SINGLE position's notional at open (`auto_trader.py:2102`), already
+        clamped to `balance x max_risk_per_trade` = $1,000 by the per-trade cap
+        gate. A $1,000 threshold would therefore trip on EVERY normal max-size
         trade and silently halt the bot.
       * The total-exposure ceiling is the right shape: a *single* position may
-        never legitimately consume the account's entire exposure budget, so $80
-        is definitionally a runaway, while sitting 8x above a normal $10 trade.
+        never legitimately consume the account's entire exposure budget, so
+        $8,000 is definitionally a runaway, while sitting 8x above a normal
+        $1,000 trade.
 
     Resolved lazily at dataclass instantiation via `default_factory`, never at
     module import, so importing this module does not pull in settings.
@@ -425,9 +427,7 @@ class KillSwitch:
                 return True
             else:
                 remaining = self.config.confirmation_delay_seconds - elapsed
-                logger.info(
-                    f"Confirm again in {remaining:.1f}s to activate kill switch"
-                )
+                logger.info(f"Confirm again in {remaining:.1f}s to activate kill switch")
                 return False
 
     def confirm_manual_activation(self) -> bool:
@@ -439,9 +439,7 @@ class KillSwitch:
         elapsed = (datetime.now() - self._pending_manual_activation).total_seconds()
         if elapsed >= self.config.confirmation_delay_seconds:
             self._pending_manual_activation = None
-            self._activate(
-                KillSwitchReason.MANUAL_ACTIVATION, {"reason": "Manual confirmation"}
-            )
+            self._activate(KillSwitchReason.MANUAL_ACTIVATION, {"reason": "Manual confirmation"})
             self.state.manual_override = True
             return True
 
@@ -463,8 +461,7 @@ class KillSwitch:
         # Check if conditions still warrant activation
         if not force and self.state.triggered_thresholds:
             logger.warning(
-                f"Cannot deactivate: thresholds still triggered: "
-                f"{self.state.triggered_thresholds}"
+                f"Cannot deactivate: thresholds still triggered: {self.state.triggered_thresholds}"
             )
             return False
 
@@ -486,9 +483,7 @@ class KillSwitch:
         if self.state.activation_time is None:
             return
 
-        elapsed_hours = (
-            datetime.now() - self.state.activation_time
-        ).total_seconds() / 3600
+        elapsed_hours = (datetime.now() - self.state.activation_time).total_seconds() / 3600
         if elapsed_hours >= self.config.auto_reset_hours:
             logger.info(f"KillSwitch auto-reset after {elapsed_hours:.1f} hours")
             self.deactivate(force=True)
@@ -570,9 +565,7 @@ class KillSwitch:
             and self.state.activation_reason == KillSwitchReason.DAILY_LOSS_LIMIT
         ):
             if self.deactivate(force=False):
-                logger.info(
-                    "Released automatic daily-loss halt: new UTC day, baseline reset"
-                )
+                logger.info("Released automatic daily-loss halt: new UTC day, baseline reset")
             else:
                 logger.warning(
                     "Daily window rolled but halt retained: other thresholds "

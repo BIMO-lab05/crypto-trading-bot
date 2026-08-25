@@ -1123,7 +1123,7 @@ async def execute_sqzmom_trade(
     Args:
         symbol: Trading pair (must be in enabled list)
         account_balance: Account balance for position sizing. Defaults to the
-            configured paper-trading balance (PAPER_INITIAL_BALANCE, $100).
+            configured paper-trading balance (PAPER_INITIAL_BALANCE).
         force: Force execution even if auto_trading disabled (for manual approval)
 
     Returns:
@@ -1367,7 +1367,7 @@ async def stat_arb_initialize_endpoint(
 
     Args:
         total_capital: Total capital to manage. Defaults to the configured
-            paper-trading balance (PAPER_INITIAL_BALANCE, $100).
+            paper-trading balance (PAPER_INITIAL_BALANCE).
         pairs_allocation: Percentage for pairs trading (default: 40%)
         funding_allocation: Percentage for funding rate arbitrage (default: 40%)
         triangular_allocation: Percentage for triangular arbitrage (default: 20%)
