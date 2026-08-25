@@ -435,10 +435,10 @@ exports[`Snapshot Tests > RiskMetrics matches snapshot 1`] = `
             </p>
           </div>
           <span
-            class="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-400"
-            style="background-color: rgba(245, 158, 11, 0.2); color: rgb(251, 191, 36);"
+            class="text-[10px] font-semibold px-2 py-0.5 rounded bg-rose-500/20 text-rose-400"
+            style="background-color: rgba(244, 63, 94, 0.2); color: rgb(251, 113, 133);"
           >
-            Moderate Risk
+            Critical Risk
           </span>
         </div>
         <div
@@ -462,17 +462,17 @@ exports[`Snapshot Tests > RiskMetrics matches snapshot 1`] = `
               <path
                 d="M 10 40 A 30 30 0 0 1 70 40"
                 fill="none"
-                stroke="#f59e0b"
+                stroke="#f43f5e"
                 stroke-dasharray="94.24777960769379"
                 stroke-dashoffset="77.7130814309054"
                 stroke-linecap="round"
                 stroke-width="8"
-                style="filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.4)); transition: stroke-dashoffset 0.5s ease-out;"
+                style="filter: drop-shadow(0 0 6px rgba(244, 63, 94, 0.4)); transition: stroke-dashoffset 0.5s ease-out;"
               />
               <circle
                 cx="40"
                 cy="40"
-                fill="#f59e0b"
+                fill="#f43f5e"
                 r="4"
               />
             </svg>
@@ -483,7 +483,7 @@ exports[`Snapshot Tests > RiskMetrics matches snapshot 1`] = `
             <p
               class="text-2xl font-bold text-slate-100"
             >
-              $2.50
+              $250.00
             </p>
           </div>
         </div>
@@ -507,10 +507,10 @@ exports[`Snapshot Tests > RiskMetrics matches snapshot 1`] = `
             </p>
           </div>
           <span
-            class="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/20 text-amber-400"
-            style="background-color: rgba(245, 158, 11, 0.2); color: rgb(251, 191, 36);"
+            class="text-[10px] font-semibold px-2 py-0.5 rounded bg-rose-500/20 text-rose-400"
+            style="background-color: rgba(244, 63, 94, 0.2); color: rgb(251, 113, 133);"
           >
-            Moderate Risk
+            Critical Risk
           </span>
         </div>
         <div
@@ -534,17 +534,17 @@ exports[`Snapshot Tests > RiskMetrics matches snapshot 1`] = `
               <path
                 d="M 10 40 A 30 30 0 0 1 70 40"
                 fill="none"
-                stroke="#f59e0b"
+                stroke="#f43f5e"
                 stroke-dasharray="94.24777960769379"
                 stroke-dashoffset="76.88634652206598"
                 stroke-linecap="round"
                 stroke-width="8"
-                style="filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.4)); transition: stroke-dashoffset 0.5s ease-out;"
+                style="filter: drop-shadow(0 0 6px rgba(244, 63, 94, 0.4)); transition: stroke-dashoffset 0.5s ease-out;"
               />
               <circle
                 cx="40"
                 cy="40"
-                fill="#f59e0b"
+                fill="#f43f5e"
                 r="4"
               />
             </svg>
@@ -555,7 +555,7 @@ exports[`Snapshot Tests > RiskMetrics matches snapshot 1`] = `
             <p
               class="text-2xl font-bold text-slate-100"
             >
-              $3.50
+              $350.00
             </p>
           </div>
         </div>
@@ -1118,7 +1118,7 @@ exports[`Snapshot Tests > StrategyAttribution matches snapshot 1`] = `
         <p
           class="text-lg font-bold text-emerald-400"
         >
-          +$21.00
+          +$2,100.00
         </p>
       </div>
       <div

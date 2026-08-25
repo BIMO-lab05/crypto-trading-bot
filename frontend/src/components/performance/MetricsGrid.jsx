@@ -26,6 +26,29 @@ import {
   formatRatio,
   formatInteger,
 } from '../../utils/formatters'
+import { PAPER_DEFAULT_BALANCE } from '../../utils/balance'
+
+// ============================================================================
+// RISK THRESHOLDS
+// ============================================================================
+
+// Dollar risk thresholds expressed as fractions of the paper account
+// (PAPER_DEFAULT_BALANCE) so they keep their meaning at any account size.
+// VaR(95): good ≤ 1% of the account, warning at 5%, bad at 10%.
+const VAR_THRESHOLDS = {
+  good: 0.01 * PAPER_DEFAULT_BALANCE,
+  warning: 0.05 * PAPER_DEFAULT_BALANCE,
+  bad: 0.1 * PAPER_DEFAULT_BALANCE,
+  inverse: true,
+}
+
+// CVaR (expected tail loss) runs deeper than VaR: 1.5% / 7.5% / 15%.
+const CVAR_THRESHOLDS = {
+  good: 0.015 * PAPER_DEFAULT_BALANCE,
+  warning: 0.075 * PAPER_DEFAULT_BALANCE,
+  bad: 0.15 * PAPER_DEFAULT_BALANCE,
+  inverse: true,
+}
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -469,7 +492,7 @@ function MetricsGrid({
           label="VaR (95%)"
           value={var95}
           format="currency"
-          thresholds={{ good: 100, warning: 500, bad: 1000, inverse: true }}
+          thresholds={VAR_THRESHOLDS}
           tooltip="Maximum expected daily loss at 95% confidence."
           highlight
         />
@@ -477,7 +500,7 @@ function MetricsGrid({
           label="CVaR (95%)"
           value={cvar95}
           format="currency"
-          thresholds={{ good: 150, warning: 750, bad: 1500, inverse: true }}
+          thresholds={CVAR_THRESHOLDS}
           tooltip="Expected loss when VaR is exceeded (tail risk)."
         />
         <MetricRow

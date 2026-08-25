@@ -210,8 +210,9 @@ function EquityCurveChart({
   onPeriodChange,
   height = 300,
   // Baseline for the "Initial" reference line. Callers should pass the
-  // server-sent initial balance; the default matches the $100 paper account
-  // (trading-engine PAPER_INITIAL_BALANCE), never a fabricated figure.
+  // server-sent initial balance; the default matches the paper account
+  // (trading-engine PAPER_INITIAL_BALANCE, $10,000 per ADR-029), never a
+  // fabricated figure.
   initialEquity = PAPER_DEFAULT_BALANCE,
   showBenchmark = false,
   className = '',
@@ -375,8 +376,9 @@ function EquityCurveChart({
               />
 
               {/* Y-Axis */}
-              {/* $100-account scale: "$0.1k" ticks are unreadable — only
-                  abbreviate to $Xk when values actually reach thousands. */}
+              {/* Scale-agnostic ticks: "$0.1k" is unreadable on a small
+                  account, so only abbreviate to $Xk when values actually
+                  reach thousands. Works unchanged at any account size. */}
               <YAxis
                 domain={yDomain}
                 tickFormatter={(val) =>

@@ -526,7 +526,14 @@ function EquityCurvePanel({ data, isLoading }) {
                 tickLine={false}
               />
               <YAxis
-                tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`}
+                tickFormatter={(v) =>
+                  // Match EquityCurveChart: only abbreviate to $Xk once values
+                  // actually reach thousands — "$0.1k" ticks are unreadable on
+                  // a small account, and this works unchanged at any scale.
+                  Math.abs(v) >= 1000
+                    ? `$${(v / 1000).toFixed(1)}k`
+                    : `$${Number(v).toFixed(0)}`
+                }
                 axisLine={false}
                 tickLine={false}
                 width={60}

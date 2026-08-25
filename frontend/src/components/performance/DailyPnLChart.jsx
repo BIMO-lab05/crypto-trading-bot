@@ -35,6 +35,7 @@ import {
 } from 'recharts'
 import { format, parseISO, isValid } from 'date-fns'
 import { formatCurrency, formatPnL } from '../../utils/formatters'
+import { PAPER_DEFAULT_BALANCE } from '../../utils/balance'
 import { colors, gridConfig, axisConfig } from '../../utils/chartConfig'
 import ChartFigure from '../a11y/ChartFigure'
 
@@ -242,7 +243,12 @@ function DailyPnLChart({
 
   // Y-axis domain with padding
   const yDomain = useMemo(() => {
-    if (!data || data.length === 0) return [-100, 100]
+    // Empty state: span ±1% of the paper account so the axis is proportionate
+    // to plausible daily P&L at any account size.
+    if (!data || data.length === 0) {
+      const span = 0.01 * PAPER_DEFAULT_BALANCE
+      return [-span, span]
+    }
 
     const allPnLs = data.flatMap((d) => [
       d.net || d.pnl || 0,

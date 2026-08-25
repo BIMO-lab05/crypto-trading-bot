@@ -42,7 +42,8 @@ export default function PortfolioCard() {
 
   // Get balance data from trading-engine performance (correct values!)
   // `toFiniteNumber`, not `||`: a real balance of 0 must render as 0, and the
-  // fallback must match the backend's $100 paper account rather than $10,000.
+  // fallback must match the backend's paper account (PAPER_INITIAL_BALANCE,
+  // $10,000 per ADR-029) — never a locally invented figure.
   const initialBalance = toFiniteNumber(metrics.initial_balance, PAPER_DEFAULT_BALANCE)
   const cashBalance = toFiniteNumber(metrics.current_balance, initialBalance)
   const totalPnl = parseFloat(metrics.total_pnl) || 0

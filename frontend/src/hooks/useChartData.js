@@ -111,8 +111,8 @@ export function useChartData(options = {}) {
     trades = [],
     equityCurve = [],
     // Equity-curve baseline. Callers should pass the server-sent initial
-    // balance; the default matches the $100 paper account (trading-engine
-    // PAPER_INITIAL_BALANCE), never a fabricated figure.
+    // balance; the default matches the paper account (trading-engine
+    // PAPER_INITIAL_BALANCE, $10,000 per ADR-029), never a fabricated figure.
     initialBalance = PAPER_DEFAULT_BALANCE,
     period = '30d',
   } = options

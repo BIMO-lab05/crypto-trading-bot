@@ -18,32 +18,32 @@ import OverviewCards from '../OverviewCards'
 // MOCK DATA
 // ============================================================================
 
-// Dollar figures are scaled to the real $100 paper account
-// (PAPER_INITIAL_BALANCE) — the old fixtures assumed a $10,000 account.
-// Three open positions totalling $25 respects the 10%-per-trade cap ($10).
+// Dollar figures are scaled to the declared paper account
+// (PAPER_DEFAULT_BALANCE — $10,000 per ADR-029). Three open positions
+// totalling $2,500 respects the 10%-per-trade cap ($1,000 each).
 const mockMetrics = {
-  totalPnL: 2.75,
+  totalPnL: 275,
   totalPnLChange: 0.15,
   winRate: 58.5,
   totalTrades: 125,
   sharpeRatio: 1.85,
   sharpeChange: 0.05,
   activePositions: 3,
-  activePositionsValue: 25,
-  todayPnL: 1.50,
+  activePositionsValue: 2500,
+  todayPnL: 150,
   todayTrades: 5,
-  weekPnL: 2.25,
+  weekPnL: 225,
   weekPnLChange: 0.08,
 }
 
 const mockNegativeMetrics = {
-  totalPnL: -5.25,
+  totalPnL: -525,
   totalPnLChange: -0.1,
   winRate: 42.0,
   totalTrades: 50,
   sharpeRatio: 0.45,
   activePositions: 1,
-  todayPnL: -0.75,
+  todayPnL: -75,
   todayTrades: 3,
 }
 
@@ -74,7 +74,7 @@ describe('OverviewCards Component', () => {
       render(<OverviewCards metrics={mockMetrics} />)
 
       // Check P&L formatting
-      expect(screen.getByText('+$2.75')).toBeInTheDocument()
+      expect(screen.getByText('+$275.00')).toBeInTheDocument()
 
       // Check win rate
       expect(screen.getByText('58.5%')).toBeInTheDocument()
@@ -105,14 +105,14 @@ describe('OverviewCards Component', () => {
     it('shows green color for positive P&L', () => {
       render(<OverviewCards metrics={mockMetrics} />)
 
-      const pnlValue = screen.getByText('+$2.75')
+      const pnlValue = screen.getByText('+$275.00')
       expect(pnlValue).toHaveClass('text-emerald-400')
     })
 
     it('shows red color for negative P&L', () => {
       render(<OverviewCards metrics={mockNegativeMetrics} />)
 
-      const pnlValue = screen.getByText('-$5.25')
+      const pnlValue = screen.getByText('-$525.00')
       expect(pnlValue).toHaveClass('text-rose-400')
     })
 
@@ -191,7 +191,7 @@ describe('OverviewCards Component', () => {
 
     it('shows active positions value when provided', () => {
       render(<OverviewCards metrics={mockMetrics} />)
-      expect(screen.getByText('Total value: $25.00')).toBeInTheDocument()
+      expect(screen.getByText('Total value: $2,500.00')).toBeInTheDocument()
     })
   })
 })

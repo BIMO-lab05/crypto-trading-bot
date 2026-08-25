@@ -34,6 +34,7 @@ import {
   calculateReturnsDistribution,
   calculatePerformanceMetrics,
 } from '../services/analyticsApi'
+import { PAPER_DEFAULT_BALANCE } from '../utils/balance'
 
 // ============================================================================
 // TEST UTILITIES
@@ -67,16 +68,18 @@ function TestWrapper({ children }) {
 
 /**
  * Generate mock trade data for testing.
- * Scaled to the real $100 paper account (PAPER_INITIAL_BALANCE) — the old
- * $10,000 fixtures modeled an account size that never existed here.
+ * Parameterized on PAPER_DEFAULT_BALANCE (the declared paper account —
+ * $10,000 per ADR-029) so the fixtures track the real account size instead
+ * of hardcoding one that can go stale.
  */
 function generateMockTrades(count = 20) {
   const trades = []
-  let balance = 100
+  let balance = PAPER_DEFAULT_BALANCE
 
   for (let i = 0; i < count; i++) {
-    // Random P&L between -$5 and +$8 (slightly positive bias)
-    const pnl = Math.random() * 13 - 5
+    // Random per-trade P&L between −5% and +8% of the account
+    // (slightly positive bias)
+    const pnl = (Math.random() * 0.13 - 0.05) * PAPER_DEFAULT_BALANCE
     balance += pnl
 
     trades.push({
@@ -97,29 +100,35 @@ function generateMockTrades(count = 20) {
 }
 
 /**
- * Mock equity curve data
+ * Mock equity curve data, parameterized on PAPER_DEFAULT_BALANCE.
+ * Cumulative P&L moves are fractions of the account (0–6.5%) so the fixture
+ * stays realistic at any declared account size.
  */
+const BASE = PAPER_DEFAULT_BALANCE
+const pct = (fraction) => BASE * fraction
+
 const mockEquityCurve = [
-  { timestamp: Date.now() - 6 * 86400000, equity: 100, pnl: 0, cumulativePnl: 0 },
-  { timestamp: Date.now() - 5 * 86400000, equity: 102, pnl: 2, cumulativePnl: 2 },
-  { timestamp: Date.now() - 4 * 86400000, equity: 101.5, pnl: -0.5, cumulativePnl: 1.5 },
-  { timestamp: Date.now() - 3 * 86400000, equity: 104, pnl: 2.5, cumulativePnl: 4 },
-  { timestamp: Date.now() - 2 * 86400000, equity: 103.5, pnl: -0.5, cumulativePnl: 3.5 },
-  { timestamp: Date.now() - 1 * 86400000, equity: 105, pnl: 1.5, cumulativePnl: 5 },
-  { timestamp: Date.now(), equity: 106.5, pnl: 1.5, cumulativePnl: 6.5 },
+  { timestamp: Date.now() - 6 * 86400000, equity: BASE, pnl: 0, cumulativePnl: 0 },
+  { timestamp: Date.now() - 5 * 86400000, equity: BASE + pct(0.02), pnl: pct(0.02), cumulativePnl: pct(0.02) },
+  { timestamp: Date.now() - 4 * 86400000, equity: BASE + pct(0.015), pnl: -pct(0.005), cumulativePnl: pct(0.015) },
+  { timestamp: Date.now() - 3 * 86400000, equity: BASE + pct(0.04), pnl: pct(0.025), cumulativePnl: pct(0.04) },
+  { timestamp: Date.now() - 2 * 86400000, equity: BASE + pct(0.035), pnl: -pct(0.005), cumulativePnl: pct(0.035) },
+  { timestamp: Date.now() - 1 * 86400000, equity: BASE + pct(0.05), pnl: pct(0.015), cumulativePnl: pct(0.05) },
+  { timestamp: Date.now(), equity: BASE + pct(0.065), pnl: pct(0.015), cumulativePnl: pct(0.065) },
 ]
 
 /**
- * Mock drawdown data
+ * Mock drawdown data (equity scaled to PAPER_DEFAULT_BALANCE; drawdown
+ * percentages are scale-invariant, so they match the equity ratios above).
  */
 const mockDrawdownData = [
-  { timestamp: Date.now() - 6 * 86400000, drawdownPercent: 0, equity: 100, peak: 100 },
-  { timestamp: Date.now() - 5 * 86400000, drawdownPercent: 0, equity: 102, peak: 102 },
-  { timestamp: Date.now() - 4 * 86400000, drawdownPercent: 0.49, equity: 101.5, peak: 102 },
-  { timestamp: Date.now() - 3 * 86400000, drawdownPercent: 0, equity: 104, peak: 104 },
-  { timestamp: Date.now() - 2 * 86400000, drawdownPercent: 0.48, equity: 103.5, peak: 104 },
-  { timestamp: Date.now() - 1 * 86400000, drawdownPercent: 0, equity: 105, peak: 105 },
-  { timestamp: Date.now(), drawdownPercent: 0, equity: 106.5, peak: 106.5 },
+  { timestamp: Date.now() - 6 * 86400000, drawdownPercent: 0, equity: BASE, peak: BASE },
+  { timestamp: Date.now() - 5 * 86400000, drawdownPercent: 0, equity: pct(1.02), peak: pct(1.02) },
+  { timestamp: Date.now() - 4 * 86400000, drawdownPercent: 0.49, equity: pct(1.015), peak: pct(1.02) },
+  { timestamp: Date.now() - 3 * 86400000, drawdownPercent: 0, equity: pct(1.04), peak: pct(1.04) },
+  { timestamp: Date.now() - 2 * 86400000, drawdownPercent: 0.48, equity: pct(1.035), peak: pct(1.04) },
+  { timestamp: Date.now() - 1 * 86400000, drawdownPercent: 0, equity: pct(1.05), peak: pct(1.05) },
+  { timestamp: Date.now(), drawdownPercent: 0, equity: pct(1.065), peak: pct(1.065) },
 ]
 
 /**
@@ -260,8 +269,14 @@ describe('EquityCurveChart Component', () => {
 
     // Should show the last equity value formatted as currency. The figure
     // legitimately repeats (header, footer High, accessible data table), so
-    // assert presence rather than uniqueness.
-    expect(screen.getAllByText('$106.50').length).toBeGreaterThan(0)
+    // assert presence rather than uniqueness. Computed from the fixture so
+    // the assertion tracks PAPER_DEFAULT_BALANCE.
+    const finalEquity = mockEquityCurve[mockEquityCurve.length - 1].equity
+    const expected = `$${finalEquity.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`
+    expect(screen.getAllByText(expected).length).toBeGreaterThan(0)
   })
 
   it('renders period selector buttons', () => {
@@ -430,17 +445,17 @@ describe('Analytics Utility Functions', () => {
   describe('calculateEquityCurve', () => {
     it('calculates equity curve from trades', () => {
       const trades = generateMockTrades(5)
-      const curve = calculateEquityCurve(trades, 100)
+      const curve = calculateEquityCurve(trades, PAPER_DEFAULT_BALANCE)
 
       expect(curve.length).toBeGreaterThan(0)
-      expect(curve[0].equity).toBe(100)
+      expect(curve[0].equity).toBe(PAPER_DEFAULT_BALANCE)
     })
 
     it('handles empty trades array', () => {
-      const curve = calculateEquityCurve([], 100)
+      const curve = calculateEquityCurve([], PAPER_DEFAULT_BALANCE)
 
       expect(curve.length).toBe(1)
-      expect(curve[0].equity).toBe(100)
+      expect(curve[0].equity).toBe(PAPER_DEFAULT_BALANCE)
     })
   })
 
@@ -515,7 +530,7 @@ describe('Analytics Utility Functions', () => {
         { realized_pnl: -0.2, closed_at: '2026-05-01T03:00:00Z' },
         { realized_pnl: -0.05, closed_at: '2026-05-01T04:00:00Z' },
       ]
-      const metrics = calculatePerformanceMetrics(trades, 100)
+      const metrics = calculatePerformanceMetrics(trades, PAPER_DEFAULT_BALANCE)
 
       expect(metrics.maxDrawdownPercent).toBeGreaterThanOrEqual(0)
       expect(metrics.maxDrawdownPercent).toBeLessThanOrEqual(100)
@@ -524,7 +539,7 @@ describe('Analytics Utility Functions', () => {
 
     it('matches calculateDrawdownSeries when using the same initialBalance', () => {
       const trades = generateMockTrades(30)
-      const initialBalance = 100
+      const initialBalance = PAPER_DEFAULT_BALANCE
       const metrics = calculatePerformanceMetrics(trades, initialBalance)
       const equity = calculateEquityCurve(trades, initialBalance)
       const ddSeries = calculateDrawdownSeries(equity)
