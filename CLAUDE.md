@@ -44,7 +44,7 @@ The table is **worse** than it looks: every one of these figures was measured th
 
 Consequences for how you work here:
 
-- **Provenance rule.** Pre-2026-08-03 figures = frictionless $10,000. 2026-08-03 → 2026-08-25 figures = $100 with the min-notional floor binding (a constraint that no longer exists). Neither answers a question about the current configuration — re-run before citing. The ADR-029 validation battery (2026-08-25, slippage on) is the first citable $10,000 baseline.
+- **Provenance rule.** Pre-2026-08-03 figures = frictionless $10,000. 2026-08-03 → 2026-08-25 figures = $100 with the min-notional floor binding (a constraint that no longer exists). Neither answers a question about the current configuration — re-run before citing. The first citable $10,000 cost-on baselines are in `docs/BACKTEST_BATTERY_2026-08-26_10K.md`: **still no edge** — the deployed-ensemble analog under the full realistic cost stack (bybit_perp fees + ATR slippage + funding) posts OOS Sharpe −0.58, PF 0.96, DSR 0.002; the phase-1 filter stack fires 0–1 trades/year.
 - Label paper P&L *gross of slippage* wherever reported. Never present it as a realistic expectation.
 - Adding a sixth indicator to five losing indicators produces a losing ensemble. The infrastructure's current value is **killing bad strategies cheaply** — treat "disproved in an afternoon" as a win.
 - No edge claim without DSR/CPCV (`returns_metrics.py`, `sharpe_metrics.py`, `cpcv.py`). Raw R² on price levels is forbidden.
