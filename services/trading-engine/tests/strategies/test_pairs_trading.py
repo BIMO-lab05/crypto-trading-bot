@@ -24,6 +24,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from app.strategies.pairs_trading import (
     PairsTradingStrategy,
 )
+from app.config import get_settings
+
+# Account-size fixture routed through Settings (ADR-029) - never a bare literal.
+PORTFOLIO_VALUE = float(get_settings().paper_initial_balance)
 
 
 # ============================================================================
@@ -209,7 +213,7 @@ class TestSignalGeneration:
         )
 
         signal = strategy.generate_signal(
-            current_price_x, current_price_y, price_x, price_y, portfolio_value=10000.0
+            current_price_x, current_price_y, price_x, price_y, portfolio_value=PORTFOLIO_VALUE
         )
 
         assert signal is not None
@@ -233,7 +237,7 @@ class TestSignalGeneration:
         )
 
         signal = strategy.generate_signal(
-            current_price_x, current_price_y, price_x, price_y, portfolio_value=10000.0
+            current_price_x, current_price_y, price_x, price_y, portfolio_value=PORTFOLIO_VALUE
         )
 
         assert signal is not None
@@ -257,7 +261,7 @@ class TestSignalGeneration:
         current_price_y = strategy.hedge_ratio * current_price_x + strategy.spread_mean
 
         signal = strategy.generate_signal(
-            current_price_x, current_price_y, price_x, price_y, portfolio_value=10000.0
+            current_price_x, current_price_y, price_x, price_y, portfolio_value=PORTFOLIO_VALUE
         )
 
         assert signal is not None
@@ -282,7 +286,7 @@ class TestSignalGeneration:
         )
 
         signal = strategy.generate_signal(
-            current_price_x, current_price_y, price_x, price_y, portfolio_value=10000.0
+            current_price_x, current_price_y, price_x, price_y, portfolio_value=PORTFOLIO_VALUE
         )
 
         assert signal is not None
@@ -312,7 +316,7 @@ class TestSignalGeneration:
         )
 
         signal = strategy.generate_signal(
-            current_price_x, current_price_y, price_x, price_y, portfolio_value=10000.0
+            current_price_x, current_price_y, price_x, price_y, portfolio_value=PORTFOLIO_VALUE
         )
 
         assert signal is not None
@@ -338,16 +342,16 @@ class TestPositionSizing:
 
         price_x = 100.0
         price_y = 50.0
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
         z_score_abs = 2.5
 
         pos_x, pos_y = strategy._calculate_position_sizes(
             price_x, price_y, portfolio_value, z_score_abs
         )
 
-        # Max capital per leg = 10% * 10000 = 1000
-        # Position Y = 1000 / 50 = 20 units
-        # Position X = 20 * 0.5 = 10 units
+        # Max capital per leg = max_position_size * portfolio_value
+        # Position Y = leg capital / price_y units
+        # Position X = pos_y * hedge_ratio units
 
         assert pos_y > 0
         assert pos_x > 0
@@ -363,7 +367,7 @@ class TestPositionSizing:
 
         price_x = 100.0
         price_y = 50.0
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         # Low Z-score (just at entry)
         pos_x_low, pos_y_low = strategy._calculate_position_sizes(
@@ -495,7 +499,10 @@ class TestPairsTradingIntegration:
             strategy.hedge_ratio * current_price_x + strategy.spread_mean + 3 * strategy.spread_std
         )
 
-        signal_entry = strategy.generate_signal(current_price_x, current_price_y, price_x, price_y)
+        signal_entry = strategy.generate_signal(
+            current_price_x, current_price_y, price_x, price_y,
+            portfolio_value=PORTFOLIO_VALUE,
+        )
 
         assert signal_entry is not None
         assert signal_entry.action == "OPEN_SHORT_Y"
@@ -504,7 +511,8 @@ class TestPairsTradingIntegration:
         current_price_y_exit = strategy.hedge_ratio * current_price_x + strategy.spread_mean
 
         signal_exit = strategy.generate_signal(
-            current_price_x, current_price_y_exit, price_x, price_y
+            current_price_x, current_price_y_exit, price_x, price_y,
+            portfolio_value=PORTFOLIO_VALUE,
         )
 
         assert signal_exit is not None

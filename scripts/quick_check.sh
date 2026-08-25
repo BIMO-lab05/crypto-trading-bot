@@ -52,7 +52,7 @@ balance_response=$(curl -s http://localhost:8003/api/v1/balance 2>/dev/null)
 
 if [ ! -z "$balance_response" ]; then
     balance=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('total_balance', 0))" 2>/dev/null)
-    initial=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('initial_balance', 10000))" 2>/dev/null)
+    initial=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('initial_balance', __import__('shared.account', fromlist=['ACCOUNT_EQUITY_USD']).ACCOUNT_EQUITY_USD))" 2>/dev/null)
 
     if [ ! -z "$balance" ] && [ ! -z "$initial" ]; then
         pnl=$(python3 -c "print(round($balance - $initial, 2))" 2>/dev/null)

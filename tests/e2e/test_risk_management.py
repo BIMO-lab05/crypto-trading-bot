@@ -9,7 +9,7 @@ Risk Management Flow:
 1. Signal received → Risk Manager validates
 2. Check account balance and available margin
 3. Calculate position size (max 10% of portfolio)
-4. Validate daily P&L limits (max 5% loss)
+4. Validate daily P&L limits (daily breaker per shared.account.MAX_DAILY_LOSS_PCT)
 5. Check max concurrent positions
 6. Apply risk/reward ratio validation
 7. Approve or reject trade
@@ -19,16 +19,14 @@ import pytest
 import asyncio
 from decimal import Decimal
 
-from tests.e2e.utils.wait_for_health import poll_until
+from shared.account import ACCOUNT_EQUITY_USD, MAX_DAILY_LOSS_PCT  # noqa: F401
+
+
 from tests.e2e.utils.assertions import (
-    assert_risk_check_passed,
-    assert_risk_check_blocked,
     assert_within_range,
-    assert_balance_changed,
 )
 from tests.e2e.fixtures.mock_data import (
     generate_bullish_candles,
-    generate_bearish_candles,
 )
 
 
@@ -36,12 +34,11 @@ from tests.e2e.fixtures.mock_data import (
 # Position Sizing Tests
 # ============================================================================
 
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_position_size_respects_max_percentage(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that position size doesn't exceed maximum portfolio percentage.
@@ -53,7 +50,7 @@ async def test_position_size_respects_max_percentage(
     print(f"\n💰 Testing position size limits for {symbol}...")
 
     # Step 1: Set initial balance
-    initial_balance = Decimal("10000.00")
+    initial_balance = Decimal(str(ACCOUNT_EQUITY_USD))
     await portfolio_client.set_balance(initial_balance)
 
     current_balance = await portfolio_client.get_balance()
@@ -70,7 +67,9 @@ async def test_position_size_respects_max_percentage(
 
     if len(positions) > 0:
         position = positions[0]
-        position_value = Decimal(str(position.get("quantity", 0))) * Decimal(str(position.get("entry_price", 0)))
+        position_value = Decimal(str(position.get("quantity", 0))) * Decimal(
+            str(position.get("entry_price", 0))
+        )
 
         # Calculate percentage
         position_pct = (position_value / current_balance) * 100
@@ -89,9 +88,7 @@ async def test_position_size_respects_max_percentage(
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_position_size_scales_with_balance(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that position size scales proportionally with account balance.
@@ -149,24 +146,23 @@ async def test_position_size_scales_with_balance(
 # Daily Loss Limit Tests
 # ============================================================================
 
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_trading_stops_at_daily_loss_limit(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that trading stops when daily loss limit is reached.
 
-    Daily loss limit: 5% of account balance
+    Daily loss limit: MAX_DAILY_LOSS_PCT of account balance (12% per ADR-028)
     """
     symbol = "BNBUSDT"
 
     print(f"\n🛑 Testing daily loss limit for {symbol}...")
 
     # Step 1: Set initial balance
-    initial_balance = Decimal("10000.00")
+    initial_balance = Decimal(str(ACCOUNT_EQUITY_USD))
     await portfolio_client.set_balance(initial_balance)
 
     # Step 2: Simulate losses to approach limit
@@ -192,19 +188,18 @@ async def test_trading_stops_at_daily_loss_limit(
 
     print(f"  Current loss: ${abs(final_pnl):.2f} ({loss_pct:.2f}%)")
 
-    if loss_pct >= 4.5:  # Near 5% limit
+    near_limit_pct = MAX_DAILY_LOSS_PCT * 0.9  # "near" = within 10% of the breaker
+    if loss_pct >= near_limit_pct:
         assert len(positions) == 0, "Position opened despite being near loss limit"
         print("  ✅ Trading correctly stopped near daily loss limit")
     else:
-        print(f"  ℹ️  Not yet at loss limit ({loss_pct:.2f}% < 5%)")
+        print(f"  ℹ️  Not yet at loss limit ({loss_pct:.2f}% < {MAX_DAILY_LOSS_PCT}%)")
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_emergency_stop_halts_all_trading(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that emergency stop halts all trading activity.
@@ -238,12 +233,10 @@ async def test_emergency_stop_halts_all_trading(
 # Risk/Reward Ratio Tests
 # ============================================================================
 
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_min_risk_reward_ratio_enforced(
-    market_data_client,
-    trading_engine_client
-):
+async def test_min_risk_reward_ratio_enforced(market_data_client, trading_engine_client):
     """
     Test that minimum risk/reward ratio is enforced.
 
@@ -285,12 +278,11 @@ async def test_min_risk_reward_ratio_enforced(
 # Concurrent Position Limits
 # ============================================================================
 
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_max_concurrent_positions_enforced(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that maximum concurrent positions limit is enforced.
@@ -330,12 +322,11 @@ async def test_max_concurrent_positions_enforced(
 # Balance and Margin Tests
 # ============================================================================
 
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_insufficient_balance_blocks_trade(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that insufficient balance prevents trade execution.
@@ -347,7 +338,9 @@ async def test_insufficient_balance_blocks_trade(
     print(f"\n💸 Testing insufficient balance protection for {symbol}...")
 
     # Step 1: Set very low balance
-    low_balance = Decimal("10.00")  # Only $10
+    # pinned small-account scenario: keeps reject-not-clamp coverage
+    # (10% of $10 = $1 < $5 Bybit min notional); NOT the declared account size
+    low_balance = Decimal("10.00")
     await portfolio_client.set_balance(low_balance)
 
     current_balance = await portfolio_client.get_balance()
@@ -378,9 +371,7 @@ async def test_insufficient_balance_blocks_trade(
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_available_margin_considered(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that available margin is considered for position sizing.
@@ -390,10 +381,10 @@ async def test_available_margin_considered(
     symbol1 = "BTCUSDT"
     symbol2 = "ETHUSDT"
 
-    print(f"\n💹 Testing margin availability across positions...")
+    print("\n💹 Testing margin availability across positions...")
 
     # Step 1: Set balance
-    total_balance = Decimal("10000.00")
+    total_balance = Decimal(str(ACCOUNT_EQUITY_USD))
     await portfolio_client.set_balance(total_balance)
 
     # Step 2: Open first position
@@ -404,7 +395,9 @@ async def test_available_margin_considered(
 
     positions = await portfolio_client.get_positions()
     if positions:
-        first_position_value = Decimal(str(positions[0]["quantity"])) * Decimal(str(positions[0]["entry_price"]))
+        first_position_value = Decimal(str(positions[0]["quantity"])) * Decimal(
+            str(positions[0]["entry_price"])
+        )
         print(f"  First position value: ${first_position_value:.2f}")
 
         available_balance = total_balance - first_position_value
@@ -418,12 +411,16 @@ async def test_available_margin_considered(
 
         positions = await portfolio_client.get_positions()
         if len(positions) >= 2:
-            second_position_value = Decimal(str(positions[1]["quantity"])) * Decimal(str(positions[1]["entry_price"]))
+            second_position_value = Decimal(str(positions[1]["quantity"])) * Decimal(
+                str(positions[1]["entry_price"])
+            )
             print(f"  Second position value: ${second_position_value:.2f}")
 
             # Total position value shouldn't exceed balance
             total_position_value = first_position_value + second_position_value
-            assert total_position_value <= total_balance * Decimal("1.1"), "Total positions exceed balance"
+            assert total_position_value <= total_balance * Decimal("1.1"), (
+                "Total positions exceed balance"
+            )
 
             print("  ✅ Margin correctly managed across positions")
         else:
@@ -436,12 +433,11 @@ async def test_available_margin_considered(
 # Risk Parameter Validation Tests
 # ============================================================================
 
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_stop_loss_percentage_validation(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that stop-loss percentage is set correctly.
@@ -487,9 +483,7 @@ async def test_stop_loss_percentage_validation(
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_take_profit_percentage_validation(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that take-profit percentage is set correctly.
@@ -536,12 +530,11 @@ async def test_take_profit_percentage_validation(
 # Edge Cases
 # ============================================================================
 
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_zero_balance_blocks_all_trades(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test that zero balance prevents any trading.
@@ -570,9 +563,7 @@ async def test_zero_balance_blocks_all_trades(
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_risk_manager_handles_extreme_volatility(
-    market_data_client,
-    trading_engine_client,
-    portfolio_client
+    market_data_client, trading_engine_client, portfolio_client
 ):
     """
     Test risk manager response to extreme price volatility.
@@ -589,8 +580,12 @@ async def test_risk_manager_handles_extreme_volatility(
     base_candles = generate_bullish_candles(start_price=45000.0, num_candles=40)
 
     # Add extreme volatility spikes
-    volatile_candles = generate_price_spike(base_candles, spike_index=20, spike_pct=15.0, direction="up")
-    volatile_candles = generate_price_spike(volatile_candles, spike_index=25, spike_pct=15.0, direction="down")
+    volatile_candles = generate_price_spike(
+        base_candles, spike_index=20, spike_pct=15.0, direction="up"
+    )
+    volatile_candles = generate_price_spike(
+        volatile_candles, spike_index=25, spike_pct=15.0, direction="down"
+    )
 
     await market_data_client.inject_candles(symbol, volatile_candles, interval="60")
 

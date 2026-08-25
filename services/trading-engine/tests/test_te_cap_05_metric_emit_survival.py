@@ -54,6 +54,12 @@ import app.core.metrics  # noqa: F401
 from app.auto_trader import AutoTrader
 from app.services.instruments_cache import InstrumentSpec
 
+#: pinned small-account scenario: keeps reject-not-clamp coverage; NOT the
+#: declared account size. The min-qty/min-notional REJECT branches under test
+#: are only naturally reachable when sizing sits near the ~$5 venue floor, so
+#: this balance is deliberately decoupled from `paper_initial_balance`.
+_PINNED_SMALL_BALANCE = Decimal("100")
+
 
 # ---------------------------------------------------------------- helpers
 
@@ -124,9 +130,7 @@ def _install_raising_counter(monkeypatch, exc: BaseException) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_min_qty_reject_survives_value_error_from_counter_inc(
-    trader, monkeypatch, caplog
-):
+async def test_min_qty_reject_survives_value_error_from_counter_inc(trader, monkeypatch, caplog):
     """Force min_qty rejection AND make Counter.labels().inc() raise
     ValueError (label-name mismatch). Assert:
       - function still returns (False, "min_qty")
@@ -136,16 +140,14 @@ async def test_min_qty_reject_survives_value_error_from_counter_inc(
     cache = _StubInstrumentsCache(spec=_spec(min_qty="0.001", min_notional=None))
     monkeypatch.setattr("app.main.get_instruments_cache", lambda: cache)
 
-    fake_counter = _install_raising_counter(
-        monkeypatch, ValueError("Incorrect label names")
-    )
+    fake_counter = _install_raising_counter(monkeypatch, ValueError("Incorrect label names"))
 
     with caplog.at_level(logging.WARNING, logger="app.auto_trader"):
         ok, reason = await trader._passes_min_notional(
             symbol="BTCUSDT",
             quantity=Decimal("0.0000166"),  # < 0.001 → min_qty reject
             price=Decimal("60000"),
-            balance=Decimal("100"),
+            balance=_PINNED_SMALL_BALANCE,
         )
 
     # Safety rail: rejection decision must NOT be skipped by the metric-emit
@@ -158,9 +160,7 @@ async def test_min_qty_reject_survives_value_error_from_counter_inc(
     fake_counter.labels.assert_called_once_with(symbol="BTCUSDT", reason="min_qty")
 
     # Observability: D-08 Category-M intent — the failure must be logged.
-    assert any(
-        "metrics emit failed (min_qty)" in rec.message for rec in caplog.records
-    ), (
+    assert any("metrics emit failed (min_qty)" in rec.message for rec in caplog.records), (
         f"Category-M observable failure log NOT emitted; "
         f"got {[(r.levelname, r.name, r.message[:100]) for r in caplog.records]!r}. "
         f"If this fails, the typed except at auto_trader.py:1594 has been narrowed "
@@ -181,16 +181,14 @@ async def test_min_notional_reject_survives_value_error_from_counter_inc(
     cache = _StubInstrumentsCache(spec=_spec(min_qty="0.001", min_notional="5"))
     monkeypatch.setattr("app.main.get_instruments_cache", lambda: cache)
 
-    fake_counter = _install_raising_counter(
-        monkeypatch, ValueError("Incorrect label names")
-    )
+    fake_counter = _install_raising_counter(monkeypatch, ValueError("Incorrect label names"))
 
     with caplog.at_level(logging.WARNING, logger="app.auto_trader"):
         ok, reason = await trader._passes_min_notional(
             symbol="BTCUSDT",
             quantity=Decimal("0.001"),
             price=Decimal("3000"),  # notional = $3 < $5
-            balance=Decimal("100"),
+            balance=_PINNED_SMALL_BALANCE,
         )
 
     # Safety rail: rejection decision must NOT be skipped.
@@ -199,9 +197,7 @@ async def test_min_notional_reject_survives_value_error_from_counter_inc(
 
     fake_counter.labels.assert_called_once_with(symbol="BTCUSDT", reason="min_notional")
 
-    assert any(
-        "metrics emit failed (min_notional)" in rec.message for rec in caplog.records
-    ), (
+    assert any("metrics emit failed (min_notional)" in rec.message for rec in caplog.records), (
         f"Category-M observable failure log NOT emitted; "
         f"got {[(r.levelname, r.name, r.message[:100]) for r in caplog.records]!r}. "
         f"If this fails, the typed except at auto_trader.py:1611 has been narrowed "

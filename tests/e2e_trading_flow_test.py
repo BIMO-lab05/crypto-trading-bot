@@ -9,6 +9,8 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: F401
+
 
 class E2ETradingFlowTest:
     """
@@ -183,8 +185,8 @@ class E2ETradingFlowTest:
                 self.trade_data['available_balance'] = available
             else:
                 print(f"⚠️  Portfolio balance unavailable, using defaults")
-                self.trade_data['total_equity'] = 10000
-                self.trade_data['available_balance'] = 10000
+                self.trade_data['total_equity'] = ACCOUNT_EQUITY_USD
+                self.trade_data['available_balance'] = ACCOUNT_EQUITY_USD
 
             # Get risk metrics
             risk_url = f"{self.base_url}:8009/api/v1/risk/portfolio"
@@ -254,7 +256,7 @@ class E2ETradingFlowTest:
             else:
                 print(f"❌ Position sizing failed: HTTP {size_response.status_code}")
                 # Use fallback calculation
-                total_equity = self.trade_data.get('total_equity', 10000)
+                total_equity = self.trade_data.get('total_equity', ACCOUNT_EQUITY_USD)
                 risk_amount = total_equity * (risk_pct / 100)
                 position_size = risk_amount / (current_price - stop_loss_price)
 

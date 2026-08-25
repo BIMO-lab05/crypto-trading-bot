@@ -29,6 +29,15 @@ from backtesting.strategies.multi_indicator_strategy import (
     StrategyConfig
 )
 
+# Declared account size (see shared/account.py).
+import os as _os
+import sys as _sys
+
+_REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -201,7 +210,7 @@ def test_backtest_comparison():
         # Test 1: Simple RSI
         logger.info("\n--- Simple RSI Strategy ---")
         simple_strategy = create_simple_rsi_strategy(rsi_period=14, oversold=30, overbought=70)
-        engine1 = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
+        engine1 = BacktestEngine(initial_capital=ACCOUNT_EQUITY_USD, commission=0.001, slippage=0.0005)
         result1 = engine1.run_backtest(data, simple_strategy, "Simple_RSI")
         results['Simple RSI'] = result1
 
@@ -213,7 +222,7 @@ def test_backtest_comparison():
         # Test 2: Multi-indicator (Strict)
         logger.info("\n--- Multi-Indicator (Strict: all 4 confirmations) ---")
         multi_strict = create_multi_indicator_strategy(require_all=True, min_confirmations=4)
-        engine2 = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
+        engine2 = BacktestEngine(initial_capital=ACCOUNT_EQUITY_USD, commission=0.001, slippage=0.0005)
         result2 = engine2.run_backtest(data, multi_strict, "Multi_Strict")
         results['Multi Strict'] = result2
 
@@ -225,7 +234,7 @@ def test_backtest_comparison():
         # Test 3: Multi-indicator (Moderate)
         logger.info("\n--- Multi-Indicator (Moderate: 2 of 4 confirmations) ---")
         multi_moderate = create_multi_indicator_strategy(require_all=False, min_confirmations=2)
-        engine3 = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
+        engine3 = BacktestEngine(initial_capital=ACCOUNT_EQUITY_USD, commission=0.001, slippage=0.0005)
         result3 = engine3.run_backtest(data, multi_moderate, "Multi_Moderate")
         results['Multi Moderate'] = result3
 
@@ -237,7 +246,7 @@ def test_backtest_comparison():
         # Test 4: Multi-indicator (Lenient)
         logger.info("\n--- Multi-Indicator (Lenient: 1 of 4 confirmations) ---")
         multi_lenient = create_multi_indicator_strategy(require_all=False, min_confirmations=1)
-        engine4 = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
+        engine4 = BacktestEngine(initial_capital=ACCOUNT_EQUITY_USD, commission=0.001, slippage=0.0005)
         result4 = engine4.run_backtest(data, multi_lenient, "Multi_Lenient")
         results['Multi Lenient'] = result4
 

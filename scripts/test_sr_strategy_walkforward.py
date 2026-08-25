@@ -61,6 +61,16 @@ from app.strategies.research_optimized_strategy import (
 from app.utils.support_resistance_detector import SupportResistanceDetector
 from app.models import IndicatorSignal
 
+# Declared account size (see shared/account.py).
+import os as _os
+import sys as _sys
+
+_REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -104,7 +114,7 @@ DATA_DIR = Path(__file__).parent.parent / "data" / "historical"
 DATA_INTERVAL = '60'           # 1 hour candles
 
 # Initial capital for backtesting
-INITIAL_CAPITAL = 10000.0
+INITIAL_CAPITAL = ACCOUNT_EQUITY_USD
 
 # Pass/Fail Criteria
 MIN_WIN_RATE = 50.0            # Minimum 50% win rate

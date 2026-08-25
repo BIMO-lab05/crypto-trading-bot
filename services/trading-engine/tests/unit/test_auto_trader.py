@@ -16,7 +16,13 @@ from decimal import Decimal as _Decimal
 import app.main  # noqa: F401
 
 from app.auto_trader import AutoTrader, get_auto_trader, reset_auto_trader
+from app.config import get_settings
 from app.services.instruments_cache import InstrumentSpec
+
+#: Declared paper equity, routed through Settings (ADR-029) — never a bare
+#: account-size literal. The mocked paper engines below report this balance so
+#: the flow tests track the declared account instead of pinning a stale figure.
+_BALANCE_USD = float(get_settings().paper_initial_balance)
 
 
 class _PermissiveInstrumentsCache:
@@ -281,9 +287,7 @@ class TestAutoTraderCheckAndTrade:
         # Mock dependencies
         with (
             patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
-            patch(
-                "app.auto_trader.get_aggregator", new_callable=AsyncMock
-            ) as mock_aggregator,
+            patch("app.auto_trader.get_aggregator", new_callable=AsyncMock) as mock_aggregator,
         ):
             # Risk manager is synchronous, not async
             mock_risk = Mock()
@@ -291,9 +295,7 @@ class TestAutoTraderCheckAndTrade:
             mock_risk_mgr.return_value = mock_risk
 
             # Aggregator is async
-            mock_aggregator.return_value.get_trading_signal.return_value = (
-                None  # No signal
-            )
+            mock_aggregator.return_value.get_trading_signal.return_value = None  # No signal
 
             initial_count = trader.total_signals_checked
             await trader._check_and_trade("BTCUSDT")
@@ -324,9 +326,7 @@ class TestAutoTraderCheckAndTrade:
 
         with (
             patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
-            patch(
-                "app.auto_trader.get_aggregator", new_callable=AsyncMock
-            ) as mock_aggregator,
+            patch("app.auto_trader.get_aggregator", new_callable=AsyncMock) as mock_aggregator,
         ):
             # Risk manager is synchronous, not async
             mock_risk = Mock()
@@ -371,9 +371,7 @@ class TestAutoTraderCheckAndTrade:
                 return_value=mock_signal
             )
             mock_agg_instance.get_trading_signal = AsyncMock(return_value=mock_signal)
-            mock_agg_instance.get_trading_signal_enhanced = AsyncMock(
-                return_value=mock_signal
-            )
+            mock_agg_instance.get_trading_signal_enhanced = AsyncMock(return_value=mock_signal)
             mock_aggregator.return_value = mock_agg_instance
 
             initial_rejected = trader.total_trades_rejected
@@ -399,9 +397,7 @@ class TestAutoTraderCheckAndTrade:
 
         with (
             patch("app.auto_trader.get_risk_manager") as mock_risk_mgr,
-            patch(
-                "app.auto_trader.get_aggregator", new_callable=AsyncMock
-            ) as mock_aggregator,
+            patch("app.auto_trader.get_aggregator", new_callable=AsyncMock) as mock_aggregator,
         ):
             # Risk manager is synchronous, not async
             mock_risk = Mock()
@@ -440,9 +436,7 @@ class TestAutoTraderLoop:
         trader = AutoTrader(symbols=["BTCUSDT"], check_frequency_seconds=1)
 
         # Mock dependencies to avoid actual trading
-        with patch.object(
-            trader, "_check_and_trade", new_callable=AsyncMock
-        ) as mock_check:
+        with patch.object(trader, "_check_and_trade", new_callable=AsyncMock) as mock_check:
             # Start the loop
             result = await trader.start()
             assert result is True  # Should return True on successful start
@@ -494,12 +488,10 @@ class TestAutoTraderExecuteTrade:
         ):
             # Mock paper engine
             mock_engine = Mock()
-            mock_engine.get_balance.return_value = 100.0  # Synchronous
+            mock_engine.get_balance.return_value = _BALANCE_USD  # Synchronous
             mock_executed_order = Mock()
             mock_executed_order.status = OrderStatus.FILLED
-            mock_engine.execute_market_order = AsyncMock(
-                return_value=(mock_executed_order, None)
-            )
+            mock_engine.execute_market_order = AsyncMock(return_value=(mock_executed_order, None))
             mock_paper_engine.return_value = mock_engine
 
             # Mock position manager
@@ -550,7 +542,7 @@ class TestAutoTraderExecuteTrade:
 
         with patch("app.auto_trader.get_paper_engine") as mock_paper_engine:
             mock_engine = Mock()
-            mock_engine.get_balance.return_value = 100.0
+            mock_engine.get_balance.return_value = _BALANCE_USD
             mock_paper_engine.return_value = mock_engine
 
             initial_rejected = trader.total_trades_rejected
@@ -577,7 +569,7 @@ class TestAutoTraderExecuteTrade:
             patch("app.auto_trader.get_position_manager") as mock_position_mgr,
         ):
             mock_engine = Mock()
-            mock_engine.get_balance.return_value = 100.0
+            mock_engine.get_balance.return_value = _BALANCE_USD
             mock_paper_engine.return_value = mock_engine
 
             # Mock position manager to return existing position
@@ -625,12 +617,10 @@ class TestAutoTraderExecuteTrade:
             ),
         ):
             mock_engine = Mock()
-            mock_engine.get_balance.return_value = 100.0
+            mock_engine.get_balance.return_value = _BALANCE_USD
             mock_executed_order = Mock()
             mock_executed_order.status = OrderStatus.FILLED
-            mock_engine.execute_market_order = AsyncMock(
-                return_value=(mock_executed_order, None)
-            )
+            mock_engine.execute_market_order = AsyncMock(return_value=(mock_executed_order, None))
             mock_paper_engine.return_value = mock_engine
 
             mock_pos_mgr = Mock()
@@ -680,12 +670,10 @@ class TestAutoTraderExecuteTrade:
             patch("app.auto_trader.get_position_manager") as mock_position_mgr,
         ):
             mock_engine = Mock()
-            mock_engine.get_balance.return_value = 100.0
+            mock_engine.get_balance.return_value = _BALANCE_USD
             mock_failed_order = Mock()
             mock_failed_order.status = OrderStatus.FAILED  # Order failed
-            mock_engine.execute_market_order = AsyncMock(
-                return_value=(mock_failed_order, None)
-            )
+            mock_engine.execute_market_order = AsyncMock(return_value=(mock_failed_order, None))
             mock_paper_engine.return_value = mock_engine
 
             mock_pos_mgr = Mock()
@@ -744,10 +732,7 @@ class TestVolTargetingWiring:
         monkeypatch.setattr("app.auto_trader.settings.enable_vol_targeting", True)
         trader = AutoTrader()
         assert trader.vol_estimator is not None
-        assert (
-            trader.vol_estimator.config.window_bars
-            == trader.settings.vol_estimator_window_bars
-        )
+        assert trader.vol_estimator.config.window_bars == trader.settings.vol_estimator_window_bars
 
     def test_update_with_invalid_price_is_noop(self, monkeypatch):
         monkeypatch.setattr("app.auto_trader.settings.enable_vol_targeting", True)

@@ -39,12 +39,19 @@ import pytest
 from datetime import datetime, timedelta
 from typing import List
 
+from app.config import get_settings
+
 # Import the strategy to test
 from app.strategies.grid_trading_strategy import (
     GridTradingStrategy,
     GridLevel,
     GridState,
 )
+
+#: Declared paper equity, routed through Settings (ADR-029) — never a bare
+#: account-size literal. The grid sizing scenarios below scale with the
+#: declared account instead of pinning a stale figure.
+EQUITY_USD = float(get_settings().paper_initial_balance)
 
 # Import base classes
 from app.backtesting.strategy_base import (
@@ -158,7 +165,7 @@ class TestGridInitialization:
     def test_grid_created_after_warmup(self, default_grid_strategy, simple_ohlcv_data):
         """Test that grid is created after enough warmup data"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
 
         # Feed warmup data
         for bar in simple_ohlcv_data[:20]:  # Need ATR_PERIOD + 1 bars
@@ -173,7 +180,7 @@ class TestGridInitialization:
     def test_grid_has_correct_number_of_levels(self, default_grid_strategy, simple_ohlcv_data):
         """Test that grid creates correct number of levels"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
 
         # Warm up strategy
         for bar in simple_ohlcv_data[:20]:
@@ -191,7 +198,7 @@ class TestGridInitialization:
     def test_buy_levels_below_mid_price(self, default_grid_strategy, simple_ohlcv_data):
         """Test that buy levels are below mid price"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
 
         # Warm up strategy
         for bar in simple_ohlcv_data[:20]:
@@ -208,7 +215,7 @@ class TestGridInitialization:
     def test_sell_levels_above_mid_price(self, default_grid_strategy, simple_ohlcv_data):
         """Test that sell levels are above mid price"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
 
         # Warm up strategy
         for bar in simple_ohlcv_data[:20]:
@@ -225,7 +232,7 @@ class TestGridInitialization:
     def test_grid_levels_sorted_by_price(self, default_grid_strategy, simple_ohlcv_data):
         """Test that grid levels are sorted in ascending price order"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
 
         # Warm up strategy
         for bar in simple_ohlcv_data[:20]:
@@ -303,7 +310,7 @@ class TestBuySignalGeneration:
     def test_buy_signal_when_price_crosses_below_level(self, default_grid_strategy):
         """Test that buy signal is generated when price crosses below grid level"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
         base_time = datetime(2025, 1, 1, 0, 0)
 
         # Warm up with price at $100
@@ -344,7 +351,7 @@ class TestBuySignalGeneration:
     def test_no_buy_signal_at_max_positions(self, default_grid_strategy):
         """Test that no buy signal is generated when at max positions"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
         base_time = datetime(2025, 1, 1, 0, 0)
 
         # Warm up
@@ -392,7 +399,7 @@ class TestSellSignalGeneration:
     def test_sell_signal_when_price_crosses_above_level(self, default_grid_strategy):
         """Test that sell signal is generated when price crosses above grid level"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
         base_time = datetime(2025, 1, 1, 0, 0)
 
         # Warm up with price at $100
@@ -443,7 +450,7 @@ class TestGridRebalancing:
     def test_rebalance_when_price_moves_beyond_threshold(self, default_grid_strategy):
         """Test that grid rebalances when price moves significantly"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
         base_time = datetime(2025, 1, 1, 0, 0)
 
         # Warm up at $100
@@ -488,7 +495,7 @@ class TestGridRebalancing:
     def test_no_rebalance_for_small_price_moves(self, default_grid_strategy):
         """Test that grid doesn't rebalance for small price movements"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
         base_time = datetime(2025, 1, 1, 0, 0)
 
         # Warm up at $100
@@ -554,7 +561,7 @@ class TestPositionManagement:
 
         strategy._prev_price = 98.5  # Price was above level
         strategy.add_bar(bar)
-        signal = strategy._generate_grid_signal(bar, 10000.0)
+        signal = strategy._generate_grid_signal(bar, EQUITY_USD)
 
         # If buy signal generated, positions should increase
         if signal and signal.signal_type == SignalType.BUY:
@@ -593,7 +600,7 @@ class TestRiskManagement:
     def test_stop_loss_triggered_on_large_drawdown(self, default_grid_strategy):
         """Test that stop loss is triggered when drawdown exceeds threshold"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
         base_time = datetime(2025, 1, 1, 0, 0)
 
         # Warm up
@@ -727,7 +734,7 @@ class TestGridTradingIntegration:
     def test_complete_trading_cycle(self, default_grid_strategy, simple_ohlcv_data):
         """Test complete cycle: init -> buy -> sell -> rebalance"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
 
         signals = []
 
@@ -759,7 +766,7 @@ class TestGridTradingIntegration:
     def test_strategy_with_trending_market(self, default_grid_strategy, trending_ohlcv_data):
         """Test grid trading in trending market"""
         strategy = default_grid_strategy
-        equity = 10000.0
+        equity = EQUITY_USD
 
         signals = []
 

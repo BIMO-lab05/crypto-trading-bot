@@ -34,6 +34,11 @@ from app.risk.sector_exposure import (
     reset_sector_exposure_manager,
 )
 
+from app.config import get_settings
+
+# Account-size fixture routed through Settings (ADR-029) - never a bare literal.
+PORTFOLIO_VALUE = float(get_settings().paper_initial_balance)
+
 
 # =============================================================================
 # TEST FIXTURES
@@ -76,7 +81,7 @@ def sample_positions():
     return [
         SectorPosition(
             symbol="BTCUSDT",
-            position_value=40000,
+            position_value=0.40 * PORTFOLIO_VALUE,
             risk_pct=4.0,
             entry_price=100000,
             current_price=102000,
@@ -85,7 +90,7 @@ def sample_positions():
         ),
         SectorPosition(
             symbol="ETHUSDT",
-            position_value=30000,
+            position_value=0.30 * PORTFOLIO_VALUE,
             risk_pct=3.0,
             entry_price=3500,
             current_price=3600,
@@ -94,7 +99,7 @@ def sample_positions():
         ),
         SectorPosition(
             symbol="ARBUSDT",
-            position_value=10000,
+            position_value=0.10 * PORTFOLIO_VALUE,
             risk_pct=1.5,
             entry_price=1.2,
             current_price=1.25,
@@ -103,7 +108,7 @@ def sample_positions():
         ),
         SectorPosition(
             symbol="UNIUSDT",
-            position_value=8000,
+            position_value=0.08 * PORTFOLIO_VALUE,
             risk_pct=1.0,
             entry_price=10,
             current_price=11,
@@ -112,7 +117,7 @@ def sample_positions():
         ),
         SectorPosition(
             symbol="DOGEUSDT",
-            position_value=2000,
+            position_value=0.02 * PORTFOLIO_VALUE,
             risk_pct=0.5,
             entry_price=0.1,
             current_price=0.095,
@@ -128,7 +133,7 @@ def concentrated_positions():
     return [
         SectorPosition(
             symbol="BTCUSDT",
-            position_value=50000,
+            position_value=0.50 * PORTFOLIO_VALUE,
             risk_pct=5.0,
             entry_price=100000,
             current_price=102000,
@@ -137,7 +142,7 @@ def concentrated_positions():
         ),
         SectorPosition(
             symbol="ETHUSDT",
-            position_value=40000,
+            position_value=0.40 * PORTFOLIO_VALUE,
             risk_pct=4.0,
             entry_price=3500,
             current_price=3600,
@@ -269,7 +274,7 @@ class TestExposureCalculation:
         sample_positions
     ):
         """Test basic sector exposure calculation"""
-        portfolio_value = 100000
+        portfolio_value = PORTFOLIO_VALUE
         analysis = sector_manager.calculate_sector_exposure(
             sample_positions,
             portfolio_value
@@ -305,7 +310,7 @@ class TestExposureCalculation:
         sample_positions
     ):
         """Test Layer 1 exposure is calculated correctly"""
-        portfolio_value = 100000
+        portfolio_value = PORTFOLIO_VALUE
         analysis = sector_manager.calculate_sector_exposure(
             sample_positions,
             portfolio_value
@@ -317,7 +322,7 @@ class TestExposureCalculation:
         )
 
         assert l1_exposure is not None
-        # BTC (40k) + ETH (30k) = 70k = 70% of 100k
+        # BTC (40%) + ETH (30%) of the account = 70% of portfolio_value
         assert l1_exposure.exposure_pct == 70.0
         assert l1_exposure.position_count == 2
         assert "BTCUSDT" in l1_exposure.positions
@@ -329,7 +334,7 @@ class TestExposureCalculation:
         concentrated_positions
     ):
         """Test detection of over-limit sectors"""
-        # BTC + ETH = 90k out of 90k = 100% in L1
+        # BTC + ETH fill the whole concentrated portfolio = 100% in L1
         portfolio_value = sum(p.position_value for p in concentrated_positions)
 
         analysis = sector_manager.calculate_sector_exposure(
@@ -345,33 +350,33 @@ class TestExposureCalculation:
         # Create well-diversified positions
         positions = [
             SectorPosition(
-                symbol="BTCUSDT", position_value=10000, risk_pct=1.0,
+                symbol="BTCUSDT", position_value=PORTFOLIO_VALUE / 5, risk_pct=1.0,
                 entry_price=100000, current_price=100000,
                 sector=CryptoSector.LAYER_1, unrealized_pnl_pct=0
             ),
             SectorPosition(
-                symbol="ARBUSDT", position_value=10000, risk_pct=1.0,
+                symbol="ARBUSDT", position_value=PORTFOLIO_VALUE / 5, risk_pct=1.0,
                 entry_price=1.0, current_price=1.0,
                 sector=CryptoSector.LAYER_2, unrealized_pnl_pct=0
             ),
             SectorPosition(
-                symbol="UNIUSDT", position_value=10000, risk_pct=1.0,
+                symbol="UNIUSDT", position_value=PORTFOLIO_VALUE / 5, risk_pct=1.0,
                 entry_price=10, current_price=10,
                 sector=CryptoSector.DEFI, unrealized_pnl_pct=0
             ),
             SectorPosition(
-                symbol="LINKUSDT", position_value=10000, risk_pct=1.0,
+                symbol="LINKUSDT", position_value=PORTFOLIO_VALUE / 5, risk_pct=1.0,
                 entry_price=20, current_price=20,
                 sector=CryptoSector.INFRASTRUCTURE, unrealized_pnl_pct=0
             ),
             SectorPosition(
-                symbol="BNBUSDT", position_value=10000, risk_pct=1.0,
+                symbol="BNBUSDT", position_value=PORTFOLIO_VALUE / 5, risk_pct=1.0,
                 entry_price=500, current_price=500,
                 sector=CryptoSector.EXCHANGE, unrealized_pnl_pct=0
             ),
         ]
 
-        analysis = sector_manager.calculate_sector_exposure(positions, 50000)
+        analysis = sector_manager.calculate_sector_exposure(positions, PORTFOLIO_VALUE)
 
         assert analysis.diversification_rating in ["EXCELLENT", "GOOD"]
         assert analysis.sector_count >= 4
@@ -393,7 +398,7 @@ class TestExposureCalculation:
 
     def test_empty_positions(self, sector_manager):
         """Test handling of empty positions list"""
-        analysis = sector_manager.calculate_sector_exposure([], 100000)
+        analysis = sector_manager.calculate_sector_exposure([], PORTFOLIO_VALUE)
 
         assert analysis.sector_count == 0
         assert len(analysis.recommendations) > 0
@@ -421,8 +426,8 @@ class TestPositionChecks:
         can_add, reason = sector_manager.can_add_position(
             "AAVEUSDT",  # DeFi
             sample_positions,
-            portfolio_value=100000,
-            proposed_value=5000
+            portfolio_value=PORTFOLIO_VALUE,
+            proposed_value=0.05 * PORTFOLIO_VALUE
         )
 
         assert can_add is True
@@ -441,7 +446,7 @@ class TestPositionChecks:
             "SOLUSDT",  # Layer 1
             concentrated_positions,
             portfolio_value=portfolio_value,
-            proposed_value=10000
+            proposed_value=0.10 * PORTFOLIO_VALUE
         )
 
         assert can_add is False
@@ -453,8 +458,8 @@ class TestPositionChecks:
         can_add, reason = sector_manager.can_add_position(
             "BTCUSDT",
             [],
-            portfolio_value=100000,
-            proposed_value=50000
+            portfolio_value=PORTFOLIO_VALUE,
+            proposed_value=0.50 * PORTFOLIO_VALUE
         )
 
         assert can_add is True
@@ -463,7 +468,7 @@ class TestPositionChecks:
         """Test no adjustment when sector has low exposure"""
         positions = [
             SectorPosition(
-                symbol="BTCUSDT", position_value=10000, risk_pct=1.0,
+                symbol="BTCUSDT", position_value=0.10 * PORTFOLIO_VALUE, risk_pct=1.0,
                 entry_price=100000, current_price=100000,
                 sector=CryptoSector.LAYER_1, unrealized_pnl_pct=0
             ),
@@ -472,7 +477,7 @@ class TestPositionChecks:
         multiplier, details = sector_manager.get_position_size_adjustment(
             "ETHUSDT",
             positions,
-            portfolio_value=100000
+            portfolio_value=PORTFOLIO_VALUE
         )
 
         assert multiplier >= 0.8  # Should be close to 1.0
@@ -499,7 +504,7 @@ class TestPositionChecks:
         multiplier, details = sector_manager.get_position_size_adjustment(
             "PEPEUSDT",  # Meme coin
             [],
-            portfolio_value=100000
+            portfolio_value=PORTFOLIO_VALUE
         )
 
         # Meme coins should have reduced multiplier due to high risk weight
@@ -631,7 +636,7 @@ class TestSerialization:
 
     def test_sector_exposure_to_dict(self, sector_manager, sample_positions):
         """Test SectorExposure serialization"""
-        analysis = sector_manager.calculate_sector_exposure(sample_positions, 100000)
+        analysis = sector_manager.calculate_sector_exposure(sample_positions, PORTFOLIO_VALUE)
 
         if analysis.sector_exposures:
             exposure_dict = analysis.sector_exposures[0].to_dict()
@@ -646,7 +651,7 @@ class TestSerialization:
         sample_positions
     ):
         """Test SectorAnalysisResult serialization"""
-        analysis = sector_manager.calculate_sector_exposure(sample_positions, 100000)
+        analysis = sector_manager.calculate_sector_exposure(sample_positions, PORTFOLIO_VALUE)
         result_dict = analysis.to_dict()
 
         assert "total_portfolio_value" in result_dict
@@ -690,7 +695,7 @@ class TestStatusAndSummary:
 
     def test_get_summary(self, sector_manager, sample_positions):
         """Test getting quick summary"""
-        summary = sector_manager.get_summary(sample_positions, 100000)
+        summary = sector_manager.get_summary(sample_positions, PORTFOLIO_VALUE)
 
         assert "total_value" in summary
         assert "sector_count" in summary
@@ -734,13 +739,13 @@ class TestEdgeCases:
         """Test analysis with single position"""
         positions = [
             SectorPosition(
-                symbol="BTCUSDT", position_value=50000, risk_pct=5.0,
+                symbol="BTCUSDT", position_value=PORTFOLIO_VALUE / 2, risk_pct=5.0,
                 entry_price=100000, current_price=100000,
                 sector=CryptoSector.LAYER_1, unrealized_pnl_pct=0
             ),
         ]
 
-        analysis = sector_manager.calculate_sector_exposure(positions, 50000)
+        analysis = sector_manager.calculate_sector_exposure(positions, PORTFOLIO_VALUE / 2)
 
         assert analysis.sector_count == 1
         assert len(analysis.recommendations) > 0

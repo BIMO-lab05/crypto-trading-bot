@@ -22,6 +22,12 @@ from decimal import Decimal
 from typing import List, Dict, Any
 import statistics
 
+from app.config import get_settings
+
+# Declared account size sourced from Settings (CLAUDE.md section 1) — never a
+# bare literal in capital positions.
+ACCOUNT_CAPITAL = get_settings().paper_initial_balance
+
 # Import components to test
 from app.strategies.base import (
     StrategyBase,
@@ -320,12 +326,13 @@ class TestMeanReversionStrategy:
 
         quantity, risk_amount = mean_reversion_strategy.calculate_position_size(
             signal,
-            available_capital=10000.0,
+            available_capital=ACCOUNT_CAPITAL,
             risk_per_trade_pct=1.5
         )
 
         assert quantity > 0
-        assert risk_amount == pytest.approx(150.0, rel=0.01)  # 1.5% of 10000
+        # 1.5% of available capital, derived — never a pasted dollar figure
+        assert risk_amount == pytest.approx(ACCOUNT_CAPITAL * 0.015, rel=0.01)
 
 
 # =============================================================================
@@ -624,19 +631,19 @@ class TestBacktester:
     def test_backtester_initialization(self):
         """Test backtester initializes correctly"""
         config = BacktestConfig(
-            initial_capital=10000.0,
+            initial_capital=ACCOUNT_CAPITAL,
             slippage_pct=0.05
         )
         backtester = StrategyBacktester(config)
 
-        assert backtester.config.initial_capital == 10000.0
+        assert backtester.config.initial_capital == ACCOUNT_CAPITAL
         assert backtester.config.slippage_pct == 0.05
 
     @pytest.mark.asyncio
     async def test_run_backtest(self, mean_reversion_strategy, mock_backtest_candles):
         """Test running a backtest"""
         backtester = StrategyBacktester(BacktestConfig(
-            initial_capital=10000.0,
+            initial_capital=ACCOUNT_CAPITAL,
             position_size_pct=5.0
         ))
 
@@ -648,14 +655,14 @@ class TestBacktester:
 
         assert result is not None
         assert result.strategy_id == "mean_reversion_v1"
-        assert result.initial_capital == 10000.0
+        assert result.initial_capital == ACCOUNT_CAPITAL
         assert len(result.equity_curve) > 0
 
     @pytest.mark.asyncio
     async def test_backtest_result_metrics(self, mean_reversion_strategy, mock_backtest_candles):
         """Test backtest result metrics calculation"""
         backtester = StrategyBacktester(BacktestConfig(
-            initial_capital=10000.0
+            initial_capital=ACCOUNT_CAPITAL
         ))
 
         result = await backtester.run_backtest(

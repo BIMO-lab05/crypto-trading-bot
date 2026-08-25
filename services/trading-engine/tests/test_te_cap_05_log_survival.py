@@ -78,6 +78,12 @@ class _PermissiveInstrumentsCache:
 
 # ---------------------------------------------------------------- fixtures
 
+#: pinned small-account scenario: keeps the over-cap CLAMP path exercised at a
+#: balance where allocation (1.0 x balance) vastly exceeds the per-trade cap;
+#: NOT the declared account size — deliberately decoupled from
+#: `paper_initial_balance` so the forced-breach arithmetic stays exact.
+_PINNED_SMALL_BALANCE_USD = 100.0
+
 
 @pytest.fixture
 def trader():
@@ -89,14 +95,15 @@ def _make_trade_setup(entry_price: float = 60000.0) -> TradeSetup:
     """Construct a TradeSetup whose sizing math will exceed the per-trade cap
     (updated 2026-07-28: the cap now CLAMPS instead of rejecting).
 
-    With paper_engine.get_balance() = 100.0 and default max_risk_per_trade=0.02
-    the cap is $2. We force position_value far above $2 by:
+    With the pinned small balance ($100) the cap is balance x
+    max_risk_per_trade (e.g. $10 at the 10% paper default, $2 at a 2% LIVE
+    floor). We force position_value far above the cap by:
       - symbol_allocation defaults to 1.0/len(trading_symbols); for the single
-        ["BTCUSDT"] trader that's 1.0 → allocated_capital = $100.
+        ["BTCUSDT"] trader that's 1.0 → allocated_capital = the full balance.
       - leverage_enabled is False by default, so leverage = 1.0.
       - heat_multiplier defaults to 1.0 unless heat manager intervenes.
-      - position_value = allocated_capital * leverage * heat_multiplier = $100,
-        which is >> $2 cap.
+      - position_value = allocated_capital * leverage * heat_multiplier = the
+        full balance, which is >> the cap at any cap fraction <= 50%.
     The `position_size_pct` field below is decorative for the cap-check path
     (cap-check uses position_value from the sizing math at :1898-1907, not
     position_size_pct directly), but TradeSetup requires it to be set.
@@ -116,7 +123,7 @@ def _make_trade_setup(entry_price: float = 60000.0) -> TradeSetup:
     )
 
 
-def _patch_breach_path_deps(monkeypatch, trader, *, balance: float = 100.0):
+def _patch_breach_path_deps(monkeypatch, trader, *, balance: float = _PINNED_SMALL_BALANCE_USD):
     """Stub the dependencies _execute_trade_with_setup pulls from on the
     pre-cap-check path so the function reaches the cap-check without touching
     real services. Mirrors test_auto_trader_min_notional.py:250-279 but tuned
@@ -158,10 +165,8 @@ def _patch_breach_path_deps(monkeypatch, trader, *, balance: float = 100.0):
     trader._check_symbol_cooldown = MagicMock(return_value=True)
 
     # The portfolio-heat manager: allow with multiplier 1.0 so position_value
-    # remains at $100 (> $2 cap).
-    trader.portfolio_heat_manager.can_open_trade = MagicMock(
-        return_value=(True, "OK", 1.0)
-    )
+    # remains at the full patched balance (> the per-trade cap).
+    trader.portfolio_heat_manager.can_open_trade = MagicMock(return_value=(True, "OK", 1.0))
     trader.portfolio_heat_manager.get_combined_size_multiplier = MagicMock(
         return_value=(
             1.0,
@@ -185,18 +190,14 @@ def _patch_breach_path_deps(monkeypatch, trader, *, balance: float = 100.0):
     trader.kill_switch.should_halt_trading = MagicMock(return_value=False)
 
     # Slippage manager: don't recommend limit (we're checking cap-check, not slippage).
-    trader.slippage_manager.should_use_limit_order = MagicMock(
-        return_value=(False, "no")
-    )
+    trader.slippage_manager.should_use_limit_order = MagicMock(return_value=(False, "no"))
 
     # Instruments cache: a permissive spec so the venue gates downstream of the
     # cap check wave the (clamped) order through — this test is about the CLAMP
     # log, not about min-notional. Required since review I12 made a missing spec
     # fail CLOSED in PAPER; before that the unstubbed cache timed out reaching
     # the connector and fell through fail-open.
-    monkeypatch.setattr(
-        "app.main.get_instruments_cache", lambda: _PermissiveInstrumentsCache()
-    )
+    monkeypatch.setattr("app.main.get_instruments_cache", lambda: _PermissiveInstrumentsCache())
 
     return paper_engine, position_mgr
 
@@ -214,16 +215,14 @@ async def test_per_trade_cap_clamp_log_survives_to_caplog(trader, monkeypatch, c
     the clamped size (previously the cap rejected the trade outright).
     """
     paper_engine, position_mgr = _patch_breach_path_deps(
-        monkeypatch, trader, balance=100.0
+        monkeypatch, trader, balance=_PINNED_SMALL_BALANCE_USD
     )
 
     # Side-effect free notification stub so the post-FILLED path doesn't
     # explode — we assert on the cap-check behavior, not the post-fill
     # bookkeeping.
     trader.notification_client = MagicMock()
-    trader.notification_client.notify_trade_open = AsyncMock(
-        return_value={"success": True}
-    )
+    trader.notification_client.notify_trade_open = AsyncMock(return_value={"success": True})
     trader.kill_switch.update_metrics = MagicMock(return_value=[])
 
     trade_setup = _make_trade_setup(entry_price=60000.0)
@@ -240,16 +239,12 @@ async def test_per_trade_cap_clamp_log_survives_to_caplog(trader, monkeypatch, c
         # Post-FILLED branches touch services not stubbed here; we only assert
         # about the cap-check → CLAMP-log → submit path.
         try:
-            await trader._execute_trade_with_setup(
-                symbol="BTCUSDT", trade_setup=trade_setup
-            )
+            await trader._execute_trade_with_setup(symbol="BTCUSDT", trade_setup=trade_setup)
         except Exception:
             pass
 
     # Primary D-10 assertion: CLAMP log line reached caplog.
-    assert any(
-        "[RISK_GATE] PER_TRADE_CAP CLAMP" in rec.message for rec in caplog.records
-    ), (
+    assert any("[RISK_GATE] PER_TRADE_CAP CLAMP" in rec.message for rec in caplog.records), (
         f"WARNING CLAMP log line swallowed; "
         f"got {len(caplog.records)} records: "
         f"{[(r.levelname, r.name, r.message[:80]) for r in caplog.records]!r}. "
@@ -277,7 +272,8 @@ async def test_per_trade_cap_clamp_log_survives_to_caplog(trader, monkeypatch, c
     cap_fraction = float(trader.settings.max_risk_per_trade)
     if str(trader.settings.trading_mode).upper() == "LIVE":
         cap_fraction = min(cap_fraction, 0.02)
-    expected_qty = (100.0 * cap_fraction) / 60000.0
+    # Derived from the PATCHED balance above, not from the declared account.
+    expected_qty = (_PINNED_SMALL_BALANCE_USD * cap_fraction) / 60000.0
     paper_engine.execute_market_order.assert_awaited_once()
     submitted_order = paper_engine.execute_market_order.await_args.args[0]
     assert float(submitted_order.quantity) == pytest.approx(expected_qty, rel=1e-6), (
@@ -288,9 +284,7 @@ async def test_per_trade_cap_clamp_log_survives_to_caplog(trader, monkeypatch, c
 
 
 @pytest.mark.asyncio
-async def test_per_trade_cap_within_limit_does_not_emit_breach_log(
-    trader, monkeypatch, caplog
-):
+async def test_per_trade_cap_within_limit_does_not_emit_breach_log(trader, monkeypatch, caplog):
     """Negative complement: when position_value <= cap_value the BREACH log
     must NOT appear. Defends against an over-eager rewrite that would emit
     the log unconditionally.
@@ -304,9 +298,7 @@ async def test_per_trade_cap_within_limit_does_not_emit_breach_log(
 
     # Shrink the BTCUSDT allocation so position_value (= allocation × balance)
     # stays well under cap_value (= 2% × balance).
-    monkeypatch.setattr(
-        trader.settings, "symbol_allocations", {"BTCUSDT": 0.001}, raising=False
-    )
+    monkeypatch.setattr(trader.settings, "symbol_allocations", {"BTCUSDT": 0.001}, raising=False)
 
     # The under-cap path will continue into order submission — restore a
     # normal AsyncMock (no AssertionError side-effect this time).
@@ -324,9 +316,7 @@ async def test_per_trade_cap_within_limit_does_not_emit_breach_log(
     # explode after the cap-check passes. We DON'T care about those branches
     # for this negative assertion — just don't crash.
     trader.notification_client = MagicMock()
-    trader.notification_client.notify_trade_open = AsyncMock(
-        return_value={"success": True}
-    )
+    trader.notification_client.notify_trade_open = AsyncMock(return_value={"success": True})
 
     trade_setup = _make_trade_setup(entry_price=60000.0)
 
@@ -334,15 +324,11 @@ async def test_per_trade_cap_within_limit_does_not_emit_breach_log(
         # Wrap in try/except — post-FILLED branches touch lots of services we
         # haven't stubbed; we only assert about caplog, not the call's outcome.
         try:
-            await trader._execute_trade_with_setup(
-                symbol="BTCUSDT", trade_setup=trade_setup
-            )
+            await trader._execute_trade_with_setup(symbol="BTCUSDT", trade_setup=trade_setup)
         except Exception:
             pass
 
-    assert not any(
-        "[RISK_GATE] PER_TRADE_CAP BREACH" in rec.message for rec in caplog.records
-    ), (
+    assert not any("[RISK_GATE] PER_TRADE_CAP BREACH" in rec.message for rec in caplog.records), (
         f"BREACH log emitted when position_value <= cap_value (false positive). "
         f"Records: {[r.message[:80] for r in caplog.records]!r}"
     )

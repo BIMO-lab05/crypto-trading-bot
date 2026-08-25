@@ -21,6 +21,11 @@ from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 BALANCE = Decimal(str(ACCOUNT_EQUITY_USD))
 
+# Entry price chosen so quantity 0.1 puts 90% of the account in one position
+# (breaches the 80% exposure cap) at ANY declared balance — the old literal
+# "900" encoded 90% of the $100-era account and stopped breaching at $10,000.
+ENTRY_PRICE_90PCT = str(BALANCE * Decimal("9"))
+
 
 def _position(entry_price: str, quantity: str, remaining: str | None = None):
     p = MagicMock()
@@ -54,23 +59,22 @@ def risk_manager():
 
 def test_scaled_out_position_frees_its_exposure(risk_manager):
     """Original notional breaches the cap; remaining does not."""
-    # $90 original on a $100 account = 90% > 80% cap.
-    # After a 2/3 scale-out only $30 (30%) is still open.
-    position = _position("900", "0.1", remaining="0.0333333")
+    # 90% of the account originally = above the 80% cap.
+    # After a 2/3 scale-out only 30% is still open.
+    position = _position(ENTRY_PRICE_90PCT, "0.1", remaining="0.0333333")
 
     allowed, reason = risk_manager.check_position_limits(
         current_positions=[position], account_balance=BALANCE
     )
 
     assert allowed is True, (
-        f"a two-thirds scaled-out position still occupied its full entry "
-        f"notional: {reason}"
+        f"a two-thirds scaled-out position still occupied its full entry notional: {reason}"
     )
 
 
 def test_unscaled_position_still_breaches(risk_manager):
     """The gate must still bite when nothing has been scaled out."""
-    position = _position("900", "0.1", remaining="0.1")
+    position = _position(ENTRY_PRICE_90PCT, "0.1", remaining="0.1")
 
     allowed, reason = risk_manager.check_position_limits(
         current_positions=[position], account_balance=BALANCE
@@ -82,7 +86,7 @@ def test_unscaled_position_still_breaches(risk_manager):
 
 def test_missing_remaining_quantity_falls_back_to_original(risk_manager):
     """DB-hydrated rows can bypass __init__; None must mean 'use quantity'."""
-    position = _position("900", "0.1", remaining=None)
+    position = _position(ENTRY_PRICE_90PCT, "0.1", remaining=None)
 
     allowed, reason = risk_manager.check_position_limits(
         current_positions=[position], account_balance=BALANCE

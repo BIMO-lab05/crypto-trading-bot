@@ -10,6 +10,8 @@ import pytest
 import asyncio
 from decimal import Decimal
 
+from shared.account import MAX_RISK_PER_TRADE  # noqa: F401
+
 from tests.e2e.utils.wait_for_health import poll_until
 from tests.e2e.utils.assertions import (
     assert_trade_executed,
@@ -392,7 +394,10 @@ async def test_stop_loss_triggers_on_losing_trade(
     final_balance = await portfolio_client.get_balance()
     pnl = final_balance - initial_balance
 
-    assert_pnl_negative(pnl, max_loss=initial_balance * Decimal("0.05"))  # Max 5% loss
+    # Bound = per-trade risk cap (MAX_RISK_PER_TRADE fraction, 0.10 paper per
+    # ADR-010) — this is one trade's stop-loss, so the per-trade cap applies,
+    # not the 12% daily breaker (ADR-028). Old hardcoded 5% matched neither.
+    assert_pnl_negative(pnl, max_loss=initial_balance * Decimal(str(MAX_RISK_PER_TRADE)))
 
     print(f"\n🛡️ Stop-loss triggered successfully")
     print(f"Loss limited to: ${abs(pnl)} ({abs(pnl)/initial_balance*100:.2f}%)")

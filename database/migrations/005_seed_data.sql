@@ -21,8 +21,8 @@ INSERT INTO portfolios (
 VALUES (
     'default',
     'Default Paper Trading Portfolio',
-    100.00,
-    100.00,
+    10000.00,  -- must equal shared/account.py PAPER_INITIAL_BALANCE (ADR-029)
+    10000.00,
     'PAPER'
 )
 ON CONFLICT (portfolio_id) DO NOTHING;
@@ -31,5 +31,5 @@ ON CONFLICT (portfolio_id) DO NOTHING;
 DO $$
 BEGIN
     RAISE NOTICE '✅ Migration 005 completed: Initial data seeded';
-    RAISE NOTICE 'Default portfolio created with $100 balance';
+    RAISE NOTICE 'Default portfolio created with $10,000 balance (ADR-029; shared/account.py is the declaration of record)';
 END $$;

@@ -187,11 +187,11 @@ import sys, json
 try:
     data = json.load(sys.stdin)
     print(f\"BALANCE_TOTAL:{data.get('total_balance', 0)}\")
-    print(f\"BALANCE_INITIAL:{data.get('initial_balance', 10000)}\")
+    print(f\"BALANCE_INITIAL:{data.get('initial_balance', __import__('shared.account', fromlist=['ACCOUNT_EQUITY_USD']).ACCOUNT_EQUITY_USD)}\")
     print(f\"BALANCE_AVAILABLE:{data.get('available_balance', 0)}\")
 
     total = data.get('total_balance', 0)
-    initial = data.get('initial_balance', 10000)
+    initial = data.get('initial_balance', __import__('shared.account', fromlist=['ACCOUNT_EQUITY_USD']).ACCOUNT_EQUITY_USD)
     pnl = total - initial
     pnl_pct = (pnl / initial * 100) if initial > 0 else 0
 
@@ -358,7 +358,7 @@ generate_report() {
         echo "💰 PORTFOLIO"
         echo "────────────────────────────────────────────────────────────"
         echo "  Total Balance:     \$${BALANCE_TOTAL:-0}"
-        echo "  Initial Balance:   \$${BALANCE_INITIAL:-10000}"
+        echo "  Initial Balance:   \$${BALANCE_INITIAL:-unknown}"
         echo "  Available:         \$${BALANCE_AVAILABLE:-0}"
 
         local pnl_indicator="📈"

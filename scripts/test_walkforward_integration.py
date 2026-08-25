@@ -37,6 +37,16 @@ from backtesting.optimizers.walk_forward_optimizer import (
 )
 from backtesting.backtest_engine import BacktestEngine
 
+# Declared account size (see shared/account.py).
+import os as _os
+import sys as _sys
+
+_REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -311,7 +321,7 @@ def main():
     # Step 4: Create backtest engine
     logger.info("\nSTEP 4: Creating backtest engine...")
     backtest_engine = BacktestEngine(
-        initial_capital=10000.0,
+        initial_capital=ACCOUNT_EQUITY_USD,
         commission=0.001,  # 0.1%
         slippage=0.0005    # 0.05%
     )

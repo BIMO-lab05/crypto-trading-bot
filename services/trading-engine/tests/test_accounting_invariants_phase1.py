@@ -160,9 +160,7 @@ async def test_close_persists_net_realized_pnl_and_fees(stack):
     pct = engine.commission_pct  # Decimal fraction per side
     leverage = Decimal(str(engine.settings.default_leverage))
 
-    order, err = await engine.execute_market_order(
-        _buy("ETHUSDT", "0.01"), Decimal("2000")
-    )
+    order, err = await engine.execute_market_order(_buy("ETHUSDT", "0.01"), Decimal("2000"))
     assert err is None
     entry_fee = Decimal("2000") * Decimal("0.01") * pct
 
@@ -177,8 +175,7 @@ async def test_close_persists_net_realized_pnl_and_fees(stack):
 
     closed = stack.manager.get_position(order.position_id)
     assert closed.realized_pnl == expected_net, (
-        f"in-memory realized_pnl must be net of both fees: "
-        f"{closed.realized_pnl} != {expected_net}"
+        f"in-memory realized_pnl must be net of both fees: {closed.realized_pnl} != {expected_net}"
     )
 
     await _drain_tasks()
@@ -231,9 +228,7 @@ async def test_portfolio_realized_pnl_accumulates_across_closes(stack):
         )
         assert err2 is None
         gross = (exit_ - entry) * Decimal("0.01")
-        nets.append(
-            gross - entry * Decimal("0.01") * pct - exit_ * Decimal("0.01") * pct
-        )
+        nets.append(gross - entry * Decimal("0.01") * pct - exit_ * Decimal("0.01") * pct)
 
     await _drain_tasks()
 
@@ -288,9 +283,7 @@ async def test_close_persists_position_before_portfolio_ledger(stack):
     stack.position_repo.close.side_effect = _mark_close
     stack.portfolio_repo.record_position_close.side_effect = _mark_ledger
 
-    order, err = await engine.execute_market_order(
-        _buy("ETHUSDT", "0.01"), Decimal("2000")
-    )
+    order, err = await engine.execute_market_order(_buy("ETHUSDT", "0.01"), Decimal("2000"))
     assert err is None
     _, err2 = await engine.execute_market_order(
         _sell("ETHUSDT", "0.01", position_id=order.position_id, reduce_only=True),
@@ -315,9 +308,7 @@ async def test_reduce_position_persists_remaining_and_incremental_net(stack):
     engine = stack.engine
     pct = engine.commission_pct
 
-    order, err = await engine.execute_market_order(
-        _buy("SOLUSDT", "1.0"), Decimal("70")
-    )
+    order, err = await engine.execute_market_order(_buy("SOLUSDT", "1.0"), Decimal("70"))
     assert err is None
     entry_fee = Decimal("70") * Decimal("1.0") * pct
 
@@ -461,9 +452,7 @@ async def test_remaining_quantity_survives_simulated_reload(stack):
         assert close_args.kwargs["exit_fee"] == prior_exit_fee + final_exit_fee_leg
         # Portfolio delta at close = the position's TOTAL net (partials
         # included), sourced from the persisted row — restart-proof.
-        delta = stack.portfolio_repo.record_position_close.await_args.kwargs[
-            "realized_pnl_delta"
-        ]
+        delta = stack.portfolio_repo.record_position_close.await_args.kwargs["realized_pnl_delta"]
         assert delta == prior_net + final_net_leg
     finally:
         paper_trading_module._paper_engine = saved
@@ -492,9 +481,7 @@ async def test_entry_fee_fully_attributed_across_scale_in_after_partial_exit(sta
     opening_balance = engine.balance
 
     # ---- leg 1: open 10 @ 1.00 ------------------------------------------
-    order, err = await engine.execute_market_order(
-        _buy("ADAUSDT", "10"), Decimal("1.00")
-    )
+    order, err = await engine.execute_market_order(_buy("ADAUSDT", "10"), Decimal("1.00"))
     assert err is None
     pid = order.position_id
     entry_fee_1 = Decimal("1.00") * Decimal("10") * pct
@@ -517,8 +504,7 @@ async def test_entry_fee_fully_attributed_across_scale_in_after_partial_exit(sta
     position = stack.manager.get_position(pid)
     assert position.remaining_quantity == Decimal("15")
     assert position.entry_price == Decimal("2.00"), (
-        "weighted-average entry drifted; the rest of this test's arithmetic "
-        "assumes it is exact"
+        "weighted-average entry drifted; the rest of this test's arithmetic assumes it is exact"
     )
 
     # ---- leg 4: close the remaining 15 @ 3.00 ---------------------------
@@ -543,9 +529,7 @@ async def test_entry_fee_fully_attributed_across_scale_in_after_partial_exit(sta
     )
 
     # (2) Reported net P&L is gross minus every fee, both legs of both entries.
-    expected_net = (
-        gross_1 + gross_2 - exit_fee_1 - exit_fee_2 - entry_fee_1 - entry_fee_2
-    )
+    expected_net = gross_1 + gross_2 - exit_fee_1 - exit_fee_2 - entry_fee_1 - entry_fee_2
     assert closed.realized_pnl == expected_net
 
     # (3) Stated directly: every unit of entry commission paid was attributed
@@ -564,9 +548,7 @@ async def test_entry_fee_attribution_unchanged_without_scale_in(stack):
     engine = stack.engine
     pct = engine.commission_pct
 
-    order, err = await engine.execute_market_order(
-        _buy("SOLUSDT", "1.0"), Decimal("70")
-    )
+    order, err = await engine.execute_market_order(_buy("SOLUSDT", "1.0"), Decimal("70"))
     assert err is None
     pid = order.position_id
     entry_fee = Decimal("70") * Decimal("1.0") * pct
@@ -624,7 +606,9 @@ class TestCapitalEnvBootValidation:
         monkeypatch.setattr(config_module, "_running_in_container", lambda: True)
         for key in config_module.REQUIRED_CAPITAL_ENV_VARS:
             monkeypatch.delenv(key, raising=False)
-        monkeypatch.setenv("PAPER_INITIAL_BALANCE", "100.0")
+        # Sentinel unequal to BOTH the old ($100) and current declared defaults,
+        # so this proves presence-detection rather than accidentally matching one.
+        monkeypatch.setenv("PAPER_INITIAL_BALANCE", "12345.0")
 
         with pytest.raises(RuntimeError) as exc:
             config_module.assert_capital_env_present()
@@ -633,7 +617,7 @@ class TestCapitalEnvBootValidation:
 
     def test_full_env_passes(self, monkeypatch):
         monkeypatch.setattr(config_module, "_running_in_container", lambda: True)
-        monkeypatch.setenv("PAPER_INITIAL_BALANCE", "100.0")
+        monkeypatch.setenv("PAPER_INITIAL_BALANCE", "12345.0")
         monkeypatch.setenv("MAX_RISK_PER_TRADE", "0.10")
         monkeypatch.setenv("MAX_DAILY_LOSS_PCT", "12.0")
         monkeypatch.setenv("MAX_POSITION_SIZE_PCT", "10.0")
@@ -647,6 +631,29 @@ class TestCapitalEnvBootValidation:
         saved = config_module._settings
         try:
             settings = config_module.reload_settings()  # must not raise
-            assert settings.paper_initial_balance == 100.0
+            # With no capital env present, the declared Settings default is what
+            # a host run gets — routed, never a hand-written account figure.
+            assert (
+                settings.paper_initial_balance
+                == Settings.model_fields["paper_initial_balance"].default
+            )
+        finally:
+            config_module._settings = saved
+
+    def test_env_override_beats_default_on_host(self, monkeypatch):
+        """PAPER_INITIAL_BALANCE from the environment must win over the declared
+        default. Sentinel 12345.0 is unequal to BOTH the old ($100) and the
+        current declared account size, so this proves override-beats-default in
+        either world instead of passing by coincidence."""
+        monkeypatch.setattr(config_module, "_running_in_container", lambda: False)
+        monkeypatch.setenv("PAPER_INITIAL_BALANCE", "12345.0")
+        saved = config_module._settings
+        try:
+            settings = config_module.reload_settings()
+            assert settings.paper_initial_balance == 12345.0
+            assert (
+                settings.paper_initial_balance
+                != Settings.model_fields["paper_initial_balance"].default
+            )
         finally:
             config_module._settings = saved

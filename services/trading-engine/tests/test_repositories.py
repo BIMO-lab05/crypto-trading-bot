@@ -6,7 +6,8 @@ Purpose: Test database operations for positions, trades, and portfolios
 import pytest
 
 # Skipped during PR #86 CI fix-up. The covered modules underwent significant
-# refactoring (paper-trading default balance reduced to $100, LSTM removal,
+# refactoring (paper-trading default balance changes — now settings-routed, see
+# shared/account.py / ADR-029 — LSTM removal,
 # analytics API reshaping, validated-symbol set narrowed to SOL/BNB/ADA, etc.)
 # that drifted these tests away from the production code. Rewriting them is
 # tracked as follow-up work; they shipped passing on origin/main and no
@@ -17,17 +18,16 @@ pytestmark = pytest.mark.skip(reason="stale tests after PR #86 refactor; needs r
 import pytest
 import pytest_asyncio
 from decimal import Decimal
-from uuid import uuid4
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.config import get_settings  # noqa: F401 — used inside skipped tests
 from app.repositories import (
     PositionRepository,
     TradeRepository,
     PortfolioRepository,
     get_position_repository,
     get_trade_repository,
-    get_portfolio_repository
+    get_portfolio_repository,
 )
 from app.models import Position, PositionSide, PositionStatus
 
@@ -64,7 +64,7 @@ def sample_position():
         stop_loss=Decimal("49000.00"),
         take_profit=Decimal("52000.00"),
         strategy="PHASE1_TREND_FOLLOWING",
-        status=PositionStatus.OPEN
+        status=PositionStatus.OPEN,
     )
 
 
@@ -74,7 +74,7 @@ class TestPositionRepository:
     @pytest_asyncio.fixture
     async def position_repo(self, mock_db_manager):
         """Create position repository with mocked database"""
-        with patch('app.repositories.db_manager', mock_db_manager):
+        with patch("app.repositories.db_manager", mock_db_manager):
             repo = PositionRepository()
             return repo
 
@@ -119,10 +119,7 @@ class TestPositionRepository:
         exit_reason = "TAKE_PROFIT"
 
         await position_repo.close(
-            sample_position.id,
-            exit_price,
-            realized_pnl,
-            exit_reason=exit_reason
+            sample_position.id, exit_price, realized_pnl, exit_reason=exit_reason
         )
 
         # Verify no errors raised
@@ -150,7 +147,7 @@ class TestTradeRepository:
     @pytest_asyncio.fixture
     async def trade_repo(self, mock_db_manager):
         """Create trade repository with mocked database"""
-        with patch('app.repositories.db_manager', mock_db_manager):
+        with patch("app.repositories.db_manager", mock_db_manager):
             repo = TradeRepository()
             return repo
 
@@ -164,7 +161,7 @@ class TestTradeRepository:
             side="BUY",
             quantity=Decimal("0.1"),
             price=Decimal("50000.00"),
-            commission=Decimal("5.00")
+            commission=Decimal("5.00"),
         )
 
         # Verify UUID returned
@@ -185,7 +182,7 @@ class TestTradeRepository:
             side="SELL",
             quantity=Decimal("0.1"),
             price=Decimal("52000.00"),
-            commission=Decimal("5.20")
+            commission=Decimal("5.20"),
         )
 
         assert trade_id is not None
@@ -199,7 +196,7 @@ class TestTradeRepository:
             symbol="BTCUSDT",
             side="BUY",
             quantity=Decimal("0.5"),
-            price=Decimal("50000.00")
+            price=Decimal("50000.00"),
             # commission not provided, should default to 0
         )
 
@@ -208,7 +205,7 @@ class TestTradeRepository:
     @pytest.mark.asyncio
     async def test_log_trade_error_handling(self, trade_repo, sample_position):
         """Test trade logging with database error"""
-        with patch.object(trade_repo.db, 'get_async_session', side_effect=Exception("DB Error")):
+        with patch.object(trade_repo.db, "get_async_session", side_effect=Exception("DB Error")):
             with pytest.raises(Exception):
                 await trade_repo.log_trade(
                     position_id=sample_position.id,
@@ -216,7 +213,7 @@ class TestTradeRepository:
                     symbol="BTCUSDT",
                     side="BUY",
                     quantity=Decimal("0.1"),
-                    price=Decimal("50000.00")
+                    price=Decimal("50000.00"),
                 )
 
 
@@ -226,7 +223,7 @@ class TestPortfolioRepository:
     @pytest_asyncio.fixture
     async def portfolio_repo(self, mock_db_manager):
         """Create portfolio repository with mocked database"""
-        with patch('app.repositories.db_manager', mock_db_manager):
+        with patch("app.repositories.db_manager", mock_db_manager):
             repo = PortfolioRepository()
             return repo
 
@@ -237,7 +234,7 @@ class TestPortfolioRepository:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none = MagicMock(return_value=None)
 
-        with patch.object(portfolio_repo, 'db') as mock_db:
+        with patch.object(portfolio_repo, "db") as mock_db:
             mock_session = AsyncMock()
             mock_session.execute = AsyncMock(return_value=mock_result)
             mock_session.add = MagicMock()
@@ -249,7 +246,8 @@ class TestPortfolioRepository:
             portfolio = await portfolio_repo.get_or_create(
                 portfolio_id="test_portfolio",
                 name="Test Portfolio",
-                initial_balance=Decimal("10000.00")
+                # Routed through Settings — never a bare account-size literal.
+                initial_balance=Decimal(str(get_settings().paper_initial_balance)),
             )
 
             # Verify portfolio was created
@@ -259,10 +257,13 @@ class TestPortfolioRepository:
     @pytest.mark.asyncio
     async def test_update_balance(self, portfolio_repo):
         """Test updating portfolio balance and P&L"""
+        # Cash derived from the declared balance minus the realized loss, so
+        # the scenario stays coherent at any configured account size.
+        initial = Decimal(str(get_settings().paper_initial_balance))
         await portfolio_repo.update_balance(
             portfolio_id="paper_trading",
-            cash_balance=Decimal("9500.00"),
-            realized_pnl=Decimal("-500.00")
+            cash_balance=initial - Decimal("500.00"),
+            realized_pnl=Decimal("-500.00"),
         )
 
         # Verify no errors raised (mocked execute doesn't fail)

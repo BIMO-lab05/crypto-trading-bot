@@ -22,6 +22,16 @@ import logging
 from backtesting.portfolio.portfolio_backtest import PortfolioBacktestEngine, PortfolioMetrics
 from backtesting.portfolio.strategy_allocation import StrategyAllocator, AllocationResult
 
+# Declared account size (see shared/account.py).
+import os as _os
+import sys as _sys
+
+_REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -98,7 +108,7 @@ def test_portfolio_backtest():
 
         # Create portfolio engine
         portfolio = PortfolioBacktestEngine(
-            initial_capital=10000.0,
+            initial_capital=ACCOUNT_EQUITY_USD,
             commission=0.001,
             slippage=0.0005
         )

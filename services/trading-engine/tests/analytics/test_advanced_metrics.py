@@ -56,6 +56,10 @@ from app.analytics.advanced_metrics import (
     get_advanced_metrics_calculator,
     reset_advanced_metrics_calculator,
 )
+from app.config import get_settings
+
+# Account-size fixture routed through Settings (ADR-029) - never a bare literal.
+INITIAL_CAPITAL = float(get_settings().paper_initial_balance)
 
 
 # =============================================================================
@@ -108,7 +112,7 @@ def sample_trades() -> List[TradeMetadata]:
             trade_id=f"tr_eth_{i}",
             timestamp=base_time + timedelta(days=15 + i),
             pnl=pnl,
-            pnl_pct=pnl / 10000,
+            pnl_pct=pnl / INITIAL_CAPITAL,
             strategy="mean_reversion",
             symbol="ETHUSDT",
             direction="short" if i % 2 == 0 else "long",
@@ -123,7 +127,7 @@ def sample_trades() -> List[TradeMetadata]:
             trade_id=f"tr_sol_{i}",
             timestamp=base_time + timedelta(days=23 + i),
             pnl=pnl,
-            pnl_pct=pnl / 10000,
+            pnl_pct=pnl / INITIAL_CAPITAL,
             strategy="pairs_trading",
             symbol="SOLUSDT",
             direction="long",
@@ -149,7 +153,7 @@ def benchmark_returns() -> List[float]:
 def calculator() -> AdvancedMetricsCalculator:
     """Create a fresh calculator instance for testing"""
     return AdvancedMetricsCalculator(
-        initial_capital=10000.0,
+        initial_capital=INITIAL_CAPITAL,
         risk_free_rate=0.02,
         rolling_window=10,  # Smaller window for testing
     )
@@ -173,7 +177,7 @@ class TestInstantiation:
     def test_basic_instantiation(self):
         """Test basic instantiation with default parameters"""
         calc = AdvancedMetricsCalculator()
-        assert calc.initial_capital == 10000.0
+        assert calc.initial_capital == INITIAL_CAPITAL
         assert calc.risk_free_rate == 0.02
         assert calc.rolling_window == 30
         assert calc.annualization_factor == 252
@@ -193,14 +197,14 @@ class TestInstantiation:
 
     def test_singleton_pattern(self):
         """Test that get_advanced_metrics_calculator returns singleton"""
-        calc1 = get_advanced_metrics_calculator(initial_capital=10000.0)
+        calc1 = get_advanced_metrics_calculator(initial_capital=INITIAL_CAPITAL)
         calc2 = get_advanced_metrics_calculator(initial_capital=50000.0)  # Should be ignored
         assert calc1 is calc2
-        assert calc1.initial_capital == 10000.0
+        assert calc1.initial_capital == INITIAL_CAPITAL
 
     def test_singleton_reset(self):
         """Test singleton reset creates new instance"""
-        calc1 = get_advanced_metrics_calculator(initial_capital=10000.0)
+        calc1 = get_advanced_metrics_calculator(initial_capital=INITIAL_CAPITAL)
         reset_advanced_metrics_calculator()
         calc2 = get_advanced_metrics_calculator(initial_capital=50000.0)
         assert calc1 is not calc2
@@ -211,8 +215,8 @@ class TestInstantiation:
         summary = calculator.get_summary()
         assert summary["total_trades"] == 0
         assert summary["total_pnl"] == 0.0
-        assert summary["current_equity"] == 10000.0
-        assert summary["peak_equity"] == 10000.0
+        assert summary["current_equity"] == INITIAL_CAPITAL
+        assert summary["peak_equity"] == INITIAL_CAPITAL
         assert summary["current_drawdown"] == 0.0
 
 
@@ -406,7 +410,7 @@ class TestRiskMetrics:
             TradeMetadata(
                 trade_id="tr_1",
                 timestamp=datetime.now(timezone.utc),
-                pnl=500.0,  # Equity: 10500
+                pnl=500.0,  # Equity: initial + 500 (peak)
                 pnl_pct=0.05,
                 strategy="test",
                 symbol="TEST",
@@ -416,7 +420,7 @@ class TestRiskMetrics:
             TradeMetadata(
                 trade_id="tr_2",
                 timestamp=datetime.now(timezone.utc) + timedelta(hours=1),
-                pnl=-300.0,  # Equity: 10200, DD from 10500
+                pnl=-300.0,  # DD from peak
                 pnl_pct=-0.03,
                 strategy="test",
                 symbol="TEST",
@@ -426,7 +430,7 @@ class TestRiskMetrics:
             TradeMetadata(
                 trade_id="tr_3",
                 timestamp=datetime.now(timezone.utc) + timedelta(hours=2),
-                pnl=-200.0,  # Equity: 10000, DD from 10500
+                pnl=-200.0,  # deeper DD from peak
                 pnl_pct=-0.02,
                 strategy="test",
                 symbol="TEST",
@@ -438,7 +442,7 @@ class TestRiskMetrics:
         calculator.add_trades_batch(trades)
         metrics = calculator.get_risk_metrics()
 
-        # Max drawdown should be approximately -4.76% (500 loss from 10500 peak)
+        # Max drawdown: 500 loss from the initial+500 peak
         assert metrics.max_drawdown < 0
 
     def test_volatility_calculation(self, calculator, sample_trades):
@@ -796,7 +800,7 @@ class TestStatePersistence:
         calculator.add_trades_batch(sample_trades)
         state = calculator.get_state()
 
-        assert state["initial_capital"] == 10000.0
+        assert state["initial_capital"] == INITIAL_CAPITAL
         assert state["risk_free_rate"] == 0.02
         assert len(state["trades"]) == len(sample_trades)
         assert "benchmark_returns" in state
@@ -804,7 +808,7 @@ class TestStatePersistence:
     def test_load_state(self, sample_trades):
         """Test loading state into new calculator"""
         # Create and populate original calculator
-        calc1 = AdvancedMetricsCalculator(initial_capital=10000.0)
+        calc1 = AdvancedMetricsCalculator(initial_capital=INITIAL_CAPITAL)
         calc1.add_trades_batch(sample_trades)
         state = calc1.get_state()
 
@@ -813,7 +817,7 @@ class TestStatePersistence:
         calc2.load_state(state)
 
         # Verify state was loaded correctly
-        assert calc2.initial_capital == 10000.0
+        assert calc2.initial_capital == INITIAL_CAPITAL
         summary1 = calc1.get_summary()
         summary2 = calc2.get_summary()
         assert summary1["total_trades"] == summary2["total_trades"]
@@ -827,7 +831,7 @@ class TestStatePersistence:
         summary = calculator.get_summary()
         assert summary["total_trades"] == 0
         assert summary["total_pnl"] == 0.0
-        assert summary["current_equity"] == 10000.0
+        assert summary["current_equity"] == INITIAL_CAPITAL
 
 
 # =============================================================================
@@ -839,7 +843,7 @@ class TestThreadSafety:
 
     def test_concurrent_trade_additions(self):
         """Test thread safety of concurrent trade additions"""
-        calc = AdvancedMetricsCalculator(initial_capital=10000.0)
+        calc = AdvancedMetricsCalculator(initial_capital=INITIAL_CAPITAL)
         num_threads = 10
         trades_per_thread = 100
 
@@ -879,7 +883,7 @@ class TestThreadSafety:
         instances = []
 
         def get_instance():
-            calc = get_advanced_metrics_calculator(initial_capital=10000.0)
+            calc = get_advanced_metrics_calculator(initial_capital=INITIAL_CAPITAL)
             instances.append(calc)
 
         threads = [threading.Thread(target=get_instance) for _ in range(10)]

@@ -26,6 +26,16 @@ from app.backtesting.strategy_base import OHLCV
 from app.backtesting.backtest_engine import BacktestEngine, BacktestConfig, BacktestResult
 from app.strategies.grid_trading_strategy import GridTradingStrategy
 
+# Declared account size (see shared/account.py).
+import os as _os
+import sys as _sys
+
+_REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
+
 
 # Configuration constants
 DATA_DIR = Path(__file__).parent.parent / "data" / "historical"
@@ -151,7 +161,7 @@ def optimize_on_window(
 
             # Create backtest config
             backtest_config = BacktestConfig(
-                initial_equity=10000.0,
+                initial_equity=ACCOUNT_EQUITY_USD,
                 commission_pct=0.1,
                 slippage_pct=0.05,
                 max_positions=params["max_positions"],
@@ -191,7 +201,7 @@ def test_on_window(
 
     # Create backtest config
     backtest_config = BacktestConfig(
-        initial_equity=10000.0,
+        initial_equity=ACCOUNT_EQUITY_USD,
         commission_pct=0.1,
         slippage_pct=0.05,
         max_positions=params["max_positions"],

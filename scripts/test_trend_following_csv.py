@@ -30,6 +30,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services', 'tr
 from app.backtesting.backtest_engine import BacktestEngine, BacktestConfig, BacktestResult
 from app.backtesting.strategy_base import OHLCV, StrategyBase, Signal, SignalType
 
+# Declared account size (see shared/account.py).
+import os as _os
+import sys as _sys
+
+_REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
+
 
 class OptimizedTrendFollowingV4(StrategyBase):
     """
@@ -349,7 +359,7 @@ def test_symbol(symbol: str) -> Dict:
 
     # Create config with reasonable position sizing
     config = BacktestConfig(
-        initial_equity=10000.0,
+        initial_equity=ACCOUNT_EQUITY_USD,
         commission_pct=0.1,  # 0.1% commission (Bybit taker fee)
         slippage_pct=0.05,   # 0.05% slippage
         position_size_pct=2.0,  # 2% risk per trade

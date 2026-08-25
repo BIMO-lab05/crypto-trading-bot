@@ -21,6 +21,12 @@ import pandas as pd
 from decimal import Decimal
 from datetime import datetime, timedelta
 
+from app.config import settings
+
+# Account-size fixture routed through this service's Settings
+# (INITIAL_CAPITAL env, mirrored by conftest.py) - never a bare literal.
+PORTFOLIO_VALUE = float(settings.initial_capital)
+
 from app.optimization.portfolio_optimizer import (
     PortfolioOptimizer,
     OptimizationObjective,
@@ -302,13 +308,13 @@ class TestPortfolioOptimizer:
             'BNBUSDT': 0.25
         }
 
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         trades = optimizer.calculate_rebalancing_trades(
             current_weights=current_weights,
             target_weights=target_weights,
             portfolio_value=portfolio_value,
-            min_trade_size=100.0
+            min_trade_size=0.01 * portfolio_value
         )
 
         # Check trades structure
@@ -318,19 +324,19 @@ class TestPortfolioOptimizer:
         if 'BTCUSDT' in trades:
             action, amount = trades['BTCUSDT']
             assert action == "SELL"
-            assert amount == pytest.approx(1000.0, abs=10)  # 10% of 10000
+            assert amount == pytest.approx(0.10 * portfolio_value, rel=0.01)  # 10% shift
 
         # ETHUSDT should be bought (30% -> 35%)
         if 'ETHUSDT' in trades:
             action, amount = trades['ETHUSDT']
             assert action == "BUY"
-            assert amount == pytest.approx(500.0, abs=10)  # 5% of 10000
+            assert amount == pytest.approx(0.05 * portfolio_value, rel=0.01)  # 5% shift
 
         # BNBUSDT should be bought (20% -> 25%)
         if 'BNBUSDT' in trades:
             action, amount = trades['BNBUSDT']
             assert action == "BUY"
-            assert amount == pytest.approx(500.0, abs=10)  # 5% of 10000
+            assert amount == pytest.approx(0.05 * portfolio_value, rel=0.01)  # 5% shift
 
     def test_value_at_risk_calculation(self, optimizer, sample_returns):
         """Test VaR calculation"""
@@ -553,7 +559,7 @@ class TestIntegrationScenarios:
         trades = optimizer.calculate_rebalancing_trades(
             current_weights=current_weights,
             target_weights=result.weights,
-            portfolio_value=10000.0
+            portfolio_value=PORTFOLIO_VALUE
         )
 
         # All steps should complete successfully

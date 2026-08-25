@@ -23,8 +23,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "app"))
 
+from app.config import get_settings
 from app.risk_manager import RiskManager
 from app.models import Position, PositionSide, PositionStatus, SignalAction
+
+#: The declared paper equity, routed through Settings (never a bare literal).
+#: Every dollar figure below is DERIVED from this so the suite re-scales with
+#: the declared account size automatically.
+EQUITY = Decimal(str(get_settings().paper_initial_balance))
 
 
 class TestRiskManager:
@@ -32,9 +38,14 @@ class TestRiskManager:
 
     @pytest.fixture
     def mock_settings(self):
-        """Mock settings configuration"""
+        """Mock settings configuration.
+
+        The risk knobs are explicit SCENARIO parameters (e.g. the 5% daily
+        breaker predates ADR-028's production 12%), but the balance tracks the
+        declared account size via ``EQUITY``.
+        """
         settings = Mock()
-        settings.paper_initial_balance = 100.0
+        settings.paper_initial_balance = float(EQUITY)
         settings.max_position_size_pct = 10.0  # 10% of capital
         settings.max_daily_loss_pct = 5.0  # 5% max daily loss
         settings.default_stop_loss_pct = 2.0  # 2% stop loss
@@ -77,28 +88,26 @@ class TestRiskManager:
 
     def test_update_daily_pnl_small_loss(self, risk_manager):
         """Test updating daily P&L with small loss"""
-        # Loss of $2 (2% of the $100 paper account) - below the 5% breaker.
-        # Was -200.00, sized for a $10,000 account: on $100 that is a 200%
-        # loss, so the breaker correctly fired and the test "failed". The
-        # amount is what was stale, not the risk manager.
-        risk_manager.update_daily_pnl(Decimal("-2.00"))
+        # Loss of 2% of the declared account - below the 5% scenario breaker.
+        small_loss = -(EQUITY * Decimal("0.02"))
+        risk_manager.update_daily_pnl(small_loss)
 
-        assert risk_manager.daily_pnl == Decimal("-2.00")
+        assert risk_manager.daily_pnl == small_loss
         assert risk_manager.trading_halted is False
 
     def test_update_daily_pnl_exceeds_limit(self, risk_manager):
         """Test updating daily P&L exceeds limit halts trading"""
-        # Loss of $600 (6% of $10,000) - exceeds 5% limit
-        risk_manager.update_daily_pnl(Decimal("-600.00"))
+        # Loss of 6% of the declared account - exceeds the 5% scenario limit
+        big_loss = -(EQUITY * Decimal("0.06"))
+        risk_manager.update_daily_pnl(big_loss)
 
-        assert risk_manager.daily_pnl == Decimal("-600.00")
+        assert risk_manager.daily_pnl == big_loss
         assert risk_manager.trading_halted is True
 
     def test_should_halt_trading_below_limit(self, risk_manager):
         """Test should not halt when below loss limit"""
-        # $4 = 4% of the $100 paper account, just under the 5% breaker.
-        # Was -400.00 (4% of $10,000) -- same stale-scaling story.
-        risk_manager.daily_pnl = Decimal("-4.00")
+        # 4% of the declared account, just under the 5% scenario breaker.
+        risk_manager.daily_pnl = -(EQUITY * Decimal("0.04"))
 
         should_halt = risk_manager.should_halt_trading()
 
@@ -106,7 +115,7 @@ class TestRiskManager:
 
     def test_should_halt_trading_at_limit(self, risk_manager):
         """Test should halt when at loss limit"""
-        risk_manager.daily_pnl = Decimal("-500.00")  # 5% loss
+        risk_manager.daily_pnl = -(EQUITY * Decimal("0.05"))  # 5% loss
 
         should_halt = risk_manager.should_halt_trading()
 
@@ -143,32 +152,30 @@ class TestRiskManager:
 
     def test_calculate_position_size_basic(self, risk_manager):
         """Test basic position size calculation"""
-        # 10% of $100 = $10 notional / $50,000 = 0.0002 BTC.
-        #
-        # The balance was migrated 10000 -> 100 with the rest of the paper
-        # account, but this expectation was left at the $10,000 answer (0.02),
-        # so the test failed and was buried under a module-wide skip rather
-        # than corrected. The code was right the whole time.
+        # 10% of the declared equity, as notional, divided by the entry price.
+        # Mirrors the manager's own Decimal arithmetic so it re-scales with
+        # the declared account size.
         quantity = risk_manager.calculate_position_size(
-            account_balance=Decimal("100.00"), entry_price=Decimal("50000.00")
+            account_balance=EQUITY, entry_price=Decimal("50000.00")
         )
 
-        expected = Decimal("10.00") / Decimal("50000.00")
+        expected = EQUITY * Decimal("0.1") / Decimal("50000.00")
         assert quantity == expected
 
     def test_calculate_position_size_with_stop_loss(self, risk_manager):
         """Test position size with stop loss risk calculation"""
         # Entry: $50,000, SL: $49,000 -> risk per unit $1,000.
-        # Max risk: $10 (10% of $100)  -> risk-based quantity 10/1000 = 0.01
-        # Notional cap:  $10 / $50,000                        = 0.0002
-        # Takes the min -> 0.0002. Same stale-expectation story as above.
+        # Max risk: 10% of equity -> risk-based qty = 0.10*E/1000
+        # Notional cap:             0.10*E/50000
+        # The notional cap is always the smaller of the two, so the min is
+        # the notional-capped quantity at any account scale.
         quantity = risk_manager.calculate_position_size(
-            account_balance=Decimal("100.00"),
+            account_balance=EQUITY,
             entry_price=Decimal("50000.00"),
             stop_loss_price=Decimal("49000.00"),
         )
 
-        assert quantity == Decimal("10.00") / Decimal("50000.00")
+        assert quantity == EQUITY * Decimal("0.1") / Decimal("50000.00")
 
     def test_calculate_position_size_invalid_balance(self, risk_manager):
         """Test position size with invalid balance returns zero"""
@@ -181,7 +188,7 @@ class TestRiskManager:
     def test_calculate_position_size_invalid_price(self, risk_manager):
         """Test position size with invalid price returns zero"""
         quantity = risk_manager.calculate_position_size(
-            account_balance=Decimal("100.00"), entry_price=Decimal("0")
+            account_balance=EQUITY, entry_price=Decimal("0")
         )
 
         assert quantity == Decimal("0")
@@ -253,15 +260,15 @@ class TestRiskManager:
 
     def test_check_position_limits_within_limits(self, risk_manager):
         """Test position limits check passes"""
-        # Single position of $5,000 (50% of $10,000) - within 80% limit
+        # Single position worth 50% of equity - within the 80% exposure limit
         open_position = Mock()
         open_position.entry_price = Decimal("50000.00")
-        open_position.quantity = Decimal("0.1")
+        open_position.quantity = EQUITY * Decimal("0.5") / Decimal("50000.00")
         open_position.remaining_quantity = open_position.quantity
         open_position.status = Mock(value="OPEN")
 
         allowed, reason = risk_manager.check_position_limits(
-            current_positions=[open_position], account_balance=Decimal("10000.00")
+            current_positions=[open_position], account_balance=EQUITY
         )
 
         assert allowed is True
@@ -269,15 +276,15 @@ class TestRiskManager:
 
     def test_check_position_limits_exceeds_exposure(self, risk_manager):
         """Test position limits check fails on exposure"""
-        # Position of $9,000 (90% of $10,000) - exceeds 80% limit
+        # Position worth 90% of equity - exceeds the 80% exposure limit
         open_position = Mock()
         open_position.entry_price = Decimal("50000.00")
-        open_position.quantity = Decimal("0.18")
+        open_position.quantity = EQUITY * Decimal("0.9") / Decimal("50000.00")
         open_position.remaining_quantity = open_position.quantity
         open_position.status = Mock(value="OPEN")
 
         allowed, reason = risk_manager.check_position_limits(
-            current_positions=[open_position], account_balance=Decimal("10000.00")
+            current_positions=[open_position], account_balance=EQUITY
         )
 
         assert allowed is False
@@ -288,7 +295,7 @@ class TestRiskManager:
         risk_manager.trading_halted = True
 
         allowed, reason = risk_manager.check_position_limits(
-            current_positions=[], account_balance=Decimal("10000.00")
+            current_positions=[], account_balance=EQUITY
         )
 
         assert allowed is False
@@ -307,9 +314,7 @@ class TestRiskManager:
         )
 
         # Current price between SL and TP
-        should_close, reason = risk_manager.should_close_position(
-            position, Decimal("50500.00")
-        )
+        should_close, reason = risk_manager.should_close_position(position, Decimal("50500.00"))
 
         assert should_close is False
         assert reason is None
@@ -327,9 +332,7 @@ class TestRiskManager:
         )
 
         # Current price below stop loss
-        should_close, reason = risk_manager.should_close_position(
-            position, Decimal("48500.00")
-        )
+        should_close, reason = risk_manager.should_close_position(position, Decimal("48500.00"))
 
         assert should_close is True
         assert "Stop loss hit" in reason
@@ -347,9 +350,7 @@ class TestRiskManager:
         )
 
         # Current price above take profit
-        should_close, reason = risk_manager.should_close_position(
-            position, Decimal("52500.00")
-        )
+        should_close, reason = risk_manager.should_close_position(position, Decimal("52500.00"))
 
         assert should_close is True
         assert "Take profit hit" in reason

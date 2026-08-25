@@ -1,16 +1,17 @@
 """
 Phase 1 regression tests for AUDIT.md §6.4 / §6.5c / §7 (H1, H2, H6).
 
-Covers, against the $100 account (shared/account.py is the declaration of
-record — no account-size literals here):
+Covers, against the declared account (shared/account.py is the declaration of
+record — no account-size literals here; expectations derive from BALANCE):
 
 * H1(a): the ensemble per-trade notional cap is independent of leverage —
   leverage divides margin, it must never multiply the cap ceiling.
 * H1(b): total-exposure gate on the ensemble path rejects when open entry
   notionals plus the new notional exceed max_total_exposure_pct of balance.
 * H1(c) / min-notional in PAPER: the gate no longer short-circuits in PAPER
-  mode. BTCUSDT (min qty 0.001 ≈ $62) must be REJECTED under a $10 cap with
-  reason "min_qty"; SOLUSDT (0.1 ≈ $7.10) must pass.
+  mode. On a pinned $100 balance (SMALL_BALANCE — the scenario the gate
+  exists for) a 10% BTCUSDT trade (min qty 0.001 ≈ $62) must be REJECTED
+  with reason "min_qty"; SOLUSDT one qty_step must pass.
 * Quantity snapping: quantities floor DOWN to qty_step, never up.
 * H2: a paper stop exit fills at the stop price (adjusted only by the
   slippage model) — the deterministic 0.5% buffer penalty is gone. A LONG
@@ -56,6 +57,11 @@ from app.models.enums import SignalAction, ExitKind  # noqa: E402
 from app.services.instruments_cache import InstrumentSpec  # noqa: E402
 
 BALANCE = Decimal(str(ACCOUNT_EQUITY_USD))
+
+# pinned small-account scenario: keeps reject-not-clamp coverage (a 10% trade
+# sitting under Bybit's min-qty floor); NOT the declared account size — that is
+# BALANCE above, which tracks shared/account.py.
+SMALL_BALANCE = Decimal("100")
 
 # Venue specs from AUDIT.md §3 (live-fetched from bybit-connector 2026-08-04).
 BTC_PRICE = 62551.0
@@ -166,6 +172,7 @@ def _wire_ensemble(
     price: float,
     size_pct: float,
     open_positions: list,
+    balance: Decimal = BALANCE,
 ):
     """Stub every external dependency of _check_and_trade_ensemble."""
     risk_mgr = MagicMock()
@@ -173,9 +180,7 @@ def _wire_ensemble(
     monkeypatch.setattr("app.auto_trader.get_risk_manager", lambda: risk_mgr)
 
     aggregator = MagicMock()
-    aggregator.get_trading_signal_multi_timeframe = AsyncMock(
-        return_value=_base_signal(price)
-    )
+    aggregator.get_trading_signal_multi_timeframe = AsyncMock(return_value=_base_signal(price))
 
     async def _fake_get_aggregator():
         return aggregator
@@ -183,7 +188,7 @@ def _wire_ensemble(
     monkeypatch.setattr("app.auto_trader.get_aggregator", _fake_get_aggregator)
 
     paper_engine = MagicMock()
-    paper_engine.get_balance = MagicMock(return_value=BALANCE)
+    paper_engine.get_balance = MagicMock(return_value=balance)
     filled = MagicMock()
     filled.status = OrderStatus.FILLED
     paper_engine.execute_market_order = AsyncMock(return_value=(filled, None))
@@ -213,12 +218,10 @@ def _wire_ensemble(
 
 
 @pytest.mark.asyncio
-async def test_ensemble_cap_is_independent_of_leverage(
-    trader, monkeypatch, instruments_cache
-):
+async def test_ensemble_cap_is_independent_of_leverage(trader, monkeypatch, instruments_cache):
     """10% size × 10x leverage used to produce ~100% of balance as notional.
     The notional must be capped at max_position_size_pct of balance, then
-    floored to qty_step: on SOL that is one step (0.1 SOL ≈ $7.10)."""
+    floored DOWN to qty_step (expected quantity derived, not hand-computed)."""
     paper_engine = _wire_ensemble(
         trader, monkeypatch, price=SOL_PRICE, size_pct=0.10, open_positions=[]
     )
@@ -230,18 +233,18 @@ async def test_ensemble_cap_is_independent_of_leverage(
     notional = float(order.quantity) * SOL_PRICE
     cap = float(BALANCE) * trader.settings.max_position_size_pct / 100.0
     assert notional <= cap + 1e-9, (
-        f"notional ${notional:.2f} exceeds cap ${cap:.2f} — leverage is "
-        f"multiplying the cap again"
+        f"notional ${notional:.2f} exceeds cap ${cap:.2f} — leverage is multiplying the cap again"
     )
-    # $10 cap / $71 = 0.1408… → snapped DOWN one qty_step to exactly 0.1
-    assert order.quantity == Decimal("0.1")
-    assert notional == pytest.approx(7.10, abs=1e-9)
+    # cap / price snapped DOWN to a whole number of qty_steps, never up.
+    raw_qty = Decimal(str(cap)) / Decimal(str(SOL_PRICE))
+    expected_qty = (raw_qty // SOL_SPEC.qty_step) * SOL_SPEC.qty_step
+    assert raw_qty != expected_qty, "fixture no longer exercises the snap"
+    assert order.quantity == expected_qty
+    assert notional == pytest.approx(float(expected_qty) * SOL_PRICE, abs=1e-9)
 
 
 @pytest.mark.asyncio
-async def test_ensemble_cap_holds_at_higher_leverage(
-    trader, monkeypatch, instruments_cache
-):
+async def test_ensemble_cap_holds_at_higher_leverage(trader, monkeypatch, instruments_cache):
     """Doubling leverage must not change the notional ceiling at all."""
     monkeypatch.setattr(trader.settings, "default_leverage", 20.0, raising=False)
     paper_engine = _wire_ensemble(
@@ -265,9 +268,10 @@ async def test_ensemble_cap_holds_at_higher_leverage(
 async def test_ensemble_exposure_gate_rejects(trader, monkeypatch, instruments_cache):
     """Open notionals at 76% of balance + a new ~10% trade breaches the 80%
     exposure cap → the trade must be REJECTED (not clamped, not placed)."""
+    # Quantities derived so each open position is 38% of balance (76% total).
     open_positions = [
-        _open_position("BNBUSDT", "576", "0.066"),  # ≈ $38.02
-        _open_position("ADAUSDT", "0.169", "225"),  # ≈ $38.03
+        _open_position("BNBUSDT", "576", BALANCE * Decimal("0.38") / Decimal("576")),
+        _open_position("ADAUSDT", "0.169", BALANCE * Decimal("0.38") / Decimal("0.169")),
     ]
     paper_engine = _wire_ensemble(
         trader,
@@ -285,11 +289,10 @@ async def test_ensemble_exposure_gate_rejects(trader, monkeypatch, instruments_c
 
 
 @pytest.mark.asyncio
-async def test_ensemble_exposure_gate_allows_under_cap(
-    trader, monkeypatch, instruments_cache
-):
+async def test_ensemble_exposure_gate_allows_under_cap(trader, monkeypatch, instruments_cache):
     """Sanity inverse: modest open exposure below the cap must still trade."""
-    open_positions = [_open_position("BNBUSDT", "576", "0.01")]  # ≈ $5.76
+    # ≈ 5% of balance open + a ~10% new trade stays well under the 80% cap.
+    open_positions = [_open_position("BNBUSDT", "576", BALANCE * Decimal("0.05") / Decimal("576"))]
     paper_engine = _wire_ensemble(
         trader,
         monkeypatch,
@@ -308,19 +311,19 @@ async def test_ensemble_exposure_gate_allows_under_cap(
 
 
 @pytest.mark.asyncio
-async def test_min_notional_gate_active_in_paper_btc_rejected(
-    trader, instruments_cache
-):
-    """PAPER mode no longer short-circuits the gate. A $10-cap BTC quantity
-    (0.00015987 < 0.001 min) must be rejected with reason "min_qty"."""
+async def test_min_notional_gate_active_in_paper_btc_rejected(trader, instruments_cache):
+    """PAPER mode no longer short-circuits the gate. On the pinned $100
+    balance a 10% BTC quantity (≈0.00015987 < 0.001 min) must be rejected
+    with reason "min_qty". Pinned small-account scenario: at the declared
+    balance a 10% BTC trade clears min_qty, which would make this vacuous."""
     assert trader.settings.trading_mode == "PAPER"
-    qty = Decimal(str(float(BALANCE) * 0.10 / BTC_PRICE))  # ≈ 0.00015987
+    qty = SMALL_BALANCE * Decimal("0.10") / Decimal(str(BTC_PRICE))  # ≈ 0.00015987
 
     ok, reason = await trader._passes_min_notional(
         symbol="BTCUSDT",
         quantity=qty,
         price=Decimal(str(BTC_PRICE)),
-        balance=BALANCE,
+        balance=SMALL_BALANCE,
     )
     assert ok is False
     assert reason == "min_qty"
@@ -331,13 +334,14 @@ async def test_min_notional_gate_active_in_paper_btc_rejected(
 @pytest.mark.asyncio
 async def test_min_notional_gate_active_in_paper_sol_passes(trader, instruments_cache):
     """SOL one qty_step (0.1 ≈ $7.10) clears min qty (0.1) and min notional
-    ($5) — must pass in PAPER."""
+    ($5) — must pass in PAPER, even on the pinned small balance where the
+    notional sits closest to the floor."""
     assert trader.settings.trading_mode == "PAPER"
     ok, reason = await trader._passes_min_notional(
         symbol="SOLUSDT",
         quantity=Decimal("0.1"),
         price=Decimal(str(SOL_PRICE)),
-        balance=BALANCE,
+        balance=SMALL_BALANCE,
     )
     assert ok is True
     assert reason is None
@@ -347,18 +351,22 @@ async def test_min_notional_gate_active_in_paper_sol_passes(trader, instruments_
 async def test_ensemble_btc_rejected_end_to_end_with_min_qty_reason(
     trader, monkeypatch, instruments_cache
 ):
-    """End-to-end on the ensemble path: BTC under the $10 cap floors to zero
-    at qty_step and the gate rejects it labeled "min_qty". No order ever
-    reaches the engine."""
+    """End-to-end on the ensemble path: on the pinned $100 balance, BTC under
+    the 10% cap ($10) floors to zero at qty_step and the gate rejects it
+    labeled "min_qty". No order ever reaches the engine. Pinned small-account
+    scenario: keeps reject-not-clamp coverage; NOT the declared account size."""
     import app.core.metrics as metrics
 
-    counter = metrics.trades_rejected_min_notional_total.labels(
-        symbol="BTCUSDT", reason="min_qty"
-    )
+    counter = metrics.trades_rejected_min_notional_total.labels(symbol="BTCUSDT", reason="min_qty")
     before = counter._value.get()  # type: ignore[attr-defined]
 
     paper_engine = _wire_ensemble(
-        trader, monkeypatch, price=BTC_PRICE, size_pct=0.10, open_positions=[]
+        trader,
+        monkeypatch,
+        price=BTC_PRICE,
+        size_pct=0.10,
+        open_positions=[],
+        balance=SMALL_BALANCE,
     )
 
     rejected_before = trader.total_trades_rejected
@@ -558,9 +566,7 @@ async def test_take_profit_exit_does_not_arm_cooldown(trader, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ensemble_entry_blocked_during_cooldown(
-    trader, monkeypatch, instruments_cache
-):
+async def test_ensemble_entry_blocked_during_cooldown(trader, monkeypatch, instruments_cache):
     """After a max-hold exit armed the cooldown, the ensemble path must not
     re-enter the same symbol."""
     trader._record_sl_hit("SOLUSDT", "MAX_HOLD_TIME_EXCEEDED (49.0h > 48h)")

@@ -12,6 +12,8 @@ import httpx
 from typing import AsyncGenerator
 from decimal import Decimal
 
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: F401
+
 from tests.e2e.utils.wait_for_health import (
     wait_for_all_services,
 )
@@ -285,7 +287,7 @@ def bearish_market_data():
 @pytest.fixture
 def initial_portfolio():
     """Generate initial portfolio state."""
-    return generate_portfolio_data(balance=10000.0, positions=[])
+    return generate_portfolio_data(balance=ACCOUNT_EQUITY_USD, positions=[])
 
 
 @pytest.fixture
@@ -336,7 +338,7 @@ async def cleanup_between_tests(portfolio_client):
                 print(f"Warning: Failed to close position {position.get('id')}: {e}")
 
         # Reset balance to default (optional)
-        # await portfolio_client.set_balance(Decimal("10000.00"))
+        # await portfolio_client.set_balance(Decimal(str(ACCOUNT_EQUITY_USD)))
 
     except Exception as e:
         print(f"Warning: Cleanup failed: {e}")
