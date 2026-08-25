@@ -13,7 +13,7 @@ paths:
 
 ## Account size
 
-The account is **$100 USDT**. `shared/account.py` is the declaration of record. Never write the number as a literal.
+The account is **$10,000 USDT** (ADR-029, 2026-08-25; was $100). `shared/account.py` is the declaration of record. Never write the number as a literal — **a bare `10000` is numerically correct and still a defect**: it bypasses the declared config and silently decouples on the next re-scale. The only sanctioned literal mirrors are the documented in-container fallbacks (`_FALLBACK_*` constants, risk-metrics `Decimal("10000")`), each allowlisted in `scripts/check_capital_literals.py` and policed by `tests/test_account_size_invariant.py`.
 
 **How you reference it depends on where the file runs — this is not stylistic.**
 
@@ -24,12 +24,14 @@ The account is **$100 USDT**. `shared/account.py` is the declaration of record. 
 
 Why: every service builds with `context: ./services/<name>`, so repo-root `shared/` is outside the build context, and all Dockerfiles `COPY` only `app/`. The apparent precedent in `portfolio-manager/app/handlers/health.py:48` is a **dead** import — its Dockerfile does `RUN mkdir -p ./shared` (empty) and the import sits inside `except ImportError`. Agreement between `Settings` and `shared/account.py` is enforced by `tests/test_account_config_sync.py`, not by a shared import.
 
-Forbidden in any file matching these paths:
+Forbidden in any file matching these paths — note every one of these is
+*numerically correct* today and forbidden anyway:
 
 ```python
-initial_capital: float = 10000.0        # NO
+initial_capital: float = 10000.0        # NO — unrouted literal
 initial_balance = 10000                 # NO
 portfolio_value: float = 10000.0        # NO
+initial_capital: float = 100.0          # NO — stale old size
 config = BacktestConfig(initial_capital=10000)   # NO
 calc = AdvancedMetricsCalculator(initial_capital=10000.0)  # NO
 ```
@@ -63,9 +65,9 @@ Known offender files (audit before editing near them):
 `app/risk/funding_gate.py`, `app/strategies/pairs_trading.py`, `app/strategies/funding_rate_arbitrage.py`,
 `services/risk-metrics-service/app/backtest_models.py`, `services/portfolio-manager/app/config.py`.
 
-## Sizing math must survive $100
+## Sizing math must reject, never clamp
 
-Before returning a position size, the code must reject the trade rather than shrink below the venue floor:
+Before returning a position size, the code must reject the trade rather than shrink below the venue floor. At $10,000 default sizing sits far above the floor ($1,000 ≫ $5), so this path is exercised almost only by the pinned small-balance test scenarios — do not delete those as "unreachable", they are the coverage:
 
 1. Compute risk budget = `equity * max_risk_per_trade` (**fraction**, `0.10` = 10%).
 2. Compute quantity from risk budget and stop distance.
@@ -84,7 +86,7 @@ Before returning a position size, the code must reject the trade rather than shr
 
 Comparing a fraction to a percent (`max_risk_per_trade > max_daily_loss_pct` → `0.10 > 12.0` → always False) is a real bug that shipped once. Normalize first — `shared.account.max_daily_loss_fraction()` exists for this.
 
-`LIVE_MAX_RISK_PER_TRADE = 0.02` is non-negotiable and unchanged. On $100 that is $2, below the ~$5 venue minimum, so **LIVE is not mechanically viable at this account size** regardless of edge.
+`LIVE_MAX_RISK_PER_TRADE = 0.02` is non-negotiable and unchanged. On $10,000 that is $200, which **clears every venue minimum — LIVE is no longer arithmetically blocked**. The only barrier to real money is the four deliberate flags (CLAUDE.md §5); never present account arithmetic as a LIVE safeguard.
 
 Never let rounding produce a quantity of `0` that is then treated as a filled order.
 
