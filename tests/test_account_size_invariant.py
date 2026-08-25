@@ -60,6 +60,13 @@ SCANNED_FILES = (
     "backtesting/backtest_engine.py",
     "backtesting/run_walk_forward.py",
     "backtesting/run_walk_forward_ensemble.py",
+    # Added 2026-08-26 (ADR-029 flip): the four standalone SQZMOM runners that
+    # passed 10000.0 explicitly (former EXPANSION_QUEUE item 3) are now routed
+    # through shared.account and scanned so they cannot regress.
+    "services/technical-analysis/backtesting/run_backtest.py",
+    "services/technical-analysis/backtesting/run_btc_eth_backtest.py",
+    "services/technical-analysis/backtesting/quick_test.py",
+    "services/technical-analysis/backtesting/optimize_parameters.py",
     # Added 2026-08-03, second pass. THIS is the script that actually produced
     # comprehensive/grid/sr/trend_FINAL_RESULTS.log — not backtest_engine.py.
     # It carries its own `PatchedBacktestEngine` wrapping the trading-engine
@@ -96,14 +103,8 @@ SCANNED_FILES = (
 #      `database/migrations/005_seed_data.sql:35` (stale RAISE NOTICE).
 #      (audit "P3" table)
 #
-#   3. The four standalone SQZMOM backtest runners, which pass `10000.0`
-#      EXPLICITLY and therefore are NOT fixed by correcting the default in
-#      `services/technical-analysis/backtesting/sqzmom_backtest.py`:
-#         services/technical-analysis/backtesting/run_backtest.py
-#         services/technical-analysis/backtesting/run_btc_eth_backtest.py
-#         services/technical-analysis/backtesting/quick_test.py
-#         services/technical-analysis/backtesting/optimize_parameters.py
-#      Their runtime behaviour is unchanged by this work. Known residual.
+#   3. RESOLVED 2026-08-26: the four standalone SQZMOM runners now import
+#      PAPER_INITIAL_BALANCE and joined SCANNED_FILES above.
 #
 #   4. `services/trading-engine/app/main.py:1419-1420`
 #         max_position_size: float = Query(default=10000.0, ...)
