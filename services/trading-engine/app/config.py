@@ -216,16 +216,12 @@ class Settings(BaseSettings):
     trading_mode: Literal["PAPER", "LIVE"] = Field(
         default="PAPER", description="Trading mode: PAPER or LIVE"
     )
-    auto_trading_enabled: bool = Field(
-        default=False, description="Enable automatic trading"
-    )
+    auto_trading_enabled: bool = Field(default=False, description="Enable automatic trading")
     emergency_stop_file: str = Field(
         default="/app/EMERGENCY_STOP",
         description="Path to file-based kill switch. If file exists, auto-trader refuses to start and halts the loop.",
     )
-    default_strategy: str = Field(
-        default="consensus", description="Default trading strategy"
-    )
+    default_strategy: str = Field(default="consensus", description="Default trading strategy")
     default_symbol: str = Field(default="BTCUSDT", description="Default trading symbol")
     # Blank env value maps to this default via _BlankTolerantEnvSource above;
     # non-blank values are JSON-decoded normally and still face
@@ -300,9 +296,7 @@ class Settings(BaseSettings):
         "Focus capital on proven winners. Updated 2026-01-19 based on 30d/90d backtests.",
     )
 
-    default_interval: str = Field(
-        default="60", description="Default candlestick interval"
-    )
+    default_interval: str = Field(default="60", description="Default candlestick interval")
 
     # Strategy Mode - STANDARD for more trading opportunities (2026-02-24)
     # Options: standard, research, hybrid, grid_trading
@@ -418,8 +412,8 @@ class Settings(BaseSettings):
         le=50.0,
         description=(
             "Maximum position size as % of capital. "
-            "Bumped 2026-05-06 from 5% to 10% to align with per-trade "
-            "10% target on $100 paper balance."
+            "Bumped 2026-05-06 from 5% to 10% to align with the per-trade "
+            "10% target; retained at the $10,000 balance per ADR-029."
         ),
     )
     max_risk_per_trade: float = Field(
@@ -430,8 +424,9 @@ class Settings(BaseSettings):
             "Maximum per-trade notional cap as a fraction of balance "
             "(0.10 = 10%). Stored as fraction, not percent — distinct from "
             "the neighboring *_pct fields. Reads MAX_RISK_PER_TRADE env. "
-            "Bumped 2026-05-06 from 0.02 to 0.10 per operator request: "
-            "$100 paper balance × 10% = $10/trade for meaningful test sizing."
+            "Bumped 2026-05-06 from 0.02 to 0.10 (then a $100 min-notional "
+            "workaround); retained at $10,000 as deliberate operator choice "
+            "per ADR-029 — 10% = $1,000/trade. Restore 0.02 before LIVE."
         ),
     )
     # Ensemble sizing cascade (2026-05-07) — see ADR-015.
@@ -441,8 +436,9 @@ class Settings(BaseSettings):
     # where cap = max_risk_per_trade.
     # Default multiplier 3.7 chosen so confidence ≈ 0.27 (the documented
     # ensemble ceiling per ADR-013 — 7 voting legs × typical conf 0.16-0.50)
-    # produces a trade at the cap. Default min 0.05 ensures a single fired
-    # trade is meaningful at $100 balance ($5 not $1).
+    # produces a trade at the cap. Default min 0.05 originally ensured a fired
+    # trade cleared min-notional on the old $100 balance; retained at $10,000
+    # per ADR-029 (floor = $500/trade).
     ensemble_min_position_pct: float = Field(
         default=0.05,
         ge=0.0,
@@ -643,9 +639,9 @@ class Settings(BaseSettings):
 
     # Paper Trading
     paper_initial_balance: float = Field(
-        default=100.0,
+        default=10000.0,
         ge=100.0,
-        description="Initial balance for paper trading (matches portfolio-manager initial_capital and risk-budget base_equity)",
+        description="Initial balance for paper trading (ADR-029, was 100.0; matches portfolio-manager initial_capital and risk-budget base_equity)",
     )
     paper_commission_pct: float = Field(
         default=0.055,
@@ -689,8 +685,7 @@ class Settings(BaseSettings):
     paper_funding_enabled: bool = Field(
         default=True,
         description=(
-            "Charge/credit perp funding on paper closes for each settlement "
-            "crossed during the hold"
+            "Charge/credit perp funding on paper closes for each settlement crossed during the hold"
         ),
     )
 

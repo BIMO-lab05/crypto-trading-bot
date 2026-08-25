@@ -38,7 +38,7 @@ def _restore_module_state():
 
 def test_declared_defaults_match_the_real_env_keys_and_units():
     """DEFAULTS is env-independent and mirrors trading-engine config.py."""
-    assert account.DEFAULTS["PAPER_INITIAL_BALANCE"] == 100.0  # USD
+    assert account.DEFAULTS["PAPER_INITIAL_BALANCE"] == 10000.0  # USD -- ADR-029
     assert account.DEFAULTS["MAX_RISK_PER_TRADE"] == 0.10  # fraction
     assert account.DEFAULTS["MAX_DAILY_LOSS_PCT"] == 12.0  # percent -- ADR-028
     assert account.DEFAULTS["MAX_POSITION_SIZE_PCT"] == 10.0  # percent
@@ -51,7 +51,7 @@ def test_constants_resolve_to_the_declared_defaults_with_no_env_set(monkeypatch)
         monkeypatch.delenv(key, raising=False)
     reloaded = importlib.reload(account)
 
-    assert reloaded.PAPER_INITIAL_BALANCE == 100.0
+    assert reloaded.PAPER_INITIAL_BALANCE == 10000.0
     assert reloaded.MAX_RISK_PER_TRADE == 0.10
     assert reloaded.MAX_DAILY_LOSS_PCT == 12.0  # ADR-028
     assert reloaded.MAX_POSITION_SIZE_PCT == 10.0
@@ -81,7 +81,7 @@ def test_env_override_is_honoured(monkeypatch):
     assert reloaded.PAPER_INITIAL_BALANCE == 250.0
     assert reloaded.MAX_DAILY_LOSS_PCT == 7.5
     # DEFAULTS stays env-independent — this is what the sync test compares to.
-    assert reloaded.DEFAULTS["PAPER_INITIAL_BALANCE"] == 100.0
+    assert reloaded.DEFAULTS["PAPER_INITIAL_BALANCE"] == 10000.0
 
 
 def test_non_numeric_env_value_is_loud(monkeypatch):
@@ -101,11 +101,11 @@ def test_unit_conversion_helpers():
 
 
 def test_risk_budget_usd_at_defaults():
-    assert account.risk_budget_usd() == Decimal("10.00")
+    assert account.risk_budget_usd() == Decimal("1000.00")
 
 
 def test_risk_budget_usd_live_uses_the_two_percent_cap():
-    assert account.risk_budget_usd(live=True) == Decimal("2.00")
+    assert account.risk_budget_usd(live=True) == Decimal("200.00")
 
 
 def test_risk_budget_usd_accepts_an_explicit_equity():
@@ -124,11 +124,7 @@ def test_no_risk_cap_conflict_at_defaults():
     loser tripped the daily breaker and this warning fired at rest. It must now
     be silent — an always-on warning trains the operator to ignore the channel.
     """
-    conflict = [
-        p
-        for p in account.capital_config_warnings()
-        if p.startswith("RISK CAP CONFLICT")
-    ]
+    conflict = [p for p in account.capital_config_warnings() if p.startswith("RISK CAP CONFLICT")]
     assert not conflict, f"caps are reconciled per ADR-028, got {conflict}"
 
 
@@ -149,11 +145,7 @@ def test_risk_cap_conflict_warning_fires_when_caps_actually_conflict(monkeypatch
     monkeypatch.setenv("MAX_DAILY_LOSS_PCT", "4.0")  # percent  -> 4%
     reloaded = importlib.reload(account)
 
-    conflict = [
-        p
-        for p in reloaded.capital_config_warnings()
-        if p.startswith("RISK CAP CONFLICT")
-    ]
+    conflict = [p for p in reloaded.capital_config_warnings() if p.startswith("RISK CAP CONFLICT")]
     assert len(conflict) == 1, f"expected exactly one conflict warning, got {conflict}"
     assert "15.0%" in conflict[0]
     assert "4.0%" in conflict[0]
@@ -163,11 +155,7 @@ def test_conflict_warning_clears_when_the_caps_are_reconciled(monkeypatch):
     """Proves the check is live in both directions, not a constant True."""
     monkeypatch.setenv("MAX_RISK_PER_TRADE", "0.02")
     reloaded = importlib.reload(account)
-    assert not [
-        p
-        for p in reloaded.capital_config_warnings()
-        if p.startswith("RISK CAP CONFLICT")
-    ]
+    assert not [p for p in reloaded.capital_config_warnings() if p.startswith("RISK CAP CONFLICT")]
 
 
 def test_assert_capital_is_sane_does_not_raise_at_current_defaults():
@@ -212,9 +200,7 @@ def test_assert_capital_is_sane_still_warns_on_a_real_conflict(monkeypatch):
         ("MAX_POSITION_SIZE_PCT", "99.0"),  # config.py le=50.0 (percent)
     ],
 )
-def test_assert_capital_is_sane_raises_outside_config_py_bounds(
-    monkeypatch, key, bad_value
-):
+def test_assert_capital_is_sane_raises_outside_config_py_bounds(monkeypatch, key, bad_value):
     monkeypatch.setenv(key, bad_value)
     reloaded = importlib.reload(account)
     with pytest.raises(ValueError, match=key):
