@@ -6,10 +6,13 @@ context: "risk-metrics CB false-tripped every loop in paper mode because its pos
 deciders: [operator]
 tags: [decision, adr, risk, paper-trading, circuit-breaker]
 created: 2026-05-19
-updated: 2026-05-19
+updated: 2026-08-25
 ---
 
 # ADR-017: risk-metrics-service defaults aligned with paper-mode operating range
+
+> [!note] Restated ADR-010 rationale superseded by [[ADR-029-account-size-10k-research-scale|ADR-029]] (2026-08-25)
+> This ADR's context restates ADR-010's min-notional-on-$100 justification, which is obsolete at the declared $10,000 research scale. The threshold alignment it decided (position 0.10, exposure 0.50) is percent-based and carries over unchanged. Body text below is the historical record at $100 — do not update its figures.
 
 ## Context
 

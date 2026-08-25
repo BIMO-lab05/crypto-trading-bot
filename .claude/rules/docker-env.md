@@ -21,4 +21,4 @@ paths:
 
 ## .env
 
-Never commit `.env`. When you change a risk or capital key in `.env`, change it in `.env.example` in the same edit — the two have drifted before and `.env.example` still advertises a $10,000 account.
+Never commit `.env`. Capital and risk values must route through the declared config — `shared/account.py` is the declaration of record (ADR-029), and services read their own `Settings` — never hand-write an account-size figure into an env file from memory. When you change a risk or capital key in `.env`, change it in `.env.example` in the same edit and confirm both agree with the declaration: the two have drifted before, and a stale example file is exactly how a superseded account size reinfects new code. (As of 2026-08-25 `.env.example` agrees with the declared size — keep it that way.)

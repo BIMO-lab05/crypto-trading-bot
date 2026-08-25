@@ -25,6 +25,10 @@ On a $100 account that is **$10–$20 per trade** against the ADR-010 paper cap 
 against `max_position_size_pct = 10.0`. The `.claude/rules/money.md` sizing contract says notional
 above `equity * max_position_size_pct / 100` must be **clamped down**; this code has no clamp.
 
+> **Note (2026-08-25, ADR-029):** the declared paper account is now **$10,000**. Recomputed: this branch
+> sizes **$1,000–$2,000 per trade** against a 10 % cap of **$1,000**. The severity is unchanged — the
+> violation is 10–20 % vs a 10 % cap in percentage terms, independent of account size.
+
 **Why it has not bitten:** the branch is unreachable in the deployed configuration — the router has
 never executed (see PIPELINE_MAP §0), and it stays unreachable under the advisory design shipped
 today. **It becomes live the moment anyone sets `STRATEGY_MODE=hybrid` or promotes the router to an

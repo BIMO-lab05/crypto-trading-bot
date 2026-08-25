@@ -78,10 +78,10 @@ Pins: universe (`universe_2026-08-17.json` top-30 unless staleness check fails),
 
 ## 5. Hard rules (inherited, non-negotiable)
 
-1. Account is $100 via `shared.account`; money rules (`.claude/rules/money.md`) apply to every new file.
+1. Account is $10,000 via `shared.account` (changed from $100 on 2026-08-25 per ADR-029); money rules (`.claude/rules/money.md`) apply to every new file.
 2. No gate weakening: DSR 0.95, CPCV params, hurdle 2.0×, pre-registration. Costs only go up.
 3. No tuning of killed candidates beyond the pre-registered maker-mode re-run.
-4. LIVE trading stays mechanically blocked (2% of $100 < min notional); nothing in this spec changes live-path config.
+4. LIVE trading is blocked ONLY by the four deliberate flags (`PAPER_TRADING_MODE`, `TRADING_MODE`, mainnet trade keys, `LIVE_TRADING_ACK`); nothing in this spec changes live-path config. *(Changed 2026-08-25, ADR-029: at $10,000 the 2% LIVE cap is $200 and clears min notional, so the old arithmetic block no longer exists — the flags are the only barrier.)*
 5. Every claim in battery reports cites executed output; REJECT verdicts are recorded in the trial ledger like always.
 6. New collector code follows the four-proof verification standard before any "shipped" claim.
 

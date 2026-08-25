@@ -197,6 +197,10 @@ and round-trip taker fees (~0.11%) exceed any observed edge at a $100 account. T
 make the plumbing report the truth; they do not make the truth profitable. Any claim
 otherwise needs DSR/CPCV per `returns_metrics.py` / `cpcv.py`.
 
+> **Note (2026-08-25, ADR-029):** the account flipped to $10,000, but the fee argument above is
+> **bps-of-notional and holds at any account size** — only the "$100 account" framing was size-specific.
+> The flip does not create edge.
+
 Counters are process-local and reset on engine restart; the engine was restarted
 2026-08-22 14:09 UTC during the bind-mount outage repair
 (`docs/operations/INCIDENT-2026-08-22-bind-mount-outage.md`), so the funnel's 146-evaluation

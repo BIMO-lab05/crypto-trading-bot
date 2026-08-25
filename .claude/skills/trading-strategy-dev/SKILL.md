@@ -10,7 +10,7 @@ Author and verify trading indicators, strategies, and the trading-engine wiring 
 ## Core principles (load-bearing)
 
 1. **No look-ahead leakage.** Indicators consume only data up to and including bar `t`. Signals at bar `t` decide actions filled at bar `t+1` open (or current bar close in event-driven). Validate with the leakage test in `references/leakage-tests.md`.
-2. **Risk caps are non-negotiable.** Per `CLAUDE.md`: 2% capital/trade max, 5% daily-loss circuit-breaker. Position sizing in any new strategy MUST honour these via `StrategyBase.calculate_position_size`. Do not bypass.
+2. **Risk caps are non-negotiable.** Per `CLAUDE.md`: 10% capital/trade max in paper (ADR-010; $1,000 on the $10,000 account per ADR-029), 12% daily-loss circuit-breaker (ADR-028), LIVE per-trade cap 2% ($200) untouched. Position sizing in any new strategy MUST honour these via `StrategyBase.calculate_position_size`. Do not bypass, and never hardcode the account size — route through declared config.
 3. **Returns target, not direction.** Directional-accuracy metrics carry look-ahead leakage history in this repo (V0 GRU rebuild). Score on log-returns, evaluate against naive persistence, and gate via Deflated Sharpe Ratio (DSR > 0.95) before claiming alpha.
 4. **No production code without a failing backtest first.** New strategy / new param set: write the test (or backtest harness invocation) that *would* reject the current implementation, watch it fail, then implement.
 5. **Evidence > assertions.** Pass/fail of any change must produce: backtest metrics on validated symbols (SOL/BNB/ADA primary, BTC/ETH after re-add), per-symbol equity curve, and at minimum one paper-trade signal observed end-to-end.
@@ -80,7 +80,7 @@ Per `CLAUDE.md` mandatory rule. Build the graph over: requested files, `services
 - Inherit `StrategyBase` from `app/strategies/base.py`.
 - Implement `analyze(symbol, data) -> AnalysisResult`, `generate_signals(symbol, analysis, current_price) -> List[StrategySignal]`, `calculate_position_size(signal, capital, risk_pct) -> Decimal`.
 - `StrategyMetadata` with `risk_level`, `category`, `min_capital`, `compatible_market_conditions`.
-- `calculate_position_size` MUST clamp at 2% capital. If the signal demands more, downscale and log; do not break the cap.
+- `calculate_position_size` MUST clamp at the configured per-trade cap — 10% of capital in paper (ADR-010/ADR-029: $1,000 on the $10,000 account), 2% in LIVE ($200). If the signal demands more, downscale and log; do not break the cap. Capital comes from declared config (`shared/account.py` host-side, service `Settings` in-container), never a literal.
 - Stop-loss derivation goes through `atr_stops.py` or an equivalent ATR-based helper — no fixed-percentage stops.
 - SHORT signals respect Jan 2026 commit `380a674` enforcement; do not regress.
 
@@ -133,7 +133,7 @@ Runbook:
    - `curl -sf http://localhost:8005/health && curl -sf http://localhost:8005/ready`
    - Tail `docker compose ... logs -f trading-engine` for ~5 min in paper mode and confirm: signals being generated, risk_manager rejecting positions over cap, auto_trader loop ticking (if `EMERGENCY_STOP` absent and `AUTO_TRADING_ENABLED=true`).
    - Query DB: `SELECT id, symbol, strategy, signal_type, confidence, created_at FROM signals ORDER BY created_at DESC LIMIT 20;` — confirm fresh rows with sane confidences.
-6. **Verify risk caps actually bind.** Read `risk_manager.py`. Look for the 2% per-trade clamp and the 5% daily-loss kill-switch. Grep for any literal `0.02`, `0.05`, or env override; confirm not silently overridden.
+6. **Verify risk caps actually bind.** Read `risk_manager.py`. Look for the per-trade clamp (`max_risk_per_trade = 0.10` fraction in paper, `0.02` LIVE) and the 12% daily-loss kill-switch (`max_daily_loss_pct = 12.0` per ADR-028 — a *percent*, not a fraction; unit mismatch here has shipped a never-firing check before). Grep for any literal `0.02`, `0.10`, `12.0`, or env override; confirm not silently overridden.
 7. **Report.** One PASS/FAIL line per check. No aggregation. Anything other than PASS surfaces verbatim with the failing evidence.
 
 ## Auditing the trading engine wiring

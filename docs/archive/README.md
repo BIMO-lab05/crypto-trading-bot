@@ -7,6 +7,8 @@ Created 2026-07-30 (vault restructure, branch `docs/vault-restructure`). Point-i
 
 ⚠️ **Trust warning:** most pre-2026-07-28 performance/P&L claims in these files are measurement-corrupted (broken paper accounting + testnet-polluted candles — see ADR-018/ADR-021). Many "PRODUCTION READY ✅" claims were later contradicted. Read as history, not evidence.
 
+**Account size (2026-08-25, ADR-029):** all pre-2026-08-25 account-size statements in this archive describe the $100 era; the declared paper account is now $10,000 per `shared/account.py`.
+
 ## Layout
 
 | Folder | Contents |

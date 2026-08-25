@@ -168,6 +168,12 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
         '"equity": 10000',
         "same OpenAPI example payloads as above",
     ),
+    (
+        "frontend/src/utils/balance.js",
+        "PAPER_DEFAULT_BALANCE",
+        "the frontend's single declared mirror (no import path to shared/account "
+        "from the browser bundle); every component routes through this constant",
+    ),
 )
 
 

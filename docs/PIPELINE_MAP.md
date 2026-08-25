@@ -264,6 +264,8 @@ Two candidates:
   `0.10 + confidence * 0.10` → **10–20 % of capital**, i.e. up to **$20 on a $100 account**, against the
   ADR-010 paper cap of 10 % / $10. If the mean-reversion branch is ever allowed to emit orders, it emits
   above-cap sizes unless the engine's cap enforcement clamps or rejects them. Must be resolved before A ships.
+  *(Note 2026-08-25, ADR-029: at the now-declared $10,000 account this is up to **$2,000 vs the $1,000
+  10 % cap** — the violation is size-independent; the blocker stands unchanged.)*
 - **B — Router runs as an observer on the ensemble path.** After `base_signal` is obtained
   (`auto_trader.py:4574-4579`), call regime detection and record the branch that *would* have been taken,
   plus the ADX value. The ensemble still decides. Counters become real and honest; **execution is unchanged**;

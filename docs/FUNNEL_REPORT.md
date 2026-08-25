@@ -224,6 +224,11 @@ window was therefore correctly refused.
 The tradeable set at $100 is **SOL, BNB, ADA** — three symbols, not five. Every expectancy figure in
 this report is computed on those three.
 
+> **Correction (2026-08-25, ADR-029):** the declared paper account is now **$10,000** (`shared/account.py`).
+> At $10,000 the 10 % per-trade cap is **$1,000**; BTC's minimum order (≈ $77) and ETH's (≈ $24) clear it
+> easily, so **BTC/ETH are mechanically tradeable again**. The three-symbol conclusion above is **void** and
+> pending re-derivation at the new account size. The text above is kept as a dated analysis of the $100 era.
+
 ---
 
 ## 4. The binding constraint is structural, not a threshold

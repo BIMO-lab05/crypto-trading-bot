@@ -3,7 +3,7 @@ type: meta
 title: "Wiki Index"
 status: current
 created: 2026-05-05
-updated: 2026-07-30
+updated: 2026-08-25
 tags: [meta, index]
 ---
 
@@ -15,7 +15,7 @@ Master catalog. Updated on every ingest.
 
 - [[modules/_index|Modules]] — per-service pages (11 microservices + frontend)
 - [[components/_index|Components]] — reusable engine sub-systems (Volume-Profile, Multi-Timeframe-Blender)
-- [[decisions/_index|Decisions]] — ADRs 001–027 (single canonical ADR home since 2026-07-30)
+- [[decisions/_index|Decisions]] — ADRs 001–029 (single canonical ADR home since 2026-07-30)
 - [[dependencies/_index|Dependencies]] — external packages, models, infra *(stub — unpopulated)*
 - [[flows/_index|Flows]] — request paths, signal pipeline, order lifecycle
 - [[concepts/_index|Concepts]] — strategy patterns, ML lifecycle, risk model (14 pages)
@@ -53,7 +53,7 @@ Master catalog. Updated on every ingest.
 - [[concepts/Graphify-Shadow-Nodes|Graphify Shadow Nodes]]
 - [[concepts/Test-Setup-Gotchas|Test Setup Gotchas]]
 
-### Decisions (ADRs 001–027)
+### Decisions (ADRs 001–029)
 
 Founding set (2026-05-05):
 - [[decisions/ADR-001-LSTM-removed|ADR-001 LSTM removed]] · [[decisions/ADR-002-trading-engine-lifespan-refactor|ADR-002 lifespan refactor]] · [[decisions/ADR-003-bcrypt-sha256-prehash|ADR-003 bcrypt_sha256]] · [[decisions/ADR-004-paper-trading-default|ADR-004 paper default]] · [[decisions/ADR-005-emergency-stop-file-flag|ADR-005 EMERGENCY_STOP flag]] · [[decisions/ADR-006-mainnet-prices-paper-orders|ADR-006 mainnet+paper]] · [[decisions/ADR-007-no-v1-api-prefix|ADR-007 no /v1/]] · [[decisions/ADR-008-conventional-commits|ADR-008 conventional commits]] · [[decisions/ADR-009-docker-compose-unified-canonical|ADR-009 unified compose]]
@@ -66,6 +66,9 @@ July 2026 fix campaign:
 
 Merged from docs/decisions (2026-07-30):
 - [[decisions/ADR-026-monitoring-disposition|ADR-026 monitoring disposition]] · [[decisions/ADR-027-extended-backtest-disposition|ADR-027 extended-backtest disposition]]
+
+August 2026 (capital coherence):
+- [[decisions/ADR-028-daily-loss-breaker-reconciliation|ADR-028 daily-loss breaker reconciliation]] · [[decisions/ADR-029-account-size-10k-research-scale|ADR-029 account $10k research scale]]
 
 ### Sources
 - [[sources/Archive-Distillation-2026-07-30|Archive Distillation 2026-07-30]] — load-bearing facts rescued from archived reports

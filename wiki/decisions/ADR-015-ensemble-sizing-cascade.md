@@ -6,10 +6,13 @@ context: "Hardcoded ensemble sizing constants ignored ADR-010 paper risk bump; l
 deciders: [operator]
 tags: [decision, adr, sizing, ensemble, paper-trading]
 created: 2026-05-08
-updated: 2026-05-08
+updated: 2026-08-25
 ---
 
 # ADR-015: ensemble sizing cascade bound to settings
+
+> [!note] Floor rationale obsolete per [[ADR-029-account-size-10k-research-scale|ADR-029]] (2026-08-25)
+> The 0.05 floor's justification — making a fired trade clear Bybit min-notional on a $100 account ($5 not $1) — no longer applies at the declared $10,000 research scale. The **floor is retained** per ADR-029 and now sizes a minimum trade at $500. Body text below is the historical record at $100 — do not update its figures.
 
 ## Context
 

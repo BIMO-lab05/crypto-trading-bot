@@ -3,11 +3,14 @@ type: decision
 title: "ADR-028: Reconcile the Daily-Loss Breaker with the ADR-010 Per-Trade Cap"
 status: accepted
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-25
 tags: [decision, adr, risk, trading-engine, kill-switch, capital]
 ---
 
 # ADR-028: Reconcile the Daily-Loss Breaker with the ADR-010 Per-Trade Cap
+
+> [!note] Re-affirmed by [[ADR-029-account-size-10k-research-scale|ADR-029]] at $10,000 (2026-08-25)
+> The 12%-day / 10%-trade geometry carries over unchanged to the new research scale: **$1,200/day against $1,000/trade** — the same one-full-loss-arms-the-breaker shape, deliberately kept. This ADR's closing line ("Revisit this ADR at whatever equity LIVE is actually attempted") is satisfied by ADR-029. Body text below is the historical record at $100 — do not update its figures.
 
 **Status:** Accepted
 **Date:** 2026-08-03

@@ -967,3 +967,10 @@ Owner approved all five decisions (plan/order, pause trader, DEFAULT_LEVERAGE=1.
 ## 2026-08-21 — gates/TA/DSR/frontend repair session
 
 Full record: `.planning/evidence/session-2026-08-21-phase1-gates-dsr-frontend.md`. 12 commits on `fix/gates-ta-dsr` (`df35367..03ff67d`): short gate unreachable at 0.70 → 0.35; phase1 metrics honesty rework; ensemble weights persistence; aggregator hygiene; TA service fixes (FutureWarning, Settings wiring, LOG_LEVEL); frontend health batch; DSR honesty (rogue kernels killed — all pre-2026-08-20 walk-forward DSR results VOID; ledger seeded, floor binds at 60; ML gate fail-closed ON honest-N). Isolation run 20260820T151351Z ABANDONED (operator call, zero-trade window). Deployed TA+engine+frontend+tournament-harness, 16/16 healthy, live-verified.
+
+## 2026-08-25 — Account flipped to $10,000 research scale (ADR-029)
+
+- Declared paper account changed **$100 → $10,000** per ADR-029 (operator-approved). `shared/account.py` remains the declaration of record; bare account-size literals stay forbidden (route through `shared.account` on host, service `Settings` in containers, `PAPER_DEFAULT_BALANCE` in frontend).
+- Risk knobs UNCHANGED in relative terms: 10% per-trade fraction (now $1,000), 12% daily breaker (now $1,200), 10% max position, 5% ensemble floor (now $500), LIVE cap 2% (now $200).
+- **$100-era feasibility conclusions are VOID**: BTC min = 62.6% of account, the SOL/BNB/ADA-only tradeable set, and "LIVE mechanically impossible" no longer hold — BTC/ETH clear min notional at $1,000/trade, and LIVE is blocked only by the four deliberate flags, not arithmetic. Fees are bps-of-notional, so the flip creates **no edge**.
+- DB reset + service redeploy **deferred** until after the 2026-08-27 isolation harvest; tests/backtests being re-run at $10,000.
