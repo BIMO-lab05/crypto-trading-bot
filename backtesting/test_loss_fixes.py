@@ -14,6 +14,8 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -27,7 +29,7 @@ from backtesting.backtest_engine import BacktestEngine, OrderType, BacktestResul
 class LossFixBacktest:
     """Specialized backtest to validate loss prevention fixes"""
 
-    def __init__(self, initial_capital: float = 10000.0):
+    def __init__(self, initial_capital: float = ACCOUNT_EQUITY_USD):
         self.initial_capital = initial_capital
         self.results = {}
 
@@ -359,7 +361,7 @@ async def main():
     parser = argparse.ArgumentParser(description="Backtest proposed loss prevention fixes")
     parser.add_argument('--symbol', default='SOLUSDT', help='Symbol to test (default: SOLUSDT)')
     parser.add_argument('--days', type=int, default=30, help='Days of historical data (default: 30)')
-    parser.add_argument('--capital', type=float, default=10000.0, help='Initial capital (default: 10000)')
+    parser.add_argument('--capital', type=float, default=ACCOUNT_EQUITY_USD, help='Initial capital (default: declared account equity)')
     args = parser.parse_args()
 
     print("\n" + "="*100)

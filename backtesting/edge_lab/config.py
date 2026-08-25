@@ -31,4 +31,7 @@ CPCV_N_GROUPS = 10
 CPCV_K_TEST_GROUPS = 2
 CPCV_EMBARGO_PCT = 0.01
 
+# DELIBERATE equity pin (ADR-029): NOTIONAL_PER_TRADE tracks declared account
+# equity by design; absolute-USD outputs inflating 100x vs the old $100 scale is
+# accepted. Do not convert this to a bare literal or a per-trade cap.
 NOTIONAL_PER_TRADE = Decimal(str(ACCOUNT_EQUITY_USD))

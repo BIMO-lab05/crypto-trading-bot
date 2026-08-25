@@ -13,6 +13,9 @@ set -e
 PROJECT_DIR="${PROJECT_ROOT}"
 LOG_FILE="$PROJECT_DIR/logs/day2_monitor.log"
 
+# Declared account size (shared/account.py), never a literal
+INITIAL_CAPITAL="${PAPER_INITIAL_BALANCE:-$(cd "$PROJECT_ROOT" && python3 -c 'from shared.account import ACCOUNT_EQUITY_USD; print(ACCOUNT_EQUITY_USD)')}"
+
 # Service endpoints
 TRADING_ENGINE="http://localhost:8005"
 PORTFOLIO_MANAGER="http://localhost:8003"
@@ -130,7 +133,7 @@ try:
         total = balance.get('total', 0)
         available = balance.get('available', 0)
     else:
-        total = data.get('equity', data.get('total_equity', 10000))
+        total = data.get('equity', data.get('total_equity', $INITIAL_CAPITAL))
         available = data.get('available_balance', total)
 
     pnl = data.get('total_pnl', data.get('realized_pnl', 0))
@@ -141,7 +144,9 @@ try:
     ur_color = '\033[92m' if unrealized >= 0 else '\033[91m'
     reset = '\033[0m'
 
-    pnl_pct = (pnl / 10000) * 100 if total != 0 else 0
+    # Use the live equity when fetched; fall back to the declared account size
+    denom = total if total != 0 else $INITIAL_CAPITAL
+    pnl_pct = (pnl / denom) * 100 if denom != 0 else 0
 
     print(f'  Equity: \${total:.2f}')
     print(f'  Available: \${available:.2f}')

@@ -20,6 +20,8 @@ import json
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "services" / "trading-engine"))
+sys.path.insert(0, str(project_root))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 from app.strategies.enhanced_grid_trading_v2 import EnhancedGridTradingV2
 from app.backtesting.backtest_engine import BacktestEngine, BacktestConfig
@@ -104,7 +106,7 @@ def run_enhanced_v2_backtest(symbol: str) -> Dict:
 
     # Configure backtest
     config = BacktestConfig()
-    config.initial_equity = 10000.0
+    config.initial_equity = ACCOUNT_EQUITY_USD
     config.commission_pct = 0.1  # 0.1% commission
     config.slippage_pct = 0.05   # 0.05% slippage
     # Note: BacktestConfig doesn't have start/end date - those are in the bars data

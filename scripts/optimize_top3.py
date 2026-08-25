@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 import pandas as pd
 import numpy as np
@@ -110,7 +111,7 @@ def optimize_symbol(symbol: str, data: pd.DataFrame):
     }
     
     # Create backtest engine and adapter
-    backtest_engine = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
+    backtest_engine = BacktestEngine(initial_capital=ACCOUNT_EQUITY_USD, commission=0.001, slippage=0.0005)
     
     def strategy_func_with_params(data_subset, params):
         return create_rsi_strategy(params.get('rsi_period', 14), params.get('oversold', 30), params.get('overbought', 70))

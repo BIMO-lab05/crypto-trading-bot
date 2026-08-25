@@ -22,8 +22,8 @@ WARNING_THRESHOLD=3.0    # Warning at 3% daily loss
 CRITICAL_THRESHOLD=4.0   # Critical at 4% daily loss
 EMERGENCY_THRESHOLD=5.0  # Emergency stop at 5% daily loss
 
-# Initial capital
-INITIAL_CAPITAL=10000
+# Initial capital -- declared account size (shared/account.py), never a literal
+INITIAL_CAPITAL="${PAPER_INITIAL_BALANCE:-$(cd "$PROJECT_ROOT" && python3 -c 'from shared.account import ACCOUNT_EQUITY_USD; print(ACCOUNT_EQUITY_USD)')}"
 
 # Timestamp function
 timestamp() {

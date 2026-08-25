@@ -118,9 +118,7 @@ class TradingBot:
         logger.info(f"Trading Bot initialized in {config.mode.value} mode")
         logger.info(f"Monitoring symbols: {config.symbols}")
         logger.info(f"Check interval: {config.interval_minutes} minutes")
-        logger.info(
-            f"Notifications: {'Enabled' if config.enable_notifications else 'Disabled'}"
-        )
+        logger.info(f"Notifications: {'Enabled' if config.enable_notifications else 'Disabled'}")
 
     async def _send_notification(self, endpoint: str, data: Dict) -> bool:
         """
@@ -183,9 +181,12 @@ class TradingBot:
             "mode": self.config.mode.value,
             "symbols": self.config.symbols,
             "interval_minutes": self.config.interval_minutes,
-            # THE ACCOUNT IS $100 (shared/account.py). This value is announced
-            # to the operator over Telegram on every start; the old 10000.0
-            # literal meant the bot opened by reporting 100x the real account.
+            # Account size comes from the declaration of record
+            # (shared/account.py) — never a literal. This value is announced
+            # to the operator over Telegram on every start; a hardcoded
+            # 10000.0 here once reported 100x the then-declared $100 account.
+            # ADR-029 later set the declared size to $10,000 again, but the
+            # routing is the fix, not the number.
             "capital": PAPER_INITIAL_BALANCE,
             "max_position_pct": self.config.max_position_size_pct,
             "daily_loss_limit": self.config.daily_loss_limit_pct,
@@ -235,9 +236,7 @@ class TradingBot:
 
             # Check max trades limit
             if self.trades_today >= self.config.max_trades_per_day:
-                logger.warning(
-                    f"Max trades per day ({self.config.max_trades_per_day}) reached"
-                )
+                logger.warning(f"Max trades per day ({self.config.max_trades_per_day}) reached")
                 return
 
             # Process each symbol
@@ -247,9 +246,7 @@ class TradingBot:
             # Log cycle completion
             cycle_duration = (datetime.now() - cycle_start).total_seconds()
             logger.info(f"Trading cycle completed in {cycle_duration:.2f} seconds")
-            logger.info(
-                f"Trades today: {self.trades_today}/{self.config.max_trades_per_day}"
-            )
+            logger.info(f"Trades today: {self.trades_today}/{self.config.max_trades_per_day}")
             logger.info(f"Daily P&L: ${self.daily_pnl:.2f}")
 
         except Exception as e:
@@ -288,9 +285,7 @@ class TradingBot:
 
             # Execute trade if appropriate
             if action in ["BUY", "SELL"]:
-                await self._execute_trade(
-                    symbol, action, current_price, signal, portfolio
-                )
+                await self._execute_trade(symbol, action, current_price, signal, portfolio)
             else:
                 logger.info(f"✋ {symbol}: No trade executed - {action}")
 
@@ -358,26 +353,18 @@ class TradingBot:
         metadata = signal.get("metadata", {})
 
         # Get thresholds from metadata or use config
-        min_confidence = metadata.get(
-            "min_confidence_required", self.config.min_confidence
-        )
+        min_confidence = metadata.get("min_confidence_required", self.config.min_confidence)
         min_consensus = metadata.get("min_consensus_required", 3)
 
         # Print detailed signal diagnostics
         logger.info("=" * 80)
         logger.info(f"📊 SIGNAL DIAGNOSTICS FOR {symbol}")
         logger.info("=" * 80)
-        logger.info(
-            f"Current Price: ${signal.get('metadata', {}).get('current_price', 'N/A')}"
-        )
+        logger.info(f"Current Price: ${signal.get('metadata', {}).get('current_price', 'N/A')}")
         logger.info(f"Signal Action: {signal_action}")
         logger.info(f"Aggregated Score: {aggregated_score:.3f}")
-        logger.info(
-            f"Confidence: {confidence:.1%} (min required: {min_confidence:.1%})"
-        )
-        logger.info(
-            f"Consensus: {consensus_count} indicators (min required: {min_consensus})"
-        )
+        logger.info(f"Confidence: {confidence:.1%} (min required: {min_confidence:.1%})")
+        logger.info(f"Consensus: {consensus_count} indicators (min required: {min_consensus})")
         logger.info("-" * 80)
 
         # Show individual indicators
@@ -450,9 +437,7 @@ class TradingBot:
 
         # Check for trend blocks or volume issues
         if metadata.get("trend_blocked"):
-            reasons_to_hold.append(
-                f"Trend filter blocked: {metadata.get('trend_reason', 'N/A')}"
-            )
+            reasons_to_hold.append(f"Trend filter blocked: {metadata.get('trend_reason', 'N/A')}")
 
         volume_penalty = metadata.get("volume_penalty", 1.0)
         if volume_penalty < 1.0:
@@ -485,9 +470,7 @@ class TradingBot:
 
         # Make final decision
         if not meets_requirements or reasons_to_hold:
-            logger.info(
-                f"🛑 DECISION: HOLD - Not trading {symbol} (requirements not met)"
-            )
+            logger.info(f"🛑 DECISION: HOLD - Not trading {symbol} (requirements not met)")
             return "HOLD"
 
         # All checks passed

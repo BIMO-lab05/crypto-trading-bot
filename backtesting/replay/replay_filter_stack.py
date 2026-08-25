@@ -163,9 +163,7 @@ class Replay:
         # `aggregated_score` and `compute_agreement_confidence`.
         # Production logs "Filtered voting indicators: 9/11"; with ATR present
         # this replay produced 10/12. Excluded so the two match exactly.
-        indicators = {
-            name: _to_indicator(leg) for name, leg in legs.items() if name != "ATR"
-        }
+        indicators = {name: _to_indicator(leg) for name, leg in legs.items() if name != "ATR"}
         adx_meta = legs.get("ADX", {}).get("metadata", {})
         regime_analysis = self.agg.regime_detector._analyze_regime(
             {
@@ -378,9 +376,12 @@ def simulate(signals: List[Dict], klines_dir: str, equity: float):
         an independent trade, and the trade count, expectancy and drawdown all
         describe something the engine cannot do — it blocks re-entry while a
         position is open (`_check_symbol_cooldown`, the open-slot claim).
-      - min-notional / min-qty rejection per symbol. On a $100 account most of
-        the validated universe cannot clear the venue floor at a 10 % cap;
-        tuning on trades that cannot exist would be worse than not tuning.
+      - min-notional / min-qty rejection per symbol, sized from the declared
+        account (shared/account.py). At the historical $100 declaration most
+        of the validated universe could not clear the venue floor at a 10 %
+        cap; the ADR-029 $10,000 declaration clears it easily, but the
+        rejection stays regardless of size — tuning on trades that cannot
+        exist would be worse than not tuning.
       - costs are a full taker round trip plus one-way slippage per leg.
 
     Returns (trades, skipped_counter).
@@ -393,9 +394,7 @@ def simulate(signals: List[Dict], klines_dir: str, equity: float):
         if sym in bars:
             continue
         with open(os.path.join(klines_dir, f"{sym}_60.csv")) as fh:
-            bars[sym] = [
-                {k: float(v) for k, v in row.items()} for row in csv.DictReader(fh)
-            ]
+            bars[sym] = [{k: float(v) for k, v in row.items()} for row in csv.DictReader(fh)]
 
     schedule = FeeSchedule.bybit_linear_perp()
     trades = []
@@ -411,9 +410,7 @@ def simulate(signals: List[Dict], klines_dir: str, equity: float):
             continue
 
         # venue floor — reject, never clamp up
-        ok, qty, notional, why = sizing_verdict(
-            sym, sig["entry"], sig["position_size_pct"], equity
-        )
+        ok, qty, notional, why = sizing_verdict(sym, sig["entry"], sig["position_size_pct"], equity)
         if not ok:
             skipped[f"{sym}:{why}"] += 1
             continue
@@ -568,9 +565,7 @@ async def _main() -> None:
         included.append(symbol)
         print(f"  {symbol}: {len(replay.signals)} cumulative signals", flush=True)
 
-    trades, skipped = simulate(
-        replay.signals, args.klines, float(ACCOUNT_EQUITY_USD)
-    )
+    trades, skipped = simulate(replay.signals, args.klines, float(ACCOUNT_EQUITY_USD))
 
     split_ms = None
     if args.split_date:

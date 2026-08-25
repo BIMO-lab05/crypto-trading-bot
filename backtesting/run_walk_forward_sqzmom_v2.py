@@ -26,8 +26,10 @@ from data_downloader import HistoricalDataDownloader
 from backtest_engine import BacktestEngine
 from sqzmom_v2 import precompute_features, make_sqzmom_v2
 
-# 2026-08-20: capital from the declaration of record (was a bare 10000.0 —
-# a $10k literal in a $100 repo; shared/account.py is authoritative).
+# 2026-08-20: capital from the declaration of record (was a bare 10000.0
+# hardcoded when the declared account was $100 — wrong then; ADR-029 has since
+# set the declared size to $10,000 again, but shared/account.py stays
+# authoritative — the routing is the fix, not the number).
 from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
 
 
@@ -127,9 +129,7 @@ def deflated_sharpe_per_bar(oos_returns, fold_bar_sharpes, num_trials):
 async def run_symbol(symbol):
     print(f"\n=== {symbol} ===")
     downloader = HistoricalDataDownloader(market_data_url="http://localhost:8002")
-    raw = await downloader.download_historical_data(
-        symbol=symbol, interval=INTERVAL, days=DAYS
-    )
+    raw = await downloader.download_historical_data(symbol=symbol, interval=INTERVAL, days=DAYS)
     await downloader.close()
 
     if raw is None or len(raw) == 0:
@@ -158,9 +158,7 @@ async def run_symbol(symbol):
 
         # OOS run
         oos_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE)
-        oos_result = oos_engine.run_backtest(
-            oos_slice, strategy, strategy_name=f"oos_{k}"
-        )
+        oos_result = oos_engine.run_backtest(oos_slice, strategy, strategy_name=f"oos_{k}")
         oos_sharpe = calc_sharpe(oos_engine.equity_curve)
         oos_sharpes.append(oos_sharpe)
         oos_bar_rets.append(per_bar_returns(oos_engine.equity_curve))
@@ -185,18 +183,14 @@ async def run_symbol(symbol):
     )
     for r in fold_rows:
         k, b, t, wr, s, dd, pf, pl = r
-        print(
-            f"  {k:<6} {b:<7} {t:<8} {wr:<7.1f} {s:<8.2f} {dd:<8.2f} {pf:<6.2f} {pl:<7.2f}"
-        )
+        print(f"  {k:<6} {b:<7} {t:<8} {wr:<7.1f} {s:<8.2f} {dd:<8.2f} {pf:<6.2f} {pl:<7.2f}")
 
     is_mean = float(np.mean(is_sharpes)) if is_sharpes else 0.0
     oos_mean = float(np.mean(oos_sharpes)) if oos_sharpes else 0.0
     is_oos_ratio = (oos_mean / is_mean) if is_mean > 0 else 0.0
     # Disjoint OOS windows at FOLDS=4 / IS_FRAC=0.75 — the concatenation
     # is the stitched per-bar OOS return series for the canonical kernel.
-    all_oos_rets = (
-        np.concatenate(oos_bar_rets) if oos_bar_rets else np.empty(0, dtype=float)
-    )
+    all_oos_rets = np.concatenate(oos_bar_rets) if oos_bar_rets else np.empty(0, dtype=float)
     dsr = deflated_sharpe_per_bar(all_oos_rets, oos_fold_bar_sharpes, N_TRIALS)
     print(
         f"  IS Sharpe mean (ann): {is_mean:.2f}  "
@@ -234,9 +228,7 @@ async def run_symbol(symbol):
 
 async def main():
     print(f"=== Phase C-4 walk-forward gate: sqzmom_v2 L{LAYER} ===")
-    print(
-        f"days={DAYS}  folds={FOLDS}  is_frac={IS_FRAC}  layer={LAYER}  n_trials={N_TRIALS}"
-    )
+    print(f"days={DAYS}  folds={FOLDS}  is_frac={IS_FRAC}  layer={LAYER}  n_trials={N_TRIALS}")
 
     results = []
     for symbol in SYMBOLS:

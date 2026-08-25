@@ -24,10 +24,14 @@ import logging
 # service and no Dockerfile copies it, so unlike code under `services/*/app/**`
 # it MAY import the declaration of record directly. See `shared/account.py`.
 #
-# 2026-08-03: this engine defaulted to $10,000 and was MISSED by the capital
-# audit, which caught `simulators/` but not the engine that actually produces
-# the walk-forward evidence. Every result in `*_FINAL_RESULTS.log` (Dec 2025)
-# was therefore computed on a 100x account.
+# 2026-08-03: this engine had a hardcoded $10,000 default and was MISSED by
+# the capital audit, which caught `simulators/` but not the engine that
+# actually produces the walk-forward evidence — wrong at the time, when the
+# declared account was $100 (results in `*_FINAL_RESULTS.log`, Dec 2025, were
+# computed on 100x the then-declared size). Capital has been routed through
+# `shared/account.py` since. ADR-029 later set the declared size to $10,000
+# again — the literal is accidentally back in agreement, but the routing is
+# the fix, not the number: never reintroduce an account-size literal here.
 # ---------------------------------------------------------------------------
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _REPO_ROOT not in sys.path:
@@ -41,7 +45,9 @@ from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
 # Fee defaults come from the one cost model (services/trading-engine/app/
 # costs.py) rather than hand-copied literals: the copies drifted — this file
 # shipped `bybit_maker_fee = -0.0001` ("maker rebate"), but Bybit pays maker
-# rebates only at MM/high-VIP tiers a $100 account cannot reach. Maker is a
+# rebates only at MM/high-VIP tiers no retail account this size can reach —
+# true at the historical $100 declaration and equally true at the ADR-029
+# $10,000 one. Maker is a
 # +2bp CHARGE. Top-level import first (killtests put backtesting/ on sys.path);
 # package fallback for `from backtesting.backtest_engine import ...` callers.
 try:
@@ -288,9 +294,7 @@ class BacktestEngine:
         if isinstance(data.index[0], (pd.Timestamp, datetime)):
             logger.info(f"Data range: {data.index[0]} to {data.index[-1]}")
         elif "timestamp" in data.columns:
-            logger.info(
-                f"Data range: {data.iloc[0]['timestamp']} to {data.iloc[-1]['timestamp']}"
-            )
+            logger.info(f"Data range: {data.iloc[0]['timestamp']} to {data.iloc[-1]['timestamp']}")
         logger.info(f"Total candles: {len(data)}")
 
         self.reset()
@@ -313,9 +317,7 @@ class BacktestEngine:
             # else happens on this bar.
             if self._pending_signal is not None:
                 fill_price = float(row["open"]) if "open" in row else current_price
-                self._execute_signal(
-                    self._pending_signal, fill_price, current_time, row
-                )
+                self._execute_signal(self._pending_signal, fill_price, current_time, row)
                 self._pending_signal = None
 
             # Apply funding before exit checks so a long that flipped past
@@ -371,9 +373,7 @@ class BacktestEngine:
 
         return result
 
-    def _check_exit_conditions(
-        self, row: pd.Series, current_time: datetime
-    ) -> Optional[str]:
+    def _check_exit_conditions(self, row: pd.Series, current_time: datetime) -> Optional[str]:
         """Check if stop loss or take profit is hit"""
         if not self.current_position:
             return None
@@ -383,39 +383,25 @@ class BacktestEngine:
 
         if self.current_position.order_type == OrderType.BUY:
             # Check stop loss (below entry)
-            if (
-                self.current_position.stop_loss
-                and low <= self.current_position.stop_loss
-            ):
+            if self.current_position.stop_loss and low <= self.current_position.stop_loss:
                 return "stop_loss"
 
             # Check take profit (above entry)
-            if (
-                self.current_position.take_profit
-                and high >= self.current_position.take_profit
-            ):
+            if self.current_position.take_profit and high >= self.current_position.take_profit:
                 return "take_profit"
 
         elif self.current_position.order_type == OrderType.SELL:
             # Check stop loss (above entry)
-            if (
-                self.current_position.stop_loss
-                and high >= self.current_position.stop_loss
-            ):
+            if self.current_position.stop_loss and high >= self.current_position.stop_loss:
                 return "stop_loss"
 
             # Check take profit (below entry)
-            if (
-                self.current_position.take_profit
-                and low <= self.current_position.take_profit
-            ):
+            if self.current_position.take_profit and low <= self.current_position.take_profit:
                 return "take_profit"
 
         return None
 
-    def _execute_signal(
-        self, signal: Dict, price: float, time: datetime, row: pd.Series
-    ):
+    def _execute_signal(self, signal: Dict, price: float, time: datetime, row: pd.Series):
         """Execute a trading signal"""
         action = signal.get("action")
 
@@ -429,9 +415,7 @@ class BacktestEngine:
             # Close position on HOLD signal
             self._close_position(price, time, "signal")
 
-    def _open_position(
-        self, order_type: OrderType, price: float, time: datetime, signal: Dict
-    ):
+    def _open_position(self, order_type: OrderType, price: float, time: datetime, signal: Dict):
         """Open a new position"""
         # Calculate position size
         risk_amount = self.capital * self.position_size_pct
@@ -511,15 +495,9 @@ class BacktestEngine:
         if reason == "stop_loss":
             exit_price = self.current_position.stop_loss
             if bar_open is not None:
-                if (
-                    self.current_position.order_type == OrderType.BUY
-                    and bar_open < exit_price
-                ):
+                if self.current_position.order_type == OrderType.BUY and bar_open < exit_price:
                     exit_price = bar_open
-                elif (
-                    self.current_position.order_type == OrderType.SELL
-                    and bar_open > exit_price
-                ):
+                elif self.current_position.order_type == OrderType.SELL and bar_open > exit_price:
                     exit_price = bar_open
         elif reason == "take_profit":
             exit_price = self.current_position.take_profit
@@ -560,8 +538,7 @@ class BacktestEngine:
 
         # Calculate profit/loss percentage
         profit_loss_pct = (
-            profit_loss
-            / (self.current_position.entry_price * self.current_position.position_size)
+            profit_loss / (self.current_position.entry_price * self.current_position.position_size)
         ) * 100
 
         # Create trade record
@@ -606,9 +583,7 @@ class BacktestEngine:
 
         return equity
 
-    def _calculate_results(
-        self, strategy_name: str, data: pd.DataFrame
-    ) -> BacktestResult:
+    def _calculate_results(self, strategy_name: str, data: pd.DataFrame) -> BacktestResult:
         """Calculate backtest performance metrics"""
         if not self.trades:
             logger.warning("No trades executed during backtest")
@@ -653,21 +628,11 @@ class BacktestEngine:
 
         # P&L metrics
         total_pl = sum(t.profit_loss for t in self.trades)
-        total_pl_pct = (
-            (self.capital - self.initial_capital) / self.initial_capital
-        ) * 100
+        total_pl_pct = ((self.capital - self.initial_capital) / self.initial_capital) * 100
         avg_profit = total_pl / total_trades if total_trades > 0 else 0
 
-        avg_win = (
-            sum(t.profit_loss for t in winning_trades) / num_winning
-            if num_winning > 0
-            else 0
-        )
-        avg_loss = (
-            sum(t.profit_loss for t in losing_trades) / num_losing
-            if num_losing > 0
-            else 0
-        )
+        avg_win = sum(t.profit_loss for t in winning_trades) / num_winning if num_winning > 0 else 0
+        avg_loss = sum(t.profit_loss for t in losing_trades) / num_losing if num_losing > 0 else 0
 
         best_trade = max(t.profit_loss for t in self.trades) if self.trades else 0
         worst_trade = min(t.profit_loss for t in self.trades) if self.trades else 0
@@ -682,9 +647,7 @@ class BacktestEngine:
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
 
         # Trade duration
-        durations = [
-            (t.exit_time - t.entry_time).total_seconds() / 3600 for t in self.trades
-        ]
+        durations = [(t.exit_time - t.entry_time).total_seconds() / 3600 for t in self.trades]
         avg_duration = sum(durations) / len(durations) if durations else 0
 
         return BacktestResult(

@@ -40,8 +40,10 @@ if PROJECT_ROOT not in sys.path:
 # THIS script produced comprehensive/grid/sr/trend_FINAL_RESULTS.log (Dec 2025),
 # not backtesting/backtest_engine.py. Its own PatchedBacktestEngine wraps the
 # trading-engine service's backtester, and initial_equity was hardcoded 10000.0
-# below -- a 100x account. Sourced from the declaration of record as of
-# 2026-08-03. Do NOT let autoflake strip this import.
+# below -- 100x the then-declared $100 account, wrong at the time. Sourced from
+# the declaration of record (shared/account.py) as of 2026-08-03; ADR-029 later
+# set the declared size to $10,000 again, but the routing is the fix, not the
+# number. Do NOT let autoflake strip this import.
 from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
 
 # Import backtesting framework
@@ -55,9 +57,7 @@ from app.backtesting.strategy_base import StrategyBase, Signal, SignalType, OHLC
 from app.backtesting.performance_metrics import calculate_all_metrics
 
 # Configure logging
-logging.basicConfig(
-    level=logging.WARNING, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -181,9 +181,7 @@ class PatchedBacktestEngine:
             signals_executed=self._signals_executed,
         )
 
-    def _process_signal(
-        self, signal: Signal, bar: OHLCV, strategy: StrategyBase
-    ) -> None:
+    def _process_signal(self, signal: Signal, bar: OHLCV, strategy: StrategyBase) -> None:
         if signal.signal_type == SignalType.BUY:
             if not self._position:
                 self._open_position(signal, bar, "long", strategy)
@@ -197,12 +195,8 @@ class PatchedBacktestEngine:
             if self._position and self._position.side == "short":
                 self._close_position(bar, signal.metadata.get("exit_reason", "signal"))
 
-    def _open_position(
-        self, signal: Signal, bar: OHLCV, side: str, strategy: StrategyBase
-    ) -> None:
-        position_size_pct = (
-            self.config.position_size_pct * signal.position_size_pct / 100
-        )
+    def _open_position(self, signal: Signal, bar: OHLCV, side: str, strategy: StrategyBase) -> None:
+        position_size_pct = self.config.position_size_pct * signal.position_size_pct / 100
         position_value = self._cash * (position_size_pct / 100)
 
         slippage_amount = bar.close * (self.config.slippage_pct / 100)
@@ -625,11 +619,7 @@ class RSIBBComboAdapter(StrategyBase):
         lower, middle, upper = bb
         signal = None
 
-        if (
-            rsi < self._oversold
-            and bar.close <= lower * 1.01
-            and not self.has_position()
-        ):
+        if rsi < self._oversold and bar.close <= lower * 1.01 and not self.has_position():
             signal = Signal(
                 signal_type=SignalType.BUY,
                 symbol=self.symbol,
@@ -640,11 +630,7 @@ class RSIBBComboAdapter(StrategyBase):
                 take_profit=bar.close + (atr * 3.0),
                 metadata={"rsi": rsi, "bb_lower": lower},
             )
-        elif (
-            rsi > self._overbought
-            and bar.close >= upper * 0.99
-            and not self.has_position()
-        ):
+        elif rsi > self._overbought and bar.close >= upper * 0.99 and not self.has_position():
             signal = Signal(
                 signal_type=SignalType.SELL,
                 symbol=self.symbol,
@@ -776,9 +762,7 @@ class MACDHistogramAdapter(StrategyBase):
         slow_ema = ema_s(self._prices, self._slow)
 
         min_len = min(len(fast_ema), len(slow_ema))
-        macd_line = [
-            fast_ema[-(min_len - i)] - slow_ema[-(min_len - i)] for i in range(min_len)
-        ]
+        macd_line = [fast_ema[-(min_len - i)] - slow_ema[-(min_len - i)] for i in range(min_len)]
 
         if len(macd_line) < self._signal:
             return None, None, None
@@ -963,10 +947,7 @@ class StochasticRSIAdapter(StrategyBase):
             if len(prices_slice) < self._rsi_period + 1:
                 continue
 
-            deltas = [
-                prices_slice[j] - prices_slice[j - 1]
-                for j in range(1, len(prices_slice))
-            ]
+            deltas = [prices_slice[j] - prices_slice[j - 1] for j in range(1, len(prices_slice))]
             gains = [d if d > 0 else 0 for d in deltas[-self._rsi_period :]]
             losses = [-d if d < 0 else 0 for d in deltas[-self._rsi_period :]]
 
@@ -1072,12 +1053,8 @@ def test_all():
     print("=" * 80)
     print("COMPREHENSIVE STRATEGY TESTING - CSV DATA (PATCHED ENGINE)")
     print("=" * 80)
-    print(
-        f"\nTesting {len(strategies)} strategies on {len(SYMBOLS)} symbols (180 days)"
-    )
-    print(
-        f"Criteria: Win Rate >{MIN_WIN_RATE}%, Sharpe >{MIN_SHARPE}, Drawdown <{MAX_DRAWDOWN}%"
-    )
+    print(f"\nTesting {len(strategies)} strategies on {len(SYMBOLS)} symbols (180 days)")
+    print(f"Criteria: Win Rate >{MIN_WIN_RATE}%, Sharpe >{MIN_SHARPE}, Drawdown <{MAX_DRAWDOWN}%")
     print("\nExcluded:")
     for name, reason in excluded.items():
         print(f"  - {name}: {reason}")
@@ -1200,9 +1177,7 @@ def print_comparison(all_results: Dict[str, List[StrategyTestResult]]):
     if viable:
         print(f"FOUND {len(viable)} VIABLE STRATEGIES:")
         for name, _, _, wr, sharpe, ret, trades in viable:
-            print(
-                f"  - {name}: {wr:.1f}% win rate, {sharpe:.2f} Sharpe, {ret:+.1f}% return"
-            )
+            print(f"  - {name}: {wr:.1f}% win rate, {sharpe:.2f} Sharpe, {ret:+.1f}% return")
     else:
         print("NO STRATEGIES MEET ALL CRITERIA")
         print("\nBest candidates for optimization:")

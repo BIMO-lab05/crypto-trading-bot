@@ -152,10 +152,13 @@ class RiskValidator:
         synthetic $10K/$5K/$50K balances. It asserted only that Python
         multiplies correctly, and it could not fail.
 
-        What actually constrains sizing on a $100 account is the pair of
-        boundaries in .claude/rules/money.md: notional below the venue minimum
-        must be REJECTED (never clamped up, which turns a 10% cap into a 40%
-        one), and notional above the position cap must be clamped DOWN.
+        What actually constrains sizing on the declared account
+        (ACCOUNT_EQUITY_USD, shared/account.py) is the pair of boundaries in
+        .claude/rules/money.md: notional below the venue minimum must be
+        REJECTED (never clamped up, which turns a 10% cap into a 40% one),
+        and notional above the position cap must be clamped DOWN. Every
+        threshold below is derived from the imported constants, never
+        restated as a literal.
         """
         risk_pct = MAX_RISK_PER_TRADE * 100
         print(f"\n{BLUE}[2/6] Position Size Calculation ({risk_pct:.0f}% Risk){NC}")
@@ -208,10 +211,11 @@ class RiskValidator:
                 )
 
         # The structural check: is there any stop distance at which a trade is
-        # both above the venue floor and within the position cap? On $100 with
-        # a 10% position cap the answer is $10 vs a $5 floor — a thin but real
-        # window. If the cap ever falls below the floor, sizing is impossible
-        # and the engine must reject every trade rather than round up.
+        # both above the venue floor and within the position cap? The answer
+        # is whatever equity * MAX_POSITION_SIZE_FRACTION vs MIN_NOTIONAL_USD
+        # says for the declared account — printed below, never assumed. If the
+        # cap ever falls below the floor, sizing is impossible and the engine
+        # must reject every trade rather than round up.
         window_exists = position_cap >= MIN_NOTIONAL_USD
         self.print_test(
             "A compliant position size exists at this account size",
@@ -221,20 +225,33 @@ class RiskValidator:
         if not window_exists:
             all_passed = False
 
-        # LIVE is a different account entirely: the 2% cap is non-negotiable
-        # and on this equity it sits below the venue minimum.
+        # LIVE viability is an arithmetic property of the declared equity:
+        # compare the non-negotiable LIVE per-trade cap against the venue
+        # minimum and report whichever way it falls. Whether LIVE is ACTIVE is
+        # a separate question — it is gated by the four deliberate flags
+        # (PAPER_TRADING_MODE, TRADING_MODE, mainnet trade keys,
+        # LIVE_TRADING_ACK), not by this arithmetic.
         live_budget = equity * LIVE_MAX_RISK_PER_TRADE
         if live_budget < MIN_NOTIONAL_USD:
             self.print_warning(
                 "LIVE per-trade cap is below the venue minimum",
                 f"{LIVE_MAX_RISK_PER_TRADE * 100:.0f}% of ${equity:.2f} = "
-                f"${live_budget:.2f} < ${MIN_NOTIONAL_USD:.2f} — LIVE trading is "
-                "not mechanically viable at this account size regardless of edge",
+                f"${live_budget:.2f} < ${MIN_NOTIONAL_USD:.2f} — no compliant "
+                "LIVE trade size exists at this equity regardless of edge",
+            )
+        else:
+            self.print_test(
+                "LIVE per-trade cap clears the venue minimum",
+                True,
+                f"{LIVE_MAX_RISK_PER_TRADE * 100:.0f}% of ${equity:.2f} = "
+                f"${live_budget:.2f} >= ${MIN_NOTIONAL_USD:.2f} — LIVE sizing "
+                "is arithmetically viable; going LIVE remains flag-gated "
+                "(four-step checklist), this check does not authorize it",
             )
 
-        # NOTE: this is a warning, not a failure. The LIVE cap being below the
-        # venue minimum is a true and permanent property of a $100 account, so
-        # failing on it would make this test red on every run forever.
+        # NOTE: the below-minimum case is a warning, not a failure — it is a
+        # property of the declared equity, not a code defect, and failing on
+        # it would make this test red on every run at a small account.
         return all_passed
 
     async def test_daily_loss_limit(self) -> bool:
@@ -252,9 +269,10 @@ class RiskValidator:
                 if response.status_code == 200:
                     data = response.json()
                     # FIX 2026-08-05 (AUDIT 2.5): the old .get(..., 10000)
-                    # fallbacks assumed a $10,000 account (100x real) — a
-                    # validator that invents its own balance can mask real
-                    # breaches. Missing fields now FAIL the check loudly.
+                    # fallbacks invented a balance (100x the then-declared
+                    # $100 account) — a validator that invents its own
+                    # balance can mask real breaches. Missing fields now
+                    # FAIL the check loudly.
                     if "total_balance" not in data or "initial_balance" not in data:
                         self.print_test(
                             "Daily loss data available",

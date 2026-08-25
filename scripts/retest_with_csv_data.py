@@ -50,6 +50,8 @@ import logging
 # Add project root to Python path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "services" / "trading-engine"))
+sys.path.insert(0, str(PROJECT_ROOT))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 # Import backtesting engine components
 from app.backtesting.backtest_engine import BacktestEngine
@@ -78,7 +80,7 @@ TEST_SYMBOLS = [
 ]
 
 # Backtest configuration
-INITIAL_CAPITAL = 10000.0  # $10,000 initial capital
+INITIAL_CAPITAL = ACCOUNT_EQUITY_USD  # declared account (shared/account.py)
 POSITION_SIZE = 0.1  # 10% of capital per trade
 
 # Grid Trading v1 configurations to test

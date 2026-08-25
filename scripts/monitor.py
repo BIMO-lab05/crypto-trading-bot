@@ -182,9 +182,7 @@ class SystemMonitor:
 
     async def check_all_services(self) -> List[Dict]:
         """Check health of all services"""
-        tasks = [
-            self.check_service_health(name, config) for name, config in SERVICES.items()
-        ]
+        tasks = [self.check_service_health(name, config) for name, config in SERVICES.items()]
 
         results = await asyncio.gather(*tasks)
         return list(results)
@@ -194,18 +192,19 @@ class SystemMonitor:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # Get portfolio balance
-                balance_response = await client.get(
-                    "http://localhost:8003/api/v1/balance"
-                )
+                balance_response = await client.get("http://localhost:8003/api/v1/balance")
 
                 if balance_response.status_code == 200:
                     balance_data = balance_response.json()
 
                     current_balance = balance_data.get("total_balance", 0)
-                    # FIX 2026-08-05 (AUDIT 2.5): the old fallback here was
-                    # 10000 — 100x the real account, which made the daily-loss
-                    # alert below unreachable. If the API omits the field, use
-                    # the declaration of record (shared/account.py) and say so.
+                    # FIX 2026-08-05 (AUDIT 2.5): the old fallback here was a
+                    # hardcoded 10000 — 100x the then-declared $100 account,
+                    # which made the daily-loss alert below unreachable. Routed
+                    # through shared/account.py since; ADR-029 later set the
+                    # declared size to $10,000 again. The routing is the fix,
+                    # not the number: if the API omits the field, use the
+                    # declaration of record and say so.
                     if "initial_balance" in balance_data:
                         initial_balance = float(balance_data["initial_balance"])
                     else:
@@ -221,9 +220,7 @@ class SystemMonitor:
                     # Calculate daily P&L
                     daily_pnl = current_balance - initial_balance
                     daily_pnl_pct = (
-                        (daily_pnl / initial_balance * 100)
-                        if initial_balance > 0
-                        else 0
+                        (daily_pnl / initial_balance * 100) if initial_balance > 0 else 0
                     )
 
                     # Alert if approaching daily loss limit
@@ -322,9 +319,7 @@ class SystemMonitor:
         # print("\033[H\033[J", end="")
 
         print("\n" + "=" * 70)
-        print(
-            f"{CYAN}System Monitor - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{NC}"
-        )
+        print(f"{CYAN}System Monitor - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{NC}")
         print(f"Uptime: {datetime.now() - self.start_time}")
         print("=" * 70)
 
@@ -407,9 +402,7 @@ class SystemMonitor:
     async def monitor_loop(self):
         """Main monitoring loop"""
         self.log(f"Starting system monitor (interval: {self.interval}s)", "INFO")
-        self.log(
-            f"Alert threshold: {self.alert_threshold} consecutive failures", "INFO"
-        )
+        self.log(f"Alert threshold: {self.alert_threshold} consecutive failures", "INFO")
 
         cycle_count = 0
 
@@ -460,9 +453,7 @@ def signal_handler(signum, frame):
 
 async def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(
-        description="Continuous monitoring for crypto trading bot"
-    )
+    parser = argparse.ArgumentParser(description="Continuous monitoring for crypto trading bot")
     parser.add_argument(
         "--interval",
         type=int,
@@ -482,9 +473,7 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     # Create and run monitor
-    monitor = SystemMonitor(
-        interval=args.interval, alert_threshold=args.alert_threshold
-    )
+    monitor = SystemMonitor(interval=args.interval, alert_threshold=args.alert_threshold)
 
     try:
         await monitor.monitor_loop()

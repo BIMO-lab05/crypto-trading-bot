@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 import pandas as pd
 import numpy as np
@@ -177,7 +178,7 @@ def main():
         print(f"    Type: {strategy['type']}")
         print(f"    Config: {strategy['description']}")
 
-        engine = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
+        engine = BacktestEngine(initial_capital=ACCOUNT_EQUITY_USD, commission=0.001, slippage=0.0005)
         result = engine.run_backtest(data, strategy['func'], strategy['name'])
 
         results.append({

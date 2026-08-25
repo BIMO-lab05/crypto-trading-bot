@@ -17,6 +17,9 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Declared account size (shared/account.py), never a literal
+INITIAL_CAPITAL="${PAPER_INITIAL_BALANCE:-$(cd "$PROJECT_ROOT" && python3 -c 'from shared.account import ACCOUNT_EQUITY_USD; print(ACCOUNT_EQUITY_USD)')}"
 FORCE_SHUTDOWN=false
 if [[ "$1" == "--force" ]]; then
     FORCE_SHUTDOWN=true
@@ -183,7 +186,7 @@ generate_daily_report() {
 
     if [ ! -z "$balance_response" ]; then
         local balance=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('total_balance', 0))" 2>/dev/null)
-        local initial=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('initial_balance', 10000))" 2>/dev/null)
+        local initial=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('initial_balance', $INITIAL_CAPITAL))" 2>/dev/null)
 
         local pnl=$(python3 -c "print(round($balance - $initial, 2))" 2>/dev/null)
         local pnl_pct=$(python3 -c "print(round(($balance - $initial) / $initial * 100, 2))" 2>/dev/null)

@@ -17,6 +17,9 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Declared account size (shared/account.py), never a literal
+INITIAL_CAPITAL="${PAPER_INITIAL_BALANCE:-$(cd "$PROJECT_ROOT" && python3 -c 'from shared.account import ACCOUNT_EQUITY_USD; print(ACCOUNT_EQUITY_USD)')}"
 PERIOD="daily"
 FORMAT="txt"
 OUTPUT_DIR="/tmp/crypto-bot-reports"
@@ -84,7 +87,7 @@ import sys, json
 try:
     data = json.load(sys.stdin)
     print(f\"TOTAL_BALANCE:{data.get('total_balance', 0)}\")
-    print(f\"INITIAL_BALANCE:{data.get('initial_balance', 10000)}\")
+    print(f\"INITIAL_BALANCE:{data.get('initial_balance', $INITIAL_CAPITAL)}\")
     print(f\"AVAILABLE_BALANCE:{data.get('available_balance', 0)}\")
     print(f\"IN_POSITIONS:{data.get('in_positions', 0)}\")
 except:
@@ -200,13 +203,13 @@ generate_text_report() {
         echo "📊 PORTFOLIO SUMMARY"
         echo "────────────────────────────────────────────────────────────"
         echo "  Total Balance:      \$${TOTAL_BALANCE:-0}"
-        echo "  Initial Balance:    \$${INITIAL_BALANCE:-10000}"
+        echo "  Initial Balance:    \$${INITIAL_BALANCE:-$INITIAL_CAPITAL}"
         echo "  Available:          \$${AVAILABLE_BALANCE:-0}"
         echo "  In Positions:       \$${IN_POSITIONS:-0}"
 
         # Calculate P&L
-        local pnl=$(python3 -c "print(round(${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-10000}, 2))" 2>/dev/null || echo "0")
-        local pnl_pct=$(python3 -c "print(round((${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-10000}) / ${INITIAL_BALANCE:-10000} * 100, 2))" 2>/dev/null || echo "0")
+        local pnl=$(python3 -c "print(round(${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-$INITIAL_CAPITAL}, 2))" 2>/dev/null || echo "0")
+        local pnl_pct=$(python3 -c "print(round((${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-$INITIAL_CAPITAL}) / ${INITIAL_BALANCE:-$INITIAL_CAPITAL} * 100, 2))" 2>/dev/null || echo "0")
 
         echo ""
         if (( $(echo "$pnl >= 0" | bc -l 2>/dev/null || echo "0") )); then
@@ -303,7 +306,7 @@ for line in sys.stdin:
 
 # Calculate P&L
 total_balance = metrics.get('total_balance', 0)
-initial_balance = metrics.get('initial_balance', 10000)
+initial_balance = metrics.get('initial_balance', $INITIAL_CAPITAL)
 pnl = total_balance - initial_balance
 pnl_pct = (pnl / initial_balance * 100) if initial_balance > 0 else 0
 
@@ -364,8 +367,8 @@ generate_html_report() {
     source <(cat "$metrics_file" | grep -v "^ERROR:" | grep -v "^POSITION:")
 
     # Calculate P&L
-    local pnl=$(python3 -c "print(round(${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-10000}, 2))" 2>/dev/null || echo "0")
-    local pnl_pct=$(python3 -c "print(round((${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-10000}) / ${INITIAL_BALANCE:-10000} * 100, 2))" 2>/dev/null || echo "0")
+    local pnl=$(python3 -c "print(round(${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-$INITIAL_CAPITAL}, 2))" 2>/dev/null || echo "0")
+    local pnl_pct=$(python3 -c "print(round((${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-$INITIAL_CAPITAL}) / ${INITIAL_BALANCE:-$INITIAL_CAPITAL} * 100, 2))" 2>/dev/null || echo "0")
 
     # Determine P&L color
     local pnl_color="red"
@@ -479,7 +482,7 @@ EOF
             </div>
             <div class="metric">
                 <span class="metric-label">Initial Balance</span>
-                <span class="metric-value">\$${INITIAL_BALANCE:-10000}</span>
+                <span class="metric-value">\$${INITIAL_BALANCE:-$INITIAL_CAPITAL}</span>
             </div>
             <div class="metric">
                 <span class="metric-label">Available</span>
