@@ -20,7 +20,7 @@ import os
 import threading
 import time
 
-from app.models.signal import TradingSignal
+from app.models.signal import IndicatorSignal, TradingSignal
 from app.models.enums import SignalAction
 from app.strategies.simple_rsi_strategy import SimpleRSIStrategy
 from app.strategies.mean_reversion_strategy import (
@@ -54,6 +54,38 @@ LEG_MEAN_REV = "mean_reversion"
 # semantics — so the entry is refused pre-fill with an ERROR naming the
 # symbol, and no position is opened against an unknown risk model.
 UNUSABLE_LEVEL = 0.0
+
+
+def _atr_is_usable(atr_data) -> bool:
+    """One presence predicate for ATR, shared by every leg in this ensemble.
+
+    P21-1, 2026-08-26. The ATR failure payload is NOT empty. When the TA
+    service cannot compute an ATR it returns `atr.py::_default_response()`,
+    which sets `atr` and `atr_pct` to 0.0 while POPULATING
+    stop_loss_long/short at a hardcoded 3% (atr.py:129-146). Read naively,
+    that one payload gave three different answers:
+
+      * `_atr_levels` read the populated stops and traded a 3% stop nobody
+        chose, presented as if it were a real ATR level;
+      * `simple_rsi` read `atr_pct == 0.0` and fell back to its own 2%;
+      * `mean_reversion` read `atr == 0.0` and skipped its SMA-deviation
+        sub-signals entirely.
+
+    Keying on `atr > 0 and atr_pct > 0` makes all three agree. A zero ATR is
+    not a volatility reading — it is the marker of a failed fetch, and the
+    only honest response is to treat it as absent (21-RESEARCH.md Option 1).
+
+    No threshold value changed.
+    """
+    if not isinstance(atr_data, dict):
+        return False
+    try:
+        atr = float(atr_data.get("atr"))
+        atr_pct = float(atr_data.get("atr_pct"))
+    except (TypeError, ValueError):
+        return False
+    # NaN fails both comparisons, which is the intended answer.
+    return atr > 0.0 and atr_pct > 0.0
 
 
 @dataclass
@@ -260,6 +292,25 @@ class MultiStrategyEnsemble:
             )
             return UNUSABLE_LEVEL, UNUSABLE_LEVEL
 
+        if not _atr_is_usable(atr_data):
+            # The ATR failure payload (atr.py::_default_response). Its
+            # stop_loss_long/short ARE populated, at a 3% default nobody
+            # chose, so reading them here presented a failed fetch as a real
+            # risk model. ERROR, not WARNING: a silently-substituted stop is
+            # strictly worse than no stop, because the sentinel is rejected
+            # pre-fill by AutoTrader._ensemble_stops_are_consistent while the
+            # 3% default was traded.
+            logger.error(
+                f"[ENSEMBLE][ATR] {symbol}: metadata['atr'] is the ATR FAILURE "
+                f"payload (atr={atr_data.get('atr')!r}, "
+                f"atr_pct={atr_data.get('atr_pct')!r}) — its populated "
+                f"stop_loss_long/short are a hardcoded 3% default, not a "
+                f"reading. Treating ATR as ABSENT for every leg. The ATR fetch "
+                f"in signal_aggregator.fetch_atr failed, or the TA service had "
+                f"insufficient candles."
+            )
+            return UNUSABLE_LEVEL, UNUSABLE_LEVEL
+
         if action == SignalAction.BUY:
             raw_sl, raw_tp = (
                 atr_data.get("stop_loss_long"),
@@ -284,18 +335,134 @@ class MultiStrategyEnsemble:
             )
             return UNUSABLE_LEVEL, UNUSABLE_LEVEL
 
+    @staticmethod
+    def _atr_indicator(aggregator_signal: TradingSignal) -> Optional[IndicatorSignal]:
+        """Rebuild the aggregator's risk-only ATR payload as an IndicatorSignal.
+
+        P21-1, 2026-08-26. `indicators["ATR"]` was never written by anything,
+        so two of three ensemble legs were structurally ATR-blind:
+        `simple_rsi` sized every stop off a hardcoded 2%, and
+        `mean_reversion`'s SMA-deviation sub-signals (gated on
+        `atr_value > 0`) could never fire. The ATR IS fetched — it just lands
+        in `metadata["atr"]` because `fetch_all_indicators` deliberately
+        diverts it out of the voting dict (signal_aggregator.py:832-841).
+
+        One signal serves both consumers, which is why a single synthetic
+        entry suffices:
+          * `.value` is the ABSOLUTE ATR — `mean_reversion` divides by it
+            (mean_reversion_strategy.py:143, :170) and needs price units;
+          * metadata carries `atr_pct` (a PERCENT, verbatim from the wire)
+            and `atr_fraction` (that percent / 100), which is what
+            `simple_rsi` multiplies against price.
+
+        Returns None rather than a fabricated ATR when the payload is
+        unusable — the same doctrine as UNUSABLE_LEVEL above. A plausible
+        invented ATR is indistinguishable downstream from a real reading.
+
+        No threshold value changed.
+        """
+        symbol = getattr(aggregator_signal, "symbol", "?")
+        atr_data = (aggregator_signal.metadata or {}).get("atr")
+
+        if not _atr_is_usable(atr_data):
+            logger.warning(
+                f"[ENSEMBLE][ATR] {symbol}: no usable metadata['atr'] "
+                f"(got {type(atr_data).__name__}) — the {LEG_RSI} and "
+                f"{LEG_MEAN_REV} legs fall back to their own documented "
+                f"defaults instead of a fabricated ATR."
+            )
+            return None
+
+        try:
+            atr_absolute = float(atr_data["atr"])
+            atr_pct = float(atr_data["atr_pct"])
+            raw_confidence = atr_data.get("confidence")
+            confidence = 0.5 if raw_confidence is None else float(raw_confidence)
+            # IndicatorSignal.confidence is validated ge=0.0 le=1.0; an
+            # out-of-range payload would raise ValidationError ON THE SIGNAL
+            # PATH, so clamp rather than trust the wire.
+            confidence = max(0.0, min(1.0, confidence))
+        except (TypeError, ValueError, KeyError):
+            logger.warning(
+                f"[ENSEMBLE][ATR] {symbol}: metadata['atr'] passed the presence "
+                f"check but could not be cast. Keys available: "
+                f"{sorted(atr_data)}. No synthetic ATR built."
+            )
+            return None
+
+        return IndicatorSignal(
+            name="ATR",
+            signal=SignalAction.HOLD,
+            confidence=confidence,
+            value=atr_absolute,
+            metadata={
+                "atr": atr_absolute,
+                # PERCENT, verbatim from the wire. technical-analysis
+                # atr.py:91 computes (atr / current_price) * 100, and
+                # atr.py:94 buckets atr_pct < 1.0 as LOW volatility — so
+                # sub-1 values are a modelled regime, not a unit error.
+                "atr_pct": atr_pct,
+                # FRACTION. The declared unit contract for stop sizing; see
+                # SimpleRSIStrategy._resolve_atr_fraction.
+                "atr_fraction": atr_pct / 100.0,
+                "volatility": atr_data.get("volatility"),
+                # NOTE: `role` and `weight` are deliberately NOT set here, and
+                # they would not be guards if they were. voter._is_non_voting
+                # returns `role in {"GATEKEEPER", "VALIDATOR"}`, and a PRESENT
+                # role short-circuits the NON_VOTING_NAMES fallback (which does
+                # not contain "ATR" either). Stamping role="RISK" would make
+                # this signal MORE likely to vote, not less. The only thing
+                # keeping it away from the voter is the local-copy dispatch in
+                # generate_signal below.
+            },
+        )
+
     def generate_signal(
         self,
         aggregator_signal: TradingSignal,
         current_price: float,
-        capital: float = 100.0,
+        capital: Optional[float] = None,
     ) -> Optional[EnsembleSignal]:
         """Aggregate signals from the three legs.
 
         `aggregator_signal` is the existing CoreAggregator output — it both gives us the
         multi-indicator leg directly AND provides the indicator dict the other legs need.
+
+        Args:
+            capital: Available capital. None (default) resolves to
+                Settings.paper_initial_balance. P21-8: the old `= 100.0`
+                default was the pre-2026-08-25 account size, reachable by
+                every caller that omitted the argument. A bare `10000` would
+                be numerically correct under ADR-029 and STILL a defect — it
+                bypasses the declared config and silently decouples on the
+                next re-scale. Resolved in the BODY, never as a default
+                argument: Python evaluates those once at import, which freezes
+                the value and hides it from the AST detector in
+                tests/test_account_size_invariant.py.
         """
-        indicators = aggregator_signal.indicators or {}
+        # Resolved ONCE, here, and passed down to every leg. Letting two legs
+        # resolve independently while a third receives a pass-through is how
+        # one signal ends up sized against two different account figures.
+        if capital is None:
+            from app.config import get_settings
+
+            capital = get_settings().paper_initial_balance
+        # LOCAL SHALLOW COPY — this is the entire safety mechanism, do not
+        # weaken it into an in-place write.
+        #
+        # P21-1, 2026-08-26. `aggregator_signal.indicators` is the SAME object
+        # handed to hybrid_strategy.observe_regime (auto_trader.py:4703) and
+        # reachable from aggregation/signal_cache.py. `fetch_all_indicators`
+        # diverts ATR out of that dict on purpose (signal_aggregator.py:832-841)
+        # precisely so it never reaches the voter. Injecting the synthetic ATR
+        # into a copy gives the legs the reading they need while leaving the
+        # shared object byte-identical. Metadata stamps such as role="RISK" or
+        # weight=0.0 are NOT substitutes — see the note in _atr_indicator.
+        indicators = dict(aggregator_signal.indicators or {})
+
+        atr_indicator = self._atr_indicator(aggregator_signal)
+        if atr_indicator is not None:
+            indicators["ATR"] = atr_indicator
 
         leg_signals: Dict[str, Tuple[SignalAction, float, float, float, List[str]]] = {}
 
