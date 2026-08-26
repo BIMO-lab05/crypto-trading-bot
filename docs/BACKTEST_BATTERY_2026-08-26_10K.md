@@ -56,6 +56,43 @@ The DB outage was repaired the same night (postgres/timescaledb recreated, marke
 - **Golden-parity killtest: PASSED (3/3)** after two repairs: the offline kernel loader had been broken since `42e2250` added the signal-funnel import to `aggregator_core` (fixed by loading the real stdlib-only module and deriving all stub gate values from the spec-loaded real `config.py` defaults), and the parity candle CSVs were refreshed through bybit-connector (20 files, 365d, mainnet-asserted; 1440m via the `D` interval). Stamp: `.planning/evidence/killtests/golden-parity-stamp.json` — offline replay ≡ live TA, non-HOLD action observed.
 - Indicator/TA correctness thereby verified three ways: trading-engine suite (2,019 passed), killtests/replay stack, and live seam parity.
 
+## 4. Same-day re-run — all five symbols through the ensemble walk-forward (added 2026-08-26 PM)
+
+The runner itself was found rotted (two layers: the `42e2250` signal-funnel import, and a
+hand-enumerated config stub missing `gatekeeper_block_threshold`) — repaired in `49cc19d`,
+which also makes the config stub derive every field from the real `config.py` declared
+defaults so it cannot rot this way again. Then re-run: `run_walk_forward_ensemble.py
+--realistic-sim`, all five validated symbols, $10,000 from `shared.account`, full realistic
+cost stack (bybit_perp taker 0.055%/side, ATR-aware slippage, funding on).
+
+**Data provenance:** market-data `:8002` (post-backfill). The API serves mainnet rows only,
+so the requested 180d window truncates at the 2026-04-25 testnet flip: effective span
+**2026-04-26 → 2026-08-26 (~130d, ~3,127 bars/symbol), zero taint**. Output dir
+`backtesting/results/wf_ensemble_2026-08-26_10k_rerun/` (non-clobbering — the runner's fixed
+historical dir was left untouched via a driver-side `RESULTS_SUBDIR` override).
+
+| Symbol | OOS Sharpe | DSR | PF mean | OOS trades | Verdict |
+|---|---|---|---|---|---|
+| BTCUSDT | −0.63 | 0.00 | 0.00 | few | **FAIL** |
+| ETHUSDT | +0.94 | 0.10 | 1.46 | 13 | **FAIL** |
+| SOLUSDT | −0.08 | 0.06 | 0.80 | — | **FAIL** |
+| BNBUSDT | +0.15 | 0.00 | 0.24 | — | **FAIL** |
+| ADAUSDT | +0.33 | 0.15 | 0.82 | — | **FAIL** |
+
+**ETH is the only leg worth a second look, and it dies on inspection:** 13 OOS trades across
+4 folds, fold 0 fires zero trades, fold 1 is negative (Sharpe −2.51, PF 0.48); the aggregate
++0.94 Sharpe rides on 9 trades in folds 2–3. DSR 0.097 at `num_trials=8` — indistinguishable
+from luck. This is the standing lesson of §2b: a shiny ratio built on a handful of trades is
+not a distribution.
+
+The SOL figures differ from §2's run (−0.08 here vs −0.58 there) because the data source and
+span differ (DB mainnet ~130d ending today vs offline CSV 180d ending 2026-08-19). Both FAIL
+every gate — the verdict is robust to the data source.
+
+**Phase-1 runner re-run (same day, same offline CSVs): reproduces §1.** BTC/ETH/ADA legs
+identical to the cent; SOL/BNB baselines within a few dollars (window anchoring), phase-1
+legs still fire 0–1 trades/year.
+
 ## Provenance note
 
 These figures answer a **$10,000, cost-on** question. Phase-1 runner legs use the legacy fixed cost model (slightly pessimistic on fees vs Bybit taker: 0.1 % vs 0.055 %); the ensemble walk-forward uses the realistic Bybit-perp stack. Pre-2026-08-25 numbers elsewhere in the repo answer $100-era or frictionless questions — see CLAUDE.md §2's provenance rule.
