@@ -63,9 +63,7 @@ class Stack:
     signal_aggregator_mod: object
     regime_mod: object  # loaded app.aggregation.market_regime (its `httpx` name is the patch point)
     SignalAction: object
-    kernels: (
-        dict  # {'deflated_sharpe_ratio', 'CombinatorialPurgedCV', 'cpcv_to_dsr', ...}
-    )
+    kernels: dict  # {'deflated_sharpe_ratio', 'CombinatorialPurgedCV', 'cpcv_to_dsr', ...}
     ta_app: object
     clock: ReplayClock
 
@@ -99,9 +97,7 @@ def _load_kernels() -> dict:
         spec.loader.exec_module(module)
         return module
 
-    sm = _spec_load(
-        "_killtests_sharpe_metrics", os.path.join(_RM_PATH, "app", "sharpe_metrics.py")
-    )
+    sm = _spec_load("_killtests_sharpe_metrics", os.path.join(_RM_PATH, "app", "sharpe_metrics.py"))
     # cpcv.py does `from app.sharpe_metrics import deflated_sharpe_ratio`:
     # temporarily alias our loaded copy; restore whatever was there before.
     created_app = "app" not in sys.modules
@@ -140,9 +136,7 @@ def _load_ta_app():
     return ta_app, ta_fetcher_mod
 
 
-def _mk_market_data_transport(
-    store: CandleStore, clock: ReplayClock
-) -> httpx.MockTransport:
+def _mk_market_data_transport(store: CandleStore, clock: ReplayClock) -> httpx.MockTransport:
     kline_re = re.compile(r"/api/v1/klines/([A-Z]+)$")
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -188,14 +182,35 @@ def _build_te_namespace():
 
     config_stub = types.ModuleType("app.config")
 
+    # Spec-load the REAL trading-engine config.py (same mechanism as
+    # tests/test_account_config_sync.py — it imports only pydantic /
+    # pydantic_settings / typing, and Settings is never instantiated at
+    # import) so stub gate values track declared defaults instead of rotting.
+    _cfg_spec = importlib.util.spec_from_file_location(
+        "_killtests_te_config", os.path.join(_TE_PATH, "app", "config.py")
+    )
+    assert _cfg_spec is not None and _cfg_spec.loader is not None
+    _cfg_mod = importlib.util.module_from_spec(_cfg_spec)
+    _cfg_spec.loader.exec_module(_cfg_mod)
+
+    def _te_default(field: str):
+        return _cfg_mod.Settings.model_fields[field].default
+
     def _stub_get_settings():
         return types.SimpleNamespace(
             technical_analysis_url="http://ta.offline",
             market_data_url="http://md.offline",
             service_name="killtests-offline-ensemble",
             max_risk_per_trade=DEFAULTS["MAX_RISK_PER_TRADE"],
-            ensemble_min_position_pct=0.05,
-            ensemble_confidence_size_multiplier=3.7,
+            ensemble_min_position_pct=_te_default("ensemble_min_position_pct"),
+            ensemble_confidence_size_multiplier=_te_default("ensemble_confidence_size_multiplier"),
+            # Gatekeeper thresholds landed after this stub was first written
+            # (fix/gates-ta-dsr); pinning them here is how the stub rotted the
+            # last time, so every gate value now derives from the spec-loaded
+            # real config.py declared defaults via _te_default().
+            gatekeeper_block_threshold=_te_default("gatekeeper_block_threshold"),
+            gatekeeper_block_penalty=_te_default("gatekeeper_block_penalty"),
+            gatekeeper_counter_trend_penalty=_te_default("gatekeeper_counter_trend_penalty"),
             # Deployed default (CLAUDE.md §3): ML predictions gated off and
             # sentiment removed from the pipeline. get_trading_signal_enhanced
             # (Phase 3 path) reads this; the Phase-1 path the driver exercises
@@ -214,15 +229,18 @@ def _build_te_namespace():
     metrics_stub.record_cache_hit = lambda *a, **kw: None
     metrics_stub.record_cache_miss = lambda *a, **kw: None
     sys.modules["app.monitoring.metrics"] = metrics_stub
+    # aggregator_core.py:26 `from app.monitoring.signal_funnel import
+    # get_signal_funnel` (landed 42e2250, after this stub set was written —
+    # it silently broke every kernel spec-load until 2026-08-26). The module
+    # is stdlib-only, so load the real one rather than stubbing 22 stages.
+    _load_te_module("app.monitoring.signal_funnel", "app/monitoring/signal_funnel.py")
 
     aggregation_pkg = types.ModuleType("app.aggregation")
     aggregation_pkg.__path__ = [os.path.join(_TE_PATH, "app", "aggregation")]
     sys.modules["app.aggregation"] = aggregation_pkg
 
     _load_te_module("app.phase1_metrics", "app/phase1_metrics.py")
-    _load_te_module(
-        "app.aggregation.confidence_guard", "app/aggregation/confidence_guard.py"
-    )
+    _load_te_module("app.aggregation.confidence_guard", "app/aggregation/confidence_guard.py")
     _load_te_module("app.aggregation.gatekeeper", "app/aggregation/gatekeeper.py")
     _load_te_module("app.aggregation.validator", "app/aggregation/validator.py")
     _load_te_module("app.aggregation.voter", "app/aggregation/voter.py")
@@ -230,9 +248,7 @@ def _build_te_namespace():
     # signal_aggregator.py:23 `from app.aggregation.ml_gate_reasons import
     # log_ml_disabled` — not in the brief's stub set; discovered by grepping
     # signal_aggregator.py's import block. No further app.* deps of its own.
-    _load_te_module(
-        "app.aggregation.ml_gate_reasons", "app/aggregation/ml_gate_reasons.py"
-    )
+    _load_te_module("app.aggregation.ml_gate_reasons", "app/aggregation/ml_gate_reasons.py")
     regime_mod = _load_te_module(
         "app.aggregation.market_regime", "app/aggregation/market_regime.py"
     )
@@ -260,9 +276,7 @@ def _build_te_namespace():
 
     sa_mod = _load_te_module("app.signal_aggregator", "app/signal_aggregator.py")
 
-    _load_te_module(
-        "app.strategies.simple_rsi_strategy", "app/strategies/simple_rsi_strategy.py"
-    )
+    _load_te_module("app.strategies.simple_rsi_strategy", "app/strategies/simple_rsi_strategy.py")
     _load_te_module(
         "app.strategies.mean_reversion_strategy",
         "app/strategies/mean_reversion_strategy.py",
@@ -275,9 +289,7 @@ def _build_te_namespace():
     return sa_mod, mse_mod, te_enums, regime_mod
 
 
-def _swap_httpx_clients(
-    obj, transport: httpx.AsyncBaseTransport, base_url: str
-) -> None:
+def _swap_httpx_clients(obj, transport: httpx.AsyncBaseTransport, base_url: str) -> None:
     """Replace every httpx.AsyncClient attribute on obj (one level deep)."""
     for name in dir(obj):
         try:
@@ -342,9 +354,7 @@ def load_stack(store: CandleStore, clock: ReplayClock) -> Stack:
         def AsyncClient(**kw):
             kw.pop("transport", None)
             kw.setdefault("timeout", 30.0)
-            return httpx.AsyncClient(
-                transport=ta_transport, base_url="http://ta.offline", **kw
-            )
+            return httpx.AsyncClient(transport=ta_transport, base_url="http://ta.offline", **kw)
 
     regime_mod.httpx = _HttpxShim
 
@@ -407,12 +417,8 @@ async def run_replay(
             bar_close_ms = int(f60["ts_ms"].iloc[i]) + step
             clock.now_ms = bar_close_ms
             _clear_regime_cache(stack.aggregator)
-            with frozen_time(
-                clock
-            ):  # pins time.time -> bar close (function-local imports)
-                sig = await stack.aggregator.get_trading_signal_multi_timeframe(
-                    symbol, "60"
-                )
+            with frozen_time(clock):  # pins time.time -> bar close (function-local imports)
+                sig = await stack.aggregator.get_trading_signal_multi_timeframe(symbol, "60")
             close = float(f60["close"].iloc[i])
             ens = stack.ensemble.generate_signal(sig, current_price=close)
             rows.append(
@@ -425,9 +431,7 @@ async def run_replay(
                     "consensus_count": int(sig.consensus_count),
                     "ens_action": ens.action.value if ens else None,
                     "ens_confidence": float(ens.confidence) if ens else None,
-                    "ens_position_size_pct": (
-                        float(ens.position_size_pct) if ens else None
-                    ),
+                    "ens_position_size_pct": (float(ens.position_size_pct) if ens else None),
                     "close": close,
                 }
             )
@@ -462,9 +466,7 @@ def main() -> None:
     store = CandleStore(args.data_dir, args.symbols, intervals)
     clock = ReplayClock(now_ms=0)
     stack = load_stack(store, clock)
-    df = asyncio.run(
-        run_replay(store, stack, clock, args.symbols, warmup_bars=args.warmup)
-    )
+    df = asyncio.run(run_replay(store, stack, clock, args.symbols, warmup_bars=args.warmup))
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     df.to_csv(args.out, index=False)
     print(f"wrote {len(df)} rows to {args.out}")
