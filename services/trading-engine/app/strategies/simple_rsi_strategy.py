@@ -127,8 +127,29 @@ class SimpleRSIStrategy:
         self,
         indicators: Dict[str, IndicatorSignal],
         current_price: float,
-        capital: float = 100.0,
+        capital: Optional[float] = None,
     ) -> Optional[SimpleRSISignal]:
+        """Generate a single-indicator RSI signal.
+
+        Args:
+            capital: Available capital. None (default) resolves to
+                Settings.paper_initial_balance. P21-8: the old `= 100.0`
+                default was the pre-2026-08-25 account size. Substituting the
+                numerically-correct `10000` would be just as wrong — an
+                unrouted literal decouples from the declaration of record on
+                the next re-scale. Resolved in the BODY, because a default
+                argument is evaluated once at import and would freeze the
+                value out of sight of tests/test_account_size_invariant.py.
+
+                MultiStrategyEnsemble resolves capital once and passes the
+                concrete value down, so on the ensemble path this branch is a
+                no-op; it exists for callers that invoke the leg directly.
+        """
+        if capital is None:
+            from app.config import get_settings
+
+            capital = get_settings().paper_initial_balance
+
         rsi_sig = indicators.get("RSI")
         if not rsi_sig:
             return None

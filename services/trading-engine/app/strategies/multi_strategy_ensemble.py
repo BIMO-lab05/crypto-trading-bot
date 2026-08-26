@@ -421,13 +421,32 @@ class MultiStrategyEnsemble:
         self,
         aggregator_signal: TradingSignal,
         current_price: float,
-        capital: float = 100.0,
+        capital: Optional[float] = None,
     ) -> Optional[EnsembleSignal]:
         """Aggregate signals from the three legs.
 
         `aggregator_signal` is the existing CoreAggregator output — it both gives us the
         multi-indicator leg directly AND provides the indicator dict the other legs need.
+
+        Args:
+            capital: Available capital. None (default) resolves to
+                Settings.paper_initial_balance. P21-8: the old `= 100.0`
+                default was the pre-2026-08-25 account size, reachable by
+                every caller that omitted the argument. A bare `10000` would
+                be numerically correct under ADR-029 and STILL a defect — it
+                bypasses the declared config and silently decouples on the
+                next re-scale. Resolved in the BODY, never as a default
+                argument: Python evaluates those once at import, which freezes
+                the value and hides it from the AST detector in
+                tests/test_account_size_invariant.py.
         """
+        # Resolved ONCE, here, and passed down to every leg. Letting two legs
+        # resolve independently while a third receives a pass-through is how
+        # one signal ends up sized against two different account figures.
+        if capital is None:
+            from app.config import get_settings
+
+            capital = get_settings().paper_initial_balance
         # LOCAL SHALLOW COPY — this is the entire safety mechanism, do not
         # weaken it into an in-place write.
         #
