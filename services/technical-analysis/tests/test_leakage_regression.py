@@ -59,6 +59,8 @@ able to see that class of leak.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import numpy as np
@@ -838,3 +840,310 @@ async def test_aggregate_endpoint_fields_match_their_leakage_free_sources(t: int
     # The endpoint must describe bar t, not some later bar. Derived from
     # df.index, not the wall clock, so it is safe to assert exactly.
     assert result["timestamp"] == int(df.index[t].timestamp() * 1000)
+
+
+# ============================================================================
+# TIER 3 -- AST structural guard over app/indicators/.
+#
+# Tiers 1 and 2 prove the indicators are clean TODAY, on one synthetic frame,
+# at four probe bars. They cannot prove that the NEXT forward read will land
+# on a bar the fixture happens to probe. This guard closes that gap by banning
+# the constructs themselves.
+#
+# It exists because look-ahead leakage is silent: it never raises, never logs,
+# and makes every backtest look better. Disabling this guard to make a build
+# green is not an option -- if a new construct trips it, either the construct
+# is a genuine forward read (fix it) or it is audited-safe (mark that ONE line
+# and record the justification in the allowlist block below).
+#
+# Written fresh rather than copied from tests/test_price_rounding_invariant.py:
+# that guard matches round() calls and inspects an integer ndigits, a
+# completely different node shape. What IS copied, deliberately, is the shape
+# of the discipline -- an explicit append-only file tuple, exactly one
+# per-line escape comment, and failure messages that name file:line.
+# ============================================================================
+
+# This file lives in services/technical-analysis/tests/, so the indicator
+# package is one level up. Do NOT copy the rounding guard's
+# `REPO_ROOT = parents[1]`: that works because it sits at repo-root tests/,
+# and here it would point at the service root instead.
+INDICATORS_DIR = Path(__file__).resolve().parents[1] / "app" / "indicators"
+
+# Every indicator module. Append only, alongside a fresh audit: adding a file
+# here is a commitment that it is clean NOW. Never remove a file to make this
+# pass, and never add one you have not just read.
+SCANNED_FILES: tuple[str, ...] = (
+    "adx.py",
+    "atr.py",
+    "bollinger_bands.py",
+    "ichimoku.py",
+    "macd.py",
+    "moving_averages.py",
+    "rsi.py",
+    "rsi_divergence.py",
+    "squeeze_momentum.py",
+    "sqzmom_enhanced.py",
+    "stochastic.py",
+    "trend_filter.py",
+    "volume_confirmation.py",
+)
+
+# The ONE line-level opt-out. Defining a second escape mechanism is how guards
+# get disabled instead of obeyed, so there is exactly one and it is per line:
+# marking one site never silences the next.
+#
+# ALLOWLIST -- audited 2026-08-27, two distinct justifications. They are NOT
+# interchangeable; do not read one as precedent for the other.
+#
+#   rsi_divergence.py:181, :220 -- `series.iloc[i+1:i+threshold+1]` is a pivot
+#     CONFIRMATION window. It reads bars after i, but the loop bound
+#     `range(threshold, len(series) - threshold)` keeps every one of them
+#     inside the frame the caller supplied, so the signal LAGS by `threshold`
+#     bars rather than leaking. Pinned by the divergence test above.
+#
+#   ichimoku.py:506, :507 -- `senkou_a.shift(self.displacement)` is a POSITIVE
+#     shift, which moves values LATER in time and is therefore backward
+#     looking. It is marked only because the offset is an attribute rather
+#     than a literal, so this guard cannot prove its sign; `displacement` is a
+#     constructor parameter defaulting to 26 and a negative value would be a
+#     configuration error, not a code path.
+#
+# Any NEW forward read must earn its own entry here, with its own reason.
+ALLOW_MARKER = "# audited-forward-read"
+
+
+def _shift_violation(node: ast.Call) -> str | None:
+    """Reason a `.shift(...)` call is a forward read, or None if it is safe.
+
+    `.shift(+n)` moves values LATER in time -- backward-looking, fine.
+    `.shift(-n)` moves them EARLIER, pulling a future bar onto bar t. Both the
+    literal form `.shift(-1)` (an ast.UnaryOp over a constant) and the
+    variable form `.shift(-offset)` are caught.
+
+    A non-literal offset is reported too. That is deliberate: a detector that
+    waves through `.shift(offset)` fails GREEN the day `offset` is -1, and a
+    guard that passes while a forward read sits in a file it claims to protect
+    is worse than no guard. The two audited-positive sites carry ALLOW_MARKER.
+    """
+    func = node.func
+    if not (isinstance(func, ast.Attribute) and func.attr == "shift"):
+        return None
+
+    argument = None
+    for keyword in node.keywords:
+        if keyword.arg == "periods":
+            argument = keyword.value
+    if argument is None and node.args:
+        argument = node.args[0]
+    if argument is None:
+        return None  # bare .shift() defaults to periods=1
+
+    if isinstance(argument, ast.UnaryOp) and isinstance(argument.op, ast.USub):
+        return ".shift(-n) pulls a FUTURE bar onto the current one"
+    if isinstance(argument, ast.Constant) and isinstance(argument.value, int):
+        if argument.value < 0:
+            return ".shift() with a negative literal is a forward read"
+        return None
+    return (
+        ".shift() offset is not a non-negative literal, so this guard "
+        "cannot prove it is backward-looking"
+    )
+
+
+def _center_violation(node: ast.Call) -> str | None:
+    """Reason a call carries `center=True`, or None.
+
+    A centred rolling window straddles the current bar, so half of every
+    window lies in the future. It is the quietest way to leak in pandas.
+    """
+    for keyword in node.keywords:
+        if (
+            keyword.arg == "center"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is True
+        ):
+            return "center=True puts half of every rolling window in the future"
+    return None
+
+
+def _forward_index_violation(node: ast.Subscript) -> str | None:
+    """Reason an `.iloc[...]` reads past a loop variable, or None.
+
+    Matches `series.iloc[i + 1]` and `series.iloc[i + 1 : i + k + 1]`, the
+    shape of a confirmation window. `.iloc[i - k : i]`, `.iloc[-1]` and
+    `.iloc[named_index]` are all backward or neutral and do not match.
+    """
+    value = node.value
+    if not (isinstance(value, ast.Attribute) and value.attr == "iloc"):
+        return None
+    for inner in ast.walk(node.slice):
+        if (
+            isinstance(inner, ast.BinOp)
+            and isinstance(inner.op, ast.Add)
+            and isinstance(inner.left, ast.Name)
+        ):
+            return (
+                f"positional read at an index after the loop variable "
+                f"'{inner.left.id}'"
+            )
+    return None
+
+
+def find_forward_violations(source: str, filename: str = "<fixture>") -> list[str]:
+    """One human-readable violation string per forward-looking construct.
+
+    A construct is exempt when its OWN source line carries ALLOW_MARKER. The
+    check is per line, not per file: marking one site never silences another.
+    """
+    tree = ast.parse(source, filename=filename)
+    source_lines = source.splitlines()
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            reason = _shift_violation(node) or _center_violation(node)
+        elif isinstance(node, ast.Subscript):
+            reason = _forward_index_violation(node)
+        else:
+            continue
+        if reason is None:
+            continue
+
+        line = (
+            source_lines[node.lineno - 1] if node.lineno <= len(source_lines) else ""
+        )
+        if ALLOW_MARKER in line:
+            continue
+        violations.append(
+            f"{filename}:{node.lineno}: {reason}. A value published for bar t "
+            "must not depend on bars after t -- leakage here is silent and "
+            "inflates every backtest downstream. If this construct really is "
+            f"backward-looking, append '{ALLOW_MARKER}' to that line AND "
+            "record the justification in the allowlist block of "
+            "tests/test_leakage_regression.py."
+        )
+
+    return sorted(set(violations))
+
+
+FORWARD_NEGATIVE_FIXTURE = """
+prev_close = frame["close"].shift(1)
+gapped = frame["close"].shift(periods=2)
+bare = series.shift()
+filled = squeeze_on.shift(1, fill_value=False)
+uncentred = series.rolling(window=20, center=False).mean()
+plain_roll = series.rolling(window=20).mean()
+backward = series.iloc[i - threshold:i]
+newest = series.iloc[-1]
+named = senkou_span_a.iloc[cloud_index]
+projected = senkou_a.shift(self.displacement)  # audited-forward-read
+confirm = series.iloc[i + 1:i + threshold + 1]  # audited-forward-read
+"""
+
+FORWARD_POSITIVE_FIXTURE = """
+peek = series.shift(-1)
+peek_kw = series.shift(periods=-2)
+peek_var = series.shift(-offset)
+unproven = senkou_a.shift(self.displacement)
+centred = series.rolling(window=20, center=True).mean()
+window = series.iloc[i + 1:i + threshold + 1]
+"""
+
+# One marked line and one unmarked violation of the SAME shape in the same
+# source. The marker must exempt its own line only -- a file-wide or
+# first-match-wins skip would report 0 here and the guard would be inert.
+FORWARD_MARKER_LEAK_FIXTURE = """
+allowed = series.shift(-1)  # audited-forward-read
+leaked = series.shift(-1)
+"""
+
+
+def test_forward_guard_has_no_false_positives():
+    """Backward and neutral constructs must not trip, marked lines included.
+
+    Parsed in memory so this guarantee cannot drift when the live modules
+    change.
+    """
+    violations = find_forward_violations(
+        FORWARD_NEGATIVE_FIXTURE, "negative_fixture.py"
+    )
+    assert violations == [], "false positives:\n" + "\n".join(violations)
+
+
+def test_forward_guard_detects_every_banned_shape():
+    """All six forward-looking shapes are detected. No line here is marked.
+
+    A detector that misses a shape fails GREEN, so the guard would pass while
+    a forward read sat in a file it claims to protect. Each shape is asserted
+    individually rather than by count alone.
+    """
+    violations = find_forward_violations(
+        FORWARD_POSITIVE_FIXTURE, "positive_fixture.py"
+    )
+    rendered = "\n".join(violations)
+    assert len(violations) == 6, (
+        f"expected 6 violations, got {len(violations)}:\n{rendered}"
+    )
+    for lineno in range(2, 8):
+        assert f"positive_fixture.py:{lineno}:" in rendered, (
+            f"line {lineno} was not reported:\n{rendered}"
+        )
+
+
+def test_forward_guard_marker_does_not_leak_to_other_lines():
+    """The opt-out is per line. Marking one site must not silence the next."""
+    violations = find_forward_violations(
+        FORWARD_MARKER_LEAK_FIXTURE, "leak_fixture.py"
+    )
+    rendered = "\n".join(violations)
+    assert len(violations) == 1, (
+        f"expected exactly 1 violation, got {len(violations)}:\n{rendered}"
+    )
+    assert "leak_fixture.py:3" in rendered, (
+        f"the unmarked shift on line 3 must be the one reported:\n{rendered}"
+    )
+
+
+@pytest.mark.parametrize("module_name", SCANNED_FILES)
+def test_scanned_indicator_module_exists(module_name: str):
+    """A rename must not silently shrink this guard's coverage."""
+    assert (INDICATORS_DIR / module_name).is_file(), (
+        f"{module_name} is in SCANNED_FILES but does not exist under "
+        f"{INDICATORS_DIR}. Update the tuple deliberately -- do not let a "
+        "rename quietly reduce coverage."
+    )
+
+
+def test_every_indicator_module_is_scanned():
+    """A NEW module must not be able to opt out by simply not being listed."""
+    on_disk = {
+        path.name
+        for path in INDICATORS_DIR.glob("*.py")
+        if path.name != "__init__.py"
+    }
+    unscanned = sorted(on_disk - set(SCANNED_FILES))
+    assert not unscanned, (
+        f"{unscanned} live under app/indicators/ but are not in "
+        "SCANNED_FILES. Read them, confirm they are free of forward-looking "
+        "constructs, then append them -- coverage is opt-out by default "
+        "otherwise, which is how a guard rots."
+    )
+
+
+def test_no_forward_looking_constructs_in_indicators():
+    """THE INVARIANT."""
+    violations: list[str] = []
+    for module_name in SCANNED_FILES:
+        path = INDICATORS_DIR / module_name
+        if not path.is_file():
+            continue
+        violations.extend(
+            find_forward_violations(path.read_text(encoding="utf-8"), module_name)
+        )
+
+    assert not violations, (
+        f"{len(violations)} forward-looking construct(s) in app/indicators/. "
+        "Every one of these modules feeds a traded signal; a value at bar t "
+        "that reads bars after t is look-ahead leakage. Never remove a file "
+        "from SCANNED_FILES to make this pass:\n" + "\n".join(violations)
+    )

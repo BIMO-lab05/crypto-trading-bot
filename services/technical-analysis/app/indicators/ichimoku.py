@@ -503,8 +503,8 @@ class IchimokuCalculator:
             recent_close = df['close'].tail(lookback).values
 
             # Get cloud bounds (shifted back by displacement for current cloud)
-            recent_span_a = senkou_a.shift(self.displacement).tail(lookback).values
-            recent_span_b = senkou_b.shift(self.displacement).tail(lookback).values
+            recent_span_a = senkou_a.shift(self.displacement).tail(lookback).values  # audited-forward-read
+            recent_span_b = senkou_b.shift(self.displacement).tail(lookback).values  # audited-forward-read
 
             # Calculate cloud top and bottom for each period
             cloud_tops = np.maximum(recent_span_a, recent_span_b)
