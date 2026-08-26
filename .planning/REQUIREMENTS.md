@@ -59,7 +59,7 @@ _Re-verified 2026-07-30._ The aggregator `get_aggregated_signal()` at `services/
 - [ ] **TA-AGG-01**: Aggregator at `app/handlers/analysis.py` extends signal vote to include ADX (trend strength gate — vote only counted when `ADX > 20`), SQZMOM (momentum regime overlay — vote only counted when `squeeze_off` true), and Volume Confirmation (vote rejected if `volume_ratio < 0.8`). Aggregator confidence formula updated to weight the new participants; documented inline + in `wiki/modules/technical-analysis.md`. Existing 3-indicator behavior preserved as a configurable `aggregator_mode = 'minimal' | 'full'` env (default `'full'`). Unit test covers each veto case: BUY signal rejected when `ADX<20`, BUY rejected when not in squeeze-off regime, BUY rejected when `volume_ratio<0.8`.
 - [ ] **TA-AGG-02** _(reduced 2026-07-30 — values already agree, structure owed)_: Single source of truth = `config.py:71-82` (Kang 2021 optimal 5/35/5). The hardcoded literals in the route signature at `main.py:291-293` are replaced by reads of `settings.default_macd_fast` / `default_macd_slow` / `default_macd_signal` (note: **`default_macd_*`**, not `macd_*`); the route still accepts a Query override. Test asserts the route default and the aggregator computation (`analysis.py:36-38`) resolve to identical params, and fails if either side reintroduces a literal.
 - [ ] **TA-AGG-03** _(reduced 2026-07-30 — same shape as TA-AGG-02)_: Single source of truth = `config.py:87-90`, attribute **`default_bb_std`** (= `2.5` for crypto volatility; the earlier reference to `settings.bollinger_std_dev` at `config.py:88` named an attribute that does not exist). The hardcoded `Query(default=2.5)` at `main.py:314` is replaced by a read of `settings.default_bb_std`; the route still accepts an override. Test asserts route default and indicator computation use identical std-dev.
-- [ ] **TA-AGG-04**: Look-ahead-leakage regression test suite at `services/technical-analysis/tests/test_leakage_regression.py`. For each indicator (13 modules + aggregator), generate a synthetic kline series; compute indicator at time `t` using `df[:t+1]`; compute again using full series; assert values at time `t` are identical. Failure means the indicator peeked at `t+1..N`. Aggregator vote at time `t` must not depend on any future bar. Test also asserts Ichimoku Senkou-Span forward-shift is intentional (cloud projection, no `t+1` value used as input at `t`).
+- [x] **TA-AGG-04**: Look-ahead-leakage regression test suite at `services/technical-analysis/tests/test_leakage_regression.py`. For each indicator (13 modules + aggregator), generate a synthetic kline series; compute indicator at time `t` using `df[:t+1]`; compute again using full series; assert values at time `t` are identical. Failure means the indicator peeked at `t+1..N`. Aggregator vote at time `t` must not depend on any future bar. Test also asserts Ichimoku Senkou-Span forward-shift is intentional (cloud projection, no `t+1` value used as input at `t`).
 
 ### round(price, N) Epidemic Kill (PRICE)
 
@@ -188,7 +188,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TA-AGG-01 | Phase 21 | Pending |
 | TA-AGG-02 | Phase 21 | Pending |
 | TA-AGG-03 | Phase 21 | Pending |
-| TA-AGG-04 | Phase 21 | Pending |
+| TA-AGG-04 | Phase 21 | Complete |
 | PRICE-01 | Phase 22 | Pending |
 | PRICE-02 | Phase 22 | Pending |
 | ML-PURGE-01 | Phase 23 | Pending |
