@@ -20,7 +20,7 @@ A claim is verified only with **all four** of:
 
 ## Specific traps in this repo
 
-- **Zero-collection green.** `docker exec crypto-bot-trading pytest tests/` currently collects **0 tests** behind 4 fatal collection errors and can read as success. Always report the *collected* count, not just pass/fail.
+- **Zero-collection green.** Trading-engine is a HOST-test service — the image ships no `tests/` directory at all, so `docker exec crypto-bot-trading pytest tests/` errors out (`file or directory not found`); run from `services/trading-engine/` on the host with `--no-cov` instead (api-gateway is the in-container one). Either way, always report the *collected* count, not just pass/fail — a suite that collected 0 tests can read as success.
 - **Host vs container fastapi.** api-gateway tests must run via `docker exec crypto-bot-api-gateway pytest`. Host fastapi 0.136 returns 401 where the pinned 0.109 returns 403; tests assert 403, so host runs show fake failures.
 - **`.dockerignore` erasing evidence.** `services/trading-engine/.dockerignore` excludes `tests/standalone/`, so a rebuild deletes the accounting harness the last verification relied on.
 - **Testnet-polluted candles.** TimescaleDB holds mixed testnet/mainnet history before 2026-04-25. Any result computed over that range is invalid — check the date window before believing a backtest.
