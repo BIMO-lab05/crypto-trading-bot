@@ -54,6 +54,7 @@ from app.optimization import PortfolioOptimizer
 # Import all handler functions (Phase 3: Modular architecture)
 from app.handlers import (
     health_check,
+    readiness_check,
     get_status,
     get_portfolio,
     list_portfolios,
@@ -112,9 +113,7 @@ portfolio_value_gauge = Gauge(
     "portfolio_value_usd", "Current portfolio value in USD", ["portfolio_id"]
 )
 
-portfolio_pnl_gauge = Gauge(
-    "portfolio_pnl_total", "Total portfolio P&L", ["portfolio_id"]
-)
+portfolio_pnl_gauge = Gauge("portfolio_pnl_total", "Total portfolio P&L", ["portfolio_id"])
 
 transactions_total = Counter(
     "portfolio_transactions_total",
@@ -198,9 +197,7 @@ async def lifespan(app: FastAPI):
         snapshot_minute=0,
     )
     await snapshot_scheduler.start()
-    logger.info(
-        "Performance Snapshot Scheduler started (includes periodic price updates)"
-    )
+    logger.info("Performance Snapshot Scheduler started (includes periodic price updates)")
 
     logger.info("Portfolio Manager Service ready")
 
@@ -282,9 +279,9 @@ async def prometheus_metrics_middleware(request: Request, call_next):
             method=method, endpoint=normalized_path, status_code=status_code
         ).inc()
 
-        http_request_duration_seconds.labels(
-            method=method, endpoint=normalized_path
-        ).observe(duration)
+        http_request_duration_seconds.labels(method=method, endpoint=normalized_path).observe(
+            duration
+        )
 
     return response
 
@@ -380,6 +377,12 @@ async def root():
 async def health():
     """Health check endpoint"""
     return await health_check()
+
+
+@app.get("/ready")
+async def ready():
+    """Readiness check endpoint (QUICK-260826-NZW: was an orphaned handler)"""
+    return await readiness_check()
 
 
 @app.get("/status", response_model=StatusResponse)
@@ -490,9 +493,7 @@ async def buy_endpoint(
     result = await buy_asset(request, portfolio_id, symbol, quantity, price)
     # Record transaction metric
     if symbol:
-        transactions_total.labels(
-            portfolio_id=portfolio_id, type="buy", symbol=symbol
-        ).inc()
+        transactions_total.labels(portfolio_id=portfolio_id, type="buy", symbol=symbol).inc()
     return result
 
 
@@ -509,9 +510,7 @@ async def sell_endpoint(
     result = await sell_asset(request, portfolio_id, symbol, quantity, price)
     # Record transaction metric
     if symbol:
-        transactions_total.labels(
-            portfolio_id=portfolio_id, type="sell", symbol=symbol
-        ).inc()
+        transactions_total.labels(portfolio_id=portfolio_id, type="sell", symbol=symbol).inc()
     return result
 
 
@@ -573,9 +572,7 @@ async def efficient_frontier_endpoint(
 ):
     """Generate efficient frontier for portfolio"""
     portfolio_id = portfolio_id or settings.default_portfolio_id
-    return await get_efficient_frontier(
-        request, portfolio_id, num_points, lookback_days
-    )
+    return await get_efficient_frontier(request, portfolio_id, num_points, lookback_days)
 
 
 @app.post("/api/v1/portfolio/rebalance")
