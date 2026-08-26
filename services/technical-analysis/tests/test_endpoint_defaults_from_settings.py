@@ -299,3 +299,147 @@ def test_handler_query_default_tracks_settings(func, param, field):
     assert query_obj.default == getattr(settings, field), (
         f"{func.__name__}({param}=...) default drifted from settings.{field}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 21 P21-4/P21-5: the canonical values moved into Settings (SMA/EMA 21,
+# Ichimoku 20/60/120) and the engine stopped sending them.
+#
+# The WIRED_* tables above assert `== getattr(settings, field)`, so the value
+# change is already covered. What they cannot see is (a) whether a route's
+# prose still advertises the OLD number, and (b) whether a bound moved while
+# the default did. Both are added here.
+# ---------------------------------------------------------------------------
+
+# (route path, query param, Settings field) - the params whose description
+# states its own default in prose. Description and default must not disagree:
+# main.py advertised "crypto optimized: 20/60/120" for over a year while the
+# defaults resolved to 9/26/52.
+DESCRIBED_DEFAULTS = [
+    (
+        "/api/v1/indicators/ichimoku/{symbol}",
+        "tenkan_period",
+        "default_ichimoku_tenkan",
+    ),
+    ("/api/v1/indicators/ichimoku/{symbol}", "kijun_period", "default_ichimoku_kijun"),
+    (
+        "/api/v1/indicators/ichimoku/{symbol}",
+        "senkou_b_period",
+        "default_ichimoku_senkou_b",
+    ),
+]
+
+
+@pytest.mark.parametrize("path,param,field", DESCRIBED_DEFAULTS)
+def test_route_description_states_the_resolved_default(
+    openapi_schema, path, param, field
+):
+    """A param whose description names a number must name the resolved one."""
+    import re
+
+    params = {p["name"]: p for p in openapi_schema["paths"][path]["get"]["parameters"]}
+    schema = params[param]["schema"]
+    description = params[param].get("description", "")
+    expected = getattr(settings, field)
+
+    assert schema["default"] == expected, (
+        f"{path} ?{param} default drifted from settings.{field}"
+    )
+
+    stated = re.findall(r"\d+", description)
+    assert stated, (
+        f"{path} ?{param} description states no number to check: {description!r}"
+    )
+    assert str(expected) in stated, (
+        f"{path} ?{param} description says {stated} but the default resolves to "
+        f"{expected}. Description and default must agree - a description naming "
+        f"a number the endpoint does not use is how 9/26/52 shipped while the "
+        f"prose claimed 20/60/120. Description: {description!r}"
+    )
+
+
+# (route path, query param, expected ge, expected le) - bounds are a live
+# contract exactly as in the RSI test above: narrowing one turns a
+# previously-valid request into an HTTP 422. Only `default=` was allowed to
+# move in P21-4/P21-5.
+PRESERVED_BOUNDS = [
+    ("/api/v1/indicators/sma/{symbol}", "period", 2, 200),
+    ("/api/v1/indicators/ema/{symbol}", "period", 2, 200),
+    ("/api/v1/indicators/ichimoku/{symbol}", "tenkan_period", 5, 30),
+    ("/api/v1/indicators/ichimoku/{symbol}", "kijun_period", 20, 120),
+    ("/api/v1/indicators/ichimoku/{symbol}", "senkou_b_period", 40, 200),
+]
+
+
+@pytest.mark.parametrize("path,param,minimum,maximum", PRESERVED_BOUNDS)
+def test_bounds_survive_the_canonical_value_move(
+    openapi_schema, path, param, minimum, maximum
+):
+    """SMA/EMA/Ichimoku bounds are unchanged by the Settings canon move."""
+    params = {p["name"]: p for p in openapi_schema["paths"][path]["get"]["parameters"]}
+    schema = params[param]["schema"]
+
+    assert schema["minimum"] == minimum, (
+        f"{path} ?{param} ge moved to {schema.get('minimum')} (expected {minimum})"
+    )
+    assert schema["maximum"] == maximum, (
+        f"{path} ?{param} le moved to {schema.get('maximum')} (expected {maximum})"
+    )
+    # The new default must still be reachable through the untouched bounds.
+    assert minimum <= schema["default"] <= maximum, (
+        f"{path} ?{param} default {schema['default']} is outside its own "
+        f"[{minimum}, {maximum}] bounds - every bare request would 422"
+    )
+
+
+def test_aggregate_limit_below_warmup_floor_is_rejected():
+    """The aggregate window must clear the slowest indicator's warm-up.
+
+    Under-feeding is silent by construction: IchimokuCalculator.calculate()
+    returns None below min_periods and TrendFilter's 200-EMA simply reads a
+    shorter history, so a too-small limit degrades signals without erroring.
+    The floor is derived from the period fields, never hardcoded.
+
+    `_env_file=None` pins this to the declared defaults - the TA Settings
+    read `.env` relative to cwd, and a stray operator file under
+    services/technical-analysis/ would otherwise poison the assertion.
+    """
+    from pydantic import ValidationError
+
+    from app.config import Settings
+
+    # 150 clears the field's own ge=100, so this exercises the cross-field
+    # model validator rather than the bound (which would pass vacuously).
+    with pytest.raises(ValidationError) as exc:
+        Settings(_env_file=None, default_aggregate_limit=150)
+
+    message = str(exc.value)
+    assert "warm-up floor" in message, message
+    # Both contributing floors must be named so the operator knows which
+    # period to move.
+    assert "default_trend_slow_period" in message, message
+    assert "Ichimoku" in message, message
+    assert "150" in message, message
+
+
+def test_declared_aggregate_limit_clears_its_own_floor():
+    """The shipped default must satisfy the validator it declares."""
+    from app.config import (
+        ICHIMOKU_CONSTRUCTOR_DEFAULT_DISPLACEMENT,
+        ICHIMOKU_KUMO_BREAKOUT_LOOKBACK,
+    )
+
+    displacement = max(
+        settings.default_ichimoku_kijun, ICHIMOKU_CONSTRUCTOR_DEFAULT_DISPLACEMENT
+    )
+    ichimoku_floor = (
+        settings.default_ichimoku_senkou_b
+        + displacement
+        + ICHIMOKU_KUMO_BREAKOUT_LOOKBACK
+    )
+    floor = max(settings.default_trend_slow_period, ichimoku_floor)
+
+    assert settings.default_aggregate_limit >= floor, (
+        f"default_aggregate_limit={settings.default_aggregate_limit} is below "
+        f"its own derived floor {floor}"
+    )

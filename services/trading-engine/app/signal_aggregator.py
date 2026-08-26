@@ -248,15 +248,24 @@ class SignalAggregator:
             return None
 
     async def fetch_sma(
-        self,
-        symbol: str,
-        interval: str = "60",
-        period: int = 21,  # Matches research-optimized EMA period
+        self, symbol: str, interval: str = "60"
     ) -> Optional[IndicatorSignal]:
-        """Fetch SMA indicator"""
+        """
+        Fetch SMA indicator using the TA service's declared default period
+
+        Parameter drift fix (phase 21 P21-4): this client previously forced
+        period=21 while the TA service default was 20, so the traded path ran
+        on 21 and a bare call to the same endpoint resolved to 20 - the two
+        disagreed with nothing able to detect it. 21 won because it is the
+        live traded value, and it now lives in the TA service's config.py as
+        `default_sma_period`. We omit `period` so that declaration is the
+        single source of truth (same fix as fetch_macd's 5-35-5).
+        """
         try:
             url = f"{self.base_url}/api/v1/indicators/sma/{symbol}"
-            params = {"interval": interval, "period": period}
+            # No period here on purpose — use the TA service default
+            # (currently 21) instead of a drifting local override.
+            params = {"interval": interval}
 
             response = await self.client.get(url, params=params)
             response.raise_for_status()
@@ -269,7 +278,10 @@ class SignalAggregator:
                 value=data["value"],
                 metadata={
                     "current_price": data["current_price"],
-                    "period": period,
+                    # Echo the parameters the TA service actually applied
+                    # rather than a local literal the engine no longer owns
+                    # (same shape as fetch_macd's "parameters" metadata).
+                    "parameters": data.get("parameters", {}),
                     "weight": 0.8,  # Moderate weight for trend confirmation
                 },
             )
@@ -279,15 +291,23 @@ class SignalAggregator:
             return None
 
     async def fetch_ema(
-        self,
-        symbol: str,
-        interval: str = "60",
-        period: int = 21,  # Research-optimized EMA period (2025-12-23)
+        self, symbol: str, interval: str = "60"
     ) -> Optional[IndicatorSignal]:
-        """Fetch EMA indicator"""
+        """
+        Fetch EMA indicator using the TA service's declared default period
+
+        Parameter drift fix (phase 21 P21-4): this client previously forced
+        period=21 while the TA service default was 20, so the traded path ran
+        on 21 and a bare call to the same endpoint resolved to 20. 21 won
+        because it is the live traded value, and it now lives in the TA
+        service's config.py as `default_ema_period`. We omit `period` so that
+        declaration is the single source of truth.
+        """
         try:
             url = f"{self.base_url}/api/v1/indicators/ema/{symbol}"
-            params = {"interval": interval, "period": period}
+            # No period here on purpose — use the TA service default
+            # (currently 21) instead of a drifting local override.
+            params = {"interval": interval}
 
             response = await self.client.get(url, params=params)
             response.raise_for_status()
@@ -300,7 +320,10 @@ class SignalAggregator:
                 value=data["value"],
                 metadata={
                     "current_price": data["current_price"],
-                    "period": period,
+                    # Echo the parameters the TA service actually applied
+                    # rather than a local literal the engine no longer owns
+                    # (same shape as fetch_macd's "parameters" metadata).
+                    "parameters": data.get("parameters", {}),
                     "weight": 1.0,  # Standard weight for responsive trend analysis
                 },
             )
@@ -599,15 +622,19 @@ class SignalAggregator:
             return None
 
     async def fetch_ichimoku(
-        self,
-        symbol: str,
-        interval: str = "60",
-        tenkan_period: int = 20,
-        kijun_period: int = 60,
-        senkou_b_period: int = 120,
+        self, symbol: str, interval: str = "60"
     ) -> Optional[IndicatorSignal]:
         """
-        Fetch Ichimoku Cloud indicator
+        Fetch Ichimoku Cloud indicator using the TA service's declared periods
+
+        Parameter drift fix (phase 21 P21-5): this client previously forced
+        20/60/120 while the TA service defaults were the traditional 9/26/52,
+        so the traded path ran on 20/60/120 and a bare call to the same
+        endpoint resolved to 9/26/52. 20/60/120 won because it is the live
+        traded value (and what the route descriptions already advertised); it
+        now lives in the TA service's config.py as `default_ichimoku_tenkan`,
+        `_kijun` and `_senkou_b`. We omit all three so that declaration is the
+        single source of truth.
 
         Role: MULTI-ASPECT TREND - Japanese trading system with 5 components
         Provides comprehensive trend, momentum, and support/resistance analysis
@@ -631,12 +658,10 @@ class SignalAggregator:
         """
         try:
             url = f"{self.base_url}/api/v1/indicators/ichimoku/{symbol}"
-            params = {
-                "interval": interval,
-                "tenkan_period": tenkan_period,
-                "kijun_period": kijun_period,
-                "senkou_b_period": senkou_b_period,
-            }
+            # No tenkan/kijun/senkou_b here on purpose — use the TA service
+            # defaults (currently 20/60/120) instead of drifting local
+            # overrides.
+            params = {"interval": interval}
 
             response = await self.client.get(url, params=params)
             response.raise_for_status()
@@ -671,9 +696,8 @@ class SignalAggregator:
                     "price_position": indicator_data.get("price_position", "IN_CLOUD"),
                     "tk_cross": indicator_data.get("tk_cross", "NONE"),
                     "cloud_thickness": indicator_data.get("cloud_thickness", 0.0),
-                    "tenkan_period": tenkan_period,
-                    "kijun_period": kijun_period,
-                    "senkou_b_period": senkou_b_period,
+                    # Periods are owned and applied by the TA service; the
+                    # engine no longer holds a copy to report.
                     "role": "MULTI_ASPECT_TREND",
                     "weight": 1.3,  # Moderate weight for comprehensive trend analysis
                 },
