@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
-status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). Stack healthy, trading resumed on clean-data epoch 2026-08-12T13:47:20Z; 2026-08-12..16 Docker outage repaired (evidence/resume-2026-08-16.md).
-stopped_at: 2026-08-26 session — $10k battery re-run 5/5 FAIL (docs/BACKTEST_BATTERY_2026-08-26_10K.md §4); walk-forward runner stub rot repaired (49cc19d); portfolio-manager health probe fixed+deployed (260826-nzw); paper maker simulation shipped (260826-o2h, prefer_maker_orders still false — window start is an operator decision).
-last_updated: "2026-08-26"
-last_activity: 2026-08-26 -- quick tasks 260826-nzw (health probe, deployed+verified) and 260826-o2h (paper maker sim, merged); all-five ensemble walk-forward FAIL at $10k; isolation harvest root cause closed (maker gate was LIVE-only).
+status: executing
+stopped_at: "Edge research battery built and executed (branch `feature/edge-research-battery`). `backtesting/edge_lab/` kill-funnel implemented across 13 tasks with per-task review (every task passed adversarial review; notable catches: empty-fetch permanent cache, vol_breakout time-exit off-by-one, import-failure-filed-as-REJECT). Live run 2026-08-17 over pinned top-30 universe (730d daily, 365d 4h, first-ever funding history — 90 files): **4× REJECT, no edge found**. xs_momentum and vol_breakout died at the Gate 1 cost hurdle (best ratio_taker 1.246 / 0.917 vs required 2×); funding_carry thresh_2x and both lf_trend variants cleared Gate 1 (ratios 2.6 / 4.9 / 15.5) but failed Gate 2 CPCV/DSR decisively (DSR ≤ 3.8e-05 vs 0.95, pooled PF ≈ 1.0). Clean kill-funnel outcome per spec §1 — cheap disproof is the deliverable. Evidence: `.planning/evidence/killtests/*-verdict-20260817.{md,json}` + `battery-summary-20260817.md`."
+last_updated: "2026-08-26T22:41:32.561Z"
+last_activity: 2026-08-26 -- Phase 21 planning complete
 progress:
   total_phases: 9
   completed_phases: 3
-  total_plans: 12
+  total_plans: 21
   completed_plans: 12
   percent: 33
 ---
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 Phase: 18 (Bybit-Adapter Contract Fix) — COMPLETE (3/3 plans, 18-REVIEW.md + 18-REVIEW-FIX.md, 9/9 in-scope findings fixed, e2e verify commit `2aac085`)
 Plan: —
-Status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). Working tree clean; trader running on repaired engine (clean-data epoch 2026-08-12T13:47:20Z).
-Last activity: 2026-08-16 -- resume after Docker outage 08-12..08-16; sweep + repair session (`.planning/evidence/resume-2026-08-16.md`). Interim sessions on record in progress.md: 2026-08-05 Phase-1 money-path repair, 2026-08-12 profit-path audit (16 fixes, `63595b0`..`2a48846`)
+Status: Ready to execute
+Last activity: 2026-08-26 -- Phase 21 planning complete
 
 ## Uncommitted Work (detected 2026-08-04 — RESOLVED)
 

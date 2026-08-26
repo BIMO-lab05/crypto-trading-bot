@@ -178,6 +178,36 @@ Plans:
 >
 > Net effect: TA-AGG-01 and TA-AGG-04 fully owed. TA-AGG-02/03 shrink from "reconcile a value conflict" to "remove the literal, read the setting, add a test that pins them together."
 
+> **Superseded 2026-08-26 by `.planning/audits/2026-08-26-ta-signal-path-audit.md`** (authoritative over the Goal text above per `21-CONTEXT.md`). The Goal's premise — "votes only RSI + MACD + Trend Filter" — is **stale**: ADX and SQZMOM already vote in `get_aggregated_signal`, and Volume Confirmation is already a post-vote confidence penalty (and must never become a voter). TA-AGG-01 reduces to *test residue + wiki doc*; the `aggregator_mode = minimal|full` env is explicitly dropped. TA-AGG-02/03 are **CLOSED** (settings-sourced since 2026-08-20, pinned by `test_endpoint_defaults_from_settings.py`) — closure evidence only, no code change. TA-AGG-04 remains fully owed. The phase additionally closes eight audit defects, P21-1..P21-8, of which P21-1 (ATR threading) is the highest-severity: threading real ATR without the percent-to-fraction unit contract would ship negative stop-losses on BTC/ETH/BNB at measured 2026-08-26 volatility.
+
+**Plans:** 9 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 21-01-PLAN.md — TA-AGG-04 three-tier look-ahead-leakage regression suite over 13 indicator modules + the aggregate path
+- [ ] 21-02-PLAN.md — P21-4/5 parameter single-sourcing (SMA/EMA 21, Ichimoku 20/60/120) + engine omission test + TA-AGG-02/03 closure evidence
+- [ ] 21-03-PLAN.md — P21-1 ATR threading with the percent-to-fraction unit contract and shared presence predicate (+ P21-8 capital defaults)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 21-04-PLAN.md — TA-AGG-01 gating tests + P21-6 settings-sourced aggregate constructors + wiki correction
+- [ ] 21-05-PLAN.md — Threshold-lock guard + P21-3 MTF demote-to-HOLD gating all three ensemble legs
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 21-06-PLAN.md — P21-2 leg source-diversity guard + per-cause ensemble rejection telemetry
+- [ ] 21-07-PLAN.md — P21-7 mirror-literal cluster (engine Settings mirrors, TA `regime` passthrough, adx_period omission)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 21-08-PLAN.md — P21-8 hygiene batch (dead ADX fallback, money/RSI docstrings, dead code, `main.py.bak` + `.dockerignore`)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 21-09-PLAN.md — Four-arm admission ablation, phase gate (rebuild + force-recreate + 5-symbol smoke), operator sign-off
+
 ### Phase 22: round(price, N) Epidemic Kill
 
 **Goal**: Commit `487d1bd` fixed one site. A full re-sweep on 2026-07-30 finds **22 surviving price-domain `round(…, 2)` call sites across 7 files** — fatal for sub-$1 assets (ADA at ~$0.40 rounds to 2dp and flip-flops). This phase replaces each with `float()` or tick-size-derived precision, adds a sub-$1 fixture suite, and lands a CI grep gate that prevents reintroduction.
