@@ -182,9 +182,7 @@ class PositionRepository:
         try:
             async with self.db.get_async_session() as session:
                 stmt = (
-                    update(DBPosition)
-                    .where(DBPosition.position_id == position_id)
-                    .values(**values)
+                    update(DBPosition).where(DBPosition.position_id == position_id).values(**values)
                 )
                 await session.execute(stmt)
                 await session.commit()
@@ -246,9 +244,7 @@ class PositionRepository:
                     values["posted_margin"] = posted_margin
 
                 stmt = (
-                    update(DBPosition)
-                    .where(DBPosition.position_id == position_id)
-                    .values(**values)
+                    update(DBPosition).where(DBPosition.position_id == position_id).values(**values)
                 )
 
                 await session.execute(stmt)
@@ -307,9 +303,7 @@ class PositionRepository:
                     values["posted_margin"] = posted_margin
 
                 stmt = (
-                    update(DBPosition)
-                    .where(DBPosition.position_id == position_id)
-                    .values(**values)
+                    update(DBPosition).where(DBPosition.position_id == position_id).values(**values)
                 )
 
                 await session.execute(stmt)
@@ -377,9 +371,7 @@ class PositionRepository:
                     values["leverage"] = leverage
 
                 stmt = (
-                    update(DBPosition)
-                    .where(DBPosition.position_id == position_id)
-                    .values(**values)
+                    update(DBPosition).where(DBPosition.position_id == position_id).values(**values)
                 )
 
                 await session.execute(stmt)
@@ -406,9 +398,7 @@ class PositionRepository:
             logger.error(f"Failed to get position from database: {e}")
             return None
 
-    async def get_open_positions(
-        self, portfolio_id: str = "paper_trading"
-    ) -> List[DBPosition]:
+    async def get_open_positions(self, portfolio_id: str = "paper_trading") -> List[DBPosition]:
         """Get all open positions for a portfolio.
 
         Raises on failure: this is the startup-hydration path, and an empty
@@ -463,17 +453,13 @@ class PositionRepository:
                     .limit(limit)
                 )
                 positions = result.scalars().all()
-                logger.info(
-                    f"Retrieved {len(positions)} closed positions from database"
-                )
+                logger.info(f"Retrieved {len(positions)} closed positions from database")
                 return positions
         except Exception as e:
             logger.error(f"Failed to get closed positions from database: {e}")
             return []
 
-    async def get_closed_pnl_stats(
-        self, portfolio_id: str = "paper_trading"
-    ) -> ClosedPnLStats:
+    async def get_closed_pnl_stats(self, portfolio_id: str = "paper_trading") -> ClosedPnLStats:
         """
         Aggregate realized P&L over ALL closed positions in one query.
 
@@ -503,12 +489,8 @@ class PositionRepository:
                         func.coalesce(func.sum(case((won, 1), else_=0)), 0),
                         func.coalesce(func.sum(case((lost, 1), else_=0)), 0),
                         func.coalesce(func.sum(DBPosition.realized_pnl), 0),
-                        func.coalesce(
-                            func.sum(case((won, DBPosition.realized_pnl), else_=0)), 0
-                        ),
-                        func.coalesce(
-                            func.sum(case((lost, DBPosition.realized_pnl), else_=0)), 0
-                        ),
+                        func.coalesce(func.sum(case((won, DBPosition.realized_pnl), else_=0)), 0),
+                        func.coalesce(func.sum(case((lost, DBPosition.realized_pnl), else_=0)), 0),
                     )
                     .where(DBPosition.portfolio_id == portfolio_id)
                     .where(DBPosition.status == "CLOSED")
@@ -556,14 +538,13 @@ class TradeRepository:
         price: Decimal,
         commission: Decimal,
         *,
-        position_id: Optional[
-            UUID
-        ] = None,  # accepted but unused (live schema lacks column)
+        position_id: Optional[UUID] = None,  # accepted but unused (live schema lacks column)
         strategy: Optional[str] = None,
         signal_confidence: Optional[Decimal] = None,
         realized_pnl: Optional[Decimal] = None,
         order_type: str = "MARKET",  # accepted but unused
         action: Optional[str] = None,  # legacy kwarg alias for side
+        execution_metadata: Optional[dict] = None,
     ):
         """
         Log a trade to the live `trades` table.
@@ -595,6 +576,11 @@ class TradeRepository:
                 before that date hold gross price P&L.
             order_type: Accepted for caller compat; not persisted
             action: Legacy alias for `side`
+            execution_metadata: Optional execution-path stamping dict
+                (maker_attempted / execution_path / fallback_reason /
+                fee_rate_applied, quick-260826-o2h) merged into the
+                `metadata` JSONB column so a harvest can split maker vs
+                taker share from the DB alone.
         """
         try:
             from sqlalchemy import text
@@ -616,6 +602,10 @@ class TradeRepository:
             }
             if position_id is not None:
                 metadata_json["position_id"] = str(position_id)
+            # Keys are disjoint by construction: execution stamping uses
+            # maker_attempted/execution_path/fallback_reason/fee_rate_applied,
+            # never order_type/position_id.
+            metadata_json.update(execution_metadata or {})
 
             async with self.db.get_async_session() as session:
                 await session.execute(
@@ -653,9 +643,7 @@ class TradeRepository:
                     },
                 )
                 await session.commit()
-                logger.info(
-                    f"✓ Trade logged: {side_norm} {quantity} {symbol} @ ${price}"
-                )
+                logger.info(f"✓ Trade logged: {side_norm} {quantity} {symbol} @ ${price}")
 
         except Exception as e:
             logger.error(f"Failed to log trade to database: {e}", exc_info=True)
@@ -735,8 +723,7 @@ class PortfolioRepository:
                     cash_balance=initial_balance,
                     trading_mode="PAPER",
                     risk_per_trade=Decimal(str(settings.max_risk_per_trade)),
-                    max_daily_loss=Decimal(str(settings.max_daily_loss_pct))
-                    / Decimal("100"),
+                    max_daily_loss=Decimal(str(settings.max_daily_loss_pct)) / Decimal("100"),
                 )
 
                 session.add(portfolio)
@@ -798,9 +785,7 @@ class PortfolioRepository:
                     .where(DBPosition.status == "OPEN")
                     .scalar_subquery()
                 )
-                new_realized = (
-                    func.coalesce(DBPortfolio.realized_pnl, 0) + realized_pnl_delta
-                )
+                new_realized = func.coalesce(DBPortfolio.realized_pnl, 0) + realized_pnl_delta
                 stmt = (
                     update(DBPortfolio)
                     .where(DBPortfolio.portfolio_id == portfolio_id)
@@ -822,8 +807,7 @@ class PortfolioRepository:
                 if result.rowcount == 0:
                     # A close against a missing portfolio row must not vanish.
                     raise RuntimeError(
-                        f"record_position_close matched no portfolio row "
-                        f"for '{portfolio_id}'"
+                        f"record_position_close matched no portfolio row for '{portfolio_id}'"
                     )
 
                 logger.info(

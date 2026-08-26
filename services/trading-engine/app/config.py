@@ -654,6 +654,18 @@ class Settings(BaseSettings):
             "fees ~1.8x vs the real venue, distorting every net-P&L figure."
         ),
     )
+    paper_maker_commission_pct: float = Field(
+        default=0.02,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Bybit linear-perp MAKER fee percentage per side (0.02%/side). "
+            "Used ONLY by the paper maker simulation "
+            "(execute_maker_order_with_fallback, quick-260826-o2h); the taker "
+            "path keeps paper_commission_pct (0.055). A fee RATE as a config "
+            "default is sanctioned; never an account-size literal."
+        ),
+    )
 
     # Paper slippage (PAPER-01, 2026-08-03). ON by default: a frictionless
     # paper fill overstates every P&L figure the engine reports. Set

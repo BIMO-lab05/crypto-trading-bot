@@ -6,8 +6,9 @@ Enhanced: Database persistence for trades and positions
 
 import asyncio
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional
+
 from app.config import get_settings
 from app.models import (
     Order,
@@ -46,6 +47,14 @@ def _spawn_trade_log(coro) -> None:
     task.add_done_callback(_trade_log_done)
 
 
+# The simulated PostOnly wait runs INLINE in the trading loop; a 10s cap
+# bounds worst-case added latency to position monitoring (5 symbols x 10s =
+# 50s) while still giving the market real wall-clock time to move. Shorter
+# than the LIVE default wait (30s), which biases the simulated maker fill
+# share DOWN — conservative, documented (quick-260826-o2h).
+_PAPER_MAKER_WAIT_CAP_SECONDS = 10.0
+
+
 class PaperTradingEngine:
     """
     Simulates trading without real money
@@ -72,16 +81,26 @@ class PaperTradingEngine:
         """Initialize paper trading engine with database persistence"""
         self.settings = get_settings()
         self.initial_balance = Decimal(str(self.settings.paper_initial_balance))
-        self.balance = (
-            self.initial_balance
-        )  # Will be adjusted in sync_balance_with_positions
+        self.balance = self.initial_balance  # Will be adjusted in sync_balance_with_positions
         # `/ 100` after the Decimal wrap, not before: the old form did the
         # division in float and handed Decimal an already-lossy value.
-        self.commission_pct = Decimal(
-            str(self.settings.paper_commission_pct)
-        ) / Decimal("100")
+        self.commission_pct = Decimal(str(self.settings.paper_commission_pct)) / Decimal("100")
+        # Maker fee for the SIMULATED PostOnly path (quick-260826-o2h). Same
+        # /100-after-Decimal pattern as commission_pct above. Defensive
+        # coercion because several test fixtures hand Settings as a bare Mock
+        # whose auto-attributes are Mocks — those suites never touch the
+        # maker path and must not start failing in __init__. Falls back to
+        # the config default (0.02 %/side — a fee RATE, not an account-size
+        # literal; sanctioned per money.md).
+        try:
+            self.maker_commission_pct = Decimal(
+                str(getattr(self.settings, "paper_maker_commission_pct", 0.02))
+            ) / Decimal("100")
+        except (InvalidOperation, ValueError, TypeError):
+            self.maker_commission_pct = Decimal("0.02") / Decimal("100")
         self.slippage = build_slippage_model(self.settings)
         self._funding_client = None  # built lazily; PAPER-02
+        self._ticker_client = None  # built lazily; maker-simulation price re-fetch
         self.position_manager = get_position_manager()
         self.risk_manager = get_risk_manager()
 
@@ -92,6 +111,9 @@ class PaperTradingEngine:
         logger.info("Paper Trading Engine initialized")
         logger.info(f"  Initial balance: ${self.initial_balance}")
         logger.info(f"  Commission: {self.settings.paper_commission_pct}%")
+        logger.info(
+            f"  Maker commission: {self.maker_commission_pct * 100}% (paper maker simulation)"
+        )
         logger.info(f"  Slippage: {self.slippage.describe()}")
         logger.info("  Database persistence: ENABLED")
 
@@ -154,18 +176,14 @@ class PaperTradingEngine:
 
         portfolio = None
         try:
-            portfolio = await self.portfolio_repo.get_or_create(
-                portfolio_id="paper_trading"
-            )
+            portfolio = await self.portfolio_repo.get_or_create(portfolio_id="paper_trading")
         except Exception as exc:
             logger.error(f"Could not read persisted portfolio balance: {exc}")
 
         if portfolio is None or portfolio.cash_balance is None:
             # Degrade to the old reconstruction, but never silently -- this
             # path fabricates cash and the operator needs to know it ran.
-            self.balance = self.initial_balance - self._open_position_cost(
-                open_positions
-            )
+            self.balance = self.initial_balance - self._open_position_cost(open_positions)
             logger.error(
                 "⚠️  Falling back to reconstructing cash from initial_balance; "
                 "realized P&L and past commissions are NOT reflected. "
@@ -188,8 +206,7 @@ class PaperTradingEngine:
         self.balance = persisted_cash - unpersisted_cost
 
         logger.info(
-            f"Balance restored from persisted ledger: ${persisted_cash:.2f} "
-            f"(as of {last_write})"
+            f"Balance restored from persisted ledger: ${persisted_cash:.2f} (as of {last_write})"
         )
         logger.info(
             f"  Open positions: {len(open_positions)}, "
@@ -214,9 +231,15 @@ class PaperTradingEngine:
         unrealized_pnl = self.position_manager.get_total_unrealized_pnl()
         return self.balance + unrealized_pnl
 
-    def calculate_commission(self, order_value: Decimal) -> Decimal:
-        """Calculate commission for an order"""
-        return order_value * self.commission_pct
+    def calculate_commission(self, order_value: Decimal, rate: Optional[Decimal] = None) -> Decimal:
+        """Calculate commission for an order.
+
+        ``rate`` is a Decimal FRACTION (e.g. taker 0.00055, maker 0.0002);
+        None -> the engine's taker rate. ``is not None`` check, NOT ``or`` —
+        Decimal("0") is falsy and a zero rate must be honoured.
+        """
+        effective = rate if rate is not None else self.commission_pct
+        return order_value * effective
 
     async def _funding_for_leg(
         self, symbol: str, side: PositionSide, notional: Decimal, opened_at
@@ -242,9 +265,7 @@ class PaperTradingEngine:
 
         entry_ts_ms = int(_as_utc(opened_at).timestamp() * 1000)
         exit_ts_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        settlements = await self._funding_client.get_settlements(
-            symbol, entry_ts_ms, exit_ts_ms
-        )
+        settlements = await self._funding_client.get_settlements(symbol, entry_ts_ms, exit_ts_ms)
         if not settlements and exit_ts_ms - entry_ts_ms >= 8 * 3600 * 1000:
             logger.error(
                 f"[FUNDING] no settlements fetched for {symbol} over "
@@ -261,7 +282,13 @@ class PaperTradingEngine:
         )
 
     async def execute_market_order(
-        self, order: OrderCreate, current_price: Decimal
+        self,
+        order: OrderCreate,
+        current_price: Decimal,
+        *,
+        fill_price_override: Optional[Decimal] = None,
+        commission_rate_override: Optional[Decimal] = None,
+        execution_meta: Optional[dict] = None,
     ) -> tuple[Order, Optional[str]]:
         """
         Execute a market order (paper trading simulation)
@@ -269,6 +296,17 @@ class PaperTradingEngine:
         Args:
             order: Order to execute
             current_price: Reference market price (the ticker, NOT the fill)
+            fill_price_override: Exact fill price to use instead of the
+                slippage model (maker simulation fills AT the limit —
+                quick-260826-o2h). None -> slippage model as before.
+            commission_rate_override: Decimal FRACTION applied to EVERY
+                commission computed in this call (entry AND close leg — a
+                maker order that closes a position pays the maker rate on
+                that leg). None -> the engine's taker rate.
+            execution_meta: Execution-path stamping dict persisted into
+                trades.metadata. None -> stamped as a plain taker_direct
+                fill, so DB queries distinguish "never tried maker" from
+                "tried and fell back".
 
         Returns:
             Tuple of (executed_order, error_message)
@@ -307,10 +345,35 @@ class PaperTradingEngine:
         # a fill price that stops at the cash ledger changes nothing reported.
         # The only surviving uses of `current_price` below are log strings.
         # ====================================================================
-        fill_price = self.slippage.fill_price(order.symbol, order.side, current_price)
+        fill_price = (
+            fill_price_override
+            if fill_price_override is not None
+            else self.slippage.fill_price(order.symbol, order.side, current_price)
+        )
+
+        # Resolved ONCE and used for EVERY commission in this call (entry
+        # commission below AND close_commission in the close path) — a maker
+        # order that closes a position pays the maker rate on that leg.
+        effective_rate = (
+            commission_rate_override
+            if commission_rate_override is not None
+            else self.commission_pct
+        )
+
+        # Execution-path stamping (quick-260826-o2h): every trade row records
+        # HOW it filled so a harvest can split maker/taker share from
+        # trades.metadata alone. fee_rate_applied is in PERCENT-PER-SIDE
+        # units matching Settings (0.055 taker / 0.02 maker), NOT a fraction.
+        if execution_meta is None:
+            execution_meta = {
+                "maker_attempted": False,
+                "execution_path": "taker_direct",
+                "fallback_reason": None,
+                "fee_rate_applied": float(self.commission_pct * 100),
+            }
 
         order_value = fill_price * order.quantity
-        commission = self.calculate_commission(order_value)
+        commission = self.calculate_commission(order_value, rate=effective_rate)
         # Stage 0 (2026-08-07): this is the leverage a NEW leg posts margin at.
         # It is stamped onto the position. The CLOSE leg no longer reads it —
         # it consumes position.posted_margin instead. Gated on leverage_enabled
@@ -343,12 +406,8 @@ class PaperTradingEngine:
         )
 
         # Side that this order would CLOSE (SELL closes LONG, BUY closes SHORT)
-        close_side = (
-            PositionSide.LONG if order.side == OrderSide.SELL else PositionSide.SHORT
-        )
-        open_side = (
-            PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
-        )
+        close_side = PositionSide.LONG if order.side == OrderSide.SELL else PositionSide.SHORT
+        open_side = PositionSide.LONG if order.side == OrderSide.BUY else PositionSide.SHORT
 
         # ---- Resolve the target position ------------------------------------
         target = None
@@ -389,7 +448,7 @@ class PaperTradingEngine:
                 return executed_order, error_msg
 
             close_value = fill_price * close_qty
-            close_commission = self.calculate_commission(close_value)
+            close_commission = self.calculate_commission(close_value, rate=effective_rate)
 
             # Price-based P&L on the quantity actually closed, at the SLIPPED
             # exit price. A SELL close fills below the ticker and a BUY close
@@ -410,9 +469,7 @@ class PaperTradingEngine:
             # credited back 10x its margin (~$177 fabricated on a $100 account).
             # Must run BEFORE close_position/reduce_position touch
             # remaining_quantity.
-            margin_returned = self.position_manager.consume_posted_margin(
-                target.id, close_qty
-            )
+            margin_returned = self.position_manager.consume_posted_margin(target.id, close_qty)
 
             # Perp funding accrued over the hold (PAPER-02). Signed; POSITIVE
             # means this leg PAID. Must reach both ledgers exactly as
@@ -429,9 +486,7 @@ class PaperTradingEngine:
             # The entry fee already left the cash balance at open — netting
             # it here again would double-charge cash; it is netted only in
             # REPORTED P&L.
-            self.balance += (
-                margin_returned + realized_pnl - close_commission - funding_paid
-            )
+            self.balance += margin_returned + realized_pnl - close_commission - funding_paid
 
             # Net P&L delta this leg contributes to the position's realized
             # P&L (computed by the position manager, which owns the entry-fee
@@ -501,6 +556,7 @@ class PaperTradingEngine:
                     strategy=order.strategy,
                     signal_confidence=order.entry_signal_confidence,
                     realized_pnl=net_leg_pnl,
+                    execution_metadata=execution_meta,
                 )
             )
             return executed_order, None
@@ -574,6 +630,7 @@ class PaperTradingEngine:
                         commission=commission,
                         strategy=order.strategy,
                         signal_confidence=order.entry_signal_confidence,
+                        execution_metadata=execution_meta,
                     )
                 )
                 return executed_order, None
@@ -583,9 +640,7 @@ class PaperTradingEngine:
         total_cost = margin_required + commission
 
         if total_cost > self.balance:
-            error_msg = (
-                f"Insufficient balance: need ${total_cost}, have ${self.balance}"
-            )
+            error_msg = f"Insufficient balance: need ${total_cost}, have ${self.balance}"
             logger.warning(error_msg)
             executed_order.status = OrderStatus.FAILED
             return executed_order, error_msg
@@ -628,10 +683,136 @@ class PaperTradingEngine:
                 commission=commission,
                 strategy=order.strategy,
                 signal_confidence=order.entry_signal_confidence,
+                execution_metadata=execution_meta,
             )
         )
 
         return executed_order, None
+
+    def _maker_limit_price(self, symbol: str, side: OrderSide, reference_price: Decimal) -> Decimal:
+        """Estimate the PostOnly limit price: best bid (BUY) / best ask (SELL).
+
+        Reuses PaperSlippageModel.fill_price with the OPPOSITE order side as
+        a bid/ask estimator: a BUY order passes SELL (reference*(1-bps)
+        floor-quantized to tick = best-bid estimate); SELL passes BUY (ask
+        estimate). HONEST CAVEAT: the model's one-way bps figure is a
+        half-spread floor PLUS a taker-impact/latency allowance, which
+        OVERSTATES the pure half-spread — so maker fills are UNDER-simulated
+        (conservative). When paper_slippage_enabled=false the limit degrades
+        to the reference price, consistent with the explicit frictionless
+        A/B mode. Deliberately NOT a new spread model (quick-260826-o2h).
+        """
+        opposite = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
+        return self.slippage.fill_price(symbol, opposite, reference_price)
+
+    async def _fetch_last_price(self, symbol: str) -> Optional[Decimal]:
+        """Re-fetch the last traded price from bybit-connector.
+
+        This method is the DELIBERATE TEST SEAM for the maker simulation —
+        tests patch it directly, never httpx. ANY error (HTTP, parse, shape)
+        returns None, which the caller treats as no-fill: a failed re-fetch
+        must never fabricate a fill price (threat T-o2h-01).
+        """
+        try:
+            # Lazy import + lazy client, mirroring the FundingRateClient
+            # precedent above (PAPER-02).
+            import httpx
+
+            if self._ticker_client is None:
+                self._ticker_client = httpx.AsyncClient(
+                    base_url=self.settings.bybit_connector_url, timeout=5.0
+                )
+            resp = await self._ticker_client.get(
+                "/api/v1/market/ticker",
+                params={"category": "linear", "symbol": symbol},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            return Decimal(str(payload["data"]["list"][0]["lastPrice"]))
+        except Exception as e:
+            logger.warning(f"[PAPER][MAKER] price re-fetch failed for {symbol}: {e}")
+            return None
+
+    async def execute_maker_order_with_fallback(
+        self, order: OrderCreate, current_price: Decimal
+    ) -> tuple[Optional[Order], Optional[str]]:
+        """SIMULATED PostOnly maker order with timeout fallback.
+
+        Mirrors LiveTradingEngine.execute_maker_order_with_fallback's
+        signature and (Optional[Order], Optional[str]) return contract
+        (live_trading.py:321) — but this is a SIMULATION: no Bybit order
+        endpoints are touched.
+
+        Fill rule (first-touch approximation): place a virtual PostOnly
+        limit at the estimated best bid/ask, sleep once (capped at
+        _PAPER_MAKER_WAIT_CAP_SECONDS), re-fetch the last price ONCE, and
+        fill AT the limit iff the re-fetched price touched it (BUY:
+        refetched <= limit; SELL: refetched >= limit). No queue-position
+        modeling, no partial maker fills. On no-fill, honour
+        maker_fallback_to_taker exactly as LIVE does.
+
+        A maker fill reuses execute_market_order with the limit price and
+        the maker fee rate so ALL ledger invariants (margin, leverage clamp,
+        partial close, funding, persistence) stay in one place.
+        """
+        if not isinstance(current_price, Decimal):
+            current_price = Decimal(str(current_price))
+        limit_price = self._maker_limit_price(order.symbol, order.side, current_price)
+
+        wait = float(min(self.settings.maker_quote_timeout_seconds, _PAPER_MAKER_WAIT_CAP_SECONDS))
+        # Mirror the [LIVE][MAKER] line shape so harvest tooling can grep
+        # "[MAKER]" uniformly across engines.
+        logger.info(
+            f"[PAPER][MAKER] PostOnly {order.side.value} {order.symbol} "
+            f"qty={order.quantity} @ {limit_price} "
+            f"(ref={current_price}, wait={wait}s)"
+        )
+        await asyncio.sleep(wait)
+        refetched = await self._fetch_last_price(order.symbol)
+
+        filled = refetched is not None and (
+            refetched <= limit_price if order.side == OrderSide.BUY else refetched >= limit_price
+        )
+
+        if filled:
+            logger.info(f"[PAPER][MAKER] FILLED {order.symbol} {order.side.value} @ {limit_price}")
+            return await self.execute_market_order(
+                order,
+                current_price,
+                fill_price_override=limit_price,
+                commission_rate_override=self.maker_commission_pct,
+                execution_meta={
+                    "maker_attempted": True,
+                    "execution_path": "maker",
+                    "fallback_reason": None,
+                    # Percent-per-side units matching Settings; derived from
+                    # the engine's coerced Decimal rate so the stamped value
+                    # is exactly what was charged.
+                    "fee_rate_applied": float(self.maker_commission_pct * 100),
+                    "simulated_wait_seconds": wait,
+                },
+            )
+
+        if self.settings.maker_fallback_to_taker:
+            logger.info(f"[PAPER][MAKER] Timeout after {wait}s — falling back to taker")
+            # Fall back at the re-fetched price when available, mirroring
+            # LIVE falling back at the then-current market.
+            return await self.execute_market_order(
+                order,
+                refetched if refetched is not None else current_price,
+                execution_meta={
+                    "maker_attempted": True,
+                    "execution_path": "taker_fallback",
+                    "fallback_reason": "timeout",
+                    "fee_rate_applied": float(self.commission_pct * 100),
+                    "simulated_wait_seconds": wait,
+                },
+            )
+
+        logger.info("[PAPER][MAKER] Timeout — fallback disabled, order dropped")
+        # LIVE's exact string (live_trading.py:420), kept identical so both
+        # engines harvest the same.
+        return None, "Maker quote timed out; taker fallback disabled"
 
     def can_open_position(
         self, symbol: str, quantity: Decimal, price: Decimal
@@ -678,9 +859,7 @@ class PaperTradingEngine:
         # Total equity = cash balance + unrealized PnL
         total_equity = self.balance + unrealized_pnl
         total_pnl = total_equity - self.initial_balance
-        roi = (
-            (total_pnl / self.initial_balance * 100) if self.initial_balance > 0 else 0
-        )
+        roi = (total_pnl / self.initial_balance * 100) if self.initial_balance > 0 else 0
 
         # Calculate realized PnL from closed positions
         closed_positions = self.position_manager.get_closed_positions()
