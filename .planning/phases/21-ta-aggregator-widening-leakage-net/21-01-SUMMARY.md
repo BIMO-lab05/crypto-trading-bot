@@ -248,8 +248,36 @@ None.
 
 - **TA-AGG-04 is closed**, with three of its assertions observed failing on injected defects and one on a real one.
 - **For 21-02 / 21-05 (Ichimoku canon 20/60/120):** the 400-bar fixture already clears the post-change `min_periods` of 146, so this suite needs no edit when those land — but it will now **fail loudly** if the Ichimoku ctor gains a negative or non-literal displacement, and `ichimoku.py:506-507` carry `# audited-forward-read` comments that must survive any reformat of that region.
-- **For anyone re-running backtests over `sqz_confidence` series:** figures computed before `0aa4bcc` were optimistic on non-final bars. Live/paper signal figures are unaffected — every consumer reads the last row.
+- **For anyone re-running work that touched `sqz_confidence`:** the distinction that matters is *how the column was read*. `backtesting/replay/build_indicator_frames.py` calls `get_signal(window)` per rolling window and reads `.iloc[-1]` of each, so replay-built frames are **unaffected** — do not re-run those. Only a harness that consumed the whole `sqz_confidence` column in a single pass was optimistic on non-final bars before `0aa4bcc`. Live and paper signal figures are unaffected for the same reason: every production consumer reads the last row.
 - **Deferred, not fixed here:** `rsi_divergence`'s pivot confirmation lag is documented as correct behaviour, not repaired; it remains disabled as a voter. No action owed.
+
+## Addendum (post-review)
+
+**A. Causal maximum is now indexed positionally — `45ca914`.**
+The Rule 1 fix in `0aa4bcc` looked the running maximum up by label
+(`expanding_max_momentum.loc[row.name]`). A label lookup on a frame with
+duplicate index labels returns a Series rather than a scalar. The array is now
+held as numpy and indexed by position, driven by an explicit positional walk
+rather than `.apply(axis=1)` so it does not depend on `apply`'s call semantics
+either. Behaviour on a unique index is unchanged: TA suite **688 passed**,
+causality re-verified across 80 probe bars (0 leaky), confidence still in [0, 1].
+
+**B. A duplicate index label already broke this module before this phase —
+deferred, not fixed.**
+`EnhancedSqueezeMomentum.calculate` returns `None` on any frame with a duplicate
+index label, via `prev_momentum.loc[row.name]` (`sqzmom_enhanced.py:~903`) and
+`result_df.loc[:row.name, 'squeeze_on']` (`~951`). The SQZMOM leg then vanishes
+from the aggregate vote with no error surfaced, because
+`handlers/analysis.py:118` guards `if sqz_df is not None`.
+
+Measured against base `80e6074`: the pre-fix module returns `None` on a duplicate
+index and a real frame on a unique one — **the dropout is pre-existing and was
+neither caused nor cured by `0aa4bcc`**. It fails at `:~903`, before the
+confidence closure is reached. Left unfixed as out-of-scope per the executor
+`SCOPE BOUNDARY`; recorded in
+`.planning/phases/21-ta-aggregator-widening-leakage-net/deferred-items.md`
+as DEFER-21-01. No test was added — a duplicate-index test is red today, and
+landing red or expected-failure tests is forbidden by `.claude/rules/testing.md`.
 
 ## Self-Check: PASSED
 
