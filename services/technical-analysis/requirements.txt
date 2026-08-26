@@ -2,15 +2,15 @@
 # Purpose: Calculate technical indicators and generate trading signals
 
 # Web Framework
-fastapi==0.109.0          # Modern async web framework
-uvicorn[standard]==0.27.0 # ASGI server
-pydantic==2.5.3           # Data validation
-pydantic-settings==2.1.0  # Settings management
+fastapi==0.141.1          # Modern async web framework
+uvicorn[standard]==0.52.3 # ASGI server
+pydantic==2.13.4           # Data validation
+pydantic-settings==2.14.2  # Settings management
 
 # Data Analysis
-pandas==2.2.0             # Data manipulation
-numpy==1.26.3             # Numerical computing
-scipy==1.12.0             # Scientific computing
+pandas==3.0.5             # Data manipulation
+numpy==1.26.4             # Numerical computing
+scipy==1.17.1             # Scientific computing
 
 # Technical Analysis Libraries
 # TA-Lib removed - requires gcc/system install, adding complexity
@@ -18,29 +18,29 @@ scipy==1.12.0             # Scientific computing
 ta==0.11.0                # Comprehensive TA library (RSI, MACD, BB, EMA, SMA, etc)
 
 # Machine Learning (for advanced signals)
-scikit-learn==1.4.0       # ML algorithms
-statsmodels==0.14.1       # Statistical models
+scikit-learn==1.9.0       # ML algorithms
+statsmodels==0.14.6       # Statistical models
 
 # HTTP Client
-httpx==0.27.0             # HTTP client
+httpx==0.28.1             # HTTP client
 
 # Monitoring & Logging
-prometheus-client==0.19.0 # Metrics
-python-json-logger==2.0.7 # Structured logging
+prometheus-client==0.26.0 # Metrics
+python-json-logger==4.1.0 # Structured logging
 
 # Utilities
-python-dotenv==1.0.0      # Environment variables
-python-dateutil==2.8.2    # Date utilities
+python-dotenv==1.2.2      # Environment variables
+python-dateutil==2.9.0.post0    # Date utilities
 
 # Testing
-pytest==7.4.4             # Testing framework
-pytest-asyncio==0.23.3    # Async test support
-pytest-cov==4.1.0         # Coverage
-pytest-mock==3.12.0       # Mocking
-pytest-benchmark==4.0.0   # Performance testing
+pytest==9.1.1             # Testing framework
+pytest-asyncio==1.4.0    # Async test support
+pytest-cov==7.1.0         # Coverage
+pytest-mock==3.15.1       # Mocking
+pytest-benchmark==5.2.3   # Performance testing
 
 # Development
-black==24.1.1             # Code formatter
-isort==5.13.2             # Import sorter
-mypy==1.8.0               # Type checker
-flake8==7.0.0             # Linter
+black==26.5.1             # Code formatter
+isort==8.0.1             # Import sorter
+mypy==2.3.1               # Type checker
+flake8==7.3.0             # Linter

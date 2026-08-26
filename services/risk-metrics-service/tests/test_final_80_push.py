@@ -11,6 +11,68 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 
+# ---------------------------------------------------------------------------
+# Upstream isolation
+# ---------------------------------------------------------------------------
+# The risk endpoints below (/risk/*, /performance/*, /alerts) all begin with
+# `portfolio_data = await fetch_portfolio_data()` and raise 503 when that
+# returns None. `fetch_portfolio_data` makes a real HTTP call to
+# portfolio-manager on :8003, which is not running under `pytest` -- not
+# locally and not in CI, whose `services:` block provides only postgres and
+# redis. Without this fixture every one of those tests fails 503 != 200.
+#
+# This module is the "focused, fast tests" suite (<5s, see docstring), so the
+# intent is clearly to exercise the endpoint bodies, not the network. Patch
+# the two module-level fetchers with async stubs.
+#
+# Figures are for a $100 account (CLAUDE.md 1) -- $62.50 deployed across two
+# holdings, $37.50 free. Do NOT reintroduce a 10000 total_value here: the
+# `require_total_value` docstring in app/main.py records that exact fallback
+# being removed as a 100x capital bug.
+_FAKE_PORTFOLIO = {
+    "portfolio": {
+        "total_value": "100.00",
+        "cash_balance": "37.50",
+        "holdings": [
+            {
+                "symbol": "BTCUSDT",
+                "quantity": "0.0004",
+                "current_value": "40.00",
+                "unrealized_pnl": "1.25",
+            },
+            {
+                "symbol": "ETHUSDT",
+                "quantity": "0.008",
+                "current_value": "22.50",
+                "unrealized_pnl": "-0.75",
+            },
+        ],
+    }
+}
+
+_FAKE_PERFORMANCE = {
+    "metrics": {
+        "daily_return_pct": 0.4,
+        "total_return_pct": 1.2,
+        "sharpe_ratio": 0.35,
+        "win_rate": 0.48,
+    }
+}
+
+
+@pytest.fixture(autouse=True)
+def _stub_upstream_portfolio_calls():
+    """Serve portfolio/performance data locally instead of over HTTP."""
+    with patch(
+        "app.main.fetch_portfolio_data",
+        new=AsyncMock(return_value=_FAKE_PORTFOLIO),
+    ), patch(
+        "app.main.fetch_performance_data",
+        new=AsyncMock(return_value=_FAKE_PERFORMANCE),
+    ):
+        yield
+
+
 class TestHealthEndpoint:
     """Test /health endpoint and its dependencies"""
 

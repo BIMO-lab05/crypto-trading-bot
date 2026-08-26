@@ -203,21 +203,30 @@ class LiveTradingEngine:
 
             logger.info(f"[LIVE] Bybit response: {payload}")
 
-            # Defense-in-depth: the connector currently always raises HTTP 4xx
-            # on rejection (caught by raise_for_status above), so this branch
-            # is not reachable via the real connector today. Restores the
-            # {"success": False, ...} guard authored/reviewed in 41a32d5
-            # alongside TestLiveTradingResponseEnvelope, which a merge
-            # resolution silently dropped from this file. No default on the
-            # .get — a malformed/missing "success" key must fail closed
-            # (rejected), not fall through as a phantom fill.
+            # Do NOT trust HTTP 200 alone. The connector signals failure by
+            # raising (non-2xx), but an explicit {"success": false, ...} body
+            # must never be recorded as a fill: the code below stamps
+            # OrderStatus.FILLED and opens a position, so accepting it would
+            # invent a phantom position against an order the exchange never
+            # accepted. No default on the .get — a malformed/MISSING "success"
+            # key must also fail closed (rejected), not fall through as a
+            # phantom fill (guard from 41a32d5; merged with the PR #142
+            # phantom-fill fix, whose no-orderId guard lives just below).
             if not payload.get("success"):
-                error_msg = payload.get("detail", payload.get("retMsg", "Unknown error"))
-                logger.error(f"[LIVE] Order rejected by Bybit: {error_msg}")
+                error_msg = payload.get("detail") or payload.get("error") or payload.get("retMsg") or "Order rejected by connector"
+                logger.error(f"[LIVE] Order rejected: {error_msg}")
                 return None, error_msg
 
             order_result = payload.get("data") or {}
             order_id = order_result.get("orderId", "")
+
+            if not order_id:
+                error = (
+                    "Connector returned no orderId; refusing to record a fill "
+                    f"for {order.symbol}. Payload: {payload}"
+                )
+                logger.error(f"[LIVE] {error}")
+                return None, error
 
             # Create executed order record
             executed_order = Order(

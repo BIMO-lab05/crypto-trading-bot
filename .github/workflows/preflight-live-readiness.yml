@@ -27,8 +27,8 @@ jobs:
     name: Preflight unit tests (always)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install trading-engine deps
@@ -50,10 +50,10 @@ jobs:
     if: "contains(github.event.pull_request.labels.*.name, 'live: requested')"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # required for `git show <ref>:.env.example` to resolve
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install trading-engine deps

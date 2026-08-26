@@ -389,10 +389,17 @@ const WeekPnLCard = ({ value, change, loading }) => {
  * @param {string} props.className - Additional CSS classes
  */
 function OverviewCards({
-  metrics = {},
+  metrics: metricsProp = {},
   loading = false,
   className = '',
 }) {
+  // A default parameter only applies when the prop is `undefined`, so an
+  // explicit `metrics={null}` -- which the performance API returns while no
+  // data has been recorded yet -- fell through to the destructure below and
+  // crashed the whole dashboard with "Cannot read properties of null".
+  // Coalesce instead of relying on the default.
+  const metrics = metricsProp ?? {}
+
   // Extract metrics with fallbacks
   const {
     totalPnL = 0,

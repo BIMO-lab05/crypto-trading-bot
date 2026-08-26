@@ -36,6 +36,9 @@ class TestCollectTickerData:
     async def test_collect_ticker_data_success(self):
         """Test successful ticker data collection for all symbols"""
         mock_fetcher = MagicMock()
+        # scheduler closes the fetcher's httpx pool in a finally block
+        # (`await fetcher.close()`), so close() must be awaitable.
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_ticker = AsyncMock(
             return_value={"symbol": "BTCUSDT", "last_price": "50000"}
         )
@@ -57,6 +60,9 @@ class TestCollectTickerData:
     async def test_collect_ticker_data_handles_no_data(self):
         """Test handling when ticker returns None"""
         mock_fetcher = MagicMock()
+        # scheduler closes the fetcher's httpx pool in a finally block
+        # (`await fetcher.close()`), so close() must be awaitable.
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_ticker = AsyncMock(return_value=None)
 
         mock_ticker_repo = MagicMock()
@@ -75,6 +81,9 @@ class TestCollectTickerData:
     async def test_collect_ticker_data_handles_exceptions(self):
         """Test that exceptions don't stop collection for other symbols"""
         mock_fetcher = MagicMock()
+        # scheduler closes the fetcher's httpx pool in a finally block
+        # (`await fetcher.close()`), so close() must be awaitable.
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_ticker = AsyncMock(
             side_effect=[
                 Exception("Connection error"),
@@ -98,6 +107,9 @@ class TestCollectTickerData:
     async def test_collect_ticker_data_calls_all_symbols(self):
         """Test that all trading pairs are processed"""
         mock_fetcher = MagicMock()
+        # scheduler closes the fetcher's httpx pool in a finally block
+        # (`await fetcher.close()`), so close() must be awaitable.
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_ticker = AsyncMock(return_value={"data": "value"})
 
         mock_ticker_repo = MagicMock()
@@ -126,6 +138,12 @@ class TestCollectKlineData:
         mock_klines = [{"timestamp": 123, "open": "50000", "close": "50500"}]
 
         mock_fetcher = MagicMock()
+
+        # scheduler closes the fetcher's httpx pool in a finally block
+
+        # (`await fetcher.close()`), so close() must be awaitable.
+
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_kline = AsyncMock(return_value=mock_klines)
 
         mock_kline_repo = MagicMock()
@@ -148,6 +166,12 @@ class TestCollectKlineData:
         mock_klines = [{"timestamp": 123, "open": "50000"}]
 
         mock_fetcher = MagicMock()
+
+        # scheduler closes the fetcher's httpx pool in a finally block
+
+        # (`await fetcher.close()`), so close() must be awaitable.
+
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_kline = AsyncMock(return_value=mock_klines.copy())
 
         mock_kline_repo = MagicMock()
@@ -170,6 +194,9 @@ class TestCollectKlineData:
     async def test_collect_kline_data_handles_empty_response(self):
         """Test handling when no klines are returned"""
         mock_fetcher = MagicMock()
+        # scheduler closes the fetcher's httpx pool in a finally block
+        # (`await fetcher.close()`), so close() must be awaitable.
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_kline = AsyncMock(return_value=[])
 
         mock_kline_repo = MagicMock()
@@ -189,6 +216,9 @@ class TestCollectKlineData:
     async def test_collect_kline_data_respects_rate_limiting(self):
         """Test that sleep is called between requests for rate limiting"""
         mock_fetcher = MagicMock()
+        # scheduler closes the fetcher's httpx pool in a finally block
+        # (`await fetcher.close()`), so close() must be awaitable.
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_kline = AsyncMock(return_value=[{"data": "value"}])
 
         mock_kline_repo = MagicMock()
@@ -221,6 +251,12 @@ class TestCollectKlineData:
             return [{"data": "value"}]
 
         mock_fetcher = MagicMock()
+
+        # scheduler closes the fetcher's httpx pool in a finally block
+
+        # (`await fetcher.close()`), so close() must be awaitable.
+
+        mock_fetcher.close = AsyncMock()
         mock_fetcher.get_kline = AsyncMock(side_effect=side_effect_get_kline)
 
         mock_kline_repo = MagicMock()

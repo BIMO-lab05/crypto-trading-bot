@@ -27,7 +27,11 @@ Deeper rules load automatically when you edit money code — see `.claude/rules/
 
 ## 2. No strategy has a positive edge yet
 
-Do not propose new features without confronting this table.
+Do not propose new features without confronting these two tables. **Twelve strategy families across two eras — seven legacy, five pre-registered — plus the GRU ensemble. Zero survivors.**
+
+*(Counting note: `progress.md` closes battery #2 with "two batteries, nine families" — that nine is family-**runs** across the two batteries, 4 + 5, not nine distinct candidates. The batteries tested **5** distinct families; the legacy table below holds **7** more.)*
+
+### 2a. Legacy indicator strategies (in-house backtests, $10,000, frictionless)
 
 | Strategy | Win rate | Sharpe | Trades |
 |---|---|---|---|
@@ -42,10 +46,31 @@ Do not propose new features without confronting this table.
 
 The table is **worse** than it looks: every one of these figures was measured through a **frictionless** paper engine — the slippage model landed 2026-08-03 (`fb45efe`, `app/paper_slippage.py`), *after* the table — so they are optimistic by an unmeasured amount. They were produced at $10,000, which since ADR-029 (2026-08-25) incidentally matches the declared size again — that does **not** make them citable; frictionless is frictionless. *(This line claimed no slippage model existed until 2026-08-04 — corrected. PAPER-01 is closed.)*
 
+### 2b. Pre-registered kill-test batteries (`backtesting/edge_lab/`, cost-first, 2026-08)
+
+Two batteries, run against a pinned top-30-by-turnover universe (≥730d listing, pin `2026-08-17`, Gate 0 30/30 PASS both intervals, zero gaps). **Every candidate REJECT.** Latest run (battery #2, pre-registered 2026-08-18, amended pre-run 2026-08-19):
+
+| Candidate | Verdict | Variants | Best `ratio_taker` | Gate 1 | Gate 2 |
+|---|---|---|---|---|---|
+| lf_trend (regime-gated trend) | **REJECT** | 5 | 15.511 | 4/5 | 0/5 |
+| funding_carry (percentile) | **REJECT** | 5 | 2.603 | 1/5 | 0/5 |
+| xs_momentum (cross-sectional) | **REJECT** | 3 | 1.246 | 0/3 | 0/3 |
+| vol_breakout (squeeze) | **REJECT** | 1 | 0.966 | 0/1 | 0/1 |
+| pairs_statarb | **REJECT** | 3 | 0.088 | 0/3 | 0/3 |
+
+Battery #1 (2026-08-17) rejected the four non-pairs candidates on 8 variants — `xs_momentum` 1.246 (0/3 Gate 1), `vol_breakout` 0.917 (0/1), `funding_carry` cleared Gate 1 at 2.603 then died on Gate 2 (DSR 5.8e-10, positive-path fraction 0.444), `lf_trend` cleared Gate 1 on both variants (4.85 and 15.51) then died on Gate 2 (DSR ≤ 3.8e-05, pooled PF ≈ 1.0). Battery #2 re-ran all four with more variants and added `pairs_statarb`; the verdicts did not move.
+
+**Read the gates before quoting a number.** Gate 1 is a cost hurdle: gross edge must be ≥ **2×** modelled taker cost. Gate 2 is statistical: **DSR ≥ 0.95** and **≥ 0.7** of CPCV paths positive. Clearing Gate 1 big means nothing on its own — `lf_trend` passed 4 of 5 variants there and still died, because its profit is a handful of outlier trades, not a repeatable distribution.
+
+**The trials floor ratchets.** `backtesting/edge_lab/trial_ledger.json` is append-only and every variant ever scored lands in it; DSR is deflated at `num_trials = max(effective_floor, n_paths)`. The floor went 16 → 21 (battery #2 ran at floor 21 against 45 CPCV paths, so the path count bound) and the ledger now holds **30** rows. Each new variant you invent raises the bar for every future candidate — this is the anti-p-hacking rail, and it is deliberate. Do not reset it.
+
+Full evidence: `.planning/evidence/killtests/battery-summary-2026081{7,8}.md` (written as `-20260817`/`-20260818`) and the per-candidate `*-verdict-*.{md,json}` beside them. Every artifact carries its own caveat block — survivorship, variant warm-up asymmetry, and the CPCV-correlation caveat are all documented and all point optimistic. Read them before citing any figure.
+
+
 Consequences for how you work here:
 
 - **Provenance rule.** Pre-2026-08-03 figures = frictionless $10,000. 2026-08-03 → 2026-08-25 figures = $100 with the min-notional floor binding (a constraint that no longer exists). Neither answers a question about the current configuration — re-run before citing. The first citable $10,000 cost-on baselines are in `docs/BACKTEST_BATTERY_2026-08-26_10K.md`: **still no edge** — the deployed-ensemble analog under the full realistic cost stack (bybit_perp fees + ATR slippage + funding) posts OOS Sharpe −0.58, PF 0.96, DSR 0.002; the phase-1 filter stack fires 0–1 trades/year.
-- Label paper P&L *gross of slippage* wherever reported. Never present it as a realistic expectation.
+- Label every P&L figure with what it is net of, and check its date — the cost model gained three legs in three separate commits. Slippage lands `fb45efe` (2026-08-03); fees are correct in the engine from the clean-data epoch **2026-08-12T13:47:20Z**; perp funding on closes lands `b9fadc0` (2026-08-18, `paper_funding_enabled` defaults **true**). A figure is only net of what had shipped when it was measured, so averaging across those boundaries is a measurement error, not a result. Paper P&L measured with the slippage flag off stays labeled *gross of slippage*.
 - Adding a sixth indicator to five losing indicators produces a losing ensemble. The infrastructure's current value is **killing bad strategies cheaply** — treat "disproved in an afternoon" as a win.
 - No edge claim without DSR/CPCV (`returns_metrics.py`, `sharpe_metrics.py`, `cpcv.py`). Raw R² on price levels is forbidden.
 
@@ -57,7 +82,8 @@ Autonomous Bybit crypto trading bot. 11 Python microservices + React frontend. *
 - **TimescaleDB** (candles), **PostgreSQL** (app state), **Redis** (cache), **RabbitMQ** (deployed but *nothing wires AMQP* — the mesh is synchronous REST, see ADR-016).
 - **Docker Compose** local; Kubernetes + Helm in `infrastructure/`.
 - **ML gated off** (`ENABLE_ML_PREDICTIONS=false`). V0 directional-accuracy had look-ahead leakage; post-fix (`c56765c`) models score chance-level. Re-enable only after rebuild on a returns target with DSR > 0.95.
-- **LSTM removal is incomplete.** `_archive_lstm/` **does exist** — at `services/ml-prediction-service/models/_archive_lstm/`, holding **27 `*_lstm.keras` files, 41 MB**. `ensemble_model.py:15` still does `from tensorflow.keras.layers import LSTM`, and `:192-195` still trains an LSTM leg. References span 10+ files (ML-PURGE-02, Phase 23). *(This file asserted the archive directory did not exist from an unverified claim until 2026-08-03 — corrected against the filesystem. Do not restore the old wording.)*
+- **LSTM removal is incomplete.** `services/ml-prediction-service/app/models/ensemble_model.py:15` still does `from tensorflow.keras.layers import LSTM`, and `:192-195` still trains an LSTM leg. `services/ml-retraining-service/app/core/models/lstm.py` is still present. References span 10+ files (ML-PURGE-02, Phase 23). *(Note the full path — earlier revisions wrote `ensemble_model.py:15` as though the file sat at `app/`; the line number was always right, the directory was not.)*
+- **`_archive_lstm/` is gitignored — that is why this claim keeps flipping.** `.gitignore:248` excludes `services/ml-prediction-service/**/_archive_lstm/`, so the directory (27 `*_lstm.keras` files, 41 MB) exists in the operator's working copy and is **absent from every fresh clone, container, and CI run**. Both past wordings were half-right and each got "corrected" into the other. Check `.gitignore` before re-litigating it, and state which environment you looked in.
 
 | Service | Port | Purpose |
 |---|---|---|
@@ -67,7 +93,7 @@ Autonomous Bybit crypto trading bot. 11 Python microservices + React frontend. *
 | portfolio-manager | 8003 | Positions, balances, P&L |
 | technical-analysis | 8004 | TA indicators + GRU inference + signal aggregator |
 | trading-engine | 8005 | Strategy + risk + order execution |
-| notification-service | 8006 | Telegram + email alerts |
+| notification-service | 8006 | Alerts — telegram / email / slack / sms / dashboard channels |
 | ml-prediction-service | 8007 | Standalone ML inference (compose `ml` profile) |
 | sentiment-analysis-service | 8008 | News / social sentiment (compose `analytics` profile) |
 | risk-metrics-service | 8009 | Risk dashboards |

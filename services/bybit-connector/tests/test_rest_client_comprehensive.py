@@ -101,7 +101,7 @@ class TestCoreRequestMethods:
                 method="GET",
                 endpoint="/v5/market/tickers",
                 params={"category": "linear"},
-                json_data=None,
+                body_str=None,
                 headers={}
             )
 

@@ -735,8 +735,15 @@ class TestErrorHandling:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Rate limit exceeded" in response.json()["detail"]
 
+    @pytest.mark.usefixtures("permit_live_orders")
     def test_validation_exception_handling(self, client, mock_rest_client):
-        """Test handling of validation exceptions"""
+        """Test handling of validation exceptions.
+
+        Needs `permit_live_orders`: this is the only test in this class that
+        POSTs to /api/v1/order/place, and `require_live_orders_permitted`
+        refuses that route with 403 in paper mode -- short-circuiting before
+        the ValidationException path this test exists to cover.
+        """
         # Given mock client raises validation exception
         mock_rest_client.place_order = AsyncMock(
             side_effect=ValidationException("Invalid parameter", field="qty")

@@ -247,6 +247,10 @@ def test_detail_returns_500_when_file_exceeds_50mb(test_client, tmp_path, monkey
 
     def fake_stat(self, *args, **kwargs):  # type: ignore[override]
         real = original_stat(self, *args, **kwargs)
+        # Compare against the PRE-resolved path only: on Python 3.12
+        # Path.resolve() itself calls stat(), so resolving inside fake_stat
+        # would re-enter the patch and recurse (both lines fixed this
+        # identically; duplicate definition dropped in the 2026-08-26 merge).
         if self == resolved_target or self == target:
             return _BigStat(real)
         return real

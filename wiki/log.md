@@ -2,7 +2,7 @@
 type: meta
 title: "Operation Log"
 created: 2026-05-05
-updated: 2026-07-30
+updated: 2026-08-19
 tags: [meta, log]
 status: current
 ---
@@ -10,6 +10,18 @@ status: current
 # Operation Log
 
 Append-only. New entries at TOP. Never edit past entries.
+
+## 2026-08-19 — Doc resync against August data (batteries, cost model, risk caps)
+
+- **Edge results propagated into the docs.** CLAUDE.md §2 split into 2a (legacy indicator strategies) and 2b (pre-registered kill-test batteries); README gains a `Strategy status` section. Headline now stated once and consistently: **twelve strategy families, zero survivors** — 7 legacy + 5 pre-registered, plus the chance-level GRU ensemble. (`progress.md`'s "nine families" is family-*runs* across the two batteries, 4 + 5; only 5 distinct candidates were tested. Counted explicitly so the headline stops drifting.) Battery #1 (2026-08-17, 8 variants) rejected xs_momentum / vol_breakout / funding_carry / lf_trend; battery #2 (2026-08-18, 17 variants) re-ran those four with more variants, added pairs_statarb, and rejected all five.
+- **Gate semantics written down** so a Gate 1 number is never quoted as a result: Gate 1 is a cost hurdle (gross edge ≥ 2× taker cost), Gate 2 is statistical (DSR ≥ 0.95 **and** ≥ 0.7 of CPCV paths positive). `lf_trend` cleared Gate 1 on 4/5 variants at `ratio_taker` up to 15.511 and still died on Gate 2 — outlier trades, not a distribution.
+- **Trials floor documented as a ratchet**: `backtesting/edge_lab/trial_ledger.json` is append-only, DSR deflates at `max(effective_floor, n_paths)`, floor went 16 → 21 (battery #2 ran floor 21 against 45 CPCV paths, so the path count bound), ledger now 30 rows. Recorded in CLAUDE.md, README, [[hot]], [[overview]] as "must not be reset".
+- **Risk caps corrected in README** — the table still read 2% per-trade / 5% daily / 10% drawdown-halt / 5 concurrent positions / 1× leverage. Actual `trading-engine/app/config.py`: `max_risk_per_trade` **0.10** fraction (2% hard in LIVE), `max_daily_loss_pct` **12.0**, `max_position_size_pct` **10.0**, `max_total_exposure_pct` **80.0**. There is no drawdown-halt setting and no concurrent-position count cap — concurrency is bounded by total exposure; the tiered drawdown triggers (5/10/15/20%) live in `kill_switch.py`. Two figures that were simply wrong for months.
+- **`DEFAULT_LEVERAGE` 10.0 → 1.0 recorded** ([[concepts/Risk-Model]] said 10.0). Dropped 2026-08-04 per AUDIT §6.4/H1 — at 10× the notional formula multiplied the 10% per-trade cap back to ~100% of balance per trade.
+- **Cost-model timeline pinned to commits** because "gross of slippage" had become wrong: slippage `fb45efe` (2026-08-03), correct fee accounting from the clean-data epoch 2026-08-12T13:47:20Z, perp funding on closes `b9fadc0` (2026-08-18, `paper_funding_enabled` default **true**). A P&L figure is only net of what had shipped when it was measured.
+- **`_archive_lstm/` flip-flop resolved at the root cause.** The 2026-07-30 entry below recorded "dir doesn't exist"; CLAUDE.md was corrected on 2026-08-03 to "does exist". Both were half-right: `.gitignore:248` excludes `services/ml-prediction-service/**/_archive_lstm/`, so it exists in the operator's working copy (27 files, 41 MB) and is absent from every fresh clone, container, and CI run. Past entries left intact per append-only rule; the correction is filed here, in [[hot]], and in [[concepts/ML-Status]]. Also fixed the path everyone had been copying: the LSTM import is at `app/models/ensemble_model.py:15`, not `app/ensemble_model.py:15` (line number was always right).
+- **Smaller corrections**: emergency-stop path in README was "repo root" → actually `safety/EMERGENCY_STOP` with a two-step resume; notification-service channel list 3 → 5 (telegram/email/slack/sms/dashboard) in CLAUDE.md, README, [[overview]]; symbol universes separated into traded 5 / ingested 14 / research-pinned 30; GRU staleness ~5 months → ~8; ADR range 001–027 → 001–028 in [[index]] with ADR-012's renumbering to ADR-016 noted; the archived `RESEARCH_PLAN_2026-04-29.md` link replaced; `backtesting/edge_lab/`, `shared/account.py` and `safety/` added to the README layout and the index repo map.
+- **Known contradiction now stated rather than repeated**: README's testing gotcha told readers to run api-gateway tests in-container, but that image ships no `tests/` (RES-10). Neither documented path works today; targeted host runs are the only one that does.
 
 ## 2026-07-30 — Doc consolidation pass (merges)
 

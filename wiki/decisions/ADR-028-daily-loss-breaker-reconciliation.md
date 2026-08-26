@@ -21,7 +21,7 @@ tags: [decision, adr, risk, trading-engine, kill-switch, capital]
 
 ## Context
 
-The capital audit found the daily-loss circuit breaker and the per-trade cap were never reconciled after [[ADR-010-paper-per-trade-cap|ADR-010]] raised the paper per-trade cap from 2% to 10% to clear Bybit's minimum notional on a $100 balance.
+The capital audit found the daily-loss circuit breaker and the per-trade cap were never reconciled after [[ADR-010-max-risk-per-trade-paper-bump|ADR-010]] raised the paper per-trade cap from 2% to 10% to clear Bybit's minimum notional on a $100 balance.
 
 Effective configuration as found:
 

@@ -29,10 +29,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -89,7 +89,7 @@ jobs:
           fi
 
       - name: Upload dependency scan results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: dependency-scan-results
@@ -119,7 +119,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -133,7 +133,7 @@ jobs:
       # terminal step below records why in the run summary.
       - name: Build Docker image for scanning
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         continue-on-error: ${{ matrix.service == 'sentiment-analysis-service' }}
         with:
           context: services/${{ matrix.service }}
@@ -163,7 +163,7 @@ jobs:
       # private repo does not have — upload fails with "Resource not accessible
       # by integration". Artifacts below still carry the reports.
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: steps.build.outcome == 'success'
         continue-on-error: true
         with:
@@ -195,7 +195,7 @@ jobs:
       # Trivy above already reports HIGH/MEDIUM in the SARIF for review.
       - name: Run Grype vulnerability scanner
         if: steps.build.outcome == 'success'
-        uses: anchore/scan-action@v3
+        uses: anchore/scan-action@v7
         id: grype
         with:
           image: crypto-bot/${{ matrix.service }}:scan
@@ -205,7 +205,7 @@ jobs:
       # Guarded: skipped scan leaves outputs.sarif empty, which would fail the
       # upload with "sarif_file not supplied"; GHAS caveat as on the Trivy upload.
       - name: Upload Grype results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always() && steps.grype.outputs.sarif != ''
         continue-on-error: true
         with:
@@ -213,7 +213,7 @@ jobs:
           category: grype-${{ matrix.service }}
 
       - name: Upload image scan results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: image-scan-${{ matrix.service }}
@@ -258,12 +258,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0  # Full history for better analysis
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -310,7 +310,7 @@ jobs:
             services/ shared/ || true
 
       - name: Upload SAST results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: sast-results
@@ -325,7 +325,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -348,7 +348,7 @@ jobs:
       # verified secret finding will still red the job (no silent suppression).
       - name: Gitleaks Secret Scan
         if: ${{ env.GITLEAKS_LICENSE != '' }}
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
@@ -361,7 +361,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Checkov - Terraform/K8s security
       - name: Run Checkov
@@ -374,7 +374,7 @@ jobs:
           soft_fail: true
 
       - name: Upload Checkov results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         continue-on-error: true
         with:
@@ -391,7 +391,7 @@ jobs:
       # quirks, but keep the signal flowing to the Security tab.
       - name: Run KICS Scan
         continue-on-error: true
-        uses: checkmarx/kics-github-action@v1.7.0
+        uses: checkmarx/kics-github-action@v2.1.20
         with:
           path: infrastructure/kubernetes/
           output_path: kics-results/
@@ -399,7 +399,7 @@ jobs:
           fail_on: critical
 
       - name: Upload KICS results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         continue-on-error: true
         with:
@@ -414,10 +414,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -464,7 +464,7 @@ jobs:
           fi
 
       - name: Upload license report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: license-report
           path: security-reports/
@@ -485,7 +485,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: all-reports/
 

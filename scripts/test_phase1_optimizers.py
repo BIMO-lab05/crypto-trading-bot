@@ -110,7 +110,7 @@ def generate_sample_data() -> pd.DataFrame:
 
     # Generate 180 days of 1-hour data
     periods = 180 * 24  # 180 days * 24 hours
-    dates = pd.date_range(end=datetime.now(), periods=periods, freq='1H')
+    dates = pd.date_range(end=datetime.now(), periods=periods, freq='1h')
 
     # Generate realistic price movement
     np.random.seed(42)  # For reproducibility
