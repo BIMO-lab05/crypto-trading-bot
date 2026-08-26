@@ -957,9 +957,16 @@ class EnhancedSqueezeMomentum:
             # strength. That is the correct trade: causal-but-noisy beats
             # smooth-but-leaky. Pinned by tests/test_leakage_regression.py::
             # test_sqzmom_enhanced_row_at_t_is_independent_of_future_bars.
-            expanding_max_momentum = result_df['sqz_momentum'].abs().expanding().max()
+            # Held as a numpy array and indexed POSITIONALLY. A label
+            # lookup returns a Series rather than a scalar when the frame
+            # carries duplicate index labels, and this repo's kline
+            # history has had holes and repairs; positional indexing has
+            # no index-shape dependency at all.
+            expanding_max_momentum = (
+                result_df['sqz_momentum'].abs().expanding().max().to_numpy()
+            )
 
-            def calculate_row_confidence(row: pd.Series) -> float:
+            def calculate_row_confidence(row: pd.Series, position: int) -> float:
                 """Calculate confidence for a single row"""
                 # Determine squeeze state
                 if row['squeeze_firing']:
@@ -978,7 +985,7 @@ class EnhancedSqueezeMomentum:
 
                 # Calculate momentum strength (normalized) against the
                 # CAUSAL running maximum -- see the LOOK-AHEAD FIX note above.
-                max_momentum = expanding_max_momentum.loc[row.name]
+                max_momentum = expanding_max_momentum[position]
                 momentum_strength = abs(row['sqz_momentum']) / max_momentum if max_momentum > 0 else 0
 
                 # Get momentum direction
@@ -997,7 +1004,14 @@ class EnhancedSqueezeMomentum:
                     state, duration, momentum_strength, direction, signal
                 )
 
-            result_df['sqz_confidence'] = result_df.apply(calculate_row_confidence, axis=1)
+            # Explicit positional walk rather than .apply(axis=1): the
+            # row's position is needed for the causal maximum above, and
+            # deriving it from the index would reintroduce the duplicate
+            # label hazard the array lookup exists to avoid.
+            result_df['sqz_confidence'] = [
+                calculate_row_confidence(result_df.iloc[position], position)
+                for position in range(len(result_df))
+            ]
 
             # Log successful calculation
             logger.info(
