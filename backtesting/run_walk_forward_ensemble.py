@@ -130,17 +130,40 @@ _models_stub.IndicatorSignal = _te_signal.IndicatorSignal
 _models_stub.TradingSignal = _te_signal.TradingSignal
 sys.modules["app.models"] = _models_stub
 
-# Stub `app.config.get_settings`. Aggregator only reads `settings` to access
-# unrelated trading params we don't need; a SimpleNamespace fallback works.
+# Stub `app.config.get_settings`. A hand-enumerated SimpleNamespace rotted
+# twice (gatekeeper thresholds landed after it was written — same failure
+# 029e059 fixed in the killtests loader). Spec-load the REAL trading-engine
+# config.py (imports only pydantic/pydantic_settings/typing; Settings is
+# never instantiated at import — same mechanism as
+# tests/test_account_config_sync.py) and build the stub from EVERY declared
+# field default, so any settings read the aggregator grows keeps resolving.
 _config_stub = types.ModuleType("app.config")
+
+_cfg_spec = importlib.util.spec_from_file_location(
+    "_wf_ensemble_te_config", os.path.join(_TE_PATH, "app", "config.py")
+)
+assert _cfg_spec is not None and _cfg_spec.loader is not None
+_cfg_mod = importlib.util.module_from_spec(_cfg_spec)
+_cfg_spec.loader.exec_module(_cfg_mod)
+
+from pydantic_core import PydanticUndefined  # noqa: E402
 
 
 def _stub_get_settings():
-    return types.SimpleNamespace(
-        technical_analysis_url="http://localhost:8004",
-        market_data_url="http://localhost:8002",
-        service_name="backtest-ensemble",
-    )
+    vals = {}
+    for _name, _field in _cfg_mod.Settings.model_fields.items():
+        if _field.default_factory is not None:
+            try:
+                vals[_name] = _field.default_factory()
+            except TypeError:
+                vals[_name] = None
+        elif _field.default is not PydanticUndefined:
+            vals[_name] = _field.default
+    ns = types.SimpleNamespace(**vals)
+    ns.technical_analysis_url = "http://localhost:8004"
+    ns.market_data_url = "http://localhost:8002"
+    ns.service_name = "backtest-ensemble"
+    return ns
 
 
 _config_stub.get_settings = _stub_get_settings
@@ -155,6 +178,13 @@ _metrics_stub.record_cache_hit = lambda *a, **kw: None
 _metrics_stub.record_cache_miss = lambda *a, **kw: None
 sys.modules["app.monitoring.metrics"] = _metrics_stub
 
+# aggregator_core.py:26 `from app.monitoring.signal_funnel import
+# get_signal_funnel` (landed 42e2250, after this stub set was written —
+# it broke this runner's import until 2026-08-26). The module is
+# stdlib-only, so load the real one rather than stubbing 22 stages.
+# Mirror of the killtests fix 029e059 (offline_ensemble.py).
+_load_te_module("app.monitoring.signal_funnel", "app/monitoring/signal_funnel.py")
+
 # Stub `app.aggregation` as an empty package so we can register submodules
 # without triggering the real `app/aggregation/__init__.py`, which would
 # eagerly load EnhancedAggregator + MultiTimeframeAnalyzer + their httpx /
@@ -165,9 +195,7 @@ sys.modules["app.aggregation"] = _aggregation_pkg
 
 # Load the submodules aggregator_core needs, in dependency order.
 _load_te_module("app.phase1_metrics", "app/phase1_metrics.py")
-_load_te_module(
-    "app.aggregation.confidence_guard", "app/aggregation/confidence_guard.py"
-)
+_load_te_module("app.aggregation.confidence_guard", "app/aggregation/confidence_guard.py")
 _load_te_module("app.aggregation.gatekeeper", "app/aggregation/gatekeeper.py")
 _load_te_module("app.aggregation.validator", "app/aggregation/validator.py")
 _load_te_module("app.aggregation.voter", "app/aggregation/voter.py")
@@ -312,9 +340,7 @@ def _compute_indicators(hist: pd.DataFrame) -> Optional[Dict]:
         ).calculate_with_signal(hist)
         if macd_val is None:
             return None
-        bb_data, bb_sig, bb_conf = _BB(period=20, std_dev=2.5).calculate_with_signal(
-            hist
-        )
+        bb_data, bb_sig, bb_conf = _BB(period=20, std_dev=2.5).calculate_with_signal(hist)
         if bb_data is None:
             return None
 
@@ -493,11 +519,7 @@ def make_ensemble_strategy(aggregator: CoreAggregator) -> Callable:
             regime_analysis=regime,
         )
 
-        action = (
-            signal.action.value
-            if hasattr(signal.action, "value")
-            else str(signal.action)
-        )
+        action = signal.action.value if hasattr(signal.action, "value") else str(signal.action)
         if action == "BUY":
             return {
                 "action": "BUY",
@@ -628,9 +650,7 @@ async def run_symbol(symbol: str, out_dir: str, progress_log) -> Optional[Dict]:
     progress_log.flush()
 
     downloader = HistoricalDataDownloader(market_data_url="http://localhost:8002")
-    raw = await downloader.download_historical_data(
-        symbol=symbol, interval=INTERVAL, days=DAYS
-    )
+    raw = await downloader.download_historical_data(symbol=symbol, interval=INTERVAL, days=DAYS)
     await downloader.close()
 
     if raw is None or len(raw) == 0:
@@ -673,20 +693,14 @@ async def run_symbol(symbol: str, out_dir: str, progress_log) -> Optional[Dict]:
         # In-sample (rule-based: same strategy applied to IS slice).
         # _engine_kwargs() on BOTH engines: IS and OOS must share one cost
         # model or the OOS/IS gate ratio measures the fee delta, not drift.
-        is_engine = BacktestEngine(
-            initial_capital=PAPER_INITIAL_BALANCE, **_engine_kwargs()
-        )
+        is_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE, **_engine_kwargs())
         is_engine.run_backtest(is_slice, strategy, strategy_name=f"ensemble_is_{k}")
         is_sharpe = calc_sharpe(is_engine.equity_curve)
         is_sharpes.append(is_sharpe)
 
         # Out-of-sample.
-        oos_engine = BacktestEngine(
-            initial_capital=PAPER_INITIAL_BALANCE, **_engine_kwargs()
-        )
-        oos_result = oos_engine.run_backtest(
-            oos_slice, strategy, strategy_name=f"ensemble_oos_{k}"
-        )
+        oos_engine = BacktestEngine(initial_capital=PAPER_INITIAL_BALANCE, **_engine_kwargs())
+        oos_result = oos_engine.run_backtest(oos_slice, strategy, strategy_name=f"ensemble_oos_{k}")
         oos_sharpe = calc_sharpe(oos_engine.equity_curve)
         oos_sharpes.append(oos_sharpe)
         oos_bar_rets.append(per_bar_returns(oos_engine.equity_curve))
@@ -714,10 +728,7 @@ async def run_symbol(symbol: str, out_dir: str, progress_log) -> Optional[Dict]:
     progress_log.write(hdr)
     for r in fold_rows:
         k, b, t, wr, s, dd, pf, pl = r
-        ln = (
-            f"  {k:<6} {b:<7} {t:<8} {wr:<7.1f} {s:<8.2f} "
-            f"{dd:<8.2f} {pf:<6.2f} {pl:<7.2f}\n"
-        )
+        ln = f"  {k:<6} {b:<7} {t:<8} {wr:<7.1f} {s:<8.2f} {dd:<8.2f} {pf:<6.2f} {pl:<7.2f}\n"
         print(ln, end="")
         progress_log.write(ln)
 
@@ -726,9 +737,7 @@ async def run_symbol(symbol: str, out_dir: str, progress_log) -> Optional[Dict]:
     ratio = (oos_mean / is_mean) if is_mean > 0 else 0.0
     # Disjoint OOS windows at FOLDS=4 / IS_FRAC=0.75 — the concatenation
     # is the stitched per-bar OOS return series for the canonical kernel.
-    all_oos_rets = (
-        np.concatenate(oos_bar_rets) if oos_bar_rets else np.empty(0, dtype=float)
-    )
+    all_oos_rets = np.concatenate(oos_bar_rets) if oos_bar_rets else np.empty(0, dtype=float)
     dsr = deflated_sharpe_per_bar(all_oos_rets, oos_fold_bar_sharpes, N_TRIALS)
     pf_mean = float(np.mean([r[6] for r in fold_rows])) if fold_rows else 0.0
     max_dd_pct = float(max((abs(r[5]) for r in fold_rows), default=0.0))
@@ -761,9 +770,7 @@ async def run_symbol(symbol: str, out_dir: str, progress_log) -> Optional[Dict]:
     )
     for r in fold_rows:
         k, b, t, wr, s, dd, pf, pl = r
-        summary += (
-            f"{k:<5}{b:>6}{t:>8}{wr:>8.1f}{s:>10.2f}{dd:>10.2f}{pf:>8.2f}{pl:>10.2f}\n"
-        )
+        summary += f"{k:<5}{b:>6}{t:>8}{wr:>8.1f}{s:>10.2f}{dd:>10.2f}{pf:>8.2f}{pl:>10.2f}\n"
     summary += (
         "--------------------------------------------------------------------------------\n"
         f"IS Sharpe mean : {is_mean:+.3f}  (annualized)\n"
@@ -810,21 +817,15 @@ async def main():
     progress_path = os.path.join(out_dir, "_progress.log")
     results: List[Dict] = []
     with open(progress_path, "a") as progress_log:
-        progress_log.write(
-            f"\n# run {pd.Timestamp.utcnow().isoformat()} — symbols={symbols}\n"
-        )
+        progress_log.write(f"\n# run {pd.Timestamp.utcnow().isoformat()} — symbols={symbols}\n")
         for symbol in symbols:
             r = await run_symbol(symbol, out_dir, progress_log)
             if r is not None:
                 results.append(r)
 
-    print(
-        "\n================================================================================"
-    )
+    print("\n================================================================================")
     print(f"ENSEMBLE WALK-FORWARD — {len(results)}/{len(symbols)} symbols ran")
-    print(
-        "================================================================================"
-    )
+    print("================================================================================")
     for r in results:
         print(
             f"  {r['symbol']:8s} verdict={r['verdict']}  "
