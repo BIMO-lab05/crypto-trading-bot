@@ -974,3 +974,10 @@ Full record: `.planning/evidence/session-2026-08-21-phase1-gates-dsr-frontend.md
 - Risk knobs UNCHANGED in relative terms: 10% per-trade fraction (now $1,000), 12% daily breaker (now $1,200), 10% max position, 5% ensemble floor (now $500), LIVE cap 2% (now $200).
 - **$100-era feasibility conclusions are VOID**: BTC min = 62.6% of account, the SOL/BNB/ADA-only tradeable set, and "LIVE mechanically impossible" no longer hold — BTC/ETH clear min notional at $1,000/trade, and LIVE is blocked only by the four deliberate flags, not arithmetic. Fees are bps-of-notional, so the flip creates **no edge**.
 - DB reset + service redeploy **deferred** until after the 2026-08-27 isolation harvest; tests/backtests being re-run at $10,000.
+
+## 2026-08-26 — Infra repair + battery completion (post-flip ops)
+
+- **DB outage repaired** (postgres/timescaledb `Exited (127)` since ~2026-08-23, host-suspend staged-directory class): both recreated `--no-deps --force-recreate`; market-data and api-gateway force-recreated (pools stuck on 2 days of dead connections). Stack 14/14 healthy. trading-engine/portfolio containers untouched — isolation window preserved.
+- **52 h kline hole closed and verified**: `POST /api/v1/collect/kline/{sym}?days=3` x 16 symbols x 5 intervals, then continuity check — 3,134/3,134 expected 1m bars per symbol across 2026-08-23 19:47 → 2026-08-26 00:00. The open 232-min hole from 2026-08-22 sits inside the verified window → resolved. Orderbook collector resumed 00:04 UTC (Phase C continuous-data clock restarts again; gate ~2026-09-16).
+- **Golden-parity killtest PASSED (3/3)** after repairing `backtesting/killtests/offline_ensemble.py` (kernel loads broken since `42e2250` added the signal-funnel import; stub gate values now derive from spec-loaded real config defaults) and refreshing the 20 parity candle CSVs through bybit-connector (mainnet-asserted; 1440m via interval `D`).
+- **BNB walk-forward unblocked and run**: 0 trades in all 4 OOS folds, gate FAIL — same as SOL; `phase1_strategy_prod` does not fire on 2026 data. Battery doc updated (`docs/BACKTEST_BATTERY_2026-08-26_10K.md`).

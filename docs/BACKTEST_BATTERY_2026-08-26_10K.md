@@ -48,11 +48,13 @@ Runner-printed Sharpe values (−29 to −46 on baselines, −221/−347 on 1-tr
 
 **Gates (ADR-013): ALL FAIL** — OOS Sharpe −0.58 < 1.0 · OOS/IS 0.00 < 0.60 · **DSR 0.002 < 0.95** · PF 0.957 < 1.20. New-run artifact preserved at `backtesting/results/wf_ensemble_2026-08-26_10k/SOLUSDT_summary.txt` (the runner's fixed output dir overwrote the 2026-05-21 historical summary; that file was restored from git).
 
-## 3. Blocked / deferred
+## 3. Formerly blocked — cleared 2026-08-26 after the infra repair
 
-- **BNB walk-forward: BLOCKED.** `run_walk_forward.py` has no offline mode and market-data-service is unhealthy while postgres/timescaledb sit `Exited (127)` (host-suspend staged-directory outage). Re-run after the operator restores the DB containers (`docs/runbooks/2026-08-27-account-10k-deploy.md` step 0).
-- **Golden-parity killtest SKIPPED** (needs the docker stack) — H4-class verdicts remain conditionally valid until it runs green post-restore.
-- Indicator/TA correctness is covered by the trading-engine suite (2,019 passed) and the root killtests/replay stack, which run green; the funnel root-cause audit (2026-08-22) had already verified all indicators bar-for-bar.
+The DB outage was repaired the same night (postgres/timescaledb recreated, market-data + api-gateway pools recycled, **52 h kline hole backfilled and verified complete** — 3,134/3,134 expected 1m bars per symbol across the outage window; the open 2026-08-22 232-min hole sat inside the verified window and is closed with it). Stack 14/14 healthy; trading-engine container untouched (isolation window preserved).
+
+- **BNB walk-forward (`run_walk_forward.py --symbol BNBUSDT --days 180`): 0 trades in all 4 OOS folds — gate FAIL** (OOS Sharpe 0 < 1.0, DSR nan). Identical shape to SOL: `phase1_strategy_prod` does not fire on 2026 data.
+- **Golden-parity killtest: PASSED (3/3)** after two repairs: the offline kernel loader had been broken since `42e2250` added the signal-funnel import to `aggregator_core` (fixed by loading the real stdlib-only module and deriving all stub gate values from the spec-loaded real `config.py` defaults), and the parity candle CSVs were refreshed through bybit-connector (20 files, 365d, mainnet-asserted; 1440m via the `D` interval). Stamp: `.planning/evidence/killtests/golden-parity-stamp.json` — offline replay ≡ live TA, non-HOLD action observed.
+- Indicator/TA correctness thereby verified three ways: trading-engine suite (2,019 passed), killtests/replay stack, and live seam parity.
 
 ## Provenance note
 
