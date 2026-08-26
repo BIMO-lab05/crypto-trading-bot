@@ -180,6 +180,15 @@ The discipline was preserved in execution: the Task 1 tests were written first a
 | `python3 scripts/check_capital_literals.py` | — | exit 0 | PASS |
 | `git diff --stat` touches no `requirements.txt` | — | 4 files, all `.py` under `services/trading-engine` | PASS (T-21-SC: zero package installs) |
 
+**Two wall-clock-flaky test files exist in this suite and neither is touched by this plan.**
+
+`tests/strategies/test_pairs_trading.py::TestRecalibration::test_needs_recalibration_after_period`
+does `time.sleep(4)` against a `recalibration_period=0.001 h` (3.6 s) threshold — a
+0.4 s margin on a wall clock. It was one of the two BASELINE full-suite failures,
+passed in three `tests/strategies/` runs during this plan, then failed on the fourth
+and passed again in isolation. The `159 passed` figures above and this `1 failed,
+158 passed` are the same suite on the same commit.
+
 **On the one remaining full-suite failure:** it is a wall-clock TTL flake in `tests/unit/test_signal_cache.py`, and a *different* test in that file fails on each run — `test_ttl_affects_expiration` (baseline), `test_get_expired_entry_returns_none` (post-plan full run), `test_partial_expiration` (isolated re-run). Both baseline failures are gone and this one is not reproducible on a named test. Nothing in this plan touches `signal_cache` or `pairs_trading`; the diff is confined to two strategy modules and two of their test files. Logged as pre-existing flakiness, not a regression.
 
 ## Acceptance Criteria — per-task evidence
