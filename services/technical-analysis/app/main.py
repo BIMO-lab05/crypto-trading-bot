@@ -575,12 +575,15 @@ async def ichimoku_endpoint(
 
     **Complete trend and support/resistance analysis in one indicator**
 
-    Components:
-    - **Tenkan-sen**: Short-term trend (9-period midpoint)
-    - **Kijun-sen**: Medium-term trend (26-period midpoint)
-    - **Senkou Span A**: Leading span A (Tenkan+Kijun midpoint, shifted 26 forward)
-    - **Senkou Span B**: Leading span B (52-period midpoint, shifted 26 forward)
-    - **Chikou Span**: Lagging span (current close, shifted 26 back)
+    Components (crypto-optimized defaults 20/60/120, declared in Settings):
+    - **Tenkan-sen**: Short-term trend (20-period midpoint)
+    - **Kijun-sen**: Medium-term trend (60-period midpoint)
+    - **Senkou Span A**: Leading span A (Tenkan+Kijun midpoint, shifted forward)
+    - **Senkou Span B**: Leading span B (120-period midpoint, shifted forward)
+    - **Chikou Span**: Lagging span (current close, shifted back)
+
+    Spans are displaced by the Kijun period (conventional Ichimoku sets
+    displacement == kijun), not by a fixed 26 - see IndicatorService.
 
     **Trading Signals**:
     - BUY: Price above cloud + TK cross bullish + Chikou above price
