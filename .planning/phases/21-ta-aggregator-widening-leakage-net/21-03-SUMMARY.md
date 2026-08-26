@@ -239,6 +239,14 @@ None — no external service configuration required. Paper mode only; no live or
 - **No blockers for sibling wave-1 plans.** `mean_reversion_strategy.py` was read-only as instructed and is unmodified; the two production files this plan owns are not touched by 21-01/21-02/21-04 per their `files_modified` lists.
 - **Deferred, unchanged:** `simple_rsi_strategy.py:121-122`'s `round(..., 4)` SL/TP rounding is Phase 22 (PRICE-01/02) and was deliberately not asserted on. `advanced_position_sizing.py:107`'s docstring `capital=10000` is P21-8 residue owned by another plan — outside this plan's `files_modified`.
 
+## Self-Check: PASSED
+
+- All 4 modified production/test files verified present on disk.
+- All 4 commits verified in `git log`: `c70d577`, `71fcd51`, `a0bc77e`, `1aaf867`.
+- Working tree clean — no uncommitted or untracked artifacts.
+- STATE.md and ROADMAP.md deliberately NOT modified (worktree/parallel mode; the
+  orchestrator owns those writes after the wave merges).
+
 ---
 *Phase: 21-ta-aggregator-widening-leakage-net*
 *Completed: 2026-08-26*
