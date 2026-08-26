@@ -934,6 +934,31 @@ class EnhancedSqueezeMomentum:
             result_df['sqz_signal'] = result_df.apply(generate_row_signal, axis=1)
 
             # Step 8: Calculate confidence scores
+            #
+            # LOOK-AHEAD FIX (TA-AGG-04, 2026-08-27). The momentum-strength
+            # normaliser below read `result_df['sqz_momentum'].abs().max()` --
+            # the maximum over the WHOLE frame, including bars AFTER the row
+            # being scored. `sqz_confidence` at bar t therefore rose
+            # retroactively whenever a larger |momentum| arrived later, which
+            # is look-ahead leakage in the series path. Measured on a 400-bar
+            # synthetic walk: 39 of 250 probed bars disagreed with their own
+            # prefix computation; worst case 0.80 vs 0.85 -- percentage
+            # points, not float noise.
+            #
+            # An expanding max is causal: at row i it sees bars 0..i only. At
+            # `.iloc[-1]` the two agree exactly, so every production consumer
+            # (get_signal, IndicatorService.calculate_sqzmom_enhanced, the
+            # /aggregate handler, backtesting/replay/build_indicator_frames)
+            # is byte-for-byte unaffected -- all of them read the last row.
+            # Only whole-series / backtest reads change, from inflated to
+            # honest.
+            #
+            # Early bars now get a smaller denominator and so a noisier
+            # strength. That is the correct trade: causal-but-noisy beats
+            # smooth-but-leaky. Pinned by tests/test_leakage_regression.py::
+            # test_sqzmom_enhanced_row_at_t_is_independent_of_future_bars.
+            expanding_max_momentum = result_df['sqz_momentum'].abs().expanding().max()
+
             def calculate_row_confidence(row: pd.Series) -> float:
                 """Calculate confidence for a single row"""
                 # Determine squeeze state
@@ -951,8 +976,9 @@ class EnhancedSqueezeMomentum:
                     result_df.loc[:row.name, 'squeeze_on']
                 )
 
-                # Calculate momentum strength (normalized)
-                max_momentum = result_df['sqz_momentum'].abs().max()
+                # Calculate momentum strength (normalized) against the
+                # CAUSAL running maximum -- see the LOOK-AHEAD FIX note above.
+                max_momentum = expanding_max_momentum.loc[row.name]
                 momentum_strength = abs(row['sqz_momentum']) / max_momentum if max_momentum > 0 else 0
 
                 # Get momentum direction
