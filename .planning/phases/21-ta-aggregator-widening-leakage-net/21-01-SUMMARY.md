@@ -69,7 +69,7 @@ completed: 2026-08-27
 - `services/technical-analysis/tests/test_leakage_regression.py` — 1,149 lines, **122 tests, 0 skips, 0 expected-failures, 0 tolerances**.
 - **Found a real look-ahead defect on the first run.** `EnhancedSqueezeMomentum.calculate` normalised momentum strength by `result_df['sqz_momentum'].abs().max()` — the max over the **whole frame**, including bars after the row being scored. Fixed to an expanding max.
 - Tier 3 AST guard now fails the build on any new `.shift(-n)`, unprovable `.shift(offset)`, `center=True`, or forward `.iloc[i+k]` read anywhere under `app/indicators/`.
-- Full TA suite: **688 passed** (was 590 before this plan added 98 net new tests… 566 pre-existing + 122 new; see below). Repo-root `test_price_rounding_invariant.py` still green (10 passed).
+- Full TA suite: **688 passed** — 566 pre-existing plus the 122 added here. Repo-root `test_price_rounding_invariant.py` still green (10 passed).
 - **Four** injected-mutation failure captures recorded (three mandated by the plan, one from the real defect).
 
 ## Task Commits
@@ -250,6 +250,10 @@ None.
 - **For 21-02 / 21-05 (Ichimoku canon 20/60/120):** the 400-bar fixture already clears the post-change `min_periods` of 146, so this suite needs no edit when those land — but it will now **fail loudly** if the Ichimoku ctor gains a negative or non-literal displacement, and `ichimoku.py:506-507` carry `# audited-forward-read` comments that must survive any reformat of that region.
 - **For anyone re-running backtests over `sqz_confidence` series:** figures computed before `0aa4bcc` were optimistic on non-final bars. Live/paper signal figures are unaffected — every consumer reads the last row.
 - **Deferred, not fixed here:** `rsi_divergence`'s pivot confirmation lag is documented as correct behaviour, not repaired; it remains disabled as a voter. No action owed.
+
+## Self-Check: PASSED
+
+All 5 claimed files exist on disk; all 5 claimed commit hashes exist in git log.
 
 ---
 *Phase: 21-ta-aggregator-widening-leakage-net*
