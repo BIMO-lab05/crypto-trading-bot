@@ -25,7 +25,7 @@ import pytest
 
 from decimal import Decimal
 from uuid import uuid4
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, MagicMock, patch
 
 import sys
 from pathlib import Path
@@ -41,6 +41,24 @@ from app.models import (
     OrderSide,
     OrderType,
     PositionSide,
+)
+
+# Pre-import for the gate tests below: deferred imports inside
+# _execute_trade_with_setup must find these in sys.modules, or Prometheus
+# counters re-register and trip "Duplicated timeseries in CollectorRegistry".
+# The # noqa: F401 markers are load-bearing — the ruff format hook strips
+# bare imports (feedback_main_imports_autoflake).
+import app.main  # noqa: F401,E402
+import app.core.metrics  # noqa: F401,E402
+
+# Reuse the harness that already drives _execute_trade_with_setup end to end
+# (same pattern as tests/test_heat_gate_fed_real_order.py). `trader` is a
+# module-local FIXTURE — it must be imported by name or pytest errors with
+# "fixture 'trader' not found"; the # noqa: F401 is load-bearing.
+from tests.test_te_cap_05_log_survival import (  # noqa: E402,F401 - fixture reuse
+    _make_trade_setup,
+    _patch_breach_path_deps,
+    trader,
 )
 
 #: Declared paper equity, routed through Settings (ADR-029) — never a bare
@@ -390,6 +408,79 @@ class TestPaperMakerSimulation:
         assert isinstance(entry_fee, Decimal)
         commission = mock_trade_repo.log_trade.call_args.kwargs["commission"]
         assert isinstance(commission, Decimal)
+
+
+# ---------------------------------------------------------------------------
+# auto_trader gate routing (quick-260826-o2h Task 2): with trading_mode=PAPER,
+# prefer_maker_orders=True must route the entry through the maker path — the
+# old `trading_mode == "LIVE"` conjunct is GONE. These tests fail if anyone
+# reintroduces it.
+# ---------------------------------------------------------------------------
+
+
+def _filled_order_stub():
+    filled = MagicMock()
+    filled.status = OrderStatus.FILLED
+    filled.filled_quantity = Decimal("0.0000333")
+    filled.filled_price = Decimal("60000")
+    filled.position_id = "test-pos-id"
+    return filled
+
+
+def _stub_post_fill_path(trader):
+    """Side-effect-free post-FILLED stubs (test_heat_gate_fed_real_order idiom)."""
+    trader.notification_client = MagicMock()
+    trader.notification_client.notify_trade_open = AsyncMock(return_value={"success": True})
+    trader.kill_switch.update_metrics = MagicMock(return_value=[])
+
+
+@pytest.mark.asyncio
+async def test_paper_gate_enters_maker_path(trader, monkeypatch):
+    """PAPER + prefer_maker_orders=True -> execute_maker_order_with_fallback.
+
+    Discriminating: with the old `trading_mode == "LIVE"` conjunct this
+    trader (trading_mode=PAPER) would take the market path and the maker
+    assert below would fail.
+    """
+    paper_engine, _ = _patch_breach_path_deps(monkeypatch, trader)
+    # Precondition — the whole point is that PAPER now routes maker.
+    assert str(trader.settings.trading_mode).upper() == "PAPER"
+    monkeypatch.setattr(trader.settings, "prefer_maker_orders", True, raising=False)
+
+    paper_engine.execute_maker_order_with_fallback = AsyncMock(
+        return_value=(_filled_order_stub(), None)
+    )
+    _stub_post_fill_path(trader)
+
+    # Downstream post-FILLED branches touch unstubbed services; the routing
+    # decision fires before them (same swallow idiom as the harness's tests).
+    try:
+        await trader._execute_trade_with_setup(symbol="BTCUSDT", trade_setup=_make_trade_setup())
+    except Exception:
+        pass
+
+    paper_engine.execute_maker_order_with_fallback.assert_awaited_once()
+    paper_engine.execute_market_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_gate_off_uses_market(trader, monkeypatch):
+    """prefer_maker_orders=False -> plain execute_market_order (taker_direct)."""
+    paper_engine, _ = _patch_breach_path_deps(monkeypatch, trader)
+    assert str(trader.settings.trading_mode).upper() == "PAPER"
+    monkeypatch.setattr(trader.settings, "prefer_maker_orders", False, raising=False)
+
+    maker_spy = AsyncMock()
+    paper_engine.execute_maker_order_with_fallback = maker_spy
+    _stub_post_fill_path(trader)
+
+    try:
+        await trader._execute_trade_with_setup(symbol="BTCUSDT", trade_setup=_make_trade_setup())
+    except Exception:
+        pass
+
+    paper_engine.execute_market_order.assert_awaited_once()
+    maker_spy.assert_not_awaited()
 
 
 if __name__ == "__main__":
