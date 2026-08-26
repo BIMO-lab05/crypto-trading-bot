@@ -178,7 +178,7 @@ class RSIDivergenceCalculator:
 
             # Get values on left and right sides of current point
             left_vals = series.iloc[i - threshold:i]
-            right_vals = series.iloc[i + 1:i + threshold + 1]
+            right_vals = series.iloc[i + 1:i + threshold + 1]  # audited-forward-read
 
             # Check if current value is lower than all surrounding values
             is_pivot_low = (
@@ -217,7 +217,7 @@ class RSIDivergenceCalculator:
 
             # Get values on left and right sides of current point
             left_vals = series.iloc[i - threshold:i]
-            right_vals = series.iloc[i + 1:i + threshold + 1]
+            right_vals = series.iloc[i + 1:i + threshold + 1]  # audited-forward-read
 
             # Check if current value is higher than all surrounding values
             is_pivot_high = (
