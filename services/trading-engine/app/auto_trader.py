@@ -2196,12 +2196,14 @@ class AutoTrader:
             )
 
             # Execute through appropriate engine (paper or live).
-            # T1.3: in LIVE mode, prefer_maker_orders routes the entry through
-            # a PostOnly limit at best bid/ask with timeout-based fallback.
-            # Paper engine has no maker/taker distinction — keep market path.
+            # T1.3 + quick-260826-o2h: prefer_maker_orders routes entries
+            # through execute_maker_order_with_fallback on BOTH engines.
+            # LIVE places a real PostOnly limit at best bid/ask with
+            # timeout-based fallback; PAPER simulates one (paper_trading.py
+            # maker simulation). The hasattr guard stays as belt-and-braces
+            # for test doubles that stub only execute_market_order.
             use_maker = (
-                trading_mode == "LIVE"
-                and self.settings.prefer_maker_orders
+                self.settings.prefer_maker_orders
                 and hasattr(trading_engine, "execute_maker_order_with_fallback")
             )
             if use_maker:
