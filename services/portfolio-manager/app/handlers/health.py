@@ -5,6 +5,7 @@ Extracted from main.py - Responsibility: Service health and status monitoring
 Handles health checks and service status reporting.
 """
 
+import asyncio
 import logging
 from fastapi import HTTPException
 
@@ -14,6 +15,30 @@ from app.config import settings
 from app.utils import check_service_health
 
 logger = logging.getLogger(__name__)
+
+# Hard ceiling on the whole acquire+query round-trip. Covers pool.acquire()
+# too — an exhausted pool blocks there, not at fetchval.
+_DB_PROBE_TIMEOUT_SECONDS = 2.0
+
+
+async def _probe_db_pool(pool) -> bool:
+    """Probe the live asyncpg pool with SELECT 1 under a hard timeout.
+
+    Returns True when the pool answers within the timeout; False on ANY
+    failure (including asyncio.TimeoutError). Never raises — health and
+    readiness endpoints must degrade, not 500.
+    """
+
+    async def _query() -> None:
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+
+    try:
+        await asyncio.wait_for(_query(), timeout=_DB_PROBE_TIMEOUT_SECONDS)
+        return True
+    except Exception as e:
+        logger.warning(f"Database pool probe failed: {e}")
+        return False
 
 
 def get_portfolio_manager() -> PortfolioManager:
@@ -43,17 +68,28 @@ async def health_check() -> HealthResponse:
     # Check database connection if enabled
     database_healthy = False
     if settings.use_database:
-        try:
-            # Import database manager only if database is enabled
-            from shared.database.connection import db_manager
+        # Function-level import against app.main globals (same pattern as
+        # get_portfolio_manager) — keeps tests patchable and import order safe.
+        from app.main import db_pool
 
-            database_healthy = db_manager.health_check()
-        except ImportError:
-            # shared.database module not available - this is expected when not using database
-            database_healthy = False
-        except Exception as e:
-            logger.warning(f"Database check error: {e}")
-            database_healthy = False
+        if db_pool is not None:
+            # The service's real connection: probe the live asyncpg pool.
+            database_healthy = await _probe_db_pool(db_pool)
+        else:
+            # Legacy fallback, only reached when the real pool is absent.
+            # In-container this import is dead (empty ./shared dir in the
+            # image — see .claude/rules/money.md) and lands in ImportError.
+            try:
+                # Import database manager only if database is enabled
+                from shared.database.connection import db_manager
+
+                database_healthy = db_manager.health_check()
+            except ImportError:
+                # shared.database module not available - this is expected when not using database
+                database_healthy = False
+            except Exception as e:
+                logger.warning(f"Database check error: {e}")
+                database_healthy = False
 
     return HealthResponse(
         status="healthy",
@@ -83,25 +119,38 @@ async def readiness_check() -> dict:
 
     db_status = "skipped"
     if settings.use_database:
-        try:
-            from shared.database.connection import db_manager
+        from app.main import db_pool
 
-            if not db_manager.health_check():
+        if db_pool is not None:
+            # The service's real connection: probe the live asyncpg pool.
+            if await _probe_db_pool(db_pool):
+                db_status = "ok"
+            else:
                 raise HTTPException(
                     status_code=503,
                     detail="Database unavailable",
                 )
-            db_status = "ok"
-        except ImportError:
-            db_status = "unavailable"
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning(f"Readiness DB check error: {e}")
-            raise HTTPException(
-                status_code=503,
-                detail=f"Database check failed: {e}",
-            )
+        else:
+            # Legacy fallback, only reached when the real pool is absent.
+            try:
+                from shared.database.connection import db_manager
+
+                if not db_manager.health_check():
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Database unavailable",
+                    )
+                db_status = "ok"
+            except ImportError:
+                db_status = "unavailable"
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Readiness DB check error: {e}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Database check failed: {e}",
+                )
 
     return {"status": "ready", "portfolio_manager": "ok", "database": db_status}
 
