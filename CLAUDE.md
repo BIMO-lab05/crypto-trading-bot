@@ -1,12 +1,10 @@
 # Crypto Trading Bot
 
-## 1. THE ACCOUNT IS $100
+## 1. THE ACCOUNT IS $10,000 (research scale)
 
-Not $10,000. Not $100,000. **One hundred US dollars.**
+**$10,000 USDT, paper only — ADR-029, 2026-08-25. It was $100 until that date.**
 
-The repo contains ~1,000 occurrences of `10000` as a capital figure. They are wrong, they are being removed, and **they do not override this line**. If a file you are reading implies a different account size, the file is the defect — say so, do not silently adopt its number.
-
-`shared/account.py` is the declaration of record. Never write an account-size literal.
+`shared/account.py` is the declaration of record. Never write an account-size literal — and note the inversion trap: **a bare `10000` in code is now numerically correct and STILL a defect**, because it bypasses the declared config and silently decouples on the next re-scale. Numeric agreement is not routing. A file asserting $100 as *current* is stale — fix it against ADR-029, do not adopt its number; a file carrying a bare `10000` is unrouted — route it, do not bless it.
 
 **How to reference it depends on where the code runs:**
 
@@ -17,12 +15,13 @@ The repo contains ~1,000 occurrences of `10000` as a capital figure. They are wr
 
 Agreement is enforced by `tests/test_account_config_sync.py`, not by a shared import.
 
-**Mechanical consequences of $100 — reason from these, not from intuition:**
+**Mechanical consequences of $10,000 — reason from these, not from intuition:**
 
-- Per-trade cap 10% = **$10**. Bybit minimum notional ≈ **$5**. Headroom is thin.
-- Round-trip taker fee ≈ 0.11% of notional. At the 2,000–4,600 trades/run seen in backtests, **fees alone exceed any observed edge**.
-- The LIVE cap of 2% is **$2** — below the venue minimum at any sane stop distance. **LIVE trading is not mechanically viable at this account size regardless of edge.** Know this before flipping four flags.
-- A trade below min-notional must be **rejected with a reason**, never clamped up. Clamping up turns a 10% cap into a 40% cap.
+- Per-trade cap 10% = **$1,000**; ensemble floor 5% = **$500**; daily breaker 12% = **$1,200**. Bybit's ≈ $5 min notional is no longer binding at default sizing.
+- BTC/ETH are **mechanically tradeable again** (BTC min ≈ $77 ≪ $1,000). The SOL/BNB/ADA-only tradeable set was a $100-era conclusion — void, pending re-derivation.
+- Round-trip taker fee ≈ 0.11% of notional — **bps-scale, so the flip does not create edge**. Fee drag vs observed edge is the same fight at any account size.
+- The LIVE cap of 2% is **$200 — it clears every venue minimum. LIVE is NO LONGER arithmetically blocked; the four deliberate flags in §5 are the only barrier.** Never cite account arithmetic as a LIVE safeguard.
+- A trade below min-notional must still be **rejected with a reason**, never clamped up. Default sizing no longer exercises this path — tests keep it alive via pinned small-balance scenarios; do not delete them as "unreachable".
 
 Deeper rules load automatically when you edit money code — see `.claude/rules/money.md`.
 
@@ -41,11 +40,11 @@ Do not propose new features without confronting this table.
 | Trend-following | 0.0% | **−0.22** | 5 |
 | GRU ensemble | chance-level | — | loses to naive persistence |
 
-Two things make this **worse** than it looks: every one of these figures was measured through a **frictionless** paper engine — the slippage model landed 2026-08-03 (`fb45efe`, `app/paper_slippage.py`), *after* the table — so they are optimistic by an unmeasured amount; and all figures were produced at **$10,000**, which hides the min-notional constraint entirely. Re-run before citing. *(This line claimed no slippage model existed until 2026-08-04 — corrected. PAPER-01 is closed.)*
+The table is **worse** than it looks: every one of these figures was measured through a **frictionless** paper engine — the slippage model landed 2026-08-03 (`fb45efe`, `app/paper_slippage.py`), *after* the table — so they are optimistic by an unmeasured amount. They were produced at $10,000, which since ADR-029 (2026-08-25) incidentally matches the declared size again — that does **not** make them citable; frictionless is frictionless. *(This line claimed no slippage model existed until 2026-08-04 — corrected. PAPER-01 is closed.)*
 
 Consequences for how you work here:
 
-- Every backtest number in the repo predating 2026-08-03 answers a question about a $10,000 account. Re-run before citing.
+- **Provenance rule.** Pre-2026-08-03 figures = frictionless $10,000. 2026-08-03 → 2026-08-25 figures = $100 with the min-notional floor binding (a constraint that no longer exists). Neither answers a question about the current configuration — re-run before citing. The first citable $10,000 cost-on baselines are in `docs/BACKTEST_BATTERY_2026-08-26_10K.md`: **still no edge** — the deployed-ensemble analog under the full realistic cost stack (bybit_perp fees + ATR slippage + funding) posts OOS Sharpe −0.58, PF 0.96, DSR 0.002; the phase-1 filter stack fires 0–1 trades/year.
 - Label paper P&L *gross of slippage* wherever reported. Never present it as a realistic expectation.
 - Adding a sixth indicator to five losing indicators produces a losing ensemble. The infrastructure's current value is **killing bad strategies cheaply** — treat "disproved in an afternoon" as a win.
 - No edge claim without DSR/CPCV (`returns_metrics.py`, `sharpe_metrics.py`, `cpcv.py`). Raw R² on price levels is forbidden.
@@ -93,7 +92,7 @@ Skip the wiki for general coding questions or anything already in this file. Aft
 
 ## 5. Safety rails (non-negotiable)
 
-- **Risk caps.** Per-trade **2% in LIVE — no relaxation without explicit approval**. Paper is relaxed to **10%** per ADR-010 to clear min-notional on $100. Daily-loss breaker **12%** per ADR-028 (raised from 5%: at a 10% per-trade cap a 5% daily limit tripped on the *first* full loss, so it measured one trade rather than a day — this **allows more** daily loss; a coherence fix, not a tightening). Pre-live checklist must restore ≤2% before `TRADING_MODE=LIVE`.
+- **Risk caps.** Per-trade **2% in LIVE — no relaxation without explicit approval**. Paper runs at **10%** — born as ADR-010's min-notional workaround on $100, retained at $10,000 as deliberate operator choice per ADR-029 ($1,000/trade). Daily-loss breaker **12%** per ADR-028, re-affirmed by ADR-029 ($1,200/day — one full-cap loss nearly arms it; known, accepted). Pre-live checklist must restore ≤2% before `TRADING_MODE=LIVE`.
 - **Units are a live trap.** `max_risk_per_trade` is a **fraction** (`0.10`); `max_daily_loss_pct`, `max_position_size_pct`, `max_total_exposure_pct` are **percents** (`12.0`, `10.0`, `80.0`). Comparing across them without normalizing produces a check that silently never fires. This shipped once.
 - **Four deliberate steps to LIVE.** `BYBIT_TESTNET` selects the *price source*. `PAPER_TRADING_MODE` / `TRADING_MODE` select whether *orders are simulated*. Real money needs all of: (1) `PAPER_TRADING_MODE=false`, (2) `TRADING_MODE=LIVE`, (3) mainnet keys with trade permissions, (4) `LIVE_TRADING_ACK=I_UNDERSTAND_REAL_MONEY` (engine refuses to boot without it).
 - **Auto-trader is ARMED.** Compose default is `AUTO_TRADING_ENABLED=false`, but the operator override in `.env` is `true`. The loop fires once the kill-switch file is absent.

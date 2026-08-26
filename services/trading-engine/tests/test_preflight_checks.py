@@ -331,9 +331,7 @@ def test_check_dsr_evidence_ml_enabled_no_marker_is_unknown(monkeypatch, tmp_pat
     assert "Phase 9" in result.detail or "marker" in result.detail
 
 
-def test_check_dsr_evidence_ml_enabled_with_row_above_gate_passes(
-    monkeypatch, tmp_path
-):
+def test_check_dsr_evidence_ml_enabled_with_row_above_gate_passes(monkeypatch, tmp_path):
     """ML on + marker present + leaderboard row with dsr=0.97 -> PASS.
 
     Seeds the leaderboard table using the production-faithful schema
@@ -362,9 +360,7 @@ def test_check_dsr_evidence_ml_enabled_with_row_above_gate_passes(
     assert "0.97" in result.detail
 
 
-def test_check_dsr_evidence_ml_enabled_with_row_at_or_below_gate_fails(
-    monkeypatch, tmp_path
-):
+def test_check_dsr_evidence_ml_enabled_with_row_at_or_below_gate_fails(monkeypatch, tmp_path):
     """ML on + marker present + leaderboard row with dsr<=0.95 -> FAIL.
 
     The row carries ``psr_ci_published=1`` + fresh ``run_date`` so the
@@ -390,6 +386,40 @@ def test_check_dsr_evidence_ml_enabled_with_row_at_or_below_gate_fails(
     # check_dsr_evidence branch-orders dsr_below_gate above evidence_stale
     # so the operator sees the root cause.
     assert "stale" not in result.detail.lower()
+
+
+def test_dsr_evidence_honors_tournament_db_path_env(monkeypatch, tmp_path):
+    """check_dsr_evidence with no db_path arg must consult TOURNAMENT_DB_PATH.
+
+    ML must be enabled and the Phase 9 marker present to even reach the
+    sqlite path-resolution line — ``ENABLE_ML_PREDICTIONS=false`` and a
+    missing marker both short-circuit to PASS/UNKNOWN before ``db_path`` is
+    ever read (see the two tests above), so this mirrors their setup.
+    Uses the production-faithful schema (``LEADERBOARD_SCHEMA_SQL`` /
+    ``_seed_leaderboard`` above) but leaves the table empty, landing on the
+    no-rows branch (checks.py ~line 329): status ``UNKNOWN``, detail
+    ``f"leaderboard empty (after psr_ci_published filter) (db_path={path})"``.
+    The env-supplied tmp path appearing in that detail — while ``db_path``
+    is never passed as an argument — is the proof TOURNAMENT_DB_PATH was
+    consulted; the default would cite ``/data/tournament.db`` instead.
+    """
+    monkeypatch.setenv("ENABLE_ML_PREDICTIONS", "true")
+    marker = tmp_path / "mlgate_marker.json"
+    marker.write_text("{}")
+    monkeypatch.setattr("app.preflight.checks._MLGATE_MARKER_PATH", str(marker))
+
+    db_file = tmp_path / "leaderboard.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute(LEADERBOARD_SCHEMA_SQL)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setenv("TOURNAMENT_DB_PATH", str(db_file))
+
+    result = check_dsr_evidence()  # no db_path kwarg -> must consult env var
+
+    assert result.status == "UNKNOWN"
+    assert str(db_file) in result.detail
 
 
 # ============================================================================
@@ -500,8 +530,7 @@ def test_dsr_fixture_schema_matches_production():
     # appear in this file's source.
     forbidden_form = column + " " + "INT" + "EGER"
     assert required_form in source, (
-        f"fixture must declare {required_form} "
-        "(matches production schema 0001_initial.sql:28)"
+        f"fixture must declare {required_form} (matches production schema 0001_initial.sql:28)"
     )
     assert forbidden_form not in source, (
         f"fixture must NOT declare {column} as the integer form — "

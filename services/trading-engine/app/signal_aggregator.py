@@ -26,6 +26,70 @@ from app.services.indicator_registry import get_indicator_registry
 logger = logging.getLogger(__name__)
 
 
+def consolidate_mtf_confidence(mtf_analysis, primary_confidence: float):
+    """Pick the action and the confidence that actually describe each other.
+
+    2026-08-23. This used to be two unrelated quantities glued onto one object:
+    ``action`` came from ``mtf_analysis.consensus_action`` -- a weighted blend of
+    all three timeframes' raw PRE-GATE scores (multi_timeframe.py:189-211, which
+    never reads the gated action) -- while ``confidence`` was the PRIMARY (60m)
+    timeframe's number, untouched by the other two.
+
+    That mattered because aggregator_core forces ``action = HOLD`` when the
+    requirements gate fails but leaves ``confidence`` at the directional value
+    that just failed. A rejected signal could therefore re-enter the pipeline as
+    a trade candidate carrying its own rejected confidence, with the direction
+    supplied by a consensus that had never consulted it.
+
+    Measured over 8h of live logs, of 231 directional MTF consensuses:
+      152 (65.8%) had ZERO timeframe whose gated action matched the consensus
+       43         had exactly one
+       36         had two -- and those 36 are exactly the ones that emitted
+
+    So requiring at least one agreeing timeframe drops 152 laundered artifacts
+    at zero cost to signals that actually trade.
+
+    Returns ``(action, confidence)``:
+    - directional consensus with no agreeing gated action -> HOLD
+    - directional consensus with agreeing timeframes      -> weight-averaged
+      confidence over those timeframes only (HOLD legs abstain)
+    - HOLD consensus                                      -> primary confidence
+
+    The result is passed through ``validate_confidence``: TradingSignal declares
+    ``confidence`` with ``le=1.0``, but assignment bypasses pydantic validation
+    because the model does not set ``validate_assignment``, so a modifier above
+    1.0 could otherwise push it out of range.
+
+    See .planning/evidence/hold-funnel-2026-08-22.md
+    """
+    from app.aggregation.confidence_guard import validate_confidence
+
+    action = mtf_analysis.consensus_action
+    signals = (mtf_analysis.timeframe_signals or {}).values()
+    agreeing = [tf for tf in signals if tf.action == action]
+
+    if action != SignalAction.HOLD and not agreeing:
+        logger.info(
+            "   MTF consensus %s unsupported by any timeframe's gated action "
+            "-> HOLD (consensus is computed from pre-gate scores)",
+            action.value,
+        )
+        action = SignalAction.HOLD
+        agreeing = []
+
+    base = primary_confidence
+    if action != SignalAction.HOLD and agreeing:
+        total_weight = sum(tf.weight for tf in agreeing)
+        if total_weight > 0:
+            base = sum(tf.confidence * tf.weight for tf in agreeing) / total_weight
+
+    confidence = validate_confidence(
+        base * mtf_analysis.confidence_modifier,
+        source="signal_aggregator.multi_timeframe",
+    )
+    return action, confidence
+
+
 class SignalAggregator:
     """
     Fetches technical indicators and aggregates them into a trading signal
@@ -716,14 +780,15 @@ class SignalAggregator:
         Indicator Categories (2025-12-17 Update - Optimization):
         - Original 5: RSI, MACD, Bollinger Bands, SMA, EMA
         - Phase 1: Trend Filter (GATEKEEPER), Volume Confirmation (VALIDATOR), Stochastic
-        - Advanced: Ichimoku (RSI_DIVERGENCE and SQZMOM_ENHANCED disabled for low confidence)
+        - Advanced: Ichimoku, SQZMOM_ENHANCED (re-enabled 2026-08-17), ADX (TREND_GATE, votes)
+        - Disabled: RSI_DIVERGENCE (low confidence)
         - Risk Management: ATR (not a voting indicator)
 
         Total voting indicators: 9 (excludes ATR, TREND_FILTER, VOLUME_CONFIRMATION, disabled indicators)
         """
         logger.info(f"Fetching all indicators for {symbol} ({interval}m)")
         logger.info(
-            "  Including advanced indicators: ICHIMOKU (RSI_DIVERGENCE and SQZMOM_ENHANCED disabled for better confidence)"
+            "  Advanced: ICHIMOKU, SQZMOM_ENHANCED active; ADX votes (TREND_GATE); RSI_DIVERGENCE disabled"
         )
 
         # Fetch all indicators concurrently
@@ -743,7 +808,10 @@ class SignalAggregator:
             # Advanced indicators (2025-11-26)
             # "RSI_DIVERGENCE": self.fetch_rsi_divergence(symbol, interval),  # DISABLED: stuck at 0.20 confidence
             "ICHIMOKU": self.fetch_ichimoku(symbol, interval),
-            # "SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom(symbol, interval),  # DISABLED: stuck at 0.50 HOLD
+            # Re-enabled 2026-08-17: the "stuck at 0.50 HOLD" cause was fixed
+            # 2026-05-05 (indicator_service.py:403-422 — the endpoint read
+            # non-prefixed keys; it now reads the sqz_-prefixed columns).
+            "SQZMOM_ENHANCED": self.fetch_enhanced_sqzmom(symbol, interval),
             # ADX as TREND_GATE (added 2026-05-06). Required by
             # HybridStrategyRouter.detect_regime — without this leg the router
             # always falls through to RANGING regardless of actual market.
@@ -789,8 +857,8 @@ class SignalAggregator:
                 # Record into rolling-confidence registry (2026-05-06).
                 # was_voted=True for every active indicator; the False branch
                 # is the shadow-mode hook reserved for a follow-up that
-                # observes disabled indicators (RSI_DIVERGENCE,
-                # SQZMOM_ENHANCED) without counting their vote.
+                # observes disabled indicators (RSI_DIVERGENCE) without
+                # counting their vote.
                 try:
                     await get_indicator_registry().record(
                         name=name,
@@ -834,6 +902,7 @@ class SignalAggregator:
         indicators: Dict[str, IndicatorSignal],
         timestamp: int,
         atr_data: Optional[Dict] = None,
+        symbol: Optional[str] = None,
     ) -> TradingSignal:
         """
         Aggregate individual indicator signals into a final trading signal
@@ -854,7 +923,9 @@ class SignalAggregator:
         5. OUTPUT: Final TradingSignal
         """
         # Delegate to modular CoreAggregator
-        return self.core_aggregator.aggregate_signals(indicators, timestamp, atr_data)
+        return self.core_aggregator.aggregate_signals(
+            indicators, timestamp, atr_data, symbol=symbol
+        )
 
     async def aggregate_signals_enhanced(
         self,
@@ -943,7 +1014,8 @@ class SignalAggregator:
 
         # Aggregate signals with ATR data + regime analysis
         signal = self.core_aggregator.aggregate_signals(
-            indicators, timestamp, atr_data, regime_analysis=regime_analysis
+            indicators, timestamp, atr_data, regime_analysis=regime_analysis,
+            symbol=symbol,
         )
         signal.symbol = symbol
 
@@ -1021,7 +1093,9 @@ class SignalAggregator:
 
         # Apply confidence modifier from multi-timeframe analysis
         original_confidence = primary_signal.confidence
-        adjusted_confidence = original_confidence * mtf_analysis.confidence_modifier
+        consolidated_action, adjusted_confidence = consolidate_mtf_confidence(
+            mtf_analysis, original_confidence
+        )
 
         logger.info("   Multi-timeframe adjustment:")
         logger.info(f"      Alignment: {mtf_analysis.alignment_strength.value}")
@@ -1031,8 +1105,32 @@ class SignalAggregator:
         )
         logger.info(f"      Reasoning: {mtf_analysis.reasoning}")
 
-        # Update signal with multi-timeframe analysis
+        # Update signal with multi-timeframe analysis.
+        #
+        # 2026-08-22: apply consensus_action to the ACTION, not just the
+        # confidence. Until this line existed, `consensus_action` was computed by
+        # MultiTimeframeAnalyzer._calculate_weighted_consensus, written to the
+        # metadata dict below, and never read by anything — while the returned
+        # action stayed whatever the primary (60m) timeframe said. Measured over
+        # 2,820 live evaluations the 60m timeframe was HOLD 100% of the time, so
+        # the ensemble's `multi_indicator` leg (guarded on action != HOLD) could
+        # never fire and the funnel emitted 0/146 signals.
+        # See docs/FUNNEL_ROOT_CAUSE_2026-08-22.md.
+        #
+        # This is a dead-code repair, NOT a trade-unblocking change: recomputed
+        # over 90 live cycles with the shipped weights (15m=0.20, 60m=0.50,
+        # 240m=0.30) and the shipped +/-0.2 band, the consensus resolves to HOLD
+        # in 90/90 cases (max score +0.106). The funnel stays empty because the
+        # voting set cancels — trend voters pinned bullish, oscillators pinned
+        # bearish, each individually correct. Do not "fix" that by lowering
+        # thresholds; Phase-3 tested that and returned NO CHANGE.
+        # 2026-08-23: confidence and action now come from the same place --
+        # consolidate_mtf_confidence() weight-averages over the timeframes whose
+        # GATED action matches the consensus, and demotes to HOLD when none does.
+        # Previously confidence was the 60m primary's number regardless of which
+        # action the consensus produced. See the helper's docstring.
         primary_signal.confidence = adjusted_confidence
+        primary_signal.action = consolidated_action
         primary_signal.metadata["multi_timeframe"] = {
             "enabled": True,
             "timeframes": timeframes,
@@ -1137,182 +1235,12 @@ class SignalAggregator:
             # cross-plan fallback). The actual log literal is emitted by
             # log_ml_disabled() in the helper module.
             log_ml_disabled(detail="fallback_to_phase1")
-            signal = self.aggregate_signals(indicators, timestamp, atr_data)
+            signal = self.aggregate_signals(
+                indicators, timestamp, atr_data, symbol=symbol
+            )
 
         signal.symbol = symbol
         return signal
-
-    async def get_trading_signal_with_vp(
-        self,
-        symbol: str,
-        primary_interval: str = "60",
-        timeframes: Optional[List[str]] = None,
-        enable_vp: bool = True,
-        vp_lookback: int = 100,
-        regime_analysis=None,  # FIX 2026-07-28: accept pre-fetched regime
-    ) -> TradingSignal:
-        """
-        Get trading signal with Volume Profile integration (Phase 3 - VP Strategy)
-
-        Combines multi-timeframe confirmation with volume profile analysis
-        for enhanced entry/exit levels and strategy selection.
-
-        FIX 2026-07-28: added `regime_analysis` parameter — auto_trader passes
-        it, and its absence made every VP-mode signal check raise TypeError
-        (swallowed by the catch-all upstream), so VP mode silently never traded.
-
-        Args:
-            symbol: Trading pair
-            primary_interval: Primary timeframe
-            timeframes: Timeframes for MTF analysis
-            enable_vp: Enable volume profile analysis
-            vp_lookback: Number of candles for VP calculation
-            regime_analysis: Pre-fetched market regime analysis (optional)
-
-        Returns:
-            TradingSignal with VP enhancements
-        """
-        from app.volume_profile import get_vp_calculator
-        from app.vp_strategy import get_vp_strategy_analyzer
-
-        # Get multi-timeframe signal first (Phase 2)
-        signal = await self.get_trading_signal_multi_timeframe(
-            symbol=symbol,
-            primary_interval=primary_interval,
-            timeframes=timeframes,
-            regime_analysis=regime_analysis,
-        )
-
-        # If VP not enabled, return MTF signal as-is
-        if not enable_vp:
-            return signal
-
-        try:
-            # Fetch historical candles for VP calculation
-            candles = await self._fetch_candles_for_vp(
-                symbol=symbol, interval=primary_interval, limit=vp_lookback
-            )
-
-            if not candles or len(candles) < 10:
-                logger.warning(
-                    f"Insufficient candles for VP calculation ({len(candles) if candles else 0})"
-                )
-                return signal
-
-            # Calculate volume profile
-            vp_calculator = get_vp_calculator()
-            vp_profile = vp_calculator.calculate_profile(
-                symbol=symbol, interval=primary_interval, candles=candles
-            )
-
-            if not vp_profile:
-                logger.warning(f"VP calculation failed for {symbol}")
-                return signal
-
-            # Get current price from signal metadata
-            current_price = None
-            for indicator_name, indicator_signal in signal.indicators.items():
-                if hasattr(indicator_signal, "metadata") and indicator_signal.metadata:
-                    if "current_price" in indicator_signal.metadata:
-                        current_price = Decimal(
-                            str(indicator_signal.metadata["current_price"])
-                        )
-                        break
-
-            if not current_price:
-                logger.warning("No current price found in signal")
-                return signal
-
-            # Analyze VP strategy
-            vp_analyzer = get_vp_strategy_analyzer()
-
-            # Convert signal to dict for VP analyzer
-            mtf_signal_dict = {
-                "action": signal.action,
-                "confidence": signal.confidence,
-                "metadata": signal.metadata,
-            }
-
-            vp_signal = vp_analyzer.analyze_vp_signal(
-                symbol=symbol,
-                current_price=current_price,
-                vp_profile=vp_profile,
-                mtf_signal=mtf_signal_dict,
-            )
-
-            # Combine VP signal with MTF signal
-            combined = vp_analyzer.combine_with_mtf_signal(vp_signal, mtf_signal_dict)
-
-            # Update original signal with VP enhancements
-            signal.confidence = combined["confidence"]
-            signal.metadata.update(combined.get("metadata", {}))
-            signal.metadata["vp_strategy"] = combined.get("vp_strategy")
-            signal.metadata["vp_position"] = combined.get("vp_position")
-            signal.metadata["vp_confidence_modifier"] = combined.get(
-                "vp_confidence_modifier"
-            )
-
-            logger.info(
-                f"VP Analysis: {vp_signal.strategy_type.value} "
-                f"| Position: {vp_signal.price_position} "
-                f"| Modifier: {combined.get('vp_confidence_modifier', 1.0):.2f}x"
-            )
-            logger.info(
-                f"   VP Levels: POC=${vp_profile.poc:.2f}, VAH=${vp_profile.vah:.2f}, VAL=${vp_profile.val:.2f}"
-            )
-            logger.info(f"   {vp_signal.reasoning}")
-
-        except Exception as e:
-            logger.error(f"VP analysis error for {symbol}: {e}", exc_info=True)
-            # Return original signal if VP fails
-            return signal
-
-        return signal
-
-    async def _fetch_candles_for_vp(
-        self, symbol: str, interval: str, limit: int = 100
-    ) -> List[Dict]:
-        """
-        Fetch historical candles for volume profile calculation
-
-        Args:
-            symbol: Trading symbol
-            interval: Timeframe interval
-            limit: Number of candles to fetch
-
-        Returns:
-            List of candle dicts with OHLCV data
-        """
-        try:
-            # Fetch klines from TA service
-            url = f"{self.base_url}/api/v1/klines/{symbol}"
-            params = {"interval": interval, "limit": limit}
-
-            response = await self.client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            klines = data.get("klines", [])
-
-            # Convert to candle format expected by VP calculator
-            candles = []
-            for k in klines:
-                candles.append(
-                    {
-                        "timestamp": datetime.fromtimestamp(k[0] / 1000),
-                        "open": float(k[1]),
-                        "high": float(k[2]),
-                        "low": float(k[3]),
-                        "close": float(k[4]),
-                        "volume": float(k[5]),
-                    }
-                )
-
-            logger.info(f"Fetched {len(candles)} candles for VP calculation")
-            return candles
-
-        except Exception as e:
-            logger.error(f"Error fetching candles for VP: {e}")
-            return []
 
 
 # Global signal aggregator instance

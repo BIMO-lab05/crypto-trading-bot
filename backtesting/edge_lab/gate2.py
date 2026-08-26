@@ -62,6 +62,7 @@ class Gate2Result:
     sharpe_std: float
     passed: bool
     reasons: list[str]
+    num_trials_used: int
 
 
 def _index_closes(
@@ -244,6 +245,7 @@ def run_gate2(
             sharpe_std=float("nan"),
             passed=False,
             reasons=[f"insufficient samples / invalid split params: {exc}"],
+            num_trials_used=num_trials_floor,
         )
 
     returns_per_path = [np.concatenate(chunks) for chunks in paths.values()]
@@ -308,4 +310,5 @@ def run_gate2(
         sharpe_std=float(dist["std"]),
         passed=passed,
         reasons=reasons,
+        num_trials_used=max(num_trials_floor, int(dist["n_paths"])),
     )

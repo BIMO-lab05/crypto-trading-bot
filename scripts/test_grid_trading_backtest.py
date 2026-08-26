@@ -21,6 +21,8 @@ import numpy as np
 
 # Add trading-engine to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "services" / "trading-engine"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 from app.backtesting.strategy_base import OHLCV
 from app.backtesting.backtest_engine import BacktestEngine, BacktestConfig, BacktestResult
@@ -173,7 +175,7 @@ def run_backtest_single(
     symbol: str,
     bars: List[OHLCV],
     grid_config: Dict[str, Any],
-    initial_equity: float = 10000.0
+    initial_equity: float = ACCOUNT_EQUITY_USD
 ) -> BacktestResult:
     """
     Run backtest for a single symbol with given grid configuration

@@ -82,6 +82,11 @@ def _engine(open_positions, portfolio):
     engine = PaperTradingEngine.__new__(PaperTradingEngine)
     engine.settings = SimpleNamespace(default_leverage=float(LEVERAGE))
     engine.commission_pct = COMMISSION_PCT
+    # Pinned small-account scenario: this is a deliberate $100-era ledger
+    # replay of the 2026-07-31 DL-2 incident — every hand-derived intermediate
+    # below (94.95, 80.70266802, 5.05, ...) is exact only at this balance.
+    # NOT the declared account size (shared/account.py, ADR-029); the pin
+    # decouples the reproduction from the default on purpose.
     engine.initial_balance = Decimal("100")
     engine.balance = Decimal("100")
     engine.position_manager = _FakePositionManager(open_positions)
@@ -108,9 +113,7 @@ class TestRestartBalanceRestore:
 
         engine = _engine(
             open_positions=[_position("50000", "0.001", opened)],
-            portfolio=SimpleNamespace(
-                cash_balance=Decimal("80.70266802"), updated_at=last_write
-            ),
+            portfolio=SimpleNamespace(cash_balance=Decimal("80.70266802"), updated_at=last_write),
         )
 
         await engine.sync_balance_with_positions()
@@ -135,9 +138,7 @@ class TestRestartBalanceRestore:
 
         engine = _engine(
             open_positions=[old, new],
-            portfolio=SimpleNamespace(
-                cash_balance=Decimal("80"), updated_at=last_write
-            ),
+            portfolio=SimpleNamespace(cash_balance=Decimal("80"), updated_at=last_write),
         )
 
         await engine.sync_balance_with_positions()
@@ -152,9 +153,7 @@ class TestRestartBalanceRestore:
         fabricates cash -- it must never be silent.
         """
         engine = _engine(open_positions=[], portfolio=None)
-        engine.portfolio_repo.get_or_create = AsyncMock(
-            side_effect=RuntimeError("db down")
-        )
+        engine.portfolio_repo.get_or_create = AsyncMock(side_effect=RuntimeError("db down"))
 
         with caplog.at_level("ERROR"):
             await engine.sync_balance_with_positions()

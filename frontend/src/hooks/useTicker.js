@@ -27,34 +27,31 @@ export function useTicker(symbol) {
 /**
  * Custom hook for fetching ticker data for multiple symbols
  *
- * FIXED 2026-02-17: Reduced refresh interval for real-time prices
+ * FIXED 2026-08-20: Fetch in parallel with Promise.allSettled — the previous
+ * sequential for-loop over 11 symbols outlived its own 5s refetch interval,
+ * so every cycle aborted in-flight requests (nginx 499 storm). Per-symbol
+ * error isolation is preserved: a failed symbol is logged and dropped.
  */
 export function useMultipleTickers(symbols = []) {
   return useQuery({
     queryKey: ['tickers', symbols],
     queryFn: async () => {
-      // Fetch tickers sequentially to avoid overwhelming the API
-      const results = []
-      for (const symbol of symbols) {
-        try {
-          const response = await marketAPI.getTicker(symbol)
-          results.push(response)
-        } catch (err) {
-          console.warn(`[useMultipleTickers] Failed to fetch ${symbol}:`, err.message)
-          results.push(null)
-        }
-      }
-      // Convert array to object with symbol as key
+      // Fetch all tickers in parallel; allSettled keeps per-symbol isolation
+      const results = await Promise.allSettled(
+        symbols.map(symbol => marketAPI.getTicker(symbol))
+      )
+      // Convert array to object with symbol as key, skipping failures
       // API returns { success: true, data: {...}, source: "..." } format
-      // Extract the data field from each response
-      return results.reduce((acc, response, index) => {
-        if (response) {
-          acc[symbols[index]] = response
+      return results.reduce((acc, result, index) => {
+        if (result.status === 'fulfilled' && result.value != null) {
+          acc[symbols[index]] = result.value
+        } else if (result.status === 'rejected') {
+          console.warn(`[useMultipleTickers] Failed to fetch ${symbols[index]}:`, result.reason?.message)
         }
         return acc
       }, {})
     },
-    refetchInterval: 5000, // Refetch every 5 seconds (REDUCED from 20s for real-time)
+    refetchInterval: 10000, // Refetch every 10 seconds (was 5s — see 2026-08-20 fix above)
     staleTime: 3000, // Consider data fresh for 3 seconds
     retry: 1, // Fewer retries for batch operations
     retryDelay: 2000,
@@ -87,23 +84,6 @@ export function useKlines(symbol, interval = '60', params = {}) {
     },
     refetchInterval: 60000, // Refetch every minute
     staleTime: 55000, // Consider data fresh for 55 seconds
-    retry: 2,
-    retryDelay: 1000,
-    enabled: !!symbol,
-  })
-}
-
-/**
- * Custom hook for orderbook data
- *
- * UPDATED 2025-11-30: Increased interval from 5s to 20s to prevent request overload
- */
-export function useOrderbook(symbol) {
-  return useQuery({
-    queryKey: ['orderbook', symbol],
-    queryFn: () => marketAPI.getOrderbook(symbol),
-    refetchInterval: 20000, // Refetch every 20 seconds (was 5s, increased to reduce load)
-    staleTime: 15000, // Consider data fresh for 15 seconds
     retry: 2,
     retryDelay: 1000,
     enabled: !!symbol,

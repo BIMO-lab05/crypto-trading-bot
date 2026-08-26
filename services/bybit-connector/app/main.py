@@ -887,7 +887,9 @@ async def get_recent_trades(
 
 
 @app.get("/api/v1/market/orderbook", tags=["Market Data"])
-@limiter.limit("200/minute")
+# market-data polls 14 symbols at 5s = 168 req/min; 200 left ~2 ticks
+# headroom (final review H-4). Raised to 600/minute.
+@limiter.limit("600/minute")
 async def get_orderbook(
     request: Request,
     category: str = "linear",
@@ -898,7 +900,7 @@ async def get_orderbook(
     """
     Get orderbook depth
     Returns current market orderbook (bids/asks)
-    Rate limited to 200 requests/minute (increased for multi-symbol trading)
+    Rate limited to 600 requests/minute (increased for multi-symbol trading)
     """
     try:
         logger.debug(
@@ -911,6 +913,39 @@ async def get_orderbook(
         return {"success": True, "data": result}
     except BybitConnectorException as e:
         logger.error(f"Failed to get orderbook: {str(e)}", extra={"error": str(e)})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.get("/api/v1/market/open-interest", tags=["Market Data"])
+@limiter.limit("200/minute")
+async def get_open_interest(
+    request: Request,
+    category: str = "linear",
+    symbol: str = "BTCUSDT",
+    interval_time: str = "5min",
+    limit: int = 200,
+    client: BybitRestClient = Depends(get_rest_client),
+):
+    """
+    Get open interest history
+    Rate limited to 200 requests/minute (increased for multi-symbol trading)
+    """
+    try:
+        logger.debug(
+            "Fetching open interest",
+            extra={
+                "category": category,
+                "symbol": symbol,
+                "interval_time": interval_time,
+                "limit": limit,
+            },
+        )
+        result = await client.get_open_interest(
+            category=category, symbol=symbol, interval_time=interval_time, limit=limit
+        )
+        return {"success": True, "data": result}
+    except BybitConnectorException as e:
+        logger.error(f"Failed to get open interest: {str(e)}", extra={"error": str(e)})
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 

@@ -28,6 +28,10 @@ from app.strategies.pairs_trading import PairsTradingStrategy, PairsTradeSignal
 from app.strategies.funding_rate_arbitrage import FundingRateArbitrageStrategy, FundingRateSignal
 from app.strategies.triangular_arbitrage import TriangularArbitrageStrategy, TriangularArbitrageSignal
 from app.utils.statistical.cointegration import PairScanner, CointegrationTester
+from app.config import get_settings
+
+# Account-size fixture routed through Settings (ADR-029) - never a bare literal.
+PORTFOLIO_VALUE = float(get_settings().paper_initial_balance)
 
 
 class TestStatisticalArbitrageIntegration:
@@ -135,7 +139,7 @@ class TestStatisticalArbitrageIntegration:
                 current_price_y=current_eth,
                 historical_data_x=btc_data,
                 historical_data_y=eth_data,
-                portfolio_value=10000.0
+                portfolio_value=PORTFOLIO_VALUE
             )
 
             assert signal is not None
@@ -166,7 +170,7 @@ class TestStatisticalArbitrageIntegration:
             current_funding_rate=0.0005,  # 0.05% = ~55% APY
             spot_price=50000.0,
             futures_price=50200.0,  # 0.4% basis
-            portfolio_value=10000.0
+            portfolio_value=PORTFOLIO_VALUE
         )
 
         assert signal1 is not None
@@ -191,7 +195,7 @@ class TestStatisticalArbitrageIntegration:
             current_funding_rate=0.0004,  # Still good
             spot_price=50000.0,
             futures_price=50300.0,
-            portfolio_value=10000.0
+            portfolio_value=PORTFOLIO_VALUE
         )
         assert signal2.action == 'HOLD'
         print(f"Action: {signal2.action} - {signal2.reason}")
@@ -202,7 +206,7 @@ class TestStatisticalArbitrageIntegration:
             current_funding_rate=0.00005,  # Below threshold
             spot_price=50000.0,
             futures_price=50100.0,
-            portfolio_value=10000.0
+            portfolio_value=PORTFOLIO_VALUE
         )
         assert signal3.action == 'CLOSE_HEDGE'
         print(f"Action: {signal3.action} - {signal3.reason}")
@@ -247,7 +251,7 @@ class TestStatisticalArbitrageIntegration:
             'ETHBNB': 5.71,
         }
 
-        signal1 = strategy.generate_signal(efficient_prices, capital=10000.0)
+        signal1 = strategy.generate_signal(efficient_prices, capital=PORTFOLIO_VALUE)
         if signal1 is None:
             print("No arbitrage detected (market efficient)")
         else:
@@ -267,7 +271,7 @@ class TestStatisticalArbitrageIntegration:
             'ETHBNB': 5.71,
         }
 
-        signal2 = strategy.generate_signal(arbitrage_prices, capital=10000.0)
+        signal2 = strategy.generate_signal(arbitrage_prices, capital=PORTFOLIO_VALUE)
 
         if signal2 is not None:
             assert signal2.net_profit_pct > 0
@@ -315,19 +319,19 @@ class TestStatisticalArbitrageIntegration:
             current_price_y=2000.0,
             historical_data_x=sample_price_data['BTCUSDT'],
             historical_data_y=sample_price_data['ETHUSDT'],
-            portfolio_value=10000.0
+            portfolio_value=PORTFOLIO_VALUE
         )
 
         funding_signal = funding_strategy.generate_signal(
             current_funding_rate=0.0004,
             spot_price=50000.0,
             futures_price=50200.0,
-            portfolio_value=10000.0
+            portfolio_value=PORTFOLIO_VALUE
         )
 
         triangular_signal = triangular_strategy.generate_signal(
             current_market_prices,
-            capital=10000.0
+            capital=PORTFOLIO_VALUE
         )
 
         execution_time = (time.time() - start_time) * 1000  # Convert to ms
@@ -390,7 +394,7 @@ class TestStatisticalArbitrageIntegration:
             current_funding_rate=None,  # Invalid
             spot_price=50000.0,
             futures_price=50200.0,
-            portfolio_value=10000.0
+            portfolio_value=PORTFOLIO_VALUE
         )
         # Signal generation handles None gracefully
         print(f"Handled missing funding rate gracefully")
@@ -405,7 +409,7 @@ class TestStatisticalArbitrageIntegration:
             # Missing ETHBTC and ETHUSDT
         }
 
-        signal = strategy3.generate_signal(incomplete_prices, capital=10000.0)
+        signal = strategy3.generate_signal(incomplete_prices, capital=PORTFOLIO_VALUE)
         assert signal is None
         print(f"Handled missing price pairs: No signal generated")
 
@@ -426,7 +430,7 @@ class TestStatisticalArbitrageIntegration:
                 50000.0, 2000.0,
                 sample_price_data['BTCUSDT'],
                 sample_price_data['ETHUSDT'],
-                10000.0
+                PORTFOLIO_VALUE
             )
         elapsed = (time.time() - start) / iterations * 1000
 
@@ -439,7 +443,7 @@ class TestStatisticalArbitrageIntegration:
 
         start = time.time()
         for _ in range(iterations):
-            strategy2.generate_signal(0.0004, 50000.0, 50200.0, 10000.0)
+            strategy2.generate_signal(0.0004, 50000.0, 50200.0, PORTFOLIO_VALUE)
         elapsed = (time.time() - start) / iterations * 1000
 
         print(f"Average: {elapsed:.2f}ms per signal")
@@ -494,13 +498,13 @@ class TestStatisticalArbitrageEndToEnd:
 
             # Check all strategies
             pairs_signal = pairs_strategy.generate_signal(
-                btc_price, eth_price, btc_hist, eth_hist, 10000.0
+                btc_price, eth_price, btc_hist, eth_hist, PORTFOLIO_VALUE
             )
             if pairs_signal and pairs_signal.action != 'HOLD':
                 signals_generated['pairs'] += 1
 
             funding_signal = funding_strategy.generate_signal(
-                funding_rate, btc_price, btc_price * 1.002, 10000.0
+                funding_rate, btc_price, btc_price * 1.002, PORTFOLIO_VALUE
             )
             if funding_signal and funding_signal.action != 'HOLD':
                 signals_generated['funding'] += 1

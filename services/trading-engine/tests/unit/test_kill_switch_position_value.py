@@ -1,9 +1,9 @@
 """B1 proof: the `max_position_value` kill-switch arm is live, and correctly sized.
 
 BEHAVIOUR CHANGE. `kill_switch.py` used to declare `max_position_value = 100000.0`
-and `auto_trader.py` only ever overrode `max_daily_loss_pct`, so on the real $100
+and `auto_trader.py` only ever overrode `max_daily_loss_pct`, so on the real
 account no position could reach the threshold and this arm was PERMANENTLY DEAD.
-It is now derived from equity ($80 = $100 x 80% total-exposure ceiling).
+It is now derived from equity (equity x max_total_exposure_pct, e.g. 80%).
 
 `should_halt_trading()` gates every entry (`auto_trader.py:908`, `:1700`) and the
 auto-trader is armed via the operator's `.env`, so a wrong threshold silently
@@ -11,16 +11,21 @@ stops the bot. The two-sided assertion below — a normal max-size trade does NO
 trip, a runaway DOES — is the required proof, and both halves live in this file
 deliberately so neither can be deleted without the other becoming conspicuous.
 
-Sizing chain that fixes the "normal" figure at $10 (`auto_trader.py`):
-    cap_value      = balance x settings.max_risk_per_trade   = 100 x 0.10 = $10
-    position_value = min(sized_notional, cap_value)                        <= $10
+Sizing chain that fixes the "normal" figure (`auto_trader.py`):
+    cap_value      = balance x settings.max_risk_per_trade
+    position_value = min(sized_notional, cap_value)                <= cap_value
     min-notional gate REJECTS undersized trades, it never uprounds
     kill_switch.update_metrics(position_value=...)            (`:2102`)
-$80 therefore sits 8x above any legitimate single position on a $100 account.
+The runaway threshold therefore sits (exposure_pct / risk_fraction) times above
+any legitimate single position — 8x at the default 80% / 0.10 knobs.
+
+All dollar figures are DERIVED from the declared config (ADR-029) — no bare
+account-size literals — so this proof survives future re-scales.
 """
 
 import pytest
 
+from app.config import get_settings
 from app.trading_enhancements import kill_switch as kill_switch_module
 from app.trading_enhancements.kill_switch import (
     KillSwitch,
@@ -29,16 +34,21 @@ from app.trading_enhancements.kill_switch import (
     get_kill_switch,
 )
 
-#: Equity x max_risk_per_trade = 100 x 0.10. The largest notional the per-trade
-#: cap gate will ever hand to the kill switch on the $100 account.
-NORMAL_MAX_SIZE_TRADE_USD = 10.0
+_SETTINGS = get_settings()
 
-#: Equity x max_total_exposure_pct = 100 x 0.80. One position consuming the
+#: The declared paper equity — routed through Settings, never a literal.
+EQUITY_USD = float(_SETTINGS.paper_initial_balance)
+
+#: Equity x max_risk_per_trade (fraction). The largest notional the per-trade
+#: cap gate will ever hand to the kill switch on the declared account.
+NORMAL_MAX_SIZE_TRADE_USD = EQUITY_USD * float(_SETTINGS.max_risk_per_trade)
+
+#: Equity x max_total_exposure_pct (percent). One position consuming the
 #: account's entire exposure budget is definitionally a runaway.
-DERIVED_THRESHOLD_USD = 80.0
+DERIVED_THRESHOLD_USD = EQUITY_USD * (float(_SETTINGS.max_total_exposure_pct) / 100.0)
 
 #: A single position at 100% of equity. Unambiguously a runaway.
-RUNAWAY_POSITION_USD = 100.0
+RUNAWAY_POSITION_USD = EQUITY_USD
 
 
 @pytest.fixture(autouse=True)
@@ -52,14 +62,14 @@ def _reset_singleton():
 
 
 def _switch() -> KillSwitch:
-    """A kill switch on the $100 account with an EXPLICIT threshold.
+    """A kill switch on the declared account with an EXPLICIT threshold.
 
     The threshold is passed rather than inherited from ambient settings so the
     B1 proof does not depend on whatever the operator currently has in `.env`.
     `test_default_is_derived_not_hardcoded` separately pins the default itself.
     """
     ks = KillSwitch(KillSwitchConfig(max_position_value=DERIVED_THRESHOLD_USD))
-    ks.initialize_balance(100.0)
+    ks.initialize_balance(EQUITY_USD)
     return ks
 
 
@@ -69,10 +79,10 @@ def _switch() -> KillSwitch:
 
 
 def test_normal_max_size_trade_does_not_trip():
-    """A $10 trade is the LARGEST the per-trade cap permits. It must not halt."""
+    """A per-trade-cap-sized trade is the LARGEST permitted. It must not halt."""
     ks = _switch()
     triggered = ks.update_metrics(
-        current_balance=100.0, position_value=NORMAL_MAX_SIZE_TRADE_USD
+        current_balance=EQUITY_USD, position_value=NORMAL_MAX_SIZE_TRADE_USD
     )
     assert "max_position_value" not in triggered, (
         "the normal max-size trade tripped the runaway arm — this threshold "
@@ -82,11 +92,9 @@ def test_normal_max_size_trade_does_not_trip():
 
 
 def test_runaway_position_trips():
-    """A $100 single position must halt trading."""
+    """A single position worth the entire account must halt trading."""
     ks = _switch()
-    triggered = ks.update_metrics(
-        current_balance=100.0, position_value=RUNAWAY_POSITION_USD
-    )
+    triggered = ks.update_metrics(current_balance=EQUITY_USD, position_value=RUNAWAY_POSITION_USD)
     assert "max_position_value" in triggered, (
         "a position worth the entire account did not trip the arm — it is still "
         "inert, which is the exact defect this change exists to fix"
@@ -99,13 +107,13 @@ def test_threshold_boundary_is_inclusive_at_the_derived_value():
     """`kill_switch.py` checks `>=`. Pin the boundary so a later `>` is caught."""
     ks = _switch()
     assert "max_position_value" in ks.update_metrics(
-        current_balance=100.0, position_value=DERIVED_THRESHOLD_USD
+        current_balance=EQUITY_USD, position_value=DERIVED_THRESHOLD_USD
     )
 
     kill_switch_module._kill_switch = None
     ks2 = _switch()
     assert "max_position_value" not in ks2.update_metrics(
-        current_balance=100.0, position_value=DERIVED_THRESHOLD_USD - 0.01
+        current_balance=EQUITY_USD, position_value=DERIVED_THRESHOLD_USD - 0.01
     )
 
 
@@ -124,9 +132,11 @@ def test_default_is_derived_not_hardcoded():
     default = KillSwitchConfig().max_position_value
     assert default != 100000.0, "the inert $100,000 default is back"
     assert default == pytest.approx(DERIVED_THRESHOLD_USD), (
-        f"expected the $100 account's 80% exposure ceiling, got {default}. If "
+        f"expected the declared account's exposure ceiling "
+        f"(paper_initial_balance x max_total_exposure_pct), got {default}. If "
         "paper_initial_balance or max_total_exposure_pct changed deliberately, "
-        "update this test with the new derivation."
+        "this derivation should have followed automatically — check the "
+        "kill_switch fallbacks against config.py."
     )
     assert default > NORMAL_MAX_SIZE_TRADE_USD, (
         "the threshold must sit above a normal max-size trade or it halts the "
@@ -138,6 +148,16 @@ def test_helper_derivation_matches_the_documented_formula():
     assert kill_switch_module._default_max_position_value() == pytest.approx(
         kill_switch_module._FALLBACK_PAPER_BALANCE_USD
         * (kill_switch_module._FALLBACK_TOTAL_EXPOSURE_PCT / 100.0)
+    )
+
+
+def test_fallback_mirrors_the_declared_config():
+    """The in-container fallback constant is a sanctioned literal mirror of
+    `paper_initial_balance` — assert it tracks the declared config so a future
+    re-scale cannot silently split the two channels."""
+    assert kill_switch_module._FALLBACK_PAPER_BALANCE_USD == pytest.approx(EQUITY_USD)
+    assert kill_switch_module._FALLBACK_TOTAL_EXPOSURE_PCT == pytest.approx(
+        float(_SETTINGS.max_total_exposure_pct)
     )
 
 

@@ -147,7 +147,7 @@ Pinned definitions (declared before any run, per the anti-overfitting rule):
   historical trials already on record for this repo).
 - Shorts are included in research (the engine has supported SHORT since the
   Jan-2026 fixes). If a surviving candidate needs a long-only variant for the
-  $100 account reality, that is recorded in its verdict — never silently
+  declared account size (`shared/account.py`), that is recorded in its verdict — never silently
   swapped.
 - Candidate 2 depends on the funding fetcher (§3.2): funding is both a cost
   input and that candidate's alpha source.

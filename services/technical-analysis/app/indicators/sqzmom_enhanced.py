@@ -112,17 +112,19 @@ class SqueezeMetadata:
             "momentum_value": round(self.momentum_value, 6),
             "momentum_direction": self.momentum_direction.value,
             "momentum_acceleration": round(self.momentum_acceleration, 6),
-            "momentum_strength": round(self.momentum_strength, 4),
+            "momentum_strength": round(self.momentum_strength, 4),  # non-price-round
             "histogram": [round(h, 6) for h in self.histogram[-10:]],  # Last 10 values
             "histogram_color": self.histogram_color,
-            "bb_upper": round(self.bb_upper, 4),
-            "bb_basis": round(self.bb_basis, 4),
-            "bb_lower": round(self.bb_lower, 4),
-            "kc_upper": round(self.kc_upper, 4),
-            "kc_basis": round(self.kc_basis, 4),
-            "kc_lower": round(self.kc_lower, 4),
-            "current_price": round(self.current_price, 4),
-            "band_width_ratio": round(self.band_width_ratio, 4)
+            # Price-domain: 4dp is exactly ADA's tick and lossy below it.
+            # Full precision here; quantization belongs at order time.
+            "bb_upper": float(self.bb_upper),
+            "bb_basis": float(self.bb_basis),
+            "bb_lower": float(self.bb_lower),
+            "kc_upper": float(self.kc_upper),
+            "kc_basis": float(self.kc_basis),
+            "kc_lower": float(self.kc_lower),
+            "current_price": float(self.current_price),
+            "band_width_ratio": round(self.band_width_ratio, 4)  # non-price-round
         }
 
 
@@ -490,8 +492,10 @@ class EnhancedSqueezeMomentum:
         squeeze_off = (bb_lower < kc_lower) & (bb_upper > kc_upper)
 
         # Squeeze FIRING: The critical transition from ON to OFF
-        # Shift squeeze_on by 1 to get previous state
-        previous_squeeze_on = squeeze_on.shift(1).fillna(False)
+        # Shift squeeze_on by 1 to get previous state. fill_value=False keeps
+        # the Series bool-dtyped (shift().fillna(False) went through object
+        # dtype and fired a pandas FutureWarning on every call).
+        previous_squeeze_on = squeeze_on.shift(1, fill_value=False)
 
         # Firing occurs when previous bar was in squeeze, current bar is not
         squeeze_firing = previous_squeeze_on & squeeze_off
@@ -735,7 +739,7 @@ class EnhancedSqueezeMomentum:
             f"duration={duration_conf:.2f}, total={confidence:.2f}"
         )
 
-        return round(confidence, 2)
+        return round(confidence, 2)  # non-price-round
 
     def _generate_signal(
         self,

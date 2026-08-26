@@ -33,6 +33,12 @@ import app.core.metrics  # noqa: F401  # pre-load so helper's deferred import su
 from app.auto_trader import AutoTrader
 from app.services.instruments_cache import InstrumentSpec
 
+# pinned small-account scenario: keeps reject-not-clamp coverage near the ~$5
+# venue floor; NOT the declared account size (that lives in shared/account.py
+# and Settings.paper_initial_balance). The gate's inputs (qty/price) are
+# explicit in each test — balance is context only.
+SMALL_BALANCE = Decimal("100")
+
 
 # ---------------------------------------------------------------- helpers
 
@@ -93,7 +99,7 @@ async def test_passes_when_cache_miss(trader, monkeypatch):
         symbol="BTCUSDT",
         quantity=Decimal("0.0000166"),  # tiny — would normally be rejected
         price=Decimal("60000"),
-        balance=Decimal("100"),
+        balance=SMALL_BALANCE,
     )
     assert ok is True
     assert reason is None
@@ -108,7 +114,7 @@ async def test_rejects_when_quantity_below_min_qty(trader, monkeypatch):
         symbol="BTCUSDT",
         quantity=Decimal("0.0000166"),  # < 0.001
         price=Decimal("60000"),
-        balance=Decimal("100"),
+        balance=SMALL_BALANCE,
     )
     assert ok is False
     assert reason == "min_qty"
@@ -124,7 +130,7 @@ async def test_rejects_when_notional_below_min_notional(trader, monkeypatch):
         symbol="BTCUSDT",
         quantity=Decimal("0.001"),
         price=Decimal("3000"),  # 0.001 * 3000 = $3
-        balance=Decimal("100"),
+        balance=SMALL_BALANCE,
     )
     assert ok is False
     assert reason == "min_notional"
@@ -132,6 +138,8 @@ async def test_rejects_when_notional_below_min_notional(trader, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_passes_when_above_both_minima(trader, monkeypatch):
+    from app.config import get_settings
+
     cache = _StubInstrumentsCache(spec=_spec(min_qty="0.001", min_notional="5"))
     monkeypatch.setattr("app.main.get_instruments_cache", lambda: cache)
 
@@ -139,7 +147,7 @@ async def test_passes_when_above_both_minima(trader, monkeypatch):
         symbol="BTCUSDT",
         quantity=Decimal("0.002"),
         price=Decimal("60000"),  # notional = $120
-        balance=Decimal("10000"),
+        balance=Decimal(str(get_settings().paper_initial_balance)),
     )
     assert ok is True
     assert reason is None
@@ -155,7 +163,7 @@ async def test_passes_when_min_notional_field_absent(trader, monkeypatch):
         symbol="BTCUSDT",
         quantity=Decimal("0.001"),
         price=Decimal("0.001"),  # absurdly tiny notional
-        balance=Decimal("100"),
+        balance=SMALL_BALANCE,
     )
     # No min_notional → only min_qty matters, and we pass it.
     assert ok is True
@@ -168,9 +176,9 @@ async def test_paper_mode_enforces_gate(trader, monkeypatch):
 
     Inverted 2026-08-05 (Phase 1, AUDIT.md hop 4b): the old PAPER
     short-circuit meant paper results could contain trades LIVE could never
-    place. Paper now mirrors the real $100 account, so a spec that would
-    reject in LIVE must reject in PAPER too — and the cache must actually
-    be consulted.
+    place. Paper mirrors the venue constraints of a real account (whatever
+    size Settings declares), so a spec that would reject in LIVE must reject
+    in PAPER too — and the cache must actually be consulted.
     """
     from app.config import get_settings
 
@@ -186,7 +194,7 @@ async def test_paper_mode_enforces_gate(trader, monkeypatch):
         symbol="BTCUSDT",
         quantity=Decimal("0.0000166"),
         price=Decimal("60000"),
-        balance=Decimal("100"),
+        balance=SMALL_BALANCE,
     )
     assert ok is False
     assert reason == "min_qty"
@@ -206,7 +214,7 @@ async def test_fail_open_when_cache_get_raises(trader, monkeypatch):
         symbol="BTCUSDT",
         quantity=Decimal("0.0000166"),
         price=Decimal("60000"),
-        balance=Decimal("100"),
+        balance=SMALL_BALANCE,
     )
     # Fail-open — gate cannot block trading on connector unavailability.
     assert ok is True
@@ -220,16 +228,14 @@ async def test_prometheus_counter_increments_on_min_qty_reject(trader, monkeypat
     cache = _StubInstrumentsCache(spec=_spec(min_qty="0.001", min_notional=None))
     monkeypatch.setattr("app.main.get_instruments_cache", lambda: cache)
 
-    counter = metrics.trades_rejected_min_notional_total.labels(
-        symbol="BTCUSDT", reason="min_qty"
-    )
+    counter = metrics.trades_rejected_min_notional_total.labels(symbol="BTCUSDT", reason="min_qty")
     before = counter._value.get()  # type: ignore[attr-defined]
 
     ok, reason = await trader._passes_min_notional(
         symbol="BTCUSDT",
         quantity=Decimal("0.0000166"),
         price=Decimal("60000"),
-        balance=Decimal("100"),
+        balance=SMALL_BALANCE,
     )
     assert ok is False and reason == "min_qty"
 
@@ -287,17 +293,18 @@ def _patch_execute_trade_deps(
 
 @pytest.mark.asyncio
 async def test_execute_trade_cache_miss_proceeds(trader, monkeypatch):
+    from app.config import get_settings
+
     paper_engine = MagicMock()
     _patch_execute_trade_deps(
         monkeypatch,
-        balance=10000.0,  # large enough to satisfy any later gate
+        # declared balance — large enough to satisfy any later gate
+        balance=get_settings().paper_initial_balance,
         paper_engine=paper_engine,
         position_sizer_qty=Decimal("0.01"),
     )
     # Cache miss → fail-open, gate must allow trade.
-    monkeypatch.setattr(
-        "app.main.get_instruments_cache", lambda: _StubInstrumentsCache(spec=None)
-    )
+    monkeypatch.setattr("app.main.get_instruments_cache", lambda: _StubInstrumentsCache(spec=None))
 
     # Stub the paper-engine fill so the function continues past OrderCreate.
     filled = MagicMock()
@@ -332,10 +339,10 @@ async def test_execute_trade_cache_miss_proceeds(trader, monkeypatch):
 @pytest.mark.asyncio
 async def test_execute_trade_below_min_qty_rejects(trader, monkeypatch):
     paper_engine = MagicMock()
-    # tiny quantity: 0.0000166 < 0.001 min
+    # tiny quantity: 0.0000166 < 0.001 min (pinned small-account sizing)
     _patch_execute_trade_deps(
         monkeypatch,
-        balance=100.0,
+        balance=float(SMALL_BALANCE),
         paper_engine=paper_engine,
         position_sizer_qty=Decimal("0.0000166"),
     )
@@ -360,9 +367,10 @@ async def test_execute_trade_below_min_qty_rejects(trader, monkeypatch):
 async def test_execute_trade_below_min_notional_rejects(trader, monkeypatch):
     paper_engine = MagicMock()
     # qty satisfies min_qty (0.001) but notional ($3) below min_notional ($5)
+    # (pinned small-account sizing keeps the notional near the venue floor)
     _patch_execute_trade_deps(
         monkeypatch,
-        balance=100.0,
+        balance=float(SMALL_BALANCE),
         paper_engine=paper_engine,
         position_sizer_qty=Decimal("0.001"),
     )

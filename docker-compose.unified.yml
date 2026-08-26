@@ -575,7 +575,7 @@ services:
       # land and the service ran on its config.py default alone. Same value and
       # style as trading-engine's PAPER_INITIAL_BALANCE above; app/config.py
       # now REQUIRES this env var and refuses to boot without it.
-      - INITIAL_CAPITAL=100.0
+      - INITIAL_CAPITAL=10000.0
     volumes:
       - ./services/portfolio-manager/logs:/app/logs
     networks:
@@ -615,9 +615,6 @@ services:
       - SERVICE_PORT=8004
       - DEBUG=${DEBUG:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
       - BYBIT_CONNECTOR_URL=http://bybit-connector:8001
       - MARKET_DATA_URL=http://market-data:8002
     volumes:
@@ -666,7 +663,8 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_dev_password}
       # Risk management
-      # 2026-05-06: bumped default 0.02 → 0.10 to align with $100 paper balance × 10%/trade target.
+      # 2026-05-06: bumped default 0.02 → 0.10 (then a $100 min-notional workaround);
+      # retained at the $10,000 balance as deliberate operator choice (ADR-029).
       # service-local .env was being overridden by this compose-level block.
       - MAX_RISK_PER_TRADE=${MAX_RISK_PER_TRADE:-0.10}
       - MAX_POSITION_SIZE_PCT=${MAX_POSITION_SIZE_PCT:-10.0}
@@ -684,9 +682,55 @@ services:
       # File path inside the shared safety/ dir (see api-gateway block for context).
       - EMERGENCY_STOP_FILE=${EMERGENCY_STOP_FILE:-/app/safety/EMERGENCY_STOP}
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
-      - PAPER_INITIAL_BALANCE=100.0
-      # Strategy mode: ensemble = SimpleRSI + multi-indicator + mean-reversion (performance-weighted)
+      - PAPER_INITIAL_BALANCE=10000.0
+      # Strategy mode.
+      #   ensemble — SimpleRSI + multi-indicator + mean-reversion, performance-weighted.
+      #              The multi-indicator leg is gated on the MTF consensus action.
+      #   research — HybridStrategyRouter EXECUTES: ADX picks trend-following
+      #              (ResearchOptimizedStrategy) above adx_trending_threshold and
+      #              mean-reversion below it. No dual-confirmation gate.
+      #   hybrid   — router runs but only trades when it AGREES with the
+      #              aggregator's action; with the aggregator at HOLD this
+      #              cannot fire, so it is not the way to "turn the router on".
+      #
+      # 2026-08-22: briefly switched to `research` (router executing, cc7d279)
+      # on operator decision, then switched BACK to `ensemble` the same day.
+      # Reason, measured both times: research mode never produced a trade —
+      # ResearchOptimizedStrategy needs MIN_INDICATORS_ALIGNED=2 and accumulates
+      # 1.5 in the current market (TREND_FILTER=BULLISH +0.5 buy vs ema=BEARISH
+      # +1.0 sell, RSI mid-range abstaining). `ensemble` is the only mode with a
+      # demonstrated ability to fire: last real entries 2026-08-16 at confidence
+      # 0.3227 (BNB) / 0.3330 (SOL), just over the 0.30 gate.
+      #
+      # The Phase-3 deferral holding the router advisory therefore stands again.
+      # Neither mode is broken — the indicators genuinely disagree, and both
+      # correctly decline. See docs/FUNNEL_ROOT_CAUSE_2026-08-22.md.
       - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
+      # ------------------------------------------------------------------
+      # Signal-filter thresholds (2026-08-21).
+      #
+      # These exist as Settings fields but were NOT on this whitelist, and
+      # this service has no `env_file:` — so the container environment is
+      # exactly this list and nothing in .env could ever reach them. Any
+      # operator who "retuned" min_signal_confidence in .env was editing a
+      # file the engine never read. Whitelisted now so Phase-3 recalibration
+      # is a config change rather than a code edit, per the mission rule that
+      # every tuned value lives in config.
+      #
+      # Defaults below MUST match services/trading-engine/app/config.py or the
+      # compose file silently becomes the real source of truth.
+      # ------------------------------------------------------------------
+      - MIN_SIGNAL_CONFIDENCE=${MIN_SIGNAL_CONFIDENCE:-0.30}
+      - SHORT_MIN_CONFIDENCE=${SHORT_MIN_CONFIDENCE:-0.35}
+      - MIN_CONSENSUS_INDICATORS=${MIN_CONSENSUS_INDICATORS:-3}
+      - GATEKEEPER_BLOCK_THRESHOLD=${GATEKEEPER_BLOCK_THRESHOLD:-0.95}
+      - GATEKEEPER_BLOCK_PENALTY=${GATEKEEPER_BLOCK_PENALTY:-0.30}
+      - GATEKEEPER_COUNTER_TREND_PENALTY=${GATEKEEPER_COUNTER_TREND_PENALTY:-0.95}
+      # ADX at/above which the strategy router classifies TRENDING.
+      # strategy_routing_mode=advisory means the router records the branch it
+      # would take on every evaluation without changing execution.
+      - ADX_TRENDING_THRESHOLD=${ADX_TRENDING_THRESHOLD:-25.0}
+      - STRATEGY_ROUTING_MODE=${STRATEGY_ROUTING_MODE:-advisory}
       # 2026-08-12 (audit finding 8): neither var was whitelisted here and the
       # Dockerfile copies app/ only, so no .env could reach the container —
       # operator symbol/allocation edits were silently ignored. The empty
@@ -735,6 +779,20 @@ services:
       - DEFAULT_LEVERAGE=${DEFAULT_LEVERAGE:-1.0}
       - MAX_LEVERAGE=${MAX_LEVERAGE:-20.0}
       - MIN_LEVERAGE=${MIN_LEVERAGE:-1.0}
+      # Task 6: wires preflight's check_dsr_evidence to the tournament-harness's
+      # REAL sqlite DB (the /data/tournament.db literal that both this service
+      # and the evidence-loop driver defaulted to satisfies no container or
+      # host path). File does not exist until the harness's first run — the
+      # preflight check is fail-soft (UNKNOWN) on a missing file.
+      - TOURNAMENT_DB_PATH=/data/leaderboard.db
+      # Task 10 (2026-08-20): Tier-1 opt-in flags for forward-paper-test
+      # isolation runs (scripts/forward_paper_test/run_isolation.py). Must
+      # interpolate from the shell — the launcher rides the subprocess env
+      # (docker compose up has no -e flag) so overrides land here via
+      # ${VAR:-default}. Off by default until forward-paper-tested ≥7 days.
+      - ENABLE_VOL_TARGETING=${ENABLE_VOL_TARGETING:-false}
+      - PREFER_MAKER_ORDERS=${PREFER_MAKER_ORDERS:-false}
+      - ENABLE_FUNDING_GATE=${ENABLE_FUNDING_GATE:-false}
     volumes:
       - ./services/trading-engine/logs:/app/logs
       # RO dir-to-dir mount of shared safety/ directory. The kill-switch
@@ -743,6 +801,18 @@ services:
       # the host file is missing (Docker auto-creates a dir at the mount point).
       # Operator: `touch safety/EMERGENCY_STOP` to halt, `rm` to resume.
       - ./safety:/app/safety:ro
+      # Task 6: RO — preflight only reads; the tournament-harness service
+      # (writable at ./services/tournament-harness/data:/app/data) and the
+      # host-run evidence-loop driver are the only writers.
+      - ./services/tournament-harness/data/leaderboard:/data:ro
+      # Ensemble adaptive-weights state (2026-08-20): multi_strategy_ensemble
+      # persists per-leg win rates to /app/data/ensemble_weights.json on every
+      # trade close (ADR-015 learning loop). Without a mount the file died on
+      # container recreate, so weights were frozen at the 1/3 defaults forever.
+      # Named volume, not a bind: the WSL bind race (see /app/logs gotcha) can
+      # leave the dir root-owned, and the image pre-creates /app/data owned by
+      # appuser (Dockerfile:74) so copy-on-first-use keeps writes working.
+      - trading_engine_data:/app/data
     networks:
       - crypto-bot-network
     depends_on:
@@ -1066,3 +1136,6 @@ volumes:
     name: crypto-bot-prometheus-data
   grafana_data:
     name: crypto-bot-grafana-data
+  # Application-state volumes
+  trading_engine_data:
+    name: crypto-bot-trading-engine-data

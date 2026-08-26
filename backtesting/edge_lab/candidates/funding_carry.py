@@ -47,6 +47,30 @@ the design doc's "dropped AND named" rule and xs_momentum's precedent.
 Funding P&L is intentionally NOT added to gross_pnl here — screen.py's
 screen_trades accounts funding separately via funding_by_symbol, so
 Trade carries price-only P&L.
+
+Battery #2 (battery_2026-08-18_manifest.md, Candidate Family #1) adds three
+percentile-entry variants alongside the original two threshold-mult variants.
+These are a genuinely different entry/exit mechanism (percentile-of-history
+entry, fixed holding-period exit, optional symbol filter) rather than a new
+threshold_mult value, so `generate_trades` dispatches on which parameter key
+is present in `variant.params` — never on `variant.name` — and delegates to
+one of two private generators. This keeps the "one code path per mechanism,
+parameterized, no name branching" rule from task-6-brief while being honest
+that percentile variants are not reachable through the threshold_mult path.
+
+Percentile-entry mechanism: for each symbol (after the optional
+`symbol_filter`), rank the most recent settlement strictly before bar t's
+open against the trailing history of settlements strictly before t (no
+look-ahead — same bisect_left(ts_arr, t_open) boundary as the threshold
+path). Entry requires: at least `_MIN_PERCENTILE_SAMPLES` settlements of
+history, the most recent settlement fresh (< 1 day old relative to t), and
+the settlement's absolute rate at or above `entry_percentile` of the
+absolute-value history. Side follows the threshold path's convention:
+positive funding (longs pay) -> SHORT; negative -> LONG. Exit is a fixed
+holding period (`holding_period_hours`), not sign-persistence — the manifest
+frames these variants as a holding-period sweep, not a persistence sweep.
+One position per symbol; a position still open at the end of the data is
+never force-closed (same as the threshold path).
 """
 
 from __future__ import annotations
@@ -68,8 +92,12 @@ logger = logging.getLogger(__name__)
 _costs = load_costs()
 
 _DAY_MS = 86_400_000
+_HOUR_MS = 3_600_000
 _SETTLEMENTS_PER_HOLD = Decimal("9")  # 3-day min hold x 3 settlements/day @ 8h cadence
 _BPS = Decimal("10000")
+_MIN_PERCENTILE_SAMPLES = 30  # ~10 days of history @ 8h cadence before ranking
+_MAJORS = "BTCUSDT,ETHUSDT,SOLUSDT"
+_ALL_SYMBOLS = "ALL"
 
 VARIANTS: list[Variant] = [
     Variant(
@@ -81,6 +109,35 @@ VARIANTS: list[Variant] = [
         candidate="funding_carry",
         name="thresh_2x",
         params=(("threshold_mult", "2"),),
+    ),
+    # Battery #2, Candidate Family #1 (battery_2026-08-18_manifest.md) —
+    # percentile-entry / fixed-holding-period variants, pre-registered verbatim.
+    Variant(
+        candidate="funding_carry",
+        name="fp_75pct_8h_major",
+        params=(
+            ("entry_percentile", "75"),
+            ("holding_period_hours", "8"),
+            ("symbol_filter", _MAJORS),
+        ),
+    ),
+    Variant(
+        candidate="funding_carry",
+        name="fp_90pct_24h_major",
+        params=(
+            ("entry_percentile", "90"),
+            ("holding_period_hours", "24"),
+            ("symbol_filter", _MAJORS),
+        ),
+    ),
+    Variant(
+        candidate="funding_carry",
+        name="fp_75pct_8h_all",
+        params=(
+            ("entry_percentile", "75"),
+            ("holding_period_hours", "8"),
+            ("symbol_filter", _ALL_SYMBOLS),
+        ),
     ),
 ]
 
@@ -135,7 +192,18 @@ def generate_trades(
     funding: dict[str, pd.DataFrame],
     variant: Variant,
 ) -> list[Trade]:
-    threshold_mult = Decimal(dict(variant.params)["threshold_mult"])
+    params = dict(variant.params)
+    if "threshold_mult" in params:
+        return _generate_threshold_trades(daily, funding, params)
+    return _generate_percentile_trades(daily, funding, params)
+
+
+def _generate_threshold_trades(
+    daily: dict[str, pd.DataFrame],
+    funding: dict[str, pd.DataFrame],
+    params: dict,
+) -> list[Trade]:
+    threshold_mult = Decimal(params["threshold_mult"])
 
     trades: list[Trade] = []
     skipped: list[str] = []
@@ -193,6 +261,106 @@ def generate_trades(
                 )
                 if not persists:
                     pending_exit = True
+
+    if skipped:
+        logger.warning(
+            "funding_carry: skipped %d symbol(s) lacking funding data: %s",
+            len(skipped),
+            sorted(skipped),
+        )
+
+    return trades
+
+
+def _percentile_rank(history: list[Decimal], value: Decimal) -> Decimal:
+    """Percentage of `history` (ascending-sortable, not required pre-sorted)
+    at-or-below `value`. O(n log n) per call; history is small (settlement
+    counts, not bar counts), so this is not a hot-path concern here.
+    """
+    ordered = sorted(history)
+    idx = bisect_left(ordered, value)
+    return Decimal(idx) / Decimal(len(ordered)) * Decimal("100")
+
+
+def _percentile_signal(
+    settlements: list[_Settlement],
+    ts_arr: list[int],
+    t_open: int,
+    entry_percentile: Decimal,
+) -> Optional[Decimal]:
+    """Signed rate of the most recent settlement strictly before `t_open`,
+    when that settlement is fresh and its absolute value ranks at or above
+    `entry_percentile` against the (strictly-prior) absolute-rate history.
+    None otherwise — mirrors `_signal`'s look-ahead boundary via the same
+    bisect_left(ts_arr, t_open) cut.
+    """
+    idx = bisect_left(ts_arr, t_open)
+    if idx < _MIN_PERCENTILE_SAMPLES:
+        return None
+    latest = settlements[idx - 1]
+    if t_open - latest.ts_ms >= _DAY_MS:
+        return None
+    history = [abs(s.rate) for s in settlements[: idx - 1]]
+    rank = _percentile_rank(history, abs(latest.rate))
+    if rank < entry_percentile:
+        return None
+    return latest.rate
+
+
+def _generate_percentile_trades(
+    daily: dict[str, pd.DataFrame],
+    funding: dict[str, pd.DataFrame],
+    params: dict,
+) -> list[Trade]:
+    entry_percentile = Decimal(params["entry_percentile"])
+    holding_ms = int(params["holding_period_hours"]) * _HOUR_MS
+    symbol_filter = params.get("symbol_filter", _ALL_SYMBOLS)
+    allowed: Optional[set] = (
+        None if symbol_filter == _ALL_SYMBOLS else set(symbol_filter.split(","))
+    )
+
+    trades: list[Trade] = []
+    skipped: list[str] = []
+
+    for symbol, df in daily.items():
+        if allowed is not None and symbol not in allowed:
+            continue
+
+        fdf = funding.get(symbol)
+        if fdf is None or fdf.empty:
+            skipped.append(symbol)
+            continue
+
+        settlements = _load_settlements(fdf)
+        ts_arr = [s.ts_ms for s in settlements]
+
+        ordered = df.sort_values("ts_ms", kind="mergesort")
+        ts_list = [int(ts) for ts in ordered["ts_ms"].tolist()]
+        open_list = ordered["open"].tolist()
+
+        position: Optional[tuple[str, int, float]] = None  # side, entry_ts, entry_px
+
+        for t, o in zip(ts_list, open_list):
+            if position is not None:
+                side, entry_ts, entry_px = position
+                if t - entry_ts >= holding_ms:
+                    trades.append(
+                        Trade(
+                            symbol=symbol,
+                            side=side,
+                            entry_ts_ms=entry_ts,
+                            exit_ts_ms=t,
+                            entry_px=entry_px,
+                            exit_px=o,
+                        )
+                    )
+                    position = None
+
+            if position is None:
+                signal = _percentile_signal(settlements, ts_arr, t, entry_percentile)
+                if signal is not None:
+                    side = "SHORT" if signal > 0 else "LONG"
+                    position = (side, t, o)
 
     if skipped:
         logger.warning(

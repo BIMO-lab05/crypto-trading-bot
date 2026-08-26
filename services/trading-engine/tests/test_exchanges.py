@@ -32,6 +32,13 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+from app.config import get_settings
+
+# Declared account size sourced from Settings (CLAUDE.md section 1). The
+# balance-parsing payload below mirrors the account size deliberately, as a
+# two-decimal Bybit-style string.
+ACCOUNT_EQUITY_STR = f"{get_settings().paper_initial_balance:.2f}"
+
 # Import module under test
 from app.exchanges import (
     # Errors
@@ -546,8 +553,8 @@ class TestBybitExchangeAdapter:
         bybit_response = {
             "list": [{
                 "accountType": "UNIFIED",
-                "totalEquity": "100.00",
-                "availableBalance": "80.00",
+                "totalEquity": ACCOUNT_EQUITY_STR,
+                "availableBalance": f"{get_settings().paper_initial_balance * 0.8:.2f}",
                 "totalPositionIM": "2000.00",
                 "totalPerpUPL": "100.00",
                 "coin": [
@@ -563,8 +570,10 @@ class TestBybitExchangeAdapter:
         balance = adapter._parse_balance(bybit_response)
 
         assert balance.exchange == ExchangeName.BYBIT
-        assert balance.total_equity == Decimal("100.00")
-        assert balance.available_balance == Decimal("80.00")
+        assert balance.total_equity == Decimal(ACCOUNT_EQUITY_STR)
+        assert balance.available_balance == Decimal(
+            f"{get_settings().paper_initial_balance * 0.8:.2f}"
+        )
         assert len(balance.assets) == 1
         assert balance.assets[0].asset == "USDT"
 

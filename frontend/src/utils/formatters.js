@@ -276,6 +276,34 @@ export function parseTimestamp(timestamp) {
 }
 
 /**
+ * Parse a backend timestamp as UTC
+ *
+ * Backend services emit naive UTC ISO strings without an offset
+ * (e.g. '2026-08-20T18:37:09.559552'); `new Date()` parses those as
+ * LOCAL time. Append 'Z' when no offset is present so the string is
+ * interpreted as UTC. Strings already carrying 'Z' or a +HH:MM/-HH:MM
+ * offset pass through unchanged, so this stays correct once the
+ * backend starts emitting explicit offsets.
+ *
+ * @param {string|number|Date} timestamp - Timestamp to parse
+ * @returns {Date|null} Parsed Date object (UTC for naive strings), or null
+ *   for null/undefined/empty input (mirrors parseTimestamp — without this
+ *   guard, `new Date(null)` yields the 1970 epoch)
+ */
+export function parseUtc(timestamp) {
+  if (!timestamp) return null
+
+  if (
+    typeof timestamp === 'string' &&
+    timestamp.includes('T') &&
+    !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp)
+  ) {
+    return new Date(`${timestamp}Z`)
+  }
+  return new Date(timestamp)
+}
+
+/**
  * Format timestamp for display
  *
  * @param {string|number|Date} timestamp - Timestamp to format
@@ -507,6 +535,7 @@ export default {
   formatInteger,
 
   // Date/Time
+  parseUtc,
   parseTimestamp,
   formatTimestamp,
   formatDate,

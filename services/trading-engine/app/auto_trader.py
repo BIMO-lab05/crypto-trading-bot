@@ -61,6 +61,7 @@ from app.aggregation.market_regime import get_market_regime_detector, MarketRegi
 # Import hybrid strategy router (combines trend-following + mean reversion)
 from app.strategies import TradeSetup
 from app.strategies.hybrid_strategy_router import HybridStrategyRouter
+from app.monitoring.signal_funnel import get_signal_funnel
 
 # Phase 2.3: Grid Trading Integration (2025-12-08)
 from app.strategies.grid_trading_strategy import GridTradingStrategy
@@ -185,7 +186,6 @@ class AutoTrader:
         symbols: Optional[List[str]] = None,
         interval: str = "60",
         check_frequency_seconds: Optional[int] = None,  # Use config default
-        enable_volume_profile: bool = False,  # Enable VP analysis (Phase 3)
         position_sizing_method: SizingMethod = SizingMethod.FIXED,  # 2026-05-06: predictable 10%-per-trade sizing on $100 paper balance
         use_performance_data: bool = True,  # Use performance tracker for Kelly
         enable_market_regime: bool = True,  # Enable ADX-based market regime detection
@@ -201,7 +201,6 @@ class AutoTrader:
             symbols: List of trading symbols (default: from config)
             interval: Timeframe for analysis (default: 60 minutes)
             check_frequency_seconds: How often to check signals (default: from config)
-            enable_volume_profile: Enable Volume Profile analysis (default: False)
             position_sizing_method: Position sizing method (default: CONFIDENCE_ADJUSTED)
             use_performance_data: Use performance tracker for Kelly calculation
             enable_market_regime: Enable ADX-based market regime detection (default: True)
@@ -224,7 +223,6 @@ class AutoTrader:
         self.check_frequency = check_frequency_seconds or getattr(
             settings, "check_frequency_seconds", 30
         )
-        self.enable_vp = enable_volume_profile
         self.position_sizing_method = position_sizing_method
         self.use_performance_data = use_performance_data
         self.enable_market_regime = enable_market_regime
@@ -650,7 +648,6 @@ class AutoTrader:
         logger.info(
             f"AutoTrader initialized: symbols={len(self.symbols)} pairs, "
             f"interval={self.interval}, frequency={self.check_frequency}s, "
-            f"VP={'ENABLED' if self.enable_vp else 'DISABLED'}, "
             f"Sizing={self.position_sizing_method.value}, "
             f"MarketRegime={'ENABLED' if self.enable_market_regime else 'DISABLED'}, "
             f"StrategyMode={self.strategy_mode.value}"
@@ -828,7 +825,6 @@ class AutoTrader:
         logger.info(
             f"  ML Predictions: {'ENABLED (Phase 3)' if self.enable_ml else 'DISABLED'}"
         )
-        logger.info(f"  Volume Profile: {'ENABLED' if self.enable_vp else 'DISABLED'}")
         logger.info(
             f"  Market Regime: {'ENABLED' if self.enable_market_regime else 'DISABLED'}"
         )
@@ -911,6 +907,11 @@ class AutoTrader:
 
         while self.is_running:
             try:
+                # One tick of the autonomous loop. Without this the funnel's
+                # `cycles` field stayed 0 forever (start_cycle had zero call
+                # sites), so no consumer could normalise any funnel count to a
+                # per-cycle rate.
+                get_signal_funnel().start_cycle()
                 # ================================================================
                 # STEP 0a: FILE-BASED EMERGENCY STOP (operator kill switch)
                 # ================================================================
@@ -1165,16 +1166,6 @@ class AutoTrader:
                 signal = await aggregator.get_trading_signal_enhanced(
                     symbol=symbol, interval=self.interval, use_phase3=True
                 )
-            elif self.enable_vp:
-                # Use VP-enhanced signals (Phase 3 - VP only)
-                signal = await aggregator.get_trading_signal_with_vp(
-                    symbol=symbol,
-                    primary_interval=self.interval,
-                    timeframes=["15", self.interval, "240"],
-                    enable_vp=True,
-                    vp_lookback=100,
-                    regime_analysis=regime_analysis,
-                )
             else:
                 # Use multi-timeframe only (Phase 2)
                 signal = await aggregator.get_trading_signal_multi_timeframe(
@@ -1202,21 +1193,7 @@ class AutoTrader:
             regime_data = signal.metadata.get("market_regime", {})
 
             # Build comprehensive log message
-            if self.enable_vp and vp_data:
-                # Show VP-enhanced signal (Phase 3)
-                logger.info(
-                    f"Signal for {symbol}: {action} "
-                    f"(confidence: {confidence:.2%}, score: {aggregated_score:.2f})"
-                )
-                logger.info(
-                    f"   MTF: {mtf_data.get('alignment_strength', 'N/A')} "
-                    f"(modifier: {mtf_data.get('confidence_modifier', 1.0):.2f}x)"
-                )
-                logger.info(
-                    f"   VP: {vp_data.get('strategy', 'N/A')} | {vp_data.get('position', 'N/A')} "
-                    f"| POC=${vp_data.get('poc', 0):.2f} | SL=${vp_data.get('stop_loss', 0):.2f}"
-                )
-            elif mtf_data and mtf_data.get("enabled"):
+            if mtf_data and mtf_data.get("enabled"):
                 # Show MTF-only signal (Phase 2)
                 logger.info(
                     f"Signal for {symbol}: {action} "
@@ -1834,32 +1811,11 @@ class AutoTrader:
                 self.total_trades_rejected += 1
                 return
 
-            # ================================================================
-            # PORTFOLIO HEAT CHECK (2025-12-02)
-            # Block trades if portfolio heat is too high
-            # ================================================================
+            # Equity read for sizing and for the portfolio-heat gate, which now
+            # runs after final sizing (see the [HEAT] block below the per-trade
+            # cap clamp) so it sees the order actually placed.
             paper_engine = get_paper_engine()
             current_equity = float(paper_engine.get_balance())
-
-            # Calculate proposed risk for this trade
-            proposed_risk_pct = (
-                trade_setup.position_size_pct
-                * 100
-                * (settings.default_stop_loss_pct / 100)
-            )  # Risk = position size * stop distance
-
-            can_trade, heat_reason, heat_multiplier = (
-                self.portfolio_heat_manager.can_open_trade(
-                    symbol=symbol,
-                    proposed_risk_pct=proposed_risk_pct,
-                    equity=current_equity,
-                )
-            )
-
-            if not can_trade:
-                logger.warning(f"[HEAT] Trade BLOCKED for {symbol}: {heat_reason}")
-                self.total_trades_rejected += 1
-                return
 
             # ================================================================
             # CORRELATION-BASED POSITION SIZING (2025-12-02)
@@ -2142,6 +2098,37 @@ class AutoTrader:
                     else quantity
                 )
 
+            # Portfolio heat gate, fed the ACTUAL order: the cap-clamped
+            # notional and the ATR stop the position will carry. Stop-distance
+            # based to match PositionRisk.risk_pct (percent of equity) - a raw
+            # notional percent would be 10.0 and would trip max_per_trade_pct
+            # (2.0) on every single entry. The regime adjustment happens
+            # post-fill, so this uses the pre-adjustment stop, exactly as the
+            # ensemble path does with its own.
+            stop_distance_frac = (
+                abs(trade_setup.entry_price - trade_setup.stop_loss)
+                / trade_setup.entry_price
+                if trade_setup.entry_price
+                else 0.0
+            )
+            proposed_risk_pct = (
+                (position_value / current_equity) * stop_distance_frac * 100.0
+                if current_equity
+                else 0.0
+            )
+            can_trade, heat_reason, _heat_mult = (
+                self.portfolio_heat_manager.can_open_trade(
+                    symbol=symbol,
+                    proposed_risk_pct=proposed_risk_pct,
+                    equity=current_equity,
+                    side=side,
+                )
+            )
+            if not can_trade:
+                logger.warning(f"[HEAT] Trade BLOCKED for {symbol}: {heat_reason}")
+                self.total_trades_rejected += 1
+                return
+
             # Account-level exposure gate (review I20): shared with the default
             # and ensemble paths. Runs on the post-clamp notional, as it does
             # on the ensemble path.
@@ -2265,14 +2252,21 @@ class AutoTrader:
                         f"[RESEARCH] Kill switch thresholds triggered: {triggered}"
                     )
 
-                # Record expected vs actual for slippage tracking
-                # (Actual price is same as expected for market orders in simulation)
+                # Record expected vs actual for slippage tracking. expected is
+                # the reference price the order was submitted at; actual is the
+                # engine's slippage-adjusted fill. These stopped being equal
+                # when PAPER-01 landed (fb45efe): paper_trading applies
+                # paper_slippage and returns the fill on filled_price. Feeding
+                # the reference as both made every record read 0.0 slippage.
+                actual_fill = (
+                    executed_order.filled_price
+                    if executed_order.filled_price is not None
+                    else Decimal(str(trade_setup.entry_price))
+                )
                 self.slippage_manager.record_execution(
                     symbol=symbol,
                     expected_price=Decimal(str(trade_setup.entry_price)),
-                    actual_price=Decimal(
-                        str(trade_setup.entry_price)
-                    ),  # Same for simulated market orders
+                    actual_price=actual_fill,
                     side=action,
                     quantity=Decimal(str(quantity)),
                 )
@@ -3168,8 +3162,12 @@ class AutoTrader:
                 perf_tracker = get_performance_tracker()
                 perf_tracker.add_trade(
                     closed,
-                    Decimal(str(current_price)),
-                    datetime.now(timezone.utc),
+                    # The slipped fill the engine recorded, not the pre-trade
+                    # reference tick. getattr-with-fallback because the
+                    # get_position miss above can hand back the pre-close
+                    # object, whose exit_price is still None.
+                    getattr(closed, "exit_price", None) or Decimal(str(current_price)),
+                    getattr(closed, "closed_at", None) or datetime.now(timezone.utc),
                 )
             except Exception as perf_err:
                 logger.debug(f"[MONITOR] Perf tracker note: {perf_err}")
@@ -3892,6 +3890,15 @@ class AutoTrader:
             confidence: Signal confidence score
             signal: TradingSignal object
         """
+        # Daily trade limit. The research/hybrid (:1891) and ensemble (:4648)
+        # paths already gate here; standard mode did not, so it could open
+        # unlimited trades per day and its fills never consumed the budget the
+        # other paths measure against.
+        if not self._check_daily_trade_limit():
+            logger.info(f"Daily trade limit reached, skipping {symbol}")
+            self.total_trades_rejected += 1
+            return
+
         # SL cooldown check (2026-05-15). Block re-entry on same symbol within
         # sl_cooldown_seconds after a stop-loss exit. Mirrors the check in
         # _execute_trade_with_setup; placed before the open-slot claim so we
@@ -4113,6 +4120,7 @@ class AutoTrader:
             if executed_order.status == OrderStatus.FILLED:
                 self.total_trades_executed += 1
                 opened = True  # arm dedup cooldown for this symbol
+                self._record_trade(symbol)  # Track for daily limit and cooldown
                 logger.info(f"Trade executed successfully for {symbol}")
                 logger.info(
                     f"Stats: Checked={self.total_signals_checked}, "
@@ -4411,12 +4419,52 @@ class AutoTrader:
             }
             status["regime_detector_stats"] = self.regime_detector.get_stats()
 
-        # Add hybrid strategy statistics
+        # ------------------------------------------------------------------
+        # Routing statistics — ALWAYS emitted (2026-08-21).
+        #
+        # This block used to be gated on `strategy_mode in [RESEARCH, HYBRID]`.
+        # In the deployed `ensemble` mode the key was therefore absent from the
+        # payload entirely, and the dashboard's `hybrid_strategy_stats || {}`
+        # turned that absence into "0.0% — 0 signals routed" — a number that
+        # looked like a measurement and was actually a missing field. Emitting
+        # unconditionally, with `routing_mode` inside the payload saying
+        # whether the router executed / advised / never ran, is what makes the
+        # tile incapable of lying again. See docs/PIPELINE_MAP.md §0.
+        # ------------------------------------------------------------------
+        status["hybrid_strategy_stats"] = self.hybrid_strategy.get_stats()
+        status["strategy_routing_mode"] = getattr(
+            self.settings, "strategy_routing_mode", "advisory"
+        )
+
         if self.strategy_mode in [StrategyMode.RESEARCH, StrategyMode.HYBRID]:
-            status["hybrid_strategy_stats"] = self.hybrid_strategy.get_stats()
             status["research_strategy_params"] = (
                 self.research_strategy.get_strategy_params()
             )
+
+        # Stage-by-stage funnel. Kept as a compact summary here (the tile needs
+        # the cascade to render); the full breakdown with per-reason numeric
+        # evidence is at GET /api/v1/trading/signal-funnel.
+        funnel_snapshot = get_signal_funnel().snapshot()
+        status["signal_funnel"] = {
+            "schema_version": funnel_snapshot["schema_version"],
+            "started_at": funnel_snapshot["started_at"],
+            "last_event_at": funnel_snapshot["last_event_at"],
+            "stages": [
+                {
+                    "stage": st["stage"],
+                    "advisory": st["advisory"],
+                    "evaluated": st["evaluated"],
+                    "passed": st["passed"],
+                    "rejected": st["rejected"],
+                    "pass_rate_pct": st["pass_rate_pct"],
+                    "top_rejection_reason": next(
+                        iter(st["rejection_reasons"].items()), (None, None)
+                    )[0],
+                }
+                for st in funnel_snapshot["stages"]
+            ],
+            "routing": funnel_snapshot["routing"],
+        }
 
         return status
 
@@ -4496,6 +4544,8 @@ class AutoTrader:
         conf = float(ens_signal.confidence)
         side = "LONG" if ens_signal.action == SignalAction.BUY else "SHORT"
 
+        funnel = get_signal_funnel()
+
         floor = getattr(self.settings, "min_signal_confidence", None)
         if floor is None:
             logger.error(
@@ -4503,9 +4553,23 @@ class AutoTrader:
                 f"configured — refusing the entry rather than defaulting the "
                 f"floor to zero"
             )
+            funnel.gate(
+                "passed_signal_confidence_gate",
+                False,
+                reason="min_signal_confidence_unconfigured",
+                symbol=symbol,
+                detail="setting absent — failing closed",
+            )
             self.total_trades_rejected += 1
             return False
-        if conf < float(floor):
+        if not funnel.gate(
+            "passed_signal_confidence_gate",
+            conf >= float(floor),
+            reason="confidence_below_min_signal_confidence",
+            symbol=symbol,
+            observed=conf,
+            threshold=float(floor),
+        ):
             logger.info(
                 f"[ENSEMBLE][GATE] {symbol}: confidence {conf:.4f} < "
                 f"min_signal_confidence {float(floor):.2f} — rejecting"
@@ -4514,7 +4578,13 @@ class AutoTrader:
             return False
 
         allowed_raw = getattr(self.settings, "allowed_trade_sides", None)
-        if not self._side_is_allowed(allowed_raw, side):
+        if not funnel.gate(
+            "passed_side_gate",
+            self._side_is_allowed(allowed_raw, side),
+            reason="side_not_in_allowed_trade_sides",
+            symbol=symbol,
+            detail=f"{side} vs allowed_trade_sides={allowed_raw!r}",
+        ):
             logger.warning(
                 f"[ENSEMBLE][GATE] {symbol}: {side} not permitted by "
                 f"allowed_trade_sides={allowed_raw!r} — rejecting"
@@ -4523,7 +4593,16 @@ class AutoTrader:
             return False
 
         if side == "SHORT":
-            if not getattr(self.settings, "short_trading_enabled", None):
+            if not funnel.gate(
+                "passed_side_gate",
+                bool(getattr(self.settings, "short_trading_enabled", None)),
+                reason="short_trading_disabled",
+                symbol=symbol,
+                detail=(
+                    "short_trading_enabled="
+                    f"{getattr(self.settings, 'short_trading_enabled', None)!r}"
+                ),
+            ):
                 logger.warning(
                     f"[ENSEMBLE][GATE] {symbol}: SHORT blocked — "
                     f"short_trading_enabled is "
@@ -4539,9 +4618,23 @@ class AutoTrader:
                     f"configured — refusing the SHORT rather than defaulting "
                     f"the floor to zero"
                 )
+                funnel.gate(
+                    "passed_signal_confidence_gate",
+                    False,
+                    reason="short_min_confidence_unconfigured",
+                    symbol=symbol,
+                    detail="setting absent — failing closed",
+                )
                 self.total_trades_rejected += 1
                 return False
-            if conf < float(short_floor):
+            if not funnel.gate(
+                "passed_signal_confidence_gate",
+                conf >= float(short_floor),
+                reason="short_confidence_below_short_min_confidence",
+                symbol=symbol,
+                observed=conf,
+                threshold=float(short_floor),
+            ):
                 logger.info(
                     f"[ENSEMBLE][GATE] {symbol}: SHORT confidence {conf:.4f} < "
                     f"short_min_confidence {float(short_floor):.2f} — rejecting"
@@ -4560,10 +4653,21 @@ class AutoTrader:
         """
         from app.strategies.multi_strategy_ensemble import get_ensemble
 
+        funnel = get_signal_funnel()
         try:
             self.total_signals_checked += 1
+            # `evaluations` is a counter, not a gate — entered exactly once
+            # per symbol per cycle so it is the honest denominator for every
+            # stage below it.
+            funnel.gate("evaluations", True, symbol=symbol)
             risk_mgr = get_risk_manager()
-            if risk_mgr.should_halt_trading():
+            if not funnel.gate(
+                "passed_risk_halt",
+                not risk_mgr.should_halt_trading(),
+                reason="risk_manager_halt",
+                symbol=symbol,
+                detail="RiskManager.should_halt_trading() is True",
+            ):
                 logger.warning(f"[ENSEMBLE] Trading halted for {symbol}")
                 return
 
@@ -4573,9 +4677,56 @@ class AutoTrader:
                 primary_interval=self.interval,
                 timeframes=["15", self.interval, "240"],
             )
-            if not base_signal:
+            if not funnel.gate(
+                "raw_signals_generated",
+                bool(base_signal),
+                reason="aggregator_returned_no_signal",
+                symbol=symbol,
+                detail="get_trading_signal_multi_timeframe returned falsy",
+            ):
                 logger.warning(f"[ENSEMBLE] No base signal for {symbol}")
                 return
+
+            # ----------------------------------------------------------------
+            # ADVISORY ROUTING (2026-08-21). The router classifies the regime
+            # on every evaluation and records which branch it WOULD take. The
+            # ensemble below still decides what trades — see
+            # docs/PIPELINE_MAP.md §6 for why this is observation and not
+            # execution. Before this call the router had made exactly zero
+            # decisions since 2026-01-06 while the dashboard reported it Live.
+            # ----------------------------------------------------------------
+            if str(
+                getattr(self.settings, "strategy_routing_mode", "advisory")
+            ).lower() == "advisory":
+                self.hybrid_strategy.observe_regime(
+                    base_signal.indicators, symbol=symbol
+                )
+
+            # Distribution sampling for Phase-3 threshold calibration. These
+            # are observations, never gates.
+            funnel.observe(
+                "aggregator_confidence", getattr(base_signal, "confidence", None)
+            )
+            _sig_meta = getattr(base_signal, "metadata", None) or {}
+            # No aggregated_vote_score observation here: `aggregated_score` is a
+            # TOP-LEVEL field on TradingSignal, not a metadata key, so the
+            # obvious-looking _sig_meta.get("aggregated_score") is always None.
+            # aggregator_core records the score once per aggregation, which is
+            # the right granularity anyway (3 timeframes per evaluation).
+            # ATR is NOT an indicator leg — signal_aggregator.fetch_atr returns a
+            # plain Dict that the aggregator stores under metadata["atr"]. The
+            # first version of this read base_signal.indicators["ATR"], which is
+            # always absent, so the live atr_pct distribution sat at n=0:
+            # decorative telemetry of exactly the kind this module exists to
+            # prevent. Verified against the deployed payload, which carries
+            # metadata.atr = {"atr":..., "atr_pct":..., "stop_loss_long":...}.
+            _atr_meta = (_sig_meta or {}).get("atr")
+            if isinstance(_atr_meta, dict):
+                funnel.observe("atr_pct", _atr_meta.get("atr_pct"))
+            # ATR is declared in the funnel for completeness but is NOT a gate
+            # anywhere on this path — it feeds stops and confidence only. Record
+            # it as advisory so a 100% pass rate is never read as a live filter.
+            funnel.gate("passed_atr_filter", True, symbol=symbol)
 
             current_price = None
             for _, ind in base_signal.indicators.items():
@@ -4586,7 +4737,13 @@ class AutoTrader:
                 ):
                     current_price = float(ind.metadata["current_price"])
                     break
-            if not current_price:
+            if not funnel.gate(
+                "passed_price_lookup",
+                bool(current_price),
+                reason="no_current_price_in_indicator_metadata",
+                symbol=symbol,
+                detail="no indicator carried metadata['current_price']",
+            ):
                 logger.warning(f"[ENSEMBLE] No current price for {symbol}")
                 return
 
@@ -4597,9 +4754,19 @@ class AutoTrader:
             ens_signal = ensemble.generate_signal(
                 base_signal, current_price, capital=float(balance)
             )
-            if not ens_signal:
+            if not funnel.gate(
+                "ensemble_signal_emitted",
+                bool(ens_signal),
+                reason="ensemble_returned_hold",
+                symbol=symbol,
+                detail=(
+                    "weighted score below AGGREGATION_THRESHOLD or fewer than "
+                    "MIN_AGREEING_LEGS fired"
+                ),
+            ):
                 self.total_trades_rejected += 1
                 return
+            funnel.observe("ensemble_confidence", float(ens_signal.confidence))
 
             logger.info(
                 f"[ENSEMBLE] {symbol}: {ens_signal.action.value} conf={ens_signal.confidence:.2%} "
@@ -4607,7 +4774,12 @@ class AutoTrader:
             )
 
             position_mgr = get_position_manager()
-            if any(p.symbol == symbol for p in position_mgr.get_open_positions()):
+            if not funnel.gate(
+                "passed_position_dedupe",
+                not any(p.symbol == symbol for p in position_mgr.get_open_positions()),
+                reason="position_already_open",
+                symbol=symbol,
+            ):
                 logger.info(f"[ENSEMBLE] Already have position on {symbol}, skipping")
                 self.total_trades_rejected += 1
                 return
@@ -4616,7 +4788,13 @@ class AutoTrader:
             # unchecked on this path — the 2026-08-04 restart sweep closed and
             # instantly reopened 4 same-symbol positions at identical prices
             # within 25 seconds because nothing blocked the re-entry.
-            if not self._check_symbol_cooldown(symbol):
+            if not funnel.gate(
+                "passed_cooldown",
+                self._check_symbol_cooldown(symbol),
+                reason="post_exit_cooldown_active",
+                symbol=symbol,
+                threshold=float(self.sl_cooldown_seconds),
+            ):
                 logger.info(
                     f"[ENSEMBLE] {symbol} in post-exit cooldown — rejecting re-entry"
                 )
@@ -4645,7 +4823,14 @@ class AutoTrader:
 
             opened = False
             try:
-                if not self._check_daily_trade_limit():
+                if not funnel.gate(
+                    "passed_daily_limit",
+                    self._check_daily_trade_limit(),
+                    reason="daily_trade_limit_reached",
+                    symbol=symbol,
+                    observed=float(self.daily_trades_count),
+                    threshold=float(self.max_daily_trades),
+                ):
                     logger.info(f"[ENSEMBLE][GATE] {symbol}: daily trade limit reached")
                     self.total_trades_rejected += 1
                     return
@@ -4682,7 +4867,17 @@ class AutoTrader:
                     )
                 except (TypeError, ValueError):
                     stops_consistent = False
-                if not stops_consistent:
+                if not funnel.gate(
+                    "passed_stop_consistency",
+                    stops_consistent,
+                    reason="inconsistent_stop_or_target_for_side",
+                    symbol=symbol,
+                    detail=(
+                        f"entry={current_price} "
+                        f"sl={getattr(ens_signal, 'stop_loss', None)!r} "
+                        f"tp={getattr(ens_signal, 'take_profit', None)!r}"
+                    ),
+                ):
                     logger.error(
                         f"[ENSEMBLE][GATE] {symbol}: INCONSISTENT stop/target for "
                         f"{getattr(ens_signal.action, 'value', ens_signal.action)} "
@@ -4727,7 +4922,13 @@ class AutoTrader:
                         ),
                     )
                 )
-                if not heat_ok:
+                if not funnel.gate(
+                    "passed_portfolio_heat",
+                    heat_ok,
+                    reason="portfolio_heat_rejected",
+                    symbol=symbol,
+                    detail=str(heat_reason),
+                ):
                     logger.info(
                         f"[ENSEMBLE][GATE] {symbol}: portfolio heat — {heat_reason}"
                     )
@@ -4838,6 +5039,12 @@ class AutoTrader:
                     )
 
                 from decimal import Decimal
+
+                # Terminal funnel stage: an order intent now exists. Recorded
+                # BEFORE execution so "intent emitted" and "fill succeeded"
+                # stay separable — a venue rejection is not the same failure
+                # as a filter rejection.
+                funnel.gate("order_intent_emitted", True, symbol=symbol)
 
                 order = OrderCreate(
                     symbol=symbol,

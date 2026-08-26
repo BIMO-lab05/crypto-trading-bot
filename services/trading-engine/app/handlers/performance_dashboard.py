@@ -924,9 +924,13 @@ async def get_trade_history_endpoint(
         position_repo = get_position_repository()
 
         if status.upper() == "ALL":
-            db_positions = await position_repo.get_positions_by_status(
+            open_positions = await position_repo.get_open_positions_or_empty(
                 portfolio_id="paper_trading"
             )
+            closed_positions = await position_repo.get_closed_positions(
+                portfolio_id="paper_trading", limit=limit + offset
+            )
+            db_positions = list(open_positions) + list(closed_positions)
         elif status.upper() == "OPEN":
             # Display path: a degraded read shows an empty history rather than
             # a 500. The strict get_open_positions is for startup hydration.
@@ -944,7 +948,7 @@ async def get_trade_history_endpoint(
 
         trades = [
             TradeHistoryItem(
-                id=str(pos.id),
+                id=str(pos.position_id),
                 symbol=pos.symbol,
                 side=pos.side,
                 strategy=getattr(pos, "strategy", None),

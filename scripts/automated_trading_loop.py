@@ -180,9 +180,7 @@ class TradingBot:
 
             # Check max trades limit
             if self.trades_today >= self.config.max_trades_per_day:
-                logger.warning(
-                    f"Max trades per day ({self.config.max_trades_per_day}) reached"
-                )
+                logger.warning(f"Max trades per day ({self.config.max_trades_per_day}) reached")
                 return
 
             # Process each symbol
@@ -192,9 +190,7 @@ class TradingBot:
             # Log cycle completion
             cycle_duration = (datetime.now() - cycle_start).total_seconds()
             logger.info(f"Trading cycle completed in {cycle_duration:.2f} seconds")
-            logger.info(
-                f"Trades today: {self.trades_today}/{self.config.max_trades_per_day}"
-            )
+            logger.info(f"Trades today: {self.trades_today}/{self.config.max_trades_per_day}")
             logger.info(f"Daily P&L: ${self.daily_pnl:.2f}")
 
         except Exception as e:
@@ -228,9 +224,7 @@ class TradingBot:
 
             # Execute trade if appropriate
             if action in ["BUY", "SELL"]:
-                await self._execute_trade(
-                    symbol, action, current_price, signal, portfolio
-                )
+                await self._execute_trade(symbol, action, current_price, signal, portfolio)
 
         except Exception as e:
             logger.error(f"Error processing {symbol}: {e}", exc_info=True)
@@ -356,9 +350,10 @@ class TradingBot:
         """Check if daily loss limit has been reached"""
         total_pnl = float(portfolio.get("total_pnl", 0))
         # FIX 2026-08-05 (AUDIT 2.5): was a hardcoded 10000.0, which made this
-        # breaker 100x too lenient on the real $100 account. Prefer the live
-        # portfolio figure; otherwise the declaration of record
-        # (shared/account.py).
+        # breaker 100x too lenient on the then-declared $100 account. Routed
+        # through shared/account.py since; ADR-029 later set the declared size
+        # to $10,000 again — the routing is the fix, not the number. Prefer the
+        # live portfolio figure; otherwise the declaration of record.
         if "initial_balance" in portfolio:
             initial_balance = float(portfolio["initial_balance"])
         else:

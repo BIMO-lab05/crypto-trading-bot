@@ -8,7 +8,7 @@ sys.path.insert(0, str(REPO / "backtesting"))
 
 from killtests.candles import INTERVAL_MS, CandleStore  # noqa: E402
 
-from conftest import _write_candles  # noqa: E402  # shared writer, same-dir conftest
+from kt_shared import _write_candles  # noqa: E402  # shared writer, same-dir conftest
 
 
 def test_driver_emits_rows_and_advances_clock(tmp_path):

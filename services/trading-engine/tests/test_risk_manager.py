@@ -18,8 +18,18 @@ import pytest
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 
+from app.config import get_settings
 from app.risk_manager import RiskManager, get_risk_manager
 from app.models import PositionSide, SignalAction, Position, PositionStatus
+
+#: Declared paper equity, routed through Settings (ADR-029) — never a bare
+#: account-size literal. Every dollar figure below is DERIVED from this (or
+#: from the fixture's scenario knobs applied to it) so the suite re-scales
+#: with the declared account automatically.
+EQUITY = Decimal(str(get_settings().paper_initial_balance))
+
+#: The fixture's 5% daily-loss scenario applied to the declared equity.
+MAX_DAILY_LOSS = EQUITY * Decimal("0.05")
 
 
 @pytest.fixture
@@ -27,10 +37,10 @@ def mock_settings():
     """Mock settings for risk manager"""
     settings = MagicMock()
     settings.max_position_size_pct = 10.0  # 10% max position
-    settings.max_daily_loss_pct = 5.0      # 5% max daily loss
+    settings.max_daily_loss_pct = 5.0      # 5% max daily loss (scenario knob)
     settings.default_stop_loss_pct = 2.0   # 2% stop loss
     settings.default_take_profit_pct = 4.0 # 4% take profit
-    settings.paper_initial_balance = 100.0
+    settings.paper_initial_balance = float(EQUITY)
     settings.signal_confidence_threshold = 0.6
     return settings
 
@@ -96,35 +106,34 @@ class TestTradingHalt:
     def test_should_halt_trading_within_limit(self, risk_manager):
         """Test that trading not halted when within loss limit.
 
-        Mock fixture: paper_initial_balance=100, max_daily_loss_pct=5
-        → max_loss = $5. Loss of $-4 is 4% (< 5% limit), should not halt.
+        Mock fixture: balance=EQUITY, max_daily_loss_pct=5 → max_loss =
+        MAX_DAILY_LOSS. A loss of 80% of that limit should not halt.
         """
-        risk_manager.update_daily_pnl(Decimal("-4.00"))
+        risk_manager.update_daily_pnl(-(MAX_DAILY_LOSS * Decimal("0.8")))
         assert risk_manager.should_halt_trading() is False
 
     def test_should_halt_trading_exceeds_limit(self, risk_manager):
         """Test that trading halted when daily loss limit exceeded.
 
-        Mock fixture: max_loss = $5. Loss of $-6 exceeds, should halt.
+        A loss of 120% of MAX_DAILY_LOSS exceeds the limit, should halt.
         """
-        risk_manager.update_daily_pnl(Decimal("-6.00"))
+        risk_manager.update_daily_pnl(-(MAX_DAILY_LOSS * Decimal("1.2")))
         assert risk_manager.should_halt_trading() is True
         assert risk_manager.trading_halted is True
 
     def test_should_halt_trading_at_exact_limit(self, risk_manager):
         """Test trading halted at exact loss limit.
 
-        Mock fixture sets paper_initial_balance=100 and max_daily_loss_pct=5,
-        so max_loss = $5. Test was previously using $499.99 / $500 thresholds
-        from when paper_initial_balance was $10000.
+        Boundaries derive from the fixture balance (EQUITY x 5%), not from a
+        hand-computed dollar figure, so they survive any account re-scale.
         """
-        # Just under 5% loss (should not halt)
-        risk_manager.update_daily_pnl(Decimal("-4.99"))
+        # One cent under the limit (should not halt)
+        risk_manager.update_daily_pnl(-(MAX_DAILY_LOSS - Decimal("0.01")))
         assert risk_manager.should_halt_trading() is False
 
-        # Exactly at 5% loss (should halt because code uses <=)
+        # Exactly at the limit (should halt because code uses <=)
         risk_manager.reset_daily_pnl()
-        risk_manager.update_daily_pnl(Decimal("-5.00"))
+        risk_manager.update_daily_pnl(-MAX_DAILY_LOSS)
         assert risk_manager.should_halt_trading() is True
 
     def test_halt_trading_logs_critical(self, risk_manager):
@@ -152,19 +161,19 @@ class TestPositionSizing:
 
     def test_calculate_position_size_basic(self, risk_manager):
         """Test basic position size calculation"""
-        account_balance = Decimal("10000.00")
+        account_balance = EQUITY
         entry_price = Decimal("50000.00")
 
-        # Max position is 10% of 10000 = 1000
-        # Quantity = 1000 / 50000 = 0.02
+        # Max position is 10% of the declared balance
+        # Quantity = (balance * 10%) / price
         quantity = risk_manager.calculate_position_size(account_balance, entry_price)
 
-        expected = Decimal("1000.00") / entry_price
+        expected = (EQUITY * Decimal("0.1")) / entry_price
         assert quantity == expected
 
     def test_calculate_position_size_with_stop_loss(self, risk_manager):
         """Test position sizing with stop-loss (risk-based)"""
-        account_balance = Decimal("10000.00")
+        account_balance = EQUITY
         entry_price = Decimal("50000.00")
         stop_loss_price = Decimal("49000.00")  # 2% below entry
 
@@ -175,11 +184,11 @@ class TestPositionSizing:
         )
 
         # Risk per unit: 50000 - 49000 = 1000
-        # Max risk: 10% of 10000 = 1000
-        # Risk-based quantity: 1000 / 1000 = 1.0
-        # Basic quantity: 1000 / 50000 = 0.02
-        # Should use smaller (0.02)
-        assert quantity == Decimal("0.02")
+        # Max risk: 10% of balance
+        # Risk-based quantity: (balance * 10%) / 1000
+        # Basic quantity:      (balance * 10%) / 50000
+        # The basic quantity is smaller (price >> risk per unit), so it wins.
+        assert quantity == (EQUITY * Decimal("0.1")) / entry_price
 
     def test_calculate_position_size_zero_balance(self, risk_manager):
         """Test position sizing with zero balance returns zero"""
@@ -192,7 +201,7 @@ class TestPositionSizing:
     def test_calculate_position_size_zero_price(self, risk_manager):
         """Test position sizing with zero price returns zero"""
         quantity = risk_manager.calculate_position_size(
-            Decimal("10000.00"),
+            EQUITY,
             Decimal("0")
         )
         assert quantity == Decimal("0")
@@ -200,12 +209,12 @@ class TestPositionSizing:
     def test_calculate_position_size_invalid_stop_loss(self, risk_manager):
         """Test position sizing with invalid stop-loss ignores it"""
         quantity = risk_manager.calculate_position_size(
-            Decimal("10000.00"),
+            EQUITY,
             Decimal("50000.00"),
             Decimal("0")  # Invalid stop-loss
         )
-        # Should use basic calculation
-        assert quantity == Decimal("0.02")
+        # Should use basic calculation: (balance * 10%) / price
+        assert quantity == (EQUITY * Decimal("0.1")) / Decimal("50000.00")
 
 
 class TestStopLossCalculation:
@@ -470,13 +479,13 @@ class TestPositionLimitsCheck:
         # Mock settings for max_total_exposure_pct
         risk_manager.settings.max_total_exposure_pct = 80.0
 
-        # Create mock positions with total exposure of 50% (5000/10000)
+        # Create mock positions with total exposure of 50% of the balance
         positions = [
             Position(
                 symbol="BTCUSDT",
                 side=PositionSide.LONG,
                 entry_price=Decimal("50000.00"),
-                quantity=Decimal("0.1"),  # Value: 5000
+                quantity=(EQUITY * Decimal("0.5")) / Decimal("50000.00"),
                 current_price=Decimal("50000.00"),
                 status=PositionStatus.OPEN
             )
@@ -484,7 +493,7 @@ class TestPositionLimitsCheck:
 
         is_allowed, reason = risk_manager.check_position_limits(
             positions,
-            Decimal("10000.00")
+            EQUITY
         )
 
         assert is_allowed is True
@@ -495,13 +504,13 @@ class TestPositionLimitsCheck:
         # Mock settings for max_total_exposure_pct
         risk_manager.settings.max_total_exposure_pct = 80.0
 
-        # Create positions with total exposure of 90% (9000/10000)
+        # Create positions with total exposure of 90% of the balance (> 80% cap)
         positions = [
             Position(
                 symbol="BTCUSDT",
                 side=PositionSide.LONG,
                 entry_price=Decimal("50000.00"),
-                quantity=Decimal("0.18"),  # Value: 9000
+                quantity=(EQUITY * Decimal("0.9")) / Decimal("50000.00"),
                 current_price=Decimal("50000.00"),
                 status=PositionStatus.OPEN
             )
@@ -509,7 +518,7 @@ class TestPositionLimitsCheck:
 
         is_allowed, reason = risk_manager.check_position_limits(
             positions,
-            Decimal("10000.00")
+            EQUITY
         )
 
         assert is_allowed is False

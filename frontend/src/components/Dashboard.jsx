@@ -11,7 +11,9 @@ import TradeHistory from './TradeHistory'
 import TradingEnhancementsPanel from './TradingEnhancementsPanel'
 import PerformanceAnalyticsPanel from './PerformanceAnalyticsPanel'
 import HybridStrategyPanel from './HybridStrategyPanel'
+import SignalFunnelPanel from './SignalFunnelPanel'
 import RegimeIndicator from './RegimeIndicator'
+import { DISPLAY_SYMBOLS } from '../utils/symbols'
 
 /**
  * Dashboard component - Research-Backed Professional Trading Interface
@@ -42,20 +44,9 @@ import RegimeIndicator from './RegimeIndicator'
  * - PerformanceAnalyticsPanel: Sharpe, Sortino, VaR, CVaR metrics (NEW 2025-11-30)
  */
 
-// Trading pairs supported by the system - EXPANDED TO 11 (2026-01-07)
-const TRADING_PAIRS = [
-  'BTCUSDT',   // Bitcoin - Most liquid
-  'ETHUSDT',   // Ethereum - 2nd most liquid
-  'SOLUSDT',   // Solana - Top performer
-  'BNBUSDT',   // Binance Coin - Top performer
-  'ADAUSDT',   // Cardano - Top performer
-  'AVAXUSDT',  // Avalanche
-  'LINKUSDT',  // Chainlink
-  'DOTUSDT',   // Polkadot
-  'MATICUSDT', // Polygon
-  'ARBUSDT',   // Arbitrum - L2
-  'OPUSDT'     // Optimism - L2
-]
+// Display symbols come from the single source of truth in utils/symbols.js
+// (display-only metadata — what's actually traded lives in the backend).
+const TRADING_PAIRS = DISPLAY_SYMBOLS
 
 export default function Dashboard() {
   // State for selected chart symbol
@@ -180,6 +171,13 @@ export default function Dashboard() {
           {/* Hybrid Strategy Panel - NEW 2026-01-06: Shows strategy routing and market regime */}
           <section>
             <HybridStrategyPanel />
+          </section>
+
+          {/* Signal Funnel - NEW 2026-08-21: stage-by-stage rejection accounting.
+              Paired with the routing tile deliberately: when routing counts are
+              low the funnel says which upstream filter consumed the signals. */}
+          <section>
+            <SignalFunnelPanel />
           </section>
 
           {/* Trade History - Closed trades with win/loss statistics */}

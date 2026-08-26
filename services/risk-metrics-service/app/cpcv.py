@@ -232,6 +232,7 @@ def cpcv_sharpe_distribution(returns_per_path: Sequence[np.ndarray]) -> dict:
 def cpcv_to_dsr(
     returns_per_path: Sequence[np.ndarray],
     concatenated_returns: np.ndarray,
+    num_trials: int | None = None,
 ) -> float:
     """
     Bridge CPCV path returns to the Deflated Sharpe Ratio.
@@ -243,6 +244,18 @@ def cpcv_to_dsr(
     A passing strategy clears DSR > 0.95 (significance at 5%, accounting
     for both non-normality and selection bias). Returns NaN if fewer than
     2 valid paths exist.
+
+    Args:
+        num_trials: honest trial count N for the deflation. Default None
+            preserves the legacy behaviour: N = number of *valid* (non-
+            degenerate) paths. Callers SHOULD pass the honest N per the
+            2026-08 decision of record — N = max(trial-ledger effective
+            count, total CPCV path count, e.g. 45 at the pinned 10/2) —
+            because the valid-path count under-deflates whenever paths
+            are dropped as degenerate, and neither the ledger nor the
+            total path count is visible from inside this function.
+            Values below the valid-path count are floored to it (never
+            deflate by less than the trials actually observed).
 
     Caveat: paths share training data so per-path Sharpes are *correlated*
     trials, violating the independence assumption in DSR's
@@ -258,9 +271,10 @@ def cpcv_to_dsr(
     if len(sharpes) < 2:
         return float("nan")
 
+    n_trials = len(sharpes) if num_trials is None else max(int(num_trials), len(sharpes))
     trial_var = float(np.var(np.asarray(sharpes), ddof=1))
     return deflated_sharpe_ratio(
         np.asarray(concatenated_returns, dtype=float),
-        num_trials=len(sharpes),
+        num_trials=n_trials,
         trial_sharpes_variance=trial_var,
     )

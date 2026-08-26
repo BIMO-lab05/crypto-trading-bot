@@ -198,28 +198,6 @@ export function useEnhancedSignal(symbol, interval = 60) {
 }
 
 /**
- * Custom hook for fetching signal comparison (Phase 1 vs Phase 3)
- * Endpoint: /api/trading/signals/compare/{symbol}
- *
- * @param {string} symbol - Trading symbol
- * @param {number} interval - Time interval in minutes
- * @returns {object} Query result with signal comparison
- */
-export function useSignalComparison(symbol, interval = 60) {
-  return useQuery({
-    queryKey: ['signal', 'comparison', symbol, interval],
-    queryFn: async () => {
-      const response = await enhancedTradingAPI.getSignalComparison(symbol, interval)
-      return response?.data || response
-    },
-    refetchInterval: 30000,
-    staleTime: 15000,
-    enabled: !!symbol,
-    ...defaultQueryConfig,
-  })
-}
-
-/**
  * Custom hook for fetching all Phase 3 data at once
  * Combines ML prediction, sentiment, MTF, and enhanced signal
  *

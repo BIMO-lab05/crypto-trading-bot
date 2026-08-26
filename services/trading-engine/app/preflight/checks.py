@@ -96,8 +96,7 @@ def check_cap(settings: Settings | None = None) -> CheckResult:
             check="cap",
             status="PASS",
             detail=(
-                f"non-LIVE mode ({s.trading_mode}); cap check skipped "
-                "per ADR-010 paper-relaxed cap"
+                f"non-LIVE mode ({s.trading_mode}); cap check skipped per ADR-010 paper-relaxed cap"
             ),
         )
     if s.max_risk_per_trade > _LIVE_STRICT_CAP:
@@ -296,12 +295,10 @@ def check_dsr_evidence(
         return CheckResult(
             check="dsr_evidence",
             status="UNKNOWN",
-            detail=(
-                f"MLGATE-02 marker absent at {_MLGATE_MARKER_PATH} (Phase 9 not landed)"
-            ),
+            detail=(f"MLGATE-02 marker absent at {_MLGATE_MARKER_PATH} (Phase 9 not landed)"),
         )
 
-    path = db_path or _DEFAULT_TOURNAMENT_DB_PATH
+    path = db_path or os.environ.get("TOURNAMENT_DB_PATH") or _DEFAULT_TOURNAMENT_DB_PATH
     try:
         # uri-only connect-as-readonly would be safer, but the tournament-
         # harness module already initialises the DB read-write in another
@@ -330,9 +327,7 @@ def check_dsr_evidence(
         return CheckResult(
             check="dsr_evidence",
             status="UNKNOWN",
-            detail=(
-                f"leaderboard empty (after psr_ci_published filter) (db_path={path})"
-            ),
+            detail=(f"leaderboard empty (after psr_ci_published filter) (db_path={path})"),
         )
 
     dsr_value = float(row[0])
@@ -347,9 +342,7 @@ def check_dsr_evidence(
         return CheckResult(
             check="dsr_evidence",
             status="UNKNOWN",
-            detail=(
-                f"leaderboard run_date unparseable: {type(e).__name__} (db_path={path})"
-            ),
+            detail=(f"leaderboard run_date unparseable: {type(e).__name__} (db_path={path})"),
         )
 
     age = now_utc - run_date_dt
@@ -364,8 +357,7 @@ def check_dsr_evidence(
             check="dsr_evidence",
             status="FAIL",
             detail=(
-                f"latest leaderboard dsr={dsr_value} <= {_DSR_FLOOR} "
-                f"(run_date={run_date_raw})"
+                f"latest leaderboard dsr={dsr_value} <= {_DSR_FLOOR} (run_date={run_date_raw})"
             ),
         )
 

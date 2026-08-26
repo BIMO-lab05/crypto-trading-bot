@@ -51,9 +51,15 @@ if str(SHARED_DIR) not in sys.path:
 # env vars. pydantic-settings v2 DEEP-MERGES Dict fields across sources, so an
 # env var unions with the dotenv value instead of replacing it, and the
 # allocations then sum to 1.25 rather than 1.0.
-from app.config import Settings  # noqa: E402
+from app.config import Settings, get_settings  # noqa: E402
 
 Settings.model_config["env_file"] = None
+
+# Declared account size, sourced from Settings so mocks can never re-hardcode
+# a balance. String form is "10000.00"-style because Bybit payload mocks are
+# two-decimal strings. Never replace these with bare literals.
+ACCOUNT_BALANCE = Decimal(f"{get_settings().paper_initial_balance:.2f}")
+ACCOUNT_BALANCE_STR = f"{get_settings().paper_initial_balance:.2f}"
 
 # Configure logging for tests
 logging.basicConfig(level=logging.DEBUG)
@@ -67,9 +73,7 @@ logger = logging.getLogger(__name__)
 
 def pytest_configure(config):
     """Configure pytest with custom markers for trading-engine"""
-    config.addinivalue_line(
-        "markers", "integration: Integration tests requiring database"
-    )
+    config.addinivalue_line("markers", "integration: Integration tests requiring database")
     config.addinivalue_line("markers", "unit: Fast unit tests")
     config.addinivalue_line("markers", "slow: Slow-running tests")
     config.addinivalue_line("markers", "benchmark: Performance benchmark tests")
@@ -97,9 +101,7 @@ def mock_database_connection():
     mock_db_manager.get_async_session.return_value = mock_session_generator()
 
     # Patch the database.connection module
-    with patch.dict(
-        "sys.modules", {"database.connection": MagicMock(db_manager=mock_db_manager)}
-    ):
+    with patch.dict("sys.modules", {"database.connection": MagicMock(db_manager=mock_db_manager)}):
         logger.debug("Mocked database.connection module")
         yield mock_db_manager
 
@@ -296,12 +298,12 @@ def portfolio_repository(db_session):
         return MagicMock(
             portfolio_id="test_portfolio_001",
             name="Test Portfolio",
-            cash_balance=Decimal("10000.00"),
+            cash_balance=ACCOUNT_BALANCE,
             is_active=True,
         )
 
     async def mock_update_balance(*args, **kwargs):
-        return MagicMock(cash_balance=kwargs.get("new_balance", Decimal("10000.00")))
+        return MagicMock(cash_balance=kwargs.get("new_balance", ACCOUNT_BALANCE))
 
     repo.get = mock_get
     repo.update_balance = mock_update_balance
@@ -330,8 +332,8 @@ def test_portfolio(sample_portfolio_id):
     portfolio = MagicMock()
     portfolio.portfolio_id = sample_portfolio_id
     portfolio.name = "Test Portfolio"
-    portfolio.initial_balance = Decimal("10000.00")
-    portfolio.cash_balance = Decimal("10000.00")
+    portfolio.initial_balance = ACCOUNT_BALANCE
+    portfolio.cash_balance = ACCOUNT_BALANCE
     portfolio.trading_mode = "PAPER"
     portfolio.is_active = True
     portfolio.created_at = datetime.now(timezone.utc)
@@ -368,9 +370,7 @@ def test_position(sample_portfolio_id, sample_position_data):
     position.quantity = sample_position_data["quantity"]
     position.entry_price = sample_position_data["entry_price"]
     position.current_price = sample_position_data["entry_price"]
-    position.cost_basis = (
-        sample_position_data["entry_price"] * sample_position_data["quantity"]
-    )
+    position.cost_basis = sample_position_data["entry_price"] * sample_position_data["quantity"]
     position.stop_loss = sample_position_data["stop_loss"]
     position.take_profit = sample_position_data["take_profit"]
     position.status = "OPEN"
@@ -416,9 +416,9 @@ def mock_bybit_connector():
 
     # Mock balance retrieval
     mock.get_balance.return_value = {
-        "total_balance": "10000.00",
-        "available_balance": "5000.00",
-        "locked_balance": "5000.00",
+        "total_balance": ACCOUNT_BALANCE_STR,
+        "available_balance": f"{ACCOUNT_BALANCE / 2:.2f}",
+        "locked_balance": f"{ACCOUNT_BALANCE / 2:.2f}",
     }
 
     # Mock position retrieval
@@ -532,8 +532,7 @@ def assert_decimal_equal():
         """Assert two Decimals are equal within tolerance"""
         diff = abs(actual - expected)
         assert diff <= tolerance, (
-            f"Expected {expected}, got {actual} "
-            f"(difference: {diff}, tolerance: {tolerance})"
+            f"Expected {expected}, got {actual} (difference: {diff}, tolerance: {tolerance})"
         )
 
     return _assert_equal
@@ -568,15 +567,13 @@ def benchmark_timer():
         def assert_faster_than(self, max_ms: float, message: str = None):
             """Assert operation completed faster than threshold"""
             assert self.elapsed_ms < max_ms, (
-                message
-                or f"Operation took {self.elapsed_ms:.2f}ms, expected < {max_ms}ms"
+                message or f"Operation took {self.elapsed_ms:.2f}ms, expected < {max_ms}ms"
             )
 
         def assert_slower_than(self, min_ms: float, message: str = None):
             """Assert operation took at least minimum time"""
             assert self.elapsed_ms >= min_ms, (
-                message
-                or f"Operation took {self.elapsed_ms:.2f}ms, expected >= {min_ms}ms"
+                message or f"Operation took {self.elapsed_ms:.2f}ms, expected >= {min_ms}ms"
             )
 
     return Timer

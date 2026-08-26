@@ -30,6 +30,8 @@ import pandas as pd
 
 # Add project root to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services', 'trading-engine'))
+sys.path.insert(0, str(_REPO_ROOT))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 from app.strategies.grid_trading_strategy import GridTradingStrategy
 from app.backtesting.backtest_engine import BacktestEngine, BacktestConfig, BacktestResult
@@ -146,7 +148,7 @@ def run_grid_v1_backtest(symbol: str, use_filters: bool = True) -> Dict:
 
     # Create backtest configuration
     config = BacktestConfig(
-        initial_equity=10000.0,    # $10,000 starting capital
+        initial_equity=ACCOUNT_EQUITY_USD,  # declared account (shared/account.py)
         commission_pct=0.1,        # 0.1% commission (Bybit spot)
         slippage_pct=0.05,         # 0.05% slippage
         position_size_pct=2.0,     # 2% per position (matches strategy)

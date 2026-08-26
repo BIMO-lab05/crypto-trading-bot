@@ -6,6 +6,8 @@ Pattern: Strangler Fig - Extracted from signal_aggregator.py
 
 import logging
 from typing import Dict, Optional, Tuple
+
+from app.config import get_settings
 from app.models import IndicatorSignal, SignalAction
 
 logger = logging.getLogger(__name__)
@@ -22,9 +24,14 @@ class TrendGatekeeper:
 
     ADJUSTED FOR MORE AGGRESSIVE TRADING (2025-11-26):
     - Counter-trend trades are penalized but NOT fully blocked
-    - Raised blocking threshold from 0.8 to 0.9 (only blocks very strong trends)
     - Allows more trading in ranging/neutral markets
     - Reduced penalties across the board
+
+    2026-08-21: thresholds moved to Settings. This docstring previously said
+    the blocking threshold was 0.9 while the code applied 0.95 — a reader
+    could not tell which was live. The value now comes from
+    `settings.gatekeeper_block_threshold` and is reported through the signal
+    funnel alongside the TREND_FILTER confidence it was compared against.
     """
 
     def __init__(self):
@@ -32,7 +39,19 @@ class TrendGatekeeper:
         self.blocked_count = 0
         self.passed_count = 0
         self.penalized_count = 0
-        logger.info("TrendGatekeeper initialized (aggressive mode - 2025-11-26)")
+        settings = get_settings()
+        self.block_threshold = float(settings.gatekeeper_block_threshold)
+        self.block_penalty = float(settings.gatekeeper_block_penalty)
+        self.counter_trend_penalty = float(
+            settings.gatekeeper_counter_trend_penalty
+        )
+        logger.info(
+            "TrendGatekeeper initialized: block_threshold=%.2f "
+            "block_penalty=%.2f counter_trend_penalty=%.2f",
+            self.block_threshold,
+            self.block_penalty,
+            self.counter_trend_penalty,
+        )
 
     def check_signal(
         self,
@@ -84,12 +103,16 @@ class TrendGatekeeper:
             # Counter-trend BUY in BEARISH
             # AGGRESSIVE 2025-11-28: Only block at extreme confidence (>=0.95)
             # - Changed from 0.75 to allow more counter-trend reversal trades
-            if trend_confidence >= 0.95:
+            if trend_confidence >= self.block_threshold:
                 # Extremely strong bearish trend - block the trade
                 trend_blocked = True
-                trend_reason = "Counter-trend blocked (BUY in extreme BEARISH)"
+                trend_reason = (
+                    f"Counter-trend blocked (BUY in extreme BEARISH): "
+                    f"trend_confidence {trend_confidence:.4f} >= "
+                    f"{self.block_threshold:.2f}"
+                )
                 modified_action = SignalAction.HOLD
-                modified_confidence *= 0.3
+                modified_confidence *= self.block_penalty
                 logger.warning(f"BLOCKED: {trend_reason}")
                 self.blocked_count += 1
             else:
@@ -97,19 +120,23 @@ class TrendGatekeeper:
                 trend_blocked = False
                 trend_reason = "Counter-trend penalty (BUY in BEARISH)"
                 # AGGRESSIVE 2025-11-28: Reduced from 0.85x to 0.95x (5% penalty)
-                modified_confidence *= 0.95
+                modified_confidence *= self.counter_trend_penalty
                 logger.info(f"PENALIZED: {trend_reason}")
                 self.penalized_count += 1
 
         elif action == SignalAction.SELL and trend == "BULLISH":
             # Counter-trend SELL in BULLISH
             # AGGRESSIVE 2025-11-28: Only block at extreme confidence (>=0.95)
-            if trend_confidence >= 0.95:
+            if trend_confidence >= self.block_threshold:
                 # Extremely strong bullish trend - block the trade
                 trend_blocked = True
-                trend_reason = "Counter-trend blocked (SELL in extreme BULLISH)"
+                trend_reason = (
+                    f"Counter-trend blocked (SELL in extreme BULLISH): "
+                    f"trend_confidence {trend_confidence:.4f} >= "
+                    f"{self.block_threshold:.2f}"
+                )
                 modified_action = SignalAction.HOLD
-                modified_confidence *= 0.3
+                modified_confidence *= self.block_penalty
                 logger.warning(f"BLOCKED: {trend_reason}")
                 self.blocked_count += 1
             else:
@@ -117,7 +144,7 @@ class TrendGatekeeper:
                 trend_blocked = False
                 trend_reason = "Counter-trend penalty (SELL in BULLISH)"
                 # AGGRESSIVE 2025-11-28: Reduced from 0.85x to 0.95x (5% penalty)
-                modified_confidence *= 0.95
+                modified_confidence *= self.counter_trend_penalty
                 logger.info(f"PENALIZED: {trend_reason}")
                 self.penalized_count += 1
 

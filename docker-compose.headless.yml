@@ -294,7 +294,7 @@ services:
       # Paper-trading invariants — both must stay true to avoid live orders
       - PAPER_TRADING_MODE=${PAPER_TRADING_MODE:-true}
       - TRADING_MODE=${TRADING_MODE:-PAPER}
-      - PAPER_INITIAL_BALANCE=${PAPER_INITIAL_BALANCE:-100.0}
+      - PAPER_INITIAL_BALANCE=${PAPER_INITIAL_BALANCE:-10000.0}
       - STRATEGY_MODE=${STRATEGY_MODE:-ensemble}
       # Database
       - POSTGRES_HOST=postgres

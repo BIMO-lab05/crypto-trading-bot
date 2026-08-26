@@ -1,0 +1,58 @@
+{
+  "param": "vote_threshold",
+  "select_on": "in_sample",
+  "rows": [
+    {
+      "value": "0.10",
+      "signals": 389,
+      "trades": 55,
+      "win_rate_pct": 40.0,
+      "expectancy_pct": -0.9814507241187076,
+      "avg_r": -0.24481420297297415,
+      "total_net_return_pct": -44.20761414946885,
+      "max_drawdown_pct": 47.86768225099459,
+      "profit_factor": 0.5592038932074789,
+      "gate_rejected": 1817,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/vote_threshold_0.10.json"
+    },
+    {
+      "value": "0.15",
+      "signals": 402,
+      "trades": 55,
+      "win_rate_pct": 40.0,
+      "expectancy_pct": -0.9812913828734968,
+      "avg_r": -0.244817276562336,
+      "total_net_return_pct": -44.20250369601626,
+      "max_drawdown_pct": 47.86290705131153,
+      "profit_factor": 0.5592439152016644,
+      "gate_rejected": 1793,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/vote_threshold_0.15.json"
+    },
+    {
+      "value": "0.20",
+      "signals": 443,
+      "trades": 56,
+      "win_rate_pct": 35.714285714285715,
+      "expectancy_pct": -1.017952334537594,
+      "avg_r": -0.2540347922772973,
+      "total_net_return_pct": -45.97566481208425,
+      "max_drawdown_pct": 49.54095717917178,
+      "profit_factor": 0.5524666207214259,
+      "gate_rejected": 1724,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/vote_threshold_0.20.json"
+    },
+    {
+      "value": "0.25",
+      "signals": 518,
+      "trades": 57,
+      "win_rate_pct": 38.59649122807018,
+      "expectancy_pct": -0.8369389039143615,
+      "avg_r": -0.20878516189729973,
+      "total_net_return_pct": -40.592686228960886,
+      "max_drawdown_pct": 48.63558702397517,
+      "profit_factor": 0.6062563536179948,
+      "gate_rejected": 1588,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/vote_threshold_0.25.json"
+    }
+  ]
+}

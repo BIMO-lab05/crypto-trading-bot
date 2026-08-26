@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
 import httpx
@@ -146,7 +146,9 @@ class FundingRateClient:
         # Cache: symbol -> (fetched_at_monotonic, rate_or_None)
         self._cache: Dict[str, Tuple[float, Optional[float]]] = {}
         self._owned_client = client is None
-        self._client = client or httpx.AsyncClient(timeout=config.request_timeout_seconds)
+        self._client = client or httpx.AsyncClient(
+            timeout=config.request_timeout_seconds
+        )
 
     async def get_latest_rate(self, symbol: str) -> Optional[float]:
         """Return the latest signed funding rate for `symbol`, or None on error."""
@@ -169,13 +171,47 @@ class FundingRateClient:
                 rate_str = data[0].get("fundingRate")
                 rate = float(rate_str) if rate_str is not None else None
         except Exception as e:
-            logger.warning(
-                f"[FUNDING] Failed to fetch funding rate for {symbol}: {e}"
-            )
+            logger.warning(f"[FUNDING] Failed to fetch funding rate for {symbol}: {e}")
             rate = None
 
         self._cache[symbol] = (now, rate)
         return rate
+
+    async def get_settlements(self, symbol: str, start_ms: int, end_ms: int) -> "list":
+        """Funding settlements in [start_ms, end_ms] as costs.FundingSettlement.
+
+        Returns [] on any error (fail-open, logged), mirroring get_latest_rate.
+        Rates are parsed with Decimal, never float: FundingSettlement's
+        docstring mandates it and this figure reaches the cash ledger.
+        """
+        from decimal import Decimal
+
+        from app.costs import FundingSettlement
+
+        try:
+            response = await self._client.get(
+                f"{self._base_url}/api/v1/market/funding-rate/history",
+                params={
+                    "symbol": symbol,
+                    "category": "linear",
+                    "start": start_ms,
+                    "end": end_ms,
+                    "limit": 200,
+                },
+            )
+            response.raise_for_status()
+            data = response.json().get("data") or []
+            return [
+                FundingSettlement(
+                    ts_ms=int(entry["fundingRateTimestamp"]),
+                    rate=Decimal(entry["fundingRate"]),
+                )
+                for entry in data
+                if entry.get("fundingRate") is not None
+            ]
+        except Exception as e:
+            logger.warning(f"[FUNDING] settlements fetch failed for {symbol}: {e}")
+            return []
 
     async def aclose(self) -> None:
         if self._owned_client:

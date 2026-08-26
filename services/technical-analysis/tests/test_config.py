@@ -10,26 +10,22 @@ from app.config import Settings, get_settings
 class TestSettings:
     """Test Settings configuration class"""
 
-    def test_redis_url_with_password(self):
-        """Test redis_url property constructs correct URL with password"""
-        settings = Settings(
-            redis_host="redis-server",
-            redis_port=6379,
-            redis_password="secret123",
-            redis_db=1,
-        )
-
-        expected = "redis://:secret123@redis-server:6379/1"
-        assert settings.redis_url == expected
-
-    def test_redis_url_without_password(self):
-        """Test redis_url property constructs correct URL without password"""
-        settings = Settings(
-            redis_host="localhost", redis_port=6380, redis_password=None, redis_db=0
-        )
-
-        expected = "redis://localhost:6380/0"
-        assert settings.redis_url == expected
+    def test_dead_config_removed(self):
+        """Redis + unused cache/signal fields were dead config, deleted
+        2026-08-20: nothing in this app ever read them (the only wired cache
+        is kline_cache_ttl_seconds, fetcher.py)."""
+        settings = Settings()
+        for gone in (
+            "redis_host",
+            "redis_port",
+            "redis_password",
+            "redis_db",
+            "redis_url",
+            "cache_ttl_indicator",
+            "cache_ttl_signal",
+            "signal_confidence_threshold",
+        ):
+            assert not hasattr(settings, gone), f"{gone} should be deleted"
 
     def test_default_settings_values(self, monkeypatch):
         """Test default configuration values are set correctly.
@@ -47,7 +43,7 @@ class TestSettings:
         # default_rsi_period was tightened from 14 → 9 in the 2026-04-29
         # research-driven indicator-tuning pass.
         assert settings.default_rsi_period == 9
-        assert settings.signal_confidence_threshold == 0.6
+        assert settings.kline_cache_ttl_seconds == 30
 
 
 class TestGetSettings:

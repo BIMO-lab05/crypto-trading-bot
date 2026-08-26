@@ -4,7 +4,6 @@ Purpose: Manage database connections and sessions
 """
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool
 from contextlib import asynccontextmanager
 import logging
 
@@ -21,29 +20,33 @@ _async_session_maker = None
 def get_engine():
     """Get or create database engine"""
     global _engine
-    
+
     if _engine is None:
         settings = get_settings()
 
         # Use TimescaleDB for market data storage
         _engine = create_async_engine(
             settings.timescale_url,  # Changed from postgres_url to timescale_url
-            echo=settings.debug,  # Log SQL queries in debug mode
+            # SQL echo at 5s snapshot cadence = ~4.4GB/day of container log
+            # (final review B-1; CLAUDE.md unrotated-log gotcha). Never tie to DEBUG.
+            echo=False,
             pool_size=settings.db_pool_min_size,
             max_overflow=settings.db_pool_max_size - settings.db_pool_min_size,
             pool_pre_ping=True,  # Verify connections before using
             pool_recycle=3600,  # Recycle connections after 1 hour
         )
 
-        logger.info(f"Created database engine for TimescaleDB: {settings.timescale_host}:{settings.timescale_port}")
-    
+        logger.info(
+            f"Created database engine for TimescaleDB: {settings.timescale_host}:{settings.timescale_port}"
+        )
+
     return _engine
 
 
 def get_session_maker():
     """Get or create session maker"""
     global _async_session_maker
-    
+
     if _async_session_maker is None:
         engine = get_engine()
         _async_session_maker = async_sessionmaker(
@@ -51,10 +54,10 @@ def get_session_maker():
             class_=AsyncSession,
             expire_on_commit=False,
             autocommit=False,
-            autoflush=False
+            autoflush=False,
         )
         logger.info("Created async session maker")
-    
+
     return _async_session_maker
 
 
@@ -62,7 +65,7 @@ def get_session_maker():
 async def get_db_session():
     """
     Get database session context manager
-    
+
     Usage:
         async with get_db_session() as session:
             # Use session
@@ -70,7 +73,7 @@ async def get_db_session():
     """
     session_maker = get_session_maker()
     session = session_maker()
-    
+
     try:
         yield session
         await session.commit()
@@ -108,7 +111,7 @@ async def init_database(max_retries: int = 10, retry_delay: float = 2.0):
 
         except Exception as e:
             last_error = e
-            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+            wait_time = retry_delay * (2**attempt)  # Exponential backoff
             logger.warning(
                 f"Database connection attempt {attempt + 1}/{max_retries} failed: {e}. "
                 f"Retrying in {wait_time:.1f}s..."
@@ -275,10 +278,19 @@ END $$""",
         "drop_after => 180::bigint * 86400000, if_not_exists => TRUE)",
         "error",
     ),
+    # widened 7d -> 90d for edge-search v2 (spec 2026-08-19 §2 A1; Phase C
+    # gate needs >=21 consecutive days of snapshots). add_retention_policy
+    # alone won't change an already-created policy's window, so this drops
+    # the existing policy (if any) and re-adds it at the new window in one
+    # atomic DO block, same convention as entry 4's PK reshape.
     (
-        "Retention policy (public.orderbook_snapshots, 7d)",
-        "SELECT add_retention_policy('public.orderbook_snapshots', "
-        "drop_after => 7::bigint * 86400000, if_not_exists => TRUE)",
+        "Retention policy (public.orderbook_snapshots, 90d)",
+        """DO $$
+BEGIN
+    PERFORM remove_retention_policy('public.orderbook_snapshots', if_exists => TRUE);
+    PERFORM add_retention_policy('public.orderbook_snapshots',
+        drop_after => 90::bigint * 86400000, if_not_exists => TRUE);
+END $$""",
         "error",
     ),
     # 10. Idempotent column-add migrations. SQLAlchemy's create_all() only
@@ -295,8 +307,113 @@ END $$""",
     ),
     (
         "Column migration (idx_klines_mainnet)",
-        "CREATE INDEX IF NOT EXISTS idx_klines_mainnet "
-        "ON public.klines (is_mainnet)",
+        "CREATE INDEX IF NOT EXISTS idx_klines_mainnet ON public.klines (is_mainnet)",
+        "warning",
+    ),
+    # 11. open_interest -> hypertable, via an ATOMIC PK reshape. Same
+    #     convention as entry 4 (orderbook_snapshots): the runtime PK name
+    #     resolution and the `hypertable_schema = 'public'` guard both apply
+    #     for the same reasons documented there (edge-search v2 A2).
+    (
+        "Hypertable (public.open_interest, atomic PK reshape)",
+        """DO $$
+DECLARE pk_name text;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM timescaledb_information.hypertables
+        WHERE hypertable_schema = 'public'
+          AND hypertable_name = 'open_interest'
+    ) THEN
+        SELECT conname INTO pk_name FROM pg_constraint
+        WHERE conrelid = 'public.open_interest'::regclass
+          AND contype = 'p';
+        IF pk_name IS NOT NULL THEN
+            EXECUTE format(
+                'ALTER TABLE public.open_interest DROP CONSTRAINT %I',
+                pk_name
+            );
+        END IF;
+        ALTER TABLE public.open_interest ADD PRIMARY KEY (id, "timestamp");
+        PERFORM create_hypertable('public.open_interest', 'timestamp',
+            chunk_time_interval => 86400000::bigint,
+            if_not_exists => TRUE, migrate_data => TRUE);
+    END IF;
+END $$""",
+        "error",
+    ),
+    (
+        "Integer-now registration (public.open_interest)",
+        "SELECT set_integer_now_func('public.open_interest', "
+        "'public.unix_now_ms', replace_if_exists => TRUE)",
+        "error",
+    ),
+    (
+        "Retention policy (open_interest, 730 days)",
+        "SELECT add_retention_policy('public.open_interest', "
+        "drop_after => (730::bigint * 24 * 3600 * 1000), if_not_exists => TRUE)",
+        "warning",
+    ),
+    # 12-14. Schema drift fixes (final review H-3). Fixed now, deliberately,
+    # while the table is small (~4.5k rows at review time) — the review noted
+    # the migration cost of deferring this grows linearly with every hour of
+    # collection, reaching ~4M rows by the 21-day Phase C gate.
+    #
+    # 12. snapshot_data varchar -> JSONB, atomic and idempotent. Guarded by an
+    #     information_schema check so re-running after the cast is a no-op;
+    #     the whole cast is one DO block so a bad row never leaves the column
+    #     half-converted.
+    (
+        "Column type migration (public.orderbook_snapshots.snapshot_data -> JSONB)",
+        """DO $$
+BEGIN
+    IF (
+        SELECT atttypid::regtype::text FROM pg_attribute
+        WHERE attrelid = 'public.orderbook_snapshots'::regclass
+          AND attname = 'snapshot_data'
+    ) IS DISTINCT FROM 'jsonb' THEN
+        ALTER TABLE public.orderbook_snapshots
+            ALTER COLUMN snapshot_data TYPE JSONB USING snapshot_data::jsonb;
+    END IF;
+END $$""",
+        "error",
+    ),
+    # 13. best_bid / best_ask top-of-book columns. Population happens in
+    #     OrderbookRepository, not here; this only converges the column set.
+    (
+        "Column migration (public.orderbook_snapshots.best_bid/best_ask)",
+        "ALTER TABLE public.orderbook_snapshots "
+        "ADD COLUMN IF NOT EXISTS best_bid NUMERIC(38, 8), "
+        "ADD COLUMN IF NOT EXISTS best_ask NUMERIC(38, 8)",
+        "warning",
+    ),
+    # 14. open_interest_value column. NULL for rows where Bybit's payload
+    #     omits it (see fetcher normalization).
+    (
+        "Column migration (public.open_interest.open_interest_value)",
+        "ALTER TABLE public.open_interest "
+        "ADD COLUMN IF NOT EXISTS open_interest_value NUMERIC(38, 8)",
+        "warning",
+    ),
+    # 15. Compression (final review M-5, non-blocking recommendation acted
+    #     on). At 14 symbols x ~5s cadence the table projects to ~23-29GB at
+    #     90-day retention of highly repetitive JSON; compression is the
+    #     other lever spec §9.3 names besides retention. segmentby symbol
+    #     keeps per-symbol scans efficient after compression; orderby
+    #     timestamp DESC matches the access pattern (most-recent-first).
+    #     "warning" level: an already-compressed table re-running this is a
+    #     legitimate no-op, not a convergence failure.
+    (
+        "Compression (public.orderbook_snapshots)",
+        "ALTER TABLE public.orderbook_snapshots SET ("
+        "timescaledb.compress, "
+        "timescaledb.compress_segmentby = 'symbol', "
+        "timescaledb.compress_orderby = 'timestamp DESC')",
+        "warning",
+    ),
+    (
+        "Compression policy (public.orderbook_snapshots, compress after 7d)",
+        "SELECT add_compression_policy('public.orderbook_snapshots', "
+        "compress_after => 604800000, if_not_exists => TRUE)",
         "warning",
     ),
 ]
@@ -344,10 +461,10 @@ async def create_hypertables():
 async def close_database():
     """Close database connections"""
     global _engine, _async_session_maker
-    
+
     if _engine:
         await _engine.dispose()
         logger.info("Database engine disposed")
-    
+
     _engine = None
     _async_session_maker = None

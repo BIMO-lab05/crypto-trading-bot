@@ -353,7 +353,7 @@ export function calculateReturnsDistribution(trades, bins = 20) {
  * Calculate performance metrics from trade history
  *
  * @param {Array} trades - Array of trade objects
- * @param {number} initialBalance - Starting balance used as the equity-curve baseline (paper default $100)
+ * @param {number} initialBalance - Starting balance used as the equity-curve baseline (defaults to PAPER_DEFAULT_BALANCE — $10,000 per ADR-029)
  * @returns {Object} Performance metrics
  */
 export function calculatePerformanceMetrics(trades, initialBalance = PAPER_DEFAULT_BALANCE) {

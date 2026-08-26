@@ -1,6 +1,8 @@
 """Declaration of record for account equity and risk caps.
 
-THE ACCOUNT IS $100 USDT.
+THE ACCOUNT IS $10,000 USDT (research scale — ADR-029; was $100 until
+2026-08-25). Bare account-size literals remain forbidden even when they
+happen to equal the declared value.
 
 Why this file exists
 --------------------
@@ -96,7 +98,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 DEFAULTS: dict[str, float] = {
     # env key                  # declared default   # unit
-    "PAPER_INITIAL_BALANCE": 100.0,  # USD
+    "PAPER_INITIAL_BALANCE": 10000.0,  # USD -- ADR-029, was 100.0
     "MAX_RISK_PER_TRADE": 0.10,  # fraction
     "MAX_DAILY_LOSS_PCT": 12.0,  # percent -- ADR-028, was 5.0
     "MAX_POSITION_SIZE_PCT": 10.0,  # percent
@@ -134,9 +136,10 @@ ACCOUNT_EQUITY_USD: float = PAPER_INITIAL_BALANCE
 # ---------------------------------------------------------------------------
 
 #: Per-trade cap as a FRACTION of balance (0.10 = 10%). config.py:321,
-#: `ge=0.001 le=0.5`. The 10% value is an ADR-010 workaround to clear Bybit's
-#: minimum notional on a $100 balance — it is NOT a strategy parameter and must
-#: be restored to `LIVE_MAX_RISK_PER_TRADE` before `TRADING_MODE=LIVE`.
+#: `ge=0.001 le=0.5`. The 10% value began as an ADR-010 workaround to clear
+#: Bybit's minimum notional on the old $100 balance; at $10,000 it is retained
+#: as a deliberate operator choice (ADR-029). It is NOT a strategy parameter
+#: and must be restored to `LIVE_MAX_RISK_PER_TRADE` before `TRADING_MODE=LIVE`.
 MAX_RISK_PER_TRADE: float = _env_float("MAX_RISK_PER_TRADE")
 
 #: Hard per-trade cap in LIVE mode, FRACTION. Non-negotiable per CLAUDE.md.
@@ -164,8 +167,8 @@ MIN_NOTIONAL_USD: float = _env_float("MIN_NOTIONAL_USD")
 TAKER_FEE_PER_SIDE: float = _env_float("TAKER_FEE_PER_SIDE")
 
 #: Bybit maker fee per side, FRACTION. A CHARGE, not a rebate — Bybit pays
-#: maker rebates only at market-maker / high-VIP tiers a $100 account cannot
-#: reach. `backtesting/backtest_engine.py:140` declares -0.0001 "maker rebate";
+#: maker rebates only at market-maker / high-VIP tiers a retail-sized account
+#: cannot reach. `backtesting/backtest_engine.py:140` declares -0.0001 "maker rebate";
 #: combined with that file classifying stop/TP exits as maker, it made every
 #: backtested stop-out CREDIT the account. This value follows
 #: `services/trading-engine/app/config.py:176`.
@@ -197,15 +200,13 @@ def max_position_size_fraction() -> float:
 # ---------------------------------------------------------------------------
 
 
-def risk_budget_usd(
-    equity: float | Decimal | None = None, *, live: bool = False
-) -> Decimal:
+def risk_budget_usd(equity: float | Decimal | None = None, *, live: bool = False) -> Decimal:
     """USD at risk on a single trade, given the active per-trade cap.
 
-    >>> risk_budget_usd()          # paper, $100 account, 10% cap
-    Decimal('10.00')
-    >>> risk_budget_usd(live=True)  # LIVE, $100 account, 2% cap
-    Decimal('2.00')
+    >>> risk_budget_usd()          # paper, $10,000 account, 10% cap
+    Decimal('1000.00')
+    >>> risk_budget_usd(live=True)  # LIVE, $10,000 account, 2% cap
+    Decimal('200.00')
     """
     eq = Decimal(str(PAPER_INITIAL_BALANCE if equity is None else equity))
     cap = Decimal(str(LIVE_MAX_RISK_PER_TRADE if live else MAX_RISK_PER_TRADE))
@@ -224,8 +225,7 @@ def assert_capital_is_sane() -> None:
     """
     if PAPER_INITIAL_BALANCE < 100.0:
         raise ValueError(
-            f"PAPER_INITIAL_BALANCE={PAPER_INITIAL_BALANCE} violates config.py "
-            "Field(ge=100.0)"
+            f"PAPER_INITIAL_BALANCE={PAPER_INITIAL_BALANCE} violates config.py Field(ge=100.0)"
         )
     if not (0.001 <= MAX_RISK_PER_TRADE <= 0.5):
         raise ValueError(
@@ -262,12 +262,11 @@ def capital_config_warnings() -> list[str]:
             f"MAX_DAILY_LOSS_PCT={MAX_DAILY_LOSS_PCT}% "
             f"(={max_daily_loss_fraction()} as a fraction). A single losing "
             "trade can trip the daily circuit breaker, so the breaker is not "
-            "really a breaker. This is the direct consequence of the ADR-010 "
-            "relaxation to 10% to clear Bybit min-notional on a $100 account — "
-            "the two rules were never reconciled. Resolve by raising equity, "
-            "lowering the per-trade cap, or widening the daily cap deliberately "
-            "and recording the decision as an ADR. DEFERRED: recovery-plan "
-            "step 5, operator decision."
+            "really a breaker. Historically this came from the ADR-010 "
+            "relaxation to 10% (min-notional on the old $100 account); the "
+            "caps are reconciled by ADR-028/ADR-029. Resolve any new conflict "
+            "by lowering the per-trade cap or widening the daily cap "
+            "deliberately and recording the decision as an ADR."
         )
 
     budget = risk_budget_usd()

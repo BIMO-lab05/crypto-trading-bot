@@ -59,7 +59,7 @@ async def initialize_stat_arb_manager(
 
     Args:
         total_capital: Total capital for statistical arbitrage. Defaults to the
-            configured paper-trading balance (PAPER_INITIAL_BALANCE, $100).
+            configured paper-trading balance (PAPER_INITIAL_BALANCE).
         pairs_allocation: Allocation for pairs trading (0-1)
         funding_allocation: Allocation for funding rate arbitrage (0-1)
         triangular_allocation: Allocation for triangular arbitrage (0-1)

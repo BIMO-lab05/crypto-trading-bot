@@ -28,6 +28,10 @@ from app.strategies.funding_rate_arbitrage import (
     FundingRateArbitrageStrategy,
     FundingRateSignal,
 )
+from app.config import get_settings
+
+# Account-size fixture routed through Settings (ADR-029) - never a bare literal.
+PORTFOLIO_VALUE = float(get_settings().paper_initial_balance)
 
 
 class TestFundingRateArbitrageStrategy:
@@ -119,17 +123,16 @@ class TestFundingRateArbitrageStrategy:
 
         spot_price = 50000.0
         futures_price = 50500.0
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         spot_size, futures_size = strategy._calculate_position_sizes(
             spot_price, futures_price, portfolio_value
         )
 
-        # 20% of 10,000 = 2,000 per side
-        # Spot: 2,000 / 50,000 = 0.04 BTC
-        # Futures: 2,000 / 50,500 ≈ 0.0396 BTC
-        assert spot_size == pytest.approx(0.04, rel=0.01)
-        assert futures_size == pytest.approx(0.0396, rel=0.01)
+        # Each side gets position_size_pct of the portfolio, converted to units.
+        expected_per_side = strategy.position_size_pct * portfolio_value
+        assert spot_size == pytest.approx(expected_per_side / spot_price, rel=0.01)
+        assert futures_size == pytest.approx(expected_per_side / futures_price, rel=0.01)
 
     def test_record_funding_payment(self):
         """Test funding payment recording"""
@@ -174,7 +177,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = 0.0005  # 0.05% > minimum
         spot_price = 50000.0
         futures_price = 50200.0  # 0.4% basis < 2% max
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -202,7 +205,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = -0.0004  # -0.04%
         spot_price = 50000.0
         futures_price = 49800.0  # Negative basis
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -226,7 +229,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = 0.0001  # 0.01% < 0.03% minimum
         spot_price = 50000.0
         futures_price = 50100.0
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -256,7 +259,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = 0.00005  # 0.005% < 0.01% threshold
         spot_price = 50000.0
         futures_price = 50100.0
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -286,7 +289,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = 0.0004  # Still good
         spot_price = 50000.0
         futures_price = 51200.0  # 2.4% basis > 2% max
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -320,7 +323,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = -0.0002  # Negative (reversal case)
         spot_price = 50000.0
         futures_price = 50100.0
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -350,7 +353,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = 0.0004  # Still above threshold
         spot_price = 50000.0
         futures_price = 50300.0  # 0.6% basis - acceptable
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -375,7 +378,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = 0.015  # 1.5% > 1% max
         spot_price = 50000.0
         futures_price = 50100.0
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -403,7 +406,7 @@ class TestFundingRateArbitrageStrategy:
         current_funding_rate = 0.02  # 2% > 1% max (danger zone)
         spot_price = 50000.0
         futures_price = 50100.0
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         signal = strategy.generate_signal(
             current_funding_rate,
@@ -484,7 +487,7 @@ class TestFundingRateArbitrageIntegration:
             max_basis_pct=2.0
         )
 
-        portfolio_value = 10000.0
+        portfolio_value = PORTFOLIO_VALUE
 
         # Step 1: Open hedge
         signal1 = strategy.generate_signal(
@@ -547,7 +550,7 @@ class TestFundingRateArbitrageIntegration:
                 current_funding_rate=0.0004,  # Still attractive
                 spot_price=spot,
                 futures_price=futures,
-                portfolio_value=10000.0
+                portfolio_value=PORTFOLIO_VALUE
             )
 
             basis_pct = ((futures - spot) / spot) * 100
@@ -585,7 +588,7 @@ class TestFundingRateArbitrageIntegration:
                 current_funding_rate=rate,
                 spot_price=50000.0,
                 futures_price=50200.0,
-                portfolio_value=10000.0
+                portfolio_value=PORTFOLIO_VALUE
             )
 
             if rate < strategy.funding_collection_threshold:

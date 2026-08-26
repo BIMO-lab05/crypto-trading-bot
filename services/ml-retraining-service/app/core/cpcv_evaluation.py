@@ -95,6 +95,8 @@ def _nan_dict(dataset_name: str) -> Dict[str, float]:
         f"{dataset_name}_cpcv_n_paths": 0,
         f"{dataset_name}_cpcv_oos_sharpe": float("nan"),
         f"{dataset_name}_cpcv_n_samples": 0,
+        f"{dataset_name}_cpcv_dsr": float("nan"),
+        f"{dataset_name}_cpcv_num_trials_used": 0,
     }
 
 
@@ -125,6 +127,16 @@ def evaluate_with_cpcv(
         stats, OOS Sharpe, n_samples). On any failure (too few valid bars,
         zero-variance returns, ValueError from CPCV constructor) returns
         a NaN-sentinel dict — the trainer must not abort.
+
+        Two DSR variants are emitted (SEV-5 fix 2026-08):
+
+        - ``{dataset_name}_dsr`` — legacy: num_trials = number of *valid*
+          (non-degenerate) CPCV paths.
+        - ``{dataset_name}_cpcv_dsr`` — decision-of-record honest N:
+          num_trials = max(valid paths, total CPCV path count, e.g. 45 at
+          the pinned 10/2). Equal to ``dsr`` when every path is valid;
+          strictly more deflated when degenerate paths were dropped.
+          ``{dataset_name}_cpcv_num_trials_used`` reports the N used.
 
     Note:
         Per the design doc §6, paths share training data so per-path
@@ -198,8 +210,24 @@ def evaluate_with_cpcv(
         out[f"{dataset_name}_cpcv_oos_sharpe"] = oos_sharpe
 
     if len(arr) >= 2:
+        # Legacy DSR: num_trials defaults to the valid-path count. No
+        # config knob exists for a num_trials floor in this service's
+        # settings, so the default is kept deliberately (noted per the
+        # 2026-08 decision of record; the honest-N variant is below).
         dsr = cpcv_to_dsr(returns_per_path, strategy_returns)
         if not math.isnan(dsr):
             out[f"{dataset_name}_dsr"] = dsr
+
+        # SEV-5: honest-N DSR. Decision of record: N = max(trial-ledger
+        # effective count, total CPCV path count). This service has no
+        # trial ledger, so N = max(valid paths, cv.n_paths). Components
+        # (n_paths valid, num_trials_used) are reported alongside.
+        num_trials_used = max(len(arr), cv.n_paths)
+        cpcv_dsr = cpcv_to_dsr(
+            returns_per_path, strategy_returns, num_trials=num_trials_used
+        )
+        out[f"{dataset_name}_cpcv_num_trials_used"] = int(num_trials_used)
+        if not math.isnan(cpcv_dsr):
+            out[f"{dataset_name}_cpcv_dsr"] = cpcv_dsr
 
     return out

@@ -11,6 +11,8 @@ from typing import List, Dict, Optional
 from decimal import Decimal
 from datetime import datetime, timedelta
 
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: F401
+
 
 def generate_bullish_candles(
     start_price: float = 100.0,
@@ -207,7 +209,7 @@ def generate_trade_data(
 
 
 def generate_portfolio_data(
-    balance: float = 10000.0,
+    balance: float = ACCOUNT_EQUITY_USD,
     positions: Optional[List[Dict]] = None
 ) -> Dict:
     """

@@ -17,18 +17,15 @@ Date: 2025-12-12
 """
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from threading import RLock
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from collections import defaultdict
-import statistics
-import math
 
 from app.orchestration.models import (
     StrategyState,
-    StrategyStatus,
-    StrategyAllocation,
+    default_total_capital,
 )
 
 # Configure logging
@@ -39,6 +36,7 @@ logger = logging.getLogger(__name__)
 # RISK COORDINATOR CONFIGURATION
 # =============================================================================
 
+
 @dataclass
 class RiskCoordinatorConfig:
     """
@@ -46,6 +44,7 @@ class RiskCoordinatorConfig:
 
     Controls portfolio-wide and per-strategy risk limits.
     """
+
     # Portfolio-level limits
     max_total_exposure_pct: float = 80.0  # Max 80% of capital deployed
     max_total_drawdown_pct: float = 15.0  # Emergency stop at 15% drawdown
@@ -96,11 +95,13 @@ class RiskCoordinatorConfig:
 # RISK UTILIZATION TRACKING
 # =============================================================================
 
+
 @dataclass
 class RiskUtilization:
     """
     Current risk utilization metrics
     """
+
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Portfolio level
@@ -146,11 +147,13 @@ class RiskUtilization:
 # RISK CHECK RESULT
 # =============================================================================
 
+
 @dataclass
 class RiskCheckResult:
     """
     Result of a risk check for a proposed action
     """
+
     allowed: bool
     reason: str = ""
     warnings: List[str] = field(default_factory=list)
@@ -170,6 +173,7 @@ class RiskCheckResult:
 # =============================================================================
 # RISK COORDINATOR
 # =============================================================================
+
 
 class RiskCoordinator:
     """
@@ -237,14 +241,16 @@ class RiskCoordinator:
         self.config = config or RiskCoordinatorConfig()
         self._lock = RLock()
 
-        # Portfolio state
-        self._total_capital: float = 100000.0
-        self._current_equity: float = 100000.0
-        self._peak_equity: float = 100000.0
-        self._today_starting_equity: float = 100000.0
+        # Portfolio state — seeded from the declared account size, updated live
+        self._total_capital: float = default_total_capital()
+        self._current_equity: float = self._total_capital
+        self._peak_equity: float = self._total_capital
+        self._today_starting_equity: float = self._total_capital
 
         # Position tracking
-        self._positions: Dict[str, Dict[str, float]] = defaultdict(dict)  # strategy -> symbol -> size_pct
+        self._positions: Dict[str, Dict[str, float]] = defaultdict(
+            dict
+        )  # strategy -> symbol -> size_pct
         self._total_positions: int = 0
         self._total_exposure_pct: float = 0.0
 
@@ -317,23 +323,31 @@ class RiskCoordinator:
             # Calculate daily loss
             daily_loss_pct = 0.0
             if self._today_starting_equity > 0:
-                daily_loss_pct = (self._today_starting_equity - current_equity) / self._today_starting_equity * 100
+                daily_loss_pct = (
+                    (self._today_starting_equity - current_equity)
+                    / self._today_starting_equity
+                    * 100
+                )
 
             result = {
                 "current_equity": current_equity,
                 "drawdown_pct": drawdown_pct,
                 "daily_loss_pct": daily_loss_pct,
-                "actions": []
+                "actions": [],
             }
 
             # Check for emergency stop triggers
             if self.config.emergency_stop_enabled:
                 if drawdown_pct >= self.config.emergency_stop_drawdown_pct:
-                    self._trigger_emergency_stop(f"Drawdown {drawdown_pct:.1f}% exceeds emergency limit")
+                    self._trigger_emergency_stop(
+                        f"Drawdown {drawdown_pct:.1f}% exceeds emergency limit"
+                    )
                     result["actions"].append("emergency_stop_triggered")
 
                 if daily_loss_pct >= self.config.emergency_stop_daily_loss_pct:
-                    self._trigger_emergency_stop(f"Daily loss {daily_loss_pct:.1f}% exceeds emergency limit")
+                    self._trigger_emergency_stop(
+                        f"Daily loss {daily_loss_pct:.1f}% exceeds emergency limit"
+                    )
                     result["actions"].append("emergency_stop_triggered")
 
             return result
@@ -352,11 +366,7 @@ class RiskCoordinator:
     # =========================================================================
 
     def check_new_trade(
-        self,
-        strategy_id: str,
-        symbol: str,
-        size_pct: float,
-        risk_pct: float = 0.0
+        self, strategy_id: str, symbol: str, size_pct: float, risk_pct: float = 0.0
     ) -> RiskCheckResult:
         """
         Check if a new trade is allowed based on risk limits
@@ -378,7 +388,7 @@ class RiskCoordinator:
                 return RiskCheckResult(
                     allowed=False,
                     reason=f"Emergency stop active: {self._emergency_stop_reason}",
-                    warnings=warnings
+                    warnings=warnings,
                 )
 
             # Check total exposure
@@ -389,7 +399,9 @@ class RiskCoordinator:
                         allowed=False,
                         reason=f"Would exceed max exposure ({new_total_exposure:.1f}% > {self.config.max_total_exposure_pct}%)",
                         warnings=warnings,
-                        adjusted_size_pct=max(0, self.config.max_total_exposure_pct - self._total_exposure_pct)
+                        adjusted_size_pct=max(
+                            0, self.config.max_total_exposure_pct - self._total_exposure_pct
+                        ),
                     )
                 else:
                     warnings.append(f"Approaching exposure limit ({new_total_exposure:.1f}%)")
@@ -400,7 +412,7 @@ class RiskCoordinator:
                 return RiskCheckResult(
                     allowed=False,
                     reason=f"Would exceed max positions ({new_position_count} > {self.config.max_concurrent_positions})",
-                    warnings=warnings
+                    warnings=warnings,
                 )
 
             # Check strategy position limit
@@ -409,7 +421,7 @@ class RiskCoordinator:
                 return RiskCheckResult(
                     allowed=False,
                     reason=f"Strategy {strategy_id} at position limit ({strategy_positions})",
-                    warnings=warnings
+                    warnings=warnings,
                 )
 
             # Check strategy drawdown
@@ -418,7 +430,7 @@ class RiskCoordinator:
                 return RiskCheckResult(
                     allowed=False,
                     reason=f"Strategy {strategy_id} at drawdown limit ({strategy_dd:.1f}%)",
-                    warnings=warnings
+                    warnings=warnings,
                 )
 
             # Check strategy daily loss
@@ -427,7 +439,7 @@ class RiskCoordinator:
                 return RiskCheckResult(
                     allowed=False,
                     reason=f"Strategy {strategy_id} at daily loss limit ({strategy_daily_loss:.1f}%)",
-                    warnings=warnings
+                    warnings=warnings,
                 )
 
             # Check risk budget
@@ -437,7 +449,7 @@ class RiskCoordinator:
                     return RiskCheckResult(
                         allowed=False,
                         reason=f"Would exceed total risk budget ({new_risk_used:.1f}% > {self.config.total_risk_budget_pct}%)",
-                        warnings=warnings
+                        warnings=warnings,
                     )
 
                 strategy_risk_used = self._strategy_risk_used[strategy_id] + risk_pct
@@ -445,17 +457,21 @@ class RiskCoordinator:
                     return RiskCheckResult(
                         allowed=False,
                         reason=f"Strategy risk budget exceeded ({strategy_risk_used:.1f}%)",
-                        warnings=warnings
+                        warnings=warnings,
                     )
 
                 if risk_pct > self.config.max_single_trade_risk_pct:
-                    warnings.append(f"Trade risk ({risk_pct:.1f}%) exceeds recommended max ({self.config.max_single_trade_risk_pct}%)")
+                    warnings.append(
+                        f"Trade risk ({risk_pct:.1f}%) exceeds recommended max ({self.config.max_single_trade_risk_pct}%)"
+                    )
 
             # Check correlation limits
             correlation_penalty = self._check_correlation_limits(strategy_id)
             adjusted_size = None
             if correlation_penalty > 0:
-                warnings.append(f"High correlation with existing strategies (penalty: {correlation_penalty:.0%})")
+                warnings.append(
+                    f"High correlation with existing strategies (penalty: {correlation_penalty:.0%})"
+                )
                 adjusted_size = size_pct * (1 - correlation_penalty)
 
             # Check if in recovery
@@ -474,7 +490,7 @@ class RiskCoordinator:
                 reason="Trade allowed",
                 warnings=warnings,
                 adjusted_size_pct=adjusted_size,
-                current_utilization=utilization
+                current_utilization=utilization,
             )
 
     def _check_correlation_limits(self, strategy_id: str) -> float:
@@ -525,11 +541,7 @@ class RiskCoordinator:
     # =========================================================================
 
     def update_position(
-        self,
-        strategy_id: str,
-        symbol: str,
-        size_pct: float,
-        risk_pct: float = 0.0
+        self, strategy_id: str, symbol: str, size_pct: float, risk_pct: float = 0.0
     ) -> None:
         """
         Update position tracking after trade
@@ -550,7 +562,7 @@ class RiskCoordinator:
                 if old_size == 0:
                     self._total_positions += 1
 
-                self._total_exposure_pct += (size_pct - old_size)
+                self._total_exposure_pct += size_pct - old_size
 
                 # Update risk tracking
                 if risk_pct > 0:
@@ -600,10 +612,7 @@ class RiskCoordinator:
                 self._positions.clear()
                 self._total_exposure_pct = 0.0
 
-            return {
-                "positions_closed": len(closed),
-                "details": closed
-            }
+            return {"positions_closed": len(closed), "details": closed}
 
     # =========================================================================
     # EMERGENCY CONTROLS
@@ -628,7 +637,7 @@ class RiskCoordinator:
                 return {
                     "success": True,
                     "message": "Already in emergency stop",
-                    "reason": self._emergency_stop_reason
+                    "reason": self._emergency_stop_reason,
                 }
 
             self._is_emergency_stopped = True
@@ -636,13 +645,15 @@ class RiskCoordinator:
             self._emergency_stop_reason = reason
 
             # Log event
-            self._risk_events.append({
-                "type": "emergency_stop",
-                "reason": reason,
-                "timestamp": self._emergency_stop_time.isoformat(),
-                "drawdown_pct": self._get_current_drawdown(),
-                "positions_open": self._total_positions
-            })
+            self._risk_events.append(
+                {
+                    "type": "emergency_stop",
+                    "reason": reason,
+                    "timestamp": self._emergency_stop_time.isoformat(),
+                    "drawdown_pct": self._get_current_drawdown(),
+                    "positions_open": self._total_positions,
+                }
+            )
 
             logger.critical(f"EMERGENCY STOP TRIGGERED: {reason}")
 
@@ -650,7 +661,7 @@ class RiskCoordinator:
                 "success": True,
                 "message": "Emergency stop activated",
                 "reason": reason,
-                "timestamp": self._emergency_stop_time.isoformat()
+                "timestamp": self._emergency_stop_time.isoformat(),
             }
 
     def release_emergency_stop(self, start_recovery: bool = True) -> Dict[str, Any]:
@@ -665,15 +676,14 @@ class RiskCoordinator:
         """
         with self._lock:
             if not self._is_emergency_stopped:
-                return {
-                    "success": False,
-                    "message": "No emergency stop active"
-                }
+                return {"success": False, "message": "No emergency stop active"}
 
             self._is_emergency_stopped = False
             stop_duration = None
             if self._emergency_stop_time:
-                stop_duration = (datetime.now(timezone.utc) - self._emergency_stop_time).total_seconds() / 3600
+                stop_duration = (
+                    datetime.now(timezone.utc) - self._emergency_stop_time
+                ).total_seconds() / 3600
 
             if start_recovery:
                 self._in_recovery = True
@@ -681,12 +691,14 @@ class RiskCoordinator:
                 self._recovery_step = 0
 
             # Log event
-            self._risk_events.append({
-                "type": "emergency_stop_released",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "duration_hours": stop_duration,
-                "recovery_started": start_recovery
-            })
+            self._risk_events.append(
+                {
+                    "type": "emergency_stop_released",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "duration_hours": stop_duration,
+                    "recovery_started": start_recovery,
+                }
+            )
 
             logger.info(f"Emergency stop released after {stop_duration:.1f} hours")
 
@@ -694,7 +706,7 @@ class RiskCoordinator:
                 "success": True,
                 "message": "Emergency stop released",
                 "duration_hours": stop_duration,
-                "recovery_mode": start_recovery
+                "recovery_mode": start_recovery,
             }
 
     def is_emergency_stopped(self) -> bool:
@@ -719,21 +731,33 @@ class RiskCoordinator:
         is_at_limit = False
 
         # Check exposure limit
-        exposure_limit_pct = (self._total_exposure_pct / self.config.max_total_exposure_pct * 100) if self.config.max_total_exposure_pct > 0 else 0
+        exposure_limit_pct = (
+            (self._total_exposure_pct / self.config.max_total_exposure_pct * 100)
+            if self.config.max_total_exposure_pct > 0
+            else 0
+        )
         if exposure_limit_pct >= 90:
             warnings.append(f"Exposure at {exposure_limit_pct:.0f}% of limit")
             if exposure_limit_pct >= 100:
                 is_at_limit = True
 
         # Check drawdown limit
-        drawdown_limit_pct = (drawdown / self.config.max_total_drawdown_pct * 100) if self.config.max_total_drawdown_pct > 0 else 0
+        drawdown_limit_pct = (
+            (drawdown / self.config.max_total_drawdown_pct * 100)
+            if self.config.max_total_drawdown_pct > 0
+            else 0
+        )
         if drawdown_limit_pct >= 75:
             warnings.append(f"Drawdown at {drawdown_limit_pct:.0f}% of limit")
             if drawdown_limit_pct >= 100:
                 is_at_limit = True
 
         # Check position limit
-        position_limit_pct = (self._total_positions / self.config.max_concurrent_positions * 100) if self.config.max_concurrent_positions > 0 else 0
+        position_limit_pct = (
+            (self._total_positions / self.config.max_concurrent_positions * 100)
+            if self.config.max_concurrent_positions > 0
+            else 0
+        )
         if position_limit_pct >= 80:
             warnings.append(f"Positions at {position_limit_pct:.0f}% of limit")
             if position_limit_pct >= 100:
@@ -756,7 +780,7 @@ class RiskCoordinator:
             drawdown_limit_pct=drawdown_limit_pct,
             position_limit_pct=position_limit_pct,
             warnings=warnings,
-            is_at_limit=is_at_limit
+            is_at_limit=is_at_limit,
         )
 
     def _get_current_drawdown(self) -> float:
@@ -769,7 +793,12 @@ class RiskCoordinator:
         """Get current daily loss percentage"""
         if self._today_starting_equity <= 0:
             return 0.0
-        return max(0, (self._today_starting_equity - self._current_equity) / self._today_starting_equity * 100)
+        return max(
+            0,
+            (self._today_starting_equity - self._current_equity)
+            / self._today_starting_equity
+            * 100,
+        )
 
     # =========================================================================
     # CORRELATION MANAGEMENT
@@ -792,19 +821,23 @@ class RiskCoordinator:
                 correlated_count = 0
                 correlated_with = []
 
-                for s2 in active_strategies[i+1:]:
-                    if s1 in self._correlation_matrix and s2 in self._correlation_matrix.get(s1, {}):
+                for s2 in active_strategies[i + 1 :]:
+                    if s1 in self._correlation_matrix and s2 in self._correlation_matrix.get(
+                        s1, {}
+                    ):
                         corr = self._correlation_matrix[s1][s2]
                         if corr >= self.config.max_correlation:
                             correlated_count += 1
                             correlated_with.append((s2, corr))
 
                 if correlated_count > 0:
-                    violations.append({
-                        "strategy": s1,
-                        "correlated_count": correlated_count,
-                        "correlated_with": correlated_with
-                    })
+                    violations.append(
+                        {
+                            "strategy": s1,
+                            "correlated_count": correlated_count,
+                            "correlated_with": correlated_with,
+                        }
+                    )
 
             return violations
 
@@ -833,7 +866,8 @@ class RiskCoordinator:
                 "daily_loss_pct": self._strategy_daily_loss.get(strategy_id, 0.0),
                 "risk_used_pct": self._strategy_risk_used.get(strategy_id, 0.0),
                 "at_position_limit": len(positions) >= self.config.max_strategy_positions,
-                "at_drawdown_limit": self._strategy_drawdowns.get(strategy_id, 0.0) >= self.config.max_strategy_drawdown_pct,
+                "at_drawdown_limit": self._strategy_drawdowns.get(strategy_id, 0.0)
+                >= self.config.max_strategy_drawdown_pct,
             }
 
     # =========================================================================
@@ -850,7 +884,9 @@ class RiskCoordinator:
                 "current_equity": self._current_equity,
                 "peak_equity": self._peak_equity,
                 "is_emergency_stopped": self._is_emergency_stopped,
-                "emergency_stop_reason": self._emergency_stop_reason if self._is_emergency_stopped else None,
+                "emergency_stop_reason": self._emergency_stop_reason
+                if self._is_emergency_stopped
+                else None,
                 "in_recovery": self._in_recovery,
                 "recovery_factor": self._get_recovery_factor() if self._in_recovery else 1.0,
                 "utilization": utilization.to_dict(),
@@ -871,9 +907,7 @@ class RiskCoordinator:
 _risk_coordinator: Optional[RiskCoordinator] = None
 
 
-def get_risk_coordinator(
-    config: Optional[RiskCoordinatorConfig] = None
-) -> RiskCoordinator:
+def get_risk_coordinator(config: Optional[RiskCoordinatorConfig] = None) -> RiskCoordinator:
     """Get or create global risk coordinator instance"""
     global _risk_coordinator
     if _risk_coordinator is None:

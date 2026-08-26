@@ -17,7 +17,7 @@ Specifically verifies:
 """
 
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import httpx
@@ -37,6 +37,7 @@ from app.exchanges import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _wrap(result: dict) -> dict:
     """Mimic the bybit-connector success envelope."""
@@ -58,6 +59,7 @@ def adapter() -> BybitExchangeAdapter:
 # Adapter URL contract
 # ---------------------------------------------------------------------------
 
+
 class TestBybitAdapterURLContract:
     """Every adapter call must hit a path the connector actually serves."""
 
@@ -69,13 +71,19 @@ class TestBybitAdapterURLContract:
             captured["url"] = url
             response = MagicMock(spec=httpx.Response)
             response.status_code = 200
-            response.json.return_value = _wrap({"list": [{
-                "totalEquity": "100",
-                "availableBalance": "100",
-                "totalPositionIM": "0",
-                "totalPerpUPL": "0",
-                "coin": [],
-            }]})
+            response.json.return_value = _wrap(
+                {
+                    "list": [
+                        {
+                            "totalEquity": "100",
+                            "availableBalance": "100",
+                            "totalPositionIM": "0",
+                            "totalPerpUPL": "0",
+                            "coin": [],
+                        }
+                    ]
+                }
+            )
             return response
 
         adapter._client = MagicMock()
@@ -111,10 +119,12 @@ class TestBybitAdapterURLContract:
             captured["method"] = method
             response = MagicMock(spec=httpx.Response)
             response.status_code = 200
-            response.json.return_value = _wrap({
-                "orderId": "abc123",
-                "orderLinkId": "link-1",
-            })
+            response.json.return_value = _wrap(
+                {
+                    "orderId": "abc123",
+                    "orderLinkId": "link-1",
+                }
+            )
             return response
 
         adapter._client = MagicMock()
@@ -162,10 +172,16 @@ class TestBybitAdapterURLContract:
             captured["url"] = url
             response = MagicMock(spec=httpx.Response)
             response.status_code = 200
-            response.json.return_value = _wrap({"list": [{
-                "symbol": "SOLUSDT",
-                "lastPrice": "150",
-            }]})
+            response.json.return_value = _wrap(
+                {
+                    "list": [
+                        {
+                            "symbol": "SOLUSDT",
+                            "lastPrice": "150",
+                        }
+                    ]
+                }
+            )
             return response
 
         adapter._client = MagicMock()
@@ -198,6 +214,7 @@ class TestBybitAdapterURLContract:
 # Live trading engine envelope contract
 # ---------------------------------------------------------------------------
 
+
 class TestLiveTradingResponseEnvelope:
     """`LiveTradingEngine` must read connector's ``{"success", "data"}`` shape."""
 
@@ -214,10 +231,14 @@ class TestLiveTradingResponseEnvelope:
 
         # Stub risk + position managers — they're orthogonal to the response shape.
         engine.risk_manager = MagicMock()
-        engine.risk_manager.can_open_position.return_value = True
+        engine.risk_manager.check_position_limits.return_value = (True, None)
         engine.risk_manager.calculate_stop_loss.return_value = Decimal("145")
         engine.risk_manager.calculate_take_profit.return_value = Decimal("160")
         engine.position_manager = MagicMock()
+        engine.position_manager.get_open_positions.return_value = []
+        # get_balance awaits self.client.get(...); stub it directly so the
+        # balance fetch never touches the (sync) MagicMock client.
+        engine.get_balance = AsyncMock(return_value=Decimal("100"))
         engine.position_manager.create_position.return_value = MagicMock(id=uuid4())
 
         # The connector returns the wrapped envelope.
@@ -256,8 +277,12 @@ class TestLiveTradingResponseEnvelope:
         engine.client.post = AsyncMock()
 
         engine.risk_manager = MagicMock()
-        engine.risk_manager.can_open_position.return_value = True
+        engine.risk_manager.check_position_limits.return_value = (True, None)
         engine.position_manager = MagicMock()
+        engine.position_manager.get_open_positions.return_value = []
+        # get_balance awaits self.client.get(...); stub it directly so the
+        # balance fetch never touches the (sync) MagicMock client.
+        engine.get_balance = AsyncMock(return_value=Decimal("100"))
 
         response = MagicMock()
         response.raise_for_status = MagicMock()
@@ -278,3 +303,42 @@ class TestLiveTradingResponseEnvelope:
 
         assert executed is None
         assert error == "Insufficient balance"
+
+    @pytest.mark.asyncio
+    async def test_execute_market_order_missing_success_key_fails_closed(self):
+        """A malformed envelope (no "success" key at all) must be rejected,
+        not silently treated as a fill. The guard is `if not payload.get(
+        "success")` with NO default — `.get("success", True)` would fail
+        OPEN on `{}` and produce a phantom FILLED order."""
+        from app.live_trading import LiveTradingEngine
+        from app.models import OrderCreate, OrderSide as MOrderSide, OrderType as MOrderType
+
+        engine = LiveTradingEngine.__new__(LiveTradingEngine)
+        engine.bybit_url = "http://test-connector"
+        engine.client = MagicMock()
+        engine.client.post = AsyncMock()
+
+        engine.risk_manager = MagicMock()
+        engine.risk_manager.check_position_limits.return_value = (True, None)
+        engine.position_manager = MagicMock()
+        engine.position_manager.get_open_positions.return_value = []
+        # get_balance awaits self.client.get(...); stub it directly so the
+        # balance fetch never touches the (sync) MagicMock client.
+        engine.get_balance = AsyncMock(return_value=Decimal("100"))
+
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {}
+        engine.client.post.return_value = response
+
+        order = OrderCreate(
+            symbol="SOLUSDT",
+            side=MOrderSide.BUY,
+            type=MOrderType.MARKET,
+            quantity=Decimal("0.5"),
+        )
+
+        executed, error = await engine.execute_market_order(order, current_price=Decimal("150"))
+
+        assert executed is None
+        assert error, f"Expected a truthy error message, got {error!r}"

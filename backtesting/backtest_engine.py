@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 import logging
 
@@ -24,10 +24,14 @@ import logging
 # service and no Dockerfile copies it, so unlike code under `services/*/app/**`
 # it MAY import the declaration of record directly. See `shared/account.py`.
 #
-# 2026-08-03: this engine defaulted to $10,000 and was MISSED by the capital
-# audit, which caught `simulators/` but not the engine that actually produces
-# the walk-forward evidence. Every result in `*_FINAL_RESULTS.log` (Dec 2025)
-# was therefore computed on a 100x account.
+# 2026-08-03: this engine had a hardcoded $10,000 default and was MISSED by
+# the capital audit, which caught `simulators/` but not the engine that
+# actually produces the walk-forward evidence — wrong at the time, when the
+# declared account was $100 (results in `*_FINAL_RESULTS.log`, Dec 2025, were
+# computed on 100x the then-declared size). Capital has been routed through
+# `shared/account.py` since. ADR-029 later set the declared size to $10,000
+# again — the literal is accidentally back in agreement, but the routing is
+# the fix, not the number: never reintroduce an account-size literal here.
 # ---------------------------------------------------------------------------
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _REPO_ROOT not in sys.path:
@@ -41,7 +45,9 @@ from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402,F401
 # Fee defaults come from the one cost model (services/trading-engine/app/
 # costs.py) rather than hand-copied literals: the copies drifted — this file
 # shipped `bybit_maker_fee = -0.0001` ("maker rebate"), but Bybit pays maker
-# rebates only at MM/high-VIP tiers a $100 account cannot reach. Maker is a
+# rebates only at MM/high-VIP tiers no retail account this size can reach —
+# true at the historical $100 declaration and equally true at the ADR-029
+# $10,000 one. Maker is a
 # +2bp CHARGE. Top-level import first (killtests put backtesting/ on sys.path);
 # package fallback for `from backtesting.backtest_engine import ...` callers.
 try:
@@ -199,7 +205,9 @@ class BacktestEngine:
         self.equity_curve = [initial_capital]
         self.trades: List[Trade] = []
         self.current_position: Optional[Position] = None
-        self._bar_count = 0  # for 8h funding cadence
+        self._bar_count = 0
+        self._pending_signal: Optional[Dict] = None  # invariant A: fill at next open
+        self._last_funding_time: Optional[datetime] = None
 
         logger.info(
             f"BacktestEngine initialized with ${initial_capital:,.2f} "
@@ -228,20 +236,34 @@ class BacktestEngine:
         return self.slippage
 
     def _apply_funding(self, current_price: float, current_time: datetime) -> None:
-        """Deduct funding cost on open long every 8h (8 hourly bars)."""
+        """Settle funding every 8 elapsed HOURS on any open position.
+
+        Gap-audit fixes (audit/FINDINGS-GAP.md #2/#3): the old version
+        charged longs only — shorts were simulated funding-free — and its
+        cadence counted 8 *bars*, which is 8h only on hourly data. With a
+        positive rate (funding_long_pays=True) longs pay and shorts RECEIVE;
+        funding_long_pays=False inverts both. Cadence is wall-clock time
+        since the last settlement, so 4h/daily data settles correctly.
+        """
         if not self.funding_enabled or not self.current_position:
             return
-        if self._bar_count == 0 or self._bar_count % 8 != 0:
+        if self._last_funding_time is None:
+            self._last_funding_time = current_time
             return
-        if self.current_position.order_type == OrderType.BUY and self.funding_long_pays:
-            position_value = self.current_position.position_size * current_price
-            funding_cost = position_value * self.funding_rate_per_8h
-            self.capital -= funding_cost
-            logger.debug(
-                f"funding deducted: ${funding_cost:.4f} on long "
-                f"(rate={self.funding_rate_per_8h * 100:.4f}%/8h, "
-                f"value=${position_value:.2f}) at {current_time}"
-            )
+        if current_time - self._last_funding_time < timedelta(hours=8):
+            return
+        self._last_funding_time = current_time
+        position_value = self.current_position.position_size * current_price
+        funding_amount = position_value * self.funding_rate_per_8h
+        is_long = self.current_position.order_type == OrderType.BUY
+        pays = is_long == self.funding_long_pays
+        self.capital += -funding_amount if pays else funding_amount
+        logger.debug(
+            f"funding {'paid' if pays else 'received'}: ${funding_amount:.4f} on "
+            f"{'long' if is_long else 'short'} "
+            f"(rate={self.funding_rate_per_8h * 100:.4f}%/8h, "
+            f"value=${position_value:.2f}) at {current_time}"
+        )
 
     def reset(self):
         """Reset backtest state"""
@@ -249,6 +271,9 @@ class BacktestEngine:
         self.equity_curve = [self.initial_capital]
         self.trades = []
         self.current_position = None
+        self._bar_count = 0
+        self._pending_signal = None
+        self._last_funding_time = None
 
     def run_backtest(
         self, data: pd.DataFrame, strategy_func, strategy_name: str = "Unknown Strategy"
@@ -269,9 +294,7 @@ class BacktestEngine:
         if isinstance(data.index[0], (pd.Timestamp, datetime)):
             logger.info(f"Data range: {data.index[0]} to {data.index[-1]}")
         elif "timestamp" in data.columns:
-            logger.info(
-                f"Data range: {data.iloc[0]['timestamp']} to {data.iloc[-1]['timestamp']}"
-            )
+            logger.info(f"Data range: {data.iloc[0]['timestamp']} to {data.iloc[-1]['timestamp']}")
         logger.info(f"Total candles: {len(data)}")
 
         self.reset()
@@ -288,6 +311,15 @@ class BacktestEngine:
             else:
                 current_time = datetime.now()  # Fallback
 
+            # Invariant A (gap audit 2026-08-19): a signal derived from bar
+            # t's close fills no earlier than bar t+1's open. Execute the
+            # previous bar's signal here, at this bar's open, before anything
+            # else happens on this bar.
+            if self._pending_signal is not None:
+                fill_price = float(row["open"]) if "open" in row else current_price
+                self._execute_signal(self._pending_signal, fill_price, current_time, row)
+                self._pending_signal = None
+
             # Apply funding before exit checks so a long that flipped past
             # an 8h boundary pays funding before stop-loss / take-profit
             # decides whether to close on this bar.
@@ -297,15 +329,21 @@ class BacktestEngine:
             if self.current_position:
                 exit_reason = self._check_exit_conditions(row, current_time)
                 if exit_reason:
-                    self._close_position(current_price, current_time, exit_reason)
+                    self._close_position(
+                        current_price,
+                        current_time,
+                        exit_reason,
+                        bar_open=float(row["open"]) if "open" in row else None,
+                    )
 
             # Get strategy signal - pass row_position (int) instead of idx (which may be Timestamp)
             signal = strategy_func(row, self.current_position, row_position, data)
             row_position += 1  # Increment position counter
 
-            # Execute signal
+            # Defer execution to the next bar's open (invariant A). A signal
+            # on the final bar is dropped — it could never have been filled.
             if signal:
-                self._execute_signal(signal, current_price, current_time, row)
+                self._pending_signal = signal
 
             # Update equity curve
             current_equity = self._calculate_equity(current_price)
@@ -335,9 +373,7 @@ class BacktestEngine:
 
         return result
 
-    def _check_exit_conditions(
-        self, row: pd.Series, current_time: datetime
-    ) -> Optional[str]:
+    def _check_exit_conditions(self, row: pd.Series, current_time: datetime) -> Optional[str]:
         """Check if stop loss or take profit is hit"""
         if not self.current_position:
             return None
@@ -347,39 +383,25 @@ class BacktestEngine:
 
         if self.current_position.order_type == OrderType.BUY:
             # Check stop loss (below entry)
-            if (
-                self.current_position.stop_loss
-                and low <= self.current_position.stop_loss
-            ):
+            if self.current_position.stop_loss and low <= self.current_position.stop_loss:
                 return "stop_loss"
 
             # Check take profit (above entry)
-            if (
-                self.current_position.take_profit
-                and high >= self.current_position.take_profit
-            ):
+            if self.current_position.take_profit and high >= self.current_position.take_profit:
                 return "take_profit"
 
         elif self.current_position.order_type == OrderType.SELL:
             # Check stop loss (above entry)
-            if (
-                self.current_position.stop_loss
-                and high >= self.current_position.stop_loss
-            ):
+            if self.current_position.stop_loss and high >= self.current_position.stop_loss:
                 return "stop_loss"
 
             # Check take profit (below entry)
-            if (
-                self.current_position.take_profit
-                and low <= self.current_position.take_profit
-            ):
+            if self.current_position.take_profit and low <= self.current_position.take_profit:
                 return "take_profit"
 
         return None
 
-    def _execute_signal(
-        self, signal: Dict, price: float, time: datetime, row: pd.Series
-    ):
+    def _execute_signal(self, signal: Dict, price: float, time: datetime, row: pd.Series):
         """Execute a trading signal"""
         action = signal.get("action")
 
@@ -393,9 +415,7 @@ class BacktestEngine:
             # Close position on HOLD signal
             self._close_position(price, time, "signal")
 
-    def _open_position(
-        self, order_type: OrderType, price: float, time: datetime, signal: Dict
-    ):
+    def _open_position(self, order_type: OrderType, price: float, time: datetime, signal: Dict):
         """Open a new position"""
         # Calculate position size
         risk_amount = self.capital * self.position_size_pct
@@ -453,14 +473,32 @@ class BacktestEngine:
             f"Opened {order_type.value} position at ${entry_price:.2f}, size: {position_size:.4f}"
         )
 
-    def _close_position(self, price: float, time: datetime, reason: str):
-        """Close current position"""
+    def _close_position(
+        self,
+        price: float,
+        time: datetime,
+        reason: str,
+        bar_open: Optional[float] = None,
+    ):
+        """Close current position.
+
+        bar_open, when provided, lets a stop-loss exit model a gap: if the
+        bar OPENED beyond the stop level, a real conditional stop triggers
+        at (or past) the open, not at the level the price never traded at.
+        Take-profit keeps level semantics (a resting limit fills at its
+        price or better). Gap-audit MEDIUM defect, audit/FINDINGS-GAP.md #4.
+        """
         if not self.current_position:
             return
 
         # Determine exit price based on reason
         if reason == "stop_loss":
             exit_price = self.current_position.stop_loss
+            if bar_open is not None:
+                if self.current_position.order_type == OrderType.BUY and bar_open < exit_price:
+                    exit_price = bar_open
+                elif self.current_position.order_type == OrderType.SELL and bar_open > exit_price:
+                    exit_price = bar_open
         elif reason == "take_profit":
             exit_price = self.current_position.take_profit
         else:
@@ -500,8 +538,7 @@ class BacktestEngine:
 
         # Calculate profit/loss percentage
         profit_loss_pct = (
-            profit_loss
-            / (self.current_position.entry_price * self.current_position.position_size)
+            profit_loss / (self.current_position.entry_price * self.current_position.position_size)
         ) * 100
 
         # Create trade record
@@ -546,9 +583,7 @@ class BacktestEngine:
 
         return equity
 
-    def _calculate_results(
-        self, strategy_name: str, data: pd.DataFrame
-    ) -> BacktestResult:
+    def _calculate_results(self, strategy_name: str, data: pd.DataFrame) -> BacktestResult:
         """Calculate backtest performance metrics"""
         if not self.trades:
             logger.warning("No trades executed during backtest")
@@ -593,21 +628,11 @@ class BacktestEngine:
 
         # P&L metrics
         total_pl = sum(t.profit_loss for t in self.trades)
-        total_pl_pct = (
-            (self.capital - self.initial_capital) / self.initial_capital
-        ) * 100
+        total_pl_pct = ((self.capital - self.initial_capital) / self.initial_capital) * 100
         avg_profit = total_pl / total_trades if total_trades > 0 else 0
 
-        avg_win = (
-            sum(t.profit_loss for t in winning_trades) / num_winning
-            if num_winning > 0
-            else 0
-        )
-        avg_loss = (
-            sum(t.profit_loss for t in losing_trades) / num_losing
-            if num_losing > 0
-            else 0
-        )
+        avg_win = sum(t.profit_loss for t in winning_trades) / num_winning if num_winning > 0 else 0
+        avg_loss = sum(t.profit_loss for t in losing_trades) / num_losing if num_losing > 0 else 0
 
         best_trade = max(t.profit_loss for t in self.trades) if self.trades else 0
         worst_trade = min(t.profit_loss for t in self.trades) if self.trades else 0
@@ -622,9 +647,7 @@ class BacktestEngine:
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
 
         # Trade duration
-        durations = [
-            (t.exit_time - t.entry_time).total_seconds() / 3600 for t in self.trades
-        ]
+        durations = [(t.exit_time - t.entry_time).total_seconds() / 3600 for t in self.trades]
         avg_duration = sum(durations) / len(durations) if durations else 0
 
         return BacktestResult(

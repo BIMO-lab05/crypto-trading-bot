@@ -20,11 +20,11 @@ A claim is verified only with **all four** of:
 
 ## Specific traps in this repo
 
-- **Zero-collection green.** `docker exec crypto-bot-trading pytest tests/` currently collects **0 tests** behind 4 fatal collection errors and can read as success. Always report the *collected* count, not just pass/fail.
+- **Zero-collection green.** Trading-engine is a HOST-test service — the image ships no `tests/` directory at all, so `docker exec crypto-bot-trading pytest tests/` errors out (`file or directory not found`); run from `services/trading-engine/` on the host with `--no-cov` instead (api-gateway is the in-container one). Either way, always report the *collected* count, not just pass/fail — a suite that collected 0 tests can read as success.
 - **Host vs container fastapi.** api-gateway tests must run via `docker exec crypto-bot-api-gateway pytest`. Host fastapi 0.136 returns 401 where the pinned 0.109 returns 403; tests assert 403, so host runs show fake failures.
 - **`.dockerignore` erasing evidence.** `services/trading-engine/.dockerignore` excludes `tests/standalone/`, so a rebuild deletes the accounting harness the last verification relied on.
 - **Testnet-polluted candles.** TimescaleDB holds mixed testnet/mainnet history before 2026-04-25. Any result computed over that range is invalid — check the date window before believing a backtest.
-- **Wrong capital.** If a reported result was produced at a hardcoded 10000 rather than `ACCOUNT_EQUITY_USD = 100`, it does not verify anything about this account. Flag it and require a re-run.
+- **Literal-driven capital.** Any result produced from a hardcoded balance literal does not verify anything about this account — even when the literal happens to equal the declared size (10000 per ADR-029, 2026-08-25). Provenance must trace to `shared/account.py` → `ACCOUNT_EQUITY_USD` (host) or the service's own `Settings` (container); a matching literal is unrouted and goes stale on the next flip. Flag it and require a re-run against declared config. Figures dated before 2026-08-25 were produced against a $100 account (and pre-2026-08-03 against $10k, frictionless) — neither describes the current configuration.
 - **Report vs log disagreement.** Prior sessions have produced summary reports that contradicted their own logs (`cowork_run/STATUS.txt` vs the report). When a report and a raw log disagree, the raw log wins.
 
 ## Output

@@ -578,7 +578,7 @@ class MomentumBreakoutStrategy:
             return 1.0
 
         current_volume = df["volume"].iloc[-1]
-        return round(current_volume / avg_volume, 2)
+        return round(current_volume / avg_volume, 2)  # non-price-round
 
     # =========================================================================
     # SQUEEZE AND CONSOLIDATION DETECTION
@@ -1061,7 +1061,10 @@ class MomentumBreakoutStrategy:
             entry_price, atr, direction, take_profit
         )
 
-        return round(stop_loss, 2), round(take_profit, 2), partial_exits
+        # Trigger compared against market price, closed at market — no exchange
+        # tick precision at this layer. round(price, 2) collapsed adjacent
+        # ladder rungs onto one trigger at ADA scale (PRICE-01).
+        return stop_loss, take_profit, partial_exits
 
     def _calculate_partial_exits(
         self,
@@ -1103,7 +1106,7 @@ class MomentumBreakoutStrategy:
         )
         partial_exits.append(
             PartialExitLevel(
-                price=round(tp1_price, 2),
+                price=tp1_price,
                 exit_percent=0.30,
                 atr_multiple=2.5,
                 label="TP1",
@@ -1117,7 +1120,7 @@ class MomentumBreakoutStrategy:
         )
         partial_exits.append(
             PartialExitLevel(
-                price=round(tp2_price, 2),
+                price=tp2_price,
                 exit_percent=0.40,
                 atr_multiple=3.75,
                 label="TP2",
@@ -1127,7 +1130,7 @@ class MomentumBreakoutStrategy:
         # TP3: 30% at final target
         partial_exits.append(
             PartialExitLevel(
-                price=round(final_target, 2),
+                price=final_target,
                 exit_percent=0.30,
                 atr_multiple=abs(total_distance) / atr,
                 label="TP3",
@@ -1187,7 +1190,7 @@ class MomentumBreakoutStrategy:
             f"conf_mult={confidence_multiplier:.2f}, final={final_position:.4f}"
         )
 
-        return round(final_position, 4)
+        return round(final_position, 4)  # non-price-round
 
     def _classify_signal_strength(
         self, confidence: float, indicators_aligned: int

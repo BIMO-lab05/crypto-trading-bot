@@ -9,6 +9,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "services" / "trading-engine"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 from app.backtesting.strategy_base import OHLCV
 from app.strategies.grid_trading_strategy import GridTradingStrategy
@@ -59,7 +61,7 @@ def test_grid_strategy():
     print(f"Grid: 10 levels, ±10%, fixed spacing\n")
 
     signals_generated = 0
-    equity = 10000.0
+    equity = ACCOUNT_EQUITY_USD
 
     # Simulate trading
     for i, bar in enumerate(bars):

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
         default="http://bybit-connector:8001", description="Bybit Connector Service URL"
     )
     portfolio_manager_url: str = Field(
-        default="http://localhost:8006", description="Portfolio Manager Service URL"
+        default="http://localhost:8003", description="Portfolio Manager Service URL"
     )
 
     # Phase 3 ML/AI Service URLs
@@ -216,16 +216,12 @@ class Settings(BaseSettings):
     trading_mode: Literal["PAPER", "LIVE"] = Field(
         default="PAPER", description="Trading mode: PAPER or LIVE"
     )
-    auto_trading_enabled: bool = Field(
-        default=False, description="Enable automatic trading"
-    )
+    auto_trading_enabled: bool = Field(default=False, description="Enable automatic trading")
     emergency_stop_file: str = Field(
         default="/app/EMERGENCY_STOP",
         description="Path to file-based kill switch. If file exists, auto-trader refuses to start and halts the loop.",
     )
-    default_strategy: str = Field(
-        default="consensus", description="Default trading strategy"
-    )
+    default_strategy: str = Field(default="consensus", description="Default trading strategy")
     default_symbol: str = Field(default="BTCUSDT", description="Default trading symbol")
     # Blank env value maps to this default via _BlankTolerantEnvSource above;
     # non-blank values are JSON-decoded normally and still face
@@ -300,9 +296,7 @@ class Settings(BaseSettings):
         "Focus capital on proven winners. Updated 2026-01-19 based on 30d/90d backtests.",
     )
 
-    default_interval: str = Field(
-        default="60", description="Default candlestick interval"
-    )
+    default_interval: str = Field(default="60", description="Default candlestick interval")
 
     # Strategy Mode - STANDARD for more trading opportunities (2026-02-24)
     # Options: standard, research, hybrid, grid_trading
@@ -310,6 +304,82 @@ class Settings(BaseSettings):
     strategy_mode: str = Field(
         default="standard",
         description="Trading strategy mode: standard (more active), research, hybrid (dual confirmation), or grid_trading",
+    )
+
+    # Regime routing threshold (2026-08-21). Previously hardcoded at
+    # HybridStrategyRouter.__init__ as `self.ADX_TRENDING_THRESHOLD = 25.0`,
+    # which the dashboard advertised as the routing rule while the router
+    # itself was never invoked (docs/PIPELINE_MAP.md §0). Lifted to config so
+    # the value the UI claims and the value the code applies are the same
+    # object, and so Phase-3 recalibration can move it without a code edit.
+    #
+    # 25.0 is the conventional Wilder ADX trend threshold and matches
+    # technical-analysis `default_adx_trending_threshold`. Do NOT diverge the
+    # two without recording why — the TA service classifies the regime string
+    # the confidence-modifier path consumes, this one classifies the routing
+    # branch, and a split would make the tile disagree with the engine.
+    adx_trending_threshold: float = Field(
+        default=25.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "ADX at or above which the strategy router classifies TRENDING "
+            "(trend-following branch); below it, RANGING (mean-reversion "
+            "branch). Mirrors technical-analysis default_adx_trending_threshold."
+        ),
+    )
+
+    # Strategy routing mode (2026-08-21).
+    #   advisory  — the router classifies the regime and records the branch it
+    #               WOULD have taken on every evaluation, but execution is
+    #               unchanged (the configured strategy_mode still decides).
+    #   off       — no routing observation at all.
+    # `executing` is NOT a value here: a router that actually selects the
+    # sub-strategy is what STRATEGY_MODE=hybrid already does, and promoting
+    # the observer to an executor is a strategy change that must go through
+    # replay evidence, not a flag. See docs/PIPELINE_MAP.md §6.
+    # Gatekeeper (counter-trend trend-filter) knobs — 2026-08-21.
+    # Previously bare literals in TrendGatekeeper.check_signal, and the class
+    # docstring claimed 0.9 while the code applied 0.95. Lifted to config so
+    # the funnel can report "observed trend_confidence vs the threshold that
+    # rejected it" against a value that actually exists, and so Phase-3
+    # recalibration does not require a code edit.
+    #
+    # Reachability note before changing this: TREND_FILTER confidence is
+    # min(abs(ema50_ema200_spread_pct) / 0.05, 1.0), so 0.95 needs a 4.75%
+    # EMA50/EMA200 spread. The block branch is close to unreachable in
+    # practice — the penalty branch is what actually fires.
+    gatekeeper_block_threshold: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "TREND_FILTER confidence at or above which a counter-trend signal "
+            "is blocked outright rather than penalised."
+        ),
+    )
+    gatekeeper_block_penalty: float = Field(
+        default=0.30,
+        gt=0.0,
+        le=1.0,
+        description="Confidence multiplier applied to a blocked counter-trend signal.",
+    )
+    gatekeeper_counter_trend_penalty: float = Field(
+        default=0.95,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Confidence multiplier applied to a counter-trend signal that is "
+            "penalised but not blocked."
+        ),
+    )
+
+    strategy_routing_mode: str = Field(
+        default="advisory",
+        description=(
+            "advisory: record the regime branch the router would pick on every "
+            "evaluation without changing execution. off: disable observation."
+        ),
     )
 
     # Trade Frequency Settings - ADJUSTED for 11 symbols (2026-01-07)
@@ -342,8 +412,8 @@ class Settings(BaseSettings):
         le=50.0,
         description=(
             "Maximum position size as % of capital. "
-            "Bumped 2026-05-06 from 5% to 10% to align with per-trade "
-            "10% target on $100 paper balance."
+            "Bumped 2026-05-06 from 5% to 10% to align with the per-trade "
+            "10% target; retained at the $10,000 balance per ADR-029."
         ),
     )
     max_risk_per_trade: float = Field(
@@ -354,8 +424,9 @@ class Settings(BaseSettings):
             "Maximum per-trade notional cap as a fraction of balance "
             "(0.10 = 10%). Stored as fraction, not percent — distinct from "
             "the neighboring *_pct fields. Reads MAX_RISK_PER_TRADE env. "
-            "Bumped 2026-05-06 from 0.02 to 0.10 per operator request: "
-            "$100 paper balance × 10% = $10/trade for meaningful test sizing."
+            "Bumped 2026-05-06 from 0.02 to 0.10 (then a $100 min-notional "
+            "workaround); retained at $10,000 as deliberate operator choice "
+            "per ADR-029 — 10% = $1,000/trade. Restore 0.02 before LIVE."
         ),
     )
     # Ensemble sizing cascade (2026-05-07) — see ADR-015.
@@ -365,8 +436,9 @@ class Settings(BaseSettings):
     # where cap = max_risk_per_trade.
     # Default multiplier 3.7 chosen so confidence ≈ 0.27 (the documented
     # ensemble ceiling per ADR-013 — 7 voting legs × typical conf 0.16-0.50)
-    # produces a trade at the cap. Default min 0.05 ensures a single fired
-    # trade is meaningful at $100 balance ($5 not $1).
+    # produces a trade at the cap. Default min 0.05 originally ensured a fired
+    # trade cleared min-notional on the old $100 balance; retained at $10,000
+    # per ADR-029 (floor = $500/trade).
     ensemble_min_position_pct: float = Field(
         default=0.05,
         ge=0.0,
@@ -523,11 +595,23 @@ class Settings(BaseSettings):
         le=5.0,
         description="SHORT stop loss: 1.5% (tighter than LONG's 2.0%)",
     )
+    # short_min_confidence history: shipped 2026-01-19 at 0.70 claiming "higher
+    # than LONG's 0.65" — but the live LONG floor is min_signal_confidence=0.30,
+    # and the 3-leg ensemble's structural SELL ceiling is ~0.60 (leg SELL caps:
+    # simple_rsi 0.80, mean_reversion 1.00, aggregator observed 0; weights
+    # frozen at 1/3 each), so 0.70 was mathematically unreachable — 379 of 623
+    # SELL signals died at this gate in one run, all-time max recorded ensemble
+    # confidence 0.3804. Lowered to 0.35 on 2026-08-20.
     short_min_confidence: float = Field(
-        default=0.70,  # HIGHER: 70% vs 65% for LONG (higher bar)
-        ge=0.5,
+        default=0.35,
+        ge=0.0,
         le=1.0,
-        description="SHORT minimum confidence: 70% (higher than LONG's 65%)",
+        description=(
+            "SHORT minimum confidence: 0.35 — modestly above the LONG floor "
+            "(min_signal_confidence=0.30) to demand extra conviction for "
+            "shorts, below the ~0.60 structural ensemble SELL ceiling so the "
+            "gate is reachable."
+        ),
     )
     # DELETED 2026-08-12 (audit finding 6): short_max_position_pct and the six
     # circuit_breaker_* fields were declared 2026-01-19 and read by no code in
@@ -555,9 +639,9 @@ class Settings(BaseSettings):
 
     # Paper Trading
     paper_initial_balance: float = Field(
-        default=100.0,
+        default=10000.0,
         ge=100.0,
-        description="Initial balance for paper trading (matches portfolio-manager initial_capital and risk-budget base_equity)",
+        description="Initial balance for paper trading (ADR-029, was 100.0; matches portfolio-manager initial_capital and risk-budget base_equity)",
     )
     paper_commission_pct: float = Field(
         default=0.055,
@@ -591,6 +675,18 @@ class Settings(BaseSettings):
         default=10.0,
         ge=0.0,
         description="Slippage in bps for symbols absent from the per-symbol table",
+    )
+
+    # Paper funding (PAPER-02). ON by default: a position held across an 8h
+    # Bybit settlement pays or receives funding on the real venue, and omitting
+    # it overstates P&L for longs in positive-funding regimes. Fetch failure
+    # fails open to zero and LOGS that the leg is gross of funding - silence
+    # must never become an assumed rate (costs.py:257-260).
+    paper_funding_enabled: bool = Field(
+        default=True,
+        description=(
+            "Charge/credit perp funding on paper closes for each settlement crossed during the hold"
+        ),
     )
 
     # =========================================================================
@@ -732,6 +828,36 @@ class Settings(BaseSettings):
             logger.warning(
                 f"Allocations defined for symbols not in trading_symbols: {extra_symbols}. "
                 f"These allocations will be ignored."
+            )
+
+    def warn_if_short_gate_unreachable(self) -> None:
+        """Boot-time sanity check (log-only, never aborts startup).
+
+        Under DEFAULT 1/3 leg weights the 3-leg ensemble's structural SELL
+        confidence ceiling is ~0.60 (leg SELL caps: simple_rsi 0.80,
+        mean_reversion 1.00, aggregator observed 0). Adaptive weights can
+        raise that ceiling, so a floor >= 0.60 is flagged as unreachable
+        under default weights rather than impossible outright. A floor at
+        or below the general min_signal_confidence is inert - the general
+        floor rejects first.
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+        if self.short_min_confidence >= 0.60:
+            logger.warning(
+                f"short_min_confidence={self.short_min_confidence:.2f} >= 0.60 - "
+                f"under default 1/3 ensemble weights, SELL ceiling ~0.60, so "
+                f"SHORT entries cannot pass the ensemble gate (adaptive "
+                f"weights can raise the ceiling). Lower it below 0.60 for "
+                f"shorts to fire under default weights."
+            )
+        elif self.short_min_confidence <= self.min_signal_confidence:
+            logger.warning(
+                f"short_min_confidence={self.short_min_confidence:.2f} <= "
+                f"min_signal_confidence={self.min_signal_confidence:.2f} - "
+                f"SHORT-specific floor is inert; the general floor rejects "
+                f"first."
             )
 
     @property

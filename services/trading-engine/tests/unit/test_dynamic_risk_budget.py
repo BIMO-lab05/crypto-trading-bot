@@ -57,6 +57,14 @@ from app.risk.dynamic_risk_budget import (
     reset_risk_budget_manager,
 )
 
+from app.config import get_settings
+
+#: Declared paper equity, routed through Settings (ADR-029). `RiskBudgetConfig`
+#: resolves its `base_equity` default from the same source (the old
+#: RISK_BUDGET_INITIAL env channel was removed), so the default-value test
+#: below asserts against this rather than a bare account-size literal.
+_DECLARED_EQUITY_USD = float(get_settings().paper_initial_balance)
+
 
 # ==============================================================================
 # FIXTURES
@@ -122,7 +130,9 @@ class TestRiskBudgetConfig:
         """Test default configuration values"""
         config = RiskBudgetConfig()
 
-        assert config.base_equity == 100000.0
+        # base_equity defaults via `_default_base_equity()` -> Settings
+        # (paper_initial_balance); the RISK_BUDGET_INITIAL env override is gone.
+        assert config.base_equity == _DECLARED_EQUITY_USD
         assert config.base_risk_pct == 2.0
         assert config.max_risk_pct == 2.5
         assert config.min_risk_pct == 0.5
@@ -910,7 +920,9 @@ class TestEdgeCases:
 
     def test_small_equity_budget(self):
         """Test with small equity values"""
-        config = RiskBudgetConfig(base_equity=100.0)  # $100 account
+        # pinned small-account scenario: keeps the small-equity budget math
+        # covered; NOT the declared account size.
+        config = RiskBudgetConfig(base_equity=100.0)
         manager = DynamicRiskBudget(config=config)
 
         result = manager.calculate_risk_budget()

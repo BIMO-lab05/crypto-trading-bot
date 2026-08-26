@@ -16,6 +16,7 @@ import logging
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 from backtesting.backtest_engine import BacktestEngine
 from backtesting.optimizers.walk_forward_optimizer import WalkForwardOptimizer
@@ -85,7 +86,7 @@ def test_symbol_walkforward(symbol: str):
     logger.info(f"Data: {len(data)} candles from {data.index[0]} to {data.index[-1]}")
 
     # Initialize backtest engine
-    engine = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
+    engine = BacktestEngine(initial_capital=ACCOUNT_EQUITY_USD, commission=0.001, slippage=0.0005)
 
     # Create strategy
     strategy = create_simple_rsi_strategy()

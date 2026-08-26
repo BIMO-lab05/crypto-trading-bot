@@ -21,6 +21,8 @@ from typing import Dict, List
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services', 'trading-engine'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 from app.strategies.grid_trading_strategy import (
     GridTradingStrategy,
@@ -90,7 +92,7 @@ def run_grid_v1_backtest(
     # Create backtest engine
     engine = BacktestEngine(
         strategy=strategy,
-        initial_capital=10000.0,
+        initial_capital=ACCOUNT_EQUITY_USD,
         commission=0.001,  # 0.1% commission
         slippage=0.0005,   # 0.05% slippage
     )

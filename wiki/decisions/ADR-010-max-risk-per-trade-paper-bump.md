@@ -6,10 +6,13 @@ context: "$100 paper balance + 2% cap = $2/trade — too small for meaningful pa
 deciders: [operator]
 tags: [decision, adr, risk, paper-trading]
 created: 2026-05-06
-updated: 2026-07-29
+updated: 2026-08-25
 ---
 
 # ADR-010: max_risk_per_trade bumped 0.02 → 0.10 for paper-trading sizing
+
+> [!warning] Rationale superseded by [[ADR-029-account-size-10k-research-scale|ADR-029]] (2026-08-25)
+> This ADR's justification — clearing Bybit's ~$5 minimum notional on a $100 account — is obsolete: the declared paper account is now $10,000 (research scale). The **10% per-trade cap itself REMAINS in force**, now as a deliberate operator choice at $10,000 ($1,000/trade). The LIVE 2% floor guard is likewise unchanged. Body text below is the historical record at $100 — do not update its figures.
 
 ## Context
 

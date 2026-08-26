@@ -51,12 +51,19 @@ SURVIVORSHIP_CAVEAT = (
     "biases results optimistic by an unmeasured amount."
 )
 
-TRIALS_CAVEAT = (
-    f"num_trials floor = {NUM_TRIALS_FLOOR}: 8 battery variants + 8 historical "
-    "strategy families. DSR is deflated against that floor, not against the "
-    "CPCV path count, which would understate the search space actually spent "
-    "on this repo."
-)
+
+def trials_caveat(effective_floor: int, num_trials_used: int) -> str:
+    return (
+        f"num_trials floor = {effective_floor}: this is the ledger-derived "
+        f"effective floor — max(NUM_TRIALS_FLOOR={NUM_TRIALS_FLOOR}, "
+        "distinct trials already spent), where NUM_TRIALS_FLOOR is the "
+        "static 8 battery variants + 8 historical strategy families "
+        "composition, not the number shown here. DSR is deflated at "
+        f"num_trials = max(effective_floor, n_paths) = {num_trials_used} for "
+        "this run — the floor binds only when it exceeds the CPCV path "
+        "count, not unconditionally."
+    )
+
 
 # Obligation carried forward from the Task 3-11 reviews: these qualify every
 # verdict in the battery, so every doc carries all of them, each tagged with
@@ -176,8 +183,51 @@ def _funding_missing(variants: Sequence[Mapping]) -> list[str]:
     return sorted(missing)
 
 
-def _caveats(variants: Sequence[Mapping]) -> list[str]:
-    lines = [SURVIVORSHIP_CAVEAT, TRIALS_CAVEAT]
+def _num_trials_used(variants: Sequence[Mapping], num_trials_floor: int) -> int:
+    used = [
+        v.get("num_trials_used")
+        for v in variants
+        if v.get("num_trials_used") is not None
+    ]
+    return max(used) if used else num_trials_floor
+
+
+def _max_n_paths(variants: Sequence[Mapping]) -> int | None:
+    vals = [
+        v.get("n_paths_valid")
+        for v in variants
+        if v.get("n_paths_valid") is not None
+    ]
+    return max(vals) if vals else None
+
+
+def _trials_line(
+    variants: Sequence[Mapping],
+    num_trials_floor: int,
+    ledger_count: int | None,
+) -> str:
+    """The num_trials components, stated separately (decision of record
+    2026-08-20): ledger_count (distinct trials in the ledger incl. this
+    run's new variants), n_paths (variance-valid CPCV paths, max across
+    variants in this doc), and num_trials_used = max(floor, n_paths). The
+    floor itself is max(static NUM_TRIALS_FLOOR, ledger_count)."""
+    n_paths = _max_n_paths(variants)
+    used = _num_trials_used(variants, num_trials_floor)
+    lc = "n/a" if ledger_count is None else str(ledger_count)
+    np_str = "n/a" if n_paths is None else str(n_paths)
+    return (
+        f"- trials accounting: ledger_count={lc}, n_paths={np_str}, "
+        f"num_trials_used={used}, num_trials_floor={num_trials_floor} "
+        f"(num_trials = max(floor, n_paths); floor = "
+        f"max(NUM_TRIALS_FLOOR={NUM_TRIALS_FLOOR}, ledger_count))"
+    )
+
+
+def _caveats(variants: Sequence[Mapping], num_trials_floor: int) -> list[str]:
+    lines = [
+        SURVIVORSHIP_CAVEAT,
+        trials_caveat(num_trials_floor, _num_trials_used(variants, num_trials_floor)),
+    ]
     missing = _funding_missing(variants)
     if missing:
         lines.append(
@@ -233,6 +283,8 @@ def render_verdict(
     universe_pin: Mapping,
     sanity_summary: str,
     date_str: str,
+    num_trials_floor: int,
+    ledger_count: int | None = None,
 ) -> str:
     """Killtest-style markdown for one candidate."""
     verdict = overall_verdict(variants)
@@ -246,7 +298,7 @@ def render_verdict(
         "transcribed):** Gate 1 "
         f"gross edge ≥ {HURDLE_MULTIPLE}× the taker round-trip cost; "
         f"Gate 2 DSR ≥ {DSR_THRESHOLD} deflated at a num_trials floor of "
-        f"{NUM_TRIALS_FLOOR}, pooled profit factor > 1.0, and positive net "
+        f"{num_trials_floor}, pooled profit factor > 1.0, and positive net "
         f"expectancy in ≥ {MIN_POSITIVE_PATH_FRAC:.0%} of CPCV paths. A "
         "variant must clear both gates; the candidate passes if any variant "
         "does.",
@@ -254,6 +306,7 @@ def render_verdict(
         f"- date: {date_str}",
         _pin_line(universe_pin),
         f"- variants scored: {len(scored)}",
+        _trials_line(scored, num_trials_floor, ledger_count),
         "",
         "## Variants",
         "",
@@ -281,7 +334,7 @@ def render_verdict(
             "",
         ]
     )
-    lines.extend(f"- {c}" for c in _caveats(variants))
+    lines.extend(f"- {c}" for c in _caveats(variants, num_trials_floor))
 
     errors = [v["error"] for v in variants if _is_error(v)]
     if errors:
@@ -305,6 +358,8 @@ def render_summary(
     universe_pin: Mapping,
     sanity_summary: str,
     date_str: str,
+    num_trials_floor: int,
+    ledger_count: int | None = None,
 ) -> str:
     """One line per candidate + the Gate 0 table, written after all four."""
     lines = [
@@ -312,6 +367,11 @@ def render_summary(
         "",
         _pin_line(universe_pin),
         f"- candidates run: {len(results)}",
+        _trials_line(
+            [v for res in results.values() for v in res.get("variants", ())],
+            num_trials_floor,
+            ledger_count,
+        ),
         "",
         "## Verdicts",
         "",
@@ -345,7 +405,7 @@ def render_summary(
         ]
     )
     all_variants = [v for res in results.values() for v in res.get("variants", ())]
-    lines.extend(f"- {c}" for c in _caveats(all_variants))
+    lines.extend(f"- {c}" for c in _caveats(all_variants, num_trials_floor))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -389,6 +449,8 @@ def write_verdict_json(
     universe_pin: Mapping,
     date_str: str,
     out_dir: Path,
+    num_trials_floor: int,
+    ledger_count: int | None = None,
 ) -> Path:
     """Machine-readable companion to the markdown verdict."""
     out_dir = Path(out_dir)
@@ -404,11 +466,24 @@ def write_verdict_json(
                 "hurdle_multiple": HURDLE_MULTIPLE,
                 "dsr": DSR_THRESHOLD,
                 "min_positive_path_frac": MIN_POSITIVE_PATH_FRAC,
-                "num_trials_floor": NUM_TRIALS_FLOOR,
+                "num_trials_floor": num_trials_floor,
                 "total_cpcv_paths": TOTAL_CPCV_PATHS,
             },
+            # Decision of record 2026-08-20: the num_trials components are
+            # reported separately so a reader can audit which side of
+            # max(floor, n_paths) bound. ledger_count is the distinct
+            # (candidate, variant) trials in the ledger including this run's
+            # new variants; num_trials_floor above = max(NUM_TRIALS_FLOOR,
+            # ledger_count); n_paths is the max variance-valid CPCV path
+            # count across the variants in this doc.
+            "trials": {
+                "ledger_count": ledger_count,
+                "n_paths": _max_n_paths(variants),
+                "num_trials_used": _num_trials_used(variants, num_trials_floor),
+                "num_trials_floor": num_trials_floor,
+            },
             "variants": list(variants),
-            "caveats": _caveats(variants),
+            "caveats": _caveats(variants, num_trials_floor),
         }
     )
     path = out_dir / f"{candidate}-verdict-{date_str}.json"

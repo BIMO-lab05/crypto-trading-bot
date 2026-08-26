@@ -1,64 +1,116 @@
 """
 Phase 1 Metrics Provider
 Exposes Phase 1 monitoring data via API
-Uses in-memory signal history with real filter data from CoreAggregator
+
+HONESTY REWORK (2026-08-20): all counters now derive from ONE windowed
+source — minute-resolution time buckets (`_window_buckets`) that are
+pruned at 7 days and are NOT capped by the display deque. Previously the
+endpoints mixed three sources (lifetime class counters, a LIMIT-1000
+history deque, and per-endpoint rate formulas), which produced
+byte-identical payloads for hours=1..168, counts frozen at 1000, and
+contradictory rates between /metrics and /health.
+
+Invariants:
+- `get_metrics(hours)` and `get_system_health()` compute every counter
+  from `_windowed_totals(hours)` — the single source of truth.
+- Rates are computed by exactly one formula each (`_rate_pct`).
+- All emitted timestamps are UTC-aware isoformat (with +00:00 offset),
+  matching /api/config/safety-state. Naive inputs are treated as UTC
+  and never shifted.
+- `total_signals_processed` is a true monotonic lifetime count, not
+  `len()` of a capped deque.
 """
 
 import logging
 import re
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-from pathlib import Path
 from collections import deque
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+# Longest window the dashboard offers is 7d (168h); buckets older than
+# this are pruned. Requests for larger windows are truncated to this.
+WINDOW_RETENTION_HOURS = 168
+
+
+def _utc_now() -> datetime:
+    """Current time, UTC-aware."""
+    return datetime.now(timezone.utc)
+
+
+def _ensure_utc(dt: datetime) -> datetime:
+    """Make a datetime UTC-aware.
+
+    Naive datetimes are treated as UTC wall time (deployed DB and older
+    in-memory records are naive-UTC) — attach the offset, never shift.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _iso_utc(value) -> Optional[str]:
+    """Serialize a datetime or isoformat string as UTC-aware isoformat.
+
+    Always emits an explicit offset (+00:00) so JS `new Date()` parses
+    it as UTC instead of local time.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return value  # not a timestamp; pass through unchanged
+    return _ensure_utc(value).isoformat()
+
+
+def _new_bucket_counters() -> Dict:
+    """Zeroed counter set for one time bucket."""
+    return {
+        "total": 0,
+        "buy": 0,
+        "sell": 0,
+        "hold": 0,
+        "gk_blocks": 0,
+        "gk_passed": 0,
+        "bullish": 0,
+        "bearish": 0,
+        "neutral": 0,
+        "val_confirmed": 0,
+        "val_rejected": 0,
+        "strength": {"STRONG": 0, "MODERATE": 0, "WEAK": 0, "MINIMAL": 0},
+        "atr": {"extreme": 0, "high": 0, "medium": 0, "low": 0},
+        "stoch_overbought": 0,
+        "stoch_oversold": 0,
+    }
 
 
 class Phase1MetricsProvider:
     """
     Provides Phase 1 performance metrics from real-time signal aggregation
 
-    UPDATED: Now tracks actual filter results from CoreAggregator including:
+    Tracks actual filter results from CoreAggregator including:
     - Gatekeeper: trend blocking, trend types (bullish/bearish/neutral)
     - Validator: volume confirmation/rejection, volume strength
     - ATR: volatility levels (extreme/high/medium/low)
     - Vote counts: buy/sell/hold distribution
     """
 
-    # Class-level signal storage (survives instance recreation)
-    _signal_history: deque = deque(maxlen=1000)  # Store last 1000 signals
+    # Display-only history (timeline / latest signal). Bounded — never
+    # used for counting.
+    _signal_history: deque = deque(maxlen=1000)
+
+    # Single source of truth for all counters: minute buckets of
+    # (bucket_start_utc, counters). Pruned at WINDOW_RETENTION_HOURS.
+    _window_buckets: deque = deque()
+
+    # True lifetime signal count (monotonic, uncapped).
+    _lifetime_signals: int = 0
+
     _last_signal_time: Optional[datetime] = None
     _is_active: bool = True  # Assume system is active by default
-
-    # Real-time aggregation statistics from CoreAggregator
-    _gatekeeper_stats: Dict = {
-        "blocks": 0,
-        "passed": 0,
-        "penalized": 0,
-        "bullish_trends": 0,
-        "bearish_trends": 0,
-        "neutral_trends": 0
-    }
-    _validator_stats: Dict = {
-        "confirmed": 0,
-        "rejected": 0,
-        "strength_distribution": {
-            "STRONG": 0,
-            "MODERATE": 0,
-            "WEAK": 0,
-            "MINIMAL": 0
-        }
-    }
-    _atr_stats: Dict = {
-        "extreme": 0,
-        "high": 0,
-        "medium": 0,
-        "low": 0
-    }
-    _stochastic_stats: Dict = {
-        "overbought": 0,
-        "oversold": 0
-    }
 
     def __init__(self, log_file: str = "/tmp/trading-engine-phase1.log"):
         """
@@ -69,18 +121,39 @@ class Phase1MetricsProvider:
         """
         self.log_file = log_file
 
+    # ------------------------------------------------------------------
+    # Recording
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _bucket_for(cls, ts: datetime) -> Dict:
+        """Get (creating if needed) the minute bucket for `ts`."""
+        bucket_start = ts.replace(second=0, microsecond=0)
+        if cls._window_buckets and cls._window_buckets[-1][0] == bucket_start:
+            return cls._window_buckets[-1][1]
+        counters = _new_bucket_counters()
+        cls._window_buckets.append((bucket_start, counters))
+        cls._prune_buckets(ts)
+        return counters
+
+    @classmethod
+    def _prune_buckets(cls, now: datetime) -> None:
+        """Drop buckets older than the retention window."""
+        cutoff = now - timedelta(hours=WINDOW_RETENTION_HOURS)
+        while cls._window_buckets and cls._window_buckets[0][0] < cutoff:
+            cls._window_buckets.popleft()
+
     @classmethod
     def record_signal(
         cls,
         action: str,
         confidence: float,
         filters: Dict = None,
-        metadata: Dict = None
+        metadata: Dict = None,
+        recorded_at: Optional[datetime] = None,
     ):
         """
         Record a signal for metrics tracking with real filter data
-
-        UPDATED: Now accepts detailed filter results from CoreAggregator
 
         Args:
             action: Signal action (BUY, SELL, HOLD)
@@ -90,295 +163,274 @@ class Phase1MetricsProvider:
                 - gatekeeper_reason: str (reason for blocking/passing)
                 - trend: str (BULLISH/BEARISH/NEUTRAL)
                 - trend_confidence: float
+                - trend_blocked: bool
                 - validator: bool (confirmed/rejected)
                 - validator_reason: str
                 - volume_strength: str (STRONG/MODERATE/WEAK/MINIMAL)
                 - volume_penalty: float
             metadata: Additional signal metadata (atr_data, vote_counts, etc.)
+            recorded_at: Override the record timestamp (testing only).
+                Naive values are treated as UTC.
         """
-        # Extract filter info with defaults
         filters = filters or {}
         metadata = metadata or {}
+        now = _ensure_utc(recorded_at) if recorded_at else _utc_now()
 
-        # Extract gatekeeper details
         gatekeeper_passed = filters.get("gatekeeper", True)
         trend = filters.get("trend", "NEUTRAL")
         trend_blocked = filters.get("trend_blocked", False)
-
-        # Extract validator details
         validator_confirmed = filters.get("validator", True)
         volume_strength = filters.get("volume_strength", "UNKNOWN")
 
-        # Update gatekeeper stats
+        action_str = action.upper() if isinstance(action, str) else action.value.upper()
+
+        bucket = cls._bucket_for(now)
+
+        # Signal action counts
+        bucket["total"] += 1
+        if action_str == "BUY":
+            bucket["buy"] += 1
+        elif action_str == "SELL":
+            bucket["sell"] += 1
+        else:
+            bucket["hold"] += 1
+
+        # Gatekeeper counts
         if trend_blocked:
-            cls._gatekeeper_stats["blocks"] += 1
+            bucket["gk_blocks"] += 1
         else:
-            cls._gatekeeper_stats["passed"] += 1
+            bucket["gk_passed"] += 1
 
-        # Update trend type counts
+        # Trend distribution
         if trend == "BULLISH":
-            cls._gatekeeper_stats["bullish_trends"] += 1
+            bucket["bullish"] += 1
         elif trend == "BEARISH":
-            cls._gatekeeper_stats["bearish_trends"] += 1
+            bucket["bearish"] += 1
         else:
-            cls._gatekeeper_stats["neutral_trends"] += 1
+            bucket["neutral"] += 1
 
-        # Update validator stats
+        # Validator counts
         if validator_confirmed:
-            cls._validator_stats["confirmed"] += 1
+            bucket["val_confirmed"] += 1
         else:
-            cls._validator_stats["rejected"] += 1
+            bucket["val_rejected"] += 1
 
-        # Update volume strength distribution
-        if volume_strength in cls._validator_stats["strength_distribution"]:
-            cls._validator_stats["strength_distribution"][volume_strength] += 1
+        # Volume strength distribution
+        if volume_strength in bucket["strength"]:
+            bucket["strength"][volume_strength] += 1
 
-        # Update ATR stats if available
-        # Note: technical-analysis returns UPPERCASE volatility (LOW, MEDIUM, HIGH, EXTREME)
+        # ATR stats (technical-analysis returns UPPERCASE volatility)
         atr_data = metadata.get("atr", {})
         if atr_data:
             volatility = atr_data.get("volatility", "medium")
-            # Convert to lowercase for consistent tracking
             volatility_lower = volatility.lower() if isinstance(volatility, str) else "medium"
-            if volatility_lower in ["extreme", "high", "medium", "low"]:
-                cls._atr_stats[volatility_lower] += 1
+            if volatility_lower in bucket["atr"]:
+                bucket["atr"][volatility_lower] += 1
 
-        # Update Stochastic stats if available
-        # Note: technical-analysis returns UPPERCASE condition (OVERBOUGHT, OVERSOLD, NEUTRAL)
+        # Stochastic stats (UPPERCASE condition from technical-analysis)
         stochastic_condition = metadata.get("stochastic_condition", "")
         if stochastic_condition:
-            condition_lower = stochastic_condition.lower() if isinstance(stochastic_condition, str) else ""
+            condition_lower = (
+                stochastic_condition.lower() if isinstance(stochastic_condition, str) else ""
+            )
             if condition_lower == "overbought":
-                cls._stochastic_stats["overbought"] += 1
+                bucket["stoch_overbought"] += 1
             elif condition_lower == "oversold":
-                cls._stochastic_stats["oversold"] += 1
+                bucket["stoch_oversold"] += 1
 
-        # Store the signal with full details
-        cls._signal_history.append({
-            "timestamp": datetime.now().isoformat(),
-            "action": action.upper() if isinstance(action, str) else action.value.upper(),
-            "confidence": confidence,
-            "filters": {
-                "gatekeeper": gatekeeper_passed and not trend_blocked,
-                "gatekeeper_reason": filters.get("gatekeeper_reason", ""),
-                "trend_direction": trend,  # Actual trend direction (BULLISH/BEARISH/NEUTRAL)
-                "trend_blocked": trend_blocked,
-                "validator": validator_confirmed,
-                "validator_reason": filters.get("validator_reason", ""),
-                "volume_strength": volume_strength,
-                "volume_penalty": filters.get("volume_penalty", 1.0),
-                "atr": bool(atr_data),
-                "trend": True  # For backward compatibility with dashboard
-            },
-            "metadata": {
-                "buy_count": metadata.get("buy_count", 0),
-                "sell_count": metadata.get("sell_count", 0),
-                "hold_count": metadata.get("hold_count", 0),
-                "consensus_count": metadata.get("consensus_count", 0),
-                "meets_requirements": metadata.get("meets_requirements", False),
-                "aggregated_score": metadata.get("aggregated_score", 0)
+        cls._lifetime_signals += 1
+
+        # Store the signal for the timeline (display only, bounded)
+        cls._signal_history.append(
+            {
+                "timestamp": now.isoformat(),
+                "action": action_str,
+                "confidence": confidence,
+                "filters": {
+                    "gatekeeper": gatekeeper_passed and not trend_blocked,
+                    "gatekeeper_reason": filters.get("gatekeeper_reason", ""),
+                    "trend_direction": trend,
+                    "trend_blocked": trend_blocked,
+                    "validator": validator_confirmed,
+                    "validator_reason": filters.get("validator_reason", ""),
+                    "volume_strength": volume_strength,
+                    "volume_penalty": filters.get("volume_penalty", 1.0),
+                    "atr": bool(atr_data),
+                    "trend": True,  # Backward compatibility with dashboard
+                },
+                "metadata": {
+                    "buy_count": metadata.get("buy_count", 0),
+                    "sell_count": metadata.get("sell_count", 0),
+                    "hold_count": metadata.get("hold_count", 0),
+                    "consensus_count": metadata.get("consensus_count", 0),
+                    "meets_requirements": metadata.get("meets_requirements", False),
+                    "aggregated_score": metadata.get("aggregated_score", 0),
+                },
             }
-        })
-        cls._last_signal_time = datetime.now()
+        )
+        if cls._last_signal_time is None or now > cls._last_signal_time:
+            cls._last_signal_time = now
         cls._is_active = True
 
         logger.debug(
-            f"Recorded signal: {action} (conf={confidence:.2f}, "
+            f"Recorded signal: {action_str} (conf={confidence:.2f}, "
             f"gatekeeper={'BLOCKED' if trend_blocked else 'PASSED'}, "
-            f"validator={'CONFIRMED' if validator_confirmed else 'REJECTED'})"
+            f"validator="
+            f"{'CONFIRMED' if validator_confirmed else 'REJECTED'})"
         )
+
+    # ------------------------------------------------------------------
+    # Single source of truth for windowed counts and rates
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _windowed_totals(cls, hours: int) -> Dict:
+        """Sum bucket counters for the last `hours` hours.
+
+        This is the ONE windowed source every endpoint counter derives
+        from. Windows larger than WINDOW_RETENTION_HOURS are truncated
+        to retention.
+        """
+        # Prune only fires in record_signal; clamp so hours > retention
+        # cannot count stale buckets when signal flow stops.
+        hours = min(hours, WINDOW_RETENTION_HOURS)
+        # Cutoff floors to the minute grid so the boundary bucket counts:
+        # window is bucket-grid-aligned, may over-include up to 59s — never
+        # undercounts.
+        cutoff = (_utc_now() - timedelta(hours=hours)).replace(second=0, microsecond=0)
+        totals = _new_bucket_counters()
+        for bucket_start, counters in cls._window_buckets:
+            if bucket_start < cutoff:
+                continue
+            for key, value in counters.items():
+                if isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        totals[key][sub_key] += sub_value
+                else:
+                    totals[key] += value
+        return totals
+
+    @staticmethod
+    def _rate_pct(part: int, whole: int) -> float:
+        """THE rate formula: part/whole as a percent, 0.0 when empty.
+
+        Used by both /metrics and /health so the same quantity can never
+        be computed two different ways again.
+        """
+        return (part / whole * 100) if whole > 0 else 0.0
+
+    # ------------------------------------------------------------------
+    # Endpoints
+    # ------------------------------------------------------------------
 
     def get_metrics(self, hours: int = 24) -> Dict:
         """
-        Get Phase 1 metrics for specified time period from in-memory history
+        Get Phase 1 metrics for the specified time window.
 
-        UPDATED: Uses real aggregation stats from CoreAggregator
+        Every counter is derived from the same windowed bucket source,
+        so signals/gatekeeper/validator/atr totals are mutually
+        consistent and actually change with `hours`.
 
         Args:
             hours: Number of hours to analyze
 
         Returns:
-            Dictionary with real metrics from signal aggregation
+            Dictionary with real, windowed metrics
         """
-        # Initialize metrics with real stats from class-level counters
+        totals = self._windowed_totals(hours)
+        total_signals = totals["total"]
+
         metrics = {
             "period_hours": hours,
             "signals": {
-                "total": 0,
-                "buy": 0,
-                "sell": 0,
-                "hold": 0
+                "total": total_signals,
+                "buy": totals["buy"],
+                "sell": totals["sell"],
+                "hold": totals["hold"],
             },
-            # Use real gatekeeper stats
             "gatekeeper": {
-                "blocks": self._gatekeeper_stats["blocks"],
-                "passed": self._gatekeeper_stats["passed"],
-                "penalized": self._gatekeeper_stats.get("penalized", 0),
-                "bullish_trends": self._gatekeeper_stats["bullish_trends"],
-                "bearish_trends": self._gatekeeper_stats["bearish_trends"],
-                "neutral_trends": self._gatekeeper_stats["neutral_trends"]
+                "blocks": totals["gk_blocks"],
+                "passed": totals["gk_passed"],
+                "bullish_trends": totals["bullish"],
+                "bearish_trends": totals["bearish"],
+                "neutral_trends": totals["neutral"],
             },
-            # Use real validator stats
             "validator": {
-                "confirmed": self._validator_stats["confirmed"],
-                "rejected": self._validator_stats["rejected"],
-                "strength_distribution": self._validator_stats.get("strength_distribution", {})
+                "confirmed": totals["val_confirmed"],
+                "rejected": totals["val_rejected"],
+                "strength_distribution": dict(totals["strength"]),
             },
-            # Use real ATR stats
-            "atr": {
-                "extreme": self._atr_stats["extreme"],
-                "high": self._atr_stats["high"],
-                "medium": self._atr_stats["medium"],
-                "low": self._atr_stats["low"]
-            },
-            # Use real stochastic stats
+            "atr": dict(totals["atr"]),
             "stochastic": {
-                "overbought": self._stochastic_stats["overbought"],
-                "oversold": self._stochastic_stats["oversold"]
+                "overbought": totals["stoch_overbought"],
+                "oversold": totals["stoch_oversold"],
             },
             "filtering": {
-                "hold_rate": 0.0,
-                "action_rate": 0.0,
-                "reduction_rate": 0.0,
-                "gatekeeper_block_rate": 0.0,
-                "validator_rejection_rate": 0.0
+                "hold_rate": self._rate_pct(totals["hold"], total_signals),
+                "action_rate": self._rate_pct(totals["buy"] + totals["sell"], total_signals),
+                "reduction_rate": self._rate_pct(totals["hold"], total_signals),
+                "gatekeeper_block_rate": self._rate_pct(
+                    totals["gk_blocks"],
+                    totals["gk_blocks"] + totals["gk_passed"],
+                ),
+                "validator_rejection_rate": self._rate_pct(
+                    totals["val_rejected"],
+                    totals["val_rejected"] + totals["val_confirmed"],
+                ),
             },
-            "timeline": []
+            "timeline": self._build_timeline(hours),
         }
+        return metrics
 
-        try:
-            # Calculate cutoff time
-            cutoff_time = datetime.now() - timedelta(hours=hours)
-
-            # Process in-memory signal history for time-filtered counts
-            time_filtered_signals = {
-                "total": 0, "buy": 0, "sell": 0, "hold": 0,
-                "gatekeeper_blocks": 0, "validator_rejections": 0,
-                "bullish": 0, "bearish": 0, "neutral": 0
-            }
-
-            for signal in self._signal_history:
-                try:
-                    signal_time = datetime.fromisoformat(signal["timestamp"])
-                    if signal_time < cutoff_time:
-                        continue
-
-                    action = signal.get("action", "HOLD")
-                    if hasattr(action, 'value'):
-                        action = action.value
-                    action = action.upper()
-
-                    # Count signals
-                    time_filtered_signals["total"] += 1
-                    if action == "BUY":
-                        time_filtered_signals["buy"] += 1
-                    elif action == "SELL":
-                        time_filtered_signals["sell"] += 1
-                    else:
-                        time_filtered_signals["hold"] += 1
-
-                    # Extract real filter info from signal
-                    filters = signal.get("filters", {})
-
-                    # Count gatekeeper blocks (from real data)
-                    if filters.get("trend_blocked", False):
-                        time_filtered_signals["gatekeeper_blocks"] += 1
-
-                    # Count trend types (use trend_direction for actual trend)
-                    trend = filters.get("trend_direction", "NEUTRAL")
-                    if trend == "BULLISH":
-                        time_filtered_signals["bullish"] += 1
-                    elif trend == "BEARISH":
-                        time_filtered_signals["bearish"] += 1
-                    else:
-                        time_filtered_signals["neutral"] += 1
-
-                    # Count validator rejections (from real data)
-                    if not filters.get("validator", True):
-                        time_filtered_signals["validator_rejections"] += 1
-
-                    # Add to timeline with real filter data
-                    metrics["timeline"].append({
-                        "timestamp": signal["timestamp"],
-                        "action": action,
+    def _build_timeline(self, hours: int) -> list:
+        """Recent-signal timeline (display only; capped at 20 entries)."""
+        cutoff = _utc_now() - timedelta(hours=hours)
+        timeline = []
+        for signal in self._signal_history:
+            try:
+                signal_time = _ensure_utc(datetime.fromisoformat(signal["timestamp"]))
+                if signal_time < cutoff:
+                    continue
+                filters = signal.get("filters", {})
+                timeline.append(
+                    {
+                        "timestamp": signal_time.isoformat(),
+                        "action": signal.get("action", "HOLD"),
                         "confidence": signal.get("confidence"),
                         "filters": {
                             "gatekeeper": filters.get("gatekeeper", True),
                             "validator": filters.get("validator", True),
                             "atr": filters.get("atr", False),
-                            "trend": True  # Backward compatible
+                            "trend": True,  # Backward compatible
                         },
                         "details": {
                             "trend": filters.get("trend_direction", "NEUTRAL"),
                             "trend_blocked": filters.get("trend_blocked", False),
                             "volume_strength": filters.get("volume_strength", "UNKNOWN"),
-                            "volume_penalty": filters.get("volume_penalty", 1.0)
+                            "volume_penalty": filters.get("volume_penalty", 1.0),
                         },
-                        "metadata": signal.get("metadata", {})
-                    })
+                        "metadata": signal.get("metadata", {}),
+                    }
+                )
+            except Exception as e:
+                logger.debug(f"Error processing signal: {e}")
+                continue
 
-                except Exception as e:
-                    logger.debug(f"Error processing signal: {e}")
-                    continue
-
-            # Update signal counts with time-filtered data
-            metrics["signals"] = {
-                "total": time_filtered_signals["total"],
-                "buy": time_filtered_signals["buy"],
-                "sell": time_filtered_signals["sell"],
-                "hold": time_filtered_signals["hold"]
-            }
-
-            # Update time-filtered gatekeeper/validator counts
-            if time_filtered_signals["total"] > 0:
-                metrics["gatekeeper"]["blocks"] = time_filtered_signals["gatekeeper_blocks"]
-                metrics["gatekeeper"]["bullish_trends"] = time_filtered_signals["bullish"]
-                metrics["gatekeeper"]["bearish_trends"] = time_filtered_signals["bearish"]
-                metrics["gatekeeper"]["neutral_trends"] = time_filtered_signals["neutral"]
-
-            # Calculate filtering rates from real data
-            total_signals = time_filtered_signals["total"]
-            if total_signals > 0:
-                metrics["filtering"]["hold_rate"] = (
-                    time_filtered_signals["hold"] / total_signals
-                ) * 100
-                metrics["filtering"]["action_rate"] = (
-                    (time_filtered_signals["buy"] + time_filtered_signals["sell"]) / total_signals
-                ) * 100
-                metrics["filtering"]["reduction_rate"] = metrics["filtering"]["hold_rate"]
-                metrics["filtering"]["gatekeeper_block_rate"] = (
-                    time_filtered_signals["gatekeeper_blocks"] / total_signals
-                ) * 100
-                metrics["filtering"]["validator_rejection_rate"] = (
-                    time_filtered_signals["validator_rejections"] / total_signals
-                ) * 100
-
-            # Sort timeline by most recent first
-            metrics["timeline"] = sorted(
-                metrics["timeline"],
-                key=lambda x: x["timestamp"],
-                reverse=True
-            )[:20]
-
-            return metrics
-
-        except Exception as e:
-            logger.error(f"Error getting Phase 1 metrics: {e}")
-            return metrics
+        return sorted(timeline, key=lambda x: x["timestamp"], reverse=True)[:20]
 
     def _add_timeline_entry(self, metrics: Dict, timestamp: datetime, action: str, line: str):
-        """Add entry to timeline"""
+        """Add entry to timeline (legacy log-parsing helper)."""
         entry = {
-            "timestamp": timestamp.isoformat(),
+            "timestamp": _iso_utc(timestamp),
             "action": action,
             "confidence": self._extract_confidence(line),
-            "filters": self._extract_filters(line)
+            "filters": self._extract_filters(line),
         }
         metrics["timeline"].append(entry)
 
     def _extract_confidence(self, line: str) -> Optional[float]:
         """Extract confidence score from log line"""
-        match = re.search(r'confidence[:\s]+(\d+\.?\d*)', line, re.IGNORECASE)
+        match = re.search(r"confidence[:\s]+(\d+\.?\d*)", line, re.IGNORECASE)
         if match:
             return float(match.group(1))
         return None
@@ -389,86 +441,81 @@ class Phase1MetricsProvider:
             "gatekeeper": "GATEKEEPER" in line and "PASSED" in line,
             "validator": "VALIDATOR" in line and "confirmed" in line,
             "atr": "ATR" in line,
-            "trend": "Trend" in line
+            "trend": "Trend" in line,
         }
 
     def get_latest_signal(self) -> Optional[Dict]:
         """Get the most recent signal"""
-        metrics = self.get_metrics(hours=24)
-        if metrics["timeline"]:
-            return metrics["timeline"][0]
+        timeline = self._build_timeline(hours=WINDOW_RETENTION_HOURS)
+        if timeline:
+            return timeline[0]
         return None
 
     def get_system_health(self) -> Dict:
         """
-        Get Phase 1 system health status based on actual trading activity
+        Get Phase 1 system health status based on actual trading activity.
 
-        UPDATED: Shows real filter statistics and activity status
+        filter_stats derive from the same windowed source as
+        `get_metrics(hours=24)` (window declared in `window_hours`), so
+        the two endpoints can never disagree on the same quantity.
+        `signals_last_hour` is a true 1-hour count (not capped by the
+        display deque); `total_signals_processed` is a true lifetime
+        count.
         """
-        metrics = self.get_metrics(hours=1)  # Last hour
+        signals_last_hour = self._windowed_totals(1)["total"]
+        totals = self._windowed_totals(24)
 
-        # System is healthy if:
-        # 1. Trading is marked as active, OR
-        # 2. We have signals in the last hour, OR
-        # 3. We have a recent last_signal_time
+        total_gatekeeper = totals["gk_passed"] + totals["gk_blocks"]
+        total_validator = totals["val_confirmed"] + totals["val_rejected"]
+
         has_recent_activity = (
-            self._is_active or
-            metrics["signals"]["total"] > 0 or
-            (self._last_signal_time and
-             (datetime.now() - self._last_signal_time).total_seconds() < 3600)
+            self._is_active
+            or signals_last_hour > 0
+            or (
+                self._last_signal_time is not None
+                and (_utc_now() - _ensure_utc(self._last_signal_time)).total_seconds() < 3600
+            )
         )
 
-        # Calculate total signals processed
-        total_gatekeeper = (
-            self._gatekeeper_stats["passed"] +
-            self._gatekeeper_stats["blocks"] +
-            self._gatekeeper_stats.get("penalized", 0)
-        )
-        total_validator = (
-            self._validator_stats["confirmed"] +
-            self._validator_stats["rejected"]
-        )
+        latest = self._signal_history[-1] if self._signal_history else None
 
         return {
             "status": "healthy" if has_recent_activity else "warning",
             "last_signal_time": (
-                self._last_signal_time.isoformat() if self._last_signal_time
-                else (metrics["timeline"][0]["timestamp"] if metrics["timeline"] else None)
+                _iso_utc(self._last_signal_time)
+                if self._last_signal_time
+                else (_iso_utc(latest["timestamp"]) if latest else None)
             ),
-            "signals_last_hour": metrics["signals"]["total"],
-            "total_signals_processed": len(self._signal_history),
+            "signals_last_hour": signals_last_hour,
+            "total_signals_processed": self._lifetime_signals,
             "filters_active": {
-                # Show actual filter activity based on real stats
                 "gatekeeper": total_gatekeeper > 0 or self._is_active,
                 "validator": total_validator > 0 or self._is_active,
-                "atr": sum(self._atr_stats.values()) > 0 or self._is_active
+                "atr": sum(totals["atr"].values()) > 0 or self._is_active,
             },
-            # Add real-time filter statistics
             "filter_stats": {
+                "window_hours": 24,
                 "gatekeeper": {
                     "total_processed": total_gatekeeper,
-                    "blocks": self._gatekeeper_stats["blocks"],
-                    "passed": self._gatekeeper_stats["passed"],
-                    "block_rate": (
-                        self._gatekeeper_stats["blocks"] / total_gatekeeper * 100
-                        if total_gatekeeper > 0 else 0.0
-                    )
+                    "blocks": totals["gk_blocks"],
+                    "passed": totals["gk_passed"],
+                    "block_rate": self._rate_pct(
+                        totals["gk_blocks"],
+                        totals["gk_blocks"] + totals["gk_passed"],
+                    ),
                 },
                 "validator": {
                     "total_processed": total_validator,
-                    "confirmed": self._validator_stats["confirmed"],
-                    "rejected": self._validator_stats["rejected"],
-                    "rejection_rate": (
-                        self._validator_stats["rejected"] / total_validator * 100
-                        if total_validator > 0 else 0.0
-                    )
+                    "confirmed": totals["val_confirmed"],
+                    "rejected": totals["val_rejected"],
+                    "rejection_rate": self._rate_pct(totals["val_rejected"], total_validator),
                 },
                 "trend_distribution": {
-                    "bullish": self._gatekeeper_stats["bullish_trends"],
-                    "bearish": self._gatekeeper_stats["bearish_trends"],
-                    "neutral": self._gatekeeper_stats["neutral_trends"]
-                }
-            }
+                    "bullish": totals["bullish"],
+                    "bearish": totals["bearish"],
+                    "neutral": totals["neutral"],
+                },
+            },
         }
 
     @classmethod
@@ -483,35 +530,9 @@ class Phase1MetricsProvider:
 
         Useful for testing or starting fresh monitoring session
         """
-        cls._gatekeeper_stats = {
-            "blocks": 0,
-            "passed": 0,
-            "penalized": 0,
-            "bullish_trends": 0,
-            "bearish_trends": 0,
-            "neutral_trends": 0
-        }
-        cls._validator_stats = {
-            "confirmed": 0,
-            "rejected": 0,
-            "strength_distribution": {
-                "STRONG": 0,
-                "MODERATE": 0,
-                "WEAK": 0,
-                "MINIMAL": 0
-            }
-        }
-        cls._atr_stats = {
-            "extreme": 0,
-            "high": 0,
-            "medium": 0,
-            "low": 0
-        }
-        cls._stochastic_stats = {
-            "overbought": 0,
-            "oversold": 0
-        }
+        cls._window_buckets.clear()
         cls._signal_history.clear()
+        cls._lifetime_signals = 0
         cls._last_signal_time = None
         logger.info("Phase1MetricsProvider stats reset")
 

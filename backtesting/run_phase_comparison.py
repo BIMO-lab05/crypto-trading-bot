@@ -16,6 +16,8 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
 import asyncio
 import pandas as pd
 import numpy as np
@@ -1165,7 +1167,7 @@ async def run_comparison(
     symbols: List[str],
     interval: str = "60",
     days: int = 90,
-    capital: float = 10000.0
+    capital: float = ACCOUNT_EQUITY_USD
 ) -> None:
     """
     Run comprehensive Phase 1 vs Phase 3 backtest comparison
@@ -1377,7 +1379,7 @@ async def main():
     parser.add_argument(
         '--capital',
         type=float,
-        default=10000.0,
+        default=ACCOUNT_EQUITY_USD,
         help='Initial capital'
     )
 

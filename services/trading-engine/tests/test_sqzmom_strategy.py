@@ -32,6 +32,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.strategies.sqzmom_config import SQZMOMConfig, sqzmom_config
 from app.strategies.sqzmom_strategy_integration import SQZMOMStrategy
+from app.config import get_settings
+
+# Declared account size sourced from Settings (CLAUDE.md section 1) — never a
+# bare literal. Derived expectations below scale with it.
+ACCOUNT_BALANCE = get_settings().paper_initial_balance
 
 
 class TestSQZMOMConfig:
@@ -157,11 +162,13 @@ class TestSQZMOMStrategy:
             symbol="SOLUSDT",
             entry_price=245.50,
             stop_loss=241.82,
-            account_balance=10000.0
+            account_balance=ACCOUNT_BALANCE
         )
 
-        # 2.5% of $10,000 = $250 / $245.50 = 1.018 units
-        expected_quantity = Decimal("250.0") / Decimal("245.50")
+        # 2.5% of the account, divided by entry price — derived, not pasted
+        expected_quantity = (
+            Decimal(str(ACCOUNT_BALANCE)) * Decimal("0.025")
+        ) / Decimal("245.50")
         assert abs(float(quantity) - float(expected_quantity)) < 0.01
 
         # Test DOGEUSDT (1.5% position size)
@@ -169,11 +176,13 @@ class TestSQZMOMStrategy:
             symbol="DOGEUSDT",
             entry_price=0.08,
             stop_loss=0.0788,
-            account_balance=10000.0
+            account_balance=ACCOUNT_BALANCE
         )
 
-        # 1.5% of $10,000 = $150 / $0.08 = 1875 units
-        expected_quantity = Decimal("150.0") / Decimal("0.08")
+        # 1.5% of the account, divided by entry price — derived, not pasted
+        expected_quantity = (
+            Decimal(str(ACCOUNT_BALANCE)) * Decimal("0.015")
+        ) / Decimal("0.08")
         assert abs(float(quantity) - float(expected_quantity)) < 1.0
 
     @pytest.mark.asyncio
@@ -343,7 +352,7 @@ class TestSQZMOMIntegration:
                 "SOLUSDT",
                 signal["entry_price"],
                 signal["stop_loss"],
-                10000.0
+                ACCOUNT_BALANCE
             )
             assert quantity > 0
 

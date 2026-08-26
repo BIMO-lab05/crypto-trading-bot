@@ -314,3 +314,48 @@ Check the marker file path exactly:
 `.planning/evidence/forward_paper_test/<flag_name>/PSR_CI_PUBLISHED`
 The `<flag_name>` must match the Python field name exactly (e.g.,
 `enable_vol_targeting`, not `ENABLE_VOL_TARGETING`).
+
+## Automation (2026-08-20)
+
+- Daily evidence tick: cron `30 6 * * *` runs `scripts/forward_paper_test/daily_evidence_tick.sh`
+  (evidence loop against `TOURNAMENT_DB_PATH`, default
+  `services/tournament-harness/data/leaderboard/leaderboard.db`), writing
+  `.planning/state/evidence_loop_last_tick.json` on every attempt.
+- Staleness tripwire: cron `0 7 * * *` runs `scripts/check_evidence_staleness.py`
+  (exit 1 when the marker is missing or older than 48h). WSL caveat: cron only
+  runs while WSL is up and the cron service is started (`sudo service cron start`);
+  the tripwire exists precisely because this scheduler can die silently — check
+  `.planning/state/evidence_staleness.log` when in doubt.
+- Weekly collection gap check: cron `15 7 * * 1` (Mondays) runs `check_collection_gaps.py --window-minutes 10080` into `.planning/state/collection_gaps_weekly.log` — the Phase C 21-day clock's tripwire (spec Stream 0).
+- The tick is expected to exit 2 (sqlite error, marker still written) until the
+  tournament harness first creates the leaderboard DB — dormant-but-alive is the
+  designed state during accrual.
+- **Never run a bare `docker compose up -d` against `trading-engine` while an
+  isolation window is active.** The Tier-1 flag overrides (`ENABLE_VOL_TARGETING`,
+  `PREFER_MAKER_ORDERS`, `ENABLE_FUNDING_GATE`) are not baked into the image or
+  the compose file — they interpolate from the *invoking shell's* environment
+  (`${VAR:-false}` in `docker-compose.unified.yml`). A bare invocation from any
+  shell that doesn't have the run's override exported recreates the container
+  with the compose-file default (`false`), silently reverting the flag under
+  test mid-window — the container keeps running, logs look normal, and nothing
+  errors. To relaunch or restart trading-engine mid-window: use
+  `python -m scripts.forward_paper_test.run_isolation --flag <flag> ...`
+  (which re-exports the overrides before calling docker), or manually `export`
+  the three override vars from the run's `meta.json` `flag_env_overrides` in
+  the same shell before running `docker compose up -d trading-engine` by hand.
+  `complete-run` now guards against exactly this: before writing `run.json` it
+  verifies the running container's env and `Created` timestamp against
+  `meta.json` (`_verify_flag_window`) and refuses — printing each violation
+  and exiting non-zero — if the container was recreated mid-window without
+  the override (`Created` more than ~5 minutes after `planned_start_utc`, or
+  any override env var mismatched). It checks `Created`, not `StartedAt`:
+  `StartedAt` updates on a plain restart too (`docker restart`, `docker
+  compose stop`/`start`, a restart-policy bounce after host suspend/resume)
+  even when the container was never recreated and its env is untouched, so
+  using it would make an ordinary restart mid-window look like a violation.
+  `Created` only changes when the container is actually replaced. Pass
+  `--force-unverified` to write `run.json` anyway with
+  `"flag_window_verified": false` and the violation list recorded, rather
+  than being blocked outright — honest evidence over blocked evidence. This
+  is recorded for visibility only: `publish-evidence` does not read
+  `flag_window_verified` and does not gate on it.

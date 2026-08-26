@@ -63,6 +63,7 @@ COPY --from=builder /root/.local /home/appuser/.local
 # Copy application code
 COPY --chown=appuser:appuser app/ ./app/
 COPY --chown=appuser:appuser pytest.ini .
+COPY --chown=appuser:appuser tests/ ./tests/
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/logs && chown -R appuser:appuser /app

@@ -1,7 +1,12 @@
-"""The $100 account invariant, enforced by AST inspection.
+"""The account-size invariant, enforced by AST inspection.
 
-THE ACCOUNT IS $100. `shared/account.py` is the declaration of record. This test
-fails if any in-scope file re-declares an account size as a bare numeric literal.
+`shared/account.py` is the declaration of record ($10,000 per ADR-029; was
+$100 until 2026-08-25). This test fails if any in-scope file re-declares an
+account size as a bare numeric literal. The single exemption is the declared
+value itself, for in-container files that cannot import `shared.account` —
+which means the OLD size (100.0) is now policed like any other stale literal,
+and a bare 10000.0 in a file OUTSIDE the scan surface is still a defect even
+though it is numerically correct (see scripts/check_capital_literals.py).
 
 Implemented with `ast`, not regex, deliberately: the AST gives the assignment
 TARGET NAME structurally and excludes docstrings and comments for free, which
@@ -55,6 +60,13 @@ SCANNED_FILES = (
     "backtesting/backtest_engine.py",
     "backtesting/run_walk_forward.py",
     "backtesting/run_walk_forward_ensemble.py",
+    # Added 2026-08-26 (ADR-029 flip): the four standalone SQZMOM runners that
+    # passed 10000.0 explicitly (former EXPANSION_QUEUE item 3) are now routed
+    # through shared.account and scanned so they cannot regress.
+    "services/technical-analysis/backtesting/run_backtest.py",
+    "services/technical-analysis/backtesting/run_btc_eth_backtest.py",
+    "services/technical-analysis/backtesting/quick_test.py",
+    "services/technical-analysis/backtesting/optimize_parameters.py",
     # Added 2026-08-03, second pass. THIS is the script that actually produced
     # comprehensive/grid/sr/trend_FINAL_RESULTS.log — not backtest_engine.py.
     # It carries its own `PatchedBacktestEngine` wrapping the trading-engine
@@ -91,14 +103,8 @@ SCANNED_FILES = (
 #      `database/migrations/005_seed_data.sql:35` (stale RAISE NOTICE).
 #      (audit "P3" table)
 #
-#   3. The four standalone SQZMOM backtest runners, which pass `10000.0`
-#      EXPLICITLY and therefore are NOT fixed by correcting the default in
-#      `services/technical-analysis/backtesting/sqzmom_backtest.py`:
-#         services/technical-analysis/backtesting/run_backtest.py
-#         services/technical-analysis/backtesting/run_btc_eth_backtest.py
-#         services/technical-analysis/backtesting/quick_test.py
-#         services/technical-analysis/backtesting/optimize_parameters.py
-#      Their runtime behaviour is unchanged by this work. Known residual.
+#   3. RESOLVED 2026-08-26: the four standalone SQZMOM runners now import
+#      PAPER_INITIAL_BALANCE and joined SCANNED_FILES above.
 #
 #   4. `services/trading-engine/app/main.py:1419-1420`
 #         max_position_size: float = Query(default=10000.0, ...)
@@ -180,9 +186,7 @@ def _numeric_literal(node: ast.AST | None) -> float | None:
         name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
         if name == "Decimal" and len(node.args) == 1:
             arg = node.args[0]
-            if isinstance(arg, ast.Constant) and isinstance(
-                arg.value, (str, int, float)
-            ):
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, (str, int, float)):
                 try:
                     return float(arg.value)
                 except (TypeError, ValueError):
@@ -305,7 +309,8 @@ def find_violations(source: str, filename: str = "<fixture>") -> list[str]:
 # ---------------------------------------------------------------------------
 
 NEGATIVE_FIXTURE = '''
-"""Constructs that look capital-shaped but are not account-size claims."""
+"""Constructs that must NOT trip: non-capital names, zero sentinels, and
+capital names stating the DECLARED size (the in-container exemption)."""
 from decimal import Decimal
 from pydantic import Field
 
@@ -323,8 +328,8 @@ class Model:
     zero_guard: Decimal = Field(default=Decimal("0"))
     initial_capital: float = 0.0
     equity: Decimal = Field(default=Decimal("0"))
-    total_value: float = 100.0
-    starting_capital: Decimal = Field(default=Decimal("100"))
+    total_value: float = 10000.0
+    starting_capital: Decimal = Field(default=Decimal("10000"))
     enabled: bool = True
 
 
@@ -348,12 +353,12 @@ from pydantic import Field
 from fastapi import Query
 
 
-initial_capital = 10000.0
+initial_capital = 100.0  # the OLD account size — stale, must trip
 
 
 class Cfg:
-    initial_capital: Decimal = Field(default=Decimal("10000"))
-    peak_capital: float = 10000.0
+    initial_capital: Decimal = Field(default=Decimal("100"))
+    peak_capital: float = 100.0
 
 
 total_capital: float = 100000.0
@@ -363,12 +368,12 @@ def endpoint(total_capital: float = Query(default=100000.0, description="x")):
     ...
 
 
-def sizer(account_balance: float = 10000.0):
+def sizer(account_balance: float = 100.0):
     ...
 
 
 portfolio = {}
-value = Decimal(str(portfolio.get("total_value", 10000)))
+value = Decimal(str(portfolio.get("total_value", 100)))
 """
 
 
@@ -382,23 +387,25 @@ def test_negative_cases_do_not_trip():
 def test_positive_cases_do_trip():
     violations = find_violations(POSITIVE_FIXTURE, "positive_fixture.py")
     rendered = "\n".join(violations)
-    assert len(violations) == 7, (
-        f"expected 7 violations, got {len(violations)}:\n{rendered}"
-    )
+    assert len(violations) == 7, f"expected 7 violations, got {len(violations)}:\n{rendered}"
     for expected in (
-        "`initial_capital` = 10000",
-        "`peak_capital` = 10000",
+        "`initial_capital` = 100",
+        "`peak_capital` = 100",
         "`total_capital` = 100000",
-        "`account_balance` = 10000",
-        "`total_value` = 10000",
+        "`account_balance` = 100",
+        "`total_value` = 100",
     ):
         assert expected in rendered, f"missing {expected} in:\n{rendered}"
 
 
 def test_exempt_values_are_sourced_from_shared_account():
-    """The exemption tracks the declaration of record, not a literal here."""
+    """The exemption tracks the declaration of record, not a literal here.
+
+    Since ADR-029 the declared size is 10000.0, so the OLD size (100.0) must
+    now trip like any other stale capital literal.
+    """
     assert DEFAULTS["PAPER_INITIAL_BALANCE"] in EXEMPT_VALUES
-    assert 10000.0 not in EXEMPT_VALUES
+    assert 100.0 not in EXEMPT_VALUES
     assert 100000.0 not in EXEMPT_VALUES
 
 
@@ -419,9 +426,7 @@ def test_no_capital_literals_in_scanned_files():
         path = REPO_ROOT / relative_path
         if not path.is_file():
             continue
-        violations.extend(
-            find_violations(path.read_text(encoding="utf-8"), relative_path)
-        )
+        violations.extend(find_violations(path.read_text(encoding="utf-8"), relative_path))
 
     assert not violations, (
         f"{len(violations)} capital-named numeric literal(s) found. THE ACCOUNT "

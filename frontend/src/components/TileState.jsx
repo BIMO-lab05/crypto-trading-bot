@@ -1,4 +1,5 @@
 import React from 'react'
+import { parseUtc } from '../utils/formatters'
 
 /**
  * TileState — shared wrapper for every audited dashboard tile (Plan 06-05,
@@ -63,12 +64,16 @@ const defaultIsEmpty = (d) => d == null || (Array.isArray(d) && d.length === 0)
  * Determine whether `lastUpdatedAt` is older than `staleAfterMs`. Returns
  * false on missing/invalid timestamps (caller controls forced-stale via
  * `forceStale` prop).
+ *
+ * String/Date inputs go through parseUtc — backend services emit naive-UTC
+ * ISO strings without an offset, which Date.parse would read as LOCAL time
+ * (the exact bug parseUtc exists to fix). Epoch-ms numbers pass through.
  */
 function isStaleByTimestamp(lastUpdatedAt, staleAfterMs) {
   if (lastUpdatedAt == null || !Number.isFinite(staleAfterMs)) return false
   const t = typeof lastUpdatedAt === 'number'
     ? lastUpdatedAt
-    : Date.parse(lastUpdatedAt)
+    : parseUtc(lastUpdatedAt)?.getTime()
   if (!Number.isFinite(t)) return false
   return Date.now() - t > staleAfterMs
 }

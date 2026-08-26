@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 
+from shared.account import ACCOUNT_EQUITY_USD
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -64,7 +66,7 @@ class PortfolioBacktestEngine:
 
     def __init__(
         self,
-        initial_capital: float = 10000.0,
+        initial_capital: float = ACCOUNT_EQUITY_USD,
         commission: float = 0.001,
         slippage: float = 0.0005
     ):

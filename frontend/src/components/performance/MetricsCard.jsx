@@ -19,6 +19,32 @@
 
 import React from 'react'
 import PropTypes from 'prop-types'
+import { PAPER_DEFAULT_BALANCE } from '../../utils/balance'
+
+// ============================================================================
+// DOLLAR THRESHOLDS
+// ============================================================================
+
+// Dollar thresholds expressed as fractions of the paper account
+// (PAPER_DEFAULT_BALANCE) so severity keeps its meaning at any account size.
+// Total P&L: any profit is good; losing more than 1% of the account is bad.
+const TOTAL_PNL_THRESHOLDS = { good: 0, bad: -0.01 * PAPER_DEFAULT_BALANCE }
+
+// VaR(95): good ≤ 1% of the account, warning at 5%, bad at 10%.
+const VAR_THRESHOLDS = {
+  good: 0.01 * PAPER_DEFAULT_BALANCE,
+  warning: 0.05 * PAPER_DEFAULT_BALANCE,
+  bad: 0.1 * PAPER_DEFAULT_BALANCE,
+  inverse: true,
+}
+
+// CVaR (expected tail loss) runs deeper than VaR: 1.5% / 7.5% / 15%.
+const CVAR_THRESHOLDS = {
+  good: 0.015 * PAPER_DEFAULT_BALANCE,
+  warning: 0.075 * PAPER_DEFAULT_BALANCE,
+  bad: 0.15 * PAPER_DEFAULT_BALANCE,
+  inverse: true,
+}
 
 // ============================================================================
 // FORMATTING UTILITIES
@@ -468,7 +494,7 @@ export const TotalPnLCard = ({ value, loading, ...props }) => (
     value={value}
     format="currency"
     description="Total realized profit/loss."
-    thresholds={{ good: 0, bad: -100 }}
+    thresholds={TOTAL_PNL_THRESHOLDS}
     loading={loading}
     {...props}
   />
@@ -483,7 +509,7 @@ export const VaRCard = ({ value, loading, ...props }) => (
     value={value}
     format="currency"
     description="Maximum expected daily loss at 95% confidence."
-    thresholds={{ good: 100, warning: 500, bad: 1000, inverse: true }}
+    thresholds={VAR_THRESHOLDS}
     loading={loading}
     {...props}
   />
@@ -498,7 +524,7 @@ export const CVaRCard = ({ value, loading, ...props }) => (
     value={value}
     format="currency"
     description="Expected shortfall beyond VaR threshold."
-    thresholds={{ good: 150, warning: 750, bad: 1500, inverse: true }}
+    thresholds={CVAR_THRESHOLDS}
     loading={loading}
     {...props}
   />

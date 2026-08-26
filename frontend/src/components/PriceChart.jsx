@@ -33,9 +33,11 @@ import TileState from './TileState'
  */
 export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
   // Fetch kline data using custom hook.
-  // Plan 06-05 DASH-05: audit verdict LABELED_STALE (market-data unhealthy
-  // at audit time 2026-05-13). Wrapped in <TileState forceStale/> below;
-  // F-05 precedence ensures real errors still surface as Failed (...) UI.
+  // Plan 06-05 DASH-05: wrapped in <TileState/> below. 2026-08-20: the
+  // forceStale flag is removed — the klines endpoint is healthy again. The
+  // stale badge is driven by the query's `dataUpdatedAt` (epoch ms of the
+  // last successful fetch) passed as `lastUpdatedAt` to TileState. F-05
+  // precedence still ensures real errors surface as the Failed (...) UI.
   const q = useKlines(symbol, interval, { limit: 24 })
   const { data, isLoading, error } = q
 
@@ -141,8 +143,7 @@ export default function PriceChart({ symbol = 'BTCUSDT', interval = '60' }) {
       query={q}
       title={`${symbol} Price Chart`}
       thresholdKey="ticker"
-      lastUpdatedAt={undefined}
-      forceStale
+      lastUpdatedAt={q.dataUpdatedAt || undefined}
       isEmpty={(d) => !d || !Array.isArray(d) || d.length === 0}
     >
     <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 backdrop-blur-sm p-6">

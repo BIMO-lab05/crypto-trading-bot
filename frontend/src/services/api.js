@@ -90,13 +90,6 @@ export const marketAPI = {
   // Get kline/candlestick data (note: backend uses 'klines' plural)
   getKlines: (symbol, interval, params) =>
     api.get(`/market/klines/${symbol}`, { params: { interval, ...params } }),
-
-  // Get orderbook
-  // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
-  // NOTE 2025-12-04: market-data-service does not have orderbook endpoint
-  // TODO: no gateway route — do not mount (useOrderbook hook exists but is
-  // unused by any component; wire this up only after the gateway route exists)
-  getOrderbook: (symbol) => api.get(`/market/orderbook/${symbol}`),
 }
 
 // Trading signals endpoints
@@ -105,11 +98,7 @@ export const tradingAPI = {
   getSignal: (symbol, interval = 60) =>
     api.get(`/trading/signals/${symbol}`, { params: { interval } }),
 
-  // Get multiple signals
-  getMultipleSignals: (symbols, interval = 60) =>
-    Promise.all(symbols.map(symbol => tradingAPI.getSignal(symbol, interval))),
-
-  // Get trading bot status (maps to /api/v1/trading/status)
+  // Get trading bot status (gateway route /api/trading/status — no v1 prefix)
   getStatus: () => api.get('/trading/status'),
 
   // Get trading positions
@@ -118,6 +107,10 @@ export const tradingAPI = {
 
   // Get trading performance metrics
   getPerformance: () => api.get('/trading/performance'),
+
+  // Stage-by-stage signal rejection funnel (2026-08-21).
+  // Gateway route /api/trading/signal-funnel -> engine /api/v1/trading/signal-funnel.
+  getSignalFunnel: () => api.get('/trading/signal-funnel'),
 }
 
 // System health endpoint
@@ -144,11 +137,7 @@ export const mlAPI = {
   getVolatilityPrediction: (symbol, interval = 60) =>
     api.get(`/ml/predict/volatility/${symbol}`, { params: { interval } }),
 
-  // Get ML-based trading signal
-  // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
-  // NOTE 2025-12-04: ml-prediction-service does not have signal endpoint
-  // Available endpoints: /predict/price, /predict/trend, /predict/volatility
-  // TODO: Implement /api/v1/predict/signal/{symbol} in ml-prediction-service if needed
+  // Get ML-based trading signal (gateway route /api/ml/predict/signal/{symbol})
   getMLSignal: (symbol, interval = 60) =>
     api.get(`/ml/predict/signal/${symbol}`, { params: { interval } }),
 
@@ -163,16 +152,6 @@ export const mlAPI = {
   trainModel: (symbol, interval = 60, lookbackDays = 90) =>
     api.post('/ml/models/train', null, {
       params: { symbol, interval, lookback_days: lookbackDays }
-    }),
-
-  // Retrain existing model
-  // BACKEND STATUS: NOT IMPLEMENTED - the gateway has no
-  // /api/ml/models/retrain/{symbol} route (only /api/ml/models/train).
-  // TODO: no gateway route — do not mount. Use trainModel() instead, which
-  // hits the existing /ml/models/train endpoint.
-  retrainModel: (symbol, interval = 60, lookbackDays = 90) =>
-    api.post(`/ml/models/retrain/${symbol}`, null, {
-      params: { interval, lookback_days: lookbackDays }
     }),
 }
 
@@ -208,22 +187,12 @@ export const multiTimeframeAPI = {
 }
 
 // Phase 3: Enhanced Trading Signals endpoints
-// NOTE 2025-12-04: These endpoints are NOT YET IMPLEMENTED in the backend trading-engine.
-// The frontend will display error messages until these are implemented.
-// Current backend endpoints available at /api/v1/signals/{symbol} provide Phase 1 signals only.
 export const enhancedTradingAPI = {
   // Get Phase 3 enhanced signal (includes ML + Sentiment + MTF)
-  // FIXED: Using /api/v1/signals/{symbol} which already includes all enhanced data
+  // Gateway route /api/trading/signals/{symbol} (no v1 prefix) already
+  // includes all enhanced data.
   getEnhancedSignal: (symbol, interval = 60) =>
     api.get(`/trading/signals/${symbol}`, { params: { interval } }),
-
-  // Get Phase 1 vs Phase 3 comparison
-  // BACKEND STATUS: NOT IMPLEMENTED - Returns 404
-  // TODO: no gateway route — do not mount (useSignalComparison hook exists in
-  // usePhase3.js but is unused by any component). Implement
-  // /api/v1/signals/compare/{symbol} in trading-engine before wiring this up.
-  getSignalComparison: (symbol, interval = 60) =>
-    api.get(`/trading/signals/compare/${symbol}`, { params: { interval } }),
 }
 
 // Auto Trader & Trading Enhancements endpoints (FIXED - 2025-12-01)

@@ -228,8 +228,8 @@ export function usePerformanceMetrics(options = {}) {
     metrics,
 
     // Account baseline: server-sent initial balance when available,
-    // PAPER_DEFAULT_BALANCE ($100) otherwise. Exposed so consumers never
-    // invent their own baseline.
+    // PAPER_DEFAULT_BALANCE ($10,000 per ADR-029) otherwise. Exposed so
+    // consumers never invent their own baseline.
     initialBalance,
 
     // Chart data
@@ -281,8 +281,9 @@ export function useEquityCurve(options = {}) {
   })
 
   // Calculate equity curve from trades if backend doesn't provide it.
-  // The baseline is the paper account's opening balance ($100, matching
-  // trading-engine PAPER_INITIAL_BALANCE) — never a fabricated figure.
+  // The baseline is the paper account's opening balance (PAPER_DEFAULT_BALANCE,
+  // matching trading-engine PAPER_INITIAL_BALANCE — $10,000 per ADR-029),
+  // never a fabricated figure.
   // If the trade-history query itself failed, this stays [] and isError
   // is surfaced below; the consumer must render an error state.
   const calculatedCurve = useMemo(() => {

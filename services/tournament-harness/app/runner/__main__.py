@@ -121,10 +121,20 @@ def _build_success_result(
             "r2_returns": metrics["r2_returns"],
             "dir_acc_corrected": metrics["dir_acc_corrected"],
             "oos_sharpe": metrics["oos_sharpe"],
+            # SEV-7: always None; the forecast-path Sharpe is below under
+            # its honest name. Kept as a key because the leaderboard
+            # schema requires the column (nullable).
             "psr": metrics["psr"],
             "dsr": metrics["dsr"],
             "cpcv_dsr": metrics["cpcv_dsr"],
             "train_seconds": train_seconds,
+            # Decision of record (2026-08): verdict artifacts report the
+            # num_trials components + the renamed forecast diagnostic.
+            # Extra keys pass result_schema.validate untouched and are
+            # ignored by the leaderboard INSERT (result.json is the
+            # artifact of record for them).
+            "forecast_path_sharpe": metrics.get("forecast_path_sharpe"),
+            "cpcv_num_trials_used": metrics.get("cpcv_num_trials_used"),
         },
         "git_sha": os.environ.get("GIT_SHA", "unknown"),
         "tournament_start_ts": os.environ.get("TS_START", ""),

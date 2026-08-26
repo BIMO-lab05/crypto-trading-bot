@@ -5,14 +5,15 @@ Purpose: Per-indicator rolling-confidence telemetry + re-enablement gate.
 
 Why this exists
 ---------------
-Two TA indicators are commented out in ``signal_aggregator.py``:
+One TA indicator is commented out in ``signal_aggregator.py``:
 
 * ``RSI_DIVERGENCE`` — DISABLED: stuck at 0.20 confidence
-* ``SQZMOM_ENHANCED`` — DISABLED: stuck at 0.50 HOLD
+* ``SQZMOM_ENHANCED`` — re-enabled 2026-08-17 (its "stuck at 0.50 HOLD"
+  root cause was fixed 2026-05-05; it votes again)
 
-Today they live as raw ``#`` comments. A future refactor or "enable
-everything" toggle could silently re-add them with no evidence they
-have improved. This module adds:
+Today the disabled one lives as a raw ``#`` comment. A future refactor
+or "enable everything" toggle could silently re-add it with no evidence
+it has improved. This module adds:
 
 1. A bounded ring buffer (last 200 calls) of confidences per indicator.
 2. A ``record(name, confidence, was_voted)`` API. ``was_voted=False`` is

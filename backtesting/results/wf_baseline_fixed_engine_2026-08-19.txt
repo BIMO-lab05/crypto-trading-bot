@@ -1,0 +1,48 @@
+
+===== BTCUSDT — baseline walk-forward (clean epoch, 3 folds) =====
+  fold 0: 2026-05-20..2026-05-29 bars=207 trades=1 WR=0.0% sharpe=-7.93 PF=0.00 PnL=-0.06% DD=0.06%
+  fold 1: 2026-06-15..2026-07-03 bars=414 trades=0 WR=0.0% sharpe=+0.00 PF=0.00 PnL=+0.00% DD=0.00%
+  fold 2: 2026-07-11..2026-08-06 bars=622 trades=0 WR=0.0% sharpe=+0.00 PF=0.00 PnL=+0.00% DD=0.00%
+  IS +1.815 | OOS -2.643 | ratio -1.46 | DSR 0.000 | GATE REJECT
+    - OOS Sharpe mean -2.64 < 1.00
+    - profit factor mean 0.00 < 1.2
+    - OOS/IS Sharpe ratio -1.46 < 0.60
+    - DSR 0.00 < 0.95
+
+===== ETHUSDT — baseline walk-forward (clean epoch, 3 folds) =====
+  fold 0: 2026-05-20..2026-05-29 bars=207 trades=1 WR=0.0% sharpe=-6.09 PF=0.00 PnL=-0.06% DD=0.08%
+  fold 1: 2026-06-15..2026-07-03 bars=414 trades=1 WR=100.0% sharpe=+3.80 PF=0.00 PnL=+0.12% DD=0.05%
+  fold 2: 2026-07-11..2026-08-06 bars=622 trades=3 WR=33.3% sharpe=-4.33 PF=0.04 PnL=-0.12% DD=0.15%
+  IS -0.669 | OOS -2.206 | ratio +3.30 | DSR 0.000 | GATE REJECT
+    - OOS Sharpe mean -2.21 < 1.00
+    - profit factor mean 0.01 < 1.2
+    - DSR 0.00 < 0.95
+
+===== SOLUSDT — baseline walk-forward (clean epoch, 3 folds) =====
+  fold 0: 2026-05-20..2026-05-29 bars=207 trades=0 WR=0.0% sharpe=+0.00 PF=0.00 PnL=+0.00% DD=0.00%
+  fold 1: 2026-06-15..2026-07-03 bars=414 trades=1 WR=0.0% sharpe=-1.67 PF=0.00 PnL=-0.06% DD=0.16%
+  fold 2: 2026-07-11..2026-08-06 bars=622 trades=0 WR=0.0% sharpe=+0.00 PF=0.00 PnL=+0.00% DD=0.00%
+  IS +2.030 | OOS -0.555 | ratio -0.27 | DSR 0.000 | GATE REJECT
+    - OOS Sharpe mean -0.56 < 1.00
+    - profit factor mean 0.00 < 1.2
+    - OOS/IS Sharpe ratio -0.27 < 0.60
+    - DSR 0.00 < 0.95
+
+===== BNBUSDT — baseline walk-forward (clean epoch, 3 folds) =====
+  fold 0: 2026-05-20..2026-05-29 bars=207 trades=1 WR=0.0% sharpe=-6.27 PF=0.00 PnL=-0.07% DD=0.11%
+  fold 1: 2026-06-15..2026-07-03 bars=414 trades=2 WR=50.0% sharpe=+2.31 PF=1.90 PnL=+0.06% DD=0.10%
+  fold 2: 2026-07-11..2026-08-06 bars=622 trades=1 WR=100.0% sharpe=+0.66 PF=0.00 PnL=+0.01% DD=0.04%
+  IS +2.073 | OOS -1.098 | ratio -0.53 | DSR 0.000 | GATE REJECT
+    - OOS Sharpe mean -1.10 < 1.00
+    - profit factor mean 0.63 < 1.2
+    - OOS/IS Sharpe ratio -0.53 < 0.60
+    - DSR 0.00 < 0.95
+
+===== ADAUSDT — baseline walk-forward (clean epoch, 3 folds) =====
+  fold 0: 2026-05-20..2026-05-29 bars=207 trades=1 WR=0.0% sharpe=-12.67 PF=0.00 PnL=-0.06% DD=0.06%
+  fold 1: 2026-06-15..2026-07-03 bars=414 trades=2 WR=100.0% sharpe=+7.96 PF=0.00 PnL=+0.24% DD=0.08%
+  fold 2: 2026-07-11..2026-08-06 bars=622 trades=2 WR=0.0% sharpe=-6.09 PF=0.00 PnL=-0.13% DD=0.15%
+  IS -1.196 | OOS -3.601 | ratio +3.01 | DSR 0.000 | GATE REJECT
+    - OOS Sharpe mean -3.60 < 1.00
+    - profit factor mean 0.00 < 1.2
+    - DSR 0.00 < 0.95

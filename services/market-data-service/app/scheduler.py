@@ -15,7 +15,12 @@ from typing import List
 import asyncio
 
 from app.fetcher import BybitDataFetcher, get_interval_minutes
-from app.repository import KlineRepository, TickerRepository
+from app.repository import (
+    KlineRepository,
+    OpenInterestRepository,  # noqa: F401 - patched via app.scheduler.OpenInterestRepository in tests
+    OrderbookRepository,
+    TickerRepository,
+)
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -38,6 +43,38 @@ _INTERVAL_JOB_GRACE_SECONDS = 240  # 5-minute jobs
 _HOURLY_JOB_GRACE_SECONDS = 1800  # hourly backup job
 
 _SCHEDULER_LOCK_PATH = "/tmp/market-data-scheduler.lock"
+
+# Module-level lazy singleton for the orderbook job only (final review H-2).
+# Every other job still constructs a fresh BybitDataFetcher per tick and
+# closes it in `finally` -- unchanged. The orderbook job runs every 5s (vs.
+# 5min/1h elsewhere), so building a fresh 100-connection httpx pool and
+# tearing it down every tick meant 17k fetcher lifecycles/day and zero
+# keepalive reuse across ticks; that churn was the main cadence lever.
+# Closed in stop_scheduler().
+_orderbook_fetcher: BybitDataFetcher = None
+
+# Bounds concurrent in-flight orderbook requests per tick (final review H-2).
+# 14 symbols fully concurrent would burst the connector's rate limiter
+# (final review H-4); 8 keeps a tick's burst well under it while still
+# collapsing 14 sequential round trips into ~2 waves.
+_ORDERBOOK_CONCURRENCY = 8
+
+
+def _get_orderbook_fetcher() -> BybitDataFetcher:
+    global _orderbook_fetcher
+    if _orderbook_fetcher is None:
+        _orderbook_fetcher = BybitDataFetcher()
+    return _orderbook_fetcher
+
+
+def _reset_orderbook_fetcher_for_tests() -> None:
+    """Test-only escape hatch for the module-level singleton above. Without
+    this, a test that patches BybitDataFetcher or app.scheduler.BybitDataFetcher
+    after an earlier test already populated `_orderbook_fetcher` gets a stale
+    instance instead of its own mock -- the singleton is process-global and
+    outlives any one test's patch context. Call from an autouse fixture."""
+    global _orderbook_fetcher
+    _orderbook_fetcher = None
 
 
 def _claim_scheduler_ownership() -> bool:
@@ -243,6 +280,65 @@ async def collect_kline_data():
     )
 
 
+async def collect_orderbook_data():
+    """Scheduled job: top-25 orderbook snapshot per pair. Runs every 5 seconds.
+
+    max_instances=1 + coalesce=True at registration make a slow tick SKIP
+    the next rather than queue (spec A1 rate-limit rule).
+
+    Reworked per final review H-2/M-6: symbols fetch concurrently (bounded by
+    a semaphore) against a fetcher reused across ticks, and successful
+    snapshots are written in one batched session instead of one session per
+    symbol. This is what moved achieved cadence back toward the 5s target
+    instead of the ~6.1s/18%-loss measured against the old sequential,
+    per-tick-fetcher, per-snapshot-session implementation.
+    """
+    fetcher = _get_orderbook_fetcher()
+    repo = OrderbookRepository()
+    semaphore = asyncio.Semaphore(_ORDERBOOK_CONCURRENCY)
+
+    async def _fetch_one(symbol: str):
+        async with semaphore:
+            try:
+                return await fetcher.get_orderbook(symbol, limit=25)
+            except Exception as e:
+                logger.error(f"❌ Error collecting orderbook for {symbol}: {e}")
+                return None
+
+    symbols = _trading_pairs()
+    results = await asyncio.gather(*(_fetch_one(s) for s in symbols))
+    snapshots = [r for r in results if r]
+    error_count = len(symbols) - len(snapshots)
+
+    success_count = await repo.save_snapshots_bulk(snapshots) if snapshots else 0
+    if success_count < len(snapshots):
+        error_count += len(snapshots) - success_count
+
+    if error_count:
+        logger.warning(
+            f"📖 Orderbook collection: {success_count} ok, {error_count} errors"
+        )
+
+
+async def collect_open_interest_data():
+    """Scheduled job: OI history page per pair. Runs every 5 minutes.
+    First run per symbol naturally backfills the endpoint's max window (spec A2).
+    """
+    fetcher = BybitDataFetcher()
+    repo = OpenInterestRepository()
+    try:
+        for symbol in _trading_pairs():
+            try:
+                rows = await fetcher.get_open_interest(symbol)
+                if rows:
+                    n = await repo.bulk_upsert(rows)
+                    logger.info(f"📈 OI {symbol}: upserted {n} rows")
+            except Exception as e:
+                logger.error(f"❌ Error collecting OI for {symbol}: {e}")
+    finally:
+        await fetcher.close()
+
+
 async def collect_all_data():
     """
     Scheduled job: Collect both ticker and kline data
@@ -310,6 +406,32 @@ def start_scheduler():
     )
     logger.info("✅ Scheduled: Kline collection every 5 minutes (offset +2min)")
 
+    # Job: orderbook snapshots every 5 seconds (edge-search v2 A1)
+    _scheduler.add_job(
+        collect_orderbook_data,
+        trigger=IntervalTrigger(seconds=5),
+        id="orderbook_collection",
+        name="Orderbook Snapshot Collection",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=4,  # < interval: a missed tick is dropped, not queued
+        coalesce=True,
+    )
+    logger.info("✅ Scheduled: Orderbook snapshots every 5 seconds")
+
+    # Job: open-interest history every 5 minutes, offset +3min (edge-search v2 A2)
+    _scheduler.add_job(
+        collect_open_interest_data,
+        trigger=IntervalTrigger(minutes=5, start_date="2024-01-01 00:03:00"),
+        id="open_interest_collection",
+        name="Open Interest Collection",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=_INTERVAL_JOB_GRACE_SECONDS,
+        coalesce=True,
+    )
+    logger.info("✅ Scheduled: Open interest collection every 5 minutes (offset +3min)")
+
     # Job 3: Hourly comprehensive collection (backup)
     _scheduler.add_job(
         collect_all_data,
@@ -345,6 +467,22 @@ def stop_scheduler():
     logger.info("🛑 Stopping scheduler...")
     _scheduler.shutdown(wait=True)
     _scheduler = None
+
+    # Release the orderbook job's reused connection pool (final review H-2).
+    # stop_scheduler() is sync but only ever called from an async context in
+    # production (FastAPI shutdown / the stop handler); tests may call it
+    # with no running loop, so this degrades to a warning rather than raising.
+    global _orderbook_fetcher
+    if _orderbook_fetcher is not None:
+        fetcher_to_close = _orderbook_fetcher
+        _orderbook_fetcher = None
+        try:
+            asyncio.get_running_loop().create_task(fetcher_to_close.close())
+        except RuntimeError:
+            logger.warning(
+                "No running event loop to close the orderbook fetcher's "
+                "connection pool on scheduler stop"
+            )
 
     # Release ownership so a restarting worker can claim it immediately rather
     # than waiting for this process to exit.

@@ -70,6 +70,7 @@ from edge_lab.sanity import (  # noqa: E402
     render_sanity_table,
 )
 from edge_lab.trades import Trade, write_trades_csv  # noqa: E402
+from edge_lab import trial_ledger  # noqa: E402
 from edge_lab.universe import load_pin  # noqa: E402
 from edge_lab.verdicts import (  # noqa: E402
     overall_verdict,
@@ -84,6 +85,13 @@ logger = logging.getLogger(__name__)
 
 DAY = 86_400_000
 
+# Not in config.py (intentional — that file is pinned for the other five
+# candidates' gate thresholds). "60" is Bybit's v5 kline interval for 1h;
+# 365d matches the h4 lookback and the manifest's frozen filename
+# convention {symbol}_60m_365d_bybit.csv.
+H1_INTERVAL = "60"
+H1_LOOKBACK_DAYS = 365
+
 # CPCV purge/embargo horizon per candidate — the holding period each one's
 # label spans. Wrong here means purging the wrong amount of data around each
 # test fold, so it is pinned rather than inferred from realized holds.
@@ -92,6 +100,8 @@ LABEL_HORIZONS = {
     "funding_carry": 10,
     "lf_trend": 30,
     "vol_breakout": 5,
+    "pairs_statarb": 2,
+    "intraday_seasonality": 1,
 }
 # Only reachable for a candidate outside the registry (a test stub). Named
 # and warned about rather than silently assumed.
@@ -103,6 +113,8 @@ _CANDIDATE_SPECS = (
     ("funding_carry", "edge_lab.candidates.funding_carry", ("daily", "funding")),
     ("lf_trend", "edge_lab.candidates.lf_trend", ("daily",)),
     ("vol_breakout", "edge_lab.candidates.vol_breakout", ("h4",)),
+    ("pairs_statarb", "edge_lab.candidates.pairs_statarb", ("daily",)),
+    ("intraday_seasonality", "edge_lab.candidates.intraday_seasonality", ("h1",)),
 )
 
 _costs = load_costs()
@@ -198,7 +210,7 @@ def load_bundle(
 ) -> tuple[dict[str, dict], str]:
     """Gate 0 over every pinned symbol, then the surviving data bundle.
 
-    Returns `({"daily": ..., "h4": ..., "funding": ...}, sanity_summary)`.
+    Returns `({"daily": ..., "h4": ..., "h1": ..., "funding": ...}, sanity_summary)`.
 
     Drops are scoped to the interval that failed. A 4h defect costs the
     symbol its 4h entry only; its daily bars are still trustworthy and the
@@ -224,11 +236,13 @@ def load_bundle(
 
     daily: dict[str, pd.DataFrame] = {}
     h4: dict[str, pd.DataFrame] = {}
+    h1: dict[str, pd.DataFrame] = {}
     funding: dict[str, pd.DataFrame] = {}
     reports: list[SanityReport] = []
     notes: list[str] = []
     dropped_daily: set[str] = set()
     dropped_h4: set[str] = set()
+    dropped_h1: set[str] = set()
 
     for symbol in symbols:
         # Funding is per symbol, not per interval, so it is resolved once
@@ -289,21 +303,40 @@ def load_bundle(
             else:
                 dropped_h4.add(symbol)
 
+        h1_path = kline_csv_path(data_dir, symbol, H1_INTERVAL, H1_LOOKBACK_DAYS)
+        if not h1_path.is_file():
+            notes.append(
+                f"{symbol} [{H1_INTERVAL}] no kline CSV at {h1_path} — "
+                "1h candidates skip this symbol (not a Gate 0 defect)"
+            )
+        else:
+            h1_df = read_kline_csv(h1_path, H1_INTERVAL, now_ms)
+            h1_report = check_klines(h1_df, symbol, H1_INTERVAL)
+            h1_report.funding_ok, h1_report.funding_n = funding_ok, funding_n
+            reports.append(h1_report)
+            if h1_report.ok:
+                h1[symbol] = h1_df.sort_values("ts_ms").reset_index(drop=True)
+            else:
+                dropped_h1.add(symbol)
+
     for symbol in dropped_daily:
         daily.pop(symbol, None)
         funding.pop(symbol, None)
     for symbol in dropped_h4:
         h4.pop(symbol, None)
+    for symbol in dropped_h1:
+        h1.pop(symbol, None)
 
     summary_lines = [render_sanity_table(reports)] if reports else []
     summary_lines.extend(notes)
     summary_lines.append(
         f"pinned={len(symbols)} kept_daily={len(daily)} kept_h4={len(h4)} "
-        f"funding_series={len(funding)} "
+        f"kept_h1={len(h1)} funding_series={len(funding)} "
         f"dropped_daily=[{', '.join(sorted(dropped_daily))}] "
-        f"dropped_h4=[{', '.join(sorted(dropped_h4))}]"
+        f"dropped_h4=[{', '.join(sorted(dropped_h4))}] "
+        f"dropped_h1=[{', '.join(sorted(dropped_h1))}]"
     )
-    bundle = {"daily": daily, "h4": h4, "funding": funding}
+    bundle = {"daily": daily, "h4": h4, "h1": h1, "funding": funding}
     return bundle, "\n".join(line for line in summary_lines if line)
 
 
@@ -341,6 +374,7 @@ def score_gate2(
     daily: Mapping[str, pd.DataFrame],
     candidate: str,
     funding_dir: Path,
+    num_trials_floor: int,
 ) -> tuple[Gate2Result, int, int, int, dict[str, int]]:
     """Daily net-return series → CPCV/DSR. Returns (result, start, end, h, dropped).
 
@@ -419,7 +453,13 @@ def score_gate2(
             candidate,
             horizon,
         )
-    return run_gate2(returns, horizon), start_ms, end_ms, horizon, dropped
+    return (
+        run_gate2(returns, horizon, num_trials_floor=num_trials_floor),
+        start_ms,
+        end_ms,
+        horizon,
+        dropped,
+    )
 
 
 def _score_variant(
@@ -429,9 +469,11 @@ def _score_variant(
     candidate: str,
     out_dir: Path,
     funding_dir: Path,
+    num_trials_floor: int,
+    date_str: str,
 ) -> dict[str, Any]:
     trades = _generate(entry, bundle, variant)
-    csv_path = Path(out_dir) / "trades" / f"{candidate}_{variant.name}.csv"
+    csv_path = Path(out_dir) / "trades" / date_str / f"{candidate}_{variant.name}.csv"
     write_trades_csv(trades, csv_path)
 
     record: dict[str, Any] = {
@@ -466,7 +508,7 @@ def _score_variant(
         return record
 
     gate2, start_ms, end_ms, horizon, dropped = score_gate2(
-        trades, bundle["daily"], candidate, funding_dir
+        trades, bundle["daily"], candidate, funding_dir, num_trials_floor
     )
     record.update(
         # Trades Gate 2 could not score for want of a daily frame. Recorded
@@ -484,6 +526,7 @@ def _score_variant(
         sharpe_std=gate2.sharpe_std,
         gate2_passed=gate2.passed,
         gate2_reasons=list(gate2.reasons),
+        num_trials_used=gate2.num_trials_used,
         label_horizon_days=horizon,
         window_start_ms=start_ms,
         window_end_ms=end_ms,
@@ -513,6 +556,15 @@ def run_battery(
     pin = load_pin(pin_path)
     bundle, sanity_summary = load_bundle(data_dir, pin, now_ms)
     registry = default_registry() if candidates is None else candidates
+
+    known = {(e["candidate"], e["variant"]) for e in trial_ledger.load_entries()}
+    scored = {(c, v.name) for c, e in registry.items() for v in e["variants"]}
+    total_new_variants = len(scored - known)
+    effective_floor = trial_ledger.effective_trials_floor(total_new_variants)
+    # Reported in every verdict artifact alongside the floor (decision of
+    # record 2026-08-20): the raw ledger component before the static-floor
+    # max, so a reader can audit which side of max(floor, n_paths) bound.
+    ledger_count = trial_ledger.effective_trial_count(total_new_variants)
 
     results: dict[str, dict] = {}
     for candidate, entry in registry.items():
@@ -551,7 +603,14 @@ def run_battery(
             for variant in entry["variants"]:
                 result["variants"].append(
                     _score_variant(
-                        entry, bundle, variant, candidate, out_dir, funding_dir
+                        entry,
+                        bundle,
+                        variant,
+                        candidate,
+                        out_dir,
+                        funding_dir,
+                        effective_floor,
+                        date_str,
                     )
                 )
             result["verdict"] = overall_verdict(result["variants"])
@@ -568,23 +627,70 @@ def run_battery(
         try:
             write_verdict(
                 render_verdict(
-                    candidate, result["variants"], pin, sanity_summary, date_str
+                    candidate,
+                    result["variants"],
+                    pin,
+                    sanity_summary,
+                    date_str,
+                    num_trials_floor=effective_floor,
+                    ledger_count=ledger_count,
                 ),
                 candidate,
                 date_str,
                 out_dir,
             )
-            write_verdict_json(candidate, result["variants"], pin, date_str, out_dir)
+            write_verdict_json(
+                candidate,
+                result["variants"],
+                pin,
+                date_str,
+                out_dir,
+                num_trials_floor=effective_floor,
+                ledger_count=ledger_count,
+            )
         except Exception:
             logger.exception("failed to write the %s verdict doc", candidate)
             result["doc_error"] = traceback.format_exc()
+
+        # Ledgered per candidate, not per battery: a battery that dies on a
+        # later candidate must not cost the ledger entries for the ones that
+        # already scored. Covers NO_TRADES and Gate-1 KILL variants too, not
+        # just PASS — every variant this battery actually scored is a spent
+        # trial.
+        try:
+            trial_ledger.append_entries(
+                [
+                    {
+                        "candidate": candidate,
+                        "variant": v.get("variant"),
+                        "params": v.get("params"),
+                        "date": date_str,
+                        "gate1_verdict": v.get("gate1_verdict"),
+                        "gate2_passed": v.get("gate2_passed"),
+                    }
+                    for v in result["variants"]
+                    if v.get("variant") is not None
+                ]
+            )
+        except Exception:
+            logger.exception("failed to append %s to the trial ledger", candidate)
+            result["ledger_error"] = traceback.format_exc()
 
     # Last hole in "the battery always completes": by here every verdict doc
     # is already on disk, so a summary that fails to render must not take the
     # results down with it.
     try:
         write_summary(
-            render_summary(results, pin, sanity_summary, date_str), date_str, out_dir
+            render_summary(
+                results,
+                pin,
+                sanity_summary,
+                date_str,
+                num_trials_floor=effective_floor,
+                ledger_count=ledger_count,
+            ),
+            date_str,
+            out_dir,
         )
     except Exception:
         logger.exception("failed to write the battery summary")
@@ -610,6 +716,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "output docs. Defaults to now."
         ),
     )
+    parser.add_argument(
+        "--candidates",
+        default=None,
+        help=(
+            "comma-separated candidate names (e.g. 'intraday_seasonality') to "
+            "run instead of the full default_registry() set — filters, never "
+            "adds; an unknown name raises. Defaults to all registered "
+            "candidates."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -622,7 +738,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         now_ms = int(time.time() * 1000)
 
-    results = run_battery(Path(args.data_dir), Path(args.pin), Path(args.out), now_ms)
+    candidates = None
+    if args.candidates:
+        registry = default_registry()
+        names = [n.strip() for n in args.candidates.split(",") if n.strip()]
+        unknown = [n for n in names if n not in registry]
+        if unknown:
+            raise SystemExit(
+                f"--candidates: unknown name(s) {unknown}; known: {sorted(registry)}"
+            )
+        candidates = {n: registry[n] for n in names}
+
+    results = run_battery(
+        Path(args.data_dir), Path(args.pin), Path(args.out), now_ms, candidates
+    )
     for candidate, result in results.items():
         logger.info("%s: %s", candidate, result["verdict"])
 

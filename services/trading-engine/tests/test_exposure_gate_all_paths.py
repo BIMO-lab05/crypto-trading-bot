@@ -8,8 +8,8 @@ research/hybrid path, and _execute_trade, the default path) could open a
 position with no account-level exposure check at all.
 
 It is not breachable on today's configuration: per-symbol dedup means at most
-one position per symbol, and 5 validated symbols x the $10 per-trade cap
-cannot reach the $80 exposure cap. That bound depends entirely on the symbol
+one position per symbol, and 5 validated symbols x the 10% per-trade cap
+cannot reach the 80% exposure cap. That bound depends entirely on the symbol
 list staying at 5, which is not something the sizing code checks or states.
 
 The gate rejects, never clamps: a silently resized order hides the breach.
@@ -49,6 +49,16 @@ from app.services.instruments_cache import InstrumentSpec  # noqa: E402
 
 BALANCE = float(ACCOUNT_EQUITY_USD)
 BTC_PRICE = 50000.0
+
+_BAL = Decimal(str(ACCOUNT_EQUITY_USD))
+
+
+def _qty_frac(frac: str, price: str) -> Decimal:
+    """Quantity whose notional is `frac` of the account balance at `price`.
+
+    Fixtures stay balance-relative so the exposure percentages under test
+    hold at any declared account size."""
+    return _BAL * Decimal(frac) / Decimal(price)
 
 
 class _PermissiveInstrumentsCache:
@@ -103,8 +113,8 @@ def test_helper_rejects_when_open_plus_new_breaches_cap(trader, caplog):
     """76% open + a 10% new trade exceeds the 80% cap."""
     mgr = _position_mgr(
         [
-            _open_position("ETHUSDT", "3800", "0.01"),  # $38
-            _open_position("SOLUSDT", "76", "0.5"),  # $38
+            _open_position("ETHUSDT", "3800", _qty_frac("0.38", "3800")),  # 38%
+            _open_position("SOLUSDT", "76", _qty_frac("0.38", "76")),  # 38%
         ]
     )
     with caplog.at_level(logging.WARNING, logger="app.auto_trader"):
@@ -115,13 +125,14 @@ def test_helper_rejects_when_open_plus_new_breaches_cap(trader, caplog):
             position_mgr=mgr,
         )
     assert ok is False
-    assert any(
-        "[RISK_GATE] EXPOSURE REJECT" in rec.message for rec in caplog.records
-    ), f"log format changed: {[r.message[:90] for r in caplog.records]!r}"
+    assert any("[RISK_GATE] EXPOSURE REJECT" in rec.message for rec in caplog.records), (
+        f"log format changed: {[r.message[:90] for r in caplog.records]!r}"
+    )
 
 
 def test_helper_allows_when_under_cap(trader):
-    mgr = _position_mgr([_open_position("ETHUSDT", "3800", "0.01")])  # $38
+    # 38% open + 10% new = 48%, under the 80% cap.
+    mgr = _position_mgr([_open_position("ETHUSDT", "3800", _qty_frac("0.38", "3800"))])
     assert (
         trader._passes_exposure_gate(
             symbol="BTCUSDT",
@@ -134,10 +145,13 @@ def test_helper_allows_when_under_cap(trader):
 
 
 def test_helper_counts_remaining_quantity_not_original(trader):
-    """A position that has taken a partial exit occupies only its remainder."""
-    mgr = _position_mgr(
-        [_open_position("ETHUSDT", "3800", "0.02", remaining="0.01")]  # $38, not $76
-    )
+    """A position that has taken a partial exit occupies only its remainder.
+
+    Original quantity is 76% of balance (would breach with the 40% new trade);
+    the 38% remainder plus 40% stays under the 80% cap — so a pass proves the
+    gate counted the remainder, not the original."""
+    original = _qty_frac("0.76", "3800")
+    mgr = _position_mgr([_open_position("ETHUSDT", "3800", original, remaining=original / 2)])
     assert (
         trader._passes_exposure_gate(
             symbol="BTCUSDT",
@@ -151,7 +165,9 @@ def test_helper_counts_remaining_quantity_not_original(trader):
 
 def test_helper_keeps_ensemble_log_tag(trader, caplog):
     """The ensemble path's log line is unchanged by the hoist."""
-    mgr = _position_mgr([_open_position("ETHUSDT", "7600", "0.01")])  # $76
+    mgr = _position_mgr(
+        [_open_position("ETHUSDT", "7600", _qty_frac("0.76", "7600"))]  # 76%
+    )
     with caplog.at_level(logging.WARNING, logger="app.auto_trader"):
         ok = trader._passes_exposure_gate(
             symbol="BTCUSDT",
@@ -161,9 +177,7 @@ def test_helper_keeps_ensemble_log_tag(trader, caplog):
             tag="[ENSEMBLE][RISK_GATE]",
         )
     assert ok is False
-    assert any(
-        "[ENSEMBLE][RISK_GATE] EXPOSURE REJECT" in rec.message for rec in caplog.records
-    )
+    assert any("[ENSEMBLE][RISK_GATE] EXPOSURE REJECT" in rec.message for rec in caplog.records)
 
 
 # ============================================================================
@@ -197,12 +211,14 @@ def _drive_default_path(trader, open_positions):
     engine.execute_market_order = AsyncMock(return_value=(executed, None))
 
     sizer = Mock()
+    # 30% of balance: deliberately over the 10% per-trade cap so the clamp
+    # runs first and the exposure gate sees the CLAMPED notional, as it does
+    # in production.
+    oversized_value = _BAL * Decimal("0.30")
     sizer.calculate_position_size.return_value = PositionSizeResult(
-        position_size_pct=3.0,
-        # Deliberately over the per-trade cap so the clamp runs first and the
-        # exposure gate sees the CLAMPED notional, as it does in production.
-        position_value=Decimal("300.0"),
-        quantity=Decimal("0.006"),
+        position_size_pct=30.0,
+        position_value=oversized_value,
+        quantity=oversized_value / Decimal(str(BTC_PRICE)),
         method=SizingMethod.FIXED,
         kelly_fraction=None,
         confidence_modifier=None,
@@ -214,12 +230,12 @@ def _drive_default_path(trader, open_positions):
 
 @pytest.mark.asyncio
 async def test_default_path_rejects_exposure_breach(trader, caplog):
-    """$76 open + a $10 clamped trade breaches the $80 cap: no order placed."""
+    """76% open + a clamped 10% trade breaches the 80% cap: no order placed."""
     engine, sizer, mgr = _drive_default_path(
         trader,
         [
-            _open_position("ETHUSDT", "3800", "0.01"),  # $38
-            _open_position("SOLUSDT", "76", "0.5"),  # $38
+            _open_position("ETHUSDT", "3800", _qty_frac("0.38", "3800")),  # 38%
+            _open_position("SOLUSDT", "76", _qty_frac("0.38", "76")),  # 38%
         ],
     )
 
@@ -246,7 +262,8 @@ async def test_default_path_allows_under_cap(trader):
     """Sanity inverse: modest open exposure must still trade."""
     engine, sizer, mgr = _drive_default_path(
         trader,
-        [_open_position("ETHUSDT", "3800", "0.01")],  # $38 + $10 < $80
+        # 38% open + a clamped 10% trade stays under the 80% cap.
+        [_open_position("ETHUSDT", "3800", _qty_frac("0.38", "3800"))],
     )
 
     executed_before = trader.total_trades_executed

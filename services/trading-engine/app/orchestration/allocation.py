@@ -17,12 +17,10 @@ Date: 2025-12-11
 
 import logging
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal
 from threading import RLock
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 import math
-import statistics
 
 from app.orchestration.models import (
     StrategyConfig,
@@ -33,6 +31,7 @@ from app.orchestration.models import (
     AllocationMethod,
     RebalanceTrigger,
     StrategyStatus,
+    default_total_capital,
 )
 
 # Configure logging
@@ -43,6 +42,7 @@ logger = logging.getLogger(__name__)
 # ALLOCATION CONFIGURATION
 # =============================================================================
 
+
 @dataclass
 class AllocationConfig:
     """
@@ -50,8 +50,9 @@ class AllocationConfig:
 
     Controls allocation behavior, limits, and rebalancing triggers.
     """
-    # Total capital
-    total_capital: float = 100000.0
+
+    # Total capital — declared account size via Settings (see models.py helper)
+    total_capital: float = field(default_factory=default_total_capital)
 
     # Allocation method
     allocation_method: AllocationMethod = AllocationMethod.PERFORMANCE_BASED
@@ -103,6 +104,7 @@ class AllocationConfig:
 # ALLOCATION MANAGER
 # =============================================================================
 
+
 class AllocationManager:
     """
     Dynamic Capital Allocation Manager
@@ -143,9 +145,8 @@ class AllocationManager:
 
     Usage:
         config = AllocationConfig(
-            total_capital=100000,
             allocation_method=AllocationMethod.PERFORMANCE_BASED
-        )
+        )  # total_capital resolves from Settings (paper_initial_balance)
         manager = AllocationManager(config)
 
         # Add strategies
@@ -211,7 +212,7 @@ class AllocationManager:
         config: Optional[StrategyConfig] = None,
         target_pct: Optional[float] = None,
         min_pct: Optional[float] = None,
-        max_pct: Optional[float] = None
+        max_pct: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Add a strategy to allocation management
@@ -232,9 +233,10 @@ class AllocationManager:
                 strategy_id=strategy_id,
                 target_pct=target_pct or (config.target_allocation_pct if config else 10.0),
                 min_pct=min_pct or (config.min_allocation_pct if config else 0.0),
-                max_pct=max_pct or (config.max_allocation_pct if config else self.config.max_single_strategy_pct),
+                max_pct=max_pct
+                or (config.max_allocation_pct if config else self.config.max_single_strategy_pct),
                 allocated_capital=0.0,
-                available_capital=0.0
+                available_capital=0.0,
             )
 
             self._allocations[strategy_id] = allocation
@@ -245,19 +247,20 @@ class AllocationManager:
             # Initialize state if not exists
             if strategy_id not in self._strategy_states:
                 self._strategy_states[strategy_id] = StrategyState(
-                    strategy_id=strategy_id,
-                    status=StrategyStatus.WARMING_UP
+                    strategy_id=strategy_id, status=StrategyStatus.WARMING_UP
                 )
 
             # Initialize volatility estimate
             self._strategy_volatility[strategy_id] = 0.20  # 20% default
 
-            logger.info(f"Added strategy to allocation: {strategy_id}, target={allocation.target_pct}%")
+            logger.info(
+                f"Added strategy to allocation: {strategy_id}, target={allocation.target_pct}%"
+            )
 
             return {
                 "success": True,
                 "strategy_id": strategy_id,
-                "target_pct": allocation.target_pct
+                "target_pct": allocation.target_pct,
             }
 
     def remove_strategy(self, strategy_id: str) -> Dict[str, Any]:
@@ -294,7 +297,7 @@ class AllocationManager:
             return {
                 "success": True,
                 "strategy_id": strategy_id,
-                "freed_allocation_pct": removed_allocation.current_pct
+                "freed_allocation_pct": removed_allocation.current_pct,
             }
 
     def update_strategy_state(self, strategy_id: str, state: StrategyState) -> None:
@@ -309,7 +312,7 @@ class AllocationManager:
         sharpe: Optional[float] = None,
         win_rate: Optional[float] = None,
         profit_factor: Optional[float] = None,
-        volatility: Optional[float] = None
+        volatility: Optional[float] = None,
     ) -> None:
         """
         Update strategy performance metrics
@@ -341,19 +344,14 @@ class AllocationManager:
                     period_end=datetime.now(timezone.utc),
                     sharpe_ratio=sharpe or 0.0,
                     win_rate=win_rate or 0.5,
-                    profit_factor=profit_factor or 1.0
+                    profit_factor=profit_factor or 1.0,
                 )
 
             # Update volatility if provided
             if volatility is not None:
                 self._strategy_volatility[strategy_id] = volatility
 
-    def update_correlation(
-        self,
-        strategy_1: str,
-        strategy_2: str,
-        correlation: float
-    ) -> None:
+    def update_correlation(self, strategy_1: str, strategy_2: str, correlation: float) -> None:
         """
         Update correlation between two strategies
 
@@ -436,10 +434,7 @@ class AllocationManager:
             return {}
 
         # Get volatilities
-        volatilities = {
-            sid: self._strategy_volatility.get(sid, 0.20)
-            for sid in active_strategies
-        }
+        volatilities = {sid: self._strategy_volatility.get(sid, 0.20) for sid in active_strategies}
 
         # Calculate inverse volatility weights
         inv_vols = {sid: 1.0 / max(vol, 0.01) for sid, vol in volatilities.items()}
@@ -456,7 +451,7 @@ class AllocationManager:
             # Apply limits
             target_pct = max(
                 self.config.min_strategy_allocation_pct,
-                min(target_pct, self.config.max_single_strategy_pct)
+                min(target_pct, self.config.max_single_strategy_pct),
             )
 
             allocation = self._allocations[strategy_id]
@@ -502,7 +497,7 @@ class AllocationManager:
             # Apply limits
             target_pct = max(
                 self.config.min_strategy_allocation_pct,
-                min(target_pct, self.config.max_single_strategy_pct)
+                min(target_pct, self.config.max_single_strategy_pct),
             )
 
             allocation = self._allocations[strategy_id]
@@ -550,7 +545,7 @@ class AllocationManager:
             # Apply limits
             target_pct = max(
                 self.config.min_strategy_allocation_pct,
-                min(target_pct, self.config.max_single_strategy_pct)
+                min(target_pct, self.config.max_single_strategy_pct),
             )
 
             allocation = self._allocations[strategy_id]
@@ -589,21 +584,23 @@ class AllocationManager:
 
         # Combine with weights
         for strategy_id in active_strategies:
-            perf_target = perf_allocations.get(strategy_id, StrategyAllocation(strategy_id=strategy_id)).target_pct
-            rp_target = risk_parity_allocations.get(strategy_id, StrategyAllocation(strategy_id=strategy_id)).target_pct
-            kelly_target = kelly_allocations.get(strategy_id, StrategyAllocation(strategy_id=strategy_id)).target_pct
+            perf_target = perf_allocations.get(
+                strategy_id, StrategyAllocation(strategy_id=strategy_id)
+            ).target_pct
+            rp_target = risk_parity_allocations.get(
+                strategy_id, StrategyAllocation(strategy_id=strategy_id)
+            ).target_pct
+            kelly_target = kelly_allocations.get(
+                strategy_id, StrategyAllocation(strategy_id=strategy_id)
+            ).target_pct
 
             # Weighted combination
-            target_pct = (
-                perf_target * 0.4 +
-                rp_target * 0.3 +
-                kelly_target * 0.3
-            )
+            target_pct = perf_target * 0.4 + rp_target * 0.3 + kelly_target * 0.3
 
             # Apply limits
             target_pct = max(
                 self.config.min_strategy_allocation_pct,
-                min(target_pct, self.config.max_single_strategy_pct)
+                min(target_pct, self.config.max_single_strategy_pct),
             )
 
             allocation = self._allocations[strategy_id]
@@ -633,9 +630,9 @@ class AllocationManager:
 
         # Weighted average
         score = (
-            sharpe_score * self.config.performance_weight_sharpe +
-            win_rate_score * self.config.performance_weight_win_rate +
-            pf_score * self.config.performance_weight_profit_factor
+            sharpe_score * self.config.performance_weight_sharpe
+            + win_rate_score * self.config.performance_weight_win_rate
+            + pf_score * self.config.performance_weight_profit_factor
         )
 
         return score
@@ -773,14 +770,16 @@ class AllocationManager:
                     action_type = "increase" if diff > 0 else "decrease"
                     amount = abs(diff / 100 * self.config.total_capital)
 
-                    actions.append({
-                        "strategy_id": strategy_id,
-                        "action": action_type,
-                        "current_pct": allocation.current_pct,
-                        "target_pct": allocation.target_pct,
-                        "diff_pct": diff,
-                        "amount_usd": amount
-                    })
+                    actions.append(
+                        {
+                            "strategy_id": strategy_id,
+                            "action": action_type,
+                            "current_pct": allocation.current_pct,
+                            "target_pct": allocation.target_pct,
+                            "diff_pct": diff,
+                            "amount_usd": amount,
+                        }
+                    )
 
             # Sort by absolute difference (largest changes first)
             actions.sort(key=lambda x: abs(x["diff_pct"]), reverse=True)
@@ -803,9 +802,9 @@ class AllocationManager:
                         "success": False,
                         "error": "Minimum rebalance interval not met",
                         "next_allowed": (
-                            self._last_rebalance +
-                            timedelta(hours=self.config.min_rebalance_interval_hours)
-                        ).isoformat()
+                            self._last_rebalance
+                            + timedelta(hours=self.config.min_rebalance_interval_hours)
+                        ).isoformat(),
                     }
 
             # Get actions
@@ -829,27 +828,20 @@ class AllocationManager:
             snapshot = self._create_snapshot()
             self._allocation_history.append(snapshot)
 
-            logger.info(
-                f"Executed rebalance #{self._rebalance_count}: "
-                f"{len(actions)} adjustments"
-            )
+            logger.info(f"Executed rebalance #{self._rebalance_count}: {len(actions)} adjustments")
 
             return {
                 "success": True,
                 "rebalance_number": self._rebalance_count,
                 "actions": actions,
-                "timestamp": self._last_rebalance.isoformat()
+                "timestamp": self._last_rebalance.isoformat(),
             }
 
     # =========================================================================
     # CAPITAL TRACKING
     # =========================================================================
 
-    def update_used_capital(
-        self,
-        strategy_id: str,
-        used_capital: float
-    ) -> None:
+    def update_used_capital(self, strategy_id: str, used_capital: float) -> None:
         """
         Update capital currently in use by a strategy
 
@@ -870,15 +862,15 @@ class AllocationManager:
                 # Check if drifted from target
                 drift = abs(allocation.current_pct - allocation.target_pct)
                 allocation.needs_rebalancing = drift > self.config.rebalance_threshold_pct
-                allocation.rebalance_amount = (allocation.target_pct - allocation.current_pct) / 100 * self.config.total_capital
+                allocation.rebalance_amount = (
+                    (allocation.target_pct - allocation.current_pct)
+                    / 100
+                    * self.config.total_capital
+                )
 
                 allocation.last_updated = datetime.now(timezone.utc)
 
-    def update_risk_budget_used(
-        self,
-        strategy_id: str,
-        risk_used_pct: float
-    ) -> None:
+    def update_risk_budget_used(self, strategy_id: str, risk_used_pct: float) -> None:
         """
         Update risk budget usage for a strategy
 
@@ -925,15 +917,13 @@ class AllocationManager:
 
         # Get weights (current allocations)
         weights = {}
-        total_allocated = sum(
-            self._allocations[s].current_pct
-            for s in active_strategies
-        )
+        total_allocated = sum(self._allocations[s].current_pct for s in active_strategies)
 
         for strategy_id in active_strategies:
             weights[strategy_id] = (
                 self._allocations[strategy_id].current_pct / total_allocated
-                if total_allocated > 0 else 0
+                if total_allocated > 0
+                else 0
             )
 
         # Calculate portfolio variance
@@ -964,8 +954,10 @@ class AllocationManager:
             total_capital=self.config.total_capital,
             allocations=dict(self._allocations),
             total_allocated_pct=total_allocated,
-            total_used_pct=(total_used / self.config.total_capital * 100) if self.config.total_capital > 0 else 0,
-            cash_reserve_pct=100 - total_allocated
+            total_used_pct=(total_used / self.config.total_capital * 100)
+            if self.config.total_capital > 0
+            else 0,
+            cash_reserve_pct=100 - total_allocated,
         )
 
     def get_snapshot(self) -> AllocationSnapshot:
@@ -995,14 +987,16 @@ class AllocationManager:
                         "min_pct": a.min_pct,
                         "max_pct": a.max_pct,
                         "allocated_capital": a.allocated_capital,
-                        "used_capital": a.used_capital
+                        "used_capital": a.used_capital,
                     }
                     for sid, a in self._allocations.items()
                 },
                 "volatility": dict(self._strategy_volatility),
-                "last_rebalance": self._last_rebalance.isoformat() if self._last_rebalance else None,
+                "last_rebalance": self._last_rebalance.isoformat()
+                if self._last_rebalance
+                else None,
                 "rebalance_count": self._rebalance_count,
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -1039,9 +1033,11 @@ class AllocationManager:
                 "active_strategies": len(self._get_active_strategies()),
                 "total_strategies": len(self._allocations),
                 "needs_rebalancing": self.needs_rebalancing(),
-                "last_rebalance": self._last_rebalance.isoformat() if self._last_rebalance else None,
+                "last_rebalance": self._last_rebalance.isoformat()
+                if self._last_rebalance
+                else None,
                 "rebalance_count": self._rebalance_count,
-                "portfolio_volatility": self._calculate_portfolio_volatility()
+                "portfolio_volatility": self._calculate_portfolio_volatility(),
             }
 
 
@@ -1053,9 +1049,7 @@ class AllocationManager:
 _allocation_manager: Optional[AllocationManager] = None
 
 
-def get_allocation_manager(
-    config: Optional[AllocationConfig] = None
-) -> AllocationManager:
+def get_allocation_manager(config: Optional[AllocationConfig] = None) -> AllocationManager:
     """Get or create global allocation manager instance"""
     global _allocation_manager
     if _allocation_manager is None:

@@ -1,0 +1,75 @@
+{
+  "candidate": "lf_trend_maker_regate_v2",
+  "date": "20260819",
+  "verdict": "REJECT",
+  "universe_pin_date": "2026-08-17",
+  "universe_n_symbols": 30,
+  "thresholds": {
+    "hurdle_multiple": "2",
+    "dsr": 0.95,
+    "min_positive_path_frac": 0.7,
+    "num_trials_floor": 36,
+    "total_cpcv_paths": 45
+  },
+  "variants": [
+    {
+      "variant": "dc_55_20_maker_v2",
+      "params": {
+        "entry_n": "55",
+        "exit_n": "20"
+      },
+      "n_trades": 245,
+      "n_trades_before_fill": 246,
+      "missed": 1,
+      "fill_rate": 0.9959349593495935,
+      "maker_note": "maker-mode: entry basis is per-candidate \u2014 'open' tests the entry bar itself (limit = that bar's own open, read from the bars frame, never from a possibly slippage-adjusted entry_px); 'close' tests the strict next-adjacent bar (limit = entry_px, the signal bar's close). Both require strict trade-through, never touch; a missing tested bar = missed. Missed entries are dropped and counted, never filled. Cost model (applied at screening, not here): the entry leg pays the maker fee with NO slippage (a resting order fills at the price it posted); the exit leg pays the taker fee PLUS the same per-symbol slippage table used everywhere else in this battery \u2014 'slippage table unchanged' describes that table, not a claim that the maker leg pays slippage.",
+      "entry_basis": "open",
+      "gate2_passed": false,
+      "trades_csv": "/mnt/d/Bimo_max/crypto-trading-bot/.planning/evidence/killtests/trades/20260819/lf_trend_maker_regate_v2.csv",
+      "gate1_verdict": "PASS",
+      "gate1_verdict_basis": "M1 conservative mixed cost model (maker fee, no slippage, on the entry leg; taker fee + slippage on the exit leg), computed in this runner via _mixed_gate1 \u2014 NOT screen_trades' own pure-TAKER verdict or pure-MAKER-both-legs ratio_maker column, both still reported below for reference only. screen.py was not modified.",
+      "gross_edge_bps": "447.0034162395135791375859592",
+      "cost_bps_taker": "29.85543649374653206850412093",
+      "cost_bps_maker": "4.00000",
+      "ratio_taker": "14.97226196418672824269654092",
+      "ratio_maker": "111.7508540598783947843964898",
+      "net_taker": "919.87045954810839750",
+      "net_maker": "982.90612583720539750",
+      "cost_bps_mixed": "16.92771824687326603425206047",
+      "ratio_mixed": "26.40659595820482064320081824",
+      "net_mixed": "951.38829269265689750",
+      "funding_total": "97.13812395753060250",
+      "funding_missing": [],
+      "notional_provenance": "notional_in / notional_out, as supplied",
+      "gate2_trades_dropped_no_daily": {},
+      "gate2_n_trades_scored": 245,
+      "dsr": 2.542444189734816e-06,
+      "pooled_pf": 0.9939905448084673,
+      "positive_path_frac": 0.5111111111111111,
+      "n_paths_valid": 45,
+      "n_samples": 675,
+      "sharpe_mean": -0.002764064049073026,
+      "sharpe_std": 0.07762292752782317,
+      "gate2_reasons": [
+        "dsr 0.0000 below threshold 0.95",
+        "pooled_pf 0.9940 not > 1.0",
+        "positive_path_frac 0.5111 below 0.7"
+      ],
+      "num_trials_used": 45,
+      "label_horizon_days": 30,
+      "window_start_ms": 1728777600000,
+      "window_end_ms": 1787011200000,
+      "window_start_iso": "2024-10-13 00:00 UTC",
+      "window_end_iso": "2026-08-18 00:00 UTC",
+      "gate2_cost_basis": "M1 maker-entry/taker-exit cost map (H2 fix) \u2014 the SAME model as Gate 1 above, NOT run_battery.score_gate2's taker/taker round_trip_bps."
+    }
+  ],
+  "caveats": [
+    "Survivorship: the universe is today's top-30 by turnover with a \u22652y listing filter; assets that died before the pin date are absent. This biases results optimistic by an unmeasured amount.",
+    "num_trials floor = 36: this is the ledger-derived effective floor \u2014 max(NUM_TRIALS_FLOOR=16, distinct trials already spent), where NUM_TRIALS_FLOOR is the static 8 battery variants + 8 historical strategy families composition, not the number shown here. DSR is deflated at num_trials = max(effective_floor, n_paths) = 45 for this run \u2014 the floor binds only when it exceeds the CPCV path count, not unconditionally.",
+    "(xs_momentum) Eligibility requires a bar at the exit Monday, so a symbol that stops trading mid-week is never entered that week. This is survivorship-lite and is pinned by design \u2014 it is not strictly causal on eligibility.",
+    "(all candidates) Variant warm-up asymmetry: variants of one candidate are NOT scored over a common window. Each variant's Gate 2 return series starts at its own first trade and runs to the end of the data, so a long-lookback variant \u2014 which cannot trade until its lookback fills \u2014 is measured on a shorter, later series covering a different slice of market regime than a short-lookback one. This cuts BOTH ways and the optimistic direction is the one to watch: every day before a variant's first trade is excluded outright, so a rarely-firing variant is scored only on its post-first-trade stretch and is FLATTERED relative to a common-window measure \u2014 on Sharpe, by roughly sqrt(n_common / n_measured). Against that, fewer samples widen the DSR standard-error term, so long lookbacks face a marginally higher bar. Compare variants' verdicts, not their Sharpes. Within a window, flat days after the first trade are kept at 0.0, so idle capital is charged rather than skipped.",
+    "(funding_carry) Per-symbol funding coverage ends at its own date, which need not match the candle end-date. The freshness rule then makes the trade set depend on each feed's end offset. Separately, the entry threshold assumes 9 settlements (a 3-day minimum hold at 8h cadence) while realized holds vary \u2014 where a hold is shorter than 3 days the threshold was conservative, i.e. it demanded more edge than the trade collected.",
+    "(Gate 2) DSR is computed on the full return series using a variance derived from the out-of-sample CPCV path Sharpes. It is therefore not a pure out-of-sample statistic. CPCV paths also share training data, so the path Sharpes are correlated trials \u2014 mildly anticonservative, the same direction as the H4 verdict's documented caveat."
+  ]
+}

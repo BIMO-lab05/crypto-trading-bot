@@ -5,7 +5,8 @@ All tests in this file FAIL until Task 2 implementation is in place.
 Tests
 -----
 Test 0  — PAPER_TRADING_MODE precondition: live launch refuses when env says LIVE.
-Test 1  — Live launch docker compose argv contains correct env overrides.
+Test 1  — Live launch docker compose argv is plain (no -e); env overrides ride
+          the subprocess environment instead.
 Test 2  — Evidence path directory + meta.json created before docker invocation.
 Test 3  — README.md documents run.json schema and operator workflow.
 Test 4  — publish-evidence subcommand validates presence of run.json + psr_ci.json
@@ -162,14 +163,24 @@ def test_live_launch_refuses_when_paper_trading_mode_false(tmp_path: Path, monke
 
 
 def test_live_launch_argv_contains_correct_env_overrides(tmp_path: Path, monkeypatch):
-    """Test 1: live launch builds docker compose argv with correct env overrides."""
+    """Test 1: live launch builds a plain docker compose argv (no -e — that
+    flag does not exist on `docker compose up`); env overrides ride the
+    subprocess environment instead.
+
+    Corrected 2026-08-20 (Task 10): this test previously asserted the old
+    broken `-e KEY=VALUE` argv shape, which pinned a defect that made the
+    launcher unable to invoke docker at all (`docker compose up` has no -e
+    flag). Updated to the real contract.
+    """
     monkeypatch.delenv("TRADING_MODE", raising=False)
     monkeypatch.setenv("PAPER_TRADING_MODE", "true")
 
     captured_argv: list = []
+    captured_env: dict = {}
 
     def fake_runner(argv, **kw):
         captured_argv.extend(argv)
+        captured_env.update(kw.get("env") or {})
         return subprocess.CompletedProcess(argv, returncode=0)
 
     sys.path.insert(0, str(_REPO))
@@ -189,8 +200,6 @@ def test_live_launch_argv_contains_correct_env_overrides(tmp_path: Path, monkeyp
         subprocess_runner=fake_runner,
     )
 
-    argv_str = " ".join(captured_argv)
-
     # Must use the unified compose file
     assert "-f" in captured_argv
     compose_file_idx = captured_argv.index("-f")
@@ -198,21 +207,62 @@ def test_live_launch_argv_contains_correct_env_overrides(tmp_path: Path, monkeyp
         f"Expected docker-compose.unified.yml in argv, got: {captured_argv}"
     )
 
-    # Must reference trading-engine service
-    assert "trading-engine" in argv_str, f"trading-engine not in argv: {argv_str}"
+    # Must reference trading-engine service as the final argv element
+    assert captured_argv[-1] == "trading-engine", (
+        f"trading-engine not the final argv element: {captured_argv}"
+    )
 
-    # Must include flag env overrides as -e KEY=VALUE pairs
-    assert "-e" in captured_argv, "No -e flags in docker compose argv"
-    assert "ENABLE_VOL_TARGETING=true" in argv_str, (
-        "ENABLE_VOL_TARGETING=true not in argv"
-    )
+    # docker compose up has no -e flag — must NOT appear in argv
+    assert "-e" not in captured_argv, f"-e must not appear in argv: {captured_argv}"
+
+    # Flag env overrides must ride the subprocess environment instead
+    assert captured_env["ENABLE_VOL_TARGETING"] == "true"
     # Other flags must be explicitly set to false (isolation guarantee)
-    assert "PREFER_MAKER_ORDERS=false" in argv_str, (
-        "PREFER_MAKER_ORDERS=false not in argv (isolation guarantee)"
+    assert captured_env["PREFER_MAKER_ORDERS"] == "false"
+    assert captured_env["ENABLE_FUNDING_GATE"] == "false"
+    # Sanity: the rest of the operator environment is preserved (os.environ
+    # merged in), not replaced outright.
+    assert "PATH" in captured_env
+
+
+def test_launcher_passes_overrides_via_env_not_argv(tmp_path: Path, monkeypatch):
+    """Task 10: docker compose up has no -e flag; overrides must ride the
+    subprocess env, not argv. Regression test for the launcher defect that
+    made every isolation run fail to launch since it shipped.
+    """
+    monkeypatch.delenv("TRADING_MODE", raising=False)
+    monkeypatch.setenv("PAPER_TRADING_MODE", "true")
+
+    captured = {}
+
+    def fake_runner(argv, cwd=None, env=None):
+        captured["argv"] = argv
+        captured["env"] = env
+        return subprocess.CompletedProcess(argv, returncode=0)
+
+    sys.path.insert(0, str(_REPO))
+    from scripts.forward_paper_test import run_isolation as ri_module
+    from scripts.forward_paper_test.run_isolation import run_isolation
+
+    # Override evidence base to tmp_path so mkdir doesn't fail in real repo
+    monkeypatch.setattr(ri_module, "_EVIDENCE_BASE", tmp_path / "evidence")
+
+    run_isolation(
+        flag="prefer_maker_orders",
+        duration_days=7,
+        run_id="test-run",
+        paper_trade_log=None,
+        dry_run=False,
+        subprocess_runner=fake_runner,
     )
-    assert "ENABLE_FUNDING_GATE=false" in argv_str, (
-        "ENABLE_FUNDING_GATE=false not in argv (isolation guarantee)"
-    )
+
+    assert "-e" not in captured["argv"]
+    assert captured["argv"][-1] == "trading-engine"
+    assert captured["env"]["PREFER_MAKER_ORDERS"] == "true"
+    assert captured["env"]["ENABLE_VOL_TARGETING"] == "false"
+    assert captured["env"]["ENABLE_FUNDING_GATE"] == "false"
+    # sanity: the rest of the operator environment is preserved
+    assert "PATH" in captured["env"]
 
 
 # ---------------------------------------------------------------------------
@@ -348,9 +398,7 @@ def test_publish_evidence_refuses_when_psr_ci_low_lte_zero(tmp_path: Path):
         text=True,
         cwd=str(_REPO),
     )
-    assert result.returncode != 0, (
-        "publish-evidence should exit non-zero when psr_ci_low <= 0.0"
-    )
+    assert result.returncode != 0, "publish-evidence should exit non-zero when psr_ci_low <= 0.0"
     marker = ev_dir / "PSR_CI_PUBLISHED"
     assert not marker.exists(), "Marker should NOT be written when CI brackets zero"
 
@@ -385,9 +433,7 @@ def test_publish_evidence_refuses_when_run_json_missing(tmp_path: Path):
         text=True,
         cwd=str(_REPO),
     )
-    assert result.returncode != 0, (
-        "publish-evidence should refuse when run.json is missing"
-    )
+    assert result.returncode != 0, "publish-evidence should refuse when run.json is missing"
     assert not (ev_dir / "PSR_CI_PUBLISHED").exists()
 
 
@@ -401,9 +447,7 @@ def test_publish_evidence_refuses_when_psr_ci_json_missing(tmp_path: Path):
         text=True,
         cwd=str(_REPO),
     )
-    assert result.returncode != 0, (
-        "publish-evidence should refuse when psr_ci.json is missing"
-    )
+    assert result.returncode != 0, "publish-evidence should refuse when psr_ci.json is missing"
     assert not (ev_dir / "PSR_CI_PUBLISHED").exists()
 
 
@@ -439,3 +483,435 @@ def test_runbook_contains_required_sections():
     ]
     for section in required_sections:
         assert section in content, f"Runbook missing section heading: '{section}'"
+
+
+# ---------------------------------------------------------------------------
+# Test 6: complete-run subcommand (Task 11)
+# ---------------------------------------------------------------------------
+#
+# meta.json keys below match the REAL _write_meta_json output (verified by
+# reading run_isolation.py before writing these tests), not the brief's
+# sketch: the launch timestamp key is "planned_start_utc", not
+# "launched_at_utc".
+
+
+def test_complete_run_writes_run_json(tmp_path, monkeypatch):
+    """complete-run derives per-trade returns from closed positions and writes run.json."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r1"
+    ev.mkdir(parents=True)
+    (ev / "meta.json").write_text(
+        json.dumps(
+            {
+                "flag": "prefer_maker_orders",
+                "run_id": "r1",
+                "planned_start_utc": "2026-08-20T12:00:00+00:00",
+                "planned_end_utc": "2026-08-27T12:00:00+00:00",
+                "duration_days": 7,
+                "git_sha": "abc1234",
+                "baseline_env_overrides": {},
+                "flag_env_overrides": {},
+                "paper_trade_log_path": "",
+            }
+        )
+    )
+
+    rows = [
+        # (symbol, side, entry_price, quantity, realized_pnl, opened_at, closed_at)
+        (
+            "SOLUSDT",
+            "LONG",
+            "180.0",
+            "0.05",
+            "0.25",
+            "2026-08-21T01:00:00+00:00",
+            "2026-08-22T01:00:00+00:00",
+        ),
+        (
+            "BNBUSDT",
+            "LONG",
+            "700.0",
+            "0.012",
+            "-0.03",
+            "2026-08-21T02:00:00+00:00",
+            "2026-08-23T02:00:00+00:00",
+        ),
+    ]
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: rows)
+    # Flag-window verification (Task: mid-window recreate guard) hits real
+    # docker in production; this test is about the fetch/write path, not
+    # verification, so treat the window as clean here — verification itself
+    # is covered by the dedicated tests below.
+    monkeypatch.setattr(ri, "_verify_flag_window", lambda meta: [])
+
+    rc = ri.complete_run(ev)
+    assert rc == 0
+    data = json.loads((ev / "run.json").read_text())
+    assert len(data["returns"]) == 2
+    assert abs(data["returns"][0] - 0.25 / (180.0 * 0.05)) < 1e-12
+    assert abs(data["returns"][1] - (-0.03) / (700.0 * 0.012)) < 1e-12
+    assert data["n_positions"] == 2
+    assert data["run_id"] == "r1"
+    assert data["flag"] == "prefer_maker_orders"
+    assert data["flag_window_verified"] is True
+    assert data["flag_window_violations"] == []
+
+
+def test_complete_run_refuses_empty_window(tmp_path, monkeypatch):
+    """complete-run refuses to write an empty run.json (would poison psr_ci)."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r2"
+    ev.mkdir(parents=True)
+    (ev / "meta.json").write_text(
+        json.dumps(
+            {
+                "flag": "prefer_maker_orders",
+                "run_id": "r2",
+                "planned_start_utc": "2026-08-20T12:00:00+00:00",
+                "planned_end_utc": "2026-08-27T12:00:00+00:00",
+                "duration_days": 7,
+                "git_sha": "abc1234",
+                "baseline_env_overrides": {},
+                "flag_env_overrides": {},
+                "paper_trade_log_path": "",
+            }
+        )
+    )
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: [])
+
+    rc = ri.complete_run(ev)
+    assert rc != 0
+    assert not (ev / "run.json").exists()
+
+
+def test_complete_run_rejects_garbage_iso_timestamp(tmp_path):
+    """The ISO-parse guard in _fetch_closed_positions must reject an
+    unparseable planned_start_utc BEFORE any SQL string is built — this is
+    the injection-surface guard called out in the task brief; it must never
+    be skipped. complete_run does not wrap the call in try/except, so the
+    ValueError from datetime.fromisoformat propagates uncaught (documented
+    contract: raised ValueError, not a routed clean-exit path). Deliberately
+    does NOT monkeypatch _fetch_closed_positions, so the real ISO-parse
+    guard runs; if it were skipped, this test would instead see a
+    subprocess/docker failure (no docker available in CI) rather than
+    ValueError, which would also fail the assertion below.
+    """
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r3"
+    ev.mkdir(parents=True)
+    (ev / "meta.json").write_text(
+        json.dumps(
+            {
+                "flag": "prefer_maker_orders",
+                "run_id": "r3",
+                "planned_start_utc": "2026-13-99 nonsense'; DROP TABLE positions;--",
+                "planned_end_utc": "2026-08-27T12:00:00+00:00",
+                "duration_days": 7,
+                "git_sha": "abc1234",
+                "baseline_env_overrides": {},
+                "flag_env_overrides": {},
+                "paper_trade_log_path": "",
+            }
+        )
+    )
+
+    with pytest.raises(ValueError):
+        ri.complete_run(ev)
+
+    assert not (ev / "run.json").exists()
+
+
+def test_fetch_closed_positions_parses_psql_output_and_builds_argv(monkeypatch):
+    """Direct test of _fetch_closed_positions (not routed through
+    complete_run): monkeypatches subprocess.run itself — NOT
+    _fetch_closed_positions — with canned pipe-delimited psql stdout, so
+    this pins two contracts at once: (1) the 7-field split('|') parsing of
+    psql's -t -A -F| output into tuples, and (2) the docker-exec argv shape
+    (container name, clean_epoch_positions view, psql flags) actually sent
+    to subprocess.run.
+    """
+    import scripts.forward_paper_test.run_isolation as ri
+
+    canned_stdout = (
+        "SOLUSDT|LONG|180.00000000|0.05000000|0.25105825|"
+        "2026-08-21 01:00:00|2026-08-22 01:00:00\n"
+        "BNBUSDT|LONG|700.00000000|0.01200000|-0.03047842|"
+        "2026-08-21 02:00:00|2026-08-23 02:00:00\n"
+    )
+
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(argv, returncode=0, stdout=canned_stdout, stderr="")
+
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    rows = ri._fetch_closed_positions("2026-08-20T12:00:00+00:00")
+
+    assert rows == [
+        (
+            "SOLUSDT",
+            "LONG",
+            "180.00000000",
+            "0.05000000",
+            "0.25105825",
+            "2026-08-21 01:00:00",
+            "2026-08-22 01:00:00",
+        ),
+        (
+            "BNBUSDT",
+            "LONG",
+            "700.00000000",
+            "0.01200000",
+            "-0.03047842",
+            "2026-08-21 02:00:00",
+            "2026-08-23 02:00:00",
+        ),
+    ]
+
+    argv = captured["argv"]
+    assert argv[:2] == ["docker", "exec"]
+    assert "crypto-bot-postgres" in argv
+    assert "psql" in argv
+    assert "-t" in argv
+    assert "-A" in argv
+    f_idx = argv.index("-F")
+    assert argv[f_idx + 1] == "|"
+    sql = argv[argv.index("-c") + 1]
+    assert "clean_epoch_positions" in sql
+    assert "status = 'CLOSED'" in sql
+    assert "2026-08-20T12:00:00+00:00" in sql
+    # subprocess.run was invoked with check=True (surfaces psql failures loudly)
+    assert captured["kwargs"].get("check") is True
+
+
+# ---------------------------------------------------------------------------
+# Test 7: flag-window verification (mid-window recreate guard)
+# ---------------------------------------------------------------------------
+#
+# These monkeypatch subprocess.run itself (not _verify_flag_window), the
+# same style as test_fetch_closed_positions_parses_psql_output_and_builds_argv
+# above, so the real Created/env comparison logic in _verify_flag_window
+# runs under test. _fetch_closed_positions is monkeypatched separately (as
+# in the Test 6 complete-run tests) so these tests never touch the postgres
+# container.
+#
+# _verify_flag_window checks docker inspect's `.Created` field, NOT
+# `.State.StartedAt` — StartedAt updates on a plain restart even when the
+# container (and its env) was never recreated, which would make an ordinary
+# restart mid-window look like a violation. See _verify_flag_window's
+# docstring for the empirical evidence that motivated this choice.
+
+
+def _make_flag_window_meta() -> dict:
+    """meta.json dict for the prefer_maker_orders window used by Test 7."""
+    return {
+        "flag": "prefer_maker_orders",
+        "run_id": "r-verify",
+        "planned_start_utc": "2026-08-20T15:13:51.917042+00:00",
+        "planned_end_utc": "2026-08-27T15:13:51.917042+00:00",
+        "duration_days": 7,
+        "git_sha": "754b2b0",
+        "baseline_env_overrides": {
+            "ENABLE_VOL_TARGETING": "false",
+            "PREFER_MAKER_ORDERS": "false",
+            "ENABLE_FUNDING_GATE": "false",
+        },
+        "flag_env_overrides": {
+            "ENABLE_VOL_TARGETING": "false",
+            "PREFER_MAKER_ORDERS": "true",
+            "ENABLE_FUNDING_GATE": "false",
+        },
+        "paper_trade_log_path": "",
+    }
+
+
+def _fake_closed_rows() -> list[tuple]:
+    return [
+        (
+            "SOLUSDT",
+            "LONG",
+            "180.0",
+            "0.05",
+            "0.25",
+            "2026-08-21T01:00:00+00:00",
+            "2026-08-22T01:00:00+00:00",
+        )
+    ]
+
+
+def _make_docker_fake(env_values: dict, created_at: str):
+    """Build a fake subprocess.run that answers docker inspect / docker exec
+    printenv calls for the trading-engine container, branching on argv shape
+    exactly as run_isolation._verify_flag_window constructs it. `created_at`
+    answers the `docker inspect --format '{{.Created}}'` call."""
+
+    def fake_run(argv, **kwargs):
+        if argv[:2] == ["docker", "inspect"]:
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=created_at + "\n", stderr=""
+            )
+        if argv[:2] == ["docker", "exec"] and argv[3] == "printenv":
+            key = argv[4]
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=env_values[key] + "\n", stderr=""
+            )
+        raise AssertionError(f"unexpected argv in flag-window test fake: {argv}")
+
+    return fake_run
+
+
+def test_complete_run_clean_flag_window_verified_true(tmp_path, monkeypatch):
+    """(a) Clean case: container env matches meta, Created is a few seconds
+    after planned_start_utc (the launcher's own expected sequencing, not a
+    violation). run.json is written with flag_window_verified: true."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r-clean"
+    ev.mkdir(parents=True)
+    meta = _make_flag_window_meta()
+    (ev / "meta.json").write_text(json.dumps(meta))
+
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: _fake_closed_rows())
+    fake_run = _make_docker_fake(
+        env_values=meta["flag_env_overrides"],
+        created_at="2026-08-20T15:14:02.050549990+00:00",  # ~10s after planned_start
+    )
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    rc = ri.complete_run(ev)
+    assert rc == 0
+    assert (ev / "run.json").exists()
+    data = json.loads((ev / "run.json").read_text())
+    assert data["flag_window_verified"] is True
+    assert data["flag_window_violations"] == []
+
+
+def test_complete_run_flag_mismatch_refuses(tmp_path, monkeypatch):
+    """(b) A bare `docker compose up -d` mid-window reverted PREFER_MAKER_ORDERS
+    to false. complete_run must refuse: nonzero exit, no run.json written."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r-mismatch"
+    ev.mkdir(parents=True)
+    meta = _make_flag_window_meta()
+    (ev / "meta.json").write_text(json.dumps(meta))
+
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: _fake_closed_rows())
+    reverted_env = dict(meta["flag_env_overrides"])
+    reverted_env["PREFER_MAKER_ORDERS"] = "false"  # reverted by a bare `up -d`
+    fake_run = _make_docker_fake(
+        env_values=reverted_env,
+        created_at="2026-08-20T15:14:02.050549990+00:00",
+    )
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    rc = ri.complete_run(ev)
+    assert rc != 0
+    assert not (ev / "run.json").exists()
+
+
+def test_complete_run_flag_mismatch_force_unverified_records_violations(tmp_path, monkeypatch):
+    """(c) Same mismatch as (b), but with force_unverified=True: run.json IS
+    written, with flag_window_verified: false and the violation list recorded
+    — honest evidence over blocked evidence, mirroring publish-evidence
+    --force."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    ev = tmp_path / "prefer_maker_orders" / "r-forced"
+    ev.mkdir(parents=True)
+    meta = _make_flag_window_meta()
+    (ev / "meta.json").write_text(json.dumps(meta))
+
+    monkeypatch.setattr(ri, "_fetch_closed_positions", lambda since_iso: _fake_closed_rows())
+    reverted_env = dict(meta["flag_env_overrides"])
+    reverted_env["PREFER_MAKER_ORDERS"] = "false"
+    fake_run = _make_docker_fake(
+        env_values=reverted_env,
+        created_at="2026-08-20T15:14:02.050549990+00:00",
+    )
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    rc = ri.complete_run(ev, force_unverified=True)
+    assert rc == 0
+    assert (ev / "run.json").exists()
+    data = json.loads((ev / "run.json").read_text())
+    assert data["flag_window_verified"] is False
+    assert len(data["flag_window_violations"]) >= 1
+    assert any("PREFER_MAKER_ORDERS" in v for v in data["flag_window_violations"])
+
+
+def test_verify_flag_window_uses_created_not_started_at(monkeypatch):
+    """Regression guard for the false-positive this fix must NOT produce: a
+    plain restart (docker restart / compose stop+start / a restart-policy
+    bounce after host suspend-resume) bumps `.State.StartedAt` without
+    recreating the container or touching its env — env is fixed at creation
+    and cannot change across a restart. `.Created` stays pinned to the
+    original launch time; only an actual recreate changes it. Verified
+    empirically in the live environment before choosing this field: docker
+    inspect on crypto-bot-postgres showed `.Created` 2026-08-08 vs
+    `.State.StartedAt` 2026-08-16 (an 8-day gap from a restart, no recreate).
+    If _verify_flag_window checked StartedAt instead of Created, an ordinary
+    restart mid-window would be indistinguishable from the actual bug (a
+    reverted flag) and would spuriously refuse a clean window. This test
+    pins the `docker inspect --format` argv directly so a future edit can't
+    silently swap the field back."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    meta = _make_flag_window_meta()
+    captured_format: list[str] = []
+
+    def fake_run(argv, **kwargs):
+        if argv[:2] == ["docker", "inspect"]:
+            fmt_idx = argv.index("--format")
+            captured_format.append(argv[fmt_idx + 1])
+            # Created ~10s after planned_start (normal launch sequencing).
+            return subprocess.CompletedProcess(
+                argv,
+                returncode=0,
+                stdout="2026-08-20T15:14:02.050549990+00:00\n",
+                stderr="",
+            )
+        if argv[:2] == ["docker", "exec"] and argv[3] == "printenv":
+            key = argv[4]
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=meta["flag_env_overrides"][key] + "\n", stderr=""
+            )
+        raise AssertionError(f"unexpected argv: {argv}")
+
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    violations = ri._verify_flag_window(meta)
+
+    assert captured_format == ["{{.Created}}"], (
+        f"_verify_flag_window must inspect .Created, not .State.StartedAt; "
+        f"got format {captured_format!r}"
+    )
+    assert violations == []
+
+
+def test_verify_flag_window_created_past_tolerance_is_a_violation(monkeypatch):
+    """Companion to the test above: pinning the field alone doesn't prove the
+    comparison logic still fires. `.Created` days after planned_start_utc
+    (e.g. a real mid-window recreate — the actual bug this fix targets) must
+    still be flagged as a violation, exactly as it would be if the field were
+    StartedAt. Only the false-positive case (restart-without-recreate) is
+    supposed to change with this fix, not the true-positive case."""
+    import scripts.forward_paper_test.run_isolation as ri
+
+    meta = _make_flag_window_meta()  # planned_start_utc = 2026-08-20T15:13:51...
+    fake_run = _make_docker_fake(
+        env_values=meta["flag_env_overrides"],
+        created_at="2026-08-25T09:00:00.000000000+00:00",  # ~5 days later
+    )
+    monkeypatch.setattr(ri.subprocess, "run", fake_run)
+
+    violations = ri._verify_flag_window(meta)
+
+    assert violations, "Created far past tolerance must still be reported as a violation"
+    assert any("Created" in v and "exceeds" in v for v in violations)

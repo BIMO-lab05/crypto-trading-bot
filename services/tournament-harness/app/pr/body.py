@@ -26,6 +26,22 @@ from typing import Any, Dict, Iterable, List
 MAX_BODY_CHARS = 60_000  # CD-12
 
 
+def _finite_or(value, fallback: float) -> float:
+    """Finite float or fallback — NaN is truthy, so `or 0.0` fabricates numbers."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return f if f == f and f not in (float("inf"), float("-inf")) else fallback
+
+
+def _fmt4(value) -> str:
+    """Render a metric honestly: 'n/a' for missing/NaN (psr is now always NULL
+    per SEV-7 — printing 0.0000 would re-fabricate the number the rename killed)."""
+    f = _finite_or(value, float("nan"))
+    return "n/a" if f != f else f"{f:.4f}"
+
+
 def render_pr_title(
     *,
     tournament_id: str,
@@ -76,15 +92,15 @@ def render_leaderboard_markdown(
                 for r in snapshot["rows"]
                 if r["symbol"] == symbol and r.get("status") == "success"
             ],
-            key=lambda r: -float(r.get("dsr") or 0.0),
+            key=lambda r: -_finite_or(r.get("dsr"), float("-inf")),
         )[:5]
         for r in top_5:
             star = "★" if r["run_id"] in ensemble_run_ids else " "
             lines.append(
                 f"| {star} | {r['architecture']} | {r['hp_hash']} | "
-                f"{float(r.get('dsr') or 0.0):.4f} | {float(r.get('psr') or 0.0):.4f} | "
-                f"{float(r.get('cpcv_dsr') or 0.0):.4f} | {float(r.get('oos_sharpe') or 0.0):.4f} | "
-                f"{float(r.get('dir_acc_corrected') or 0.0):.4f} |"
+                f"{_fmt4(r.get('dsr'))} | {_fmt4(r.get('psr'))} | "
+                f"{_fmt4(r.get('cpcv_dsr'))} | {_fmt4(r.get('oos_sharpe'))} | "
+                f"{_fmt4(r.get('dir_acc_corrected'))} |"
             )
         lines.append("")
     return "\n".join(lines)

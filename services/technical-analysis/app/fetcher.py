@@ -10,6 +10,8 @@ import time
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
+from fastapi import HTTPException
+
 from app.config import get_settings
 from app.models import Kline
 
@@ -31,6 +33,12 @@ MAX_ABS_LOG_RETURN = 0.35
 
 # Minimum number of validated candles needed for meaningful TA output.
 MIN_VALID_ROWS = 30
+
+# Valid Bybit V5 kline intervals (post-normalization). Mirrors market-data's
+# VALID_INTERVALS; agreement pinned by tests/test_interval_validation.py.
+VALID_INTERVALS = frozenset(
+    {"1", "3", "5", "15", "30", "60", "120", "240", "360", "720", "D", "W", "M"}
+)
 
 
 def normalize_interval(interval: str) -> str:
@@ -84,7 +92,9 @@ class MarketDataFetcher:
             response = await self.client.get(f"{self.base_url}/health")
             return response.status_code == 200
         except Exception as e:
-            logger.error(f"Health check failed: {e}")
+            # exc_info deliberately omitted: the health probe fires
+            # frequently and {e!r} suffices.
+            logger.error(f"Health check failed: {e!r}")
             return False
 
     async def get_klines(
@@ -106,6 +116,13 @@ class MarketDataFetcher:
             Exception if fetch fails
         """
         interval = normalize_interval(interval)
+        if interval not in VALID_INTERVALS:
+            # Client error, not a computation failure: without this, the
+            # upstream 400 from market-data surfaced as a 500 on every
+            # indicator endpoint (seen live 2026-08-18, interval=invalid).
+            raise HTTPException(
+                status_code=422, detail=f"Invalid interval '{interval}'"
+            )
         ttl = getattr(self.settings, "kline_cache_ttl_seconds", 30)
         if ttl <= 0:
             return await self._fetch_klines_uncached(symbol, interval, limit)
@@ -178,7 +195,11 @@ class MarketDataFetcher:
                 return []
 
         except Exception as e:
-            logger.error(f"Error fetching klines for {symbol}: {e}")
+            # {e!r} + exc_info: httpx timeout exceptions str() to "" - the
+            # bare {e} form produced 71 undiagnosable blank-message errors.
+            logger.error(
+                f"Error fetching klines for {symbol}: {e!r}", exc_info=True
+            )
             raise
 
     async def get_klines_as_dataframe(
@@ -295,7 +316,9 @@ class MarketDataFetcher:
                 return klines[-1].close
             return None
         except Exception as e:
-            logger.error(f"Error getting latest price for {symbol}: {e}")
+            logger.error(
+                f"Error getting latest price for {symbol}: {e!r}", exc_info=True
+            )
             return None
 
 

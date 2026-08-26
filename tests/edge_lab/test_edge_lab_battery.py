@@ -6,7 +6,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backtesting"))
 
-from conftest import DAY, T0, make_daily  # noqa: E402
+from el_shared import DAY, T0, make_daily  # noqa: E402
+from edge_lab import trial_ledger  # noqa: E402
 from edge_lab.run_battery import run_battery  # noqa: E402
 from edge_lab.trades import Trade, Variant  # noqa: E402
 
@@ -64,7 +65,8 @@ def _stub_registry(gen_map):
     }
 
 
-def test_crashing_candidate_isolated(tmp_path):
+def test_crashing_candidate_isolated(tmp_path, monkeypatch):
+    monkeypatch.setattr(trial_ledger, "ledger_path", lambda: tmp_path / "ledger.json")
     daily = make_daily(["AUSDT", "BUSDT"], n_days=400)
     _write_daily_csvs(tmp_path, daily)
     pin = _pin(tmp_path, ["AUSDT", "BUSDT"])
@@ -87,7 +89,8 @@ def test_crashing_candidate_isolated(tmp_path):
     assert res["quiet"]["verdict"] == "REJECT"  # completed despite boom
 
 
-def test_zero_trades_recorded_not_screened(tmp_path):
+def test_zero_trades_recorded_not_screened(tmp_path, monkeypatch):
+    monkeypatch.setattr(trial_ledger, "ledger_path", lambda: tmp_path / "ledger.json")
     daily = make_daily(["AUSDT"], n_days=400)
     _write_daily_csvs(tmp_path, daily)
     pin = _pin(tmp_path, ["AUSDT"])
@@ -165,11 +168,12 @@ def test_date_cutoff_drops_rows_after_now_ms(tmp_path):
     assert int(settlements["ts_ms"].max()) < cutoff
 
 
-def test_import_failure_is_error_not_reject(tmp_path):
+def test_import_failure_is_error_not_reject(tmp_path, monkeypatch):
     """A candidate whose module failed to import has no variants, so the
     variant loop never runs. It must still be ERROR with the traceback —
     filing it as REJECT makes a broken import indistinguishable from a
     genuine no-edge finding."""
+    monkeypatch.setattr(trial_ledger, "ledger_path", lambda: tmp_path / "ledger.json")
     daily = make_daily(["AUSDT"], n_days=400)
     _write_daily_csvs(tmp_path, daily)
     pin = _pin(tmp_path, ["AUSDT"])
@@ -217,7 +221,7 @@ def test_gate2_drops_trades_on_symbols_with_no_daily_frame(tmp_path, caplog):
 
     with caplog.at_level("WARNING"):
         _result, start_ms, _end_ms, _horizon, dropped = score_gate2(
-            trades, daily, "vol_breakout", tmp_path / "funding"
+            trades, daily, "vol_breakout", tmp_path / "funding", 16
         )
 
     assert dropped == {"BUSDT": 2}
@@ -238,10 +242,11 @@ def test_gate2_all_trades_dropped_raises_rather_than_scoring_nothing(tmp_path):
     trades = [Trade("BUSDT", "LONG", T0 + 10 * DAY, T0 + 17 * DAY, 100.0, 105.0)]
 
     with pytest.raises(RuntimeError, match="data failure"):
-        score_gate2(trades, daily, "vol_breakout", tmp_path / "funding")
+        score_gate2(trades, daily, "vol_breakout", tmp_path / "funding", 16)
 
 
-def test_verdict_docs_written_with_caveats(tmp_path):
+def test_verdict_docs_written_with_caveats(tmp_path, monkeypatch):
+    monkeypatch.setattr(trial_ledger, "ledger_path", lambda: tmp_path / "ledger.json")
     daily = make_daily(["AUSDT"], n_days=400)
     _write_daily_csvs(tmp_path, daily)
     pin = _pin(tmp_path, ["AUSDT"])
@@ -270,3 +275,33 @@ def test_verdict_docs_written_with_caveats(tmp_path):
     assert "Survivorship" in text and "num_trials floor = 16" in text
     summaries = list(out.glob("battery-summary-*.md"))
     assert len(summaries) == 1
+
+
+def test_trades_csv_is_date_stamped(tmp_path, monkeypatch):
+    """A re-run must not overwrite an earlier battery's committed trades CSVs.
+
+    Verdict docs are date-stamped; the trades CSVs they reference were not, so
+    re-running truncated the eight files the committed *-verdict-20260817.json
+    records point at.
+    """
+    from edge_lab.run_battery import date_str_from_ms
+
+    monkeypatch.setattr(trial_ledger, "ledger_path", lambda: tmp_path / "ledger.json")
+
+    daily = make_daily(["AUSDT"], n_days=400)
+    _write_daily_csvs(tmp_path, daily)
+    pin = _pin(tmp_path, ["AUSDT"])
+    now_ms = T0 + 400 * DAY
+
+    res = run_battery(
+        tmp_path,
+        pin,
+        tmp_path / "out",
+        now_ms,
+        candidates=_stub_registry({"quiet": lambda b, v: []}),
+    )
+
+    csv_path = Path(res["quiet"]["variants"][0]["trades_csv"])
+    assert csv_path.parent.name == date_str_from_ms(now_ms)
+    assert csv_path.parent.parent.name == "trades"
+    assert csv_path.exists()

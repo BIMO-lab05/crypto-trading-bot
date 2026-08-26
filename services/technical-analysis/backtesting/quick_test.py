@@ -5,6 +5,15 @@ import asyncio
 import logging
 from sqzmom_backtest import SQZMOMBacktester
 
+# Host-run runner: resolve the declared account size (see shared/account.py).
+import os as _os
+import sys as _sys
+_REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", ".."))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from shared.account import PAPER_INITIAL_BALANCE  # noqa: E402
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -20,7 +29,7 @@ async def main():
 
     backtester = SQZMOMBacktester(
         db_config=db_config,
-        initial_capital=10000.0,
+        initial_capital=PAPER_INITIAL_BALANCE,
         commission=0.001,
         risk_per_trade=0.02
     )

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Fail the commit if an account-size literal is written into money code.
 
-THE ACCOUNT IS $100. ``shared/account.py`` is the declaration of record and
-the number must never appear as a literal (CLAUDE.md, .claude/rules/money.md).
-The repository accumulated ~1,000 occurrences of ``10000`` as a capital figure
-and the purge only sticks if something mechanical stops the next one landing.
+THE ACCOUNT IS $10,000 (ADR-029; was $100 until 2026-08-25).
+``shared/account.py`` is the declaration of record and the number must never
+appear as a literal (CLAUDE.md, .claude/rules/money.md). NOTE the inversion
+hazard: since the flip, a bare ``10000`` is *numerically correct* — it is
+STILL a defect, because it bypasses the declared config and silently decouples
+the moment the account size changes again. Numeric agreement is not routing.
 
 Why this matches on CONTEXT rather than on the bare number
 ----------------------------------------------------------
@@ -33,8 +35,9 @@ remained across 33 files, mostly research/backtest harnesses in ``scripts/``
 and ``backtesting/`` passing ``initial_capital=10000.0``, plus operator shell
 scripts defaulting to ``.get('initial_balance', 10000)``. They are recorded in
 ``scripts/capital_literals_baseline.txt`` so the guard can be switched on
-without a flag day. Every line in that file is a defect and the file is the
-burn-down list — delete lines from it as they are fixed, never add to it.
+without a flag day. Every line in that file is a defect — since ADR-029 an
+*accidentally correct* one, which is worse because it no longer looks wrong —
+and the file is the burn-down list: delete lines as they are fixed, never add.
 
 Usage
 -----
@@ -63,9 +66,7 @@ BASELINE_PATH = REPO_ROOT / "scripts" / "capital_literals_baseline.txt"
 # Both derive from MONEY_DIRS x MONEY_SUFFIXES.
 MONEY_DIRS = ("services/*/app", "scripts", "backtesting", "frontend/src")
 MONEY_SUFFIXES = (".py", ".sh", ".js", ".jsx", ".ts", ".tsx")
-MONEY_GLOBS = tuple(
-    f"{d}/**/*{suffix}" for d in MONEY_DIRS for suffix in MONEY_SUFFIXES
-)
+MONEY_GLOBS = tuple(f"{d}/**/*{suffix}" for d in MONEY_DIRS for suffix in MONEY_SUFFIXES)
 
 # Identifiers/keys that mean "an amount of account money". Deliberately does
 # NOT include bare "value" -- `position_value` and `total_value` are listed
@@ -116,16 +117,69 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
     (
         "services/trading-engine/app/strategies/grid_trading_strategy_v2.py",
         "MAX_POSITION_VALUE_USD",
-        "DEFECT: $10k per-position ceiling on a $100 account. Owned by the "
+        "DEFECT: bare $10k per-position ceiling, since ADR-029 numerically equal "
+        "to the whole account but still a literal bypassing config. Owned by the "
         "trading-engine work; suppressed here only so this guard can be enabled.",
+    ),
+    (
+        "services/risk-metrics-service/app/backtest_models.py",
+        'Decimal("10000")',
+        "declared account size mirrored in-container (service cannot import "
+        "shared.account); kept honest by tests/test_account_size_invariant.py",
+    ),
+    (
+        "services/risk-metrics-service/app/backtesting.py",
+        'Decimal("10000")',
+        "same in-container mirror as backtest_models.py",
+    ),
+    (
+        "services/trading-engine/app/strategies/backtester.py",
+        "_FALLBACK_INITIAL_CAPITAL_USD",
+        "declared-size mirror fallback for when Settings is unreadable; "
+        "documented in .claude/rules/money.md",
+    ),
+    (
+        "services/trading-engine/app/trading_enhancements/kill_switch.py",
+        "_FALLBACK_PAPER_BALANCE_USD",
+        "same mirror-fallback pattern as backtester.py",
+    ),
+    (
+        "services/trading-engine/app/orchestration/models.py",
+        "_FALLBACK_TOTAL_CAPITAL_USD",
+        "mirror fallback for default_total_capital(); primary path reads Settings",
+    ),
+    (
+        "services/trading-engine/app/risk/dynamic_budget.py",
+        "_FALLBACK_TOTAL_CAPITAL_USD",
+        "same mirror-fallback pattern as orchestration/models.py",
+    ),
+    (
+        "services/trading-engine/app/risk/dynamic_risk_budget.py",
+        "_FALLBACK_BASE_EQUITY_USD",
+        "mirror fallback replacing the removed RISK_BUDGET_INITIAL env channel",
+    ),
+    (
+        "services/trading-engine/app/handlers/risk_budget.py",
+        '"base_equity": 10000.0',
+        "OpenAPI example payload mirroring the declared size; not a config default",
+    ),
+    (
+        "services/trading-engine/app/handlers/risk_budget.py",
+        '"equity": 10000',
+        "same OpenAPI example payloads as above",
+    ),
+    (
+        "frontend/src/utils/balance.js",
+        "PAPER_DEFAULT_BALANCE",
+        "the frontend's single declared mirror (no import path to shared/account "
+        "from the browser bundle); every component routes through this constant",
     ),
 )
 
 
 def is_allowlisted(rel_path: str, line: str) -> bool:
     return any(
-        rel_path.endswith(suffix) and needle in line
-        for suffix, needle, _reason in ALLOWLIST
+        rel_path.endswith(suffix) and needle in line for suffix, needle, _reason in ALLOWLIST
     )
 
 
@@ -181,9 +235,10 @@ def _blank_python_prose(text: str) -> str:
 
     for tok in tokens:
         is_comment = tok.type == tokenize.COMMENT
-        is_docstring = tok.type == tokenize.STRING and tok.string.lstrip("rbuRBUf")[
-            :3
-        ] in ('"""', "'''")
+        is_docstring = tok.type == tokenize.STRING and tok.string.lstrip("rbuRBUf")[:3] in (
+            '"""',
+            "'''",
+        )
         if not (is_comment or is_docstring):
             continue
         (srow, scol), (erow, ecol) = tok.start, tok.end
@@ -240,6 +295,9 @@ def collect(targets: list[Path]) -> list[tuple[str, int, str]]:
     found = []
     for path in targets:
         rel = path.relative_to(REPO_ROOT).as_posix()
+        if rel == "scripts/check_capital_literals.py":
+            # The guard's own ALLOWLIST quotes offending shapes verbatim.
+            continue
         for lineno, line in scan(path):
             if is_allowlisted(rel, line):
                 continue
@@ -250,8 +308,9 @@ def collect(targets: list[Path]) -> list[tuple[str, int, str]]:
 def write_baseline(entries: list[tuple[str, int, str]]) -> None:
     header = [
         "# Pre-existing account-size literals, recorded so the guard can be",
-        "# enabled without a flag day. Every line here is a REAL defect: a",
-        "# $10,000 figure on a $100 account. New offenders are rejected; these",
+        "# enabled without a flag day. Every line here is a REAL defect: a bare",
+        "# capital literal bypassing shared/account.py — since ADR-029 usually",
+        "# an *accidentally correct* 10000. New offenders are rejected; these",
         "# are the burn-down list. Delete a line as you fix it.",
         "#",
         "# Regenerate: python3 scripts/check_capital_literals.py --update-baseline",
@@ -286,7 +345,11 @@ def main(argv: list[str]) -> int:
 
     if failures:
         print("Account-size literal found in money code.\n")
-        print("THE ACCOUNT IS $100. Do not write the number as a literal.")
+        print(
+            "THE ACCOUNT IS $10,000 (ADR-029). Do not write the number as a "
+            "literal — a bare 10000 that happens to match the declared size "
+            "is still a defect (it bypasses config)."
+        )
         print("  services/*/app/**  -> read the service's own Settings")
         print("                        (settings.paper_initial_balance)")
         print("  scripts/, backtesting/, tests/ -> from shared.account import ...")

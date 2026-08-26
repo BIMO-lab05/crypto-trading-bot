@@ -329,6 +329,9 @@ import asyncio
 import httpx
 from decimal import Decimal
 
+# Host-run tests read the declared account size — never write a literal
+from shared.account import PAPER_INITIAL_BALANCE
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_full_buy_cycle_with_profit(
@@ -349,7 +352,7 @@ async def test_full_buy_cycle_with_profit(
     6. Verify profit in portfolio
     \"\"\"
     symbol = "BTCUSDT"
-    initial_balance = Decimal("10000.00")
+    initial_balance = Decimal(str(PAPER_INITIAL_BALANCE))
 
     # Step 1: Setup initial portfolio
     await portfolio_client.set_balance(initial_balance)

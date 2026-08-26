@@ -259,7 +259,7 @@ class BacktestConfig:
     #: Mirrors config.py `paper_initial_balance`. Used only when `get_settings()`
     #: cannot be constructed (e.g. a host-run test session whose `.env` is parsed
     #: by a different pydantic-settings version than the container pins).
-    _FALLBACK_INITIAL_CAPITAL_USD = 100.0
+    _FALLBACK_INITIAL_CAPITAL_USD = 10000.0
 
     def __post_init__(self) -> None:
         if self.initial_capital is not None:
@@ -330,7 +330,7 @@ class StrategyBacktester:
        - Detect overfitting
 
     Usage:
-        config = BacktestConfig(initial_capital=100)
+        config = BacktestConfig()  # initial_capital resolves from Settings
         backtester = StrategyBacktester(config)
 
         # Load historical data
@@ -379,10 +379,7 @@ class StrategyBacktester:
         self._max_drawdown: float = 0.0
         self._halted: bool = False
 
-        logger.info(
-            f"StrategyBacktester initialized: "
-            f"capital=${self.config.initial_capital:,.0f}"
-        )
+        logger.info(f"StrategyBacktester initialized: capital=${self.config.initial_capital:,.0f}")
 
     def _reset_state(self) -> None:
         """Reset backtest state for new run"""
@@ -462,15 +459,11 @@ class StrategyBacktester:
                 analysis = await strategy.analyze(symbol, data)
 
                 # Generate signals
-                signals = await strategy.generate_signals(
-                    symbol, analysis, current_price
-                )
+                signals = await strategy.generate_signals(symbol, analysis, current_price)
 
                 # Process signals
                 for signal in signals:
-                    await self._process_signal(
-                        signal, current_candle, risk_per_trade_pct
-                    )
+                    await self._process_signal(signal, current_candle, risk_per_trade_pct)
 
             except Exception as e:
                 logger.error(f"Strategy error at bar {i}: {e}")
@@ -566,15 +559,11 @@ class StrategyBacktester:
             strategy_copy = deepcopy(strategy)
 
             # Run in-sample backtest
-            in_result = await self.run_backtest(
-                strategy_copy, symbol, in_sample_candles
-            )
+            in_result = await self.run_backtest(strategy_copy, symbol, in_sample_candles)
             in_sample_results.append(in_result)
 
             # Run out-of-sample backtest
-            out_result = await self.run_backtest(
-                strategy_copy, symbol, out_sample_candles
-            )
+            out_result = await self.run_backtest(strategy_copy, symbol, out_sample_candles)
             out_sample_results.append(out_result)
 
             logger.info(
@@ -584,9 +573,7 @@ class StrategyBacktester:
             )
 
         # Aggregate results
-        return self._aggregate_walk_forward_results(
-            in_sample_results, out_sample_results
-        )
+        return self._aggregate_walk_forward_results(in_sample_results, out_sample_results)
 
     def _aggregate_walk_forward_results(
         self, in_sample: List[BacktestResult], out_sample: List[BacktestResult]
@@ -663,16 +650,10 @@ class StrategyBacktester:
             for pos_id, pos in list(self._positions.items()):
                 if pos["symbol"] == signal.symbol:
                     matching_exit = (
-                        signal.signal_type == SignalType.EXIT_LONG
-                        and pos["side"] == "LONG"
-                    ) or (
-                        signal.signal_type == SignalType.EXIT_SHORT
-                        and pos["side"] == "SHORT"
-                    )
+                        signal.signal_type == SignalType.EXIT_LONG and pos["side"] == "LONG"
+                    ) or (signal.signal_type == SignalType.EXIT_SHORT and pos["side"] == "SHORT")
                     if matching_exit:
-                        await self._close_position(
-                            pos_id, candle.close, candle.timestamp, "SIGNAL"
-                        )
+                        await self._close_position(pos_id, candle.close, candle.timestamp, "SIGNAL")
 
     async def _open_position(
         self,
@@ -704,9 +685,7 @@ class StrategyBacktester:
 
         # Calculate fee
         fee_pct = (
-            self.config.maker_fee_pct
-            if self.config.use_limit_orders
-            else self.config.taker_fee_pct
+            self.config.maker_fee_pct if self.config.use_limit_orders else self.config.taker_fee_pct
         )
         fee = position_value * (fee_pct / 100)
 
@@ -767,9 +746,7 @@ class StrategyBacktester:
 
         # Calculate exit fee
         fee_pct = (
-            self.config.maker_fee_pct
-            if self.config.use_limit_orders
-            else self.config.taker_fee_pct
+            self.config.maker_fee_pct if self.config.use_limit_orders else self.config.taker_fee_pct
         )
         exit_value = actual_exit * pos["quantity"]
         exit_fee = exit_value * (fee_pct / 100)
@@ -878,9 +855,7 @@ class StrategyBacktester:
             self._peak_capital = equity
             self._current_drawdown = 0.0
         else:
-            self._current_drawdown = (
-                (self._peak_capital - equity) / self._peak_capital * 100
-            )
+            self._current_drawdown = (self._peak_capital - equity) / self._peak_capital * 100
 
         if self._current_drawdown > self._max_drawdown:
             self._max_drawdown = self._current_drawdown
@@ -888,16 +863,12 @@ class StrategyBacktester:
         # Check for halt condition
         if self._current_drawdown >= self.config.max_drawdown_halt_pct:
             self._halted = True
-            logger.warning(
-                f"Backtest halted: max drawdown {self._current_drawdown:.1f}%"
-            )
+            logger.warning(f"Backtest halted: max drawdown {self._current_drawdown:.1f}%")
 
     def _check_daily_loss_limit(self, date) -> None:
         """Check if daily loss limit exceeded"""
         date_str = date.strftime("%Y-%m-%d")
-        daily_loss_pct = (
-            abs(self._daily_pnl[date_str]) / self.config.initial_capital * 100
-        )
+        daily_loss_pct = abs(self._daily_pnl[date_str]) / self.config.initial_capital * 100
 
         if daily_loss_pct >= self.config.daily_loss_limit_pct:
             # Close all positions for the day
@@ -941,9 +912,7 @@ class StrategyBacktester:
         result.gross_profit = sum(wins) if wins else 0.0
         result.gross_loss = sum(losses) if losses else 0.0
         result.profit_factor = (
-            result.gross_profit / result.gross_loss
-            if result.gross_loss > 0
-            else float("inf")
+            result.gross_profit / result.gross_loss if result.gross_loss > 0 else float("inf")
         )
 
         result.avg_win = statistics.mean(wins) if wins else 0.0
@@ -964,9 +933,7 @@ class StrategyBacktester:
         if result.daily_returns and len(result.daily_returns) > 1:
             daily_mean = statistics.mean(result.daily_returns)
             daily_std = statistics.stdev(result.daily_returns)
-            daily_rf = (
-                self.config.risk_free_rate_annual / self.config.trading_days_per_year
-            )
+            daily_rf = self.config.risk_free_rate_annual / self.config.trading_days_per_year
 
             if daily_std > 0:
                 result.sharpe_ratio = (

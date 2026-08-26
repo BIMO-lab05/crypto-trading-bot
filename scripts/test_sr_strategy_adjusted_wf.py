@@ -42,6 +42,16 @@ from app.strategies.support_resistance_strategy import (
 from app.strategies.research_optimized_strategy import ResearchOptimizedStrategy
 from app.models import IndicatorSignal
 
+# Declared account size (see shared/account.py).
+import os as _os
+import sys as _sys
+
+_REPO_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
+
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -72,7 +82,7 @@ DATA_INTERVAL = '60'           # 1 hour candles
 MARKET_DATA_URL = 'http://localhost:8002'
 
 # Initial capital
-INITIAL_CAPITAL = 10000.0
+INITIAL_CAPITAL = ACCOUNT_EQUITY_USD
 
 # Adjusted Pass/Fail Criteria (slightly relaxed for limited data)
 MIN_WIN_RATE = 45.0            # Reduced from 50% (limited data)

@@ -201,7 +201,7 @@ Green proves nothing until you have seen it go red, and there are **two** copies
 - [ ] **Step 4: Commit**
 
 ```bash
-git commit -- backtesting/screen.py tests/killtests/test_slippage_table_sync.py -m "test(research): pin both research slippage tables to the paper engine's
+git commit -m "test(research): pin both research slippage tables to the paper engine's
 
 Three copies of the slippage table, none of them guarded. paper_slippage.py
 is canonical. edge_lab/config.py is the copy every battery Gate 1 verdict is
@@ -221,7 +221,7 @@ one tests/security/conftest.py installs.
 
 edge_lab/config.py is deliberately NOT in this pathspec - the guard reads it
 and never edits it. Its failure message says so, because editing the pin to
-make the test green would invalidate the verdicts the pin exists to protect."
+make the test green would invalidate the verdicts the pin exists to protect." -- backtesting/screen.py tests/killtests/test_slippage_table_sync.py
 ```
 
 ---
@@ -314,7 +314,7 @@ python3 -m pytest tests/test_phase1_runner_capital.py tests/test_account_size_in
 ```
 
 ```bash
-git commit -- backtesting/run_phase1_backtest.py tests/test_phase1_runner_capital.py -m "fix(research): Phase-1 runner defaults --capital to the real account size
+git commit -m "fix(research): Phase-1 runner defaults --capital to the real account size
 
 The argparse default was 10000.0 and main() passes initial_capital=args.capital
 explicitly, so backtest_engine's already-corrected PAPER_INITIAL_BALANCE
@@ -324,7 +324,7 @@ re-answered the \$10,000 question the capital audit closed.
 The AST account invariant is structurally blind to this construct
 (add_argument is not a default-carrying call, the flag is a string literal),
 so adding the file to SCANNED_FILES would be a false guard. Bespoke
-source-scanning test instead."
+source-scanning test instead." -- backtesting/run_phase1_backtest.py tests/test_phase1_runner_capital.py
 ```
 
 ---
@@ -427,7 +427,7 @@ python3 -m pytest tests/edge_lab/test_edge_lab_trial_ledger.py --no-cov -q
 ```
 
 ```bash
-git commit -- backtesting/edge_lab/trial_ledger.py backtesting/edge_lab/trial_ledger.json tests/edge_lab/test_edge_lab_trial_ledger.py -m "feat(edge-lab): append-only trial ledger
+git commit -m "feat(edge-lab): append-only trial ledger
 
 The operator chose open-ended iteration - keep running batteries until
 something passes. Unbounded candidate mining makes a lucky false positive
@@ -442,7 +442,7 @@ once.
 Honest scope: gate2 uses max(floor, n_paths) and n_paths reaches 45 at the
 pinned CPCV config, so this binds only above 45 or when a short series yields
 few valid paths. It does not raise the bar on every battery, and the module
-docstring says so."
+docstring says so." -- backtesting/edge_lab/trial_ledger.py backtesting/edge_lab/trial_ledger.json tests/edge_lab/test_edge_lab_trial_ledger.py
 ```
 
 ---
@@ -512,7 +512,7 @@ python3 -m pytest tests/edge_lab --no-cov -q
 Expected: the full `tests/edge_lab` suite green (80 tests as of `cca426c`, plus the new ones).
 
 ```bash
-git commit -- backtesting/edge_lab/gate2.py backtesting/edge_lab/run_battery.py backtesting/edge_lab/verdicts.py tests/edge_lab/test_edge_lab_trials_threading.py tests/edge_lab/test_edge_lab_battery.py -m "feat(edge-lab): thread the effective trials floor into Gate 2 and verdicts
+git commit -m "feat(edge-lab): thread the effective trials floor into Gate 2 and verdicts
 
 run_battery never passed num_trials_floor, Gate2Result had no field recording
 the trials count actually used, and verdicts.py imported NUM_TRIALS_FLOOR at
@@ -533,7 +533,7 @@ variant per candidate, covering NO_TRADES, Gate-1 KILL and PASS alike.
 
 NUM_TRIALS_FLOOR stays pinned at 16 as the static lower bound - changing a
 pinned value would invalidate existing verdicts. All existing JSON keys are
-preserved; fields are added, never renamed."
+preserved; fields are added, never renamed." -- backtesting/edge_lab/gate2.py backtesting/edge_lab/run_battery.py backtesting/edge_lab/verdicts.py tests/edge_lab/test_edge_lab_trials_threading.py tests/edge_lab/test_edge_lab_battery.py
 ```
 
 ---
@@ -570,7 +570,7 @@ Also record: the universe pin (`universe_2026-08-17.json`, unchanged), the data 
 - [ ] **Step 2: Commit before writing any candidate code**
 
 ```bash
-git commit -- backtesting/edge_lab/candidates/battery_2026-08-18_manifest.md -m "docs(edge-lab): pre-register battery #2
+git commit -m "docs(edge-lab): pre-register battery #2
 
 Three families with hypothesis, economic mechanism, exact variant parameters,
 bundle inputs, label horizons and honestly-stated priors - committed before
@@ -580,7 +580,7 @@ Funding-carry refinements carry the highest prior (best survivor of battery
 #1). Pairs/stat-arb is the one classic family never tested here.
 Regime-gated trend carries a deliberately low prior: lf_trend's Gate 1 pass
 came from a few outliers, and a filter that merely removes losing periods
-in-sample is overfitting - which is what the DSR exists to catch."
+in-sample is overfitting - which is what the DSR exists to catch." -- backtesting/edge_lab/candidates/battery_2026-08-18_manifest.md
 ```
 
 ---
@@ -612,10 +612,7 @@ python3 -m pytest tests/edge_lab/test_edge_lab_funding_carry_variants.py tests/e
 ```
 
 ```bash
-git commit -- backtesting/edge_lab/candidates/funding_carry.py \
-  tests/edge_lab/test_edge_lab_funding_carry_variants.py \
-  tests/edge_lab/test_edge_lab_funding_carry.py \
-  -m "feat(edge-lab): funding-carry refinement variants
+git commit -m "feat(edge-lab): funding-carry refinement variants
 
 The variants pre-registered in battery_2026-08-18_manifest.md, added verbatim
 and parameterized through Variant.params - no branching on variant names, so
@@ -628,7 +625,10 @@ rather than removed: the point of that assertion is that a variant cannot be
 added without a deliberate edit here.
 
 run_battery.py is deliberately absent from this pathspec - LABEL_HORIZONS
-already carries funding_carry: 10."
+already carries funding_carry: 10." \
+  -- backtesting/edge_lab/candidates/funding_carry.py \
+  tests/edge_lab/test_edge_lab_funding_carry_variants.py \
+  tests/edge_lab/test_edge_lab_funding_carry.py
 ```
 
 ---
@@ -673,10 +673,7 @@ python3 -m pytest tests/edge_lab/test_edge_lab_pairs_statarb.py tests/edge_lab/t
 ```
 
 ```bash
-git commit -- backtesting/edge_lab/candidates/pairs_statarb.py \
-  backtesting/edge_lab/run_battery.py \
-  tests/edge_lab/test_edge_lab_pairs_statarb.py \
-  -m "feat(edge-lab): pairs/stat-arb candidate
+git commit -m "feat(edge-lab): pairs/stat-arb candidate
 
 The one classic family no battery has tested, pre-registered in
 battery_2026-08-18_manifest.md. numpy only - services/trading-engine's
@@ -694,7 +691,10 @@ two independent random walks - is part of the test set: a candidate that
 trades enthusiastically on noise is detecting nothing.
 
 The _CANDIDATE_SPECS row and the LABEL_HORIZONS entry land in this same commit;
-a missing horizon falls back to 7 days behind only a logger.warning."
+a missing horizon falls back to 7 days behind only a logger.warning." \
+  -- backtesting/edge_lab/candidates/pairs_statarb.py \
+  backtesting/edge_lab/run_battery.py \
+  tests/edge_lab/test_edge_lab_pairs_statarb.py
 ```
 
 ---
@@ -717,10 +717,7 @@ python3 -m pytest tests/edge_lab/test_edge_lab_lf_trend_regime.py \
 ```
 
 ```bash
-git commit -- backtesting/edge_lab/candidates/lf_trend.py \
-  tests/edge_lab/test_edge_lab_lf_trend_regime.py \
-  tests/edge_lab/test_edge_lab_lf_trend.py \
-  -m "feat(edge-lab): regime-gated trend variants
+git commit -m "feat(edge-lab): regime-gated trend variants
 
 The variants pre-registered in battery_2026-08-18_manifest.md, parameterized
 through Variant.params, with the regime filter computed causally - only bars
@@ -734,7 +731,10 @@ candidate is expected to fail; running it is how we find that out cheaply.
 
 test_edge_lab_lf_trend.py's exact-equality VARIANTS assertion is extended
 rather than removed, so a variant still cannot be added without a deliberate
-edit there."
+edit there." \
+  -- backtesting/edge_lab/candidates/lf_trend.py \
+  tests/edge_lab/test_edge_lab_lf_trend_regime.py \
+  tests/edge_lab/test_edge_lab_lf_trend.py
 ```
 
 ---
@@ -845,9 +845,7 @@ python3 -m pytest tests/edge_lab/test_edge_lab_battery.py --no-cov -q
 ```
 
 ```bash
-git commit -- backtesting/edge_lab/run_battery.py \
-  tests/edge_lab/test_edge_lab_battery.py \
-  -m "fix(edge-lab): date-stamp the battery trades directory
+git commit -m "fix(edge-lab): date-stamp the battery trades directory
 
 run_battery wrote trades/{candidate}_{variant}.csv with no date and truncating
 mode, under an --out that defaults to .planning/evidence/killtests. The eight
@@ -859,7 +857,9 @@ verdicts pointing at newer data.
 The verdict docs were already date-stamped; the CSVs they reference now are
 too. _score_variant takes date_str because it is computed in run_battery and
 was not in scope. The eight legacy files are untouched at the old path - they
-simply stop being write targets."
+simply stop being write targets." \
+  -- backtesting/edge_lab/run_battery.py \
+  tests/edge_lab/test_edge_lab_battery.py
 ```
 
 - [ ] **Step 2: Run the battery**
@@ -895,7 +895,13 @@ If every candidate REJECTs, that is the expected outcome and a complete delivera
 Name the new files explicitly. A wholesale `.planning/evidence/killtests/` pathspec would sweep in anything else under that directory — the whole reason Step 1b exists.
 
 ```bash
-git commit -- \
+git commit -m "data(edge-lab): battery #2 verdicts 2026-08-18
+
+<one line per candidate: verdict, best ratio_taker, gate1/gate2 counts>
+
+Trial ledger updated: <N> distinct variants recorded, effective trials floor
+<F> applied at Gate 2." \
+  -- \
   .planning/evidence/killtests/battery-summary-20260818.md \
   .planning/evidence/killtests/funding_carry-verdict-20260818.md \
   .planning/evidence/killtests/funding_carry-verdict-20260818.json \
@@ -908,13 +914,7 @@ git commit -- \
   .planning/evidence/killtests/xs_momentum-verdict-20260818.md \
   .planning/evidence/killtests/xs_momentum-verdict-20260818.json \
   .planning/evidence/killtests/trades/20260818/ \
-  backtesting/edge_lab/trial_ledger.json \
-  -m "data(edge-lab): battery #2 verdicts 2026-08-18
-
-<one line per candidate: verdict, best ratio_taker, gate1/gate2 counts>
-
-Trial ledger updated: <N> distinct variants recorded, effective trials floor
-<F> applied at Gate 2."
+  backtesting/edge_lab/trial_ledger.json
 ```
 
 The trades subdirectory is `trades/20260818/`, not `trades/2026-08-18/`: `date_str_from_ms` (`run_battery.py:134`) formats `%Y%m%d`, which is why the verdict files read `-20260818`. Run `ls .planning/evidence/killtests/trades/` and confirm the directory name before committing — a pathspec that matches nothing commits nothing, silently.

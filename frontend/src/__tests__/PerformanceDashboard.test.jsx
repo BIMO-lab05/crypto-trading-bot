@@ -18,6 +18,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { PAPER_DEFAULT_BALANCE } from '../utils/balance'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Import components to test
@@ -51,54 +52,55 @@ const createWrapper = () => {
 
 /**
  * Mock strategy attribution data.
- * Dollar figures are scaled to the real $100 paper account
- * (PAPER_INITIAL_BALANCE) — the old fixtures assumed $10,000.
+ * Dollar figures are scaled to the declared paper account
+ * (PAPER_DEFAULT_BALANCE — $10,000 per ADR-029): per-strategy P&L in the
+ * tens-to-hundreds of dollars, i.e. a few percent of the account.
  */
 const mockStrategyData = [
   {
     strategy: 'RSI_Momentum',
-    pnl: 15.25,
+    pnl: 1525,
     trades: 45,
     winRate: 62.5,
     profitFactor: 1.85,
-    avgWin: 0.86,
-    avgLoss: 0.45,
+    avgWin: 86,
+    avgLoss: 45,
   },
   {
     strategy: 'MACD_Crossover',
-    pnl: -2.75,
+    pnl: -275,
     trades: 32,
     winRate: 42.5,
     profitFactor: 0.75,
-    avgWin: 0.35,
-    avgLoss: 0.48,
+    avgWin: 35,
+    avgLoss: 48,
   },
   {
     strategy: 'Bollinger_Breakout',
-    pnl: 8.50,
+    pnl: 850,
     trades: 28,
     winRate: 55.0,
     profitFactor: 1.45,
-    avgWin: 0.65,
-    avgLoss: 0.50,
+    avgWin: 65,
+    avgLoss: 50,
   },
 ]
 
 /**
  * Mock risk metrics data
  */
-// Dollar figures scaled to the $100 paper account: a $2.50 daily VaR on a
-// $95 portfolio (~2.6%), not the old $10k-world $250.50.
+// Dollar figures scaled to the declared paper account (PAPER_DEFAULT_BALANCE,
+// $10,000 per ADR-029): a $250 daily VaR on a $9,500 portfolio (~2.6%).
 const mockRiskMetrics = {
-  var95: 2.50,
-  cvar95: 3.50,
+  var95: 250.00,
+  cvar95: 350.00,
   maxDrawdownPercent: 8.5,
   currentDrawdown: 2.3,
   volatility: 18.5,
   sharpeRatio: 1.65,
   sortinoRatio: 2.10,
   beta: 0.95,
-  portfolioValue: 95.00,
+  portfolioValue: 9500.00,
 }
 
 /**
@@ -106,16 +108,17 @@ const mockRiskMetrics = {
  */
 const mockExportData = {
   metrics: {
-    // Coherent with the $100-account curve below: 100 → 108 = +$8.00
-    totalPnL: 8.00,
+    // Coherent with the $10,000-account curve below (PAPER_DEFAULT_BALANCE,
+    // ADR-029): 10,000 → 10,800 = +$800.00
+    totalPnL: 800.00,
     totalTrades: 105,
     winRate: 55.5,
     sharpeRatio: 1.65,
   },
   equityCurve: [
-    { timestamp: '2025-12-01T00:00:00Z', equity: 100, pnl: 0 },
-    { timestamp: '2025-12-05T00:00:00Z', equity: 105, pnl: 5 },
-    { timestamp: '2025-12-10T00:00:00Z', equity: 108, pnl: 3 },
+    { timestamp: '2025-12-01T00:00:00Z', equity: PAPER_DEFAULT_BALANCE, pnl: 0 },
+    { timestamp: '2025-12-05T00:00:00Z', equity: PAPER_DEFAULT_BALANCE + 500, pnl: 500 },
+    { timestamp: '2025-12-10T00:00:00Z', equity: PAPER_DEFAULT_BALANCE + 800, pnl: 300 },
   ],
   drawdownSeries: [
     { timestamp: '2025-12-01T00:00:00Z', drawdownPercent: 0 },
@@ -161,8 +164,8 @@ describe('StrategyAttribution Component', () => {
   it('calculates total P&L correctly', () => {
     render(<StrategyAttribution data={mockStrategyData} loading={false} />)
 
-    // Total P&L should be sum: 15.25 - 2.75 + 8.50 = 21.00
-    const totalPnL = screen.getByText(/\+?\$21\.00/)
+    // Total P&L should be sum: 1525 - 275 + 850 = 2100.00
+    const totalPnL = screen.getByText(/\+?\$2,100\.00/)
     expect(totalPnL).toBeInTheDocument()
   })
 
@@ -238,7 +241,7 @@ describe('RiskMetrics Component', () => {
     render(<RiskMetrics metrics={mockRiskMetrics} loading={false} />)
 
     // VaR should display as currency
-    expect(screen.getByText('$2.50')).toBeInTheDocument()
+    expect(screen.getByText('$250.00')).toBeInTheDocument()
   })
 
   it('displays Sharpe ratio correctly', () => {

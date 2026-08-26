@@ -19,6 +19,7 @@ test_no_parallel_metric_definitions_in_module enforces this.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Iterable, List, Sequence
 
 import numpy as np
@@ -38,6 +39,25 @@ import numpy as np
 # as the contract marker, but that import is unresolvable outside the
 # container. Replaced with this comment + the existing grep-gate test (which
 # is the actual TOURN-07 enforcement mechanism per plan 03-06 task 3).
+
+
+def metric_sort_value(v: Any) -> float:
+    """NaN/None-safe descending-sort key for metric columns (SEV-4a fix 2026-08).
+
+    The previous key ``-float(r.get("dsr") or 0.0)`` let NaN through:
+    ``float("nan") or 0.0`` evaluates to NaN (NaN is truthy), and a single
+    NaN key poisons ``list.sort()``'s comparisons, producing an arbitrary
+    order in which a NaN-dsr row can be "selected" over a real one.
+    Missing/None/NaN/uncastable metrics map to -inf: worst possible,
+    sorted last, never selected above any finite value.
+    """
+    if v is None:
+        return float("-inf")
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return float("-inf")
+    return f if math.isfinite(f) else float("-inf")
 
 
 def select_top_n_per_symbol(
@@ -61,15 +81,35 @@ def select_top_n_per_symbol(
         by_symbol.setdefault(r["symbol"], []).append(r)
     out: Dict[str, List[Dict[str, Any]]] = {}
     for symbol, srows in by_symbol.items():
+        # SEV-4a: metric_sort_value maps None/NaN to -inf so they sort last
+        # and can never outrank a finite dsr.
         srows.sort(
             key=lambda r: (
-                -float(r.get("dsr") or 0.0),
-                -float(r.get("cpcv_dsr") or 0.0),
-                -float(r.get("oos_sharpe") or 0.0),
+                -metric_sort_value(r.get("dsr")),
+                -metric_sort_value(r.get("cpcv_dsr")),
+                -metric_sort_value(r.get("oos_sharpe")),
                 str(r.get("created_at") or ""),
             )
         )
-        out[symbol] = srows[:n]
+        # SEV-4b (2026-08): taking the top-N of M candidates by DSR is a
+        # selection MAXIMUM that the per-run DSR does not account for
+        # (Bailey & Lopez de Prado 2014: the expected max Sharpe under the
+        # no-skill null grows with the number of trials, ~sqrt(2 ln N); a
+        # DSR deflated for its own run's num_trials is still undeflated
+        # for the across-runs pick). The leaderboard rows carry no return
+        # series, so the honest adjusted DSR cannot be recomputed HERE —
+        # instead each selected row is annotated with the selection pool
+        # size M. Any downstream consumer that recomputes DSR from stored
+        # predictions must pass
+        #   num_trials = cpcv_num_trials_used + (selection_pool_size - 1)
+        # via ``cpcv_to_dsr(..., num_trials=...)``. Within one symbol's
+        # pool every candidate shares the same M, so the RANKING above is
+        # unchanged by the common deflation; only the reported
+        # significance of the selected member is affected.
+        pool_size = len(srows)
+        out[symbol] = [
+            {**r, "selection_pool_size": pool_size} for r in srows[:n]
+        ]
     return out
 
 
@@ -94,23 +134,43 @@ def aggregate_log_returns(
     return stacked.mean(axis=0)
 
 
+def _finite_or_none(value: Any) -> float | None:
+    """Finite float or None — member_descriptor's honest-NULL companion to
+    metric_sort_value (which maps the same inputs to -inf for sorting)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
 def member_descriptor(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Strip a snapshot row to the four D-03 ensemble-member fields.
+    """Strip a snapshot row to the D-03 ensemble-member fields.
 
     D-03 — ensemble.json carries config-by-reference only:
-      run_id, architecture, hp_hash, dsr.
+      run_id, architecture, hp_hash, dsr, selection_pool_size.
     No oos_sharpe/cpcv_dsr/dir_acc here — those live in the leaderboard, not
     the ensemble artifact (the reproducer re-derives them from run_id+config).
+
+    ``selection_pool_size`` (SEV-4b, 2026-08) is the number of candidates
+    the member was picked from; the carried ``dsr`` is NOT deflated for
+    that selection (Bailey-LdP selection bias) — consumers recomputing DSR
+    must widen num_trials by (selection_pool_size - 1). None when the row
+    was not produced by ``select_top_n_per_symbol``.
     """
     return {
         "run_id": row["run_id"],
         "architecture": row["architecture"],
         "hp_hash": row["hp_hash"],
-        "dsr": float(row.get("dsr") or 0.0),
+        # None/NaN stay None in the artifact of record — never a fabricated 0.0
+        # (same contract as metric_sort_value; NaN is truthy so `or 0.0` is wrong).
+        "dsr": _finite_or_none(row.get("dsr")),
+        "selection_pool_size": row.get("selection_pool_size"),
     }
 
 
 __all__ = [
+    "metric_sort_value",
     "select_top_n_per_symbol",
     "aggregate_log_returns",
     "member_descriptor",

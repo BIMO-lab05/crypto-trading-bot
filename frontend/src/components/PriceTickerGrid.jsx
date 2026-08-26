@@ -13,18 +13,19 @@ import TileState from './TileState'
  * - Color-coded price changes (green=up, red=down)
  * - Click to select symbol for chart display
  * - Compact horizontal scrollable layout
- * - Real-time 5-second updates
+ * - Real-time 10-second updates (useMultipleTickers refetchInterval)
  *
  * Props:
  * - symbols: Array of trading pairs to display
  * - onSymbolClick: Callback when user clicks a ticker
  *
- * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in
- * <TileState forceStale/> per audit verdict LABELED_STALE
- * (market-data-service unhealthy at audit time, 2026-05-13). Corner
- * stale badge fires while the source endpoint is fixed in a later phase.
- * Per F-05 precedence: a real error (HTTP 503/etc.) still surfaces as
- * the Failed (...) + Retry UI; forceStale does NOT silence the error.
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/>.
+ * UPDATED 2026-08-20: removed the forceStale flag — the ticker endpoint
+ * returns 200 with live data again. The stale badge is driven by the
+ * query's `dataUpdatedAt` (epoch ms of the last successful fetch) passed
+ * as `lastUpdatedAt`; TileState flags the tile once it exceeds the
+ * `ticker` threshold. Per F-05 precedence: a real error (HTTP 503/etc.)
+ * still surfaces as the Failed (...) + Retry UI.
  */
 export default function PriceTickerGrid({
   symbols = ['SOLUSDT', 'BNBUSDT', 'ADAUSDT', 'AVAXUSDT', 'LINKUSDT'],
@@ -39,8 +40,7 @@ export default function PriceTickerGrid({
       query={q}
       title="Live Prices"
       thresholdKey="ticker"
-      lastUpdatedAt={undefined}
-      forceStale
+      lastUpdatedAt={q.dataUpdatedAt || undefined}
       isEmpty={(d) => !d || Object.keys(d).length === 0}
     >
     <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 backdrop-blur-sm">
@@ -145,7 +145,7 @@ export default function PriceTickerGrid({
 
       {/* Last Update */}
       <div className="mt-2 text-center text-[10px] text-slate-600">
-        Auto-refresh: 5s • Click ticker to view chart
+        Auto-refresh: 10s • Click ticker to view chart
       </div>
     </div>
     </TileState>

@@ -100,7 +100,7 @@ class StatisticalArbitrageManager:
         Args:
             total_capital: Total capital available for trading. Defaults to
                 the configured paper-trading balance
-                (PAPER_INITIAL_BALANCE, $100).
+                (PAPER_INITIAL_BALANCE).
             allocation: Capital allocation across strategies
             enable_pairs: Enable pairs trading strategies
             enable_funding: Enable funding rate arbitrage

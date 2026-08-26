@@ -24,13 +24,12 @@ import { usePositions, useTradingStatus } from '../hooks/usePositions';
 import TileState from '../components/TileState';
 
 /**
- * Plan 06-05 DASH-05: this page is audit-verdict LABELED_STALE because
- * /api/portfolio returns 503 (portfolio-manager container 'unhealthy'
- * at audit time, 2026-05-13). Other hooks (positions/status/perf) are
- * 200. The portfolioQuery drives the <TileState forceStale/> wrapper
- * below — if /api/portfolio is 503 the Failed (...) UI takes precedence
- * (F-05). When portfolio-manager is restored, the page renders normally
- * with a corner stale badge until Phase 7+ removes the forceStale flag.
+ * Plan 06-05 DASH-05: the portfolioQuery drives the page-level
+ * <TileState/> wrapper below — if /api/portfolio is 503 the Failed (...)
+ * UI takes precedence (F-05). 2026-08-20: forceStale flag removed —
+ * portfolio-manager is restored and /api/portfolio returns 200 with live
+ * data. The stale badge is driven by portfolioQuery.dataUpdatedAt (epoch
+ * ms of the last successful fetch) passed as `lastUpdatedAt` to TileState.
  */
 
 // ============================================================================
@@ -556,7 +555,7 @@ const Portfolio = () => {
 
   // Fetch portfolio data from various hooks.
   // Plan 06-05 DASH-05: portfolioQuery is the load-bearing query for the
-  // page-level <TileState forceStale/> wrapper (LABELED_STALE verdict).
+  // page-level <TileState/> wrapper.
   const portfolioQuery = usePortfolio();
   const { data: portfolioData } = portfolioQuery;
   const { data: performanceData, isLoading: performanceLoading } = usePortfolioPerformance();
@@ -565,7 +564,7 @@ const Portfolio = () => {
   const { data: tradesData, isLoading: tradesLoading } = useTradeHistory({ limit: 10 });
 
   // Loading and combined-error states are now surfaced by the page-level
-  // <TileState forceStale/> wrapper below; inline LoadingState/ErrorState
+  // <TileState/> wrapper below; inline LoadingState/ErrorState
   // early-returns removed.
 
   // Extract and process data
@@ -605,8 +604,7 @@ const Portfolio = () => {
       query={portfolioQuery}
       title="Portfolio"
       thresholdKey="portfolio"
-      lastUpdatedAt={undefined}
-      forceStale
+      lastUpdatedAt={portfolioQuery.dataUpdatedAt || undefined}
       isEmpty={(d) => !d || !d.portfolio}
     >
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200">

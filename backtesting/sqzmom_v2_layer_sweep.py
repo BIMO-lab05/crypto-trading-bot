@@ -20,6 +20,7 @@ import pandas as pd
 from data_downloader import HistoricalDataDownloader
 from backtest_engine import BacktestEngine
 from sqzmom_v2 import precompute_features, make_sqzmom_v2
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 
 SYMBOL = "SOLUSDT"
@@ -65,7 +66,7 @@ async def main():
     )
     print("-" * 60)
     for layer in range(0, 6):
-        engine = BacktestEngine(initial_capital=10000.0)
+        engine = BacktestEngine(initial_capital=ACCOUNT_EQUITY_USD)
         strategy = make_sqzmom_v2(layer=layer)
         result = engine.run_backtest(
             enriched, strategy, strategy_name=f"sqzmom_v2_L{layer}"

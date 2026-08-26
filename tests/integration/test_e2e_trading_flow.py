@@ -26,6 +26,8 @@ import json
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: F401
 import sys
 
 # Service endpoints
@@ -45,7 +47,7 @@ SERVICES = {
 # Test configuration
 TEST_SYMBOL = "BTCUSDT"
 TEST_INTERVAL = "60"  # 1 hour
-TEST_CAPITAL = 10000.0
+TEST_CAPITAL = ACCOUNT_EQUITY_USD
 
 
 class E2ETestRunner:

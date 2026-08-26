@@ -1110,6 +1110,17 @@ async def get_trading_status():
     )
 
 
+@app.get("/api/trading/signal-funnel")
+async def get_trading_signal_funnel():
+    """Stage-by-stage signal rejection funnel from the trading engine."""
+    proxy = get_proxy()
+    return await proxy.proxy_request(
+        service_name="trading-engine",
+        path="/api/v1/trading/signal-funnel",
+        method="GET",
+    )
+
+
 @app.get("/api/config/safety-state")
 async def get_safety_state():
     """

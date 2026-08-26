@@ -1,49 +1,8 @@
 # Pre-existing account-size literals, recorded so the guard can be
-# enabled without a flag day. Every line here is a REAL defect: a
-# $10,000 figure on a $100 account. New offenders are rejected; these
+# enabled without a flag day. Every line here is a REAL defect: a bare
+# capital literal bypassing shared/account.py — since ADR-029 usually
+# an *accidentally correct* 10000. New offenders are rejected; these
 # are the burn-down list. Delete a line as you fix it.
 #
 # Regenerate: python3 scripts/check_capital_literals.py --update-baseline
 
-backtesting/portfolio/portfolio_backtest.py::initial_capital: float = 10000.0,
-backtesting/run_phase_comparison.py::capital: float = 10000.0
-backtesting/run_walk_forward_sqzmom_v2.py::is_engine = BacktestEngine(initial_capital=10000.0)
-backtesting/run_walk_forward_sqzmom_v2.py::oos_engine = BacktestEngine(initial_capital=10000.0)
-backtesting/sqzmom_v2_layer_sweep.py::engine = BacktestEngine(initial_capital=10000.0)
-backtesting/test_loss_fixes.py::def __init__(self, initial_capital: float = 10000.0):
-scripts/check_daily_loss.sh::INITIAL_CAPITAL=10000
-scripts/compare_all_strategies.py::engine = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
-scripts/compare_strategies.py::initial_equity=10000.0,
-scripts/daily_shutdown.sh::local initial=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('initial_balance', 10000))" 2>/dev/null)
-scripts/day2_monitor.sh::total = data.get('equity', data.get('total_equity', 10000))
-scripts/debug_grid_trading.py::equity = 10000.0
-scripts/generate_performance_report.sh::<span class="metric-value">\$${INITIAL_BALANCE:-10000}</span>
-scripts/generate_performance_report.sh::echo " Initial Balance: \$${INITIAL_BALANCE:-10000}"
-scripts/generate_performance_report.sh::initial_balance = metrics.get('initial_balance', 10000)
-scripts/generate_performance_report.sh::local pnl=$(python3 -c "print(round(${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-10000}, 2))" 2>/dev/null || echo "0")
-scripts/generate_performance_report.sh::local pnl_pct=$(python3 -c "print(round((${TOTAL_BALANCE:-0} - ${INITIAL_BALANCE:-10000}) / ${INITIAL_BALANCE:-10000} * 100, 2))" 2>/dev/null || echo "0")
-scripts/generate_performance_report.sh::print(f\"INITIAL_BALANCE:{data.get('initial_balance', 10000)}\")
-scripts/optimize_grid_trading.py::initial_equity: float = 10000.0
-scripts/optimize_top3.py::backtest_engine = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
-scripts/quick_check.sh::initial=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('initial_balance', 10000))" 2>/dev/null)
-scripts/retest_with_csv_data.py::INITIAL_CAPITAL = 10000.0 # $10,000 initial capital
-scripts/run_bnb_walkforward.py::initial_capital=10000.0,
-scripts/system_status_report.sh::echo " Initial Balance: \$${BALANCE_INITIAL:-10000}"
-scripts/system_status_report.sh::initial = data.get('initial_balance', 10000)
-scripts/system_status_report.sh::print(f\"BALANCE_INITIAL:{data.get('initial_balance', 10000)}\")
-scripts/test_additional_symbols.py::engine = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
-scripts/test_enhanced_grid_v2.py::config.initial_equity = 10000.0
-scripts/test_grid_trading_backtest.py::initial_equity: float = 10000.0
-scripts/test_grid_v1_with_csv.py::initial_equity=10000.0, # $10,000 starting capital
-scripts/test_improved_grid_v1.py::initial_capital=10000.0,
-scripts/test_multi_indicator.py::engine1 = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
-scripts/test_multi_indicator.py::engine2 = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
-scripts/test_multi_indicator.py::engine3 = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
-scripts/test_multi_indicator.py::engine4 = BacktestEngine(initial_capital=10000.0, commission=0.001, slippage=0.0005)
-scripts/test_phase1_optimizers.py::initial_capital=10000.0,
-scripts/test_portfolio_engine.py::initial_capital=10000.0,
-scripts/test_sr_strategy_adjusted_wf.py::INITIAL_CAPITAL = 10000.0
-scripts/test_sr_strategy_walkforward.py::INITIAL_CAPITAL = 10000.0
-scripts/test_trend_following_csv.py::initial_equity=10000.0,
-scripts/test_walkforward_integration.py::initial_capital=10000.0,
-scripts/walkforward_grid_trading.py::initial_equity=10000.0,

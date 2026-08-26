@@ -100,6 +100,9 @@ EXPECTED_KEYS = {
     "test_cpcv_n_paths",
     "test_cpcv_oos_sharpe",
     "test_cpcv_n_samples",
+    # SEV-5 (2026-08): honest-N DSR variant + its trial-count component.
+    "test_cpcv_dsr",
+    "test_cpcv_num_trials_used",
 }
 
 
@@ -190,6 +193,31 @@ class TestEvaluateWithCPCV:
             k_test_groups=2,
         )
         assert result["test_cpcv_n_paths"] <= 45
+
+    def test_cpcv_dsr_uses_honest_num_trials(self):
+        # SEV-5: cpcv_dsr deflates with N = max(valid paths, total path
+        # count) = C(10,2) = 45 here, so it can never be less deflated
+        # than the legacy dsr (which uses only the valid-path count).
+        last, actual = _make_drift_series(1500, drift=0.0, sigma=0.01, seed=9)
+        pred = actual.copy()
+        result = evaluate_with_cpcv(
+            actual, pred, last, dataset_name="test", label_horizon=5
+        )
+        assert result["test_cpcv_num_trials_used"] == 45
+        assert not math.isnan(result["test_cpcv_dsr"])
+        # More (or equal) deflation than the legacy variant.
+        assert result["test_cpcv_dsr"] <= result["test_dsr"] + 1e-12
+
+    def test_cpcv_dsr_nan_sentinel_when_cpcv_cannot_run(self):
+        # Degenerate input → cpcv_dsr is NaN (NEVER a copy of dsr, never 0.0).
+        last = np.array([100.0, 100.0])
+        actual = np.array([101.0, 99.0])
+        pred = np.array([102.0, 98.0])
+        result = evaluate_with_cpcv(
+            actual, pred, last, dataset_name="oos", label_horizon=5
+        )
+        assert math.isnan(result["oos_cpcv_dsr"])
+        assert result["oos_cpcv_num_trials_used"] == 0
 
     def test_runs_with_dataset_name_prefix(self):
         # The "train" / "test" prefix follows returns_metrics convention.

@@ -24,6 +24,8 @@ from itertools import product
 
 # Add trading-engine to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "services" / "trading-engine"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 from app.backtesting.strategy_base import OHLCV
 from app.backtesting.backtest_engine import BacktestEngine, BacktestConfig, BacktestResult
@@ -76,7 +78,7 @@ def run_optimization_backtest(
     symbol: str,
     bars: List[OHLCV],
     params: Dict[str, Any],
-    initial_equity: float = 10000.0
+    initial_equity: float = ACCOUNT_EQUITY_USD
 ) -> Tuple[BacktestResult, Dict[str, Any]]:
     """Run single backtest with given parameters"""
 

@@ -23,9 +23,13 @@ wheels/
 .installed.cfg
 *.egg
 
-# Logs
+# Logs — root-level AND nested: bare `logs/`/`*.log` match only the context
+# root, so services/*/logs/service.log (566MB+, actively written) rode into
+# every repo-root build context and broke `docker build` tar mid-write.
 logs/
 *.log
+**/logs/
+**/*.log
 
 # Environment variables
 .env

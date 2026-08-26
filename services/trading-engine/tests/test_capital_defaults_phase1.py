@@ -10,9 +10,10 @@ Covers:
 - the grid-v2 reject-below-minimum rule (never round a position UP),
 - the infrastructure/ migration seed (AUDIT 2.3).
 
-Run from services/trading-engine with explicit env (cwd-sensitive settings):
-    MAX_TOTAL_EXPOSURE_PCT=80.0 PAPER_INITIAL_BALANCE=100.0 \
-        python -m pytest tests/test_capital_defaults_phase1.py --no-cov
+Run from services/trading-engine (cwd-sensitive settings; conftest pins
+env_file=None, and capital env vars must NOT be exported — pydantic-settings
+deep-merges Dict fields across sources):
+    python -m pytest tests/test_capital_defaults_phase1.py --no-cov
 """
 
 import inspect
@@ -25,7 +26,14 @@ from app.config import get_settings
 
 # The configured account size — resolved from Settings, never hardcoded here.
 EXPECTED_CAPITAL = get_settings().paper_initial_balance
-WRONG_CAPITAL = 10000.0  # the audited wrong constant; asserted ABSENT
+# The audited wrong constant; asserted ABSENT. Since ADR-029 the declared
+# account is $10,000, so the stale/unrouted value to guard against is the old
+# $100 — a default equal to it means some site never re-routed through Settings.
+WRONG_CAPITAL = 100.0
+assert WRONG_CAPITAL != EXPECTED_CAPITAL, (
+    "WRONG_CAPITAL sentinel collides with the declared account size — "
+    "pick a value unequal to Settings.paper_initial_balance"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +89,7 @@ class TestFundingAddEndpoint:
 
     def test_endpoint_no_longer_exposes_dollar_position_size(self, client):
         schema = client.get("/openapi.json").json()
-        params = schema["paths"]["/api/v1/statistical-arbitrage/funding/add"]["post"][
-            "parameters"
-        ]
+        params = schema["paths"]["/api/v1/statistical-arbitrage/funding/add"]["post"]["parameters"]
         names = {p["name"] for p in params}
         assert "max_position_size" not in names
         assert "position_size_pct" in names
@@ -130,9 +136,7 @@ class TestSettingsDerivedDefaults:
         from app.models.stat_arb_models import AddFundingStrategyRequest
 
         settings = get_settings()
-        expected = (
-            settings.paper_initial_balance * settings.max_position_size_pct / 100.0
-        )
+        expected = settings.paper_initial_balance * settings.max_position_size_pct / 100.0
         req = AddFundingStrategyRequest(symbol="BTCUSDT")
         assert req.max_position_size == pytest.approx(expected)
         assert req.max_position_size != WRONG_CAPITAL
@@ -141,15 +145,11 @@ class TestSettingsDerivedDefaults:
         from app.risk.kelly_position_sizing import KellyPositionSizer
 
         sizer = KellyPositionSizer()
-        by_default = sizer.simulate_kelly(
-            win_rate=0.6, avg_win_pct=2.0, avg_loss_pct=1.5
-        )
+        by_default = sizer.simulate_kelly(win_rate=0.6, avg_win_pct=2.0, avg_loss_pct=1.5)
         explicit = sizer.simulate_kelly(
             win_rate=0.6, avg_win_pct=2.0, avg_loss_pct=1.5, capital=EXPECTED_CAPITAL
         )
-        assert float(by_default.position_value) == pytest.approx(
-            float(explicit.position_value)
-        )
+        assert float(by_default.position_value) == pytest.approx(float(explicit.position_value))
 
     def test_equity_curve_response_requires_initial_equity(self):
         from pydantic import ValidationError
@@ -328,9 +328,7 @@ class TestGridV2MinNotional:
 
         strategy, bar, level = self._make()
         equity = (MIN_POSITION_VALUE_USD / strategy.position_size_pct) * 2.0
-        signal = strategy._create_buy_signal(
-            bar, level, equity=equity, rsi=25.0, volume_ratio=2.0
-        )
+        signal = strategy._create_buy_signal(bar, level, equity=equity, rsi=25.0, volume_ratio=2.0)
         assert signal is not None
         # The emitted sizing fraction is the configured pct, never inflated
         # to meet the venue floor.
@@ -343,15 +341,46 @@ class TestGridV2MinNotional:
 
 
 class TestMigrationSeed:
+    """The seeds must ROUTE to the declared account size — asserted by parsing
+    the seeded portfolio balances and comparing them to Settings, not by
+    grepping for the absence of some historical wrong number."""
+
+    @staticmethod
+    def _seed_balances(sql: str) -> list[float]:
+        import re
+
+        match = re.search(
+            r"INSERT INTO portfolios\s*\(.*?\)\s*VALUES\s*\((.*?)\)",
+            sql,
+            re.S | re.I,
+        )
+        assert match, "portfolio seed INSERT not found in migration"
+        return [float(v) for v in re.findall(r"\d+\.\d+", match.group(1))]
+
     def test_infrastructure_seed_matches_account_of_record(self):
         repo_root = Path(__file__).resolve().parents[3]
-        sql = (
-            repo_root / "infrastructure" / "migrations" / "001_initial_schema.sql"
-        ).read_text()
-        assert "10000.00" not in sql, (
-            "infrastructure/migrations/001_initial_schema.sql seeds a $10,000 "
-            "portfolio again — the account is $100 (shared/account.py)"
-        )
-        assert "100.00" in sql
+        sql = (repo_root / "infrastructure" / "migrations" / "001_initial_schema.sql").read_text()
+        balances = self._seed_balances(sql)
+        assert balances, "seed INSERT carries no numeric balances"
+        for value in balances:
+            assert value == pytest.approx(EXPECTED_CAPITAL), (
+                "infrastructure/migrations/001_initial_schema.sql seeds "
+                f"{value} but the declared account size is {EXPECTED_CAPITAL} "
+                "(shared/account.py / Settings.paper_initial_balance)"
+            )
+            assert value != WRONG_CAPITAL
         # The authority note must survive future edits.
         assert "database/migrations/ is the AUTHORITATIVE" in sql
+
+    def test_database_seed_matches_account_of_record(self):
+        repo_root = Path(__file__).resolve().parents[3]
+        sql = (repo_root / "database" / "migrations" / "005_seed_data.sql").read_text()
+        balances = self._seed_balances(sql)
+        assert balances, "seed INSERT carries no numeric balances"
+        for value in balances:
+            assert value == pytest.approx(EXPECTED_CAPITAL), (
+                "database/migrations/005_seed_data.sql seeds "
+                f"{value} but the declared account size is {EXPECTED_CAPITAL} "
+                "(shared/account.py / Settings.paper_initial_balance)"
+            )
+            assert value != WRONG_CAPITAL

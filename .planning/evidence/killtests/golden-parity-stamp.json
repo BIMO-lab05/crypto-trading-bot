@@ -1,1 +1,44 @@
-{"date": "20260806", "passed": true}
+{
+  "backfill_manifest_path": "/mnt/d/Bimo_max/crypto-trading-bot/.planning/evidence/killtests/backfill-manifest-2026-08.md",
+  "backfill_manifest_sha256": "e63ac88f8f9dacbef734d3c470b3125d8b6fef7cc8d6581aea92af2d70ca1841",
+  "chain_actions": {
+    "ADAUSDT": "SELL",
+    "BTCUSDT": "HOLD",
+    "SOLUSDT": "HOLD"
+  },
+  "data_dir": "backtesting/data",
+  "data_dir_fingerprint": {
+    "data_dir": "backtesting/data",
+    "files": 70,
+    "sha256": "af2e5d17401388d6ee392403aaeaab7ff733c7eaf0996cea4901b6f75abee69c"
+  },
+  "date": "20260826",
+  "non_hold_actions": [
+    "SELL"
+  ],
+  "passed": true,
+  "passed_tests": [
+    "test_candle_window_equality",
+    "test_indicator_endpoint_parity",
+    "test_full_chain_parity"
+  ],
+  "pytest_exit_status": 0,
+  "refused_because": [],
+  "required_tests": [
+    "test_candle_window_equality",
+    "test_indicator_endpoint_parity",
+    "test_full_chain_parity"
+  ],
+  "schema_version": 2,
+  "session_failures": 0,
+  "started_tests": [
+    "test_candle_window_equality",
+    "test_indicator_endpoint_parity",
+    "test_full_chain_parity"
+  ],
+  "symbols": [
+    "BTCUSDT",
+    "SOLUSDT",
+    "ADAUSDT"
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "param": "min_signal_confidence",
+  "select_on": "in_sample",
+  "rows": [
+    {
+      "value": "0.20",
+      "signals": 764,
+      "trades": 68,
+      "win_rate_pct": 39.705882352941174,
+      "expectancy_pct": -0.9038467655517416,
+      "avg_r": -0.22573356363718033,
+      "total_net_return_pct": -48.589221929779356,
+      "max_drawdown_pct": 56.9688235075101,
+      "profit_factor": 0.5718782238411383,
+      "gate_rejected": 1431,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/min_signal_confidence_0.20.json"
+    },
+    {
+      "value": "0.25",
+      "signals": 622,
+      "trades": 66,
+      "win_rate_pct": 37.878787878787875,
+      "expectancy_pct": -0.7430820189139857,
+      "avg_r": -0.18558315678630416,
+      "total_net_return_pct": -41.993753016331226,
+      "max_drawdown_pct": 55.57963137493756,
+      "profit_factor": 0.6465382033212271,
+      "gate_rejected": 1573,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/min_signal_confidence_0.25.json"
+    },
+    {
+      "value": "0.30",
+      "signals": 402,
+      "trades": 55,
+      "win_rate_pct": 40.0,
+      "expectancy_pct": -0.9812913828734968,
+      "avg_r": -0.244817276562336,
+      "total_net_return_pct": -44.20250369601626,
+      "max_drawdown_pct": 47.86290705131153,
+      "profit_factor": 0.5592439152016644,
+      "gate_rejected": 1793,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/min_signal_confidence_0.30.json"
+    },
+    {
+      "value": "0.35",
+      "signals": 189,
+      "trades": 29,
+      "win_rate_pct": 27.586206896551722,
+      "expectancy_pct": -1.645940179626406,
+      "avg_r": -0.41132295718403394,
+      "total_net_return_pct": -39.12517190598918,
+      "max_drawdown_pct": 39.12517190598918,
+      "profit_factor": 0.31417851334511154,
+      "gate_rejected": 2006,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/min_signal_confidence_0.35.json"
+    },
+    {
+      "value": "0.40",
+      "signals": 129,
+      "trades": 22,
+      "win_rate_pct": 31.818181818181817,
+      "expectancy_pct": -1.3279022374124199,
+      "avg_r": -0.33199545468375186,
+      "total_net_return_pct": -26.57712601886456,
+      "max_drawdown_pct": 28.336907471358263,
+      "profit_factor": 0.4495405718574867,
+      "gate_rejected": 2066,
+      "path": "/tmp/claude-1000/-mnt-d-Bimo-max-crypto-trading-bot/96abd3e8-48d0-4dc5-af66-f1a9c67055f8/scratchpad/sweeps/min_signal_confidence_0.40.json"
+    }
+  ]
+}

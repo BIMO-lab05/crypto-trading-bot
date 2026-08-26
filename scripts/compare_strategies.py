@@ -17,6 +17,8 @@ import numpy as np
 
 # Add trading-engine to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "services" / "trading-engine"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 from app.backtesting.strategy_base import OHLCV
 from app.backtesting.backtest_engine import BacktestEngine, BacktestConfig, BacktestResult
@@ -98,7 +100,7 @@ def run_grid_trading(symbol: str, bars: List[OHLCV]) -> BacktestResult:
     )
 
     backtest_config = BacktestConfig(
-        initial_equity=10000.0,
+        initial_equity=ACCOUNT_EQUITY_USD,
         commission_pct=0.1,
         slippage_pct=0.05,
         max_positions=GRID_TRADING_CONFIG["max_positions"],
@@ -122,7 +124,7 @@ def run_stat_arb(symbol: str, bars: List[OHLCV]) -> BacktestResult:
     )
 
     backtest_config = BacktestConfig(
-        initial_equity=10000.0,
+        initial_equity=ACCOUNT_EQUITY_USD,
         commission_pct=0.1,
         slippage_pct=0.05,
         max_positions=STAT_ARB_CONFIG["max_positions"],
@@ -146,7 +148,7 @@ def run_mean_reversion(symbol: str, bars: List[OHLCV]) -> BacktestResult:
     )
 
     backtest_config = BacktestConfig(
-        initial_equity=10000.0,
+        initial_equity=ACCOUNT_EQUITY_USD,
         commission_pct=0.1,
         slippage_pct=0.05,
         max_positions=MEAN_REVERSION_CONFIG["max_positions"],

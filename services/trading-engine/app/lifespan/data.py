@@ -34,6 +34,10 @@ async def init_data():
         logger.error(f"symbol_allocations invalid: {e}")
         raise
 
+    # Log-only: flag a SHORT confidence floor the ensemble can never reach
+    # (structural SELL ceiling ~0.60) so unreachable gates surface at boot.
+    settings.warn_if_short_gate_unreachable()
+
     from app.main import database_health  # deferred: avoid circular import
 
     try:

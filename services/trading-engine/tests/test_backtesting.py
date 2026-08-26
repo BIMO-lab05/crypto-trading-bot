@@ -45,6 +45,12 @@ from app.backtesting.performance_metrics import (
     calculate_volatility,
     calculate_all_metrics
 )
+from app.config import get_settings
+
+# Declared account size sourced from Settings (CLAUDE.md section 1) — never a
+# bare literal. BacktestConfig's default initial_equity resolves the same
+# Settings value, so default-config asserts compare like-for-like.
+ACCOUNT_EQUITY = get_settings().paper_initial_balance
 
 
 # =============================================================================
@@ -105,7 +111,7 @@ def trending_up_bars() -> List[OHLCV]:
 def basic_config() -> BacktestConfig:
     """Basic backtest configuration"""
     return BacktestConfig(
-        initial_equity=100.0,
+        initial_equity=ACCOUNT_EQUITY,
         commission_pct=0.1,
         slippage_pct=0.05,
         position_size_pct=10.0,
@@ -380,7 +386,7 @@ class TestBacktestConfig:
         """Test default configuration values"""
         config = BacktestConfig()
 
-        assert config.initial_equity == 100.0
+        assert config.initial_equity == ACCOUNT_EQUITY
         assert config.commission_pct == 0.1
         assert config.slippage_pct == 0.05
         assert config.position_size_pct == 10.0
@@ -588,8 +594,8 @@ class TestBacktestEngine:
         """Test engine initialization"""
         engine = BacktestEngine(basic_config)
 
-        assert engine.config.initial_equity == 100.0
-        assert engine._equity == 100.0
+        assert engine.config.initial_equity == ACCOUNT_EQUITY
+        assert engine._equity == ACCOUNT_EQUITY
         assert engine._position is None
         assert len(engine._trades) == 0
 
@@ -648,12 +654,12 @@ class TestBacktestEngine:
         assert len(result.equity_timestamps) == len(sample_bars)
 
         # First equity should be close to initial
-        assert abs(result.equity_curve[0] - basic_config.initial_equity) < 100
+        assert abs(result.equity_curve[0] - basic_config.initial_equity) < basic_config.initial_equity * 0.05
 
     def test_engine_commission_applied(self, sample_bars):
         """Test commission is applied to trades"""
         config = BacktestConfig(
-            initial_equity=100.0,
+            initial_equity=ACCOUNT_EQUITY,
             commission_pct=1.0,  # 1% commission for easy calculation
             slippage_pct=0.0
         )
@@ -670,7 +676,7 @@ class TestBacktestEngine:
     def test_engine_slippage_applied(self, sample_bars):
         """Test slippage is applied to trades"""
         config = BacktestConfig(
-            initial_equity=100.0,
+            initial_equity=ACCOUNT_EQUITY,
             commission_pct=0.0,
             slippage_pct=1.0  # 1% slippage for easy testing
         )
@@ -757,7 +763,7 @@ class TestStopLossAndTakeProfit:
             bars.append(bar)
 
         config = BacktestConfig(
-            initial_equity=100.0,
+            initial_equity=ACCOUNT_EQUITY,
             use_stop_loss=True
         )
         strategy = SimpleTestStrategy("BTCUSDT")
@@ -780,13 +786,13 @@ class TestConvenienceFunctions:
         result = run_backtest(
             strategy=strategy,
             data=sample_bars,
-            initial_equity=100.0,
+            initial_equity=ACCOUNT_EQUITY,
             commission_pct=0.1,
             slippage_pct=0.05
         )
 
         assert isinstance(result, BacktestResult)
-        assert result.config.initial_equity == 100.0
+        assert result.config.initial_equity == ACCOUNT_EQUITY
 
     def test_generate_sample_data(self):
         """Test sample data generation"""
@@ -905,17 +911,17 @@ class TestPerformanceMetricsFunctions:
     def test_calculate_cagr(self):
         """Test CAGR calculation"""
         # Double money in 1 year = 100% CAGR
-        cagr = calculate_cagr(10000, 20000, 1.0)
+        cagr = calculate_cagr(ACCOUNT_EQUITY, 2 * ACCOUNT_EQUITY, 1.0)
         assert abs(cagr - 100.0) < 0.1
 
         # Triple money in 2 years
-        cagr = calculate_cagr(10000, 30000, 2.0)
+        cagr = calculate_cagr(ACCOUNT_EQUITY, 3 * ACCOUNT_EQUITY, 2.0)
         assert cagr > 0
 
     def test_calculate_cagr_invalid(self):
         """Test CAGR with invalid inputs"""
-        assert calculate_cagr(0, 10000, 1.0) == 0.0
-        assert calculate_cagr(10000, 10000, 0) == 0.0
+        assert calculate_cagr(0, ACCOUNT_EQUITY, 1.0) == 0.0
+        assert calculate_cagr(ACCOUNT_EQUITY, ACCOUNT_EQUITY, 0) == 0.0
 
     def test_calculate_volatility(self):
         """Test volatility calculation"""
@@ -930,7 +936,10 @@ class TestPerformanceMetricsFunctions:
 
     def test_calculate_all_metrics(self):
         """Test comprehensive metrics calculation"""
-        equity_curve = [10000, 10500, 10300, 11000, 10800, 11500]
+        equity_curve = [
+            ACCOUNT_EQUITY + delta
+            for delta in (0, 500, 300, 1000, 800, 1500)
+        ]
         trades = [
             {"pnl": 500, "duration_hours": 24},
             {"pnl": -200, "duration_hours": 12},
@@ -940,7 +949,7 @@ class TestPerformanceMetricsFunctions:
         metrics = calculate_all_metrics(
             equity_curve=equity_curve,
             trades=trades,
-            initial_equity=10000,
+            initial_equity=ACCOUNT_EQUITY,
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 31)
         )
@@ -949,8 +958,8 @@ class TestPerformanceMetricsFunctions:
         assert metrics.total_trades == 3
         assert metrics.winning_trades == 2
         assert metrics.losing_trades == 1
-        assert metrics.initial_equity == 10000
-        assert metrics.final_equity == 11500
+        assert metrics.initial_equity == ACCOUNT_EQUITY
+        assert metrics.final_equity == ACCOUNT_EQUITY + 1500
 
 
 class TestPerformanceMetricsClass:
@@ -967,8 +976,8 @@ class TestPerformanceMetricsClass:
             total_trades=50,
             win_rate=60.0,
             profit_factor=1.8,
-            initial_equity=10000,
-            final_equity=11550,
+            initial_equity=ACCOUNT_EQUITY,
+            final_equity=ACCOUNT_EQUITY * 1.155,
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 12, 31)
         )
@@ -1003,8 +1012,8 @@ class TestPerformanceMetricsClass:
             avg_loss=100.0,
             largest_win=500.0,
             largest_loss=-300.0,
-            initial_equity=10000,
-            final_equity=11550,
+            initial_equity=ACCOUNT_EQUITY,
+            final_equity=ACCOUNT_EQUITY * 1.155,
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 12, 31),
             trading_days=252
@@ -1037,7 +1046,7 @@ class TestBacktestIntegration:
 
         # Configure backtest
         config = BacktestConfig(
-            initial_equity=100.0,
+            initial_equity=ACCOUNT_EQUITY,
             commission_pct=0.1,
             slippage_pct=0.05,
             position_size_pct=20.0
@@ -1060,7 +1069,7 @@ class TestBacktestIntegration:
         assert len(result.equity_curve) == len(data)
 
         # Validate metrics
-        assert result.metrics.initial_equity == 100.0
+        assert result.metrics.initial_equity == ACCOUNT_EQUITY
         assert isinstance(result.metrics.sharpe_ratio, float)
         assert isinstance(result.metrics.max_drawdown_pct, float)
         assert result.metrics.total_trades >= 0

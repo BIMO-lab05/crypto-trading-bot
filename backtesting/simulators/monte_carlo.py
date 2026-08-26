@@ -22,8 +22,8 @@ import sys
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 import numpy as np
-import pandas as pd
-from scipy import stats
+import pandas as pd  # noqa: F401
+from scipy import stats  # noqa: F401
 import json
 from tqdm import tqdm
 
@@ -53,11 +53,16 @@ class MonteCarloConfig:
 
     # Simulation parameters
     num_simulations: int = 1000  # Number of random paths to simulate
-    # FIX 2026-08-03 (capital audit): was 10000.0, 100x the real account.
+    # FIX 2026-08-03 (capital audit): was a hardcoded 10000.0 — 100x the
+    # then-declared $100 account. Routed through shared/account.py since;
+    # ADR-029 later set the declared size to $10,000 again. The routing is
+    # the fix, not the number — never reintroduce a literal here.
     initial_capital: float = PAPER_INITIAL_BALANCE  # Starting capital
 
     # Confidence intervals
-    confidence_levels: List[float] = field(default_factory=lambda: [0.90, 0.95, 0.99])  # 90%, 95%, 99%
+    confidence_levels: List[float] = field(
+        default_factory=lambda: [0.90, 0.95, 0.99]
+    )  # 90%, 95%, 99%
 
     # Risk thresholds
     max_acceptable_drawdown: float = 0.30  # 30%
@@ -71,6 +76,7 @@ class MonteCarloConfig:
 @dataclass
 class MonteCarloPath:
     """Single Monte Carlo simulation path"""
+
     path_number: int
     trade_sequence: List[Dict[str, Any]]  # Shuffled trades
     equity_curve: List[float]  # Equity over time
@@ -87,6 +93,7 @@ class MonteCarloPath:
 @dataclass
 class MonteCarloResults:
     """Complete Monte Carlo simulation results"""
+
     config: MonteCarloConfig
     original_equity_curve: List[float]
     simulated_paths: List[MonteCarloPath]
@@ -128,11 +135,11 @@ class MonteCarloResults:
         Returns:
             Value at given percentile
         """
-        if metric == 'return':
+        if metric == "return":
             values = [path.total_return for path in self.simulated_paths]
-        elif metric == 'drawdown':
+        elif metric == "drawdown":
             values = [path.max_drawdown for path in self.simulated_paths]
-        elif metric == 'equity':
+        elif metric == "equity":
             values = [path.final_equity for path in self.simulated_paths]
         else:
             raise ValueError(f"Unknown metric: {metric}")
@@ -142,45 +149,57 @@ class MonteCarloResults:
     def to_dict(self) -> Dict[str, Any]:
         """Convert results to dictionary"""
         return {
-            'config': {
-                'num_simulations': self.config.num_simulations,
-                'initial_capital': self.config.initial_capital,
+            "config": {
+                "num_simulations": self.config.num_simulations,
+                "initial_capital": self.config.initial_capital,
             },
-            'distribution_statistics': {
-                'return': {
-                    'mean': round(self.mean_return * 100, 2),
-                    'median': round(self.median_return * 100, 2),
-                    'std': round(self.std_return * 100, 2),
-                    'percentile_5': round(self.get_percentile('return', 5) * 100, 2),
-                    'percentile_95': round(self.get_percentile('return', 95) * 100, 2),
+            "distribution_statistics": {
+                "return": {
+                    "mean": round(self.mean_return * 100, 2),
+                    "median": round(self.median_return * 100, 2),
+                    "std": round(self.std_return * 100, 2),
+                    "percentile_5": round(self.get_percentile("return", 5) * 100, 2),
+                    "percentile_95": round(self.get_percentile("return", 95) * 100, 2),
                 },
-                'max_drawdown': {
-                    'mean': round(self.mean_max_drawdown * 100, 2),
-                    'median': round(self.median_max_drawdown * 100, 2),
-                    'worst': round(self.worst_drawdown * 100, 2),
-                    'percentile_95': round(self.get_percentile('drawdown', 95) * 100, 2),
-                }
+                "max_drawdown": {
+                    "mean": round(self.mean_max_drawdown * 100, 2),
+                    "median": round(self.median_max_drawdown * 100, 2),
+                    "worst": round(self.worst_drawdown * 100, 2),
+                    "percentile_95": round(self.get_percentile("drawdown", 95) * 100, 2),
+                },
             },
-            'risk_metrics': {
-                'probability_of_loss': round(self.probability_of_loss * 100, 2),
-                'probability_of_ruin': round(self.probability_of_ruin * 100, 2),
-                'probability_drawdown_exceeds_30pct': round(self.probability_drawdown_exceeds_30pct * 100, 2),
+            "risk_metrics": {
+                "probability_of_loss": round(self.probability_of_loss * 100, 2),
+                "probability_of_ruin": round(self.probability_of_ruin * 100, 2),
+                "probability_drawdown_exceeds_30pct": round(
+                    self.probability_drawdown_exceeds_30pct * 100, 2
+                ),
             },
-            'confidence_intervals': {
-                f"{int(level*100)}%": {
-                    'return': [round(self.confidence_intervals[level]['return'][0] * 100, 2),
-                              round(self.confidence_intervals[level]['return'][1] * 100, 2)],
-                    'drawdown': [round(self.confidence_intervals[level]['drawdown'][0] * 100, 2),
-                                round(self.confidence_intervals[level]['drawdown'][1] * 100, 2)],
+            "confidence_intervals": {
+                f"{int(level * 100)}%": {
+                    "return": [
+                        round(self.confidence_intervals[level]["return"][0] * 100, 2),
+                        round(self.confidence_intervals[level]["return"][1] * 100, 2),
+                    ],
+                    "drawdown": [
+                        round(self.confidence_intervals[level]["drawdown"][0] * 100, 2),
+                        round(self.confidence_intervals[level]["drawdown"][1] * 100, 2),
+                    ],
                 }
                 for level in self.config.confidence_levels
             },
-            'extremes': {
-                'best_return': round(self.best_path.total_return * 100, 2) if self.best_path else 0,
-                'worst_return': round(self.worst_path.total_return * 100, 2) if self.worst_path else 0,
-                'best_drawdown': round(self.best_path.max_drawdown * 100, 2) if self.best_path else 0,
-                'worst_drawdown': round(self.worst_path.max_drawdown * 100, 2) if self.worst_path else 0,
-            }
+            "extremes": {
+                "best_return": round(self.best_path.total_return * 100, 2) if self.best_path else 0,
+                "worst_return": round(self.worst_path.total_return * 100, 2)
+                if self.worst_path
+                else 0,
+                "best_drawdown": round(self.best_path.max_drawdown * 100, 2)
+                if self.best_path
+                else 0,
+                "worst_drawdown": round(self.worst_path.max_drawdown * 100, 2)
+                if self.worst_path
+                else 0,
+            },
         }
 
 
@@ -215,12 +234,12 @@ class MonteCarloSimulator:
     def __init__(self, config: Optional[MonteCarloConfig] = None):
         """Initialize Monte Carlo simulator"""
         self.config = config or MonteCarloConfig()
-        logger.info(f"Initialized MonteCarloSimulator with {self.config.num_simulations} simulations")
+        logger.info(
+            f"Initialized MonteCarloSimulator with {self.config.num_simulations} simulations"
+        )
 
     def simulate_single_path(
-        self,
-        trades: List[Dict[str, Any]],
-        path_number: int
+        self, trades: List[Dict[str, Any]], path_number: int
     ) -> MonteCarloPath:
         """
         Simulate a single random trading path
@@ -235,7 +254,9 @@ class MonteCarloSimulator:
         # Shuffle trades (bootstrap resampling)
         if self.config.use_bootstrap:
             # Sample with replacement
-            shuffled_trades = [trades[i] for i in np.random.choice(len(trades), len(trades), replace=True)]
+            shuffled_trades = [
+                trades[i] for i in np.random.choice(len(trades), len(trades), replace=True)
+            ]
         else:
             # Permutation without replacement
             shuffled_trades = trades.copy()
@@ -249,7 +270,7 @@ class MonteCarloSimulator:
 
         for trade in shuffled_trades:
             # Apply trade PnL
-            pnl = trade.get('pnl', 0) or trade.get('realized_pnl', 0)
+            pnl = trade.get("pnl", 0) or trade.get("realized_pnl", 0)
             equity += pnl
             equity_curve.append(equity)
 
@@ -266,7 +287,11 @@ class MonteCarloSimulator:
 
         # Calculate Sharpe ratio (from returns)
         returns = np.diff(equity_curve) / equity_curve[:-1]
-        sharpe_ratio = (np.mean(returns) / np.std(returns) * np.sqrt(252)) if len(returns) > 1 and np.std(returns) > 0 else 0
+        sharpe_ratio = (
+            (np.mean(returns) / np.std(returns) * np.sqrt(252))
+            if len(returns) > 1 and np.std(returns) > 0
+            else 0
+        )
 
         # Count losing streaks
         losing_streaks = 0
@@ -274,7 +299,7 @@ class MonteCarloSimulator:
         max_losing_streak = 0
 
         for trade in shuffled_trades:
-            pnl = trade.get('pnl', 0) or trade.get('realized_pnl', 0)
+            pnl = trade.get("pnl", 0) or trade.get("realized_pnl", 0)
             if pnl < 0:
                 current_streak += 1
                 max_losing_streak = max(max_losing_streak, current_streak)
@@ -292,15 +317,13 @@ class MonteCarloSimulator:
             max_drawdown=max_drawdown,
             sharpe_ratio=sharpe_ratio,
             num_losing_streaks=losing_streaks,
-            max_losing_streak=max_losing_streak
+            max_losing_streak=max_losing_streak,
         )
 
         return path
 
     def simulate(
-        self,
-        trades: List[Dict[str, Any]],
-        show_progress: bool = True
+        self, trades: List[Dict[str, Any]], show_progress: bool = True
     ) -> MonteCarloResults:
         """
         Run complete Monte Carlo simulation
@@ -312,10 +335,10 @@ class MonteCarloSimulator:
         Returns:
             MonteCarloResults with complete distribution analysis
         """
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("MONTE CARLO SIMULATION STARTING")
         logger.info(f"Simulating {self.config.num_simulations} random trading paths")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         if len(trades) < 10:
             raise ValueError("Need at least 10 trades for meaningful Monte Carlo simulation")
@@ -324,7 +347,7 @@ class MonteCarloSimulator:
         original_equity = self.config.initial_capital
         original_curve = [original_equity]
         for trade in trades:
-            pnl = trade.get('pnl', 0) or trade.get('realized_pnl', 0)
+            pnl = trade.get("pnl", 0) or trade.get("realized_pnl", 0)
             original_equity += pnl
             original_curve.append(original_equity)
 
@@ -366,22 +389,21 @@ class MonteCarloSimulator:
         for level in self.config.confidence_levels:
             alpha = 1 - level
             return_ci = (
-                np.percentile(returns, alpha/2 * 100),
-                np.percentile(returns, (1 - alpha/2) * 100)
+                np.percentile(returns, alpha / 2 * 100),
+                np.percentile(returns, (1 - alpha / 2) * 100),
             )
             drawdown_ci = (
-                np.percentile(drawdowns, alpha/2 * 100),
-                np.percentile(drawdowns, (1 - alpha/2) * 100)
+                np.percentile(drawdowns, alpha / 2 * 100),
+                np.percentile(drawdowns, (1 - alpha / 2) * 100),
             )
-            confidence_intervals[level] = {
-                'return': return_ci,
-                'drawdown': drawdown_ci
-            }
+            confidence_intervals[level] = {"return": return_ci, "drawdown": drawdown_ci}
 
         # Calculate risk probabilities
         probability_of_loss = sum(1 for r in returns if r < 0) / len(returns)
         probability_of_ruin = sum(1 for r in returns if r < -0.50) / len(returns)  # Lose > 50%
-        probability_drawdown_exceeds_30pct = sum(1 for dd in drawdowns if dd > 0.30) / len(drawdowns)
+        probability_drawdown_exceeds_30pct = sum(1 for dd in drawdowns if dd > 0.30) / len(
+            drawdowns
+        )
 
         # Find best and worst paths
         best_path = max(simulated_paths, key=lambda p: p.total_return)
@@ -406,28 +428,32 @@ class MonteCarloSimulator:
             probability_of_ruin=probability_of_ruin,
             probability_drawdown_exceeds_30pct=probability_drawdown_exceeds_30pct,
             best_path=best_path,
-            worst_path=worst_path
+            worst_path=worst_path,
         )
 
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("MONTE CARLO SIMULATION COMPLETE")
         logger.info(f"Mean return: {mean_return:.2%} ± {std_return:.2%}")
-        logger.info(f"95% CI return: [{results.confidence_intervals[0.95]['return'][0]:.2%}, {results.confidence_intervals[0.95]['return'][1]:.2%}]")
+        logger.info(
+            f"95% CI return: [{results.confidence_intervals[0.95]['return'][0]:.2%}, {results.confidence_intervals[0.95]['return'][1]:.2%}]"
+        )
         logger.info(f"Probability of loss: {probability_of_loss:.2%}")
-        logger.info(f"Worst drawdown (95th percentile): {results.get_percentile('drawdown', 95):.2%}")
-        logger.info("="*60)
+        logger.info(
+            f"Worst drawdown (95th percentile): {results.get_percentile('drawdown', 95):.2%}"
+        )
+        logger.info("=" * 60)
 
         return results
 
     def save_results(self, results: MonteCarloResults, filepath: str):
         """Save Monte Carlo results to JSON"""
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(results.to_dict(), f, indent=2)
         logger.info(f"Saved Monte Carlo results to {filepath}")
 
     def load_results(self, filepath: str) -> Dict[str, Any]:
         """Load Monte Carlo results from JSON"""
-        with open(filepath, 'r') as f:
+        with open(filepath, "r") as f:
             results_dict = json.load(f)
         logger.info(f"Loaded Monte Carlo results from {filepath}")
         return results_dict
@@ -438,17 +464,21 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     # Example: Create simulator
-    config = MonteCarloConfig(
-        num_simulations=1000, initial_capital=PAPER_INITIAL_BALANCE
-    )
+    config = MonteCarloConfig(num_simulations=1000, initial_capital=PAPER_INITIAL_BALANCE)
     simulator = MonteCarloSimulator(config)
 
     # Example trades
     example_trades = [
-        {'pnl': 100}, {'pnl': -50}, {'pnl': 200}, {'pnl': -75},
-        {'pnl': 150}, {'pnl': -100}, {'pnl': 250}, {'pnl': -80},
+        {"pnl": 100},
+        {"pnl": -50},
+        {"pnl": 200},
+        {"pnl": -75},
+        {"pnl": 150},
+        {"pnl": -100},
+        {"pnl": 250},
+        {"pnl": -80},
     ] * 10  # 80 trades total
 
-    print(f"Monte Carlo Simulator initialized")
+    print("Monte Carlo Simulator initialized")
     print(f"Will simulate {config.num_simulations} random paths")
     print(f"Using {len(example_trades)} historical trades")

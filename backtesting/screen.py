@@ -49,6 +49,20 @@ _BPS = Decimal("10000")
 # written at a different rate would otherwise get silently wrong notionals.
 MODELLED_FEE_RATE_PER_PAIR = Decimal("0.001")
 
+# Hand-maintained mirror of services/trading-engine/app/paper_slippage.py
+# DEFAULT_SLIPPAGE_BPS / FALLBACK_SLIPPAGE_BPS (one-way basis points).
+# screen.py must stay runnable standalone, so the values are restated rather
+# than imported across the service boundary; agreement is enforced by
+# tests/killtests/test_slippage_table_sync.py.
+SLIPPAGE_BPS_BY_SYMBOL: dict[str, Decimal] = {
+    "BTCUSDT": Decimal("5"),
+    "ETHUSDT": Decimal("5"),
+    "SOLUSDT": Decimal("5"),
+    "BNBUSDT": Decimal("10"),
+    "ADAUSDT": Decimal("10"),
+}
+SLIPPAGE_FALLBACK_BPS: Decimal = Decimal("10")
+
 _NOTIONAL_FROM_COLUMNS = "notional_in / notional_out, as supplied"
 
 
@@ -315,18 +329,11 @@ def main() -> None:
     symbols = {r["symbol"] for r in rows}
     funding = {s: load_funding(s, args.funding_dir) for s in symbols}
 
-    slippage = {
-        "BTCUSDT": Decimal("5"),
-        "ETHUSDT": Decimal("5"),
-        "SOLUSDT": Decimal("5"),
-        "BNBUSDT": Decimal("10"),
-        "ADAUSDT": Decimal("10"),
-    }
     result = screen_trades(
         rows,
         schedule=_costs.FeeSchedule.bybit_linear_perp(),
-        slippage_table=slippage,
-        slippage_fallback=Decimal("10"),
+        slippage_table=SLIPPAGE_BPS_BY_SYMBOL,
+        slippage_fallback=SLIPPAGE_FALLBACK_BPS,
         hurdle_multiple=Decimal(args.hurdle),
         funding_by_symbol=funding,
         funding_source=str(Path(args.funding_dir).resolve()),

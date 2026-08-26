@@ -25,6 +25,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 import pandas as pd
 import numpy as np
@@ -210,7 +211,7 @@ def main():
     # Step 4: Create backtest engine
     logger.info("\nSTEP 4: Creating backtest engine...")
     backtest_engine = BacktestEngine(
-        initial_capital=10000.0,
+        initial_capital=ACCOUNT_EQUITY_USD,
         commission=0.001,  # 0.1%
         slippage=0.0005    # 0.05%
     )

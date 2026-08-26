@@ -249,8 +249,18 @@ class RiskManager:
             Tuple of (allowed, reason if not allowed)
         """
         # Calculate current exposure
+        # Exposure is measured on REMAINING quantity — a position that has
+        # taken partial exits occupies only what is left. Original quantity
+        # overstates a scaled-out position and rejects new entries early.
+        # Mirrors auto_trader._passes_exposure_gate, which both gates must
+        # agree with: they run on the same paper entry path.
         total_exposure = sum(
-            pos.entry_price * pos.quantity
+            pos.entry_price
+            * (
+                pos.remaining_quantity
+                if getattr(pos, "remaining_quantity", None) is not None
+                else pos.quantity
+            )
             for pos in current_positions
             if pos.status.value == "OPEN"
         )

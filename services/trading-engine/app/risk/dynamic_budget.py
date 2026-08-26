@@ -28,13 +28,10 @@ Date: 2025-12-11
 """
 
 import logging
-from datetime import datetime, timezone, timedelta
-from decimal import Decimal
+from datetime import datetime, timezone
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, List, Tuple, Any
 from enum import Enum
-import json
-import asyncio
 from threading import RLock
 
 logger = logging.getLogger(__name__)
@@ -42,9 +39,25 @@ logger = logging.getLogger(__name__)
 
 class AlertSeverity(str, Enum):
     """Alert severity levels"""
+
     INFO = "INFO"
     WARNING = "WARNING"
     CRITICAL = "CRITICAL"
+
+
+#: Mirrors config.py `paper_initial_balance`. Used only when `get_settings()`
+#: cannot be constructed (host-run session without the container env).
+_FALLBACK_TOTAL_CAPITAL_USD = 10000.0
+
+
+def _default_total_capital() -> float:
+    """Declared account size, resolved lazily from Settings — never at import."""
+    try:
+        from app.config import get_settings
+
+        return float(get_settings().paper_initial_balance)
+    except Exception:
+        return _FALLBACK_TOTAL_CAPITAL_USD
 
 
 @dataclass
@@ -66,7 +79,8 @@ class BudgetConfig:
         auto_rebalance: Automatically rebalance on position changes
         min_trades_for_performance: Minimum trades required for performance adjustment
     """
-    total_capital: float = 100000.0
+
+    total_capital: float = field(default_factory=_default_total_capital)
     max_total_risk_pct: float = 10.0  # Max 10% of capital at risk
     max_strategy_risk_pct: float = 5.0  # Max 5% per strategy
     max_asset_risk_pct: float = 3.0  # Max 3% per asset
@@ -83,17 +97,25 @@ class BudgetConfig:
         """Validate configuration values"""
         # Validate percentages
         if not (0 < self.max_total_risk_pct <= 100):
-            raise ValueError(f"max_total_risk_pct must be between 0 and 100, got {self.max_total_risk_pct}")
+            raise ValueError(
+                f"max_total_risk_pct must be between 0 and 100, got {self.max_total_risk_pct}"
+            )
         if not (0 < self.max_strategy_risk_pct <= 100):
-            raise ValueError(f"max_strategy_risk_pct must be between 0 and 100, got {self.max_strategy_risk_pct}")
+            raise ValueError(
+                f"max_strategy_risk_pct must be between 0 and 100, got {self.max_strategy_risk_pct}"
+            )
         if not (0 < self.max_asset_risk_pct <= 100):
-            raise ValueError(f"max_asset_risk_pct must be between 0 and 100, got {self.max_asset_risk_pct}")
+            raise ValueError(
+                f"max_asset_risk_pct must be between 0 and 100, got {self.max_asset_risk_pct}"
+            )
 
         # Validate capital
         if self.total_capital <= 0:
             raise ValueError(f"total_capital must be positive, got {self.total_capital}")
 
-        logger.info(f"BudgetConfig initialized: {self.total_capital} capital, {self.max_total_risk_pct}% max risk")
+        logger.info(
+            f"BudgetConfig initialized: {self.total_capital} capital, {self.max_total_risk_pct}% max risk"
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary"""
@@ -103,6 +125,7 @@ class BudgetConfig:
 @dataclass
 class BudgetAlert:
     """Budget alert notification"""
+
     severity: AlertSeverity
     message: str
     timestamp: datetime
@@ -118,7 +141,8 @@ class DynamicBudgetManager:
     multi-factor dynamic adjustments.
 
     Usage:
-        config = BudgetConfig(total_capital=100000, max_total_risk_pct=10)
+        config = BudgetConfig(max_total_risk_pct=10)
+        # total_capital resolves from Settings (paper_initial_balance)
         manager = DynamicBudgetManager(config=config)
 
         # Allocate strategy budgets
@@ -180,15 +204,13 @@ class DynamicBudgetManager:
                 "total_budget": total_budget,
                 "used_budget": used_budget,
                 "available_budget": max(0, total_budget - used_budget),
-                "utilization_pct": (used_budget / total_budget * 100.0) if total_budget > 0 else 0.0,
+                "utilization_pct": (used_budget / total_budget * 100.0)
+                if total_budget > 0
+                else 0.0,
                 "last_updated": datetime.now(timezone.utc).isoformat(),
             }
 
-    def allocate_strategy_budget(
-        self,
-        strategy_name: str,
-        allocation_pct: float
-    ) -> Dict[str, Any]:
+    def allocate_strategy_budget(self, strategy_name: str, allocation_pct: float) -> Dict[str, Any]:
         """
         Allocate budget to a strategy
 
@@ -213,7 +235,7 @@ class DynamicBudgetManager:
             if current_total + allocation_pct > 100.0:
                 return {
                     "success": False,
-                    "error": f"Total allocation would exceed 100% (current: {current_total}%, trying to add: {allocation_pct}%)"
+                    "error": f"Total allocation would exceed 100% (current: {current_total}%, trying to add: {allocation_pct}%)",
                 }
 
             # Calculate allocated amount
@@ -245,11 +267,7 @@ class DynamicBudgetManager:
         with self._lock:
             return dict(self._strategy_allocations)
 
-    def set_asset_limit(
-        self,
-        symbol: str,
-        max_risk_pct: float
-    ) -> Dict[str, Any]:
+    def set_asset_limit(self, symbol: str, max_risk_pct: float) -> Dict[str, Any]:
         """
         Set asset-specific risk limit
 
@@ -295,14 +313,12 @@ class DynamicBudgetManager:
                 "max_risk_usd": max_risk_usd,
                 "current_risk_usd": current_risk_usd,
                 "available_risk_usd": max(0, max_risk_usd - current_risk_usd),
-                "utilization_pct": (current_risk_usd / max_risk_usd * 100.0) if max_risk_usd > 0 else 0.0,
+                "utilization_pct": (current_risk_usd / max_risk_usd * 100.0)
+                if max_risk_usd > 0
+                else 0.0,
             }
 
-    def can_add_asset_risk(
-        self,
-        symbol: str,
-        additional_risk: float
-    ) -> Tuple[bool, str]:
+    def can_add_asset_risk(self, symbol: str, additional_risk: float) -> Tuple[bool, str]:
         """
         Check if additional risk can be added to asset
 
@@ -316,7 +332,10 @@ class DynamicBudgetManager:
         usage = self.get_asset_risk_usage(symbol)
 
         if usage["current_risk_usd"] + additional_risk > usage["max_risk_usd"]:
-            return False, f"Would exceed asset limit for {symbol} (current: ${usage['current_risk_usd']:.2f}, limit: ${usage['max_risk_usd']:.2f})"
+            return (
+                False,
+                f"Would exceed asset limit for {symbol} (current: ${usage['current_risk_usd']:.2f}, limit: ${usage['max_risk_usd']:.2f})",
+            )
 
         return True, "Within asset limits"
 
@@ -356,7 +375,9 @@ class DynamicBudgetManager:
             # Generate alerts
             self._generate_alerts()
 
-            logger.debug(f"Updated positions: {len(positions)} positions, {len(self._strategy_usage)} strategies")
+            logger.debug(
+                f"Updated positions: {len(positions)} positions, {len(self._strategy_usage)} strategies"
+            )
 
             return {
                 "success": True,
@@ -390,10 +411,7 @@ class DynamicBudgetManager:
             self._kelly_data = kelly_data
             logger.debug(f"Updated Kelly data for {len(kelly_data)} strategies")
 
-    def calculate_volatility_multiplier(
-        self,
-        volatility_data: Dict[str, float]
-    ) -> float:
+    def calculate_volatility_multiplier(self, volatility_data: Dict[str, float]) -> float:
         """
         Calculate volatility-based budget multiplier
 
@@ -503,13 +521,13 @@ class DynamicBudgetManager:
                 "allocated_budget": allocated_budget,
                 "used_budget": used_budget,
                 "available_budget": max(0, allocated_budget - used_budget),
-                "utilization_pct": (used_budget / allocated_budget * 100.0) if allocated_budget > 0 else 0.0,
+                "utilization_pct": (used_budget / allocated_budget * 100.0)
+                if allocated_budget > 0
+                else 0.0,
             }
 
     def get_adjusted_strategy_budget(
-        self,
-        strategy_name: str,
-        symbol: Optional[str] = None
+        self, strategy_name: str, symbol: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get strategy budget with all adjustments applied
@@ -591,9 +609,7 @@ class DynamicBudgetManager:
         }
 
     def get_effective_budget(
-        self,
-        strategy_name: str,
-        symbol: Optional[str] = None
+        self, strategy_name: str, symbol: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get effective budget with ALL adjustments
@@ -647,10 +663,7 @@ class DynamicBudgetManager:
         }
 
     def can_place_order(
-        self,
-        strategy_name: str,
-        symbol: str,
-        order_risk_amount: float
+        self, strategy_name: str, symbol: str, order_risk_amount: float
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if order can be placed within budgets
@@ -671,17 +684,29 @@ class DynamicBudgetManager:
             # Check total budget
             state = self.get_budget_state()
             if state["used_budget"] + order_risk_amount > state["total_budget"]:
-                return False, f"Would exceed total budget (used: ${state['used_budget']:.2f}, limit: ${state['total_budget']:.2f})"
+                return (
+                    False,
+                    f"Would exceed total budget (used: ${state['used_budget']:.2f}, limit: ${state['total_budget']:.2f})",
+                )
 
             # Check strategy budget
             strategy_usage = self.get_strategy_budget_usage(strategy_name)
-            if strategy_usage["used_budget"] + order_risk_amount > strategy_usage["allocated_budget"]:
-                return False, f"Would exceed strategy budget for {strategy_name} (used: ${strategy_usage['used_budget']:.2f}, limit: ${strategy_usage['allocated_budget']:.2f})"
+            if (
+                strategy_usage["used_budget"] + order_risk_amount
+                > strategy_usage["allocated_budget"]
+            ):
+                return (
+                    False,
+                    f"Would exceed strategy budget for {strategy_name} (used: ${strategy_usage['used_budget']:.2f}, limit: ${strategy_usage['allocated_budget']:.2f})",
+                )
 
             # Check asset limit
             asset_usage = self.get_asset_risk_usage(symbol)
             if asset_usage["current_risk_usd"] + order_risk_amount > asset_usage["max_risk_usd"]:
-                return False, f"Would exceed asset limit for {symbol} (used: ${asset_usage['current_risk_usd']:.2f}, limit: ${asset_usage['max_risk_usd']:.2f})"
+                return (
+                    False,
+                    f"Would exceed asset limit for {symbol} (used: ${asset_usage['current_risk_usd']:.2f}, limit: ${asset_usage['max_risk_usd']:.2f})",
+                )
 
             return True, "Order approved within all budget limits"
 
@@ -715,22 +740,30 @@ class DynamicBudgetManager:
 
                 current_usage = self._strategy_usage.get(strategy_name, 0.0)
 
-                if current_usage < target_budget - (target_budget * self.config.rebalance_threshold_pct / 100.0):
-                    actions.append({
-                        "strategy": strategy_name,
-                        "current_allocation": current_usage,
-                        "target_allocation": target_budget,
-                        "action_type": "increase",
-                        "amount": target_budget - current_usage,
-                    })
-                elif current_usage > target_budget + (target_budget * self.config.rebalance_threshold_pct / 100.0):
-                    actions.append({
-                        "strategy": strategy_name,
-                        "current_allocation": current_usage,
-                        "target_allocation": target_budget,
-                        "action_type": "decrease",
-                        "amount": current_usage - target_budget,
-                    })
+                if current_usage < target_budget - (
+                    target_budget * self.config.rebalance_threshold_pct / 100.0
+                ):
+                    actions.append(
+                        {
+                            "strategy": strategy_name,
+                            "current_allocation": current_usage,
+                            "target_allocation": target_budget,
+                            "action_type": "increase",
+                            "amount": target_budget - current_usage,
+                        }
+                    )
+                elif current_usage > target_budget + (
+                    target_budget * self.config.rebalance_threshold_pct / 100.0
+                ):
+                    actions.append(
+                        {
+                            "strategy": strategy_name,
+                            "current_allocation": current_usage,
+                            "target_allocation": target_budget,
+                            "action_type": "decrease",
+                            "amount": current_usage - target_budget,
+                        }
+                    )
 
             return actions
 
@@ -755,44 +788,50 @@ class DynamicBudgetManager:
         # Check total budget utilization
         state = self.get_budget_state()
         if state["utilization_pct"] >= 100:
-            self._alerts.append(BudgetAlert(
-                severity=AlertSeverity.CRITICAL,
-                message=f"Total budget limit reached ({state['utilization_pct']:.1f}%)",
-                timestamp=datetime.now(timezone.utc),
-                recommendations=[
-                    "Close losing positions immediately",
-                    "Reduce position sizes",
-                    "Suspend new order placement",
-                ],
-                metadata={"utilization_pct": state["utilization_pct"]},
-            ))
+            self._alerts.append(
+                BudgetAlert(
+                    severity=AlertSeverity.CRITICAL,
+                    message=f"Total budget limit reached ({state['utilization_pct']:.1f}%)",
+                    timestamp=datetime.now(timezone.utc),
+                    recommendations=[
+                        "Close losing positions immediately",
+                        "Reduce position sizes",
+                        "Suspend new order placement",
+                    ],
+                    metadata={"utilization_pct": state["utilization_pct"]},
+                )
+            )
         elif state["utilization_pct"] >= self.config.alert_threshold_pct:
-            self._alerts.append(BudgetAlert(
-                severity=AlertSeverity.WARNING,
-                message=f"Total budget usage at {state['utilization_pct']:.1f}% (threshold: {self.config.alert_threshold_pct}%)",
-                timestamp=datetime.now(timezone.utc),
-                recommendations=[
-                    "Monitor positions closely",
-                    "Consider reducing new position sizes",
-                ],
-                metadata={"utilization_pct": state["utilization_pct"]},
-            ))
+            self._alerts.append(
+                BudgetAlert(
+                    severity=AlertSeverity.WARNING,
+                    message=f"Total budget usage at {state['utilization_pct']:.1f}% (threshold: {self.config.alert_threshold_pct}%)",
+                    timestamp=datetime.now(timezone.utc),
+                    recommendations=[
+                        "Monitor positions closely",
+                        "Consider reducing new position sizes",
+                    ],
+                    metadata={"utilization_pct": state["utilization_pct"]},
+                )
+            )
 
         # Check volatility alerts
         for symbol, vol_data in self._volatility_data.items():
             percentile = vol_data.get("percentile_rank", 50)
             if percentile >= 90:
-                self._alerts.append(BudgetAlert(
-                    severity=AlertSeverity.WARNING,
-                    message=f"Extreme volatility detected for {symbol} ({percentile}th percentile)",
-                    timestamp=datetime.now(timezone.utc),
-                    recommendations=[
-                        f"Reduce position sizes for {symbol}",
-                        "Tighten stop losses",
-                        "Consider exiting volatile positions",
-                    ],
-                    metadata={"symbol": symbol, "percentile": percentile},
-                ))
+                self._alerts.append(
+                    BudgetAlert(
+                        severity=AlertSeverity.WARNING,
+                        message=f"Extreme volatility detected for {symbol} ({percentile}th percentile)",
+                        timestamp=datetime.now(timezone.utc),
+                        recommendations=[
+                            f"Reduce position sizes for {symbol}",
+                            "Tighten stop losses",
+                            "Consider exiting volatile positions",
+                        ],
+                        metadata={"symbol": symbol, "percentile": percentile},
+                    )
+                )
 
     def get_budget_alerts(self) -> List[Dict[str, Any]]:
         """Get current budget alerts"""

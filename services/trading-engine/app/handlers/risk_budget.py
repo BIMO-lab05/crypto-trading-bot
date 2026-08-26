@@ -76,7 +76,7 @@ class CurrentBudgetResponse(BaseModel):
                     "utilization_pct": 25.0,
                 },
                 "emergency_mode": False,
-                "config": {"base_equity": 100000.0, "base_risk_pct": 2.0},
+                "config": {"base_equity": 10000.0, "base_risk_pct": 2.0},
                 "timestamp": "2025-12-12T10:30:00Z",
             }
         }
@@ -232,7 +232,7 @@ class CalculateBudgetRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "equity": 100000,
+                "equity": 10000,
                 "volatility_percentile": 65,
                 "current_drawdown": 5.0,
                 "win_streak": 3,
@@ -356,7 +356,7 @@ class BudgetHistoryResponse(BaseModel):
                 "entries": [
                     {
                         "timestamp": "2025-12-12T09:00:00Z",
-                        "equity": 100000,
+                        "equity": 10000,
                         "risk_budget_pct": 2.0,
                         "risk_budget_usd": 2000.0,
                         "market_regime": "NORMAL",

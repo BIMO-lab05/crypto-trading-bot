@@ -191,9 +191,42 @@ def test_member_descriptor_strips_to_d03_fields():
         "result_json": {"large": "blob"},
     }
     desc = member_descriptor(row)
-    # D-03 — exactly these four keys (the artifact contract).
-    assert set(desc.keys()) == {"run_id", "architecture", "hp_hash", "dsr"}
+    # D-03 + SEV-4b (2026-08) — exactly these five keys (the artifact
+    # contract). `selection_pool_size` is the Bailey-LdP selection-bias
+    # annotation: None here because the row didn't come through
+    # select_top_n_per_symbol.
+    assert set(desc.keys()) == {
+        "run_id",
+        "architecture",
+        "hp_hash",
+        "dsr",
+        "selection_pool_size",
+    }
     assert desc["run_id"] == "r1"
     assert desc["dsr"] == 0.85
+    assert desc["selection_pool_size"] is None
     # `result_json` and other fat fields are stripped (config-by-reference).
     assert "result_json" not in desc
+
+
+def test_member_descriptor_carries_selection_pool_size():
+    # SEV-4b: rows selected via select_top_n_per_symbol are annotated with
+    # the size M of the pool they were picked from; member_descriptor must
+    # carry it so downstream DSR recomputation can widen num_trials by M-1.
+    rows = [
+        {
+            "run_id": f"r{i}",
+            "symbol": "BTC",
+            "architecture": "gru",
+            "hp_hash": f"h{i}",
+            "dsr": 0.5 + i * 0.01,
+            "cpcv_dsr": None,
+            "oos_sharpe": None,
+            "status": "success",
+            "created_at": f"2026-08-0{i + 1}",
+        }
+        for i in range(5)
+    ]
+    selected = select_top_n_per_symbol(rows, n=3)["BTC"]
+    descs = [member_descriptor(r) for r in selected]
+    assert all(d["selection_pool_size"] == 5 for d in descs)

@@ -8,14 +8,15 @@ import { useSafetyState } from '../hooks/useSafetyState'
  * Phase3Dashboard - AI-Enhanced Trading Dashboard
  * Displays ML predictions, sentiment analysis, and multi-timeframe confirmation
  *
- * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in
- * <TileState forceStale/> per audit verdict LABELED_STALE. Phase 3
- * services (ml-prediction-service + sentiment-analysis-service) are
- * feature-flagged OFF by default (ENABLE_ML_PREDICTIONS=false,
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/>.
+ * Phase 3 services (ml-prediction-service + sentiment-analysis-service)
+ * are feature-flagged OFF by default (ENABLE_ML_PREDICTIONS=false,
  * ENABLE_SENTIMENT_ANALYSIS=false). The ML query drives the wrapper:
- * if /api/ml/* returns 503 the Failed (...) UI surfaces (F-05 precedence);
- * otherwise the page renders with a corner stale badge until Phase 7+
- * re-enables ML on a returns-target rebuild.
+ * if /api/ml/* returns 503 the Failed (...) UI surfaces (F-05 precedence).
+ * 2026-08-20: forceStale flag removed — the endpoints return 200 with
+ * live data when enabled. The stale badge is driven by
+ * mlQuery.dataUpdatedAt (epoch ms of the last successful fetch) passed
+ * as `lastUpdatedAt` to TileState.
  *
  * UPDATED 2025-11-28: Added dark mode support throughout the component
  * - All backgrounds now support both light and dark themes
@@ -160,9 +161,8 @@ export default function Phase3Dashboard() {
 
   // Fetch ML prediction with error handling and retry logic.
   // Plan 06-05 DASH-05: this query also drives the page-level
-  // <TileState forceStale/> banner (LABELED_STALE verdict). When the ML
-  // endpoint is 503 the wrapper's Failed (...) UI takes precedence over
-  // the page body (F-05).
+  // <TileState/> wrapper. When the ML endpoint is 503 the wrapper's
+  // Failed (...) UI takes precedence over the page body (F-05).
   const mlQuery = useQuery({
     queryKey: ['ml', 'prediction', selectedSymbol, selectedInterval],
     queryFn: () => mlAPI.getPricePrediction(selectedSymbol, selectedInterval),
@@ -358,8 +358,7 @@ export default function Phase3Dashboard() {
       query={mlQuery}
       title="Phase 3: AI-Enhanced Trading"
       thresholdKey="default"
-      lastUpdatedAt={undefined}
-      forceStale
+      lastUpdatedAt={mlQuery.dataUpdatedAt || undefined}
       isEmpty={() => false}
     >
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 py-8 transition-colors duration-200">

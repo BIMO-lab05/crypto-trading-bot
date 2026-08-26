@@ -12,10 +12,12 @@ import TileState from './TileState'
  * Direction colour is derived from first→last close so it matches the
  * 24h-change badge above it.
  *
- * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in
- * <TileState forceStale/> per audit verdict LABELED_STALE (shares
- * /api/market/klines/* endpoint with PriceChart; market-data unhealthy
- * at audit time 2026-05-13). F-05 precedence preserves real errors.
+ * UPDATED 2026-05-14 (Plan 06-05, DASH-05): wrapped in <TileState/>
+ * (shares /api/market/klines/* endpoint with PriceChart). 2026-08-20:
+ * forceStale flag removed — the endpoint is healthy again. The stale
+ * badge is driven by the query's `dataUpdatedAt` (epoch ms of the last
+ * successful fetch) passed as `lastUpdatedAt` to TileState. F-05
+ * precedence preserves real errors.
  */
 
 const W = 120
@@ -68,8 +70,7 @@ export default function Sparkline({ symbol, intent }) {
       query={q}
       title="Sparkline"
       thresholdKey="ticker"
-      lastUpdatedAt={undefined}
-      forceStale
+      lastUpdatedAt={q.dataUpdatedAt || undefined}
       isEmpty={(d) => !d || !Array.isArray(d) || d.length === 0}
     >
       {!path ? (

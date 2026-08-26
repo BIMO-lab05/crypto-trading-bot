@@ -305,8 +305,9 @@ class TestSchedulerManagement:
 
             start_scheduler()
 
-            # 3 jobs: ticker, kline, hourly full collection
-            assert mock_scheduler.add_job.call_count == 3
+            # 5 jobs: ticker, kline, orderbook snapshots, open interest
+            # (edge-search v2 A2), hourly full collection
+            assert mock_scheduler.add_job.call_count == 5
 
     def test_start_scheduler_prevents_double_start(self):
         """Test that start_scheduler doesn't create duplicate scheduler"""

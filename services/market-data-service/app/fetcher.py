@@ -40,9 +40,9 @@ def get_interval_minutes(interval: str) -> int:
 
     # Special interval mappings
     interval_map = {
-        'D': 1440,      # Daily = 24 * 60 minutes
-        'W': 10080,     # Weekly = 7 * 24 * 60 minutes
-        'M': 43200,     # Monthly = 30 * 24 * 60 minutes (approximate)
+        "D": 1440,  # Daily = 24 * 60 minutes
+        "W": 10080,  # Weekly = 7 * 24 * 60 minutes
+        "M": 43200,  # Monthly = 30 * 24 * 60 minutes (approximate)
     }
 
     return interval_map.get(interval.upper(), 60)  # Default to hourly
@@ -71,18 +71,20 @@ class BybitDataFetcher:
 
         # Configure connection pooling for optimal performance
         limits = httpx.Limits(
-            max_connections=100,        # Total connection pool size
+            max_connections=100,  # Total connection pool size
             max_keepalive_connections=20,  # Keep 20 connections alive for reuse
-            keepalive_expiry=30.0       # Keep connections alive for 30 seconds
+            keepalive_expiry=30.0,  # Keep connections alive for 30 seconds
         )
 
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=30.0,
-            limits=limits
+            limits=limits,
             # Note: http2=True requires httpx[http2] extra package
         )
-        logger.info(f"Initialized BybitDataFetcher with connection pooling: {self.base_url}")
+        logger.info(
+            f"Initialized BybitDataFetcher with connection pooling: {self.base_url}"
+        )
 
     async def close(self):
         """Close HTTP client"""
@@ -110,7 +112,7 @@ class BybitDataFetcher:
         interval: str,
         limit: int = 200,
         start_time: Optional[int] = None,
-        end_time: Optional[int] = None
+        end_time: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Fetch kline/candlestick data with optional time range
@@ -148,7 +150,7 @@ class BybitDataFetcher:
             "category": "linear",
             "symbol": symbol,
             "interval": interval,
-            "limit": min(limit, MAX_CANDLES_PER_REQUEST)
+            "limit": min(limit, MAX_CANDLES_PER_REQUEST),
         }
 
         # Add time range parameters if provided (FIX: was missing before)
@@ -174,15 +176,17 @@ class BybitDataFetcher:
                 # Convert to structured format
                 klines = []
                 for k in raw_klines:
-                    klines.append({
-                        "timestamp": int(k[0]),
-                        "open": k[1],
-                        "high": k[2],
-                        "low": k[3],
-                        "close": k[4],
-                        "volume": k[5],
-                        "turnover": k[6] if len(k) > 6 else "0"
-                    })
+                    klines.append(
+                        {
+                            "timestamp": int(k[0]),
+                            "open": k[1],
+                            "high": k[2],
+                            "low": k[3],
+                            "close": k[4],
+                            "volume": k[5],
+                            "turnover": k[6] if len(k) > 6 else "0",
+                        }
+                    )
 
                 # Sort by timestamp ascending (oldest first) for consistency
                 # Bybit returns newest first, so we reverse the order
@@ -200,8 +204,7 @@ class BybitDataFetcher:
                 interval_ms = get_interval_minutes(interval) * 60 * 1000
                 now_ms = int(time.time() * 1000)
                 closed_klines = [
-                    k for k in klines
-                    if k["timestamp"] + interval_ms <= now_ms
+                    k for k in klines if k["timestamp"] + interval_ms <= now_ms
                 ]
                 dropped = len(klines) - len(closed_klines)
                 if dropped:
@@ -235,10 +238,7 @@ class BybitDataFetcher:
         Returns:
             Ticker data dictionary or None
         """
-        params = {
-            "category": "linear",
-            "symbol": symbol
-        }
+        params = {"category": "linear", "symbol": symbol}
 
         try:
             response = await self.client.get("/api/v1/market/ticker", params=params)
@@ -259,7 +259,7 @@ class BybitDataFetcher:
                         "low_24h": ticker.get("lowPrice24h"),
                         "volume_24h": ticker.get("volume24h"),
                         "turnover_24h": ticker.get("turnover24h"),
-                        "price_change_24h": ticker.get("price24hPcnt")
+                        "price_change_24h": ticker.get("price24hPcnt"),
                     }
 
             logger.warning(f"No ticker data for {symbol}")
@@ -269,6 +269,101 @@ class BybitDataFetcher:
             logger.error(f"Error fetching ticker for {symbol}: {e}")
             return None
 
+    async def get_orderbook(
+        self, symbol: str, limit: int = 25
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch top-of-book depth via bybit-connector /api/v1/market/orderbook
+
+        Args:
+            symbol: Trading pair
+            limit: Depth limit (1, 25, 50, 100, 200)
+
+        Returns:
+            Dict with symbol, timestamp_ms, bids, asks or None
+        """
+        params = {"category": "linear", "symbol": symbol, "limit": limit}
+
+        try:
+            response = await self.client.get("/api/v1/market/orderbook", params=params)
+            response.raise_for_status()
+
+            data = response.json()
+            if data.get("success"):
+                ob = data.get("data", {})
+                if ob.get("b") is not None and ob.get("a") is not None:
+                    return {
+                        "symbol": ob.get("s", symbol),
+                        "timestamp_ms": int(ob.get("ts", 0)),
+                        "bids": ob.get("b", []),
+                        "asks": ob.get("a", []),
+                    }
+
+            logger.warning(f"No orderbook data for {symbol}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching orderbook for {symbol}: {e}")
+            return None
+
+    async def get_open_interest(
+        self, symbol: str, interval_time: str = "5min", limit: int = 200
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fetch open-interest history via bybit-connector
+        /api/v1/market/open-interest, normalized for OpenInterestRepository.
+
+        Args:
+            symbol: Trading pair
+            interval_time: Bucket granularity ("5min", "15min", "30min", "1h", ...)
+            limit: Max rows per page (Bybit caps at 200)
+
+        Returns:
+            List of {"symbol", "timestamp_ms", "open_interest",
+            "open_interest_value"} dicts, or None
+        """
+        params = {
+            "category": "linear",
+            "symbol": symbol,
+            "interval_time": interval_time,
+            "limit": limit,
+        }
+
+        try:
+            response = await self.client.get(
+                "/api/v1/market/open-interest", params=params
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            if data.get("success"):
+                result = data.get("data", {})
+                entries = result.get("list") or []
+                rows = [
+                    {
+                        "symbol": result.get("symbol", symbol),
+                        "timestamp_ms": int(entry["timestamp"]),
+                        "open_interest": float(entry["openInterest"]),
+                        # Notional value (spec §2 A2; final review H-3).
+                        # Bybit's open-interest endpoint doesn't always
+                        # return this field — None when absent, never a
+                        # fabricated 0.
+                        "open_interest_value": float(entry["openInterestValue"])
+                        if entry.get("openInterestValue") is not None
+                        else None,
+                    }
+                    for entry in entries
+                ]
+                if rows:
+                    return rows
+
+            logger.warning(f"No open interest data for {symbol}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching open interest for {symbol}: {e}")
+            return None
+
     async def get_historical_klines(
         self,
         symbol: str,
@@ -276,7 +371,7 @@ class BybitDataFetcher:
         days: int = 30,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-        rate_limit_delay: float = RATE_LIMIT_DELAY
+        rate_limit_delay: float = RATE_LIMIT_DELAY,
     ) -> List[Dict[str, Any]]:
         """
         Fetch historical klines for specified time range with proper pagination
@@ -330,7 +425,9 @@ class BybitDataFetcher:
         # Each batch returns up to 1000 candles
         current_end_ms = end_ms
         batch_count = 0
-        max_batches = (expected_candles // MAX_CANDLES_PER_REQUEST) + 10  # Safety margin
+        max_batches = (
+            expected_candles // MAX_CANDLES_PER_REQUEST
+        ) + 10  # Safety margin
 
         while current_end_ms > target_start_ms and batch_count < max_batches:
             batch_count += 1
@@ -342,7 +439,7 @@ class BybitDataFetcher:
                 interval=interval,
                 limit=MAX_CANDLES_PER_REQUEST,
                 start_time=target_start_ms,
-                end_time=current_end_ms
+                end_time=current_end_ms,
             )
 
             if not klines:
@@ -395,8 +492,7 @@ class BybitDataFetcher:
 
         # Filter to target time range (remove any data outside requested range)
         filtered_klines = [
-            k for k in sorted_klines
-            if target_start_ms <= k["timestamp"] <= end_ms
+            k for k in sorted_klines if target_start_ms <= k["timestamp"] <= end_ms
         ]
 
         # Log completion statistics
@@ -405,7 +501,11 @@ class BybitDataFetcher:
             last_ts = filtered_klines[-1]["timestamp"]
             first_date = datetime.fromtimestamp(first_ts / 1000)
             last_date = datetime.fromtimestamp(last_ts / 1000)
-            coverage = (len(filtered_klines) / expected_candles) * 100 if expected_candles > 0 else 0
+            coverage = (
+                (len(filtered_klines) / expected_candles) * 100
+                if expected_candles > 0
+                else 0
+            )
 
             logger.info(
                 f"Fetched total {len(filtered_klines)} klines for {symbol} "

@@ -20,6 +20,7 @@ from pathlib import Path
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+from shared.account import ACCOUNT_EQUITY_USD  # noqa: E402
 
 import pandas as pd
 import numpy as np
@@ -347,7 +348,7 @@ def test_monte_carlo_simulator(results: TestResults):
         # Create config
         config = MonteCarloConfig(
             num_simulations=100,  # Small number for testing
-            initial_capital=10000.0,
+            initial_capital=ACCOUNT_EQUITY_USD,
             confidence_levels=[0.90, 0.95]
         )
 
@@ -390,7 +391,7 @@ def test_risk_of_ruin_calculator(results: TestResults):
 
         # Create config
         config = RiskOfRuinConfig(
-            initial_capital=10000.0,
+            initial_capital=ACCOUNT_EQUITY_USD,
             ruin_threshold=0.50,  # 50% loss = ruin
             risk_free_rate=0.02
         )

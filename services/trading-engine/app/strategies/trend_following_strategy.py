@@ -632,7 +632,7 @@ class TrendFollowingStrategy:
             return 1.0
 
         current_volume = df["volume"].iloc[-1]
-        return round(current_volume / avg_volume, 2)
+        return round(current_volume / avg_volume, 2)  # non-price-round
 
     # =========================================================================
     # TREND ANALYSIS
@@ -1115,7 +1115,11 @@ class TrendFollowingStrategy:
         if trend.direction == TrendDirection.BULLISH:
             partial_exits.append(
                 PartialExitLevel(
-                    price=round(tp1, 2),
+                    # Trigger compared against market price, closed at market —
+                    # no exchange tick precision at this layer. round(price, 2)
+                    # collapsed adjacent ladder rungs onto one trigger at ADA
+                    # scale (PRICE-01).
+                    price=tp1,
                     exit_percent=0.30,
                     fib_level=FIB_EXTENSION_1,
                     label="TP1 (161.8%)",
@@ -1123,7 +1127,7 @@ class TrendFollowingStrategy:
             )
             partial_exits.append(
                 PartialExitLevel(
-                    price=round(tp2, 2),
+                    price=tp2,
                     exit_percent=0.40,
                     fib_level=FIB_EXTENSION_2,
                     label="TP2 (261.8%)",
@@ -1131,7 +1135,7 @@ class TrendFollowingStrategy:
             )
             partial_exits.append(
                 PartialExitLevel(
-                    price=round(tp3, 2),
+                    price=tp3,
                     exit_percent=0.30,
                     fib_level=FIB_EXTENSION_3,
                     label="TP3 (423.6%)",
@@ -1140,7 +1144,7 @@ class TrendFollowingStrategy:
         else:
             partial_exits.append(
                 PartialExitLevel(
-                    price=round(tp1, 2),
+                    price=tp1,
                     exit_percent=0.30,
                     fib_level=FIB_EXTENSION_1,
                     label="TP1 (161.8%)",
@@ -1148,7 +1152,7 @@ class TrendFollowingStrategy:
             )
             partial_exits.append(
                 PartialExitLevel(
-                    price=round(tp2, 2),
+                    price=tp2,
                     exit_percent=0.40,
                     fib_level=FIB_EXTENSION_2,
                     label="TP2 (261.8%)",
@@ -1156,14 +1160,14 @@ class TrendFollowingStrategy:
             )
             partial_exits.append(
                 PartialExitLevel(
-                    price=round(tp3, 2),
+                    price=tp3,
                     exit_percent=0.30,
                     fib_level=FIB_EXTENSION_3,
                     label="TP3 (423.6%)",
                 )
             )
 
-        return round(stop_loss, 2), round(take_profit, 2), partial_exits
+        return stop_loss, take_profit, partial_exits
 
     def _calculate_pyramid_levels(
         self,
@@ -1206,8 +1210,8 @@ class TrendFollowingStrategy:
             pyramid_levels.append(
                 PyramidLevel(
                     level=level + 1,  # Level 2, 3, etc.
-                    entry_price=round(add_price, 2),
-                    position_pct=round(level_size, 4),
+                    entry_price=add_price,
+                    position_pct=round(level_size, 4),  # non-price-round
                     condition=f"Price reaches {add_price:.2f} with {PYRAMID_MIN_PROFIT_PCT * 100:.1f}%+ profit",
                 )
             )
@@ -1259,7 +1263,7 @@ class TrendFollowingStrategy:
             MIN_POSITION_SIZE, min(adjusted_position, MAX_POSITION_SIZE)
         )
 
-        return round(final_position, 4)
+        return round(final_position, 4)  # non-price-round
 
     def _classify_signal_strength(
         self, confidence: float, indicators_aligned: int
