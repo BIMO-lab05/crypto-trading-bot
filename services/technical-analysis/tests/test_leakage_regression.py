@@ -59,6 +59,8 @@ able to see that class of leak.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -299,3 +301,540 @@ def test_sqzmom_enhanced_row_at_t_is_independent_of_future_bars(t: int):
         calc.calculate(df.iloc[: t + 1]),
         t,
     )
+
+
+# ============================================================================
+# TIER 2 -- scalar / dict entry points.
+#
+# These describe the LAST supplied bar, so `f(df[:t+1])` vs `f(df_full)` is a
+# category error and `f(df[:t+1])` vs itself is a tautology. Three falsifiable
+# families replace it:
+#
+#   (a) scalar-to-series agreement -- pins each scalar path to a series path
+#       already proven leakage-free in tier 1, and would catch a scalar path
+#       that secretly reads iloc[-1] of a whole-frame transform;
+#   (b) suffix-independence -- the answer for bars <= t must not depend on
+#       what came after, nor on what a previous call to the same instance saw;
+#   (c) two module-specific positive claims (Ichimoku Senkou provenance,
+#       rsi_divergence pivot stability), stated as things that MUST hold
+#       rather than as exemptions.
+# ============================================================================
+
+# Wall-clock fields are a property of WHEN the call happened, not of the bars
+# supplied. adx, atr, stochastic, trend_filter and volume_confirmation all
+# stamp int(pd.Timestamp.now().timestamp() * 1000) into their payloads;
+# leaving it in would make every comparison below red for a reason that has
+# nothing to do with leakage.
+_WALLCLOCK_KEYS = frozenset({"timestamp"})
+
+
+def _canonical(payload):
+    """Normalise an indicator payload so two of them compare exactly.
+
+    Recurses into the tuple that `ADXCalculator.calculate_with_signal`
+    returns. NaN becomes a sentinel so that warm-up NaN on both sides reads
+    as agreement; no numeric tolerance is introduced anywhere.
+    """
+    if isinstance(payload, dict):
+        return {
+            key: _canonical(value)
+            for key, value in payload.items()
+            if key not in _WALLCLOCK_KEYS
+        }
+    if isinstance(payload, (list, tuple)):
+        return type(payload)(_canonical(value) for value in payload)
+    if isinstance(payload, np.floating):
+        payload = float(payload)
+    if isinstance(payload, float) and np.isnan(payload):
+        return "<nan>"
+    return payload
+
+
+def _poisoned_prefix(df: pd.DataFrame, t: int) -> pd.DataFrame:
+    """Bars <= t byte-identical to `df`; everything after is a different walk.
+
+    Returned already truncated at t+1, so the callee is handed a frame whose
+    parent object carries a different future. Any answer that differs from the
+    clean prefix's answer came from somewhere other than the bars supplied.
+    """
+    poison = _synthetic_ohlcv(seed=1337)
+    joined = pd.concat([df.iloc[: t + 1], poison.iloc[t + 1 :]])
+    assert joined.iloc[: t + 1].equals(df.iloc[: t + 1]), "poison leaked backwards"
+    assert not joined.iloc[t + 1 :].equals(df.iloc[t + 1 :]), "tail is not poisoned"
+    return joined.iloc[: t + 1]
+
+
+# ---------------------------------------------------------------------------
+# (a) scalar-to-series agreement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("t", PROBE_TS)
+def test_rsi_scalar_path_agrees_with_leakage_free_series(t: int):
+    """RSICalculator.calculate(df[:t+1]) == calculate_series(df).iloc[t]."""
+    from app.indicators.rsi import RSICalculator
+
+    df = _synthetic_ohlcv()
+    calc = RSICalculator(period=SETTINGS.default_rsi_period)
+    scalar = calc.calculate(df.iloc[: t + 1])
+    series = calc.calculate_series(df).iloc[t]
+    assert _same(scalar, series), (
+        f"RSI scalar path at t={t} disagrees with the leakage-free series: "
+        f"{scalar!r} vs {series!r}"
+    )
+
+
+@pytest.mark.parametrize("t", PROBE_TS)
+def test_macd_scalar_path_agrees_with_leakage_free_series(t: int):
+    """Every shared MACD component must match the series value at t."""
+    from app.indicators.macd import MACDCalculator
+
+    df = _synthetic_ohlcv()
+    calc = MACDCalculator(
+        fast_period=SETTINGS.default_macd_fast,
+        slow_period=SETTINGS.default_macd_slow,
+        signal_period=SETTINGS.default_macd_signal,
+    )
+    scalar = calc.calculate(df.iloc[: t + 1])
+    row = calc.calculate_series(df).iloc[t]
+    for field in ("macd_line", "signal_line", "histogram"):
+        assert _same(scalar[field], row[field]), (
+            f"MACD {field} at t={t}: scalar {scalar[field]!r} vs series "
+            f"{row[field]!r}"
+        )
+
+
+@pytest.mark.parametrize("t", PROBE_TS)
+def test_bollinger_bands_scalar_path_agrees_with_leakage_free_series(t: int):
+    """Bands and bandwidth are computed twice in the module; pin them equal."""
+    from app.indicators.bollinger_bands import BollingerBandsCalculator
+
+    df = _synthetic_ohlcv()
+    calc = BollingerBandsCalculator(
+        period=SETTINGS.default_bb_period, std_dev=SETTINGS.default_bb_std
+    )
+    scalar = calc.calculate(df.iloc[: t + 1])
+    row = calc.calculate_series(df).iloc[t]
+    for field in ("upper_band", "middle_band", "lower_band", "bandwidth"):
+        assert _same(scalar[field], row[field]), (
+            f"BB {field} at t={t}: scalar {scalar[field]!r} vs series "
+            f"{row[field]!r}"
+        )
+
+
+@pytest.mark.parametrize("t", PROBE_TS)
+def test_ichimoku_scalar_path_agrees_with_leakage_free_series(t: int):
+    """Tenkan/Kijun/Chikou read bar t; the Senkou spans read further back.
+
+    `IchimokuCalculator.calculate` takes the cloud in force NOW from
+    `iloc[-displacement]` of the unshifted span series. On a frame of length
+    t+1 that is positional index `t + 1 - displacement` -- a strictly backward
+    read, and the exact index the Senkou provenance test below pins.
+    """
+    from app.indicators.ichimoku import IchimokuCalculator
+
+    df = _synthetic_ohlcv()
+    calc = IchimokuCalculator(
+        tenkan_period=SETTINGS.default_ichimoku_tenkan,
+        kijun_period=SETTINGS.default_ichimoku_kijun,
+        senkou_b_period=SETTINGS.default_ichimoku_senkou_b,
+    )
+    displacement = calc.displacement
+    scalar = calc.calculate(df.iloc[: t + 1])
+    series = calc.calculate_series(df)
+
+    for field in ("tenkan_sen", "kijun_sen", "chikou_span"):
+        assert _same(scalar[field], series.iloc[t][field]), (
+            f"Ichimoku {field} at t={t}: scalar {scalar[field]!r} vs series "
+            f"{series.iloc[t][field]!r}"
+        )
+
+    cloud_bar = t + 1 - displacement
+    assert cloud_bar < t, "the cloud in force must be computed strictly before t"
+    for field in ("senkou_span_a", "senkou_span_b"):
+        assert _same(scalar[field], series.iloc[cloud_bar][field]), (
+            f"Ichimoku {field} at t={t} does not match the span computed at "
+            f"bar {cloud_bar}: {scalar[field]!r} vs "
+            f"{series.iloc[cloud_bar][field]!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# (b) suffix-independence
+# ---------------------------------------------------------------------------
+
+
+def _make_rsi():
+    from app.indicators.rsi import RSICalculator
+
+    calc = RSICalculator(period=SETTINGS.default_rsi_period)
+    return lambda frame: calc.calculate(frame)
+
+
+def _make_macd():
+    from app.indicators.macd import MACDCalculator
+
+    calc = MACDCalculator(
+        fast_period=SETTINGS.default_macd_fast,
+        slow_period=SETTINGS.default_macd_slow,
+        signal_period=SETTINGS.default_macd_signal,
+    )
+    return lambda frame: calc.calculate(frame)
+
+
+def _make_bollinger_bands():
+    from app.indicators.bollinger_bands import BollingerBandsCalculator
+
+    calc = BollingerBandsCalculator(
+        period=SETTINGS.default_bb_period, std_dev=SETTINGS.default_bb_std
+    )
+    return lambda frame: calc.calculate(frame)
+
+
+def _make_sma():
+    from app.indicators.moving_averages import SMACalculator
+
+    calc = SMACalculator(period=SETTINGS.default_sma_period)
+    return lambda frame: calc.calculate(frame)
+
+
+def _make_ema():
+    from app.indicators.moving_averages import EMACalculator
+
+    calc = EMACalculator(period=SETTINGS.default_ema_period)
+    return lambda frame: calc.calculate(frame)
+
+
+def _make_ichimoku():
+    from app.indicators.ichimoku import IchimokuCalculator
+
+    calc = IchimokuCalculator(
+        tenkan_period=SETTINGS.default_ichimoku_tenkan,
+        kijun_period=SETTINGS.default_ichimoku_kijun,
+        senkou_b_period=SETTINGS.default_ichimoku_senkou_b,
+    )
+    return lambda frame: calc.calculate(frame)
+
+
+def _make_adx():
+    from app.indicators.adx import ADXCalculator
+
+    calc = ADXCalculator(period=SETTINGS.default_adx_period)
+    return lambda frame: calc.calculate_with_signal(
+        frame["high"].tolist(), frame["low"].tolist(), frame["close"].tolist()
+    )
+
+
+def _make_atr():
+    from app.indicators.atr import ATR
+
+    calc = ATR(period=SETTINGS.default_atr_period)
+    return lambda frame: calc.calculate(
+        frame["high"].tolist(),
+        frame["low"].tolist(),
+        frame["close"].tolist(),
+        float(frame["close"].iloc[-1]),
+    )
+
+
+def _make_stochastic():
+    from app.indicators.stochastic import Stochastic
+
+    calc = Stochastic(
+        period=SETTINGS.default_stochastic_period,
+        smooth_k=SETTINGS.default_stochastic_smooth_k,
+        smooth_d=SETTINGS.default_stochastic_smooth_d,
+    )
+    return lambda frame: calc.calculate(
+        frame["high"].tolist(), frame["low"].tolist(), frame["close"].tolist()
+    )
+
+
+def _make_trend_filter():
+    from app.indicators.trend_filter import TrendFilter
+
+    calc = TrendFilter(
+        fast_period=SETTINGS.default_trend_fast_period,
+        slow_period=SETTINGS.default_trend_slow_period,
+    )
+    return lambda frame: calc.calculate(frame["close"].tolist())
+
+
+def _make_volume_confirmation():
+    from app.indicators.volume_confirmation import VolumeConfirmation
+
+    calc = VolumeConfirmation(period=SETTINGS.default_volume_period)
+    return lambda frame: calc.calculate(
+        frame["volume"].tolist(), SETTINGS.default_volume_signal_type
+    )
+
+
+def _make_rsi_divergence():
+    from app.indicators.rsi_divergence import RSIDivergenceCalculator
+
+    calc = RSIDivergenceCalculator(
+        rsi_period=SETTINGS.default_rsi_divergence_period,
+        lookback=SETTINGS.default_rsi_divergence_lookback,
+    )
+    return lambda frame: calc.calculate(frame)
+
+
+# Every tier-2 entry point in the service. Input shapes differ deliberately:
+# adx/atr/stochastic take three price lists, atr also a current price,
+# trend_filter a price list, volume_confirmation a volume list plus a signal
+# type. Each factory returns a closure over ONE calculator instance, so the
+# two calls in the test below also exercise instance-level state carry-over
+# (EnhancedSqueezeMomentum, for one, keeps _squeeze_history on self).
+TIER2_ENTRY_POINTS = (
+    ("rsi.calculate", _make_rsi),
+    ("macd.calculate", _make_macd),
+    ("bollinger_bands.calculate", _make_bollinger_bands),
+    ("moving_averages.SMACalculator.calculate", _make_sma),
+    ("moving_averages.EMACalculator.calculate", _make_ema),
+    ("ichimoku.calculate", _make_ichimoku),
+    ("adx.calculate_with_signal", _make_adx),
+    ("atr.calculate", _make_atr),
+    ("stochastic.calculate", _make_stochastic),
+    ("trend_filter.calculate", _make_trend_filter),
+    ("volume_confirmation.calculate", _make_volume_confirmation),
+    ("rsi_divergence.calculate", _make_rsi_divergence),
+)
+
+
+@pytest.mark.parametrize("t", PROBE_TS)
+@pytest.mark.parametrize(
+    "name,factory", TIER2_ENTRY_POINTS, ids=[n for n, _ in TIER2_ENTRY_POINTS]
+)
+def test_tier2_entry_point_ignores_a_poisoned_future_tail(name, factory, t: int):
+    """Bars after t must not reach the answer, by any route.
+
+    Trivially true for a correct implementation -- which is the point: it
+    fails loudly if a function closes over an outer frame, caches globally,
+    carries state on the instance between calls, or mutates its input. All
+    real hazards in a service that fans out twelve indicator calls behind a
+    30-second kline cache.
+    """
+    df = _synthetic_ohlcv()
+    clean = df.iloc[: t + 1]
+    poisoned = _poisoned_prefix(df, t)
+    before = clean.copy(deep=True)
+
+    invoke = factory()
+    first = _canonical(invoke(clean))
+    second = _canonical(invoke(poisoned))
+
+    assert first == second, (
+        f"{name} at t={t} answered differently for two frames that are "
+        f"identical through bar t. Bars after t reached the result:\n"
+        f"  clean:    {first!r}\n  poisoned: {second!r}"
+    )
+    assert clean.equals(before), (
+        f"{name} mutated the DataFrame it was given. A shared frame is fanned "
+        "out to twelve indicators in this service; in-place edits corrupt "
+        "every later leg."
+    )
+
+
+# ---------------------------------------------------------------------------
+# (c) module-specific positive claims
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("t", PROBE_TS)
+def test_ichimoku_senkou_spans_derive_only_from_bars_before_t(t: int):
+    """The Senkou forward shift is a CALLER-side projection, not an input.
+
+    CONTEXT records the Senkou forward-shift as intentional. That is satisfied
+    here as a positive, falsifiable claim rather than an exemption:
+    `calculate_series` states in its own docstring that spans are "not shifted
+    forward. Apply .shift(displacement) for actual", i.e. it returns each span
+    aligned to the bar that computed it. `calculate` then reads
+    `iloc[-displacement]`, a strictly BACKWARD read, and the private detectors
+    apply `.shift(+displacement)`, which moves values later in time -- also
+    backward-looking.
+
+    So the cloud reported for a frame ending at t must be reproducible from a
+    frame that ends `displacement - 1` bars earlier and has never seen bar t.
+    """
+    from app.indicators.ichimoku import IchimokuCalculator
+
+    df = _synthetic_ohlcv()
+    calc = IchimokuCalculator(
+        tenkan_period=SETTINGS.default_ichimoku_tenkan,
+        kijun_period=SETTINGS.default_ichimoku_kijun,
+        senkou_b_period=SETTINGS.default_ichimoku_senkou_b,
+    )
+    displacement = calc.displacement
+    reported = calc.calculate(df.iloc[: t + 1])
+
+    # A frame of length t+1 takes its cloud from positional index
+    # t + 1 - displacement, so the provenance frame must END on that bar.
+    provenance_end = t + 2 - displacement
+    assert provenance_end <= t, "provenance frame must not contain bar t"
+    provenance = calc.calculate_series(df.iloc[:provenance_end]).iloc[-1]
+
+    for field in ("senkou_span_a", "senkou_span_b"):
+        assert _same(reported[field], provenance[field]), (
+            f"Ichimoku {field} reported for bar t={t} is NOT reproducible "
+            f"from bars <= {provenance_end - 1}: {reported[field]!r} vs "
+            f"{provenance[field]!r}. That would mean a future bar fed the "
+            "cloud in force now."
+        )
+
+    # Chikou's comparison price is likewise a plain backward read.
+    assert _same(
+        reported["chikou_comparison_price"],
+        float(df["close"].iloc[t - displacement]),
+    ), "chikou_comparison_price must be the close displacement bars before t"
+
+
+@pytest.mark.parametrize("t", PROBE_TS)
+def test_rsi_divergence_pivots_are_confirmed_lagged_not_repainted(t: int):
+    """The one real repainting-shaped site in the service -- and it is sound.
+
+    `_find_pivot_lows` / `_find_pivot_highs` confirm a pivot at index i using
+    `series.iloc[i+1:i+threshold+1]` -- bars AFTER i. Within a single
+    `f(df[:t+1])` call every one of those bars is still <= t, and the loop
+    bound `range(threshold, len(series) - threshold)` means the newest
+    `threshold` bars are never reported. The signal is therefore LAGGED, not
+    leaky, which is correct behaviour.
+
+    Two assertions make that a claim rather than an excuse:
+      (a) pivots at indices <= t - threshold are identical between the prefix
+          and the full series. A failure here IS leakage.
+      (b) no pivot at an index in (t - threshold, t] appears in the prefix
+          result -- the calculator never claims a pivot it cannot yet confirm.
+
+    Context for whoever reads a future failure: this module is deliberately
+    disabled as a voter (trading-engine signal_aggregator.py:809), so a
+    finding here is correctness debt, not a live trading defect. Do not
+    escalate it as one. Nothing in this file is disabled or tolerated as an
+    expected failure; both assertions are live.
+    """
+    from app.indicators.rsi_divergence import RSIDivergenceCalculator
+
+    df = _synthetic_ohlcv()
+    calc = RSIDivergenceCalculator(
+        rsi_period=SETTINGS.default_rsi_divergence_period,
+        lookback=SETTINGS.default_rsi_divergence_lookback,
+    )
+    threshold = calc.pivot_threshold
+    rsi_full = calc._calculate_rsi(df)
+    rsi_prefix = calc._calculate_rsi(df.iloc[: t + 1])
+
+    for finder, label in (
+        (calc._find_pivot_lows, "pivot lows"),
+        (calc._find_pivot_highs, "pivot highs"),
+    ):
+        full_pivots = finder(rsi_full, threshold)
+        prefix_pivots = finder(rsi_prefix, threshold)
+
+        confirmed_full = [i for i in full_pivots if i <= t - threshold]
+        confirmed_prefix = [i for i in prefix_pivots if i <= t - threshold]
+        assert confirmed_prefix, (
+            f"{label}: no confirmed pivots at t={t} -- the fixture is not "
+            "exercising this code path, so the test would be vacuous"
+        )
+        assert confirmed_full == confirmed_prefix, (
+            f"{label} at or before t-{threshold} moved when future bars "
+            f"arrived (t={t}). That IS look-ahead leakage:\n"
+            f"  full:   {confirmed_full}\n  prefix: {confirmed_prefix}"
+        )
+
+        unconfirmable = [i for i in prefix_pivots if t - threshold < i <= t]
+        assert not unconfirmable, (
+            f"{label}: the prefix ending at t={t} reported pivot(s) at "
+            f"{unconfirmable}, which cannot be confirmed without bars after "
+            "t. Reporting them would be repainting."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Aggregate endpoint path
+# ---------------------------------------------------------------------------
+
+
+async def _aggregate(frame: pd.DataFrame) -> dict:
+    """Drive the handler with a mocked fetcher. No HTTP, no database.
+
+    Patch target is `app.handlers.analysis.get_fetcher` and nothing else. The
+    calculators are bound into that namespace at import time, and their
+    failure defaults are NOT neutral -- ADX returns ("HOLD", 0.3), a SQZMOM
+    HOLD is a flat 0.25, and VolumeConfirmation._reject_response() returns
+    volume_ratio 0.0 -- so a patched leg would still cast a real vote and the
+    test would measure the mock instead of the math. Every leg here runs on
+    the real 400-bar frame.
+    """
+    from app.handlers.analysis import get_aggregated_signal
+
+    fetcher = AsyncMock()
+    fetcher.get_klines_as_dataframe = AsyncMock(return_value=frame)
+    with patch("app.handlers.analysis.get_fetcher", return_value=fetcher):
+        return await get_aggregated_signal(symbol="SOLUSDT", interval="60")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("t", PROBE_TS)
+async def test_aggregate_endpoint_ignores_a_poisoned_future_tail(t: int):
+    """The whole twelve-leg funnel, end to end, must ignore bars after t.
+
+    A prefix-vs-FULL comparison is not available here and would be wrong:
+    `get_aggregated_signal` describes the last bar it is handed, so the full
+    400-bar frame describes bar 399, not bar t. The falsifiable form is
+    suffix-independence -- two frames identical through bar t must produce
+    the same answer, including the derived confidence after the volume
+    penalty ladder.
+    """
+    df = _synthetic_ohlcv()
+    clean = await _aggregate(df.iloc[: t + 1])
+    poisoned = await _aggregate(_poisoned_prefix(df, t))
+
+    assert _canonical(clean) == _canonical(poisoned), (
+        f"the aggregate endpoint answered differently at t={t} for two "
+        f"frames identical through bar t:\n  clean:    {clean!r}\n"
+        f"  poisoned: {poisoned!r}"
+    )
+    assert clean["signal"] in ("BUY", "SELL", "HOLD")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("t", PROBE_TS)
+async def test_aggregate_endpoint_fields_match_their_leakage_free_sources(t: int):
+    """Transitively pin the endpoint to the tier-1-proven series values.
+
+    `rsi` must be the leakage-free RSI series at bar t, and `sqzmom.confidence`
+    must be the Enhanced SQZMOM confidence for bar t. The second is the
+    highest-value assertion in this file: that leg is exactly where a
+    whole-frame normaliser produced a retroactively inflated confidence, so a
+    regression there would show up as a live signal-path defect, not just a
+    backtest one.
+    """
+    from app.indicators.rsi import RSICalculator
+    from app.indicators.sqzmom_enhanced import EnhancedSqueezeMomentum
+
+    df = _synthetic_ohlcv()
+    prefix = df.iloc[: t + 1]
+    result = await _aggregate(prefix)
+
+    rsi_series = RSICalculator(period=SETTINGS.default_rsi_period).calculate_series(df)
+    assert result["rsi"] == round(float(rsi_series.iloc[t]), 2), (
+        f"aggregate rsi at t={t} is {result['rsi']!r}, but the leakage-free "
+        f"series says {round(float(rsi_series.iloc[t]), 2)!r}"
+    )
+
+    sqz = EnhancedSqueezeMomentum(
+        bb_length=SETTINGS.default_sqzmom_bb_period,
+        bb_mult=SETTINGS.default_sqzmom_bb_mult,
+        kc_length=SETTINGS.default_sqzmom_kc_period,
+        kc_mult=SETTINGS.default_sqzmom_kc_mult,
+        momentum_length=SETTINGS.default_sqzmom_mom_period,
+    ).calculate(prefix)
+    expected_conf = round(float(sqz.iloc[-1]["sqz_confidence"]), 3)
+    assert result["sqzmom"]["confidence"] == expected_conf, (
+        f"aggregate sqzmom confidence at t={t} is "
+        f"{result['sqzmom']['confidence']!r}, indicator says {expected_conf!r}"
+    )
+
+    # The endpoint must describe bar t, not some later bar. Derived from
+    # df.index, not the wall clock, so it is safe to assert exactly.
+    assert result["timestamp"] == int(df.index[t].timestamp() * 1000)
