@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
 status: Between phases. Next planned phase is 19 (Order Reconciliation + Idempotency). Stack healthy, trading resumed on clean-data epoch 2026-08-12T13:47:20Z; 2026-08-12..16 Docker outage repaired (evidence/resume-2026-08-16.md).
-stopped_at: 2026-08-23 quick task 260823-3j3 complete — 5 correctness commits, no threshold changed, deployed and verified end-to-end (order log line + DB row + open position). Trader running and taking positions again.
-last_updated: "2026-08-23"
-last_activity: 2026-08-23 -- quick task 260823-3j3: ensemble confidence unit mismatch repaired; trading resumed (first entry since 2026-08-18, SOLUSDT LONG verified in DB). Funnel diagnosis at .planning/evidence/hold-funnel-2026-08-22.md
+stopped_at: 2026-08-26 session — $10k battery re-run 5/5 FAIL (docs/BACKTEST_BATTERY_2026-08-26_10K.md §4); walk-forward runner stub rot repaired (49cc19d); portfolio-manager health probe fixed+deployed (260826-nzw); paper maker simulation shipped (260826-o2h, prefer_maker_orders still false — window start is an operator decision).
+last_updated: "2026-08-26"
+last_activity: 2026-08-26 -- quick tasks 260826-nzw (health probe, deployed+verified) and 260826-o2h (paper maker sim, merged); all-five ensemble walk-forward FAIL at $10k; isolation harvest root cause closed (maker gate was LIVE-only).
 progress:
   total_phases: 9
   completed_phases: 3
@@ -185,6 +185,7 @@ Decision history accumulates in PROJECT.md `## Key Decisions`. STATE.md retains 
 | 260816-qjz | RES-07 — bybit-connector instruments-info cursor pagination (821 instruments, was 500) | 2026-08-16 | `c774638` | [260816-qjz-fix-res-07-bybit-connector-instruments-i](./quick/260816-qjz-fix-res-07-bybit-connector-instruments-i/) |
 | 260823-3j3 | Ensemble confidence unit mismatch — vote-share score measured against the conviction floor `min_signal_confidence`; normalise over firing legs. Plus MACD re-bucketed to TREND, MTF confidence derived from the action it describes, dead volume `signal_type` threshold wired, funnel terminal/symbol/cycles attribution repaired. **First trade since 2026-08-18.** | 2026-08-23 | `b4cb894`, `94727f3`, `744d3e7`, `58332fb`, `42e2250` | [260823-3j3-fix-ensemble-confidence-units](./quick/260823-3j3-fix-ensemble-confidence-units/) |
 | 260826-nzw | Fix portfolio-manager /health `database_connection` false-negative — probe the live asyncpg pool (`SELECT 1`, 2s timeout) instead of the dead in-container `shared.database` import; register the orphaned `GET /ready` route | 2026-08-26 | `b595a08`, `568d422` | [260826-nzw-fix-portfolio-manager-health-database-co](./quick/260826-nzw-fix-portfolio-manager-health-database-co/) |
+| 260826-o2h | Paper-mode maker execution simulation — `PaperTradingEngine.execute_maker_order_with_fallback` (PostOnly limit at spread-derived bid/ask, 10s-capped wait, first-touch fill at limit with 0.02% maker fee, taker fallback per `maker_fallback_to_taker`); `paper_maker_commission_pct` setting; execution-path metadata (`maker_attempted`/`execution_path`/`fallback_reason`/`fee_rate_applied`) stamped into `trades.metadata` on every fill incl. `taker_direct`; auto_trader maker gate no longer LIVE-only. Root cause of the empty 08-20→08-26 isolation harvest: paper mode could never attempt maker by construction. `prefer_maker_orders` stays default-false — measurement window is a separate operator decision. | 2026-08-26 | `3125fbb`, `d8e90c8`, `8e9873f`, `4f821b9` | [260826-o2h-paper-mode-maker-execution-simulation-in](./quick/260826-o2h-paper-mode-maker-execution-simulation-in/) |
 
 ## Open Operator Actions (carry into v1.3)
 
