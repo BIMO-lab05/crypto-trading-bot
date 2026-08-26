@@ -75,6 +75,21 @@ completed: 2026-08-26
 - **P21-8 closed for the two files this plan owns.** Neither carries an account-size literal.
 - **`tests/strategies/` exits 0 for the first time** — 3 pre-existing collector-registry ERRORs cleared as a blocking-issue fix.
 
+## Deployment status — NOT in the running stack
+
+**These changes are committed and unit-verified only. The trading-engine has NOT been
+rebuilt or `--force-recreate`d, so neither admission change is live.** This executor runs
+in an isolated worktree; touching the shared stack would collide with the sibling wave-1
+agents, and this plan's `<verification>` block is pytest-only by design.
+
+21-CONTEXT `<specifics>` still owes a before/after signal comparison on BTC/ETH/SOL/BNB/ADA
+**through the running stack**, plus a rebuild of the changed service — and CLAUDE.md §7
+forbids any "working end-to-end" claim without it. That debt is unpaid and belongs at
+21-09. Read "P21-1 closed" and "reachable for the first time" as statements about the
+code, not about the deployed engine. This matters concretely: the auto-trader is ARMED
+(`AUTO_TRADING_ENABLED=true` in the operator `.env`), so nobody should assume the new
+stop sizing is already in force.
+
 ## The defect, measured
 
 Run against the patched code with the live 2026-08-26 60m `atr_pct` values, showing the stop price the old code would have produced versus the new one (BUY side, `ATR_STOP_MULT = 2.0`):
@@ -89,6 +104,20 @@ Run against the patched code with the live 2026-08-26 60m `atr_pct` values, show
 
 Three of the five tradeable symbols were in the broken branch, and they are the three largest by notional. SOL and ADA were correct only by luck of which side of `1.0` their reading fell on. The defect was invisible in production **only** because the key was never populated — which is exactly why it had to be fixed in the same commit that populates it.
 
+**The `(0, 1)` bound is not by itself sufficient — say so out loud.** With
+`ATR_STOP_MULT = 2.0`, any resolved fraction above **0.5** still yields
+`stop_distance > price` and therefore a negative `stop_loss` on a BUY. The bound closes
+the realistic window (a percent read as a fraction lands at 0.0066-0.014, and the
+absolute-ATR route lands in the hundreds — both now refused), leaving only absurd
+inputs: an `atr_pct` between 50 and 100, or a third-party producer writing
+`atr_fraction` under a different convention. The bound is deliberately left at `(0, 1)`
+because the plan and threat register T-21-03-01 both specify that interval; tightening
+it here would be an unreviewed change to a money-path constant. The residual **fails
+safe** rather than trading: `AutoTrader._ensemble_stops_are_consistent` rejects
+`stop_loss <= 0` pre-fill with an ERROR, so such a signal is refused before any entry.
+A future reader must not assume the bound alone is the whole guard — the pre-fill check
+is the second half of it.
+
 ## Task Commits
 
 1. **Task 1: ATR threading + unit contract + shared presence predicate** — `c70d577` (fix)
@@ -99,8 +128,8 @@ Three of the five tradeable symbols were in the broken branch, and they are the 
 
 - `services/trading-engine/app/strategies/multi_strategy_ensemble.py` — `_atr_is_usable` predicate, `_atr_indicator` builder, `_atr_levels` ERROR branch, local-copy leg dispatch, `capital: Optional[float] = None`
 - `services/trading-engine/app/strategies/simple_rsi_strategy.py` — `DEFAULT_ATR_FRACTION`, `_resolve_atr_fraction`, `capital: Optional[float] = None`
-- `services/trading-engine/tests/strategies/test_ensemble_leg_wiring.py` — 11 new tests: the parametrized unit contract on the 5 measured live values, the non-mutation assertion, the three-leg presence agreement, the out-of-range fallback
-- `services/trading-engine/tests/strategies/test_ensemble_atr_levels.py` — 6 new consequence tests (usable / absent / failure payload, plus the SELL mirror), module-level `AutoTrader` import, capital literals removed
+- `services/trading-engine/tests/strategies/test_ensemble_leg_wiring.py` — **8 new tests (13 collected cases**; file went 8 -> 21 collected): the unit contract parametrized on the 5 measured live values, the sub-1% stop-distance pair, the non-mutation assertion, the three-leg presence agreement, the out-of-range fallback, the absent-ATR default, the absolute-ATR trap, the `_atr_indicator` shape
+- `services/trading-engine/tests/strategies/test_ensemble_atr_levels.py` — **6 new consequence tests** (file went 10 -> 16 collected): the unlock, the SELL mirror, the without-ATR contrast, the all-legs-default case, and the failure payload both directly and end-to-end. Plus the module-level `AutoTrader` import and the removal of both capital literals.
 
 ## Decisions Made
 
