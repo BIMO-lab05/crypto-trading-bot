@@ -180,15 +180,15 @@ Plans:
 
 > **Superseded 2026-08-26 by `.planning/audits/2026-08-26-ta-signal-path-audit.md`** (authoritative over the Goal text above per `21-CONTEXT.md`). The Goal's premise — "votes only RSI + MACD + Trend Filter" — is **stale**: ADX and SQZMOM already vote in `get_aggregated_signal`, and Volume Confirmation is already a post-vote confidence penalty (and must never become a voter). TA-AGG-01 reduces to *test residue + wiki doc*; the `aggregator_mode = minimal|full` env is explicitly dropped. TA-AGG-02/03 are **CLOSED** (settings-sourced since 2026-08-20, pinned by `test_endpoint_defaults_from_settings.py`) — closure evidence only, no code change. TA-AGG-04 remains fully owed. The phase additionally closes eight audit defects, P21-1..P21-8, of which P21-1 (ATR threading) is the highest-severity: threading real ATR without the percent-to-fraction unit contract would ship negative stop-losses on BTC/ETH/BNB at measured 2026-08-26 volatility.
 
-**Plans:** 9 plans
+**Plans:** 3/9 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 21-01-PLAN.md — TA-AGG-04 three-tier look-ahead-leakage regression suite over 13 indicator modules + the aggregate path
-- [ ] 21-02-PLAN.md — P21-4/5 parameter single-sourcing (SMA/EMA 21, Ichimoku 20/60/120) + engine omission test + TA-AGG-02/03 closure evidence
-- [ ] 21-03-PLAN.md — P21-1 ATR threading with the percent-to-fraction unit contract and shared presence predicate (+ P21-8 capital defaults)
+- [x] 21-01-PLAN.md — TA-AGG-04 three-tier look-ahead-leakage regression suite over 13 indicator modules + the aggregate path
+- [x] 21-02-PLAN.md — P21-4/5 parameter single-sourcing (SMA/EMA 21, Ichimoku 20/60/120) + engine omission test + TA-AGG-02/03 closure evidence
+- [x] 21-03-PLAN.md — P21-1 ATR threading with the percent-to-fraction unit contract and shared presence predicate (+ P21-8 capital defaults)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -288,7 +288,7 @@ Plans:
 | 18. Bybit-Adapter Contract Fix | v1.3 | 3/3 | Complete   | 2026-05-24 |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
 | 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
-| 21. TA Aggregator Widening + Leakage Net | v1.3 | 0/? | Pending | — |
+| 21. TA Aggregator Widening + Leakage Net | v1.3 | 3/9 | In Progress|  |
 | 22. round(price, N) Epidemic Kill | v1.3 | 0/? | Pending | — |
 | 23. ML Purge + V0-Pattern Eradication | v1.3 | 0/? | Pending | — |
 | 24. Operator-Log + API Hygiene | v1.3 | 0/? | Pending | — |

@@ -4,8 +4,8 @@ milestone: v1.3
 milestone_name: TA + Engine Correctness
 status: executing
 stopped_at: "Edge research battery built and executed (branch `feature/edge-research-battery`). `backtesting/edge_lab/` kill-funnel implemented across 13 tasks with per-task review (every task passed adversarial review; notable catches: empty-fetch permanent cache, vol_breakout time-exit off-by-one, import-failure-filed-as-REJECT). Live run 2026-08-17 over pinned top-30 universe (730d daily, 365d 4h, first-ever funding history — 90 files): **4× REJECT, no edge found**. xs_momentum and vol_breakout died at the Gate 1 cost hurdle (best ratio_taker 1.246 / 0.917 vs required 2×); funding_carry thresh_2x and both lf_trend variants cleared Gate 1 (ratios 2.6 / 4.9 / 15.5) but failed Gate 2 CPCV/DSR decisively (DSR ≤ 3.8e-05 vs 0.95, pooled PF ≈ 1.0). Clean kill-funnel outcome per spec §1 — cheap disproof is the deliverable. Evidence: `.planning/evidence/killtests/*-verdict-20260817.{md,json}` + `battery-summary-20260817.md`."
-last_updated: "2026-08-26T22:41:32.561Z"
-last_activity: 2026-08-26 -- Phase 21 planning complete
+last_updated: "2026-08-26T22:44:48.805Z"
+last_activity: 2026-08-26 -- Phase 21 execution started
 progress:
   total_phases: 9
   completed_phases: 3
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Triage of uncommitted out-of-band work (2026-07-28 / 2026-07-29 sessions) before opening Phase 19
+**Current focus:** Phase 21 — TA Aggregator Widening + Leakage Net
 
 ## Current Position
 
-Phase: 18 (Bybit-Adapter Contract Fix) — COMPLETE (3/3 plans, 18-REVIEW.md + 18-REVIEW-FIX.md, 9/9 in-scope findings fixed, e2e verify commit `2aac085`)
-Plan: —
-Status: Ready to execute
-Last activity: 2026-08-26 -- Phase 21 planning complete
+Phase: 21 (TA Aggregator Widening + Leakage Net) — EXECUTING
+Plan: 1 of 9
+Status: Executing Phase 21
+Last activity: 2026-08-26 -- Phase 21 execution started
 
 ## Uncommitted Work (detected 2026-08-04 — RESOLVED)
 
