@@ -75,6 +75,7 @@ completed: 2026-08-27
 |---|---|---|
 | 1 — Engine hygiene | `f780dda` | `hybrid_strategy_router.py`, `advanced_position_sizing.py`, `signal_aggregator.py` |
 | 2 — TA hygiene + build-context guard | `ea1c41e` | `squeeze_momentum_strategy.py`, `.dockerignore`, `tests/test_build_context_hygiene.py` (new) |
+| follow-up (comment-only) | `44c1e57` | guard's known `PRUNED_DIRS` narrowing stated in-file — see Non-blocking note below |
 
 ## What actually changed
 
@@ -274,6 +275,50 @@ The real evidence for this fix is the grep (`capital\s*=\s*10000` → no matches
 
 **Total deviations:** 6 (1 blocking, 2 self-correction, 1 scope-discipline, 1 tooling, 1 measurement). **Impact:** no scope creep — only the plan's six declared files were touched (the seventh, `main.py.bak`, was deleted). Deviations 2 and 3 are the same latent trap in two places: a faithful historical comment and a grep-based doc guard are in direct tension, and the resolution adopted here (record the change, name the guard, omit the token) is the pattern to reuse.
 
+## Scope qualification on the plan's `must_haves.truths`
+
+The plan states four truths as **repo-wide** claims. Two of them are established site-locally by the diff, so each was re-checked globally rather than left to a verifier's grep. (Precedent: 21-07 did the same for its truth #3.)
+
+### Truth #1 — *"No code path reads an ADX value out of ATR metadata"* — **holds globally, verified**
+
+```
+$ grep -rn 'atr_signal\|"ATR"\|\[.ATR.\]' services/trading-engine/app/ | grep -i adx
+hybrid_strategy_router.py:105:  `indicators["ATR"].metadata["adx"]` was deleted from here. No producer
+hybrid_strategy_router.py:144:  # Old code looked at atr_signal.metadata['adx'] which never existed,
+```
+
+Both survivors are **prose** — the docstring note and the history comment this plan wrote. Zero executable lines. Widening to every `adx`-key read across both services finds only correct sources:
+
+| Site | Reads `adx` from | Correct? |
+|---|---|---|
+| `hybrid_strategy_router.py:118` | the **ADX** signal's own metadata | yes |
+| `handlers/signals.py:195` | the ADX response payload | yes |
+| `technical-analysis/app/handlers/analysis.py:234` | `adx_data` | yes |
+
+The truth can be asserted unqualified.
+
+### Truth #2 — *"No docstring in the money path advertises an account-size literal"* — **does NOT hold globally; qualified**
+
+What this plan establishes is narrower: *no docstring in the files this plan touched advertises an account-size literal, and no automated guard can establish the broader claim.*
+
+This follows directly from the `check_capital_literals.py` finding above — the scanner blanks comments and docstrings before matching, so docstring literals are structurally invisible to it everywhere, not just here. Measured by re-running the guard's own `PATTERN` against raw text and diffing against its blanked text across `services/*/app/**/*.py`: **11 capital literals live inside prose the guard cannot see.**
+
+Most are legitimate fix-provenance ("the old hardcoded 10000.0 default was…"), which is precisely what the tokenizer step exists to permit. But **three are code-shaped usage examples — the same defect class this plan just fixed:**
+
+| Site | Line |
+|---|---|
+| `services/trading-engine/app/risk/dynamic_risk_budget.py:347` | `equity=10000,` |
+| `services/trading-engine/app/trading_enhancements/portfolio_heat.py:170` | `equity=10000` |
+| `services/trading-engine/app/trading_enhancements/portfolio_heat.py:181` | `status = heat_manager.get_status(equity=10000)` |
+
+**Deliberately not fixed.** None is in 21-CONTEXT's P21-8 site list, and T-21-08-05 forbids widening. They are recorded here as an inventory for a future plan — the same disposition 21-07 gave its two out-of-scope `adx_period` survivors.
+
+Note also that `scripts/capital_literals_baseline.txt` is now **empty of entries** (comments only) — the 48-item burn-down described in the script's own docstring has completed. So the guard is green on a clean tree, which makes the docstring blind spot the *only* remaining hole in that guard's coverage, not one hole among many.
+
+### Truths #3 and #4 — hold as stated
+
+#3 (RSI docstring matches applied thresholds) is verified against all three `RSICalculator` construction sites and the absence of any Settings override. #4 (a stale `.bak` cannot be copied into the image) holds **for future builds only** — declared now, applied when 21-09 rebuilds; stated in three places above.
+
 ## Threat register dispositions
 
 | Threat ID | Disposition | Evidence |
@@ -314,8 +359,9 @@ This matters concretely for the `.dockerignore` change, which is *inert until a 
 
 ## Deferred Issues
 
-- **`.claude/rules/money.md`'s docstring rule has no automated enforcement.** `check_capital_literals.py` blanks docstrings on purpose (`:219-242`), so the exact failure mode money.md names — *"a docstring showing `initial_capital=10000.0` is how the wrong number keeps propagating back into new code"* — is invisible to the only guard that exists. Fixing this is not free: the same tokenizer step exists to stop the ~15 fix-provenance comments that legitimately quote the old value from failing the build. A narrower rule (flag a capital literal inside a *code-shaped* docstring line such as `capital=10000`, allow it in prose) would be the shape. Worth a standalone task.
+- **`.claude/rules/money.md`'s docstring rule has no automated enforcement, and three live offenders are named above.** `check_capital_literals.py` blanks docstrings on purpose (`:219-242`), so the exact failure mode money.md names — *"a docstring showing `initial_capital=10000.0` is how the wrong number keeps propagating back into new code"* — is invisible to the only guard that exists. Measured: 11 capital literals sit in blanked prose across `services/*/app/**`, of which 3 are code-shaped usage examples (`dynamic_risk_budget.py:347`, `portfolio_heat.py:170` and `:181` — see the truth-#2 qualification). Fixing the guard is not free: the same tokenizer step exists so the ~8 legitimate fix-provenance comments that quote the old value do not fail the build. The shape of the fix is a narrower rule — flag a capital literal on a *code-shaped* docstring line (`name=10000`), allow it in prose. Worth a standalone task, and it now has a ready-made 3-item test set.
 - **`test_pairs_trading.py` / `test_signal_cache.py` wall-clock flakes** — unchanged, out of scope, now cited by five consecutive plans. One task freezing the clock fixes both families.
+- **The guard's `PRUNED_DIRS` is slightly wider than `.dockerignore`'s semantics.** The walk prunes `logs`/`htmlcov`/`.pytest_cache`/`__pycache__` at any depth; `.dockerignore`'s `logs/` (no `**/` prefix) excludes only at the context root. A `.bak` under `subdir/logs/` would enter the build context and the walk would skip it. Zero such paths exist today — an unpruned `find` agrees with the walk — and the correct fix is to prefix the `.dockerignore` globs with `**/`, not to widen the walk. Stated in-file (`44c1e57`) rather than silently carried, because it is the same "a detector that silently misses one fails GREEN" shape the guard's own docstring warns about.
 - **`main.py.bak` was recoverable only from the operator's disk.** It is now gone from the only copy that existed (a scratchpad copy survives for this session only). Nothing unique was in it — its live counterpart is tracked — but the class of artifact is worth noting: gitignored files have no undo.
 
 ## User Setup Required
