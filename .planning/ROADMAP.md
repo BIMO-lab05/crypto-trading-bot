@@ -250,6 +250,21 @@ Plans:
 > - **Tick-size precision is feasible**: `trading-engine/app/services/instruments_cache.py:52` already carries `tick_size: Decimal` sourced from the connector's `priceFilter.tickSize`, so PRICE-01's tick-size option does not require new plumbing.
 > - Precedent for the gate exists — `tests/ci/` already holds 4 governance gates (`test_no_bybit_bypass.py`, `test_audit_freshness_gate.py`, `test_no_placeholder_one_liners.py`, `test_roadmap_analyze_supersession_wired.py`).
 
+### Phase 22.1: DEFER-21 Follow-ups: regime hard-block ensemble gate, mirror-literal and adx_period single-sourcing, TA regime confidence adoption, SQZMOM duplicate-index dropout, capital docstring cleanup (INSERTED)
+
+**Goal:** Close the recorded DEFER-21 follow-ups: gate the regime hard-block into every ensemble leg, single-source the three remaining aggregator mirror literals and the trend-following adx_period survivors, adopt technical-analysis's real regime confidence with a before/after measurement, reject a duplicate-index frame loudly in SQZMOM instead of silently dropping the leg, and remove the capital literals from three usage docstrings plus one stale shell comment.
+**Requirements**: DEFER-21-01, DEFER-21-02, DEFER-21-03, DEFER-21-04, DEFER-21-05, CTX-22.1-F
+**Depends on:** Phase 22
+**Plans:** 6 plans
+
+Plans:
+- [ ] 22.1-01-PLAN.md — route the three remaining aggregator mirror literals (RSI period, BB std-dev, trend-filter limit) through engine Settings (DEFER-21-03)
+- [ ] 22.1-02-PLAN.md — gate simple_rsi and mean_reversion on the regime hard-block flag, mirroring the 21-05 MTF gate (DEFER-21-02)
+- [ ] 22.1-03-PLAN.md — reject a non-unique index in EnhancedSqueezeMomentum.calculate instead of returning None (DEFER-21-01)
+- [ ] 22.1-04-PLAN.md — single-source the trend-following ADX lookback to Settings and clear the capital docstring/shell literals (DEFER-21-04, CTX-22.1-F)
+- [ ] 22.1-05-PLAN.md — report technical-analysis's regime confidence instead of a fixed 0.7, with a committed measurement artifact (DEFER-21-05)
+- [ ] 22.1-06-PLAN.md — rebuild and force-recreate both services, prove the code is in the running containers, run both suites against a baseline
+
 ### Phase 23: ML Purge + V0-Pattern Eradication
 
 **Goal**: `ml-retraining-service/app/core/model_trainer.py:427-430` inverse-transforms predictions into the price domain and calls `r2_score` on them (again at `:623`) — the exact TOURN-07/V0 forbidden pattern, while the sanctioned log-returns implementation already sits unused-by-the-trainer at `returns_metrics.py:80`. `ml-prediction-service/app/models/ensemble_model.py:15` carries a live `from tensorflow.keras.layers import LSTM, Dense, Dropout` and `ml-retraining-service/app/core/models/lstm.py` is still in the source tree. `feature_engineer.py:32` initializes `self.feature_names = []` and never populates it. The `mlgate_auto_flip.json` marker write at `lifespan/ml.py:181-197` swallows `OSError` with a warning. This phase removes price-level R² **and its two downstream consumers**, archives LSTM properly, resolves `feature_names`, hardens the marker write, and lands a CI grep gate against price-domain R².
