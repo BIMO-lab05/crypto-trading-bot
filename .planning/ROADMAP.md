@@ -77,7 +77,7 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 - [ ] **Phase 19: Order Reconciliation + Idempotency** — Order-state polling or WS handler post-submit; deterministic `orderLinkId` on every place + retry (RECON-01..02)
 - [ ] **Phase 20: Paper-Engine Honesty** — Paper-sim slippage model; SL/TP trigger evaluation; monotonic order IDs; 48h max-hold + stop-loss-as-limit regression tests (PAPER-01..03)
 - [x] **Phase 21: TA Aggregator Widening + Leakage Net** — Bring ADX + Volume + SQZMOM into aggregator vote; reconcile MACD route/settings drift (5/35/5 canonical); reconcile BB std-dev drift (2.5 canonical); look-ahead-leakage regression suite (TA-AGG-01..04) (completed 2026-08-27)
-- [ ] **Phase 22: round(price, N) Epidemic Kill** — Fix `round(price, 2)` at 6 surviving call sites; sub-$1 asset fixture suite; CI grep gate (PRICE-01..02)
+- [ ] **Phase 22: round(price, N) Epidemic Kill** — 2 plans. Fix the 11 verified residue price-domain rounding sites across 6 files; ADA-scale SL/TP regression test; grow the AST invariant guard to 12 files (PRICE-01..02)
 - [ ] **Phase 23: ML Purge + V0-Pattern Eradication** — Remove price-level `r2_score` from trainer + verify; archive LSTM (ensemble_model + lstm.py); fix `feature_engineer.get_feature_names()` returning `[]`; marker-age check on `mlgate_auto_flip.json`; CI grep gate vs r2_score on price-domain arrays (ML-PURGE-01..05)
 - [ ] **Phase 24: Operator-Log + API Hygiene** — Fix stale "Sentiment 15%" log lines; DSR staleness enforcement on auto-flip; TA CORS lockdown; deprecate legacy `/api/v1/market/*` at api-gateway (HYG-01..04)
 
@@ -213,6 +213,21 @@ Plans:
 **Goal**: Commit `487d1bd` fixed one site. A full re-sweep on 2026-07-30 finds **22 surviving price-domain `round(…, 2)` call sites across 7 files** — fatal for sub-$1 assets (ADA at ~$0.40 rounds to 2dp and flip-flops). This phase replaces each with `float()` or tick-size-derived precision, adds a sub-$1 fixture suite, and lands a CI grep gate that prevents reintroduction.
 **Depends on**: Phase 16
 **Requirements**: PRICE-01 (widened), PRICE-02 (widened)
+
+**Plans:** 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 22-01-PLAN.md — PRICE-01: ADA-scale SL/TP regression test (RED) then float() on the live ensemble path (`simple_rsi_strategy.py:214-215`) + classify and enroll the two trading-engine serialization files (`adaptive_rsi.py`, `post_trade_analysis.py`) in the AST guard
+
+**Wave 2** *(blocked on Wave 1 — both plans edit `tests/test_price_rounding_invariant.py`)*
+
+- [ ] 22-02-PLAN.md — PRICE-01/02: float() the technical-analysis price-unit momentum sites (`handlers/sqzmom.py`, `indicators/squeeze_momentum.py`) and the literal `round(entry_price, 2)` in `backtesting/sqzmom_backtest.py`; correct the guard docstring; rebuild + force-recreate both services with `docker exec` proof
+
+> **Re-verified 2026-08-27 (Phase 22 CONTEXT).** The 2026-07-30 inventory above is **stale** — 18-20 of its 22 sites were fixed by WS1-B (2026-08-17) and are enforced by the AST guard `tests/test_price_rounding_invariant.py`. Confirmed residue at commit `8168ae4` is **6 files / 11 price-domain sites**: `simple_rsi_strategy.py:214-215`, `handlers/sqzmom.py:109,364,367,370`, `indicators/squeeze_momentum.py:541`, `backtesting/sqzmom_backtest.py:118,120`, `adaptive_rsi.py:162`, `post_trade_analysis.py:151`. Enrolling those six files in the guard also requires classifying 56 further non-price `round(...,2|4)` calls with the `# non-price-round` marker.
+>
+> **PRICE-02's "CI grep gate" is satisfied by the existing AST guard, not by a new `tests/ci/test_no_price_rounding.py`.** The guard is strictly stronger (AST parse across six call shapes, per-line opt-out) and already precedent. Building a parallel grep gate is explicitly out of scope per 22-CONTEXT.md.
 
 > **Re-scoped 2026-07-30.** The original inventory was wrong in three ways — undercounted, misfiled, and scoped too narrowly to catch everything.
 >

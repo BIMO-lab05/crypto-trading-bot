@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
-status: ready_to_plan
-stopped_at: Phase 21 complete (9/9) — ready to discuss Phase 22
-last_updated: 2026-08-27T13:21:48.616Z
-last_activity: 2026-08-26 -- Phase 21 execution started
+status: executing
+stopped_at: "Edge research battery built and executed (branch `feature/edge-research-battery`). `backtesting/edge_lab/` kill-funnel implemented across 13 tasks with per-task review (every task passed adversarial review; notable catches: empty-fetch permanent cache, vol_breakout time-exit off-by-one, import-failure-filed-as-REJECT). Live run 2026-08-17 over pinned top-30 universe (730d daily, 365d 4h, first-ever funding history — 90 files): **4× REJECT, no edge found**. xs_momentum and vol_breakout died at the Gate 1 cost hurdle (best ratio_taker 1.246 / 0.917 vs required 2×); funding_carry thresh_2x and both lf_trend variants cleared Gate 1 (ratios 2.6 / 4.9 / 15.5) but failed Gate 2 CPCV/DSR decisively (DSR ≤ 3.8e-05 vs 0.95, pooled PF ≈ 1.0). Clean kill-funnel outcome per spec §1 — cheap disproof is the deliverable. Evidence: `.planning/evidence/killtests/*-verdict-20260817.{md,json}` + `battery-summary-20260817.md`."
+last_updated: "2026-08-27T13:49:30.024Z"
+last_activity: 2026-08-27 -- Phase 22 planning complete
 progress:
   total_phases: 9
-  completed_phases: 3
-  total_plans: 21
+  completed_phases: 4
+  total_plans: 23
   completed_plans: 21
-  percent: 33
+  percent: 44
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 Phase: 22
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-27
+Status: Ready to execute
+Last activity: 2026-08-27 -- Phase 22 planning complete
 
 ## Uncommitted Work (detected 2026-08-04 — RESOLVED)
 
