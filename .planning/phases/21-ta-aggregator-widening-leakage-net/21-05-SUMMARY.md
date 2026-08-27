@@ -90,6 +90,20 @@ They could not have been gated on it even in principle: `metadata["multi_timefra
 
 The gate is keyed on `demoted_to_hold`, never on the bare action. The narrowness is **test-pinned, not asserted**: `test_regime_hard_block_hold_is_not_recorded_as_an_mtf_demotion` drives a **surviving directional BUY** consensus through consolidation, then lets the regime hard-block force `action = HOLD` afterwards, and asserts `consolidated_action == "BUY"` with `demoted_to_hold is False` while `result.action == HOLD`. A HOLD produced by the regime path is therefore provably outside the gate.
 
+## Key link — verified at the production call site, not just textually
+
+The plan's `key_links` entry (`signal_aggregator.py` → `multi_strategy_ensemble.py` via `metadata['multi_timeframe']['demoted_to_hold']`) is bracketed on both sides by tests: 4 end-to-end tests prove the **writer**, 11 prove the **reader**. Those alone would not prove the object reaching `generate_signal` in production is the one the writer produced — if the live path fed the ensemble from `get_trading_signal` or `get_trading_signal_enhanced`, the block would be absent and the gate would never fire.
+
+**It crosses.** In `services/trading-engine/app/auto_trader.py`:
+
+- `:4677` — `base_signal = await aggregator.get_trading_signal_multi_timeframe(...)` — the exact method that writes the key.
+- `:4756-4757` — `ensemble.generate_signal(base_signal, current_price, capital=float(balance))` — the **same object**.
+- Between the two, `base_signal` is only ever **read** (`:4684`, `:4704`, `:4710`, `:4712`, `:4734`); it is never reassigned or replaced.
+
+So the metadata written by `get_trading_signal_multi_timeframe` is the metadata `generate_signal` inspects, and must-have truth #1 holds on the live path — subject to the deployment caveat below (nothing is rebuilt).
+
+**The gate fails OPEN on both single-timeframe fallback paths.** `get_trading_signal_multi_timeframe` returns early without writing a `multi_timeframe` block when the primary timeframe fails to fetch (`:1102`, falls back to `get_trading_signal`) and when fewer than two timeframes are available (`:1108-1112`, returns `primary_signal`). Neither carries `demoted_to_hold`, so no suppression occurs. That is the correct behaviour — there was no consolidation, therefore no demotion to honour — but it means **the fix is inert in exactly the degraded-fetch condition**. 21-09 should account for that when measuring the "+gates" arm: a window with heavy MTF fetch failure will understate the admission decrease.
+
 ## Candidate follow-up — the regime hard-block (NOT fixed here)
 
 `signal_aggregator.py:1206-1258` forces `primary_signal.action = HOLD` on an ADX-based counter-trend block. This is **arguably the same class of defect**: a system-level HOLD that `simple_rsi` and `mean_reversion` still ignore, because they still do not read `.action`. It is deliberately **named, not fixed** — 21-CONTEXT authorises the MTF route only, and widening the gate to cover it is a larger admission change than this plan is allowed to make. **Recommend it as a 21-09 checkpoint decision.**
