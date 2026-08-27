@@ -8,3 +8,11 @@ __pycache__/
 coverage.json
 .coverage*
 tests/standalone/
+
+# Stale editor/backup copies. app/main.py.bak (32,865 B, mtime 2025-11-10)
+# was deleted 2026-08-27 by P21-8; until then it entered every local build
+# context and shipped its pre-fix CORS block -- a credentialed wildcard that
+# the live source closed in e091826. Runtime-inert, but a stale source file
+# in an image layer is still an information-disclosure surface. Pinned by
+# tests/test_build_context_hygiene.py -- do not remove this glob.
+*.bak
