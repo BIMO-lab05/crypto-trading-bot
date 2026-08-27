@@ -22,8 +22,11 @@ sites survive in the two technical-analysis files scanned first - the
 strategy's `confidence`, and the indicator's `momentum_strength`,
 `band_width_ratio` and _calculate_confidence return. WS1-B's four
 trading-engine files carry twelve more (volume ratios, RSI, position
-fractions, strength scores). Marking a line is a claim that the value is
-dimensionless; do not use it to silence a price.
+fractions, strength scores). Phase 22 enrolled three further trading-engine
+files whose markers cover USD cost aggregates, basis points, ratios, percents,
+seconds and 0-1 scores - those aggregates are why the marker means "not a
+per-unit price" rather than strictly "dimensionless". Marking a line is a
+claim about the value's units; do not use it to silence a price.
 """
 
 from __future__ import annotations
@@ -44,13 +47,14 @@ SCANNED_FILES: tuple[str, ...] = (
     "services/trading-engine/app/strategies/trend_following_strategy.py",
     "services/trading-engine/app/strategies/support_resistance_strategy.py",
     "services/trading-engine/app/utils/support_resistance_detector.py",
+    # Phase 22: the LIVE ensemble path, cleaned 2026-08-27
+    "services/trading-engine/app/strategies/simple_rsi_strategy.py",
 )
 
 # Not yet covered, tracked deliberately:
 #   the OTHER services/technical-analysis/app/indicators/*.py modules
 #                                                     (~17 sites, PRICE-02)
 #   services/technical-analysis/app/handlers/sqzmom.py (4dp momentum)
-#   services/trading-engine/app/strategies/simple_rsi_strategy.py (2 price sites at 4dp, :121-122)
 
 BANNED_NDIGITS = frozenset({2, 4})
 

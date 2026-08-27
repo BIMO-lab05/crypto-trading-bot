@@ -207,11 +207,16 @@ class SimpleRSIStrategy:
             f"ATR-based stop {atr_fraction * 100:.2f}% × {self.ATR_STOP_MULT}x, R/R 1:{self.REWARD_RISK}"
         )
 
+        # PRICE-01: 4dp is exactly the ADAUSDT tick, so a 4dp stop was
+        # quantized onto one tick and every sub-tick offset was destroyed.
+        # These values reach the order layer unchanged (leg 1 of
+        # MultiStrategyEnsemble), and tick quantization belongs at order time
+        # in app/costs.py quantize_price, not here.
         return SimpleRSISignal(
             action=action,
-            confidence=round(confidence, 4),
+            confidence=round(confidence, 4),  # non-price-round
             entry_price=current_price,
-            stop_loss=round(stop_loss, 4),
-            take_profit=round(take_profit, 4),
+            stop_loss=float(stop_loss),
+            take_profit=float(take_profit),
             reasoning=reasoning,
         )
