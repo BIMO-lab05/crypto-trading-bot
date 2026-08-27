@@ -184,6 +184,7 @@ def _atr_is_usable(atr_data) -> bool:
 # ---------------------------------------------------------------------------
 
 REJECT_MTF_DEMOTED = "mtf_demoted"
+REJECT_REGIME_BLOCKED = "regime_blocked"
 REJECT_NO_DIRECTIONAL_LEGS = "no_directional_legs"
 REJECT_INSUFFICIENT_DIVERSITY = "insufficient_category_diversity"
 REJECT_INSUFFICIENT_AGREEING_LEGS = "insufficient_agreeing_legs"
@@ -712,10 +713,14 @@ class MultiStrategyEnsemble:
         # reading is simpler and needs no metadata key, but `action == HOLD`
         # arrives from four distinct upstream causes — this demotion, a raw
         # consensus that was genuinely HOLD, the regime hard-block
-        # (signal_aggregator.py:1206+), and a per-timeframe requirements gate
-        # resolving HOLD inside aggregator_core. Gating on the bare action would
-        # suppress the last two as well, which 21-CONTEXT does not authorise.
-        # The regime hard-block is recorded as a candidate follow-up, not fixed.
+        # (signal_aggregator.py:1243-1281), and a per-timeframe requirements
+        # gate resolving HOLD inside aggregator_core. Gating on the bare action
+        # would collapse all four into one cause the funnel cannot tell apart.
+        # P22.1-2 (DEFER-21-02, 2026-08-27): the regime hard-block IS now gated
+        # — in the SEPARATE gate immediately below, keyed on its own top-level
+        # `regime_blocked` flag and recording its own rejection reason. One gate
+        # per cause is the whole point, and the bare-action reading is exactly
+        # what would have destroyed it. The requirements gate remains ungated.
         #
         # IDENTITY CHECK, not truthiness. `demoted_to_hold` is an untyped entry
         # in a plain dict that now decides whether ANY trade is produced. A
@@ -759,6 +764,70 @@ class MultiStrategyEnsemble:
                 f"multi-timeframe consolidation demoted the consensus to HOLD "
                 f"(consensus={mtf_meta.get('consensus_action')!r}, "
                 f"consolidated={mtf_meta.get('consolidated_action')!r})",
+            )
+            return None
+
+        # REGIME HARD-BLOCK GATE — P22.1-2 (DEFER-21-02), 2026-08-27.
+        #
+        # The last of the four HOLD causes above to get a consumer. When
+        # market_regime.apply_regime_adjustment hard-blocks a counter-trend
+        # consensus, signal_aggregator records the decision as a TOP-LEVEL
+        # `metadata["regime_blocked"]` bool and forces the action to HOLD
+        # (signal_aggregator.py:1256-1281). Half the machinery already existed:
+        # the aggregator wrote the flag, nothing read it.
+        #
+        # The defect this closes is identical in shape to the MTF one above.
+        # `multi_indicator` honours the block only incidentally, through its own
+        # guard further down. `simple_rsi` and `mean_reversion` are dispatched
+        # off the indicator dict and never read the aggregator's decision at
+        # all, so two of three legs traded straight past a system-level
+        # rejection. Measured before the fix, on a blocked payload: both legs
+        # dispatched once each (the RED run of
+        # tests/strategies/test_ensemble_confidence_units.py).
+        #
+        # NARROW BY CONSTRUCTION. Keyed on the `regime_blocked` flag, never on
+        # `aggregator_signal.action == SignalAction.HOLD`. The paragraph above
+        # says why collapsing the four causes is not on offer; the narrowness
+        # pin in tests/strategies/test_ensemble_confidence_units.py drives a
+        # HOLD carrying no regime flag through to both legs and fails if this
+        # ever widens.
+        #
+        # IDENTITY CHECK, not truthiness, and FAIL OPEN on the container. This
+        # is an untyped entry in a plain dict that now decides whether ANY trade
+        # is produced. A truthiness test would let one malformed upstream value
+        # (the string "true", a stray 1) silently halt every signal the engine
+        # emits, with no error and no log to find it by — a denial of service
+        # wearing the costume of a risk control. The `or {}` covers a missing
+        # metadata container for the same reason: garbage must degrade to the
+        # pre-fix behaviour, never to a global halt. Unlike the MTF flag this
+        # one is top-level, so no isinstance layer is needed.
+        #
+        # NO THRESHOLD VALUE CHANGED. MIN_AGREEING_LEGS (1),
+        # AGGREGATION_THRESHOLD (0.10) and min_signal_confidence (0.30) are
+        # untouched — this adds a consumer for a flag that already existed, it
+        # tunes nothing. The behavioural threshold lock in
+        # tests/strategies/test_ensemble_confidence_units.py (`-k threshold_lock`)
+        # was observed green before this gate landed and must stay green after.
+        #
+        # EXPECTED EFFECT: trade admission DECREASES — fewer trades in
+        # counter-trend regimes. The operator ratified that direction on
+        # 2026-08-27 (22.1-CONTEXT item A); no ablation is required, this is the
+        # same class as the already-measured MTF gate. It is a wiring fix and no
+        # P&L or edge claim attaches to it.
+        signal_metadata = aggregator_signal.metadata or {}
+        if signal_metadata.get("regime_blocked") is True:
+            regime_reason = signal_metadata.get("regime_adjustment_reason")
+            logger.info(
+                f"[ENSEMBLE] HOLD — the regime hard-block rejected {symbol}; "
+                "all three legs suppressed. Previously only the multi_indicator "
+                "leg honoured it (via its own guard) while simple_rsi and "
+                "mean_reversion never read the aggregator's decision. "
+                f"reason={regime_reason}"
+            )
+            self._reject(
+                REJECT_REGIME_BLOCKED,
+                f"the regime hard-block rejected this consensus "
+                f"(reason={regime_reason!r})",
             )
             return None
 

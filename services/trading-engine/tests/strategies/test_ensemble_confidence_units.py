@@ -319,9 +319,12 @@ def test_threshold_lock_constants_are_unchanged(ensemble_module):
 # `.action`, so they traded straight past a decision the system already made.
 #
 # The gate below is keyed on the narrow `demoted_to_hold` flag added in Task 2,
-# NOT on `aggregator_signal.action == HOLD`. The broad reading would also
-# swallow the regime hard-block and the upstream requirements gate, which
-# 21-CONTEXT does not authorise.
+# NOT on `aggregator_signal.action == HOLD`. The broad reading would collapse
+# four distinct upstream causes into one the funnel cannot tell apart. The
+# regime hard-block is now gated too (P22.1-2 / DEFER-21-02, 2026-08-27) -- by
+# its OWN top-level `regime_blocked` flag, in the suite at the bottom of this
+# file, with its own rejection reason. One gate per cause; the per-timeframe
+# requirements gate remains ungated.
 # ---------------------------------------------------------------------------
 
 
