@@ -38,6 +38,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional, Any, Tuple
 import statistics
 
+from app.config import get_settings
 from app.strategies.base import (
     StrategyBase,
     StrategySignal,
@@ -67,7 +68,17 @@ class TrendFollowingConfig:
     ema_slow_period: int = 200
 
     # ADX parameters
-    adx_period: int = 14
+    #
+    # There is no `adx_period` field here (DEFER-21-04, 2026-08-27). This
+    # dataclass declared its own 14 while technical-analysis declared
+    # `default_adx_period = 14` for its own endpoint and the sibling
+    # `trend_following_strategy` module declared a third — three copies of one
+    # number, agreeing only by coincidence. The engine now declares the ADX
+    # lookback once, as the Settings field of that name, and `_calculate_adx`
+    # below resolves it per call. Note `create_trend_following_strategy`
+    # applies `config_overrides` behind a `hasattr` guard, so an `adx_period`
+    # key passed there is no longer accepted and would be dropped without an
+    # error — move the Settings field instead.
     adx_trend_threshold: float = 20.0  # Above this = trending (lowered from 25.0 to admit weak-trend regimes; with EMA alignment + MACD still gating entries, this catches early trend continuation that 25 was rejecting)
     adx_strong_trend: float = 40.0  # Strong trend
 
@@ -108,7 +119,6 @@ class TrendFollowingConfig:
             "ema_fast": self.ema_fast_period,
             "ema_medium": self.ema_medium_period,
             "ema_slow": self.ema_slow_period,
-            "adx_period": self.adx_period,
             "adx_threshold": self.adx_trend_threshold,
             "risk_per_trade_pct": self.risk_per_trade_pct,
             "use_trailing_stop": self.use_trailing_stop,
@@ -236,7 +246,12 @@ class TrendFollowingStrategy(StrategyBase):
 
         Returns ADX, +DI, and -DI
         """
-        period = period or self.strategy_config.adx_period
+        # Resolved per call, never in the parameter default: Python evaluates
+        # default arguments once at import, which would freeze the setting at
+        # module-load time and make an operator override invisible
+        # (.claude/rules/money.md). `is None` rather than `or` so the two
+        # trend-following files resolve this identically.
+        period = get_settings().adx_period if period is None else period
 
         if len(highs) < period * 2:
             return {"adx": None, "plus_di": None, "minus_di": None}
