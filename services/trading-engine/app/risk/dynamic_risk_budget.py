@@ -338,13 +338,21 @@ class DynamicRiskBudget:
     8. Strategy Allocation: Distributes budget across strategies
 
     Usage:
+        from app.config import get_settings
+
         config = RiskBudgetConfig(base_risk_pct=2.0)
         # base_equity resolves from Settings (paper_initial_balance)
         budget_manager = DynamicRiskBudget(config)
 
-        # Calculate risk budget
+        # Calculate risk budget. `equity` is account equity: resolve it from
+        # this service's own Settings, never from a literal. A bare 10000 is
+        # numerically correct for the $10,000 research account (ADR-029) and
+        # is STILL a defect — it bypasses the declared config and silently
+        # decouples on the next re-scale. In-container code reads
+        # Settings.paper_initial_balance and must never `import
+        # shared.account` (.claude/rules/money.md).
         result = budget_manager.calculate_risk_budget(
-            equity=10000,
+            equity=get_settings().paper_initial_balance,
             volatility=60,
             drawdown=0.05
         )

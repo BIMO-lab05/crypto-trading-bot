@@ -161,13 +161,21 @@ class PortfolioHeatManager:
     - Tracks correlation risk (BTC-correlated exposure)
 
     Usage:
+        from app.config import get_settings
+
         heat_manager = PortfolioHeatManager(config)
 
-        # Before opening a trade
+        # Before opening a trade. `equity` is account equity: resolve it from
+        # this service's own Settings, never from a literal. A bare 10000 is
+        # numerically correct for the $10,000 research account (ADR-029) and
+        # is STILL a defect — it bypasses the declared config and silently
+        # decouples on the next re-scale. In-container code reads
+        # Settings.paper_initial_balance and must never `import
+        # shared.account` (.claude/rules/money.md).
         can_trade, reason, multiplier = heat_manager.can_open_trade(
             symbol="ETHUSDT",
             proposed_risk_pct=1.5,
-            equity=10000
+            equity=get_settings().paper_initial_balance
         )
 
         if can_trade:
@@ -178,7 +186,9 @@ class PortfolioHeatManager:
         heat_manager.add_position(position_risk)
 
         # Get current status
-        status = heat_manager.get_status(equity=10000)
+        status = heat_manager.get_status(
+            equity=get_settings().paper_initial_balance
+        )
     """
 
     def __init__(self, config: Optional[PortfolioHeatConfig] = None):

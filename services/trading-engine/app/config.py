@@ -426,6 +426,47 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Mirror-literal cluster, third tranche (DEFER-21-04, 2026-08-27; recorded
+    # in `.planning/phases/21-ta-aggregator-widening-leakage-net/deferred-items.md`).
+    # One number, declared three times. The ADX lookback the two dormant
+    # trend-following strategies compute with was:
+    #   - `strategies/trend_following.py` — an `adx_period` field on the
+    #     `TrendFollowingConfig` dataclass, read by that file's local ADX
+    #     calculation.
+    #   - `strategies/trend_following_strategy.py` — a module constant
+    #     `ADX_PERIOD`, which in turn defaulted a constructor parameter no
+    #     caller ever passed, that file's own local ADX calculation, and its
+    #     warm-up length check.
+    #
+    # READ THIS BEFORE TREATING IT LIKE THE TRANCHE ABOVE: this is NOT a
+    # request parameter. Neither trend-following file contains an HTTP client
+    # — both compute ADX LOCALLY from OHLCV arrays, so there is no outbound
+    # ADX request here to omit anything from, and the omission contract in
+    # `tests/test_engine_param_omission.py` does not apply to these sites.
+    # This field is the engine-side declaration of the same lookback
+    # technical-analysis declares for its own /indicators/adx endpoint
+    # (`default_adx_period`). Both were 14 and nothing read one from the
+    # other: they agreed by coincidence, which means a single deliberate
+    # change on the TA side would have moved TA's number and left the engine
+    # computing with the old one, silently.
+    #
+    # Consequence worth knowing: `create_trend_following_strategy` applies
+    # `config_overrides` behind a `hasattr` guard, so an `adx_period` key
+    # passed there is no longer an accepted override — it would be dropped
+    # without an error. Move this Settings field instead.
+    # NO VALUE CHANGED — 14 is the literal it replaces.
+    adx_period: int = Field(
+        default=14,
+        ge=2,
+        le=200,
+        description=(
+            "ADX lookback the engine's trend-following strategies compute "
+            "with locally. Mirrors technical-analysis default_adx_period, "
+            "which that service resolves for its own ADX endpoint. An "
+            "explicit caller-supplied period still outranks this default."
+        ),
+    )
+
     # `sqzmom_volume_ratio_min` has NO technical-analysis counterpart. The TA
     # volume endpoint returns `ratio` and `confirmed` but declares no
     # minimum-ratio setting, so this threshold is engine-owned rather than

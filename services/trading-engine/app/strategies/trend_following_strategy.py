@@ -53,6 +53,7 @@ import numpy as np
 import pandas as pd
 
 # Import models from trading engine
+from app.config import get_settings
 from app.models import SignalAction, IndicatorSignal
 
 # Configure logging for this module
@@ -99,7 +100,16 @@ MACD_SIGNAL = 9  # Signal line period
 MACD_HISTOGRAM_THRESHOLD = 0  # Histogram must be positive/negative
 
 # ADX Parameters for Trend Strength
-ADX_PERIOD = 14  # ADX calculation period
+#
+# There is no ADX-lookback constant here (DEFER-21-04, 2026-08-27). This
+# module declared its own 14 while technical-analysis declared
+# `default_adx_period = 14` for its own /indicators/adx endpoint and the
+# sibling `trend_following` module declared a third on its config dataclass —
+# three copies of one number, agreeing only by coincidence, so a single
+# deliberate change to any one of them would have left the other two applying
+# the old value, silently. The engine now declares the lookback once, as the
+# Settings field `adx_period`, and every site below resolves it per call.
+# NO VALUE CHANGED — 14 is the literal this replaced.
 ADX_STRONG_TREND = 25  # ADX > 25 = strong trend
 ADX_VERY_STRONG_TREND = 35  # ADX > 35 = very strong trend
 ADX_MIN_FOR_ENTRY = 20  # Minimum ADX for trend entry
@@ -363,7 +373,6 @@ class TrendFollowingStrategy:
         ema_fast: int = EMA_FAST,
         ema_medium: int = EMA_MEDIUM,
         ema_slow: int = EMA_SLOW,
-        adx_period: int = ADX_PERIOD,
         atr_period: int = ATR_PERIOD,
         enable_pyramiding: bool = PYRAMID_ENABLED,
     ):
@@ -374,15 +383,23 @@ class TrendFollowingStrategy:
             ema_fast: Fast EMA period
             ema_medium: Medium EMA period
             ema_slow: Slow EMA period
-            adx_period: ADX calculation period
             atr_period: ATR calculation period
             enable_pyramiding: Whether to enable pyramiding
+
+        Note:
+            The ADX lookback is NOT a parameter here (DEFER-21-04,
+            2026-08-27). The engine declares it once as the Settings field
+            `adx_period`, and technical-analysis declares the same lookback
+            (`default_adx_period`) for its own /indicators/adx endpoint, so a
+            third per-instance copy on this constructor agreed with both only
+            by coincidence. No caller ever passed it. Accepting it anyway
+            would be worse than not accepting it: a caller could set the
+            argument, see no error, and get no effect.
         """
         # Strategy parameters
         self.ema_fast = ema_fast
         self.ema_medium = ema_medium
         self.ema_slow = ema_slow
-        self.adx_period = adx_period
         self.atr_period = atr_period
         self.enable_pyramiding = enable_pyramiding
 
@@ -399,7 +416,6 @@ class TrendFollowingStrategy:
         # Log initialization
         logger.info("TrendFollowingStrategy initialized with parameters:")
         logger.info(f"  EMAs: {ema_fast}/{ema_medium}/{ema_slow}")
-        logger.info(f"  ADX period: {adx_period}")
         logger.info(f"  ATR period: {atr_period}")
         logger.info(f"  Pyramiding: {'enabled' if enable_pyramiding else 'disabled'}")
 
@@ -459,18 +475,24 @@ class TrendFollowingStrategy:
         return atr
 
     def _calculate_adx(
-        self, df: pd.DataFrame, period: int = ADX_PERIOD
+        self, df: pd.DataFrame, period: Optional[int] = None
     ) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
         Calculate ADX and DI lines
 
         Args:
             df: DataFrame with OHLC columns
-            period: ADX calculation period
+            period: ADX calculation period; resolves from Settings when None
 
         Returns:
             Tuple of (ADX, +DI, -DI)
         """
+        # Resolved per call, never in the parameter default: Python evaluates
+        # default arguments once at import, which would freeze the setting at
+        # module-load time and make an operator override invisible
+        # (.claude/rules/money.md).
+        period = get_settings().adx_period if period is None else period
+
         high_diff = df["high"].diff()
         low_diff = -df["low"].diff()
 
@@ -1359,7 +1381,7 @@ class TrendFollowingStrategy:
         logger.debug(f"Generating trend following signal at price {current_price:.2f}")
 
         # Need sufficient data
-        if df is None or len(df) < max(self.ema_slow, ADX_PERIOD) + 20:
+        if df is None or len(df) < max(self.ema_slow, get_settings().adx_period) + 20:
             logger.warning("Insufficient data for trend following strategy")
             return None
 
@@ -1548,7 +1570,6 @@ class TrendFollowingStrategy:
                 "min_separation": TREND_MIN_EMA_SEPARATION,
             },
             "adx": {
-                "period": self.adx_period,
                 "strong_trend": ADX_STRONG_TREND,
                 "very_strong": ADX_VERY_STRONG_TREND,
                 "min_for_entry": ADX_MIN_FOR_ENTRY,
