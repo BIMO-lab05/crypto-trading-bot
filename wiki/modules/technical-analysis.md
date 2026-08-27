@@ -48,6 +48,13 @@ Aggregation: `GET /api/v1/indicators/signal/{symbol}` (five-voter weighted vote 
 > actually trades is by construction, not a bug** - they are two different
 > aggregators with different voters, different weights and different gates.
 > Do not debug one by reading the other.
+>
+> **This applies to `/indicators/signal/{symbol}` ONLY.** The sibling
+> `GET /api/v1/analysis/multi-timeframe/{symbol}` **is** consumed by the
+> engine — `trading-engine/app/aggregation/enhanced_aggregator.py:242`,
+> reached from `signal_aggregator.py:986`. Do not generalise "dashboard-only"
+> across the whole aggregation family; a change to `analyze_timeframe` has
+> live blast radius, a change to `get_aggregated_signal` does not.
 
 Pure TA, five voters (`app/handlers/analysis.py::get_aggregated_signal`, `:25`). Each calculator's `generate_signal()` (or equivalent) produces a `(label, confidence)` tuple and the aggregator does a weighted vote using each indicator's *own derived* confidence (fixed in commit `2d2c524`, MACD branch unwedged in `af7fdd9`):
 
@@ -64,7 +71,7 @@ Pure TA, five voters (`app/handlers/analysis.py::get_aggregated_signal`, `:25`).
 
 **Volume never votes and never changes the label.** Its labels are CONFIRM/REJECT — directionally agnostic, and they would `KeyError` the weight dict. It multiplies the confidence of an already-decided directional signal (STRONG confirm 1.0, confirmed 0.9, MODERATE 0.8, WEAK 0.75, otherwise 0.5), mirroring the engine's `aggregation/validator.py`. This was a measured decision on 2026-08-17; promoting it to a voter is a defect, not an enhancement. A `volume_ratio` of exactly `0.0` is `VolumeConfirmation._reject_response()` (`volume_confirmation.py:129–142`) — fewer than `period` bars or a swallowed exception — and is read as **absence** of information, taking the pass-through 1.0 rather than the 0.5 disconfirmation penalty (`analysis.py:210`).
 
-**Every parameter above resolves from `Settings`** (P21-6, 2026-08-26). No voter is built with a bare constructor and neither kline window is a literal; the window is `settings.default_aggregate_limit`, which carries a cross-field warm-up floor validator in `app/config.py`. `analyze_timeframe` (`analysis.py:296`) is the second copy of the same construction block and is wired identically.
+**Every parameter above resolves from `Settings`** (P21-6, 2026-08-26). No voter is built with a bare constructor and neither kline window is a literal; the window is `settings.default_aggregate_limit`, which carries a cross-field warm-up floor validator in `app/config.py`. `analyze_timeframe` (`analysis.py:296`) is the second copy of the same construction block and is wired identically — and unlike `get_aggregated_signal` it sits on a live engine path, so its parameters are not merely cosmetic.
 
 **Confidence is agreement-based (audit 2026-07, `analysis.py:183–199`).** For a directional outcome, confidence = winning direction's share of the **directional** weight (`BUY + SELL`), excluding HOLD from the denominator. Previously HOLD voters diluted the denominator, structurally capping aggregated confidence around ~0.47 and keeping the service in near-permanent HOLD. The multi-timeframe consensus applies the same fix (`analysis.py:412–435`): directional confidence = winning timeframes / directional timeframes. Note the multi-timeframe path votes on RSI + MACD + trend only — it does **not** consult ADX or SQZMOM.
 
@@ -152,9 +159,12 @@ Phase 21 (TA-AGG-01 residue + P21-6), verified against source:
   were `limit=200`. No numeric value changed — each settings default already
   equalled the constructor default it replaced, which is precisely why the
   drift would have stayed invisible.
-- **Dashboard-only status recorded explicitly.** The trading-engine has never
-  consumed this endpoint; only [[api-gateway]] proxies it. This was implicit
-  before and invited reading a dashboard number as the traded signal.
+- **Dashboard-only status recorded explicitly, and scoped.** The
+  trading-engine has never consumed `/indicators/signal/{symbol}`; only
+  [[api-gateway]] proxies it. This was implicit before and invited reading a
+  dashboard number as the traded signal. The scope matters: the sibling
+  multi-timeframe endpoint **is** engine-consumed
+  (`enhanced_aggregator.py:242`), so the two must not be lumped together.
 - **Line anchors in the *Signal aggregator* section were re-derived** against
   post-P21-6 source. The `analysis.py:114–136` / `:293–314` refs recorded in
   *Corrections 2026-07-29* below are correct for that date and are left as

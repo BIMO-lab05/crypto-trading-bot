@@ -13,8 +13,8 @@ provides:
   - default_aggregate_limit wired into both kline fetches (closes 21-02's half-satisfied must-have)
   - wiki page describing the endpoint's real vote composition and dashboard-only status
 affects:
-  - dashboard consumers of GET /api/v1/indicators/signal/{symbol} (no numeric change — see zero-delta table)
-  - GET /api/v1/analysis/multi-timeframe/{symbol} (same, second construction block)
+  - dashboard consumers of GET /api/v1/indicators/signal/{symbol} (dashboard-only; no numeric change — see zero-delta table)
+  - GET /api/v1/analysis/multi-timeframe/{symbol} — ENGINE-CONSUMED via enhanced_aggregator.py:242, not dashboard-only (no numeric change)
 tech-stack:
   added: []
   patterns:
@@ -40,13 +40,15 @@ completed: 2026-08-27
 
 The three gates that keep a dead ADX, a confident SQZMOM HOLD and an absent volume reading out of the dashboard aggregate vote are now regression-tested and mutation-proven; every voter parameter in both handlers resolves from TA `Settings`; and the wiki describes the vote the code actually casts rather than the one the 2026-05-23 requirement text imagined.
 
-**Tasks:** 3/3 · **Files:** 0 created, 3 modified · **Commits:** 3 · **TA suite:** 698 → **709 passed**
+**Tasks:** 3/3 · **Files:** 0 created, 3 modified · **Commits:** 3 task + 2 doc · **TA suite:** 698 → **709 passed**
 
 | Task | Commit | What landed |
 |---|---|---|
 | 1 — TA-AGG-01 gating tests | `c2c209b` | 3 gating tests + `volume_ratio` parametrized in `_patched()` |
 | 2 — P21-6 settings sourcing | `1d2e9a2` | `analysis.py` rewire + 8 constructor/routing tests |
 | 3 — wiki correction | `8eed75f` | `wiki/modules/technical-analysis.md` |
+| — SUMMARY | `1bd0db3` | this file |
+| — post-review scope fix | see log | wiki MTF scoping + this section (Deviation 5) |
 
 ## What this plan did NOT do (read before citing it)
 
@@ -187,12 +189,38 @@ No settings field was invented for these. `VolumeConfirmation.breakout_threshold
 - All three files were edited through Bash + `pathlib` scripts rather than the `Edit` tool, per the wave-1 carry-forward warning about the 396-line reflow incident. Result: `analysis.py` diff is **45 insertions / 8 deletions**, surgical, and `git diff | grep -E '^[+-](import|from)'` returns **no output** — zero import churn.
 - One script wrote `rstrip("\\n")` where a real newline was intended, injecting a literal `\n` token into the test file and breaking collection with `SyntaxError: unexpected character after line continuation character`. Caught immediately by the test run, repaired in place, suite re-run green. Recorded because it is the failure mode of the workaround itself.
 
-**Total deviations:** 4 (2 missing-critical test strengthenings, 1 doc-anchor correction, 1 tooling workaround). **Impact:** the tests catch regressions the plan's specified assertions provably would not; no traded parameter moved; no numeric behavior changed.
+### 5. [Rule 1 — Bug] "Dashboard-only" was scoped too broadly in the wiki
+
+- **Found during:** post-completion review, grepping the engine for the
+  *sibling* endpoint rather than only the one under test.
+- **Issue:** the plan, CONTEXT and this SUMMARY all frame the aggregate path
+  as dashboard-only, which is correct for `GET /api/v1/indicators/signal/
+  {symbol}` (zero hits in `services/trading-engine/app/`). But
+  `GET /api/v1/analysis/multi-timeframe/{symbol}` — served by
+  `analyze_timeframe`, which **this plan modified** — *is* consumed by the
+  engine: `trading-engine/app/aggregation/enhanced_aggregator.py:242`,
+  reached from `signal_aggregator.py:986`. The wiki's dashboard-only
+  blockquote opened the same section that then describes `analyze_timeframe`,
+  so a reader could reasonably generalise the claim across both endpoints.
+- **Why it matters:** it would understate the blast radius of any *future*
+  edit to `analyze_timeframe`. It does not change this plan's outcome — the
+  delta on that path is zero (TrendFilter 50/200 → 50/200, `limit` 200 → 200)
+  — but "no behavior changed" and "no live path touched" are different claims
+  and only the first is true.
+- **Fix:** the wiki blockquote now names the exception explicitly and the
+  `analyze_timeframe` sentence says it sits on a live engine path. The
+  corrections section records the scoping.
+- **Verified:** `grep -rn "indicators/signal" services/trading-engine/app/`
+  → 0 hits. `grep -rn "analysis/multi-timeframe" services/trading-engine/app/`
+  → 1 hit (`enhanced_aggregator.py:242`).
+
+**Total deviations:** 5 (2 missing-critical test strengthenings, 2 doc corrections, 1 tooling workaround). **Impact:** the tests catch regressions the plan's specified assertions provably would not; no traded parameter moved; no numeric behavior changed.
 
 ## Deferred Issues
 
 - **`analysis.py:145` cites `sqzmom_enhanced.py:687-688`; the constant is at `:692`.** Not corrected here — the plan mandates that comment block be preserved verbatim, and the surrounding reasoning is what makes the gate legible. The wiki carries the verified ref and names the discrepancy. A future touch of that comment block should fix it.
 - **`21-02`'s `test_ichimoku_displacement.py:30-33` stale comments** remain stale (noted in that plan's SUMMARY, outside this plan's `files_modified`). Untouched.
+- **The wiki's `updated:` field is pinned to `2026-08-26`, not the execution date `2026-08-27`.** This is deliberate: three of Task 3's acceptance criteria grep for the literal `2026-08-26` (`updated: 2026-08-26`, `Corrections 2026-08-26`). Do **not** "correct" it forward — that breaks the criteria. The phase's context, audit and plan all carry the 2026-08-26 date.
 
 ## Threat Flags
 
@@ -227,5 +255,6 @@ Commits verified in `git log`:
 - `c2c209b` test(technical-analysis) — FOUND
 - `1d2e9a2` fix(technical-analysis) — FOUND
 - `8eed75f` docs(technical-analysis) — FOUND
+- `1bd0db3` docs(21-04) SUMMARY — FOUND
 
 Plan-level `<verification>` re-run at the final tree: TA suite **709 passed / 0 failed**, `test_leakage_regression.py -k aggregate` **8 passed**. `STATE.md` and `ROADMAP.md` deliberately untouched (orchestrator owns those writes).
