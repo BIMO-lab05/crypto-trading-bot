@@ -48,7 +48,7 @@ patterns-established:
 requirements-completed: [PRICE-01, PRICE-02]
 
 # Metrics
-duration: 42 min
+duration: ~30 min (approximate - see Performance)
 completed: 2026-08-27
 ---
 
@@ -58,9 +58,13 @@ completed: 2026-08-27
 
 ## Performance
 
-- **Duration:** 42 min
-- **Started:** 2026-08-27T13:26:00Z
-- **Completed:** 2026-08-27T14:08:26Z
+- **Duration:** ~30 min, **approximate**. The measured span from the first task commit to the
+  final commit is **14.4 min** (13:56:37Z -> 14:11:03Z). No plan start timestamp was captured,
+  so the total is reconstructed by adding the orientation phase that preceded the RED commit
+  (context reads plus the 335 s pre-change baseline run). Treat the total as an estimate and the
+  14.4 min span as the only measured figure.
+- **First task commit:** 2026-08-27T13:56:37Z
+- **Completed:** 2026-08-27T14:11:03Z
 - **Tasks:** 3
 - **Files modified:** 5 (1 created, 4 modified)
 

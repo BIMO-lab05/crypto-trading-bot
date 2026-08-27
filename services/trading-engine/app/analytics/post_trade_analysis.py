@@ -154,7 +154,7 @@ class ExecutionQuality:
         """Convert to dictionary for API response"""
         return {
             "implementation_shortfall": round(self.implementation_shortfall, 4),  # non-price-round
-            "implementation_shortfall_bps": round(# non-price-round
+            "implementation_shortfall_bps": round(  # non-price-round
                 self.implementation_shortfall_bps, 2
             ),
             # PRICE-01: a per-unit price DELTA, not a USD total -

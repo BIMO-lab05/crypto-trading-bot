@@ -23,10 +23,11 @@ strategy's `confidence`, and the indicator's `momentum_strength`,
 `band_width_ratio` and _calculate_confidence return. WS1-B's four
 trading-engine files carry twelve more (volume ratios, RSI, position
 fractions, strength scores). Phase 22 enrolled three further trading-engine
-files whose markers cover USD cost aggregates, basis points, ratios, percents,
-seconds and 0-1 scores - those aggregates are why the marker means "not a
-per-unit price" rather than strictly "dimensionless". Marking a line is a
-claim about the value's units; do not use it to silence a price.
+files whose markers cover USD cost and volume aggregates, basis points, ratios,
+percents, seconds, and bounded readings (RSI 0-100, confidence and strength
+0-1) - those USD aggregates are why the marker means "not a per-unit price"
+rather than strictly "dimensionless". Marking a line is a claim about the
+value's units; do not use it to silence a price.
 """
 
 from __future__ import annotations
