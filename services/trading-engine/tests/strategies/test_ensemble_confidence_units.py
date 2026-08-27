@@ -200,3 +200,110 @@ def test_aggregation_threshold_still_enforced(ensemble_module, monkeypatch):
     assert out is None, (
         "conviction 0.05 is below AGGREGATION_THRESHOLD=0.10 and must not emit"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 21 threshold lock (Plan 21-05, Task 1)
+#
+# Landed BEFORE any gating change in Plans 21-05 / 21-06 so every later change
+# is measured against a floor that was observed green first.
+# ---------------------------------------------------------------------------
+
+
+def test_threshold_lock_lone_multi_indicator_leg_at_the_conviction_floor_emits(
+    ensemble_module, monkeypatch
+):
+    """LOCK: one directional leg at conviction 0.30 must still produce a signal.
+
+    What this locks
+    ---------------
+    The *effective* gate on ensemble admission -- not the constants that spell it
+    out. ``21-CONTEXT.md`` locks three values for the whole of Phase 21:
+
+        min_signal_confidence = 0.30   (app/config.py:506)
+        AGGREGATION_THRESHOLD = 0.10   (multi_strategy_ensemble.py:239)
+        MIN_AGREEING_LEGS     = 1      (multi_strategy_ensemble.py:242)
+
+    behind the Phase-3 verdict: **no threshold change** -- IS/OOS rankings invert,
+    so tuning them fits noise.
+
+    Which plans would break it
+    --------------------------
+    Plan 21-05 gates every ensemble leg on an MTF demote-to-HOLD. Plan 21-06 adds
+    a leg source-diversity guard so ``simple_rsi`` and ``mean_reversion``
+    co-firing on the same RSI print stop counting as independent confirmation.
+    Both are wiring fixes; neither may move the floor.
+
+    A category-diversity guard is ``MIN_AGREEING_LEGS = 2`` wearing a different
+    hat: it leaves all three constants untouched while making this exact payload
+    -- the lone ``multi_indicator`` leg -- stop emitting. An over-broad
+    ``action == HOLD`` suppression does the same. That is precisely why the
+    load-bearing assertion here is BEHAVIORAL, and why the constants companion
+    below is explicitly not sufficient on its own: a constants-only test passes
+    in both worlds.
+
+    The single-leg case is reachable at all only because the 2026-08-23 fix
+    normalises the weighted score over the legs that took a *directional* side.
+    Before it a lone leg was capped at 1/3 of its conviction and could never
+    clear 0.30, so the two knobs contradicted each other.
+    """
+    from app.config import get_settings
+
+    _silence_legs(monkeypatch)
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    floor = get_settings().min_signal_confidence
+
+    out = ens.generate_signal(
+        _agg_signal(SignalAction.BUY, floor), current_price=100.0, capital=None
+    )
+
+    assert out is not None, (
+        "THRESHOLD LOCK BROKEN: a lone multi_indicator leg at conviction "
+        f"{floor} no longer emits. No threshold value has to change for this to "
+        "regress -- a diversity guard or an over-broad HOLD gate suppresses the "
+        "same payload while MIN_AGREEING_LEGS, AGGREGATION_THRESHOLD and "
+        "min_signal_confidence still read 1 / 0.10 / 0.30. Re-read "
+        "21-CONTEXT.md's locked constraint before changing this."
+    )
+    assert out.action == SignalAction.BUY
+    assert out.confidence == pytest.approx(floor, abs=1e-9), (
+        f"conviction must survive undiluted: expected {floor}, got {out.confidence}"
+    )
+    assert out.confidence >= floor, (
+        "the emitted conviction must still clear the downstream "
+        "min_signal_confidence floor that "
+        "auto_trader._ensemble_passes_signal_gates applies"
+    )
+
+
+def test_threshold_lock_constants_are_unchanged(ensemble_module):
+    """The cheap companion to the behavioral lock above -- keep BOTH.
+
+    This one alone proves nothing. Any effective-gate change (a diversity guard,
+    a broad ``action == HOLD`` suppression, an MTF gate that swallows the
+    single-leg case) leaves every constant byte-identical. It is here to catch
+    the blunt edit and to name the approval requirement in its failure message.
+    """
+    from app.config import get_settings
+
+    approval = (
+        "Changing this value requires EXPLICIT OPERATOR APPROVAL -- CLAUDE.md "
+        "section 5 (risk caps are non-negotiable) and 21-CONTEXT.md's locked "
+        "constraint 'NO changes to threshold values'. The Phase-3 verdict "
+        "stands: no threshold change, IS/OOS rankings invert."
+    )
+
+    ens_cls = ensemble_module.MultiStrategyEnsemble
+
+    assert ens_cls.MIN_AGREEING_LEGS == 1, (
+        f"MIN_AGREEING_LEGS is {ens_cls.MIN_AGREEING_LEGS}, expected 1. {approval}"
+    )
+    assert ens_cls.AGGREGATION_THRESHOLD == 0.10, (
+        f"AGGREGATION_THRESHOLD is {ens_cls.AGGREGATION_THRESHOLD}, expected "
+        f"0.10. {approval}"
+    )
+    assert get_settings().min_signal_confidence == 0.30, (
+        f"min_signal_confidence is {get_settings().min_signal_confidence}, "
+        f"expected 0.30. {approval}"
+    )
