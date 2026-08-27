@@ -33,12 +33,16 @@ ml_client = httpx.AsyncClient(timeout=30.0)
 # market on any env override.
 #
 # TA's vocabulary is WIDER than that re-derivation was: it also emits
-# STRONG_TREND (ADX >= 30), which this module's consumers do not handle --
-# `_calculate_enhanced_signal`'s regime_multiplier and
-# `_get_risk_adjusted_signal` both branch on TRENDING / RANGING only, so an
-# unmapped label silently lands on the neutral branch. STRONG_TREND is
-# therefore mapped onto TRENDING, which is exactly what the deleted
-# re-derivation produced for those bars.
+# STRONG_TREND (ADX >= 30), which no consumer here handles.
+# `_calculate_enhanced_signal`'s regime_multiplier branches on TRENDING /
+# RANGING only, so an unrecognised label keeps the neutral 1.0 instead of the
+# 1.1 those bars used to get. STRONG_TREND is therefore mapped onto TRENDING,
+# which is exactly what the deleted re-derivation produced for them.
+#
+# Scope note, so nobody over-reads this: `_get_risk_adjusted_signal` also
+# branches on TRENDING / RANGING, but all three of its branches return "HOLD",
+# so the regime label cannot move its output. The multiplier is the only
+# consumer this mapping actually protects.
 #
 # NO THRESHOLD VALUE CHANGED: the boundaries are TA's, and they are the same
 # 25 / 20 this handler used to apply. Anything absent from this table resolves
