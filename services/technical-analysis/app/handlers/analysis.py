@@ -30,20 +30,34 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
     """
     try:
         fetcher = get_fetcher()
-        df = await fetcher.get_klines_as_dataframe(symbol, interval, limit=200)
+        df = await fetcher.get_klines_as_dataframe(
+            symbol, interval, limit=settings.default_aggregate_limit
+        )
 
         if df.empty:
             raise HTTPException(status_code=404, detail="No data available")
 
         # Calculate multiple indicators
         # RESEARCH-OPTIMIZED 2025-11-29: Use settings for optimal parameters
+        # P21-6 2026-08-26: every voter below is now constructed from
+        # settings.default_*, and the kline window above from
+        # settings.default_aggregate_limit. A bare constructor here was a
+        # SECOND declaration of a parameter Settings already owns - it
+        # agreed numerically with config.py, which is exactly why the
+        # drift would have been silent. Numeric agreement is not routing.
+        # Constructor keywords do NOT match the settings field names
+        # (bb_length <- bb_period, momentum_length <- mom_period); the
+        # mapping is pinned in tests/test_aggregator_new_legs.py.
         rsi_calc = RSICalculator(period=settings.default_rsi_period)
         macd_calc = MACDCalculator(
             fast_period=settings.default_macd_fast,
             slow_period=settings.default_macd_slow,
             signal_period=settings.default_macd_signal,
         )
-        trend_filter = TrendFilter()
+        trend_filter = TrendFilter(
+            fast_period=settings.default_trend_fast_period,
+            slow_period=settings.default_trend_slow_period,
+        )
 
         rsi_value = rsi_calc.calculate(df)
         macd = macd_calc.calculate(df)
@@ -54,15 +68,29 @@ async def get_aggregated_signal(symbol: str, interval: str = Query(default="60")
         # computed in this service and served as endpoints, but were never
         # consulted here. Both already emit BUY/SELL/HOLD with their own
         # confidence, so they drop straight into the (label, confidence) shape.
-        adx_data, adx_signal, adx_conf = ADXCalculator().calculate_with_signal(
+        adx_calc = ADXCalculator(
+            period=settings.default_adx_period,
+            trending_threshold=settings.default_adx_trending_threshold,
+            weak_trend_threshold=settings.default_adx_weak_trend_threshold,
+            strong_trend_threshold=settings.default_adx_strong_trend_threshold,
+        )
+        adx_data, adx_signal, adx_conf = adx_calc.calculate_with_signal(
             df["high"].tolist(), df["low"].tolist(), df["close"].tolist()
         )
-        sqz_df = EnhancedSqueezeMomentum().calculate(df)
+        sqz_calc = EnhancedSqueezeMomentum(
+            bb_length=settings.default_sqzmom_bb_period,
+            bb_mult=settings.default_sqzmom_bb_mult,
+            kc_length=settings.default_sqzmom_kc_period,
+            kc_mult=settings.default_sqzmom_kc_mult,
+            momentum_length=settings.default_sqzmom_mom_period,
+        )
+        sqz_df = sqz_calc.calculate(df)
         # Volume is NOT a voter: its labels are CONFIRM/REJECT (which would
         # KeyError the weight dict) and it is directionally agnostic. It scales
         # confidence after the vote, mirroring the trading-engine's validator.
-        volume_result = VolumeConfirmation().calculate(
-            df["volume"].tolist(), "breakout"
+        volume_calc = VolumeConfirmation(period=settings.default_volume_period)
+        volume_result = volume_calc.calculate(
+            df["volume"].tolist(), settings.default_volume_signal_type
         )
 
         # Pre-compute MACD signal label/confidence so we can both
@@ -268,20 +296,29 @@ async def get_multi_timeframe_analysis(
         async def analyze_timeframe(interval: int):
             try:
                 df = await fetcher.get_klines_as_dataframe(
-                    symbol, str(interval), limit=200
+                    symbol,
+                    str(interval),
+                    limit=settings.default_aggregate_limit,
                 )
 
                 if df.empty:
                     return None
 
                 # Calculate indicators (RESEARCH-OPTIMIZED 2025-11-29)
+                # P21-6 2026-08-26: same settings sourcing as
+                # get_aggregated_signal. This is the second copy of that
+                # construction block; fixing only the first would have
+                # left half the defect in place.
                 rsi_calc = RSICalculator(period=settings.default_rsi_period)
                 macd_calc = MACDCalculator(
                     fast_period=settings.default_macd_fast,
                     slow_period=settings.default_macd_slow,
                     signal_period=settings.default_macd_signal,
                 )
-                trend_filter = TrendFilter()
+                trend_filter = TrendFilter(
+                    fast_period=settings.default_trend_fast_period,
+                    slow_period=settings.default_trend_slow_period,
+                )
 
                 rsi_value = rsi_calc.calculate(df)
                 macd = macd_calc.calculate(df)

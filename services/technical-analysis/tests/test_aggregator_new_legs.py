@@ -66,6 +66,7 @@ def _patched(
     volume_confirmed=True,
     volume_strength="STRONG",
     volume_ratio=1.6,
+    capture=None,
 ):
     """Patch every leg so only the ones under test carry weight.
 
@@ -74,6 +75,13 @@ def _patched(
     disconfirmation, and with a hardcoded 1.6 the absence branch was
     unreachable from this fixture. 1.6 remains the default so every test
     written before that change keeps the reading it was authored against.
+
+    `capture`, when handed a dict, is filled with the CLASS mocks and the
+    fetcher before the patcher is returned. patch.multiple treats a concrete
+    MagicMock value as `new` rather than as a spec, so it is NOT yielded
+    into the `with` target and a constructor's call_args would otherwise be
+    unreachable. The return value stays the patcher itself, so every
+    existing `with _patched(...):` call site is untouched.
     """
     fetcher = AsyncMock()
     fetcher.get_klines_as_dataframe = AsyncMock(return_value=_make_df())
@@ -97,15 +105,24 @@ def _patched(
         "confidence": 1.0,
     }
 
+    class_mocks = {
+        "RSICalculator": MagicMock(return_value=rsi_inst),
+        "MACDCalculator": MagicMock(return_value=macd_inst),
+        "TrendFilter": MagicMock(return_value=trend_inst),
+        "ADXCalculator": MagicMock(return_value=adx_inst),
+        "EnhancedSqueezeMomentum": MagicMock(return_value=sqz_inst),
+        "VolumeConfirmation": MagicMock(return_value=vol_inst),
+    }
+
+    if capture is not None:
+        capture.clear()
+        capture.update(class_mocks)
+        capture["get_fetcher_result"] = fetcher
+
     return patch.multiple(
         "app.handlers.analysis",
         get_fetcher=MagicMock(return_value=fetcher),
-        RSICalculator=MagicMock(return_value=rsi_inst),
-        MACDCalculator=MagicMock(return_value=macd_inst),
-        TrendFilter=MagicMock(return_value=trend_inst),
-        ADXCalculator=MagicMock(return_value=adx_inst),
-        EnhancedSqueezeMomentum=MagicMock(return_value=sqz_inst),
-        VolumeConfirmation=MagicMock(return_value=vol_inst),
+        **class_mocks,
     )
 
 
@@ -337,4 +354,326 @@ async def test_volume_absence_is_not_disconfirmation():
     assert disconfirming["confidence"] < absent["confidence"], (
         "absence was penalized like disconfirmation: "
         f"{disconfirming['confidence']} vs {absent['confidence']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# P21-6 - every aggregate-path parameter resolves from TA Settings
+# ---------------------------------------------------------------------------
+#
+# These read the CLASS mock's call_args and compare against
+# getattr(settings, field), never against a literal, so a canonical-value
+# change in config.py stays auto-covered instead of turning this file red.
+# The shape is borrowed from test_endpoint_defaults_from_settings.py's
+# WIRED_* drift tables; the difference is that a constructor argument is not
+# visible in the OpenAPI schema, so it has to be captured at call time.
+
+
+async def _run_aggregate(**kwargs):
+    """Drive the aggregate handler once and hand back the class mocks."""
+    from app.handlers.analysis import get_aggregated_signal
+
+    mocks = {}
+    with _patched(capture=mocks, **kwargs):
+        await get_aggregated_signal(symbol="SOLUSDT", interval="60")
+    return mocks
+
+
+async def _run_multi_timeframe(**kwargs):
+    """Drive the multi-timeframe handler once and hand back the class mocks."""
+    from app.handlers.analysis import get_multi_timeframe_analysis
+
+    mocks = {}
+    with _patched(capture=mocks, **kwargs):
+        await get_multi_timeframe_analysis(symbol="SOLUSDT", timeframes="60")
+    return mocks
+
+
+def _assert_from_settings(call, label, pairs):
+    """Assert a captured constructor call sourced every kwarg from Settings."""
+    from app.handlers.analysis import settings
+
+    assert call is not None, (
+        f"{label} was never constructed - the handler no longer builds it, "
+        "or the capture wiring in _patched() broke"
+    )
+    for kwarg, field in pairs:
+        assert kwarg in call.kwargs, (
+            f"{label} was constructed without {kwarg}=, so the call site "
+            f"re-declares what settings.{field} already owns. "
+            f"Captured call: {call!r}"
+        )
+        expected = getattr(settings, field)
+        assert call.kwargs[kwarg] == expected, (
+            f"{label}({kwarg}=) is {call.kwargs[kwarg]!r} but "
+            f"settings.{field} is {expected!r} - the two have drifted"
+        )
+
+
+@pytest.mark.asyncio
+async def test_trend_filter_is_constructed_from_settings():
+    mocks = await _run_aggregate()
+    _assert_from_settings(
+        mocks["TrendFilter"].call_args,
+        "TrendFilter",
+        (
+            ("fast_period", "default_trend_fast_period"),
+            ("slow_period", "default_trend_slow_period"),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_adx_calculator_is_constructed_from_settings():
+    """All four ADX knobs, not just the period.
+
+    The three thresholds decide the regime label the response publishes, so
+    leaving them on constructor defaults would keep a second declaration
+    alive next to settings.default_adx_*_threshold.
+    """
+    mocks = await _run_aggregate()
+    _assert_from_settings(
+        mocks["ADXCalculator"].call_args,
+        "ADXCalculator",
+        (
+            ("period", "default_adx_period"),
+            ("trending_threshold", "default_adx_trending_threshold"),
+            ("weak_trend_threshold", "default_adx_weak_trend_threshold"),
+            ("strong_trend_threshold", "default_adx_strong_trend_threshold"),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_enhanced_sqzmom_is_constructed_from_settings():
+    """Note the name mismatch: bb_length <- default_sqzmom_bb_period.
+
+    EnhancedSqueezeMomentum spells its windows `*_length` while Settings
+    spells them `*_period`, and momentum_length maps to mom_period. A
+    plausible-looking `bb_period=` keyword would raise TypeError, so the
+    mapping is pinned here rather than left to memory.
+    """
+    mocks = await _run_aggregate()
+    _assert_from_settings(
+        mocks["EnhancedSqueezeMomentum"].call_args,
+        "EnhancedSqueezeMomentum",
+        (
+            ("bb_length", "default_sqzmom_bb_period"),
+            ("bb_mult", "default_sqzmom_bb_mult"),
+            ("kc_length", "default_sqzmom_kc_period"),
+            ("kc_mult", "default_sqzmom_kc_mult"),
+            ("momentum_length", "default_sqzmom_mom_period"),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_volume_confirmation_period_and_signal_type_come_from_settings():
+    """The signal type is an argument to .calculate(), not the constructor.
+
+    It selects which volume band counts as confirmation, so a literal there
+    is the same class of drift as a literal period - it just lives one call
+    deeper.
+    """
+    from app.handlers.analysis import settings
+
+    mocks = await _run_aggregate()
+    _assert_from_settings(
+        mocks["VolumeConfirmation"].call_args,
+        "VolumeConfirmation",
+        (("period", "default_volume_period"),),
+    )
+
+    calculate_call = mocks["VolumeConfirmation"].return_value.calculate.call_args
+    assert calculate_call is not None, "VolumeConfirmation.calculate was not called"
+    passed = (
+        calculate_call.kwargs["signal_type"]
+        if "signal_type" in calculate_call.kwargs
+        else calculate_call.args[1]
+    )
+    assert passed == settings.default_volume_signal_type, (
+        f"VolumeConfirmation.calculate got signal_type {passed!r} but "
+        f"settings.default_volume_signal_type is "
+        f"{settings.default_volume_signal_type!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rsi_and_macd_stay_settings_sourced():
+    """Regression guard on the two legs that were already correct.
+
+    They are the shape the other four adopted; if the rewire had reached
+    for a literal here the drift would be silent.
+    """
+    mocks = await _run_aggregate()
+    _assert_from_settings(
+        mocks["RSICalculator"].call_args,
+        "RSICalculator",
+        (("period", "default_rsi_period"),),
+    )
+    _assert_from_settings(
+        mocks["MACDCalculator"].call_args,
+        "MACDCalculator",
+        (
+            ("fast_period", "default_macd_fast"),
+            ("slow_period", "default_macd_slow"),
+            ("signal_period", "default_macd_signal"),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_aggregate_kline_window_comes_from_settings(monkeypatch):
+    """The window is floor-validated in config.py; a literal bypasses it.
+
+    settings.default_aggregate_limit carries a cross-field validator that
+    rejects a window too short to warm up the slowest leg. A `limit=200`
+    literal at the call site would keep asking for 200 bars no matter what
+    the operator sets, so the validator would guard nothing.
+
+    NUMERIC AGREEMENT IS NOT ROUTING. The literal this replaced was itself
+    200, so an equality check against the setting stays green over a
+    hardcoded window - it pins the value, not the wiring. The second half of
+    this test moves the setting and requires the request to follow, which is
+    the assertion that actually fails on a regression to a literal.
+    """
+    from app.handlers.analysis import settings
+
+    mocks = await _run_aggregate()
+    call = mocks["get_fetcher_result"].get_klines_as_dataframe.call_args
+    assert call.kwargs.get("limit") == settings.default_aggregate_limit, (
+        f"aggregate kline fetch asked for limit={call.kwargs.get('limit')!r} "
+        f"but settings.default_aggregate_limit is "
+        f"{settings.default_aggregate_limit!r}"
+    )
+
+    monkeypatch.setattr(settings, "default_aggregate_limit", 250)
+    moved = await _run_aggregate()
+    moved_call = moved["get_fetcher_result"].get_klines_as_dataframe.call_args
+    assert moved_call.kwargs.get("limit") == 250, (
+        "the aggregate kline window did not follow "
+        "settings.default_aggregate_limit, so it is still declared at the "
+        f"call site (asked for {moved_call.kwargs.get('limit')!r})"
+    )
+
+
+@pytest.mark.asyncio
+async def test_multi_timeframe_handler_is_settings_sourced_too(monkeypatch):
+    """analyze_timeframe is the second copy of the same construction block.
+
+    It builds its own TrendFilter and its own kline fetch, so fixing only
+    get_aggregated_signal would leave half the defect in place.
+    """
+    from app.handlers.analysis import settings
+
+    mocks = await _run_multi_timeframe()
+    _assert_from_settings(
+        mocks["TrendFilter"].call_args,
+        "TrendFilter (multi-timeframe)",
+        (
+            ("fast_period", "default_trend_fast_period"),
+            ("slow_period", "default_trend_slow_period"),
+        ),
+    )
+    call = mocks["get_fetcher_result"].get_klines_as_dataframe.call_args
+    assert call.kwargs.get("limit") == settings.default_aggregate_limit, (
+        f"multi-timeframe kline fetch asked for "
+        f"limit={call.kwargs.get('limit')!r} but "
+        f"settings.default_aggregate_limit is "
+        f"{settings.default_aggregate_limit!r}"
+    )
+
+    # Same routing proof as the aggregate path - see that test's docstring.
+    monkeypatch.setattr(settings, "default_aggregate_limit", 250)
+    moved = await _run_multi_timeframe()
+    moved_call = moved["get_fetcher_result"].get_klines_as_dataframe.call_args
+    assert moved_call.kwargs.get("limit") == 250, (
+        "the multi-timeframe kline window did not follow "
+        "settings.default_aggregate_limit, so it is still declared at the "
+        f"call site (asked for {moved_call.kwargs.get('limit')!r})"
+    )
+
+
+@pytest.mark.asyncio
+async def test_every_voter_parameter_follows_a_moved_setting(monkeypatch):
+    """The equality assertions above cannot see a hardcoded-but-equal value.
+
+    Every settings default this handler reads currently EQUALS the
+    constructor default it replaced, so `assert kwargs[x] == settings.field`
+    stays green against a hardcoded `ADXCalculator(period=14)`. That is the
+    inversion trap CLAUDE.md names for the account size: a literal that
+    agrees numerically is still unrouted, and it decouples silently the next
+    time the declaration moves. Verified, not assumed - regressing the
+    volume signal type to its literal left the per-field test green, and
+    only this test caught it.
+
+    So move every field to a value nothing else in the service carries and
+    require each constructor to follow. Exact-dict equality is deliberate:
+    it also catches a stray argument that Settings does not own.
+    """
+    from app.handlers.analysis import settings
+
+    moved = {
+        "default_trend_fast_period": 37,
+        "default_trend_slow_period": 173,
+        "default_adx_period": 11,
+        "default_adx_trending_threshold": 27.5,
+        "default_adx_weak_trend_threshold": 17.5,
+        "default_adx_strong_trend_threshold": 33.5,
+        "default_sqzmom_bb_period": 23,
+        "default_sqzmom_bb_mult": 2.3,
+        "default_sqzmom_kc_period": 19,
+        "default_sqzmom_kc_mult": 1.7,
+        "default_sqzmom_mom_period": 15,
+        "default_volume_period": 26,
+        "default_volume_signal_type": "continuation",
+        "default_rsi_period": 13,
+        "default_macd_fast": 7,
+        "default_macd_slow": 31,
+        "default_macd_signal": 4,
+    }
+    for field, value in moved.items():
+        monkeypatch.setattr(settings, field, value)
+
+    mocks = await _run_aggregate()
+
+    expected = {
+        "TrendFilter": {"fast_period": 37, "slow_period": 173},
+        "ADXCalculator": {
+            "period": 11,
+            "trending_threshold": 27.5,
+            "weak_trend_threshold": 17.5,
+            "strong_trend_threshold": 33.5,
+        },
+        "EnhancedSqueezeMomentum": {
+            "bb_length": 23,
+            "bb_mult": 2.3,
+            "kc_length": 19,
+            "kc_mult": 1.7,
+            "momentum_length": 15,
+        },
+        "VolumeConfirmation": {"period": 26},
+        "RSICalculator": {"period": 13},
+        "MACDCalculator": {
+            "fast_period": 7,
+            "slow_period": 31,
+            "signal_period": 4,
+        },
+    }
+    for label, kwargs in expected.items():
+        call = mocks[label].call_args
+        assert call.kwargs == kwargs, (
+            f"{label} did not follow the moved settings: got {call.kwargs!r}, "
+            f"expected {kwargs!r}. A parameter is still declared at the call "
+            "site, or a new one was added without a Settings field."
+        )
+
+    calculate_call = mocks["VolumeConfirmation"].return_value.calculate.call_args
+    passed = (
+        calculate_call.kwargs["signal_type"]
+        if "signal_type" in calculate_call.kwargs
+        else calculate_call.args[1]
+    )
+    assert passed == "continuation", (
+        f"the volume signal type did not follow settings: {passed!r}"
     )
