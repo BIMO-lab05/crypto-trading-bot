@@ -255,12 +255,12 @@ Plans:
 **Goal:** Close the recorded DEFER-21 follow-ups: gate the regime hard-block into every ensemble leg, single-source the three remaining aggregator mirror literals and the trend-following adx_period survivors, adopt technical-analysis's real regime confidence with a before/after measurement, reject a duplicate-index frame loudly in SQZMOM instead of silently dropping the leg, and remove the capital literals from three usage docstrings plus one stale shell comment.
 **Requirements**: DEFER-21-01, DEFER-21-02, DEFER-21-03, DEFER-21-04, DEFER-21-05, CTX-22.1-F
 **Depends on:** Phase 22
-**Plans:** 6 plans
+**Plans:** 3/6 plans executed
 
 Plans:
-- [ ] 22.1-01-PLAN.md — route the three remaining aggregator mirror literals (RSI period, BB std-dev, trend-filter limit) through engine Settings (DEFER-21-03)
-- [ ] 22.1-02-PLAN.md — gate simple_rsi and mean_reversion on the regime hard-block flag, mirroring the 21-05 MTF gate (DEFER-21-02)
-- [ ] 22.1-03-PLAN.md — reject a non-unique index in EnhancedSqueezeMomentum.calculate instead of returning None (DEFER-21-01)
+- [x] 22.1-01-PLAN.md — route the three remaining aggregator mirror literals (RSI period, BB std-dev, trend-filter limit) through engine Settings (DEFER-21-03)
+- [x] 22.1-02-PLAN.md — gate simple_rsi and mean_reversion on the regime hard-block flag, mirroring the 21-05 MTF gate (DEFER-21-02)
+- [x] 22.1-03-PLAN.md — reject a non-unique index in EnhancedSqueezeMomentum.calculate instead of returning None (DEFER-21-01)
 - [ ] 22.1-04-PLAN.md — single-source the trend-following ADX lookback to Settings and clear the capital docstring/shell literals (DEFER-21-04, CTX-22.1-F)
 - [ ] 22.1-05-PLAN.md — report technical-analysis's regime confidence instead of a fixed 0.7, with a committed measurement artifact (DEFER-21-05)
 - [ ] 22.1-06-PLAN.md — rebuild and force-recreate both services, prove the code is in the running containers, run both suites against a baseline
