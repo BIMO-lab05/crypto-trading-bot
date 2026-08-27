@@ -49,6 +49,9 @@ SCANNED_FILES: tuple[str, ...] = (
     "services/trading-engine/app/utils/support_resistance_detector.py",
     # Phase 22: the LIVE ensemble path, cleaned 2026-08-27
     "services/trading-engine/app/strategies/simple_rsi_strategy.py",
+    # Phase 22: trading-engine serialization, classified site-by-site 2026-08-27
+    "services/trading-engine/app/analytics/post_trade_analysis.py",
+    "services/trading-engine/app/trading_enhancements/adaptive_rsi.py",
 )
 
 # Not yet covered, tracked deliberately:

@@ -108,12 +108,19 @@ class SlippageBreakdown:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API response"""
+        # market_impact / spread_cost / timing_cost / total_slippage are
+        # USD costs, not per-unit prices: _calculate_slippage multiplies
+        # every component through by size or notional before it lands here
+        # (slippage_cost = raw_slippage * size; spread_cost =
+        # spread_bps / 10000 * notional / 2). 4dp is cent precision on a
+        # dollar total, not tick precision on a price. Classified for the
+        # Phase 22 guard enrollment - re-read that method before reopening.
         return {
-            "market_impact": round(self.market_impact, 4),
-            "spread_cost": round(self.spread_cost, 4),
-            "timing_cost": round(self.timing_cost, 4),
-            "total_slippage": round(self.total_slippage, 4),
-            "slippage_bps": round(self.slippage_bps, 2),
+            "market_impact": round(self.market_impact, 4),  # non-price-round
+            "spread_cost": round(self.spread_cost, 4),  # non-price-round
+            "timing_cost": round(self.timing_cost, 4),  # non-price-round
+            "total_slippage": round(self.total_slippage, 4),  # non-price-round
+            "slippage_bps": round(self.slippage_bps, 2),  # non-price-round
         }
 
 
@@ -146,15 +153,22 @@ class ExecutionQuality:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API response"""
         return {
-            "implementation_shortfall": round(self.implementation_shortfall, 4),
-            "implementation_shortfall_bps": round(self.implementation_shortfall_bps, 2),
-            "price_improvement": round(self.price_improvement, 4),
-            "price_improvement_bps": round(self.price_improvement_bps, 2),
-            "fill_rate": round(self.fill_rate, 2),
-            "time_to_completion": round(self.time_to_completion, 2),
-            "spread_capture_rate": round(self.spread_capture_rate, 2),
+            "implementation_shortfall": round(self.implementation_shortfall, 4),  # non-price-round
+            "implementation_shortfall_bps": round(# non-price-round
+                self.implementation_shortfall_bps, 2
+            ),
+            # PRICE-01: a per-unit price DELTA, not a USD total -
+            # _calculate_execution_quality takes worst_price minus
+            # execution_price against a half-spread of
+            # expected_price * (spread_bps / 20000). At ADA scale that is
+            # ~1.5e-4, so 4dp reported real improvements as 0.0.
+            "price_improvement": float(self.price_improvement),
+            "price_improvement_bps": round(self.price_improvement_bps, 2),  # non-price-round
+            "fill_rate": round(self.fill_rate, 2),  # non-price-round
+            "time_to_completion": round(self.time_to_completion, 2),  # non-price-round
+            "spread_capture_rate": round(self.spread_capture_rate, 2),  # non-price-round
             "benchmark_comparisons": {
-                k: round(v, 4) for k, v in self.benchmark_comparisons.items()
+                k: round(v, 4) for k, v in self.benchmark_comparisons.items()  # non-price-round
             },
             "quality_score": self.quality_score,
             "quality_grade": self.quality_grade.value,
@@ -286,9 +300,9 @@ class PostTradeAnalysisResult:
             "expected_price": round(self.expected_price, 8),
             "execution_price": round(self.execution_price, 8),
             "slippage": self.slippage.to_dict(),
-            "fees": round(self.fees, 4),
-            "total_cost": round(self.total_cost, 4),
-            "cost_bps": round(self.cost_bps, 2),
+            "fees": round(self.fees, 4),  # non-price-round
+            "total_cost": round(self.total_cost, 4),  # non-price-round
+            "cost_bps": round(self.cost_bps, 2),  # non-price-round
             "execution_quality": self.execution_quality.to_dict(),
             "classification": self.classification.to_dict(),
             "recommendations": self.recommendations,
@@ -339,12 +353,12 @@ class DailySummary:
         return {
             "date": self.date,
             "total_trades": self.total_trades,
-            "total_volume": round(self.total_volume, 2),
-            "avg_slippage_bps": round(self.avg_slippage_bps, 2),
-            "avg_cost_bps": round(self.avg_cost_bps, 2),
+            "total_volume": round(self.total_volume, 2),  # non-price-round
+            "avg_slippage_bps": round(self.avg_slippage_bps, 2),  # non-price-round
+            "avg_cost_bps": round(self.avg_cost_bps, 2),  # non-price-round
             "avg_quality_score": round(self.avg_quality_score, 1),
-            "total_fees": round(self.total_fees, 2),
-            "total_slippage_cost": round(self.total_slippage_cost, 2),
+            "total_fees": round(self.total_fees, 2),  # non-price-round
+            "total_slippage_cost": round(self.total_slippage_cost, 2),  # non-price-round
             "best_trade": {
                 "trade_id": self.best_trade_id,
                 "score": self.best_trade_score,
@@ -387,7 +401,7 @@ class ImprovementRecommendation:
             "category": self.category,
             "priority": self.priority,
             "recommendation": self.recommendation,
-            "expected_savings_bps": round(self.expected_savings_bps, 2),
+            "expected_savings_bps": round(self.expected_savings_bps, 2),  # non-price-round
             "applicable_to": self.applicable_to,
             "evidence": self.evidence,
         }

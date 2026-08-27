@@ -152,17 +152,21 @@ class AdaptiveRSIResult:
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for serialization"""
         return {
-            "rsi_value": round(self.rsi_value, 2),
+            "rsi_value": round(self.rsi_value, 2),  # non-price-round
             "thresholds": {
                 "oversold": self.thresholds.oversold,
                 "overbought": self.thresholds.overbought,
                 "regime": self.thresholds.regime.value
             },
             "signal": self.signal.value,
-            "atr_value": round(self.atr_value, 4),
-            "atr_percentage": round(self.atr_percentage, 2),
+            # PRICE-01: ATR is an ABSOLUTE price-unit range, not a
+            # percentage - a true ADA-scale ATR near 0.0084 loses its last
+            # significant digits at 4dp. The percentage form is the field
+            # below, which is why only this one converts.
+            "atr_value": float(self.atr_value),
+            "atr_percentage": round(self.atr_percentage, 2),  # non-price-round
             "trend_direction": self.trend_direction.value,
-            "signal_strength": round(self.signal_strength, 2),
+            "signal_strength": round(self.signal_strength, 2),  # non-price-round
             "timestamp": self.timestamp.isoformat()
         }
 
