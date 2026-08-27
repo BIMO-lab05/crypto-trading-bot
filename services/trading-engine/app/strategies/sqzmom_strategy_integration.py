@@ -18,6 +18,7 @@ import logging
 from typing import Dict, Optional, List
 from decimal import Decimal
 
+from app.config import get_settings
 from app.strategies.sqzmom_config import sqzmom_config
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,12 @@ class SQZMOMStrategy:
         # Use provided URL or get from config
         self.ta_url = technical_analysis_url or sqzmom_config.technical_analysis_url
         self.config = sqzmom_config
+
+        # Engine Settings carry the gate thresholds this strategy applies
+        # (P21-7). Resolved on the instance, never as a default argument —
+        # Python evaluates default args once at import, which would freeze the
+        # value and hide it from any override.
+        self.settings = get_settings()
 
         # Initialize HTTP client with reasonable timeout
         self.http_client = httpx.AsyncClient(timeout=10.0)
@@ -217,9 +224,16 @@ class SQZMOMStrategy:
             # + Stoic.ai / EnlightenedStockTrading guidance. Bare squeeze
             # release ~50% directional accuracy in crypto chop; the working
             # implementations stack:
-            #   (a) ADX >= 20 trend-strength gate (skip mean-revert chop)
+            #   (a) an ADX trend-strength gate (skip mean-revert chop), at
+            #       `settings.adx_weak_trend_threshold` — research value 20
             #   (b) ADX direction agreement with action (long requires BULLISH)
-            #   (c) Volume on release > 1.2× SMA(20)
+            #   (c) volume on release above
+            #       `settings.sqzmom_volume_ratio_min` x SMA(20) — research
+            #       value 1.2
+            # Both floors were inline literals until P21-7 (2026-08-27). The
+            # research values stay recorded here; the values actually applied
+            # are read from Settings, so an override moves the gate and the
+            # log line together. NO THRESHOLD VALUE CHANGED in that lift.
             # Engine-side gating is fail-open: any TA hiccup just lets the
             # bare signal through (degrades to current behavior, never worse).
             if signal.get("action") in ("BUY", "SELL"):
@@ -236,9 +250,11 @@ class SQZMOMStrategy:
                     signal["adx"] = adx_val
                     signal["adx_direction"] = adx_dir
 
-                    if adx_val < 20.0:
+                    adx_floor = self.settings.adx_weak_trend_threshold
+                    if adx_val < adx_floor:
                         logger.info(
-                            f"[SQZMOM_GATE] {symbol}: ADX {adx_val:.1f} < 20 "
+                            f"[SQZMOM_GATE] {symbol}: ADX {adx_val:.1f} below the "
+                            f"declared weak-trend floor {adx_floor:.1f} "
                             f"(weak trend). Demoting {signal['action']} → HOLD."
                         )
                         signal["action_pre_gate"] = signal["action"]
@@ -281,10 +297,12 @@ class SQZMOMStrategy:
                             vol_data.get("ratio", vol_data.get("volume_ratio", 1.0))
                         )
                         signal["volume_ratio"] = ratio
-                        if not confirmed or ratio < 1.2:
+                        volume_floor = self.settings.sqzmom_volume_ratio_min
+                        if not confirmed or ratio < volume_floor:
                             logger.info(
                                 f"[SQZMOM_GATE] {symbol}: volume_ratio={ratio:.2f} "
-                                f"(<1.2 or unconfirmed). Demoting "
+                                f"(below the declared floor {volume_floor:.2f}, or "
+                                f"unconfirmed). Demoting "
                                 f"{signal['action']} → HOLD."
                             )
                             signal["action_pre_gate"] = signal.get(

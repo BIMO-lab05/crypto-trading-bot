@@ -471,11 +471,19 @@ class SignalAggregator:
             regime = data.get("regime", "UNKNOWN")
             confidence = float(data.get("confidence", 0.0))
             # Map direction → SignalAction; ADX itself is a strength gauge,
-            # only emit BUY/SELL when ADX>=20 (weak-trend threshold) so we
-            # don't fold noise into the voter.
-            if adx_val >= 20.0 and direction == "BULLISH":
+            # so only emit BUY/SELL at or above the declared weak-trend floor
+            # and don't fold noise into the voter.
+            #
+            # P21-7 (2026-08-27): that floor was an inline 20.0 here while
+            # technical-analysis declared `default_adx_weak_trend_threshold`
+            # independently. Naming the setting rather than the number also
+            # keeps this comment true the moment the setting moves — the old
+            # wording ("ADX>=20") would have gone stale silently.
+            # NO THRESHOLD VALUE CHANGED: the default is still 20.0.
+            weak_trend_floor = self.settings.adx_weak_trend_threshold
+            if adx_val >= weak_trend_floor and direction == "BULLISH":
                 signal_action = SignalAction.BUY
-            elif adx_val >= 20.0 and direction == "BEARISH":
+            elif adx_val >= weak_trend_floor and direction == "BEARISH":
                 signal_action = SignalAction.SELL
             else:
                 signal_action = SignalAction.HOLD
