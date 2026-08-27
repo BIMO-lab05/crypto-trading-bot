@@ -77,8 +77,8 @@ Commit `487d1bd` fixed one site. A full re-sweep on 2026-07-30 finds **22 surviv
 
 Cleared as legitimate (percentage / basis-point domain): `ml-prediction-service/app/regime/regime_detector.py:304` (`price_vs_ema_pct`), `trading-engine/app/analytics/post_trade_analysis.py:152` (`price_improvement_bps`).
 
-- [ ] **PRICE-01** _(widened 2026-07-30)_: **All price-domain `round(…, 2)` sites under `services/`, regardless of directory** — not just strategy files; the scope now explicitly includes `app/utils/support_resistance_detector.py` and the two `technical-analysis` files, so the fix spans two services. Each is replaced by `float()`, or by precision derived from per-symbol `tick_size` where exchange-side rounding is genuinely required — `trading-engine/app/services/instruments_cache.py:52` already exposes `tick_size: Decimal` sourced from the connector's `priceFilter.tickSize`, so no new plumbing is needed. Each replacement is reviewed for whether the value is a price (use `float()`) or a percentage/multiplier (legitimate `round`). Unit test fixture suite at `services/trading-engine/tests/test_sub_dollar_price_safety.py` runs each strategy against synthetic ADA klines at $0.20–$0.99 and asserts SL/TP/entry prices match exchange tick size (4 decimals for ADAUSDT spot).
-- [ ] **PRICE-02** _(widened 2026-07-30 — the original pattern would not have caught this set)_: CI grep gate at `tests/ci/test_no_price_rounding.py` (alongside the 4 existing gates in `tests/ci/`) enforces zero hits against `services/**/*.py` outside an explicit justified allowlist, using this pattern verbatim:
+- [x] **PRICE-01** _(widened 2026-07-30)_: **All price-domain `round(…, 2)` sites under `services/`, regardless of directory** — not just strategy files; the scope now explicitly includes `app/utils/support_resistance_detector.py` and the two `technical-analysis` files, so the fix spans two services. Each is replaced by `float()`, or by precision derived from per-symbol `tick_size` where exchange-side rounding is genuinely required — `trading-engine/app/services/instruments_cache.py:52` already exposes `tick_size: Decimal` sourced from the connector's `priceFilter.tickSize`, so no new plumbing is needed. Each replacement is reviewed for whether the value is a price (use `float()`) or a percentage/multiplier (legitimate `round`). Unit test fixture suite at `services/trading-engine/tests/test_sub_dollar_price_safety.py` runs each strategy against synthetic ADA klines at $0.20–$0.99 and asserts SL/TP/entry prices match exchange tick size (4 decimals for ADAUSDT spot).
+- [x] **PRICE-02** _(widened 2026-07-30 — the original pattern would not have caught this set)_: CI grep gate at `tests/ci/test_no_price_rounding.py` (alongside the 4 existing gates in `tests/ci/`) enforces zero hits against `services/**/*.py` outside an explicit justified allowlist, using this pattern verbatim:
 
       round\([^)]*(price|stop_loss|take_profit|entry|target|level|support|resistance)[^)]*,\s*2\s*\)
 
@@ -189,8 +189,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TA-AGG-02 | Phase 21 | Complete |
 | TA-AGG-03 | Phase 21 | Complete |
 | TA-AGG-04 | Phase 21 | Complete |
-| PRICE-01 | Phase 22 | Pending |
-| PRICE-02 | Phase 22 | Pending |
+| PRICE-01 | Phase 22 | Complete |
+| PRICE-02 | Phase 22 | Complete |
 | ML-PURGE-01 | Phase 23 | Pending |
 | ML-PURGE-02 | Phase 23 | Pending |
 | ML-PURGE-03 | Phase 23 | Pending |

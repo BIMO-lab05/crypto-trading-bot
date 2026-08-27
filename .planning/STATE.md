@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: TA + Engine Correctness
-status: executing
-stopped_at: "Edge research battery built and executed (branch `feature/edge-research-battery`). `backtesting/edge_lab/` kill-funnel implemented across 13 tasks with per-task review (every task passed adversarial review; notable catches: empty-fetch permanent cache, vol_breakout time-exit off-by-one, import-failure-filed-as-REJECT). Live run 2026-08-17 over pinned top-30 universe (730d daily, 365d 4h, first-ever funding history — 90 files): **4× REJECT, no edge found**. xs_momentum and vol_breakout died at the Gate 1 cost hurdle (best ratio_taker 1.246 / 0.917 vs required 2×); funding_carry thresh_2x and both lf_trend variants cleared Gate 1 (ratios 2.6 / 4.9 / 15.5) but failed Gate 2 CPCV/DSR decisively (DSR ≤ 3.8e-05 vs 0.95, pooled PF ≈ 1.0). Clean kill-funnel outcome per spec §1 — cheap disproof is the deliverable. Evidence: `.planning/evidence/killtests/*-verdict-20260817.{md,json}` + `battery-summary-20260817.md`."
-last_updated: "2026-08-27T13:49:32.909Z"
+status: ready_to_plan
+stopped_at: Phase 22 complete (2/2) — ready to discuss Phase 23
+last_updated: 2026-08-27T17:34:55.158Z
 last_activity: 2026-08-27 -- Phase 22 execution started
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 23
-  completed_plans: 21
+  completed_plans: 23
   percent: 44
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-23 after v1.3 milestone open)
 
 **Core value:** The bot must never lose money it wasn't authorized to risk; every "edge" claim must be backed by DSR/CPCV evidence on returns, not raw R² on price levels.
-**Current focus:** Phase 22 — round(price, N) Epidemic Kill
+**Current focus:** Phase 23 — ml purge + v0 pattern eradication
 
 ## Current Position
 
-Phase: 22 (round(price, N) Epidemic Kill) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 22
-Last activity: 2026-08-27 -- Phase 22 execution started
+Phase: 23
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-27
 
 ## Uncommitted Work (detected 2026-08-04 — RESOLVED)
 

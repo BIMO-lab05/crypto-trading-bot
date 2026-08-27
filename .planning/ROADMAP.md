@@ -304,6 +304,6 @@ Plans:
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
 | 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
 | 21. TA Aggregator Widening + Leakage Net | v1.3 | 9/9 | Complete    | 2026-08-27 |
-| 22. round(price, N) Epidemic Kill | v1.3 | 2/2 | Complete   | 2026-08-27 |
+| 22. round(price, N) Epidemic Kill | v1.3 | 2/2 | Complete    | 2026-08-27 |
 | 23. ML Purge + V0-Pattern Eradication | v1.3 | 0/? | Pending | — |
 | 24. Operator-Log + API Hygiene | v1.3 | 0/? | Pending | — |
