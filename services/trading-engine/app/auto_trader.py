@@ -4756,15 +4756,41 @@ class AutoTrader:
             ens_signal = ensemble.generate_signal(
                 base_signal, current_price, capital=float(balance)
             )
+            # PER-CAUSE ATTRIBUTION - Plan 21-06 Task 2, 2026-08-27.
+            #
+            # This used to hardcode reason="ensemble_returned_hold" with a
+            # detail naming two causes: "weighted score below
+            # AGGREGATION_THRESHOLD or fewer than MIN_AGREEING_LEGS fired".
+            # `generate_signal` now has FIVE return-None paths - Plan 21-05's
+            # MTF demote-to-HOLD gate, Plan 21-06's leg source-diversity guard,
+            # no directional leg at all, the agreement gate and the score gate -
+            # so that string was factually wrong for three of them. Collapsing
+            # them into one bucket also makes the Plan 21-09 ablation
+            # unattributable: it cannot separate a delta it cannot see.
+            #
+            # `reason` is a free-form dict key in SignalFunnel.reject
+            # (`st.reasons.setdefault(reason, _ReasonStat())`), not a constrained
+            # set, so no schema change is needed and no consumer drops an unknown
+            # value. `ensemble_returned_hold` is RETAINED as the fallback: an
+            # unhandled path must degrade to today's behaviour, never crash.
+            #
+            # NOTE for whoever reads these counts: the funnel attributes each
+            # evaluation to the FIRST gate it fails, so the five causes are
+            # mutually exclusive and ORDER-DEPENDENT. The diversity guard sits
+            # ahead of both the agreement gate and the score gate, so those two
+            # buckets shrink by construction - that shift is not a behaviour
+            # change.
+            _rejection = getattr(ensemble, "last_rejection", None)
+            _reason = getattr(_rejection, "cause", None) or "ensemble_returned_hold"
+            _detail = getattr(_rejection, "detail", None) or (
+                "ensemble returned no signal and reported no cause"
+            )
             if not funnel.gate(
                 "ensemble_signal_emitted",
                 bool(ens_signal),
-                reason="ensemble_returned_hold",
+                reason=_reason,
                 symbol=symbol,
-                detail=(
-                    "weighted score below AGGREGATION_THRESHOLD or fewer than "
-                    "MIN_AGREEING_LEGS fired"
-                ),
+                detail=_detail,
             ):
                 self.total_trades_rejected += 1
                 return

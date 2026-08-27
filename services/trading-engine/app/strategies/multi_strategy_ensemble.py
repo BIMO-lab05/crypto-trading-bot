@@ -157,6 +157,46 @@ def _atr_is_usable(atr_data) -> bool:
     return atr > 0.0 and atr_pct > 0.0
 
 
+# ---------------------------------------------------------------------------
+# STRUCTURED REJECTION CAUSES - Plan 21-06 Task 2, 2026-08-27.
+#
+# `generate_signal` signals every rejection the same way: it returns None. The
+# trade funnel recorded that as ONE gate with a fixed
+# reason="ensemble_returned_hold" and a detail naming only two causes
+# ("weighted score below AGGREGATION_THRESHOLD or fewer than MIN_AGREEING_LEGS
+# fired"). After Plan 21-05's MTF gate and Plan 21-06's diversity guard there
+# are FIVE, so that string was factually wrong for three of them - decorative
+# telemetry of exactly the kind signal_funnel.py's own module comment exists to
+# prevent, and an attribution the Plan 21-09 ablation cannot make.
+#
+# 21-RESEARCH.md Pitfall 5 requires the choice between (a) a structured cause
+# wired into the funnel and (b) parsing log lines to be STATED. This is (a).
+# Log parsing would tie the funnel's schema to prose that no test pins.
+#
+# Identifiers are stable snake_case so the funnel and any later analysis can
+# group on them. `SignalFunnel.reject`'s `reason` is a free-form dict key
+# (signal_funnel.py: `st.reasons.setdefault(reason, _ReasonStat())`), NOT a
+# constrained set, so adding values needs no schema change and no downstream
+# consumer can silently drop one for being unknown.
+#
+# This changes no gate, no threshold and no admission decision.
+# ---------------------------------------------------------------------------
+
+REJECT_MTF_DEMOTED = "mtf_demoted"
+REJECT_NO_DIRECTIONAL_LEGS = "no_directional_legs"
+REJECT_INSUFFICIENT_DIVERSITY = "insufficient_category_diversity"
+REJECT_INSUFFICIENT_AGREEING_LEGS = "insufficient_agreeing_legs"
+REJECT_SCORE_BELOW_THRESHOLD = "score_below_threshold"
+
+
+@dataclass(frozen=True)
+class EnsembleRejection:
+    """Why `generate_signal` returned None, in a form the funnel can group on."""
+
+    cause: str
+    detail: str
+
+
 @dataclass
 class EnsembleSignal:
     action: SignalAction
@@ -322,6 +362,12 @@ class MultiStrategyEnsemble:
         self.simple_rsi = SimpleRSIStrategy()
         self.mean_reversion = mean_reversion or MeanReversionStrategy()
         self.weights = get_ensemble_weights()
+        # Why the LAST generate_signal call returned None, or None when the
+        # last call produced a signal. Read by
+        # auto_trader._check_and_trade_ensemble; reset at the top of every
+        # generate_signal so a value from the previous symbol can never be
+        # reported as this one's cause.
+        self.last_rejection: Optional[EnsembleRejection] = None
         logger.info(
             f"MultiStrategyEnsemble initialized: legs=[{LEG_RSI}, {LEG_MULTI}, {LEG_MEAN_REV}], "
             f"threshold={self.AGGREGATION_THRESHOLD}, min_agreeing={self.MIN_AGREEING_LEGS}, "
@@ -491,6 +537,14 @@ class MultiStrategyEnsemble:
                 # generate_signal below.
             },
         )
+
+    def _reject(self, cause: str, detail: str) -> None:
+        """Record the cause of a `generate_signal` rejection, then return None.
+
+        One writer for every return-None path, so a new path cannot be added
+        without a cause and quietly land back in the generic bucket.
+        """
+        self.last_rejection = EnsembleRejection(cause=cause, detail=detail)
 
     @staticmethod
     def _leg_indicator_names(leg_id: str, mean_reversion_signal) -> Optional[Set[str]]:
@@ -675,6 +729,12 @@ class MultiStrategyEnsemble:
         # Expected effect: trade admission DECREASES. 21-CONTEXT authorises that
         # explicitly. It belongs to the "+gates" arm of the Plan 21-09 ablation,
         # not the "+ATR" arm.
+        # RESET FIRST, before any branch can return. `get_ensemble()` is a
+        # process singleton and auto_trader evaluates symbol after symbol in one
+        # loop, so a cause left over from BTCUSDT would otherwise be reported as
+        # ETHUSDT's (T-21-06-05).
+        self.last_rejection = None
+
         symbol = getattr(aggregator_signal, "symbol", "?")
         mtf_meta = (aggregator_signal.metadata or {}).get("multi_timeframe")
         if not isinstance(mtf_meta, dict):
@@ -687,6 +747,12 @@ class MultiStrategyEnsemble:
                 "guard) while simple_rsi and mean_reversion never read .action. "
                 f"consensus={mtf_meta.get('consensus_action')} "
                 f"consolidated={mtf_meta.get('consolidated_action')}"
+            )
+            self._reject(
+                REJECT_MTF_DEMOTED,
+                f"multi-timeframe consolidation demoted the consensus to HOLD "
+                f"(consensus={mtf_meta.get('consensus_action')!r}, "
+                f"consolidated={mtf_meta.get('consolidated_action')!r})",
             )
             return None
 
@@ -764,6 +830,12 @@ class MultiStrategyEnsemble:
             logger.info(
                 f"[ENSEMBLE] HOLD — no legs fired. "
                 f"agg_action={aggregator_signal.action.value} agg_conf={aggregator_signal.confidence:.2f}"
+            )
+            self._reject(
+                REJECT_NO_DIRECTIONAL_LEGS,
+                f"no leg produced a signal "
+                f"(agg_action={aggregator_signal.action.value}, "
+                f"agg_conf={aggregator_signal.confidence:.2f})",
             )
             return None
 
@@ -887,6 +959,11 @@ class MultiStrategyEnsemble:
                 f"[ENSEMBLE] HOLD - {diversity_reason}. "
                 f"Score={weighted_score:+.3f}, actions={leg_actions}"
             )
+            self._reject(
+                REJECT_INSUFFICIENT_DIVERSITY,
+                f"{diversity_reason}; score={weighted_score:+.3f}, "
+                f"actions={leg_actions}",
+            )
             return None
 
         if agreeing_legs < self.MIN_AGREEING_LEGS:
@@ -894,12 +971,24 @@ class MultiStrategyEnsemble:
                 f"[ENSEMBLE] HOLD — only {agreeing_legs} legs agree (need {self.MIN_AGREEING_LEGS}). "
                 f"Score={weighted_score:+.3f}, actions={leg_actions}"
             )
+            self._reject(
+                REJECT_INSUFFICIENT_AGREEING_LEGS,
+                f"only {agreeing_legs} leg(s) agree, need "
+                f"{self.MIN_AGREEING_LEGS}; score={weighted_score:+.3f}, "
+                f"actions={leg_actions}",
+            )
             return None
 
         if abs(weighted_score) < self.AGGREGATION_THRESHOLD:
             logger.info(
                 f"[ENSEMBLE] HOLD — weighted score {weighted_score:+.3f} below threshold "
                 f"{self.AGGREGATION_THRESHOLD}. Actions={leg_actions}"
+            )
+            self._reject(
+                REJECT_SCORE_BELOW_THRESHOLD,
+                f"weighted score {weighted_score:+.3f} is below "
+                f"AGGREGATION_THRESHOLD {self.AGGREGATION_THRESHOLD}; "
+                f"actions={leg_actions}",
             )
             return None
 
@@ -949,6 +1038,11 @@ class MultiStrategyEnsemble:
             "Weights: " + ", ".join(f"{k}={v:.2f}" for k, v in weights.items()),
             f"Dominant: {dominant_leg}",
         ] + [f"  └ {r}" for r in dominant_reason]
+
+        # Explicit even though the reset at the top already cleared it: a stale
+        # cause sitting beside a live signal reads to an operator as the reason
+        # the trade was blocked.
+        self.last_rejection = None
 
         return EnsembleSignal(
             action=action,

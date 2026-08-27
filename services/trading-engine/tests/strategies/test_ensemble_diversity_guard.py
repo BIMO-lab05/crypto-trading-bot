@@ -37,6 +37,8 @@ full nine-voter gate stack and has ALREADY cleared ``CoreAggregator``'s own
 ``check_category_diversity(..., min_categories=2)``; blocking it would be
 double jeopardy on the strongest leg.
 
+Task 2 (rejection telemetry) is tested in the second half of this file.
+
 """
 
 import importlib
@@ -419,4 +421,285 @@ def test_locked_thresholds_are_untouched_by_the_guard(ensemble_module):
     assert cls.MIN_LEG_CATEGORIES == 2, (
         "the leg guard mirrors CoreAggregator's own "
         "check_category_diversity(min_categories=2) -- it is not a new knob"
+    )
+
+
+# ===========================================================================
+# Task 2 -- structured rejection cause
+# ===========================================================================
+
+
+def _mtf_block(demoted, consolidated="HOLD", consensus="BUY"):
+    return {
+        "enabled": True,
+        "timeframes": ["15", "60", "240"],
+        "consensus_action": consensus,
+        "consolidated_action": consolidated,
+        "demoted_to_hold": demoted,
+        "alignment_strength": "MODERATE",
+        "confidence_modifier": 1.0,
+        "agreement_pct": 0.0,
+        "reasoning": "test",
+        "timeframe_signals": {},
+    }
+
+
+def test_mtf_demotion_reports_its_own_cause(ensemble_module, monkeypatch):
+    _stub_legs(monkeypatch, rsi=_rsi_leg(SignalAction.BUY, 0.60))
+    ens = ensemble_module.MultiStrategyEnsemble()
+    sig = _agg_signal(SignalAction.HOLD, 0.0)
+    sig.metadata["multi_timeframe"] = _mtf_block(True)
+
+    assert ens.generate_signal(sig, current_price=PRICE, capital=None) is None
+    assert ens.last_rejection.cause == "mtf_demoted"
+    assert ens.last_rejection.detail, "a cause without a detail is half a log line"
+
+
+def test_no_directional_legs_reports_its_own_cause(ensemble_module, monkeypatch):
+    _stub_legs(monkeypatch)
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    assert (
+        ens.generate_signal(_agg_signal(SignalAction.HOLD, 0.0), current_price=PRICE, capital=None)
+        is None
+    )
+    assert ens.last_rejection.cause == "no_directional_legs"
+
+
+def test_diversity_block_reports_its_own_cause(ensemble_module, monkeypatch):
+    _stub_legs(monkeypatch, rsi=_rsi_leg(SignalAction.BUY, 0.80))
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    assert (
+        ens.generate_signal(_agg_signal(SignalAction.HOLD, 0.0), current_price=PRICE, capital=None)
+        is None
+    )
+    assert ens.last_rejection.cause == "insufficient_category_diversity"
+
+
+def test_insufficient_agreeing_legs_reports_its_own_cause(
+    ensemble_module, monkeypatch
+):
+    """The HOLD-outcome path, now attributed rather than merely logged.
+
+    Equal and opposite legs net the weighted score to exactly zero, so nothing
+    agrees with the (non-existent) winning side. The diversity guard abstains
+    on a HOLD outcome, which is what lets this rejection land in its own
+    bucket instead of diversity's.
+    """
+    _stub_legs(
+        monkeypatch,
+        rsi=_rsi_leg(SignalAction.BUY, 0.60),
+        mean_rev=_mean_reversion_leg(
+            SignalAction.SELL, 0.60, ["RSI_OVERBOUGHT", "BB_UPPER"]
+        ),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    assert (
+        ens.generate_signal(
+            _agg_signal(SignalAction.HOLD, 0.0), current_price=PRICE, capital=None
+        )
+        is None
+    )
+    assert ens.last_rejection.cause == "insufficient_agreeing_legs"
+
+
+def test_score_below_threshold_reports_its_own_cause(ensemble_module, monkeypatch):
+    """The multi leg alone is diverse by construction, so only the score bites."""
+    _stub_legs(monkeypatch)
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    assert (
+        ens.generate_signal(_agg_signal(SignalAction.BUY, 0.05), current_price=PRICE, capital=None)
+        is None
+    )
+    assert ens.last_rejection.cause == "score_below_threshold"
+
+
+def test_a_successful_signal_clears_the_cause(ensemble_module, monkeypatch):
+    from app.config import get_settings
+
+    _stub_legs(monkeypatch)
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal(SignalAction.BUY, get_settings().min_signal_confidence),
+        current_price=PRICE,
+        capital=None,
+    )
+
+    assert out is not None
+    assert ens.last_rejection is None, (
+        "a stale cause beside a live signal is worse than none -- an operator "
+        "reads it as the reason the trade was blocked"
+    )
+
+
+def test_the_cause_does_not_carry_over_between_calls(ensemble_module, monkeypatch):
+    """T-21-06-05. The ensemble is a process singleton evaluated symbol after
+    symbol in one loop; a value left over from BTCUSDT must never be reported
+    as ETHUSDT's cause."""
+    _stub_legs(monkeypatch)
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    first = _agg_signal(SignalAction.HOLD, 0.0)
+    first.metadata["multi_timeframe"] = _mtf_block(True)
+    ens.generate_signal(first, current_price=PRICE, capital=None)
+    assert ens.last_rejection.cause == "mtf_demoted"
+
+    ens.generate_signal(_agg_signal(SignalAction.BUY, 0.05), current_price=PRICE, capital=None)
+    assert ens.last_rejection.cause == "score_below_threshold", (
+        "the second call reported the FIRST call's cause -- the reset at the "
+        "top of generate_signal is missing or misplaced"
+    )
+
+
+def test_all_four_causes_are_distinct_identifiers(ensemble_module):
+    """The 21-09 ablation cannot attribute a delta it cannot separate."""
+    mod = ensemble_module
+    causes = {
+        mod.REJECT_MTF_DEMOTED,
+        mod.REJECT_NO_DIRECTIONAL_LEGS,
+        mod.REJECT_INSUFFICIENT_DIVERSITY,
+        mod.REJECT_INSUFFICIENT_AGREEING_LEGS,
+        mod.REJECT_SCORE_BELOW_THRESHOLD,
+    }
+    assert len(causes) == 5, f"rejection identifiers collide: {causes}"
+    assert all(c == c.lower() and " " not in c for c in causes), (
+        "identifiers must be stable snake_case so the funnel can group on them"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The key link: the cause must actually reach the trade funnel.
+# ---------------------------------------------------------------------------
+
+
+def _wire_auto_trader(monkeypatch, ensemble):
+    """Minimal harness for `_check_and_trade_ensemble` up to the ensemble gate.
+
+    Everything after `ensemble_signal_emitted` is unreachable here because the
+    stubbed ensemble returns None, which is precisely the path under test.
+    """
+    from app.auto_trader import AutoTrader
+
+    trader = AutoTrader.__new__(AutoTrader)
+    trader.total_signals_checked = 0
+    trader.total_trades_rejected = 0
+    trader.interval = "60"
+    trader.settings = SimpleNamespace(strategy_routing_mode="off")
+    trader.hybrid_strategy = MagicMock()
+
+    risk_mgr = MagicMock()
+    risk_mgr.should_halt_trading = MagicMock(return_value=False)
+    monkeypatch.setattr("app.auto_trader.get_risk_manager", lambda: risk_mgr)
+
+    base_signal = SimpleNamespace(
+        confidence=0.42,
+        metadata={"atr": _atr_payload()},
+        indicators={
+            "RSI": SimpleNamespace(metadata={"current_price": PRICE}),
+        },
+    )
+    aggregator = MagicMock()
+    aggregator.get_trading_signal_multi_timeframe = AsyncMock(return_value=base_signal)
+
+    async def _fake_get_aggregator():
+        return aggregator
+
+    monkeypatch.setattr("app.auto_trader.get_aggregator", _fake_get_aggregator)
+
+    paper_engine = MagicMock()
+    paper_engine.get_balance = MagicMock(return_value=1000.0)
+    monkeypatch.setattr("app.auto_trader.get_paper_engine", lambda: paper_engine)
+
+    import app.strategies.multi_strategy_ensemble as ens_mod
+
+    monkeypatch.setattr(ens_mod, "get_ensemble", lambda: ensemble)
+    return trader
+
+
+def _ensemble_gate_reasons():
+    from app.monitoring.signal_funnel import get_signal_funnel
+
+    stages = get_signal_funnel().snapshot()["stages"]
+    stage = next(s for s in stages if s["stage"] == "ensemble_signal_emitted")
+    return stage["rejection_reasons"]
+
+
+@pytest.mark.asyncio
+async def test_the_funnel_records_the_specific_cause(ensemble_module, monkeypatch):
+    """The whole point of Task 2: four causes, four buckets.
+
+    Before this the funnel recorded one fixed ``ensemble_returned_hold`` whose
+    detail string named only two of the four causes -- factually wrong for the
+    MTF gate (21-05) and for the diversity guard (21-06).
+    """
+    from app.monitoring.signal_funnel import get_signal_funnel
+
+    get_signal_funnel().reset()
+
+    ensemble = MagicMock()
+    ensemble.generate_signal = MagicMock(return_value=None)
+    ensemble.last_rejection = ensemble_module.EnsembleRejection(
+        cause=ensemble_module.REJECT_INSUFFICIENT_DIVERSITY,
+        detail="agreeing legs span 1/2 categories (MOMENTUM)",
+    )
+    trader = _wire_auto_trader(monkeypatch, ensemble)
+
+    await trader._check_and_trade_ensemble("SOLUSDT")
+
+    reasons = _ensemble_gate_reasons()
+    assert "insufficient_category_diversity" in reasons, (
+        f"the funnel collapsed the cause into another bucket: {sorted(reasons)}"
+    )
+    assert "ensemble_returned_hold" not in reasons, (
+        "a known cause must not be reported under the generic fallback"
+    )
+    assert reasons["insufficient_category_diversity"]["examples"], (
+        "the detail string is what an operator reads -- it must not be empty"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_funnel_falls_back_when_no_cause_is_set(ensemble_module, monkeypatch):
+    """An unhandled return-None path must degrade to today's behaviour."""
+    from app.monitoring.signal_funnel import get_signal_funnel
+
+    get_signal_funnel().reset()
+
+    ensemble = MagicMock()
+    ensemble.generate_signal = MagicMock(return_value=None)
+    ensemble.last_rejection = None
+    trader = _wire_auto_trader(monkeypatch, ensemble)
+
+    await trader._check_and_trade_ensemble("SOLUSDT")
+
+    assert "ensemble_returned_hold" in _ensemble_gate_reasons(), (
+        "the fallback must survive so an unhandled path logs something rather than crashing"
+    )
+
+
+def test_generate_signal_still_returns_an_optional_ensemble_signal(ensemble_module, monkeypatch):
+    """The cause rides on the instance, NOT on the return type.
+
+    Every existing caller and test expects ``Optional[EnsembleSignal]``;
+    widening it to a tuple would break them all silently at the call site.
+    """
+    from app.config import get_settings
+
+    _stub_legs(monkeypatch)
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal(SignalAction.BUY, get_settings().min_signal_confidence),
+        current_price=PRICE,
+        capital=None,
+    )
+
+    assert isinstance(out, ensemble_module.EnsembleSignal)
+    assert (
+        ens.generate_signal(_agg_signal(SignalAction.BUY, 0.0), current_price=PRICE, capital=None)
+        is None
     )
