@@ -9,6 +9,7 @@ ENHANCED: ML Prediction integration for 5-10% win rate improvement
 """
 
 import logging
+import math
 import time
 import httpx
 from fastapi import HTTPException
@@ -209,7 +210,46 @@ async def _fetch_market_regime(symbol: str, interval: str) -> dict:
                 )
             regime = "UNKNOWN"
 
-        return {"regime": regime, "adx": adx_value, "confidence": 0.7}
+        # DEFER-21-05 (2026-08-28): report the confidence technical-analysis
+        # COMPUTED, not a constant standing where a measurement is expected.
+        # The number is on the payload already in hand -- TA's
+        # `adx.py::ADXCalculator._calculate_confidence` publishes it as the
+        # `confidence` key of this same `/indicators/adx/{symbol}` response,
+        # and `signal_aggregator.fetch_adx` has been reading it all along. This
+        # handler answered a fixed 0.7 instead, which is indistinguishable
+        # downstream from a real reading.
+        #
+        # ABSENCE STAYS ABSENT -- AND IT STAYS ABSENT AS A MISSING KEY. That
+        # deliberately diverges from the `adx` handling above, which reports a
+        # PRESENT None, and the reason is arithmetic rather than style: the only
+        # consumer of this value is `_calculate_enhanced_signal`, whose risk leg
+        # does `market_regime.get("confidence", 0.5)` and then multiplies by
+        # 0.15. A present None SATISFIES `.get`, so the declared neutral never
+        # fires and the multiply raises -- degrading the entire enhanced path
+        # through its own exception handler on every TA reply lacking the key.
+        # An ABSENT key lands on that declared 0.5 instead. `adx` can afford a
+        # present None because it is surfaced for display and never multiplied.
+        # Pinned by `test_enhanced_signal_survives_an_omitted_regime_confidence`
+        # and its present-None counter-case in tests/aggregation/.
+        regime_report = {"regime": regime, "adx": adx_value}
+        if "confidence" in payload:
+            raw_confidence = payload.get("confidence")
+            try:
+                parsed_confidence = float(raw_confidence)
+            except (TypeError, ValueError):
+                parsed_confidence = None
+            # NaN and inf coerce through `float()` cleanly and then poison every
+            # weight they touch, so "coercible" is not the test that matters.
+            if parsed_confidence is None or not math.isfinite(parsed_confidence):
+                logger.warning(
+                    f"technical-analysis returned an unusable regime confidence "
+                    f"{raw_confidence!r} for {symbol}; omitting the key so the "
+                    f"enhanced-signal risk leg applies its own declared neutral "
+                    f"instead of an unvalidated number"
+                )
+            else:
+                regime_report["confidence"] = parsed_confidence
+        return regime_report
 
     except Exception as e:
         logger.warning(f"Market regime fetch failed for {symbol}: {e}")

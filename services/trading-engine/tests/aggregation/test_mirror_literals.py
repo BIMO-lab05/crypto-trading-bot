@@ -43,12 +43,22 @@ Those three are the MIRROR of the omission contract in
 item B has the engine keep sending them with an engine-side declaration.
 NO VALUE CHANGED there either — 9, 2.5 and 300 are the literals replaced.
 
+DEFER-21-05 (2026-08-28) closed the one member of this class that was NOT a
+mirror: `_fetch_market_regime` returned a fixed `"confidence": 0.7` while
+technical-analysis published a computed confidence on the very same response.
+There was no counterpart to agree or disagree with — the number was invented
+here and reported downstream as a measurement. A VALUE DID CHANGE for that
+site, which is why it carries a committed before/after measurement
+(`.planning/evidence/22.1-regime-confidence-measurement.json`) that the three
+above do not need.
+
 Run from `services/trading-engine` with `--no-cov` (see .claude/rules/testing.md).
 """
 
 import logging
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import annotated_types
@@ -574,6 +584,15 @@ BANNED_LITERALS = [
         r'\.get\("adx",\s*25\)|"adx":\s*25',
         "a missing ADX must stay absent, never be back-filled with a plausible 25",
     ),
+    # DEFER-21-05. Narrow by design: it matches the key-and-value form only, so
+    # neither the rationale comment left at the site (which names 0.7 in prose)
+    # nor the degraded path's declared `"confidence": 0.5` can trip it.
+    (
+        "handlers/signals.py",
+        r'"confidence":\s*0\.7',
+        "the success path must report the confidence technical-analysis "
+        "computed, never a fixed stand-in for it",
+    ),
     (
         "aggregation/market_regime.py",
         r'"period"\s*:',
@@ -693,7 +712,187 @@ async def test_handler_returns_the_regime_ta_computed(monkeypatch, ta_regime, ad
         f"{expected!r}. Reading TA's label must not change the answer."
     )
     assert result["adx"] == adx
-    assert result["confidence"] == 0.7
+    # DEFER-21-05: these payloads carry no `confidence`, and the handler used to
+    # answer 0.7 anyway. A constant reported where a measurement is expected is
+    # indistinguishable downstream from a real one, which is the whole defect.
+    assert "confidence" not in result, (
+        f"technical-analysis sent no confidence, so the engine must report none; "
+        f"it reported {result.get('confidence')!r}. Removing that fabricated "
+        f"number is what DEFER-21-05 is"
+    )
+
+
+# ---------------------------------------------------------------------------
+# DEFER-21-05 — report the confidence TA computed; absence stays absent
+# ---------------------------------------------------------------------------
+
+
+class _EnhancedSignalDouble:
+    """The `base_signal.signal.*` shape `_calculate_enhanced_signal` reads.
+
+    Production hands that function a bare `TradingSignal` (the aggregator's
+    declared return type), which has NO `.signal` attribute — so the real call
+    raises AttributeError on its first statement and the enhanced endpoint
+    falls back to the basic signal. Verified 2026-08-28 and recorded as an
+    out-of-scope finding by plan 22.1-05; repairing that wiring would turn a
+    dead money-adjacent endpoint live and is deliberately not done here.
+
+    This double supplies the shape the function is written against, which is
+    the only way to exercise the arithmetic the omitted key must survive.
+    """
+
+    def __init__(self, action: str = "BUY", confidence: float = 0.6):
+        self.signal = SimpleNamespace(
+            action=SimpleNamespace(value=action),
+            confidence=confidence,
+            metadata={},
+        )
+
+
+async def test_handler_reports_the_confidence_ta_computed(monkeypatch):
+    """The reported confidence must be TA's own, not a stand-in for it.
+
+    Source of the number: technical-analysis
+    `app/indicators/adx.py::ADXCalculator._calculate_confidence`, published as
+    the `confidence` key of the same `/indicators/adx/{symbol}` response this
+    handler already reads the regime label from. `signal_aggregator.fetch_adx`
+    has been reading that key all along; this handler was not.
+    """
+    result = await _drive_market_regime(
+        monkeypatch,
+        payload={"data": {"adx": 27.0, "regime": "TRENDING", "confidence": 0.6}},
+    )
+    assert result["confidence"] == 0.6, (
+        f"technical-analysis computed 0.6 and the engine reported "
+        f"{result.get('confidence')!r}. 0.7 is the removed constant and 0.5 is "
+        f"the degraded-path default — neither may stand in for a real value"
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_confidence",
+    ["high", None, {}, [], float("nan"), float("inf")],
+    ids=["string", "null", "dict", "list", "nan", "inf"],
+)
+async def test_a_malformed_confidence_is_omitted_not_propagated(
+    monkeypatch, caplog, bad_confidence
+):
+    """T-22.1-05-01: an untrusted payload supplies a number that becomes a weight.
+
+    `_calculate_enhanced_signal` multiplies this value by 0.15 without
+    inspecting it. NaN and inf are in the grid on purpose: they coerce through
+    `float()` cleanly and then poison every weight they touch, so "coercible"
+    is not the same test as "usable".
+    """
+    from app.handlers import signals as signals_handler
+
+    with caplog.at_level(logging.WARNING, logger=signals_handler.__name__):
+        result = await _drive_market_regime(
+            monkeypatch,
+            payload={
+                "data": {
+                    "adx": 27.0,
+                    "regime": "TRENDING",
+                    "confidence": bad_confidence,
+                }
+            },
+        )
+
+    # Reaching here at all is half the assertion: nothing escaped the handler.
+    assert "confidence" not in result, (
+        f"{bad_confidence!r} reached the returned dict, where the enhanced-signal "
+        f"risk leg would multiply it by 0.15"
+    )
+    assert result["regime"] == "TRENDING", (
+        "a malformed confidence must not damage the regime read from the same "
+        "payload"
+    )
+    assert result["adx"] == 27.0
+    assert "BTCUSDT" in caplog.text, (
+        f"a present-but-unusable confidence must log a warning naming the symbol "
+        f"it came from; captured: {caplog.text!r}"
+    )
+
+
+async def test_an_absent_confidence_is_not_logged_as_malformed(monkeypatch, caplog):
+    """Absence is TA's normal 'no measurement', not a defect worth a warning."""
+    from app.handlers import signals as signals_handler
+
+    with caplog.at_level(logging.WARNING, logger=signals_handler.__name__):
+        result = await _drive_market_regime(
+            monkeypatch, payload={"data": {"adx": 27.0, "regime": "TRENDING"}}
+        )
+
+    assert "confidence" not in result
+    assert "confidence" not in caplog.text.lower(), (
+        f"an absent key must not warn — every TA reply would log on every call "
+        f"and the real malformed-value warning would be unfindable. Captured: "
+        f"{caplog.text!r}"
+    )
+
+
+async def test_enhanced_signal_survives_an_omitted_regime_confidence(caplog):
+    """T-22.1-05-02: why the key is OMITTED rather than returned as None.
+
+    `_calculate_enhanced_signal` wraps its whole body in `except Exception` and
+    returns the unmodified signal, so "nothing raised" is NOT evidence — a
+    poisoned risk leg looks identical from the outside. The discriminating
+    proof is that the arithmetic COMPLETED: the enhanced metadata block is
+    written, and the risk leg carries the consumer's own declared 0.5 neutral.
+    """
+    from app.handlers import signals as signals_handler
+
+    double = _EnhancedSignalDouble()
+    with caplog.at_level(logging.ERROR, logger=signals_handler.__name__):
+        result = await signals_handler._calculate_enhanced_signal(
+            double,
+            {"signal": "BUY", "confidence": 0.7},
+            # No `confidence` key — exactly what the handler now returns when
+            # technical-analysis supplies none.
+            {"regime": "TRENDING", "adx": 27.0},
+        )
+
+    assert result.metadata.get("enhanced") is True, (
+        "the enhanced block was never written, so the arithmetic degraded "
+        "through the function's own `except Exception` — which is precisely "
+        "what a present-None confidence causes"
+    )
+    assert result.metadata["individual_signals"]["risk_adjustment"]["confidence"] == 0.5, (
+        "an omitted key must land on `market_regime.get('confidence', 0.5)`, "
+        "the neutral the consumer declares for itself"
+    )
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR], (
+        f"the enhanced path logged an error: "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )
+
+
+async def test_a_present_none_confidence_would_have_degraded_the_enhanced_path(caplog):
+    """The counter-case that makes the omission rule load-bearing, not stylistic.
+
+    `dict.get(key, default)` returns None for a PRESENT null — the default
+    never fires — and `None * 0.15` raises. Pinning this here is what stops a
+    future edit from "tidying" the omission into the present-None convention
+    `adx` uses two lines above it.
+    """
+    from app.handlers import signals as signals_handler
+
+    double = _EnhancedSignalDouble()
+    with caplog.at_level(logging.ERROR, logger=signals_handler.__name__):
+        result = await signals_handler._calculate_enhanced_signal(
+            double,
+            {"signal": "BUY", "confidence": 0.7},
+            {"regime": "TRENDING", "adx": 27.0, "confidence": None},
+        )
+
+    assert result.metadata.get("enhanced") is not True, (
+        "a present None was expected to break the risk-leg multiply; if it no "
+        "longer does, the reason DEFER-21-05 omits the key has changed and the "
+        "comment at the site must be revisited"
+    )
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR], (
+        "the degradation must at least be logged"
+    )
 
 
 async def test_missing_regime_field_resolves_to_unknown(monkeypatch):
