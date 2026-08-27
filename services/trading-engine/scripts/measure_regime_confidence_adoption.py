@@ -146,6 +146,12 @@ ML_CONFIDENCE = 0.7
 # ---------------------------------------------------------------------------
 
 _ORIGINAL_NUMERIC_TO_SIGNAL = signals_handler._numeric_to_signal
+
+# Module-global, written inside an async call and read after it. `run_corpus`
+# drives rows STRICTLY SEQUENTIALLY and that ordering is LOAD-BEARING: an
+# `asyncio.gather` here would interleave the two arms and each row would read
+# whichever label happened to be recorded last. If this ever needs to run
+# concurrently, pass a per-call recorder instead of promoting this to a lock.
 _CAPTURED: Dict[str, Any] = {}
 
 
