@@ -25,6 +25,32 @@ settings = get_settings()
 # HTTP client for ML service calls
 ml_client = httpx.AsyncClient(timeout=30.0)
 
+# P21-7 (2026-08-27): technical-analysis owns the ADX regime vocabulary
+# (`services/technical-analysis/app/indicators/adx.py::MarketRegime`) and
+# publishes the computed label on the very endpoint this module already calls.
+# `_fetch_market_regime` used to re-derive it from its own copies of TA's 25 /
+# 20 boundaries, so the dashboard and the engine could disagree about the same
+# market on any env override.
+#
+# TA's vocabulary is WIDER than that re-derivation was: it also emits
+# STRONG_TREND (ADX >= 30), which this module's consumers do not handle --
+# `_calculate_enhanced_signal`'s regime_multiplier and
+# `_get_risk_adjusted_signal` both branch on TRENDING / RANGING only, so an
+# unmapped label silently lands on the neutral branch. STRONG_TREND is
+# therefore mapped onto TRENDING, which is exactly what the deleted
+# re-derivation produced for those bars.
+#
+# NO THRESHOLD VALUE CHANGED: the boundaries are TA's, and they are the same
+# 25 / 20 this handler used to apply. Anything absent from this table resolves
+# to UNKNOWN and logs -- a label TA adds later must fail loud, not quietly
+# take the neutral path.
+TA_REGIME_TO_ENGINE_REGIME = {
+    "STRONG_TREND": "TRENDING",
+    "TRENDING": "TRENDING",
+    "WEAK_TREND": "WEAK_TREND",
+    "RANGING": "RANGING",
+}
+
 
 async def get_trading_signal(symbol: str, interval: str = "60") -> SignalResponse:
     """
@@ -155,24 +181,39 @@ async def _fetch_market_regime(symbol: str, interval: str) -> dict:
         response = await ml_client.get(ta_url, params=params)
         response.raise_for_status()
 
-        data = response.json()
-        adx_value = data.get("data", {}).get("adx", 25)
+        payload = response.json().get("data", {}) or {}
 
-        # Classify market regime based on ADX
-        if adx_value >= 25:
-            regime = "TRENDING"
-        elif adx_value < 20:
-            regime = "RANGING"
-        else:
-            regime = "WEAK_TREND"
+        # A missing ADX used to default to 25, which satisfied the `>= 25`
+        # branch below -- so an empty technical-analysis reply was reported as
+        # TRENDING at confidence 0.7, indistinguishable downstream from a real
+        # measurement. Absence stays absent (same sentinel doctrine as the
+        # ensemble's ATR handling).
+        adx_value = payload.get("adx")
+
+        # Read the regime technical-analysis already computed rather than
+        # re-deriving it here. See TA_REGIME_TO_ENGINE_REGIME above for why the
+        # label is mapped instead of passed through raw.
+        raw_regime = payload.get("regime")
+        regime = TA_REGIME_TO_ENGINE_REGIME.get(raw_regime)
+        if regime is None:
+            if raw_regime is not None:
+                logger.warning(
+                    f"Unmapped technical-analysis regime {raw_regime!r} for "
+                    f"{symbol}; reporting UNKNOWN. Add it to "
+                    f"TA_REGIME_TO_ENGINE_REGIME -- an unmapped label silently "
+                    f"takes the neutral multiplier downstream."
+                )
+            regime = "UNKNOWN"
 
         return {"regime": regime, "adx": adx_value, "confidence": 0.7}
 
     except Exception as e:
         logger.warning(f"Market regime fetch failed for {symbol}: {e}")
         return {
+            # `adx` is None, not 25: a failed fetch has no measurement, and a
+            # plausible stand-in reads as a real one in the API response.
             "regime": "UNKNOWN",
-            "adx": 25,
+            "adx": None,
             "confidence": 0.5,
             "reason": f"Regime service error: {str(e)}",
         }

@@ -342,6 +342,26 @@ BANNED_LITERALS = [
         r"<\s*20 |<1\.2",
         "the [SQZMOM_GATE] log messages must interpolate the resolved threshold",
     ),
+    (
+        "handlers/signals.py",
+        r"adx_value\s*>=\s*25|adx_value\s*<\s*20",
+        "the handler must read TA's regime label, not re-derive it from thresholds",
+    ),
+    (
+        "handlers/signals.py",
+        r'\.get\("adx",\s*25\)|"adx":\s*25',
+        "a missing ADX must stay absent, never be back-filled with a plausible 25",
+    ),
+    (
+        "aggregation/market_regime.py",
+        r'"period"\s*:',
+        "the ADX request must omit the period technical-analysis Settings own",
+    ),
+    (
+        "aggregation/market_regime.py",
+        r"adx_period",
+        "the dead adx_period parameter must be gone, not merely disconnected",
+    ),
 ]
 
 
@@ -360,4 +380,214 @@ def test_no_p21_7_site_regained_an_inline_literal(relpath, pattern, why):
     assert not hits, (
         f"app/{relpath} matched the banned pattern {pattern!r} — {why}.\n"
         + "\n".join(hits)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — stop re-deriving what TA returns, stop sending what TA owns
+# ---------------------------------------------------------------------------
+
+# technical-analysis owns this vocabulary
+# (`services/technical-analysis/app/indicators/adx.py::MarketRegime`). The two
+# services share no code, so the engine test has to restate it; that is the
+# REST-mesh reality this whole defect class lives in. If TA ever adds a fifth
+# label, this list is the thing that must be updated alongside the engine map.
+TA_REGIME_LABELS = ("STRONG_TREND", "TRENDING", "WEAK_TREND", "RANGING")
+
+
+def _legacy_rederivation(adx: float) -> str:
+    """The three-branch classifier P21-7 deleted from handlers/signals.py.
+
+    Kept here, and ONLY here, so the equivalence claim in the summary is a
+    executable assertion rather than prose: for every ADX value TA can report,
+    reading TA's label must produce what the engine used to compute itself.
+    """
+    if adx >= 25:
+        return "TRENDING"
+    if adx < 20:
+        return "RANGING"
+    return "WEAK_TREND"
+
+
+async def _drive_market_regime(monkeypatch, payload=None, raises=None):
+    """Run `_fetch_market_regime` against a stubbed technical-analysis reply."""
+    from app.handlers import signals as signals_handler
+
+    async def _get(url, params=None, **kwargs):
+        if raises is not None:
+            raise raises
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json = MagicMock(return_value=payload)
+        return response
+
+    monkeypatch.setattr(signals_handler.ml_client, "get", _get)
+    return await signals_handler._fetch_market_regime("BTCUSDT", "60")
+
+
+@pytest.mark.parametrize(
+    "ta_regime,adx",
+    [
+        ("STRONG_TREND", 35.0),
+        ("TRENDING", 27.0),
+        ("WEAK_TREND", 22.0),
+        ("RANGING", 12.0),
+    ],
+)
+async def test_handler_returns_the_regime_ta_computed(monkeypatch, ta_regime, adx):
+    """The engine must report TA's label, and it must equal the old derivation.
+
+    TA's vocabulary is wider than the engine's was: STRONG_TREND (ADX >= 30)
+    has no consumer in `_calculate_enhanced_signal` or in
+    `_get_risk_adjusted_signal`, so passing it through raw would silently drop
+    every ADX >= 30 bar onto the neutral branch. It is mapped onto TRENDING,
+    which is exactly what the deleted re-derivation produced for those bars.
+    """
+    result = await _drive_market_regime(
+        monkeypatch, payload={"data": {"adx": adx, "regime": ta_regime}}
+    )
+    expected = _legacy_rederivation(adx)
+    assert result["regime"] == expected, (
+        f"TA said {ta_regime!r} at ADX {adx}; the engine used to derive "
+        f"{expected!r}. Reading TA's label must not change the answer."
+    )
+    assert result["adx"] == adx
+    assert result["confidence"] == 0.7
+
+
+async def test_missing_regime_field_resolves_to_unknown(monkeypatch):
+    """A response with no `regime` must not be classified at all."""
+    result = await _drive_market_regime(monkeypatch, payload={"data": {}})
+    assert result["regime"] == "UNKNOWN"
+
+
+async def test_a_failed_adx_read_can_no_longer_masquerade_as_trending(monkeypatch):
+    """T-21-07-02: the `.get("adx", 25)` default landed in the TRENDING branch.
+
+    A missing ADX was replaced by 25, which satisfied `adx_value >= 25`, so an
+    empty technical-analysis reply was reported as TRENDING at confidence 0.7 —
+    indistinguishable downstream from a real measurement. Absence must stay
+    absent.
+    """
+    result = await _drive_market_regime(monkeypatch, payload={"data": {}})
+    assert result["regime"] != "TRENDING"
+    assert result["adx"] != 25, (
+        "a missing ADX must not be back-filled with a plausible number; it is "
+        "reported to the API response and reads as a real measurement"
+    )
+    assert result["adx"] is None
+
+
+async def test_regime_fetch_failure_does_not_fabricate_an_adx(monkeypatch):
+    """The exception path fabricated the same 25. Same doctrine applies."""
+    result = await _drive_market_regime(
+        monkeypatch, raises=RuntimeError("technical-analysis unreachable")
+    )
+    assert result["regime"] == "UNKNOWN"
+    assert result["adx"] is None
+    assert "reason" in result
+
+
+async def test_unmapped_ta_regime_label_fails_loud_not_silent(monkeypatch, caplog):
+    """A label TA adds later must log, not fall through to the neutral branch."""
+    from app.handlers import signals as signals_handler
+
+    with caplog.at_level(logging.WARNING, logger=signals_handler.__name__):
+        result = await _drive_market_regime(
+            monkeypatch, payload={"data": {"adx": 40.0, "regime": "BLOW_OFF_TOP"}}
+        )
+    assert result["regime"] == "UNKNOWN"
+    assert "BLOW_OFF_TOP" in caplog.text, (
+        "an unmapped regime label must name itself in the log; otherwise the "
+        "engine silently applies the neutral multiplier and nobody finds out"
+    )
+
+
+def test_engine_maps_every_regime_label_ta_can_emit():
+    from app.handlers.signals import TA_REGIME_TO_ENGINE_REGIME
+
+    missing = set(TA_REGIME_LABELS) - set(TA_REGIME_TO_ENGINE_REGIME)
+    assert not missing, (
+        f"technical-analysis can emit {sorted(missing)} and the engine has no "
+        f"row for it — those bars would resolve to UNKNOWN and lose the regime "
+        f"multiplier they used to get"
+    )
+
+
+class _FakeAsyncClient:
+    """Minimal stand-in for the `async with httpx.AsyncClient()` in market_regime."""
+
+    def __init__(self, captured, payload):
+        self._captured = captured
+        self._payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+    async def get(self, url, params=None, **kwargs):
+        self._captured["url"] = url
+        self._captured["params"] = params
+        response = MagicMock()
+        response.status_code = 200
+        response.json = MagicMock(return_value=self._payload)
+        return response
+
+
+async def test_market_regime_omits_the_adx_period_ta_settings_own(monkeypatch):
+    """`period` must not ride along on the outbound ADX request.
+
+    technical-analysis declares `default_adx_period` (14) and its
+    `/indicators/adx` route resolves the query default from it, so sending an
+    engine-side copy was a second declaration agreeing only by coincidence.
+    `signal_aggregator.fetch_adx` already omits it — this is the same contract
+    as `tests/test_engine_param_omission.py`, one layer down.
+    """
+    from app.aggregation import market_regime as mr
+
+    captured = {}
+    payload = {
+        "success": True,
+        "data": {
+            "adx": 30.0,
+            "plus_di": 25.0,
+            "minus_di": 10.0,
+            "regime": "STRONG_TREND",
+            "direction": "BULLISH",
+            "confidence": 0.8,
+        },
+    }
+    monkeypatch.setattr(
+        mr.httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(captured, payload)
+    )
+
+    detector = mr.MarketRegimeDetector(enabled=True)
+    data = await detector._fetch_adx_data("BTCUSDT", "60")
+
+    assert data is not None, "the fetch failed — the param assertion would be vacuous"
+    params = captured.get("params") or {}
+    assert "period" not in params, (
+        f"market_regime sent 'period', which technical-analysis declares in its "
+        f"Settings. Full captured params: {params}"
+    )
+    assert params.get("interval") == "60"
+
+
+def test_market_regime_no_longer_accepts_a_dead_adx_period_argument():
+    """A parameter that no longer reaches the request is worse than none.
+
+    Leaving `adx_period` on the constructor after removing it from the request
+    means a caller can set it, see no error, and get no effect — the exact
+    silent-divergence shape P21-7 exists to remove.
+    """
+    import inspect
+
+    from app.aggregation.market_regime import MarketRegimeDetector
+
+    params = inspect.signature(MarketRegimeDetector.__init__).parameters
+    assert "adx_period" not in params, (
+        "adx_period no longer reaches the outbound request; accepting it would "
+        "be an argument that silently does nothing"
     )
