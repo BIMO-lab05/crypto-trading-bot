@@ -356,12 +356,17 @@ initialize_paper_trading() {
         local balance=$(echo "$balance_response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('balance', 0))" 2>/dev/null || echo "0")
         log INFO "Paper trading already initialized with balance: \$$balance"
     else
-        # THE ACCOUNT IS $100. shared/account.py is the declaration of record,
-        # and this script is host-run so importing it is allowed (CLAUDE.md
-        # money rules). Deliberately NO literal fallback: this POST is the only
-        # place the startup path *writes* an account size, and a silent default
-        # here is how portfolios.initial_balance ended up at 10000 against a
-        # total_value of 100 (AUDIT 2.2). Refusing to guess is the safe failure.
+        # This comment deliberately asserts NO account size. shared/account.py
+        # is the declaration of record (ADR-029), and this script is host-run
+        # so importing it is allowed (CLAUDE.md money rules). A figure restated
+        # here would be a second declaration agreeing with the first only by
+        # coincidence: the previous wording named one, and stayed in the file
+        # long after a re-scale made it wrong. Deliberately NO literal fallback
+        # either -- this POST is the only place the startup path *writes* an
+        # account size, and a silent default here is how the recorded
+        # portfolios.initial_balance once diverged from total_value (AUDIT 2.2).
+        # Refusing to guess is the safe failure. The code below READS the
+        # declared value rather than restating it; keep it that way.
         local initial_balance
         if ! initial_balance=$(cd "$REPO_ROOT" && python3 -c \
             'from shared.account import PAPER_INITIAL_BALANCE; print(PAPER_INITIAL_BALANCE)'); then
