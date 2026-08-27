@@ -440,6 +440,65 @@ class MultiStrategyEnsemble:
                 the value and hides it from the AST detector in
                 tests/test_account_size_invariant.py.
         """
+        # MTF DEMOTE-TO-HOLD GATE — P21-3, 2026-08-27.
+        #
+        # When consolidate_mtf_confidence() demotes a directional consensus to
+        # HOLD (signal_aggregator.py:71-78 — no timeframe's GATED action agreed
+        # with a consensus computed from PRE-gate scores), that decision reaches
+        # this method through `primary_signal.action` and, since Plan 21-05
+        # Task 2, through `metadata["multi_timeframe"]["demoted_to_hold"]`.
+        #
+        # The defect this closes: only ONE of the three legs honoured it, and
+        # only incidentally. `multi_indicator` below is guarded on
+        # `action != SignalAction.HOLD and confidence > 0`, so it happens to see
+        # the demoted action. `simple_rsi` and `mean_reversion` are dispatched
+        # off the indicator dict and never read `.action` at all, so they traded
+        # straight past a system-level HOLD. Two of three legs overriding a
+        # decision the aggregator already made is an admission path nobody
+        # chose.
+        #
+        # NARROW BY CONSTRUCTION. This is keyed on the `demoted_to_hold` flag,
+        # NOT on `aggregator_signal.action == SignalAction.HOLD`. The broad
+        # reading is simpler and needs no metadata key, but `action == HOLD`
+        # arrives from four distinct upstream causes — this demotion, a raw
+        # consensus that was genuinely HOLD, the regime hard-block
+        # (signal_aggregator.py:1206+), and a per-timeframe requirements gate
+        # resolving HOLD inside aggregator_core. Gating on the bare action would
+        # suppress the last two as well, which 21-CONTEXT does not authorise.
+        # The regime hard-block is recorded as a candidate follow-up, not fixed.
+        #
+        # IDENTITY CHECK, not truthiness. `demoted_to_hold` is an untyped entry
+        # in a plain dict that now decides whether ANY trade is produced. A
+        # truthiness test would let one malformed upstream value ("true", 1, a
+        # stray non-empty string) silently halt every signal the engine emits,
+        # with no error and no log to find it by. The non-dict guard above it
+        # exists for the same reason: garbage must degrade to the pre-fix
+        # behaviour, never to a global halt.
+        #
+        # NO THRESHOLD VALUE CHANGED. MIN_AGREEING_LEGS (1),
+        # AGGREGATION_THRESHOLD (0.10) and min_signal_confidence (0.30) are
+        # untouched — this is wiring, not tuning. The behavioural threshold lock
+        # in tests/strategies/test_ensemble_confidence_units.py
+        # (`-k threshold_lock`) was observed green before this gate landed and
+        # must stay green after it.
+        #
+        # Expected effect: trade admission DECREASES. 21-CONTEXT authorises that
+        # explicitly. It belongs to the "+gates" arm of the Plan 21-09 ablation,
+        # not the "+ATR" arm.
+        mtf_meta = (aggregator_signal.metadata or {}).get("multi_timeframe")
+        if not isinstance(mtf_meta, dict):
+            mtf_meta = {}
+        if mtf_meta.get("demoted_to_hold") is True:
+            logger.info(
+                "[ENSEMBLE] HOLD — multi-timeframe consolidation demoted the "
+                "consensus to HOLD; all three legs suppressed. Previously only "
+                "the multi_indicator leg honoured this (via its action != HOLD "
+                "guard) while simple_rsi and mean_reversion never read .action. "
+                f"consensus={mtf_meta.get('consensus_action')} "
+                f"consolidated={mtf_meta.get('consolidated_action')}"
+            )
+            return None
+
         # Resolved ONCE, here, and passed down to every leg. Letting two legs
         # resolve independently while a third receives a pass-through is how
         # one signal ends up sized against two different account figures.
