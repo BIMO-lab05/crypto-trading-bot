@@ -179,7 +179,9 @@ The 14 break down as `adx.py` (6), `ichimoku.py` (2), `moving_averages.py` (2), 
 - Open paper positions: **4** — ETHUSDT SHORT `af48f6cf`, BNBUSDT LONG `ba93f736`, BTCUSDT LONG `b60eee8e`, ADAUSDT SHORT `5589c83e`.
 - `docker context` is `default`.
 
-**Build and recreate:** `DOCKER_BUILDKIT=0` plus a fresh `DOCKER_CONFIG=$(mktemp -d)` (vsock credential workaround), `docker-compose.unified.yml`, `build technical-analysis trading-engine` then `up -d --no-deps --force-recreate technical-analysis trading-engine`. Both images rebuilt (`crypto-trading-bot-technical-analysis:latest` → `a5663f3db007`, `crypto-trading-bot-trading-engine:latest` → `8596c345c340`). No other service was rebuilt or recreated; the other 12 containers kept their original uptimes.
+**Build and recreate:** `DOCKER_BUILDKIT=0` plus a fresh `DOCKER_CONFIG=$(mktemp -d)` (vsock credential workaround), `docker-compose.unified.yml`, `build technical-analysis trading-engine` then `up -d --no-deps --force-recreate technical-analysis trading-engine`. Both images rebuilt (`crypto-trading-bot-technical-analysis:latest` → `a5663f3db007`, `crypto-trading-bot-trading-engine:latest` → `8596c345c340`).
+
+**`--no-deps` confirmed mechanically**, by diffing the pre-flight and post-recreate `docker ps` listings name-by-name rather than eyeballing them. Exactly **2 of 14** container statuses changed — `crypto-bot-trading` (`Up 4 hours` → `Up 5 minutes`) and `crypto-bot-ta` (`Up 12 hours` → `Up 5 minutes`). The other 12 held their original uptimes unchanged, the container name set is identical, and all 14 report `healthy`. This is the load-bearing evidence that postgres/timescaledb were never touched — the bind-mount outage of 2026-08-22 was triggered by exactly that surface.
 
 **In-image proofs** — presence of the new token, never absence of the old one:
 
@@ -193,6 +195,16 @@ The 14 break down as `adx.py` (6), `ichimoku.py` (2), `moving_averages.py` (2), 
 | `crypto-bot-ta` `grep -cF 'float(latest["sqz_momentum"])'` `handlers/sqzmom.py` | `1` |
 | `crypto-bot-ta` `grep -c '"momentum": float('` `indicators/squeeze_momentum.py` | `1` |
 | `crypto-bot-ta` `test -f /app/backtesting/sqzmom_backtest.py` | **exit 1** (correctly absent) |
+
+The plan's own `<verify><automated>` block was also run verbatim, since the eight criteria above are stronger but are not the same command:
+
+```
+$ docker exec crypto-bot-trading grep -c "stop_loss=float(stop_loss)" /app/app/strategies/simple_rsi_strategy.py \
+  && docker exec crypto-bot-ta grep -c "sqz_momentum" /app/app/handlers/sqzmom.py
+1
+9
+exit 0
+```
 
 Both Dockerfiles were re-read to confirm the `COPY --chown=appuser:appuser app/ ./app/` scope (`technical-analysis/Dockerfile:60`, `trading-engine/Dockerfile:71`) before any in-image assertion was written. `backtesting/` is out of build context, which is why it is excluded from the proof set — demonstrated by the `test -f` check rather than assumed.
 
@@ -214,7 +226,7 @@ Both Dockerfiles were re-read to confirm the `COPY --chown=appuser:appuser app/ 
 
 - **Edit ordering: all conversions and markers first, provenance comments last.** Inserting a comment above `handlers/sqzmom.py:109` would have shifted every subsequent target line. All edits were applied by unique-string replacement (asserting `count(old) == 1`) rather than by line number, and the comments went in only after `find_violations` returned `[]` for all three files.
 - **`:358` `squeeze_on_pct` opens a multi-line conditional.** Its marker had to land on the physical line `ast` reports as `node.lineno`, and a comment inside an implicit line continuation is legal Python. Verified by re-running the detector after the edit rather than assuming — and again after the commit, in case a hook reformatted. The marked line is 98 columns, under the repo's 100.
-- **Bash+pathlib used for every edit, never the Edit tool**, per the known ruff-at-88 format-hook hazard. `git diff --stat` shows 21 insertions / 10 deletions for Task 1 and exactly 29/29 for the backtest file — no reflow, no import churn.
+- **Bash+pathlib used for every edit, never the Edit tool**, per the known ruff-at-88 format-hook hazard. Per-commit stats, re-derived from `git show --stat` rather than from a mid-task `git diff`: `f0a7559` is 21 insertions / 10 deletions across 3 files; `0550770` is 59 insertions / 47 deletions across 2 files. For the backtest file specifically the shape is 36 insertions / 29 deletions — the 29 replaced lines are exactly the 29 banned sites, and the extra 7 insertions are the provenance comment. No reflow, no import churn.
 - **The deleted enumeration was accurate, not wrong.** "Four such sites… twelve more" summed to 16, which checked out. It was removed because it is hand-maintained and had already rotted once into citing a line range that later moved. Saying so here so the next auditor does not go looking for a factual error that was never there.
 - **Provenance comments deliberately avoid the literal `# non-price-round` string**, since the acceptance pins use `text.count()` and a prose mention would over-count. This constraint does not apply to the guard docstring, which is not in `SCANNED_FILES`.
 
@@ -227,6 +239,7 @@ Both Dockerfiles were re-read to confirm the `COPY --chown=appuser:appuser app/ 
 - **Found during:** Task 3 (deployment verification)
 - **Issue:** Two URLs in the plan's acceptance criteria 404 against the running stack. `GET http://localhost:8004/indicators/sqzmom?symbol=ADAUSDT` returned `404` — the TA service mounts the route as a path parameter under an `/api/v1` prefix. `GET http://localhost:8003/api/portfolio/positions` returned `{"detail":"Not Found"}` — portfolio-manager exposes no positions route at all.
 - **Fix:** Resolved both from the services' own `openapi.json` rather than guessing. Momentum check now uses `GET http://localhost:8004/api/v1/indicators/sqzmom/ADAUSDT`; positions use `GET http://localhost:8000/api/trading/positions` through the gateway (portfolio-manager's nearest local equivalent, `/api/v1/portfolio/holdings`, reports holdings rather than open positions and was used only as a cross-check).
+- **These are two different kinds of error, and whoever repairs the plan template should not conflate them.** The sqzmom URL is a shape error — the route exists, but as a path parameter under an `/api/v1` prefix (`/api/v1/indicators/sqzmom/{symbol}`), not as a query parameter at the root. The positions URL is not a prefix typo at all: **portfolio-manager exposes no positions route on any prefix.** Its full path list is 20 routes, all `/api/v1/...`, and the nearest thing is `/api/v1/portfolio/holdings`. Open positions are only reachable through the gateway at `:8000`.
 - **Files modified:** None — verification commands only.
 - **Verification:** Both corrected URLs return `200` with the expected payload shape; the two-sided momentum invariant passes on ADAUSDT first try, and SOLUSDT was run as an independent confirmation.
 - **Committed in:** N/A (Task 3 commits no source)
@@ -285,6 +298,9 @@ None — no external service configuration required.
 - Both task commits present in `git log`: `f0a7559`, `0550770`. Branch verified `fix/ta-signal-path-phase-21` before each commit. Neither commit deleted a tracked file (`git diff --diff-filter=D` empty for both).
 - Every `<acceptance_criteria>` from all three tasks re-run and green, including the exact pins: `len(SCANNED_FILES) == 12`; marker counts 2 / 2 / 27 via `text.count()`; whole-repo total 72; `find_violations == []` for all 12 enrolled files; `float(self.entry_price)` and `float(self.exit_price)` each grep to exactly 1; `round(self.duration_hours, 1)` intact at 1; `grep -cE "14 (further |remaining |uncovered )?sites"` returns 1; `roughly 17`, `Four such sites` and `121-122` all return 0; all eight `docker exec` assertions; both `/health` endpoints 200 with healthy bodies; position count 4 → 4.
 - Plan-level `<verification>` 1-5 all green: guard suite passes with 12 files scanned; TA suite 711 → 711 passed with zero failures; `services/trading-engine/tests/test_sub_dollar_price_safety.py` still 4 passed; whole-repo scan over enrolled files returns zero violations; in-image proof complete on all five files with both services healthy.
+- Task 3's `<verify><automated>` block was executed verbatim (not merely inferred from the stronger acceptance greps) and returned `1` / `9`, exit 0.
+- The `--no-deps` claim was confirmed by a mechanical name-by-name diff of the two `docker ps` listings, not by inspection: 2 of 14 statuses changed, both of them the intended services.
+- All diff-stat figures in this document were re-derived from `git show --stat` on the landed commits, replacing a mid-task `git diff` reading that predated the provenance comments.
 - Acceptance criteria re-verified on-disk *after* each commit landed, guarding against a reformatting hook moving a marked call off its marker line.
 
 ---
