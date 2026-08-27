@@ -123,7 +123,6 @@ class MarketRegimeDetector:
     def __init__(
         self,
         enabled: bool = True,
-        adx_period: int = 14,
         cache_ttl_seconds: int = 60,
         request_timeout: float = 5.0,
     ):
@@ -132,12 +131,17 @@ class MarketRegimeDetector:
 
         Args:
             enabled: Enable/disable regime detection (default: True)
-            adx_period: ADX calculation period (default: 14)
             cache_ttl_seconds: How long to cache regime data (default: 60s)
             request_timeout: HTTP request timeout in seconds (default: 5.0)
+
+        Note:
+            The ADX lookback is NOT a parameter here (P21-7, 2026-08-27). The
+            technical-analysis service declares it and its /indicators/adx
+            route resolves the query default from that declaration, so an
+            engine-side copy was a second declaration that agreed only by
+            coincidence. No caller ever passed it.
         """
         self.enabled = enabled
-        self.adx_period = adx_period
         self.cache_ttl = cache_ttl_seconds
         self.request_timeout = request_timeout
         self.settings = get_settings()
@@ -158,7 +162,8 @@ class MarketRegimeDetector:
         if self.enabled:
             logger.info(
                 f"MarketRegimeDetector initialized: "
-                f"adx_period={adx_period}, cache_ttl={cache_ttl_seconds}s"
+                f"cache_ttl={cache_ttl_seconds}s "
+                f"(the ADX lookback is owned by technical-analysis)"
             )
         else:
             logger.info("MarketRegimeDetector initialized (DISABLED)")
@@ -236,7 +241,12 @@ class MarketRegimeDetector:
             ADX data dictionary or None if request fails
         """
         url = f"{self.settings.technical_analysis_url}/api/v1/indicators/adx/{symbol}"
-        params = {"interval": interval, "period": self.adx_period, "limit": 100}
+        # No lookback parameter here on purpose (P21-7, 2026-08-27) -- the
+        # technical-analysis service declares it and resolves this route's
+        # query default from that declaration. `signal_aggregator.fetch_adx`
+        # already omits it; this was the last engine-side copy.
+        # NO VALUE CHANGED: TA's declared default is the 14 this used to send.
+        params = {"interval": interval, "limit": 100}
 
         try:
             async with httpx.AsyncClient(timeout=self.request_timeout) as client:

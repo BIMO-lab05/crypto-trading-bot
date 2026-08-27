@@ -329,6 +329,60 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Mirror-literal cluster (P21-7, 2026-08-27; audit
+    # `.planning/audits/2026-08-26-ta-signal-path-audit.md`). The two fields
+    # below lift numbers that engine code hardcoded while the
+    # technical-analysis service declared its own copy:
+    #   - `signal_aggregator.fetch_adx` — `adx_val >= 20.0`, the gate deciding
+    #     whether ADX may emit a directional vote at all.
+    #   - `sqzmom_strategy_integration` — `adx_val < 20.0`, the SQZMOM
+    #     demote-to-HOLD trend-strength gate.
+    #   - `sqzmom_strategy_integration` — `ratio < 1.2`, the SQZMOM
+    #     volume-confirmation gate.
+    # Each agreed with its counterpart only by coincidence: nothing read one
+    # from the other, so a single env override on the TA side would have moved
+    # one number and left the engine applying the old one, silently. Lifting
+    # them to declared fields makes any override deliberate on both sides.
+    # NO THRESHOLD VALUE CHANGED — 20.0 and 1.2 are the literals they replace.
+
+    # 20.0 is the conventional Wilder weak-trend floor and matches
+    # technical-analysis `default_adx_weak_trend_threshold`. Do NOT diverge the
+    # two without recording why — TA uses it to label the regime string it
+    # publishes (`RANGING` below it, `WEAK_TREND` at or above), while the engine
+    # uses it to decide whether ADX votes and whether a SQZMOM signal survives
+    # its trend gate. A split would let the engine trade a bar the dashboard is
+    # simultaneously calling RANGING.
+    adx_weak_trend_threshold: float = Field(
+        default=20.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "ADX at or above which the engine lets ADX emit a directional "
+            "BUY/SELL vote, and at or above which the SQZMOM gate accepts a "
+            "directional action instead of demoting it to HOLD. Mirrors "
+            "technical-analysis default_adx_weak_trend_threshold."
+        ),
+    )
+
+    # `sqzmom_volume_ratio_min` has NO technical-analysis counterpart. The TA
+    # volume endpoint returns `ratio` and `confirmed` but declares no
+    # minimum-ratio setting, so this threshold is engine-owned rather than
+    # mirrored — do not go looking for a `default_volume_ratio_min` in the TA
+    # Settings, there is none. If one is ever added there, wire it through here
+    # in the same commit; declaring it on both sides unwired would recreate the
+    # exact split this block exists to close.
+    sqzmom_volume_ratio_min: float = Field(
+        default=1.2,
+        ge=0.0,
+        le=10.0,
+        description=(
+            "Minimum volume ratio (release-bar volume / volume SMA) the SQZMOM "
+            "gate requires before allowing a directional action; below it the "
+            "action is demoted to HOLD. Engine-owned: the technical-analysis "
+            "service declares no counterpart for this value."
+        ),
+    )
+
     # Strategy routing mode (2026-08-21).
     #   advisory  — the router classifies the regime and records the branch it
     #               WOULD have taken on every evaluation, but execution is
