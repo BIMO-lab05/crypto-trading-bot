@@ -307,3 +307,236 @@ def test_threshold_lock_constants_are_unchanged(ensemble_module):
         f"min_signal_confidence is {get_settings().min_signal_confidence}, "
         f"expected 0.30. {approval}"
     )
+
+
+# ---------------------------------------------------------------------------
+# P21-3 (Plan 21-05, Task 3): an MTF demote-to-HOLD must suppress ALL legs.
+#
+# signal_aggregator applies the demoted action to `primary_signal.action`, and
+# the `multi_indicator` leg honours it only incidentally -- its
+# `action != HOLD and confidence > 0` guard happens to see it. `simple_rsi` and
+# `mean_reversion` are dispatched off the INDICATOR DICT and never read
+# `.action`, so they traded straight past a decision the system already made.
+#
+# The gate below is keyed on the narrow `demoted_to_hold` flag added in Task 2,
+# NOT on `aggregator_signal.action == HOLD`. The broad reading would also
+# swallow the regime hard-block and the upstream requirements gate, which
+# 21-CONTEXT does not authorise.
+# ---------------------------------------------------------------------------
+
+
+def _mtf_block(demoted, consolidated="HOLD", consensus="BUY"):
+    """metadata['multi_timeframe'] as signal_aggregator writes it post-Task-2."""
+    return {
+        "enabled": True,
+        "timeframes": ["15", "60", "240"],
+        "consensus_action": consensus,
+        "consolidated_action": consolidated,
+        "demoted_to_hold": demoted,
+        "alignment_strength": "MODERATE",
+        "confidence_modifier": 1.0,
+        "agreement_pct": 0.0,
+        "reasoning": "test",
+        "timeframe_signals": {},
+    }
+
+
+def _agg_signal_mtf(action, confidence, mtf_block=None, price: float = 100.0):
+    """`_agg_signal` plus an optional metadata['multi_timeframe'] block."""
+    sig = _agg_signal(action, confidence, price)
+    if mtf_block is not None:
+        sig.metadata["multi_timeframe"] = mtf_block
+    return sig
+
+
+def _counting_legs(monkeypatch, rsi=None, mean_rev=None):
+    """Like `_silence_legs`, but COUNTS dispatches so suppression is provable.
+
+    Asserting the ensemble returned None is not enough on its own: a payload can
+    return None for a dozen unrelated reasons. Zero dispatches proves the gate
+    fired BEFORE any leg ran, which is what the plan actually specifies.
+    """
+    from app.strategies.simple_rsi_strategy import SimpleRSIStrategy
+    from app.strategies.mean_reversion_strategy import MeanReversionStrategy
+
+    calls = {"simple_rsi": 0, "mean_reversion": 0}
+
+    def rsi_spy(self, *a, **kw):
+        calls["simple_rsi"] += 1
+        return rsi
+
+    def mean_rev_spy(self, *a, **kw):
+        calls["mean_reversion"] += 1
+        return mean_rev
+
+    monkeypatch.setattr(SimpleRSIStrategy, "generate_signal", rsi_spy)
+    monkeypatch.setattr(MeanReversionStrategy, "generate_signal", mean_rev_spy)
+    return calls
+
+
+def test_mtf_demotion_suppresses_every_leg(ensemble_module, monkeypatch, caplog):
+    """The P21-3 fix. Demotion silences all three legs, before any dispatch.
+
+    The payload is the REALISTIC post-demotion shape: the aggregator's action is
+    already HOLD (that is what demotion means), so `multi_indicator` is silenced
+    by its own guard and cannot be what emits. The two legs that used to trade
+    past the demotion -- `simple_rsi` and `mean_reversion` -- are both firing BUY
+    at a conviction that clears AGGREGATION_THRESHOLD comfortably.
+    """
+    calls = _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+    caplog.set_level("INFO")
+
+    out = ens.generate_signal(
+        _agg_signal_mtf(SignalAction.HOLD, 0.0, _mtf_block(True)),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert out is None, (
+        "multi-timeframe consolidation demoted this consensus to HOLD; no leg "
+        "may trade past it"
+    )
+    assert calls == {"simple_rsi": 0, "mean_reversion": 0}, (
+        f"the gate must fire BEFORE any leg is dispatched, got {calls}. A leg "
+        "that ran and was discarded later is not suppression -- it is a "
+        "coincidence that depends on the score arithmetic."
+    )
+    assert "demoted" in caplog.text.lower(), (
+        "the suppression must be visible in the funnel log, named by cause"
+    )
+
+
+def test_the_same_payload_without_the_flag_still_emits(
+    ensemble_module, monkeypatch
+):
+    """POSITIVE CONTROL for the test above -- do not delete.
+
+    Identical payload minus `demoted_to_hold`. If this did not emit, the
+    suppression test would pass vacuously: it would be asserting None against a
+    payload that never produced a signal in the first place. This is the
+    assertion that makes the pair load-bearing.
+    """
+    calls = _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal_mtf(SignalAction.HOLD, 0.0, None),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert out is not None, (
+        "without a demotion flag this payload MUST emit -- two BUY legs at 0.60 "
+        "clear both MIN_AGREEING_LEGS and AGGREGATION_THRESHOLD. If it does "
+        "not, the suppression test above proves nothing."
+    )
+    assert out.action == SignalAction.BUY
+    assert calls == {"simple_rsi": 1, "mean_reversion": 1}
+
+
+def test_explicit_false_does_not_suppress(ensemble_module, monkeypatch):
+    """`demoted_to_hold: False` is the common case and must be inert."""
+    _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal_mtf(SignalAction.HOLD, 0.0, _mtf_block(False)),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert out is not None, "a consensus that was not demoted must still trade"
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        pytest.param("true", id="truthy-string"),
+        pytest.param(1, id="int-one"),
+        pytest.param("HOLD", id="action-string"),
+        pytest.param([True], id="non-empty-list"),
+        pytest.param({"demoted": True}, id="nested-dict"),
+    ],
+)
+def test_malformed_demoted_to_hold_value_does_not_suppress(
+    ensemble_module, monkeypatch, malformed
+):
+    """T-21-05-02: a malformed metadata value must not halt ALL trading.
+
+    The check is an IDENTITY test against `True`, not a truthiness test. This
+    field is an untyped dict entry that now decides whether any trade is
+    produced at all; if a truthy string or a stray `1` could trip it, one
+    upstream typo becomes a silent, total denial of service on the trading path
+    -- with no error and no log to find it by. Fail OPEN here: a wrong value
+    must degrade to the pre-fix behaviour, not to a global halt.
+
+    Note `1 is True` is False in CPython even though `1 == True` is True. That
+    distinction is the entire mechanism, so the int case is deliberate.
+    """
+    _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal_mtf(SignalAction.HOLD, 0.0, _mtf_block(malformed)),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert out is not None, (
+        f"demoted_to_hold={malformed!r} is not the boolean True and must not "
+        "suppress. A truthiness check here would let one malformed upstream "
+        "value silently kill every signal the engine produces."
+    )
+
+
+@pytest.mark.parametrize(
+    "not_a_dict",
+    [
+        pytest.param("enabled", id="string"),
+        pytest.param(["15", "60"], id="list"),
+        pytest.param(7, id="int"),
+    ],
+)
+def test_non_dict_multi_timeframe_metadata_does_not_crash(
+    ensemble_module, monkeypatch, not_a_dict
+):
+    """The gate reads an untyped dict entry -- it must not raise on garbage.
+
+    `metadata['multi_timeframe']` is written by signal_aggregator as a dict, but
+    nothing enforces that. An AttributeError here would propagate out of
+    `generate_signal` on the live signal path.
+    """
+    _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal_mtf(SignalAction.HOLD, 0.0, not_a_dict),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert out is not None, (
+        "a non-dict multi_timeframe block must degrade to no-suppression, "
+        "not raise and not halt trading"
+    )
