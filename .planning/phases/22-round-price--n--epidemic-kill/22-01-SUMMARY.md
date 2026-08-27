@@ -190,6 +190,19 @@ None — no external service configuration required.
 - **Deployment is NOT done.** CONTEXT.md requires a rebuild plus `--force-recreate` of trading-engine and a `docker exec` proof that the `float()` change is in the running image. That was out of scope for this plan's tasks and has not been performed — the running container still serves 4dp SL/TP. Per CLAUDE.md §7, this plan is verified at the source and test level only.
 - The guard is the only mechanical barrier to reintroduction. Removing a file from `SCANNED_FILES` to make it green is a discipline violation the docstring calls out explicitly.
 
+## Self-Check: PASSED
+
+- All 6 created/modified files present on disk.
+- All 4 commits present in `git log`: `1497bf0`, `e2df864`, `112da5c`, `39fd6c5`.
+- Every task's `<acceptance_criteria>` re-run and green, including the exact pins:
+  `len(SCANNED_FILES) == 9`, marker counts 21 and 3 via `text.count()`, `find_violations == []`
+  for all three enrolled files, 4 `float()` conversions, 25 new markers, both 8dp sites intact.
+- Plan-level `<verification>` 1-4 all green; `git diff --stat` over the plan's commit range shows
+  exactly the five files in `files_modified` and no import churn.
+- No writes to `.planning/STATE.md` or `.planning/ROADMAP.md` (orchestrator owns them); the only
+  uncommitted working-tree file is `.planning/state/carry_ins.json`, which was already modified
+  before this plan started and was deliberately left alone.
+
 ---
 *Phase: 22-round-price--n--epidemic-kill*
 *Completed: 2026-08-27*
