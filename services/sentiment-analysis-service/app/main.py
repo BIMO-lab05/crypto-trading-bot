@@ -236,10 +236,15 @@ async def prometheus_metrics_middleware(request: Request, call_next):
 
 
 # Add CORS middleware
+# SECURITY (2026-08-27): wildcard origins + allow_credentials=True makes
+# Starlette reflect the caller's Origin on credentialed requests. The
+# 2026-07-29 audit fix set allow_credentials=False on the 8 sibling
+# services but skipped this one; aligned here. Internal service, no
+# cookie auth — permissive origin kept deliberately, credentials off.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
